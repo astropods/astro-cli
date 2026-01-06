@@ -1,0 +1,18 @@
+{
+  "name": "astro-graph",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "ai": "^6.0.11",
+    "astro-types": "workspace:*",
+    "astro-nodes": "workspace:*",
+    "nanoid": "^5.1.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.5"
+  }
+}
