@@ -1,4 +1,4 @@
-import {
+import type {
   Edge,
   Node,
   NodeDataType,
@@ -7,15 +7,20 @@ import {
   NodeOutputType,
 } from "astro-types";
 import {
-  ConditionFn,
-  EvalFn,
+  type EvalFn,
   NODE_DEFINITIONS,
   node_if,
   node_start,
 } from "astro-nodes";
 import { nanoid } from "nanoid";
 
+type GraphMeta = {
+  title: string;
+  description: string;
+};
+
 type GraphContext = {
+  meta: GraphMeta;
   nodes: Record<string, Node>;
   edges: Record<string, Edge>;
 };
@@ -96,7 +101,11 @@ class Graph<TInput = unknown> {
   private boundFactories = createBoundFactories<TInput>();
 
   constructor(
-    ctx: GraphContext = { nodes: {}, edges: {} },
+    ctx: GraphContext = {
+      meta: { title: "", description: "" },
+      nodes: {},
+      edges: {},
+    },
     startNodeId: string | null = null,
     initialPort: string = "output"
   ) {
@@ -203,8 +212,15 @@ class Graph<TInput = unknown> {
     return new Graph<TOut>(this.ctx, node.id, "output");
   }
 
+  meta(meta: { title: string; description: string }) {
+    this.ctx.meta.title = meta.title;
+    this.ctx.meta.description = meta.description;
+    return this;
+  }
+
   compile() {
     return {
+      meta: this.ctx.meta,
       nodes: this.ctx.nodes,
       edges: this.ctx.edges,
     };

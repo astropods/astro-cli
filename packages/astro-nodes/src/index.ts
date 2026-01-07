@@ -1,4 +1,4 @@
-import { NodeDefinition } from "astro-types";
+import type { NodeDefinition } from "astro-types";
 
 export type EvalFn<TInput = unknown, TOutput = unknown> = (
   input: TInput
