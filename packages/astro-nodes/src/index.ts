@@ -1,4 +1,4 @@
-import type { NodeDefinition } from "astro-types";
+import type { NodeDefinition, NodeType } from "astro-types";
 
 export type EvalFn<TInput = unknown, TOutput = unknown> = (
   input: TInput
@@ -10,7 +10,11 @@ export type ConditionFn<TInput = unknown> = (
 
 // #region Node Definitions
 
-export const node_start: NodeDefinition<any, any, Record<string, never>> = {
+export const node_start: NodeDefinition<
+  any,
+  { output: any },
+  Record<string, never>
+> = {
   type: "start",
   meta: {
     name: "Start",
@@ -22,25 +26,28 @@ export const node_start: NodeDefinition<any, any, Record<string, never>> = {
   },
 };
 
-export const node_evaluate: NodeDefinition<any, any, { fn: EvalFn<any, any> }> =
-  {
-    type: "evaluate",
-    meta: {
-      name: "Evaluate",
-      description: "Evaluates a function and returns the result.",
-    },
-    execute: async (input, data, ctx) => {
-      const result = await data.fn(input);
-      ctx.output("output", result);
-    },
-  };
+export const node_evaluate: NodeDefinition<
+  any,
+  { output: any },
+  { fn: EvalFn<any, any> }
+> = {
+  type: "evaluate",
+  meta: {
+    name: "Evaluate",
+    description: "Evaluates a function and returns the result.",
+  },
+  execute: async (input, data, ctx) => {
+    const result = await data.fn(input);
+    ctx.output("output", result);
+  },
+};
 
 export const node_generate_text: NodeDefinition<
   { prompt: string; system?: string },
-  string | object,
+  { output: string | object },
   { model: string; schema?: any }
 > = {
-  type: "generate",
+  type: "generateText",
   meta: {
     name: "Generate",
     description: "Generates a response using a model.",
@@ -54,7 +61,7 @@ export const node_generate_text: NodeDefinition<
 
 export const node_if: NodeDefinition<
   any,
-  any,
+  { then: any; else: any },
   { condition: ConditionFn<any> }
 > = {
   type: "if",
@@ -66,16 +73,19 @@ export const node_if: NodeDefinition<
   execute: async (input, data, ctx) => {
     const result = await data.condition(input);
     if (result) {
-      ctx.output("then", result);
+      ctx.output("then", input);
     } else {
-      ctx.output("else", result);
+      ctx.output("else", input);
     }
   },
 };
 
 // #endregion
 
-export const NODE_DEFINITIONS = {
+export const NODE_DEFINITIONS: Record<
+  NodeType,
+  NodeDefinition<any, any, any>
+> = {
   start: node_start,
   evaluate: node_evaluate,
   generateText: node_generate_text,

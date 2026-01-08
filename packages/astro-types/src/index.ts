@@ -1,16 +1,20 @@
-export type NodeType = "start" | "if" | "evaluate" | "generate";
+export type NodeType = "start" | "if" | "evaluate" | "generateText";
 
 export type NodeData = {
   [key: string]: any;
 };
 
-export interface EngineContext<TOutput = unknown> {
-  output: (outputName: string, data: TOutput) => void;
-}
+export type EngineContext<
+  T extends Record<string, unknown> = Record<string, unknown>
+> = {
+  output: (outputName: keyof T, data: any) => void;
+  outputExternal: (outputName: string, data: any) => void;
+  nodeDefinitions: Record<string, NodeDefinition>;
+};
 
 export interface NodeDefinition<
   TInput = unknown,
-  TOutput = unknown,
+  TOutput extends Record<string, unknown> = Record<string, unknown>,
   TData extends NodeData = Record<string, never>
 > {
   type: NodeType;

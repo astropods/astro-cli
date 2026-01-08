@@ -1,0 +1,12 @@
+{
+  "name": "astro-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "astro-types": "workspace:*"
+  }
+}

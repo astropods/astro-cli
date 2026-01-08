@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { Graph } from "./index";
+import { Graph, type CompiledGraph } from "./index";
 
 describe("Graph", () => {
   test("creates a graph with a single evaluate node", () => {
@@ -249,5 +249,176 @@ describe("Graph", () => {
     // Should have 4 nodes: start + 3 execute nodes
     expect(nodeIds).toHaveLength(4);
     expect(uniqueIds.size).toBe(nodeIds.length);
+  });
+
+  test("if branches can have different output types (union type)", () => {
+    // This test verifies that branches can produce different types
+    // and the result is a union type
+
+    const result = new Graph<{ value: number }>()
+      .if(
+        {
+          condition: (input) => input.value > 10,
+          then: (branch) =>
+            branch.run(
+              (f) =>
+                f.evaluate({
+                  fn: async () => ({ status: "high" as const, multiplier: 2 }),
+                }),
+              { name: "High Value" }
+            ),
+          else: (branch) =>
+            branch.run(
+              (f) =>
+                f.evaluate({
+                  fn: async () => ({ status: "low" as const, offset: 5 }),
+                }),
+              { name: "Low Value" }
+            ),
+        },
+        "Check Value"
+      )
+      .compile();
+
+    // Type assertion: result should be CompiledGraph with union output type
+    // At compile time, this verifies the union type works
+    type ExpectedOutput =
+      | { status: "high"; multiplier: number }
+      | { status: "low"; offset: number };
+
+    // This line would fail to compile if types don't match
+    const _typeCheck: CompiledGraph<{ value: number }, ExpectedOutput> = result;
+
+    const nodes = Object.values(result.nodes);
+
+    // Should have 4 nodes: start, if, then-branch, else-branch
+    expect(nodes).toHaveLength(4);
+
+    const thenNode = nodes.find((n) => n.name === "High Value");
+    const elseNode = nodes.find((n) => n.name === "Low Value");
+
+    expect(thenNode).toBeDefined();
+    expect(elseNode).toBeDefined();
+  });
+
+  test("compiled graph carries both input and output types", () => {
+    const graph = new Graph<{ input: string }>()
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({ length: input.input.length }),
+          }),
+        { name: "Get Length" }
+      )
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({ doubled: input.length * 2 }),
+          }),
+        { name: "Double" }
+      )
+      .compile();
+
+    // Type check: the compiled graph should have the correct types
+    type InputType = { input: string };
+    type OutputType = { doubled: number };
+
+    // This assignment verifies the types at compile time
+    const _typeCheck: CompiledGraph<InputType, OutputType> = graph;
+
+    expect(Object.values(graph.nodes)).toHaveLength(3); // start + 2 nodes
+  });
+
+  test("useModule inlines a graph and types flow through", () => {
+    // Create a reusable module
+    const textLengthModule = new Graph<{ text: string }>().run(
+      (f) =>
+        f.evaluate({
+          fn: async (input) => ({ length: input.text.length }),
+        }),
+      { name: "Count Length" }
+    );
+
+    // Use the module in another graph
+    const mainGraph = new Graph<{ rawInput: string }>()
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({ text: input.rawInput.trim() }),
+          }),
+        { name: "Prep Input" }
+      )
+      .useModule(textLengthModule)
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({ isLong: input.length > 10 }),
+          }),
+        { name: "Check Long" }
+      )
+      .compile();
+
+    // Type check: main graph should flow from rawInput to isLong
+    const _typeCheck: CompiledGraph<{ rawInput: string }, { isLong: boolean }> =
+      mainGraph;
+
+    const nodes = Object.values(mainGraph.nodes);
+    const edges = Object.values(mainGraph.edges);
+
+    // Should have: start, Prep Input, Count Length, Check Long
+    expect(nodes).toHaveLength(4);
+
+    // Verify the module's node was inlined
+    const countLengthNode = nodes.find((n) => n.name === "Count Length");
+    expect(countLengthNode).toBeDefined();
+
+    // Verify edges connect properly
+    expect(edges.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("chaining after if preserves start type and uses union as current", () => {
+    const result = new Graph<{ text: string }>()
+      .if(
+        {
+          condition: (input) => input.text.length > 5,
+          then: (branch) =>
+            branch.run(
+              (f) =>
+                f.evaluate({ fn: async () => ({ type: "long" as const }) }),
+              { name: "Long" }
+            ),
+          else: (branch) =>
+            branch.run(
+              (f) =>
+                f.evaluate({ fn: async () => ({ type: "short" as const }) }),
+              { name: "Short" }
+            ),
+        },
+        "Check"
+      )
+      // After if, the input type for the next node should be the union
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({
+              // input.type is "long" | "short"
+              message: `Result was ${input.type}`,
+            }),
+          }),
+        { name: "Format" }
+      )
+      .compile();
+
+    // The final type should preserve the original start type
+    // and have the output of the last node
+    const _typeCheck: CompiledGraph<{ text: string }, { message: string }> =
+      result;
+
+    const nodes = Object.values(result.nodes);
+    // start, if, long-branch, short-branch, format
+    expect(nodes).toHaveLength(5);
+
+    const formatNode = nodes.find((n) => n.name === "Format");
+    expect(formatNode).toBeDefined();
   });
 });

@@ -63,7 +63,7 @@ export const npmPackageAgent = new Graph<{
     { name: "Fetch Package from NPM Registry" }
   )
   // Step 2: Branch based on package popularity
-  .if<string | object>(
+  .if(
     {
       condition: (input) => input.isPopular,
       // Popular packages get detailed analysis

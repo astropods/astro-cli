@@ -80,7 +80,7 @@ export const hackerNewsAgent = new Graph<{
     { name: "Fetch Stories from Hacker News" }
   )
   // Step 2: Branch based on whether we have enough high-engagement stories
-  .if<string | object>(
+  .if(
     {
       condition: (input) => {
         // Check if we have stories with significant discussion (>50 comments avg)
