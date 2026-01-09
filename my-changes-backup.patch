@@ -1,0 +1,2611 @@
+diff --git a/apps/astro-client/src/components/AgentNode.tsx b/apps/astro-client/src/components/AgentNode.tsx
+index 1eedb0f..094a28c 100644
+--- a/apps/astro-client/src/components/AgentNode.tsx
++++ b/apps/astro-client/src/components/AgentNode.tsx
+@@ -15,7 +15,7 @@ const nodeTypeConfig: Record<string, { container: string; title: string; icon: L
+     title: "text-amber-200",
+     icon: Braces,
+   },
+-  generate: {
++  generateText: {
+     container: "bg-[#1a0f2e] border-violet-500/50",
+     title: "text-violet-200",
+     icon: Sparkles,
+diff --git a/bun.lock b/bun.lock
+index a98c13e..f42a418 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -38,8 +38,19 @@
+       "name": "astro-agents",
+       "version": "1.0.0",
+       "dependencies": {
++        "@sendgrid/mail": "^8.1.6",
+         "astro-graph": "workspace:*",
+       },
++      "devDependencies": {
++        "@types/node": "^25.0.3",
++      },
++    },
++    "packages/astro-engine": {
++      "name": "astro-engine",
++      "version": "1.0.0",
++      "dependencies": {
++        "astro-types": "workspace:*",
++      },
+     },
+     "packages/astro-graph": {
+       "name": "astro-graph",
+@@ -257,6 +268,12 @@
+ 
+     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.55.1", "", { "os": "win32", "cpu": "x64" }, "sha512-SPEpaL6DX4rmcXtnhdrQYgzQ5W2uW3SCJch88lB2zImhJRhIIK44fkUrgIV/Q8yUNfw5oyZ5vkeQsZLhCb06lw=="],
+ 
++    "@sendgrid/client": ["@sendgrid/client@8.1.6", "", { "dependencies": { "@sendgrid/helpers": "^8.0.0", "axios": "^1.12.0" } }, "sha512-/BHu0hqwXNHr2aLhcXU7RmmlVqrdfrbY9KpaNj00KZHlVOVoRxRVrpOCabIB+91ISXJ6+mLM9vpaVUhK6TwBWA=="],
++
++    "@sendgrid/helpers": ["@sendgrid/helpers@8.0.0", "", { "dependencies": { "deepmerge": "^4.2.2" } }, "sha512-Ze7WuW2Xzy5GT5WRx+yEv89fsg/pgy3T1E3FS0QEx0/VvRmigMZ5qyVGhJz4SxomegDkzXv/i0aFPpHKN8qdAA=="],
++
++    "@sendgrid/mail": ["@sendgrid/mail@8.1.6", "", { "dependencies": { "@sendgrid/client": "^8.1.5", "@sendgrid/helpers": "^8.0.0" } }, "sha512-/ZqxUvKeEztU9drOoPC/8opEPOk+jLlB2q4+xpx6HVLq6aFu3pMpalkTpAQz8XfRfpLp8O25bh6pGPcHDCYpqg=="],
++
+     "@shikijs/core": ["@shikijs/core@3.20.0", "", { "dependencies": { "@shikijs/types": "3.20.0", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4", "hast-util-to-html": "^9.0.5" } }, "sha512-f2ED7HYV4JEk827mtMDwe/yQ25pRiXZmtHjWF8uzZKuKiEsJR7Ce1nuQ+HhV9FzDcbIo4ObBCD9GPTzNuy9S1g=="],
+ 
+     "@shikijs/engine-javascript": ["@shikijs/engine-javascript@3.20.0", "", { "dependencies": { "@shikijs/types": "3.20.0", "@shikijs/vscode-textmate": "^10.0.2", "oniguruma-to-es": "^4.3.4" } }, "sha512-OFx8fHAZuk7I42Z9YAdZ95To6jDePQ9Rnfbw9uSRTSbBhYBp1kEOKv/3jOimcj3VRUKusDYM6DswLauwfhboLg=="],
+@@ -335,7 +352,7 @@
+ 
+     "@types/mdast": ["@types/mdast@4.0.4", "", { "dependencies": { "@types/unist": "*" } }, "sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA=="],
+ 
+-    "@types/node": ["@types/node@24.10.4", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg=="],
++    "@types/node": ["@types/node@25.0.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA=="],
+ 
+     "@types/react": ["@types/react@19.2.7", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-MWtvHrGZLFttgeEj28VXHxpmwYbor/ATPYbBfSFZEIRK0ecCFLl2Qo55z52Hss+UV9CRN7trSeq1zbgx7YDWWg=="],
+ 
+@@ -389,12 +406,18 @@
+ 
+     "astro-client": ["astro-client@workspace:apps/astro-client"],
+ 
++    "astro-engine": ["astro-engine@workspace:packages/astro-engine"],
++
+     "astro-graph": ["astro-graph@workspace:packages/astro-graph"],
+ 
+     "astro-nodes": ["astro-nodes@workspace:packages/astro-nodes"],
+ 
+     "astro-types": ["astro-types@workspace:packages/astro-types"],
+ 
++    "asynckit": ["asynckit@0.4.0", "", {}, "sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q=="],
++
++    "axios": ["axios@1.13.2", "", { "dependencies": { "follow-redirects": "^1.15.6", "form-data": "^4.0.4", "proxy-from-env": "^1.1.0" } }, "sha512-VPk9ebNqPcy5lRGuSlKx752IlDatOjT9paPlm8A7yOuW2Fbvp4X3JznJtT4f0GzGLLiWE9W8onz51SqLYwzGaA=="],
++
+     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
+ 
+     "baseline-browser-mapping": ["baseline-browser-mapping@2.9.11", "", { "bin": { "baseline-browser-mapping": "dist/cli.js" } }, "sha512-Sg0xJUNDU1sJNGdfGWhVHX0kkZ+HWcvmVymJbj6NSgZZmW/8S9Y2HQ5euytnIgakgxN6papOAWiwDo1ctFDcoQ=="],
+@@ -405,6 +428,8 @@
+ 
+     "bun-types": ["bun-types@1.3.5", "", { "dependencies": { "@types/node": "*" } }, "sha512-inmAYe2PFLs0SUbFOWSVD24sg1jFlMPxOjOSSCYqUgn4Hsc3rDc7dFvfVYjFPNHtov6kgUeulV4SxbuIV/stPw=="],
+ 
++    "call-bind-apply-helpers": ["call-bind-apply-helpers@1.0.2", "", { "dependencies": { "es-errors": "^1.3.0", "function-bind": "^1.1.2" } }, "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ=="],
++
+     "callsites": ["callsites@3.1.0", "", {}, "sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ=="],
+ 
+     "caniuse-lite": ["caniuse-lite@1.0.30001762", "", {}, "sha512-PxZwGNvH7Ak8WX5iXzoK1KPZttBXNPuaOvI2ZYU7NrlM+d9Ov+TUvlLOBNGzVXAntMSMMlJPd+jY6ovrVjSmUw=="],
+@@ -423,6 +448,8 @@
+ 
+     "color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
+ 
++    "combined-stream": ["combined-stream@1.0.8", "", { "dependencies": { "delayed-stream": "~1.0.0" } }, "sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg=="],
++
+     "comma-separated-tokens": ["comma-separated-tokens@2.0.3", "", {}, "sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg=="],
+ 
+     "concat-map": ["concat-map@0.0.1", "", {}, "sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg=="],
+@@ -455,16 +482,30 @@
+ 
+     "deep-is": ["deep-is@0.1.4", "", {}, "sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ=="],
+ 
++    "deepmerge": ["deepmerge@4.3.1", "", {}, "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A=="],
++
++    "delayed-stream": ["delayed-stream@1.0.0", "", {}, "sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ=="],
++
+     "dequal": ["dequal@2.0.3", "", {}, "sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA=="],
+ 
+     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
+ 
+     "devlop": ["devlop@1.1.0", "", { "dependencies": { "dequal": "^2.0.0" } }, "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA=="],
+ 
++    "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
++
+     "electron-to-chromium": ["electron-to-chromium@1.5.267", "", {}, "sha512-0Drusm6MVRXSOJpGbaSVgcQsuB4hEkMpHXaVstcPmhu5LIedxs1xNK/nIxmQIU/RPC0+1/o0AVZfBTkTNJOdUw=="],
+ 
+     "enhanced-resolve": ["enhanced-resolve@5.18.4", "", { "dependencies": { "graceful-fs": "^4.2.4", "tapable": "^2.2.0" } }, "sha512-LgQMM4WXU3QI+SYgEc2liRgznaD5ojbmY3sb8LxyguVkIg5FxdpTkvk72te2R38/TGKxH634oLxXRGY6d7AP+Q=="],
+ 
++    "es-define-property": ["es-define-property@1.0.1", "", {}, "sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g=="],
++
++    "es-errors": ["es-errors@1.3.0", "", {}, "sha512-Zf5H2Kxt2xjTvbJvP2ZWLEICxA6j+hAmMzIlypy4xcBg1vKVnx89Wy0GbS+kf5cwCVFFzdCFh2XSCFNULS6csw=="],
++
++    "es-object-atoms": ["es-object-atoms@1.1.1", "", { "dependencies": { "es-errors": "^1.3.0" } }, "sha512-FGgH2h8zKNim9ljj7dankFPcICIK9Cp5bm+c2gQSYePhpaG5+esrLODihIorn+Pe6FGJzWhXQotPv73jTaldXA=="],
++
++    "es-set-tostringtag": ["es-set-tostringtag@2.1.0", "", { "dependencies": { "es-errors": "^1.3.0", "get-intrinsic": "^1.2.6", "has-tostringtag": "^1.0.2", "hasown": "^2.0.2" } }, "sha512-j6vWzfrGVfyXxge+O0x5sh6cvxAog0a/4Rdd2K36zCMV5eJ+/+tOAngRO8cODMNWbVRdVlmGZQL2YS3yR8bIUA=="],
++
+     "esbuild": ["esbuild@0.27.2", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.27.2", "@esbuild/android-arm": "0.27.2", "@esbuild/android-arm64": "0.27.2", "@esbuild/android-x64": "0.27.2", "@esbuild/darwin-arm64": "0.27.2", "@esbuild/darwin-x64": "0.27.2", "@esbuild/freebsd-arm64": "0.27.2", "@esbuild/freebsd-x64": "0.27.2", "@esbuild/linux-arm": "0.27.2", "@esbuild/linux-arm64": "0.27.2", "@esbuild/linux-ia32": "0.27.2", "@esbuild/linux-loong64": "0.27.2", "@esbuild/linux-mips64el": "0.27.2", "@esbuild/linux-ppc64": "0.27.2", "@esbuild/linux-riscv64": "0.27.2", "@esbuild/linux-s390x": "0.27.2", "@esbuild/linux-x64": "0.27.2", "@esbuild/netbsd-arm64": "0.27.2", "@esbuild/netbsd-x64": "0.27.2", "@esbuild/openbsd-arm64": "0.27.2", "@esbuild/openbsd-x64": "0.27.2", "@esbuild/openharmony-arm64": "0.27.2", "@esbuild/sunos-x64": "0.27.2", "@esbuild/win32-arm64": "0.27.2", "@esbuild/win32-ia32": "0.27.2", "@esbuild/win32-x64": "0.27.2" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-HyNQImnsOC7X9PMNaCIeAm4ISCQXs5a5YasTXVliKv4uuBo1dKrG0A+uQS8M5eXjVMnLg3WgXaKvprHlFJQffw=="],
+ 
+     "escalade": ["escalade@3.2.0", "", {}, "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA=="],
+@@ -509,18 +550,36 @@
+ 
+     "flatted": ["flatted@3.3.3", "", {}, "sha512-GX+ysw4PBCz0PzosHDepZGANEuFCMLrnRTiEy9McGjmkCQYwRq4A/X786G/fjM/+OjsWSU1ZrY5qyARZmO/uwg=="],
+ 
++    "follow-redirects": ["follow-redirects@1.15.11", "", {}, "sha512-deG2P0JfjrTxl50XGCDyfI97ZGVCxIpfKYmfyrQ54n5FO/0gfIES8C/Psl6kWVDolizcaaxZJnTS0QSMxvnsBQ=="],
++
++    "form-data": ["form-data@4.0.5", "", { "dependencies": { "asynckit": "^0.4.0", "combined-stream": "^1.0.8", "es-set-tostringtag": "^2.1.0", "hasown": "^2.0.2", "mime-types": "^2.1.12" } }, "sha512-8RipRLol37bNs2bhoV67fiTEvdTrbMUYcFTiy3+wuuOnUog2QBHCZWXDRijWQfAkhBj2Uf5UnVaiWwA5vdd82w=="],
++
+     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
+ 
++    "function-bind": ["function-bind@1.1.2", "", {}, "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="],
++
+     "gensync": ["gensync@1.0.0-beta.2", "", {}, "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="],
+ 
++    "get-intrinsic": ["get-intrinsic@1.3.0", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.2", "es-define-property": "^1.0.1", "es-errors": "^1.3.0", "es-object-atoms": "^1.1.1", "function-bind": "^1.1.2", "get-proto": "^1.0.1", "gopd": "^1.2.0", "has-symbols": "^1.1.0", "hasown": "^2.0.2", "math-intrinsics": "^1.1.0" } }, "sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ=="],
++
++    "get-proto": ["get-proto@1.0.1", "", { "dependencies": { "dunder-proto": "^1.0.1", "es-object-atoms": "^1.0.0" } }, "sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g=="],
++
+     "glob-parent": ["glob-parent@6.0.2", "", { "dependencies": { "is-glob": "^4.0.3" } }, "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A=="],
+ 
+     "globals": ["globals@16.5.0", "", {}, "sha512-c/c15i26VrJ4IRt5Z89DnIzCGDn9EcebibhAOjw5ibqEHsE1wLUgkPn9RDmNcUKyU87GeaL633nyJ+pplFR2ZQ=="],
+ 
++    "gopd": ["gopd@1.2.0", "", {}, "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg=="],
++
+     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
+ 
+     "has-flag": ["has-flag@4.0.0", "", {}, "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="],
+ 
++    "has-symbols": ["has-symbols@1.1.0", "", {}, "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ=="],
++
++    "has-tostringtag": ["has-tostringtag@1.0.2", "", { "dependencies": { "has-symbols": "^1.0.3" } }, "sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw=="],
++
++    "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
++
+     "hast-util-to-html": ["hast-util-to-html@9.0.5", "", { "dependencies": { "@types/hast": "^3.0.0", "@types/unist": "^3.0.0", "ccount": "^2.0.0", "comma-separated-tokens": "^2.0.0", "hast-util-whitespace": "^3.0.0", "html-void-elements": "^3.0.0", "mdast-util-to-hast": "^13.0.0", "property-information": "^7.0.0", "space-separated-tokens": "^2.0.0", "stringify-entities": "^4.0.0", "zwitch": "^2.0.4" } }, "sha512-OguPdidb+fbHQSU4Q4ZiLKnzWo8Wwsf5bZfbvu7//a9oTYoqD/fWpe96NuHkoS9h0ccGOTe0C4NGXdtS0iObOw=="],
+ 
+     "hast-util-whitespace": ["hast-util-whitespace@3.0.0", "", { "dependencies": { "@types/hast": "^3.0.0" } }, "sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw=="],
+@@ -599,6 +658,8 @@
+ 
+     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
+ 
++    "math-intrinsics": ["math-intrinsics@1.1.0", "", {}, "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="],
++
+     "mdast-util-to-hast": ["mdast-util-to-hast@13.2.1", "", { "dependencies": { "@types/hast": "^3.0.0", "@types/mdast": "^4.0.0", "@ungap/structured-clone": "^1.0.0", "devlop": "^1.0.0", "micromark-util-sanitize-uri": "^2.0.0", "trim-lines": "^3.0.0", "unist-util-position": "^5.0.0", "unist-util-visit": "^5.0.0", "vfile": "^6.0.0" } }, "sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA=="],
+ 
+     "micromark-util-character": ["micromark-util-character@2.1.1", "", { "dependencies": { "micromark-util-symbol": "^2.0.0", "micromark-util-types": "^2.0.0" } }, "sha512-wv8tdUTJ3thSFFFJKtpYKOYiGP2+v96Hvk4Tu8KpCAsTMs6yi+nVmGh1syvSCsaxz45J6Jbw+9DD6g97+NV67Q=="],
+@@ -611,6 +672,10 @@
+ 
+     "micromark-util-types": ["micromark-util-types@2.0.2", "", {}, "sha512-Yw0ECSpJoViF1qTU4DC6NwtC4aWGt1EkzaQB8KPPyCRR8z9TWeV0HbEFGTO+ZY1wB22zmxnJqhPyTpOVCpeHTA=="],
+ 
++    "mime-db": ["mime-db@1.52.0", "", {}, "sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg=="],
++
++    "mime-types": ["mime-types@2.1.35", "", { "dependencies": { "mime-db": "1.52.0" } }, "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw=="],
++
+     "minimatch": ["minimatch@3.1.2", "", { "dependencies": { "brace-expansion": "^1.1.7" } }, "sha512-J7p63hRiAjw1NDEww1W7i37+ByIrOWO5XQQAzZ3VOcL0PNybwpfmV/N05zFAzwQ9USyEcX6t3UO+K5aqBQOIHw=="],
+ 
+     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
+@@ -647,6 +712,8 @@
+ 
+     "property-information": ["property-information@7.1.0", "", {}, "sha512-TwEZ+X+yCJmYfL7TPUOcvBZ4QfoT5YenQiJuX//0th53DE6w0xxLEtfK3iyryQFddXuvkIk51EEgrJQ0WJkOmQ=="],
+ 
++    "proxy-from-env": ["proxy-from-env@1.1.0", "", {}, "sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg=="],
++
+     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
+ 
+     "react": ["react@19.2.3", "", {}, "sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA=="],
+@@ -763,7 +830,7 @@
+ 
+     "@typescript-eslint/typescript-estree/semver": ["semver@7.7.3", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-SdsKMrI9TdgjdweUSR9MweHA4EJ8YxHn8DFaDisvhVlUOe4BF1tLD7GAj0lIqWVl+dPb/rExr0Btby5loQm20Q=="],
+ 
+-    "bun-types/@types/node": ["@types/node@25.0.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA=="],
++    "astro-client/@types/node": ["@types/node@24.10.4", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg=="],
+ 
+     "postcss/nanoid": ["nanoid@3.3.11", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w=="],
+ 
+diff --git a/packages/astro-agents/src/agents/index.ts b/packages/astro-agents/src/agents/index.ts
+index 44ef391..167d9be 100644
+--- a/packages/astro-agents/src/agents/index.ts
++++ b/packages/astro-agents/src/agents/index.ts
+@@ -1,3 +1,4 @@
+ export * from "./github-repo-agent";
+ export * from "./npm-package-agent";
+ export * from "./hacker-news-agent";
++export * from "./test-agent";
+diff --git a/packages/astro-agents/src/agents/test-agent.ts b/packages/astro-agents/src/agents/test-agent.ts
+new file mode 100644
+index 0000000..4be53da
+--- /dev/null
++++ b/packages/astro-agents/src/agents/test-agent.ts
+@@ -0,0 +1,73 @@
++import { Graph } from "astro-graph";
++
++export const exampleAgent = new Graph<{
++  message: string;
++  recipient: string;
++  sendAt: Date;
++}>()
++  .meta({
++    title: "Example Agent",
++    description:
++      "An example agent that sends a message to a recipient at a given time",
++  })
++  .config({
++    slack_key: {
++      type: "secret",
++      label: "Secret Key",
++      default: "",
++      description: "Your secret API key",
++      required: true,
++    },
++    example_short_text: {
++      type: "short_text",
++      label: "Short Text Example",
++      default: "default short text",
++      description: "A short single-line text field",
++      required: true,
++    },
++    example_long_text: {
++      type: "long_text",
++      label: "Long Text Example",
++      default: "default long text",
++      description: "A long multi-line text area field",
++      required: false,
++    },
++    example_select: {
++      type: "select",
++      label: "Select Example",
++      options: [
++        { value: "option1", label: "Option 1" },
++        { value: "option2", label: "Option 2" },
++        { value: "option3", label: "Option 3" },
++      ] as const,
++      default: "option1",
++      description: "A select dropdown with options",
++    },
++    example_switch: {
++      type: "switch",
++      label: "Switch Example",
++      default: false,
++      description: "A boolean toggle switch",
++    },
++    example_secret: {
++      type: "secret",
++      label: "Secret Example",
++      default: "",
++      description: "A secret input for sensitive info",
++    },
++    example_number: {
++      type: "number",
++      label: "Number Example",
++      default: 42,
++      description: "A numeric input",
++    },
++  })
++  .run(
++    (nodes) =>
++      nodes.evaluate({
++        fn: async (_input) => {
++          // Implement the logic to send the message
++        },
++      }),
++    { name: "Send Message" }
++  );
+diff --git a/packages/astro-engine/src/engine.test.ts b/packages/astro-engine/src/engine.test.ts
+new file mode 100644
+index 0000000..f26a89d
+--- /dev/null
++++ b/packages/astro-engine/src/engine.test.ts
+@@ -0,0 +1,931 @@
++import { describe, test, expect, mock } from "bun:test";
++import { Engine } from "./engine";
++import { Graph } from "astro-graph";
++import { NODE_DEFINITIONS } from "astro-nodes";
++import type { Node, Edge, NodeType, NodeDefinition } from "astro-types";
++
++describe("Engine", () => {
++  test("executes a simple single-node graph with input data", async () => {
++    const results: string[] = [];
++
++    const compiled = new Graph<{ message: string }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => {
++              results.push(`received: ${input.message}`);
++              return { processed: true };
++            },
++          }),
++        { name: "Process Message" }
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), { message: "hello world" });
++
++    expect(results).toEqual(["received: hello world"]);
++  });
++
++  test("executes a chain of nodes in sequence", async () => {
++    const executionOrder: string[] = [];
++
++    const compiled = new Graph<{ value: number }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => {
++              executionOrder.push("first");
++              return { doubled: (input?.value ?? 5) * 2 };
++            },
++          }),
++        { name: "Double" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => {
++              executionOrder.push("second");
++              return { quadrupled: input.doubled * 2 };
++            },
++          }),
++        { name: "Double Again" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => {
++              executionOrder.push("third");
++              return { final: input.quadrupled + 1 };
++            },
++          }),
++        { name: "Add One" }
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), { value: 5 });
++
++    expect(executionOrder).toEqual(["first", "second", "third"]);
++  });
++
++  test("executes the 'then' branch when condition is true", async () => {
++    const executedBranches: string[] = [];
++
++    const compiled = new Graph<{ value: number }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => ({ shouldBranch: true }),
++          }),
++        { name: "Setup" }
++      )
++      .if(
++        {
++          condition: (input: any) => input?.shouldBranch,
++          then: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => {
++                    executedBranches.push("then");
++                    return { branch: "then" };
++                  },
++                }),
++              { name: "Then Branch" }
++            ),
++          else: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => {
++                    executedBranches.push("else");
++                    return { branch: "else" };
++                  },
++                }),
++              { name: "Else Branch" }
++            ),
++        },
++        "Check Condition"
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), { value: 0 });
++
++    expect(executedBranches).toEqual(["then"]);
++  });
++
++  test("executes the 'else' branch when condition is false", async () => {
++    const executedBranches: string[] = [];
++
++    const compiled = new Graph<{ value: number }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => ({ shouldBranch: false }),
++          }),
++        { name: "Setup" }
++      )
++      .if(
++        {
++          condition: (input: any) => input?.shouldBranch,
++          then: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => {
++                    executedBranches.push("then");
++                    return { branch: "then" };
++                  },
++                }),
++              { name: "Then Branch" }
++            ),
++          else: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => {
++                    executedBranches.push("else");
++                    return { branch: "else" };
++                  },
++                }),
++              { name: "Else Branch" }
++            ),
++        },
++        "Check Condition"
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), { value: 0 });
++
++    expect(executedBranches).toEqual(["else"]);
++  });
++
++  test("calls onStartNodeExecute event for each node", async () => {
++    const nodeExecutions: string[] = [];
++
++    const compiled = new Graph<{ x: number }>()
++      .run((f) => f.evaluate({ fn: async () => ({ a: 1 }) }), {
++        name: "Node A",
++      })
++      .run((f) => f.evaluate({ fn: async () => ({ b: 2 }) }), {
++        name: "Node B",
++      })
++      .compile();
++
++    const nodes = new Map(Object.entries(compiled.nodes));
++
++    const engine = new Engine(
++      compiled,
++      NODE_DEFINITIONS,
++      {},
++      {
++        onStartNodeExecute: (nodeId) => {
++          const node = nodes.get(nodeId);
++          if (node) nodeExecutions.push(node.name);
++        },
++      }
++    );
++
++    await engine.run(engine.getStartNodeId(), { x: 0 });
++
++    expect(nodeExecutions).toEqual(["Start", "Node A", "Node B"]);
++  });
++
++  test("calls onNodeExecuted event with outputs", async () => {
++    const nodeOutputs: Array<{
++      name: string;
++      outputs: Record<string, unknown>;
++    }> = [];
++
++    const compiled = new Graph<{ x: number }>()
++      .run((f) => f.evaluate({ fn: async () => ({ result: 42 }) }), {
++        name: "Calculator",
++      })
++      .compile();
++
++    const nodes = new Map(Object.entries(compiled.nodes));
++
++    const engine = new Engine(
++      compiled,
++      NODE_DEFINITIONS,
++      {},
++      {
++        onNodeExecuted: (nodeId, outputs) => {
++          const node = nodes.get(nodeId);
++          if (node) nodeOutputs.push({ name: node.name, outputs });
++        },
++      }
++    );
++
++    await engine.run(engine.getStartNodeId(), { x: 0 });
++
++    // Start node outputs whatever was passed in, Calculator outputs { result: 42 }
++    expect(nodeOutputs).toHaveLength(2);
++    expect(nodeOutputs[1]).toEqual({
++      name: "Calculator",
++      outputs: { output: { result: 42 } },
++    });
++  });
++
++  test("calls onEngineFinished when all nodes complete", async () => {
++    let engineFinished = false;
++
++    const compiled = new Graph<{}>()
++      .run((f) => f.evaluate({ fn: async () => ({ done: true }) }), {
++        name: "Final",
++      })
++      .compile();
++
++    const engine = new Engine(
++      compiled,
++      NODE_DEFINITIONS,
++      {},
++      {
++        onEngineFinished: () => {
++          engineFinished = true;
++        },
++      }
++    );
++
++    await engine.run(engine.getStartNodeId(), {});
++
++    expect(engineFinished).toBe(true);
++  });
++
++  test("calls onNodeError when a node throws", async () => {
++    const errors: Array<{ nodeId: string; error: string }> = [];
++
++    const compiled = new Graph<{}>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => {
++              throw new Error("Something went wrong!");
++            },
++          }),
++        { name: "Failing Node" }
++      )
++      .compile();
++
++    const engine = new Engine(
++      compiled,
++      NODE_DEFINITIONS,
++      {},
++      {
++        onNodeError: (nodeId, error) => {
++          errors.push({ nodeId, error });
++        },
++      }
++    );
++
++    await engine.run(engine.getStartNodeId(), {});
++
++    expect(errors).toHaveLength(1);
++    expect(errors[0].error).toBe("Something went wrong!");
++  });
++
++  test("stops execution after error in a node", async () => {
++    const executedNodes: string[] = [];
++
++    const compiled = new Graph<{}>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (): Promise<{}> => {
++              executedNodes.push("first");
++              throw new Error("Boom!");
++            },
++          }),
++        { name: "First" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => {
++              executedNodes.push("second");
++              return {};
++            },
++          }),
++        { name: "Second" }
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), {});
++
++    // Second node should not execute because first threw
++    expect(executedNodes).toEqual(["first"]);
++  });
++
++  test("can be cancelled during execution", async () => {
++    const executedNodes: string[] = [];
++    let resolveDelay: () => void;
++
++    const compiled = new Graph<{}>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => {
++              executedNodes.push("first");
++              // Create a delay so we have time to cancel
++              await new Promise<void>((r) => {
++                resolveDelay = r;
++              });
++              return { value: 1 };
++            },
++          }),
++        { name: "First" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => {
++              executedNodes.push("second");
++              return { value: 2 };
++            },
++          }),
++        { name: "Second" }
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    // Start execution but don't await
++    const runPromise = engine.run(engine.getStartNodeId(), {});
++
++    // Give first node time to start
++    await new Promise((r) => setTimeout(r, 10));
++
++    // Cancel the engine
++    engine.cancel();
++
++    // Resolve the delay so first node completes
++    resolveDelay!();
++
++    await runPromise;
++
++    // Second node should not have executed due to cancellation
++    expect(executedNodes).toEqual(["first"]);
++  });
++
++  test("calls outputExternal for external outputs", async () => {
++    const externalOutputs: Array<{ name: string; data: unknown }> = [];
++
++    const compiled = new Graph<{}>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => ({ message: "hello" }),
++          }),
++        { name: "Greeter" }
++      )
++      .compile();
++
++    const engine = new Engine(
++      compiled,
++      NODE_DEFINITIONS,
++      {},
++      {
++        onNodeExternalOutput: (outputName, data) => {
++          externalOutputs.push({ name: outputName, data });
++        },
++      }
++    );
++
++    await engine.run(engine.getStartNodeId(), {});
++
++    // Note: External outputs depend on node implementation using outputExternal
++    // The evaluate node doesn't use it by default, so this verifies the plumbing
++    expect(externalOutputs).toEqual([]);
++  });
++
++  test("handles async conditions in if nodes", async () => {
++    const executedBranches: string[] = [];
++
++    const compiled = new Graph<{}>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async () => ({ checkValue: 100 }),
++          }),
++        { name: "Setup" }
++      )
++      .if(
++        {
++          condition: async (input: any) => {
++            // Simulate async condition check
++            await new Promise((r) => setTimeout(r, 10));
++            return input?.checkValue > 50;
++          },
++          then: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => {
++                    executedBranches.push("high");
++                    return { status: "high" };
++                  },
++                }),
++              { name: "High Value" }
++            ),
++          else: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => {
++                    executedBranches.push("low");
++                    return { status: "low" };
++                  },
++                }),
++              { name: "Low Value" }
++            ),
++        },
++        "Check Value"
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), {});
++
++    expect(executedBranches).toEqual(["high"]);
++  });
++
++  test("data flows correctly through the graph", async () => {
++    let finalOutput: unknown = null;
++
++    const compiled = new Graph<{ initial: number }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input: any) => ({
++              value: input.initial + 5,
++            }),
++          }),
++        { name: "Add 5" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input: any) => ({ value: input.value * 2 }),
++          }),
++        { name: "Double" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input: any) => {
++              finalOutput = input.value;
++              return { result: input.value };
++            },
++          }),
++        { name: "Capture" }
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), { initial: 10 });
++
++    // (10 + 5) * 2 = 30
++    expect(finalOutput).toBe(30);
++  });
++
++  test("executes a graph that uses a module", async () => {
++    const executionOrder: string[] = [];
++    let finalResult: unknown = null;
++
++    // Create a reusable module that doubles a value
++    const doublerModule = new Graph<{ value: number }>().run(
++      (f) =>
++        f.evaluate({
++          fn: async (input) => {
++            executionOrder.push("doubler");
++            return { doubled: input.value * 2 };
++          },
++        }),
++      { name: "Doubler" }
++    );
++
++    // Main graph that uses the module
++    const compiled = new Graph<{ input: number }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => {
++              executionOrder.push("prep");
++              return { value: input.input + 10 };
++            },
++          }),
++        { name: "Prep" }
++      )
++      .useModule(doublerModule)
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => {
++              executionOrder.push("finalize");
++              finalResult = input.doubled;
++              return { result: input.doubled };
++            },
++          }),
++        { name: "Finalize" }
++      )
++      .compile();
++
++    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++    await engine.run(engine.getStartNodeId(), { input: 5 });
++
++    // Execution order should include the module's node
++    expect(executionOrder).toEqual(["prep", "doubler", "finalize"]);
++
++    // (5 + 10) * 2 = 30
++    expect(finalResult).toBe(30);
++  });
++
++  // Config tests
++  describe("config", () => {
++    test("passes config values to evaluate node functions", async () => {
++      let receivedConfig: Record<string, string> = {};
++
++      const compiled = new Graph<{ value: number }>()
++        .config({
++          apiKey: { type: "short_text", label: "API Key" },
++          mode: { type: "short_text", label: "Mode" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                receivedConfig = config;
++                return { result: input.value * 2 };
++              },
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      const engine = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { apiKey: "sk-123", mode: "fast" },
++        {}
++      );
++
++      await engine.run(engine.getStartNodeId(), { value: 10 });
++
++      expect(receivedConfig).toEqual({ apiKey: "sk-123", mode: "fast" });
++    });
++
++    test("passes config values to if node conditions", async () => {
++      let receivedConfig: Record<string, string> = {};
++      const executedBranches: string[] = [];
++
++      const compiled = new Graph<{ value: number }>()
++        .config({
++          threshold: { type: "short_text", label: "Threshold" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input) => ({ value: input.value }),
++            }),
++          { name: "Passthrough" }
++        )
++        .if(
++          {
++            condition: (input, config) => {
++              receivedConfig = config;
++              return input.value > parseInt(config.threshold);
++            },
++            then: (branch) =>
++              branch.run(
++                (f) =>
++                  f.evaluate({
++                    fn: async () => {
++                      executedBranches.push("then");
++                      return { branch: "then" };
++                    },
++                  }),
++                { name: "Above Threshold" }
++              ),
++            else: (branch) =>
++              branch.run(
++                (f) =>
++                  f.evaluate({
++                    fn: async () => {
++                      executedBranches.push("else");
++                      return { branch: "else" };
++                    },
++                  }),
++                { name: "Below Threshold" }
++              ),
++          },
++          "Check Threshold"
++        )
++        .compile();
++
++      // Test with value above threshold
++      const engine1 = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { threshold: "50" },
++        {}
++      );
++      await engine1.run(engine1.getStartNodeId(), { value: 100 });
++
++      expect(receivedConfig).toEqual({ threshold: "50" });
++      expect(executedBranches).toEqual(["then"]);
++
++      // Reset and test with value below threshold
++      executedBranches.length = 0;
++      const engine2 = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { threshold: "50" },
++        {}
++      );
++      await engine2.run(engine2.getStartNodeId(), { value: 25 });
++
++      expect(executedBranches).toEqual(["else"]);
++    });
++
++    test("config is available in all nodes in a chain", async () => {
++      const configsReceived: Array<Record<string, string>> = [];
++
++      const compiled = new Graph<{ start: number }>()
++        .config({
++          multiplier: { type: "short_text", label: "Multiplier" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                configsReceived.push({ ...config });
++                return { value: input.start * parseInt(config.multiplier) };
++              },
++            }),
++          { name: "First Multiply" }
++        )
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                configsReceived.push({ ...config });
++                return { value: input.value * parseInt(config.multiplier) };
++              },
++            }),
++          { name: "Second Multiply" }
++        )
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                configsReceived.push({ ...config });
++                return { final: input.value };
++              },
++            }),
++          { name: "Finalize" }
++        )
++        .compile();
++
++      const engine = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { multiplier: "3" },
++        {}
++      );
++
++      await engine.run(engine.getStartNodeId(), { start: 2 });
++
++      // All 3 nodes should have received the same config
++      expect(configsReceived).toHaveLength(3);
++      expect(configsReceived[0]).toEqual({ multiplier: "3" });
++      expect(configsReceived[1]).toEqual({ multiplier: "3" });
++      expect(configsReceived[2]).toEqual({ multiplier: "3" });
++    });
++
++    test("config values affect computation results", async () => {
++      let finalResult: number = 0;
++
++      const compiled = new Graph<{ value: number }>()
++        .config({
++          operation: {
++            type: "select",
++            options: [
++              { value: "add", label: "Add" },
++              { value: "multiply", label: "Multiply" },
++            ] as const,
++          },
++          operand: { type: "short_text", label: "Operand" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                const operand = parseInt(config.operand);
++                if (config.operation === "add") {
++                  return { result: input.value + operand };
++                } else {
++                  return { result: input.value * operand };
++                }
++              },
++            }),
++          { name: "Calculate" }
++        )
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input) => {
++                finalResult = input.result;
++                return { final: input.result };
++              },
++            }),
++          { name: "Capture Result" }
++        )
++        .compile();
++
++      // Test with add operation
++      const addEngine = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { operation: "add", operand: "10" },
++        {}
++      );
++      await addEngine.run(addEngine.getStartNodeId(), { value: 5 });
++      expect(finalResult).toBe(15); // 5 + 10
++
++      // Test with multiply operation
++      const multiplyEngine = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { operation: "multiply", operand: "10" },
++        {}
++      );
++      await multiplyEngine.run(multiplyEngine.getStartNodeId(), { value: 5 });
++      expect(finalResult).toBe(50); // 5 * 10
++    });
++
++    test("empty config works correctly", async () => {
++      let receivedConfig: Record<string, string> = { unexpected: "value" };
++
++      const compiled = new Graph<{ x: number }>()
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                receivedConfig = config;
++                return { result: input.x };
++              },
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
++
++      await engine.run(engine.getStartNodeId(), { x: 42 });
++
++      expect(receivedConfig).toEqual({});
++    });
++
++    test("switch config field receives boolean values", async () => {
++      const receivedConfigs: Array<{ verbose: boolean; multiplier: string }> =
++        [];
++
++      const compiled = new Graph<{ value: number }>()
++        .config({
++          verbose: { type: "switch", label: "Verbose mode" },
++          multiplier: { type: "short_text", label: "Multiplier" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                // TypeScript knows verbose is boolean, multiplier is string
++                receivedConfigs.push({
++                  verbose: config.verbose,
++                  multiplier: config.multiplier,
++                });
++                const mult = parseInt(config.multiplier);
++                return {
++                  result: input.value * mult,
++                  wasVerbose: config.verbose,
++                };
++              },
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      // Pass boolean true for switch
++      const engine1 = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { verbose: true, multiplier: "2" },
++        {}
++      );
++      await engine1.run(engine1.getStartNodeId(), { value: 5 });
++      expect(receivedConfigs[0].verbose).toBe(true);
++      expect(typeof receivedConfigs[0].verbose).toBe("boolean");
++
++      // Pass boolean false for switch
++      const engine2 = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { verbose: false, multiplier: "3" },
++        {}
++      );
++      await engine2.run(engine2.getStartNodeId(), { value: 5 });
++      expect(receivedConfigs[1].verbose).toBe(false);
++      expect(typeof receivedConfigs[1].verbose).toBe("boolean");
++    });
++
++    test("config is available inside if branches", async () => {
++      const configsInBranches: Array<{
++        branch: string;
++        config: Record<string, string>;
++      }> = [];
++
++      const compiled = new Graph<{ goLeft: boolean }>()
++        .config({
++          branchLabel: { type: "short_text", label: "Branch Label" },
++        })
++        .if(
++          {
++            condition: (input) => input.goLeft,
++            then: (branch) =>
++              branch.run(
++                (f) =>
++                  f.evaluate({
++                    fn: async (input, config) => {
++                      configsInBranches.push({
++                        branch: "then",
++                        config: { ...config },
++                      });
++                      return { path: "left" };
++                    },
++                  }),
++                { name: "Left Branch" }
++              ),
++            else: (branch) =>
++              branch.run(
++                (f) =>
++                  f.evaluate({
++                    fn: async (input, config) => {
++                      configsInBranches.push({
++                        branch: "else",
++                        config: { ...config },
++                      });
++                      return { path: "right" };
++                    },
++                  }),
++                { name: "Right Branch" }
++              ),
++          },
++          "Choose Path"
++        )
++        .compile();
++
++      // Test left branch
++      const engine1 = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { branchLabel: "test-config" },
++        {}
++      );
++      await engine1.run(engine1.getStartNodeId(), { goLeft: true });
++
++      expect(configsInBranches).toHaveLength(1);
++      expect(configsInBranches[0]).toEqual({
++        branch: "then",
++        config: { branchLabel: "test-config" },
++      });
++
++      // Test right branch
++      configsInBranches.length = 0;
++      const engine2 = new Engine(
++        compiled,
++        NODE_DEFINITIONS,
++        { branchLabel: "test-config" },
++        {}
++      );
++      await engine2.run(engine2.getStartNodeId(), { goLeft: false });
++
++      expect(configsInBranches).toHaveLength(1);
++      expect(configsInBranches[0]).toEqual({
++        branch: "else",
++        config: { branchLabel: "test-config" },
++      });
++    });
++  });
++});
+diff --git a/packages/astro-engine/src/engine.ts b/packages/astro-engine/src/engine.ts
+new file mode 100644
+index 0000000..7c06e01
+--- /dev/null
++++ b/packages/astro-engine/src/engine.ts
+@@ -0,0 +1,214 @@
++import {
++  NodeDefinition,
++  Node,
++  Edge,
++  NodeType,
++  EngineContext,
++  ConfigValue,
++} from "astro-types";
++import type { CompiledGraph } from "astro-graph";
++
++export class Engine<
++  TInput = Record<string, unknown>,
++  TConfig = Record<string, ConfigValue>
++> {
++  private nodes: Map<string, Node>;
++  private edges: Map<string, Edge>;
++  private nodeDefs: Record<NodeType, NodeDefinition>;
++  private config: Record<string, ConfigValue>;
++  private status: "idle" | "running" | "paused" = "idle";
++  private cancelled: boolean = false;
++  private pendingTasks: Map<string, null> = new Map();
++  private runFinishedResolver: (() => void) | null = null;
++  private onStartNodeExecute?: (
++    nodeId: string,
++    inputs: Record<string, unknown>
++  ) => void;
++  private onNodeExecuted?: (
++    nodeId: string,
++    outputs: Record<string, unknown>
++  ) => void;
++  private onNodeExternalOutput?: (outputName: string, data: any) => void;
++  private onNodeError?: (nodeId: string, error: string) => void;
++  private onEngineFinished?: () => void;
++
++  constructor(
++    graph: CompiledGraph<TInput, unknown, TConfig>,
++    nodeDefs: Record<NodeType, NodeDefinition>,
++    config: TConfig,
++    events: {
++      onStartNodeExecute?: (
++        nodeId: string,
++        inputs: Record<string, unknown>
++      ) => void;
++      onNodeExternalOutput?: (outputName: string, data: any) => void;
++      onNodeExecuted?: (
++        nodeId: string,
++        outputs: Record<string, unknown>
++      ) => void;
++      onNodeError?: (nodeId: string, error: string) => void;
++      onEngineFinished?: () => void;
++    }
++  ) {
++    this.nodes = new Map(Object.entries(graph.nodes));
++    this.edges = new Map(Object.entries(graph.edges));
++    this.nodeDefs = nodeDefs;
++    this.config = config as Record<string, ConfigValue>;
++    this.onStartNodeExecute = events.onStartNodeExecute;
++    this.onNodeExternalOutput = events.onNodeExternalOutput;
++    this.onNodeExecuted = events.onNodeExecuted;
++    this.onNodeError = events.onNodeError;
++    this.onEngineFinished = events.onEngineFinished;
++  }
++
++  public cancel() {
++    if (this.status === "running") {
++      this.cancelled = true;
++      this.status = "idle";
++    }
++  }
++
++  public getStartNodeId(): string {
++    const startNode = Array.from(this.nodes.values()).find(
++      (n) => n.type === "start"
++    );
++    if (!startNode) throw new Error("No start node found");
++    return startNode.id;
++  }
++
++  public async run(startNodeId: string, input: TInput) {
++    return new Promise<void>((resolve, _reject) => {
++      this.runFinishedResolver = resolve;
++
++      const startNode = this.nodes.get(startNodeId);
++      if (!startNode) {
++        throw new Error("Start node not found");
++      }
++
++      this.status = "running";
++      this.cancelled = false;
++
++      const handleNodeOutput = (
++        nodeId: string,
++        outputName: string,
++        data: any
++      ) => {
++        const outgoingEdges = this.getOutgoingEdges(nodeId).filter(
++          (edge) => edge.sourcePort === outputName
++        );
++
++        for (const edge of outgoingEdges) {
++          const targetNode = this.nodes.get(edge.target);
++
++          if (!targetNode) return;
++
++          // Pass data directly to the next node (unwrapped)
++          this.executeNode(edge.target, data, {
++            output: (outputName, d) =>
++              handleNodeOutput(edge.target, outputName, d),
++            outputExternal: (outputName, d) =>
++              this.onNodeExternalOutput?.(outputName, d),
++            nodeDefinitions: this.nodeDefs,
++            config: this.config,
++          });
++        }
++      };
++
++      // Kick-off the first node with the provided input.
++      this.executeNode(startNodeId, input, {
++        output: (outputName, data) =>
++          handleNodeOutput(startNodeId, outputName, data),
++        outputExternal: (outputName, data) =>
++          this.onNodeExternalOutput?.(outputName, data),
++        nodeDefinitions: this.nodeDefs,
++        config: this.config,
++      });
++    });
++  }
++
++  private getOutgoingEdges(nodeId: string) {
++    const node = this.nodes.get(nodeId);
++
++    if (!node) {
++      throw new Error("Node not found");
++    }
++
++    // If is a special system node, all other nodes get an "output" port.
++    const nodeOutputs = node.type === "if" ? ["then", "else"] : ["output"];
++
++    return Array.from(this.edges.values()).filter(
++      (edge) => edge.source === nodeId && nodeOutputs.includes(edge.sourcePort)
++    );
++  }
++
++  private getIncomingEdges(nodeId: string) {
++    return Array.from(this.edges.values()).filter(
++      (edge) => edge.target === nodeId
++    );
++  }
++
++  private async executeNode(
++    nodeId: string,
++    input: unknown,
++    ctx: EngineContext
++  ) {
++    if (this.cancelled) {
++      return;
++    }
++    const taskId = crypto.randomUUID();
++
++    this.pendingTasks.set(taskId, null);
++
++    const node = this.nodes.get(nodeId);
++
++    if (!node) {
++      throw new Error("Node not found, could not execute node");
++    }
++
++    const blockDef = this.nodeDefs[node.type];
++
++    if (!blockDef) {
++      throw new Error("Block definition not found, could not execute node");
++    }
++
++    try {
++      this.onStartNodeExecute?.(nodeId, input as Record<string, unknown>);
++
++      const nodeOutput: Record<string, any> = {};
++
++      const context: EngineContext = {
++        ...ctx,
++        config: this.config,
++        output: (outputName, data) => {
++          nodeOutput[outputName] = data;
++          ctx.output(outputName, data);
++        },
++      };
++
++      await blockDef.execute(input, node.data, context);
++
++      if (this.cancelled) {
++        return;
++      }
++
++      this.onNodeExecuted?.(nodeId, nodeOutput);
++    } catch (error) {
++      this.onNodeError?.(
++        nodeId,
++        (error as Error)?.message ??
++          "An unknown error occurred while running this block."
++      );
++    } finally {
++      this.pendingTasks.delete(taskId);
++      this.checkForPendingTasks();
++    }
++  }
++
++  private checkForPendingTasks() {
++    if (this.pendingTasks.size === 0) {
++      this.onEngineFinished?.();
++      this.runFinishedResolver?.();
++      this.runFinishedResolver = null;
++    }
++  }
++}
+diff --git a/packages/astro-graph/src/index.test.ts b/packages/astro-graph/src/index.test.ts
+index 2e91ade..e7717cd 100644
+--- a/packages/astro-graph/src/index.test.ts
++++ b/packages/astro-graph/src/index.test.ts
+@@ -250,4 +250,472 @@ describe("Graph", () => {
+     expect(nodeIds).toHaveLength(4);
+     expect(uniqueIds.size).toBe(nodeIds.length);
+   });
++<<<<<<< Updated upstream
++=======
++
++  test("if branches can have different output types (union type)", () => {
++    // This test verifies that branches can produce different types
++    // and the result is a union type
++
++    const result = new Graph<{ value: number }>()
++      .if(
++        {
++          condition: (input) => input.value > 10,
++          then: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => ({ status: "high" as const, multiplier: 2 }),
++                }),
++              { name: "High Value" }
++            ),
++          else: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({
++                  fn: async () => ({ status: "low" as const, offset: 5 }),
++                }),
++              { name: "Low Value" }
++            ),
++        },
++        "Check Value"
++      )
++      .compile();
++
++    // Type assertion: result should be CompiledGraph with union output type
++    // At compile time, this verifies the union type works
++    type ExpectedOutput =
++      | { status: "high"; multiplier: number }
++      | { status: "low"; offset: number };
++
++    // This line would fail to compile if types don't match
++    const _typeCheck: CompiledGraph<{ value: number }, ExpectedOutput> = result;
++
++    const nodes = Object.values(result.nodes);
++
++    // Should have 4 nodes: start, if, then-branch, else-branch
++    expect(nodes).toHaveLength(4);
++
++    const thenNode = nodes.find((n) => n.name === "High Value");
++    const elseNode = nodes.find((n) => n.name === "Low Value");
++
++    expect(thenNode).toBeDefined();
++    expect(elseNode).toBeDefined();
++  });
++
++  test("compiled graph carries both input and output types", () => {
++    const graph = new Graph<{ input: string }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => ({ length: input.input.length }),
++          }),
++        { name: "Get Length" }
++      )
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => ({ doubled: input.length * 2 }),
++          }),
++        { name: "Double" }
++      )
++      .compile();
++
++    // Type check: the compiled graph should have the correct types
++    type InputType = { input: string };
++    type OutputType = { doubled: number };
++
++    // This assignment verifies the types at compile time
++    const _typeCheck: CompiledGraph<InputType, OutputType> = graph;
++
++    expect(Object.values(graph.nodes)).toHaveLength(3); // start + 2 nodes
++  });
++
++  test("useModule inlines a graph and types flow through", () => {
++    // Create a reusable module
++    const textLengthModule = new Graph<{ text: string }>().run(
++      (f) =>
++        f.evaluate({
++          fn: async (input) => ({ length: input.text.length }),
++        }),
++      { name: "Count Length" }
++    );
++
++    // Use the module in another graph
++    const mainGraph = new Graph<{ rawInput: string }>()
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => ({ text: input.rawInput.trim() }),
++          }),
++        { name: "Prep Input" }
++      )
++      .useModule(textLengthModule)
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => ({ isLong: input.length > 10 }),
++          }),
++        { name: "Check Long" }
++      )
++      .compile();
++
++    // Type check: main graph should flow from rawInput to isLong
++    const _typeCheck: CompiledGraph<{ rawInput: string }, { isLong: boolean }> =
++      mainGraph;
++
++    const nodes = Object.values(mainGraph.nodes);
++    const edges = Object.values(mainGraph.edges);
++
++    // Should have: start, Prep Input, Count Length, Check Long
++    expect(nodes).toHaveLength(4);
++
++    // Verify the module's node was inlined
++    const countLengthNode = nodes.find((n) => n.name === "Count Length");
++    expect(countLengthNode).toBeDefined();
++
++    // Verify edges connect properly
++    expect(edges.length).toBeGreaterThanOrEqual(3);
++  });
++
++  test("chaining after if preserves start type and uses union as current", () => {
++    const result = new Graph<{ text: string }>()
++      .if(
++        {
++          condition: (input) => input.text.length > 5,
++          then: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({ fn: async () => ({ type: "long" as const }) }),
++              { name: "Long" }
++            ),
++          else: (branch) =>
++            branch.run(
++              (f) =>
++                f.evaluate({ fn: async () => ({ type: "short" as const }) }),
++              { name: "Short" }
++            ),
++        },
++        "Check"
++      )
++      // After if, the input type for the next node should be the union
++      .run(
++        (f) =>
++          f.evaluate({
++            fn: async (input) => ({
++              // input.type is "long" | "short"
++              message: `Result was ${input.type}`,
++            }),
++          }),
++        { name: "Format" }
++      )
++      .compile();
++
++    // The final type should preserve the original start type
++    // and have the output of the last node
++    const _typeCheck: CompiledGraph<{ text: string }, { message: string }> =
++      result;
++
++    const nodes = Object.values(result.nodes);
++    // start, if, long-branch, short-branch, format
++    expect(nodes).toHaveLength(5);
++
++    const formatNode = nodes.find((n) => n.name === "Format");
++    expect(formatNode).toBeDefined();
++  });
++
++  // Config tests
++  describe("config", () => {
++    test("config definitions are stored in the compiled graph", () => {
++      const compiled = new Graph<{ text: string }>()
++        .config({
++          apiKey: { type: "short_text", label: "API Key", required: true },
++          mode: {
++            type: "select",
++            options: [
++              { value: "fast", label: "Fast" },
++              { value: "accurate", label: "Accurate" },
++            ] as const,
++            label: "Mode",
++          },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input) => ({ result: input.text }),
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      expect(compiled.config).toEqual({
++        apiKey: { type: "short_text", label: "API Key", required: true },
++        mode: {
++          type: "select",
++          options: [
++            { value: "fast", label: "Fast" },
++            { value: "accurate", label: "Accurate" },
++          ],
++          label: "Mode",
++        },
++      });
++    });
++
++    test("multiple config() calls merge configurations", () => {
++      const compiled = new Graph<{ text: string }>()
++        .config({
++          apiKey: { type: "short_text", label: "API Key" },
++        })
++        .config({
++          mode: {
++            type: "select",
++            options: [
++              { value: "fast", label: "Fast" },
++              { value: "slow", label: "Slow" },
++            ] as const,
++          },
++          verbose: { type: "switch", label: "Verbose" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input) => ({ result: input.text }),
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      expect(Object.keys(compiled.config)).toHaveLength(3);
++      expect(compiled.config.apiKey).toEqual({
++        type: "short_text",
++        label: "API Key",
++      });
++      expect(compiled.config.mode).toEqual({
++        type: "select",
++        options: [
++          { value: "fast", label: "Fast" },
++          { value: "slow", label: "Slow" },
++        ],
++      });
++      expect(compiled.config.verbose).toEqual({
++        type: "switch",
++        label: "Verbose",
++      });
++    });
++
++    test("config type flows through the chain", () => {
++      // This test verifies TypeScript type inference for config
++      const compiled = new Graph<{ text: string }>()
++        .config({
++          apiKey: { type: "short_text" },
++          mode: {
++            type: "select",
++            options: [
++              { value: "a", label: "A" },
++              { value: "b", label: "B" },
++              { value: "c", label: "C" },
++            ] as const,
++          },
++          verbose: { type: "switch" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              // The fn receives typed config
++              fn: async (input, config) => {
++                const key: string = config.apiKey;
++                const mode: "a" | "b" | "c" = config.mode;
++                const isVerbose: boolean = config.verbose;
++                return { processed: `${key}-${mode}-${isVerbose}` };
++              },
++            }),
++          { name: "Use Config" }
++        )
++        .compile();
++
++      // Type check: compiled graph should have the correct config type
++      type ExpectedConfig = {
++        apiKey: string;
++        mode: "a" | "b" | "c";
++        verbose: boolean;
++      };
++      const _typeCheck: CompiledGraph<
++        { text: string },
++        { processed: string },
++        ExpectedConfig
++      > = compiled;
++
++      expect(compiled.config).toBeDefined();
++    });
++
++    test("config type is preserved through if branches", () => {
++      const compiled = new Graph<{ value: number }>()
++        .config({
++          threshold: { type: "short_text", label: "Threshold" },
++        })
++        .if(
++          {
++            // Condition has access to typed config
++            condition: (input, config) => {
++              const t: string = config.threshold;
++              return input.value > parseInt(t);
++            },
++            then: (branch) =>
++              branch.run(
++                (f) =>
++                  f.evaluate({
++                    // Then branch also has typed config
++                    fn: async (input, config) => {
++                      const t: string = config.threshold;
++                      return { result: "above", threshold: t };
++                    },
++                  }),
++                { name: "Above" }
++              ),
++            else: (branch) =>
++              branch.run(
++                (f) =>
++                  f.evaluate({
++                    // Else branch also has typed config
++                    fn: async (input, config) => {
++                      const t: string = config.threshold;
++                      return { result: "below", threshold: t };
++                    },
++                  }),
++                { name: "Below" }
++              ),
++          },
++          "Check Threshold"
++        )
++        .compile();
++
++      expect(compiled.config.threshold).toEqual({
++        type: "short_text",
++        label: "Threshold",
++      });
++    });
++
++    test("compiled graph config type enforces Engine config parameter", () => {
++      // This test verifies that TypeScript enforces the config shape
++      const compiled = new Graph<{ x: number }>()
++        .config({
++          apiKey: { type: "short_text" },
++          enabled: { type: "switch" },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => ({
++                result: config.enabled ? input.x : 0,
++              }),
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      // Type check: the compiled graph's config type should be extracted
++      type GraphConfigType = NonNullable<(typeof compiled)["_config"]>;
++
++      // This should match exactly what the graph expects
++      const validConfig: GraphConfigType = {
++        apiKey: "test-key",
++        enabled: true,
++      };
++
++      // Type assertion: these should be the correct types
++      const _keyCheck: string = validConfig.apiKey;
++      const _enabledCheck: boolean = validConfig.enabled;
++
++      expect(validConfig).toEqual({ apiKey: "test-key", enabled: true });
++    });
++
++    test("graph without config has empty config object", () => {
++      const compiled = new Graph<{ x: number }>()
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input) => ({ doubled: input.x * 2 }),
++            }),
++          { name: "Double" }
++        )
++        .compile();
++
++      expect(compiled.config).toEqual({});
++    });
++
++    test("all config field types are supported", () => {
++      const compiled = new Graph<{}>()
++        .config({
++          shortText: { type: "short_text", label: "Short", required: true },
++          longText: {
++            type: "long_text",
++            label: "Long",
++            description: "A longer text",
++          },
++          selectField: {
++            type: "select",
++            options: [
++              { value: "option1", label: "Option 1" },
++              { value: "option2", label: "Option 2" },
++              { value: "option3", label: "Option 3" },
++            ] as const,
++            default: "option1",
++          },
++          switchField: { type: "switch", label: "Toggle" },
++          secretField: { type: "secret", label: "API Key", required: true },
++          numberField: { type: "number", label: "Count", default: 10 },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async () => ({}),
++            }),
++          { name: "Process" }
++        )
++        .compile();
++
++      expect(compiled.config.shortText.type).toBe("short_text");
++      expect(compiled.config.longText.type).toBe("long_text");
++      expect(compiled.config.selectField.type).toBe("select");
++      expect(compiled.config.switchField.type).toBe("switch");
++      expect(compiled.config.secretField.type).toBe("secret");
++      expect(compiled.config.numberField.type).toBe("number");
++    });
++
++    test("secret and number config types have correct value types", () => {
++      const compiled = new Graph<{ text: string }>()
++        .config({
++          apiSecret: { type: "secret", label: "API Secret" },
++          maxRetries: { type: "number", label: "Max Retries", default: 3 },
++        })
++        .run(
++          (f) =>
++            f.evaluate({
++              fn: async (input, config) => {
++                // Type check: secret should be string, number should be number
++                const secret: string = config.apiSecret;
++                const retries: number = config.maxRetries;
++                return { result: `${secret}-${retries}` };
++              },
++            }),
++          { name: "Use Config" }
++        )
++        .compile();
++
++      // Type check: compiled graph should have the correct config type
++      type ExpectedConfig = {
++        apiSecret: string;
++        maxRetries: number;
++      };
++      const _typeCheck: CompiledGraph<
++        { text: string },
++        { result: string },
++        ExpectedConfig
++      > = compiled;
++
++      expect(compiled.config.apiSecret.type).toBe("secret");
++      expect(compiled.config.maxRetries.type).toBe("number");
++    });
++  });
++>>>>>>> Stashed changes
+ });
+diff --git a/packages/astro-graph/src/index.ts b/packages/astro-graph/src/index.ts
+index 9b5b883..34b6117 100644
+--- a/packages/astro-graph/src/index.ts
++++ b/packages/astro-graph/src/index.ts
+@@ -1,5 +1,7 @@
+ import type {
++  ConfigDefinitions,
+   Edge,
++  InferConfigType,
+   Node,
+   NodeDataType,
+   NodeDefinition,
+@@ -23,8 +25,10 @@ type GraphContext = {
+   meta: GraphMeta;
+   nodes: Record<string, Node>;
+   edges: Record<string, Edge>;
++  config: ConfigDefinitions;
+ };
+ 
++<<<<<<< Updated upstream
+ export type BranchBuilderFn<TInput, TOutput> = (
+   branch: Graph<TInput>
+ ) => Graph<TOutput>;
+@@ -33,6 +37,49 @@ export type IfNodeData<TInput, TOutput> = {
+   condition: (input: TInput) => boolean | Promise<boolean>;
+   then: BranchBuilderFn<TInput, TOutput>;
+   else: BranchBuilderFn<TInput, TOutput>;
++=======
++/**
++ * A compiled graph with phantom types for input/output/config.
++ * Can be used as a module in other graphs.
++ *
++ * @template TInput - The type the graph accepts as input
++ * @template TOutput - The type the graph produces as output
++ * @template TConfig - The type of config values the graph requires
++ */
++export type CompiledGraph<
++  TInput = unknown,
++  TOutput = unknown,
++  TConfig = unknown
++> = {
++  meta: GraphMeta;
++  nodes: Record<string, Node>;
++  edges: Record<string, Edge>;
++  config: ConfigDefinitions;
++  /** Phantom field to carry input type - doesn't exist at runtime */
++  readonly _input?: TInput;
++  /** Phantom field to carry output type - doesn't exist at runtime */
++  readonly _output?: TOutput;
++  /** Phantom field to carry config type - doesn't exist at runtime */
++  readonly _config?: TConfig;
++};
++
++/**
++ * Branch builder function for if/else branches.
++ * Takes a branch graph and returns it after adding nodes.
++ */
++export type BranchBuilderFn<TBranchInput, TBranchOutput, TBranchConfig = {}> = (
++  branch: Graph<TBranchInput, TBranchInput, TBranchConfig>
++) => Graph<TBranchInput, TBranchOutput, TBranchConfig>;
++
++/**
++ * Data for an if node with separate types for each branch.
++ * The resulting type after the if is TThen | TElse.
++ */
++export type IfNodeData<TInput, TThen, TElse, TIfConfig = {}> = {
++  condition: (input: TInput, config: TIfConfig) => boolean | Promise<boolean>;
++  then: BranchBuilderFn<TInput, TThen, TIfConfig>;
++  else: BranchBuilderFn<TInput, TElse, TIfConfig>;
++>>>>>>> Stashed changes
+ };
+ 
+ export type NodeConfig<
+@@ -54,16 +101,26 @@ type StaticNodeFactories = {
+   ) => NodeConfig<(typeof NODE_DEFINITIONS)[K]>;
+ };
+ 
+-/** Bound factories - TIn is pre-bound from the graph's current output type */
+-type BoundFactories<TIn> = StaticNodeFactories & {
+-  /** Evaluate factory with input type pre-bound */
++/** Bound factories - TIn and TConfig are pre-bound from the graph's current state */
++type BoundFactories<TIn, TConfig = {}> = StaticNodeFactories & {
++  /** Evaluate factory with input and config types pre-bound */
+   evaluate: <TOut>(data: {
++<<<<<<< Updated upstream
+     fn: (input: TIn) => Promise<TOut>;
+   }) => NodeConfig<NodeDefinition<TIn, TOut, { fn: EvalFn<TIn, TOut> }>>;
++=======
++    fn: (input: TIn, config: TConfig) => Promise<TOut>;
++  }) => NodeConfig<
++    NodeDefinition<TIn, { output: TOut }, { fn: EvalFn<TIn, TOut, TConfig> }>
++  >;
++>>>>>>> Stashed changes
+ };
+ 
+-function createBoundFactories<TIn>(): BoundFactories<TIn> {
+-  const factories = {} as BoundFactories<TIn>;
++function createBoundFactories<TIn, TConfig = {}>(): BoundFactories<
++  TIn,
++  TConfig
++> {
++  const factories = {} as BoundFactories<TIn, TConfig>;
+ 
+   // Auto-generate factories for non-generic nodes
+   for (const [key, definition] of Object.entries(NODE_DEFINITIONS)) {
+@@ -75,13 +132,21 @@ function createBoundFactories<TIn>(): BoundFactories<TIn> {
+     });
+   }
+ 
+-  // Evaluate factory with TIn pre-bound
+-  factories.evaluate = <TOut>(data: { fn: (input: TIn) => Promise<TOut> }) =>
++  // Evaluate factory with TIn and TConfig pre-bound
++  factories.evaluate = <TOut>(data: {
++    fn: (input: TIn, config: TConfig) => Promise<TOut>;
++  }) =>
+     ({
+       type: "evaluate" as const,
+       name: "Evaluate",
+       data,
++<<<<<<< Updated upstream
+     } as NodeConfig<NodeDefinition<TIn, TOut, { fn: EvalFn<TIn, TOut> }>>);
++=======
++    } as NodeConfig<
++      NodeDefinition<TIn, { output: TOut }, { fn: EvalFn<TIn, TOut, TConfig> }>
++    >);
++>>>>>>> Stashed changes
+ 
+   return factories;
+ }
+@@ -90,21 +155,35 @@ function createBoundFactories<TIn>(): BoundFactories<TIn> {
+  * A chainable builder for constructing graphs.
+  * Can represent the root graph or a branch.
+  *
++<<<<<<< Updated upstream
+  * @template TInput - The data that will be passed into the start node (or the first node in a branch)
+  */
+ class Graph<TInput = unknown> {
++=======
++ * @template TStart - The type the graph accepts as input
++ * @template TCurrent - The type at the current position in the chain
++ * @template TConfig - The accumulated config type
++ */
++class Graph<TStart = unknown, TCurrent = TStart, TConfig = {}> {
++>>>>>>> Stashed changes
+   private ctx: GraphContext;
+   private lastNodeId: string | null;
+   private nextPort: string;
+ 
++<<<<<<< Updated upstream
+   /** Bound factories with TInput pre-bound for type inference */
+   private boundFactories = createBoundFactories<TInput>();
++=======
++  /** Bound factories with TCurrent and TConfig pre-bound for type inference */
++  private boundFactories = createBoundFactories<TCurrent, TConfig>();
++>>>>>>> Stashed changes
+ 
+   constructor(
+     ctx: GraphContext = {
+       meta: { title: "", description: "" },
+       nodes: {},
+       edges: {},
++      config: {},
+     },
+     startNodeId: string | null = null,
+     initialPort: string = "output"
+@@ -143,12 +222,38 @@ class Graph<TInput = unknown> {
+     this.nextPort = "output";
+   }
+ 
++<<<<<<< Updated upstream
+   private createBranch<T>(fromNodeId: string, fromPort: string): Graph<T> {
+     return new Graph<T>(this.ctx, fromNodeId, fromPort);
+   }
+ 
+   // If is a special system node for control flow.
+   if<TOutput>(data: IfNodeData<TInput, TOutput>, name: string): Graph<TOutput> {
++=======
++  private createBranch<TBranchStart>(
++    fromNodeId: string,
++    fromPort: string
++  ): Graph<TBranchStart, TBranchStart, TConfig> {
++    return new Graph<TBranchStart, TBranchStart, TConfig>(
++      this.ctx,
++      fromNodeId,
++      fromPort
++    );
++  }
++
++  /**
++   * Conditional branching node.
++   * The output type becomes TThen | TElse (union of both branch outputs).
++   *
++   * @param data - Condition function and branch builders
++   * @param name - Display name for the if node
++   * @returns Graph with output type as union of both branches
++   */
++  if<TThen, TElse>(
++    data: IfNodeData<TCurrent, TThen, TElse, TConfig>,
++    name: string
++  ): Graph<TStart, TThen | TElse, TConfig> {
++>>>>>>> Stashed changes
+     const { condition, then: thenBuilder, else: elseBuilder } = data;
+ 
+     const node: Node<typeof node_if> = {
+@@ -166,38 +271,63 @@ class Graph<TInput = unknown> {
+     const elseBranch = this.createBranch<TInput>(node.id, "else");
+     elseBuilder(elseBranch);
+ 
++<<<<<<< Updated upstream
+     return new Graph<TOutput>(this.ctx, node.id, "output");
++=======
++    // Return type is union of both branches
++    return new Graph<TStart, TThen | TElse, TConfig>(
++      this.ctx,
++      node.id,
++      "output"
++    );
++>>>>>>> Stashed changes
+   }
+ 
+   /**
+    * Run a node in the graph.
+    *
+    * @param configFn - Callback that receives bound factories and returns a node config.
+-   *                   The factories have the graph's current output type pre-bound for inference.
++   *                   The factories have the graph's current output and config types pre-bound.
+    * @param options - Name and optional transform. Transform is REQUIRED if the node's
+    *                  expected input type doesn't match the graph's current output type.
++   *                  Transform receives the input and config as parameters.
+    *
+    * @example
+    * // If the incoming input data doesn't match the node's expected input type, transform is required:
+    * graph.run(
+    *   (f) => f.generate({ model: "openai:4" }),
+-   *   { name: "Generate", transform: (input) => ({ prompt: input.text }) }
++   *   { name: "Generate", transform: (input, config) => ({ prompt: input.text }) }
+    * );
+    *
+    * // If the incoming input data matches the node's expected input type, transform is optional:
+    * graph.run(
+-   *   (f) => f.evaluate({ fn: async (input) => ({ length: input.text.length }) }),
++   *   (f) => f.evaluate({ fn: async (input, config) => ({ length: input.text.length }) }),
+    *   { name: "Count Characters" }
+    * );
+    */
+   run<TNodeInput, TOut>(
+     configFn: (
++<<<<<<< Updated upstream
+       factories: BoundFactories<TInput>
+     ) => NodeConfig<NodeDefinition<TNodeInput, TOut, any>>,
+     options: TInput extends TNodeInput
+       ? { name?: string; transform?: (input: TInput) => TNodeInput }
+       : { name?: string; transform: (input: TInput) => TNodeInput }
+   ): Graph<TOut> {
++=======
++      factories: BoundFactories<TCurrent, TConfig>
++    ) => NodeConfig<NodeDefinition<TNodeInput, { output: TOut }, any>>,
++    options: TCurrent extends TNodeInput
++      ? {
++          name?: string;
++          transform?: (input: TCurrent, config: TConfig) => TNodeInput;
++        }
++      : {
++          name?: string;
++          transform: (input: TCurrent, config: TConfig) => TNodeInput;
++        }
++  ): Graph<TStart, TOut, TConfig> {
++>>>>>>> Stashed changes
+     const config = configFn(this.boundFactories);
+ 
+     const node: Node = {
+@@ -209,20 +339,176 @@ class Graph<TInput = unknown> {
+ 
+     this.addNode(node);
+ 
++<<<<<<< Updated upstream
+     return new Graph<TOut>(this.ctx, node.id, "output");
+   }
+ 
+   meta(meta: { title: string; description: string }) {
++=======
++    // Preserve TStart and TConfig, update TCurrent to TOut
++    return new Graph<TStart, TOut, TConfig>(this.ctx, node.id, "output");
++  }
++
++  /**
++   * Use another graph as a module within this graph.
++   * The module's nodes and edges are inlined, and types flow through.
++   * Modules referenced in a graph have their nodes and edges inlined into the parent graph.
++   *
++   * @param module - A graph to use as a module
++   * @returns Graph with output type from the module
++   *
++   * @example
++   * const textProcessor = new Graph<{ text: string }>()
++   *   .run((f) => f.evaluate({ fn: async (input) => ({ length: input.text.length }) }));
++   *
++   * const mainGraph = new Graph<{ rawText: string }>()
++   *   .run((f) => f.evaluate({ fn: async (input) => ({ text: input.rawText }) }))
++   *   .useModule(textProcessor)
++   *   .compile();
++   */
++  useModule<TModuleInput, TModuleOutput>(
++    module: Graph<TModuleInput, TModuleOutput, any>
++  ): TCurrent extends TModuleInput
++    ? Graph<TStart, TModuleOutput, TConfig>
++    : never {
++    // Get the module's compiled representation
++    const compiled = module.compile();
++
++    // Find the start node of the module
++    const moduleStartNode = Object.values(compiled.nodes).find(
++      (n) => n.type === "start"
++    );
++
++    if (!moduleStartNode) {
++      // In theory this should never happen but just in case ¯\_(ツ)_/¯
++      throw new Error("Module must have a start node");
++    }
++
++    // Find all nodes after the start node (excluding the start node itself)
++    const moduleNodes = Object.values(compiled.nodes).filter(
++      (n) => n.type !== "start"
++    );
++
++    // Create ID mapping for the module nodes (to avoid conflicts)
++    const idMap = new Map<string, string>();
++    idMap.set(moduleStartNode.id, this.lastNodeId!); // Map module's start to our current last node
++
++    for (const moduleNode of moduleNodes) {
++      const newId = nanoid(8);
++      idMap.set(moduleNode.id, newId);
++
++      // Add the node with new ID
++      const newNode: Node = {
++        ...moduleNode,
++        id: newId,
++      };
++      this.ctx.nodes[newId] = newNode;
++    }
++
++    // Add edges with remapped IDs
++    for (const edge of Object.values(compiled.edges)) {
++      // Skip edges from the module's start node - we'll connect from our last node instead
++      const sourceId = idMap.get(edge.source);
++      const targetId = idMap.get(edge.target);
++
++      if (!sourceId || !targetId) continue;
++
++      // If this edge is from the module's start node, use our current port
++      const sourcePort =
++        edge.source === moduleStartNode.id ? this.nextPort : edge.sourcePort;
++
++      const edgeId = nanoid(8);
++      this.ctx.edges[edgeId] = {
++        source: sourceId,
++        target: targetId,
++        sourcePort,
++        targetPort: edge.targetPort,
++      };
++    }
++
++    // Find terminal nodes in the module (nodes with no outgoing edges within the module)
++    const moduleEdges = Object.values(compiled.edges);
++    const nodesWithOutgoing = new Set(moduleEdges.map((e) => e.source));
++    const terminalNodes = moduleNodes.filter(
++      (n) => !nodesWithOutgoing.has(n.id)
++    );
++
++    // Set the last node to be the terminal node of the module
++    // (For now, assume single terminal node - could be extended for multiple)
++    if (terminalNodes.length > 0) {
++      this.lastNodeId = idMap.get(terminalNodes[0].id)!;
++    }
++
++    this.nextPort = "output";
++
++    return this as unknown as TCurrent extends TModuleInput
++      ? Graph<TStart, TModuleOutput, TConfig>
++      : never;
++  }
++
++  /**
++   * Set metadata for the graph.
++   */
++  meta(meta: {
++    title: string;
++    description: string;
++  }): Graph<TStart, TCurrent, TConfig> {
++>>>>>>> Stashed changes
+     this.ctx.meta.title = meta.title;
+     this.ctx.meta.description = meta.description;
+     return this;
+   }
+ 
++<<<<<<< Updated upstream
+   compile() {
++=======
++  /**
++   * Set configuration values for the graph.
++   * Config values are user-provided settings that all nodes can access at runtime.
++   * Multiple calls to config() merge the configurations.
++   *
++   * @param configs - A record of config field definitions
++   * @returns Graph with the config type extended by the new config keys
++   *
++   * @example
++   * const graph = new Graph<{ text: string }>()
++   *   .config({
++   *     apiKey: { type: "short_text", label: "API Key" },
++   *     mode: { type: "select", options: [{ value: "fast", label: "Fast" }, { value: "accurate", label: "Accurate" }] as const },
++   *     verbose: { type: "switch", label: "Verbose logging" }
++   *   })
++   *   .run(...)
++   *   .compile();
++   *
++   * // The compiled graph will have config type:
++   * // { apiKey: string; mode: "fast" | "accurate"; verbose: boolean }
++   */
++  config<TNewConfig extends ConfigDefinitions>(
++    configs: TNewConfig
++  ): Graph<TStart, TCurrent, TConfig & InferConfigType<TNewConfig>> {
++    // Merge the new config definitions into the context
++    this.ctx.config = { ...this.ctx.config, ...configs };
++
++    return this as unknown as Graph<
++      TStart,
++      TCurrent,
++      TConfig & InferConfigType<TNewConfig>
++    >;
++  }
++
++  /**
++   * Exports internal graph details like nodes and edges for external consumption.
++   * The compiled graph carries type information and can be used as a module.
++   *
++   * @returns Compiled graph with input type TStart, output type TCurrent, and config type TConfig
++   */
++  compile(): CompiledGraph<TStart, TCurrent, TConfig> {
++>>>>>>> Stashed changes
+     return {
+       meta: this.ctx.meta,
+       nodes: this.ctx.nodes,
+       edges: this.ctx.edges,
++      config: this.ctx.config,
+     };
+   }
+ }
+diff --git a/packages/astro-nodes/src/index.ts b/packages/astro-nodes/src/index.ts
+index 39c3be1..cb32826 100644
+--- a/packages/astro-nodes/src/index.ts
++++ b/packages/astro-nodes/src/index.ts
+@@ -1,11 +1,13 @@
+ import type { NodeDefinition } from "astro-types";
+ 
+-export type EvalFn<TInput = unknown, TOutput = unknown> = (
+-  input: TInput
++export type EvalFn<TInput = unknown, TOutput = unknown, TConfig = unknown> = (
++  input: TInput,
++  config: TConfig
+ ) => Promise<TOutput>;
+ 
+-export type ConditionFn<TInput = unknown> = (
+-  input: TInput
++export type ConditionFn<TInput = unknown, TConfig = unknown> = (
++  input: TInput,
++  config: TConfig
+ ) => boolean | Promise<boolean>;
+ 
+ // #region Node Definitions
+@@ -22,6 +24,7 @@ export const node_start: NodeDefinition<any, any, Record<string, never>> = {
+   },
+ };
+ 
++<<<<<<< Updated upstream
+ export const node_evaluate: NodeDefinition<any, any, { fn: EvalFn<any, any> }> =
+   {
+     type: "evaluate",
+@@ -34,6 +37,23 @@ export const node_evaluate: NodeDefinition<any, any, { fn: EvalFn<any, any> }> =
+       ctx.output("output", result);
+     },
+   };
++=======
++export const node_evaluate: NodeDefinition<
++  any,
++  { output: any },
++  { fn: EvalFn<any, any, any> }
++> = {
++  type: "evaluate",
++  meta: {
++    name: "Evaluate",
++    description: "Evaluates a function and returns the result.",
++  },
++  execute: async (input, data, ctx) => {
++    const result = await data.fn(input, ctx.config);
++    ctx.output("output", result);
++  },
++};
++>>>>>>> Stashed changes
+ 
+ export const node_generate_text: NodeDefinition<
+   { prompt: string; system?: string },
+@@ -54,8 +74,13 @@ export const node_generate_text: NodeDefinition<
+ 
+ export const node_if: NodeDefinition<
+   any,
++<<<<<<< Updated upstream
+   any,
+   { condition: ConditionFn<any> }
++=======
++  { then: any; else: any },
++  { condition: ConditionFn<any, any> }
++>>>>>>> Stashed changes
+ > = {
+   type: "if",
+   meta: {
+@@ -64,7 +89,7 @@ export const node_if: NodeDefinition<
+   },
+   private: true,
+   execute: async (input, data, ctx) => {
+-    const result = await data.condition(input);
++    const result = await data.condition(input, ctx.config);
+     if (result) {
+       ctx.output("then", result);
+     } else {
+diff --git a/packages/astro-types/src/index.ts b/packages/astro-types/src/index.ts
+index de41530..3966677 100644
+--- a/packages/astro-types/src/index.ts
++++ b/packages/astro-types/src/index.ts
+@@ -4,9 +4,157 @@ export type NodeData = {
+   [key: string]: any;
+ };
+ 
++<<<<<<< Updated upstream
+ export interface EngineContext<TOutput = unknown> {
+   output: (outputName: string, data: TOutput) => void;
+ }
++=======
++// ============================================================================
++// Config Field Types
++// ============================================================================
++
++/**
++ * Configuration field types for user-facing config UI.
++ */
++export type ConfigFieldType =
++  | "short_text"
++  | "long_text"
++  | "select"
++  | "switch"
++  | "secret"
++  | "number";
++
++/**
++ * Base config field definition with common properties.
++ */
++type BaseConfigField = {
++  label?: string;
++  description?: string;
++  required?: boolean;
++};
++
++/**
++ * Short text input field (single line).
++ */
++export type ShortTextField = BaseConfigField & {
++  type: "short_text";
++  default?: string;
++};
++
++/**
++ * Long text input field (multi-line textarea).
++ */
++export type LongTextField = BaseConfigField & {
++  type: "long_text";
++  default?: string;
++};
++
++/**
++ * A single option in a select dropdown.
++ */
++export type SelectOption<TValue extends string = string> = {
++  value: TValue;
++  label: string;
++};
++
++/**
++ * Select dropdown field with predefined options.
++ */
++export type SelectField<
++  TOptions extends readonly SelectOption[] = readonly SelectOption[]
++> = BaseConfigField & {
++  type: "select";
++  options: TOptions;
++  default?: TOptions[number]["value"];
++};
++
++/**
++ * Boolean toggle switch field.
++ */
++export type SwitchField = BaseConfigField & {
++  type: "switch";
++  default?: boolean;
++};
++
++/**
++ * Secret text input field (for passwords, API keys, etc.).
++ */
++export type SecretField = BaseConfigField & {
++  type: "secret";
++  default?: string;
++};
++
++/**
++ * Number input field.
++ */
++export type NumberField = BaseConfigField & {
++  type: "number";
++  default?: number;
++};
++
++/**
++ * Union of all config field definitions.
++ */
++export type ConfigFieldDefinition =
++  | ShortTextField
++  | LongTextField
++  | SelectField
++  | SwitchField
++  | SecretField
++  | NumberField;
++
++/**
++ * A record of config field definitions.
++ */
++export type ConfigDefinitions = Record<string, ConfigFieldDefinition>;
++
++/**
++ * Map from config field type to its runtime value type.
++ * Add new field types here to extend the config system.
++ */
++type ConfigFieldValueMap = {
++  short_text: string;
++  long_text: string;
++  switch: boolean;
++  secret: string;
++  number: number;
++  // Note: 'select' is handled specially to extract literal option types
++};
++
++/**
++ * Infer the runtime value type from a config field definition.
++ * Uses the field's `type` property to determine the value type.
++ */
++export type InferConfigValueType<T extends ConfigFieldDefinition> =
++  T["type"] extends "select"
++    ? T extends SelectField<infer TOptions>
++      ? TOptions[number]["value"]
++      : string
++    : T["type"] extends keyof ConfigFieldValueMap
++    ? ConfigFieldValueMap[T["type"]]
++    : never;
++
++/**
++ * Infer the full config object type from config definitions.
++ */
++export type InferConfigType<T extends ConfigDefinitions> = {
++  [K in keyof T]: InferConfigValueType<T[K]>;
++};
++
++/**
++ * Valid runtime config value types.
++ */
++export type ConfigValue = string | boolean | number;
++
++export type EngineContext<
++  T extends Record<string, unknown> = Record<string, unknown>
++> = {
++  output: (outputName: keyof T, data: any) => void;
++  outputExternal: (outputName: string, data: any) => void;
++  nodeDefinitions: Record<string, NodeDefinition>;
++  config: Record<string, ConfigValue>;
++};
++>>>>>>> Stashed changes
+ 
+ export interface NodeDefinition<
+   TInput = unknown,

@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "astro",
@@ -40,6 +39,13 @@
       "version": "1.0.0",
       "dependencies": {
         "astro-graph": "workspace:*",
+      },
+    },
+    "packages/astro-engine": {
+      "name": "astro-engine",
+      "version": "1.0.0",
+      "dependencies": {
+        "astro-types": "workspace:*",
       },
     },
     "packages/astro-graph": {
@@ -389,6 +395,8 @@
     "astro-agents": ["astro-agents@workspace:packages/astro-agents"],
 
     "astro-client": ["astro-client@workspace:apps/astro-client"],
+
+    "astro-engine": ["astro-engine@workspace:packages/astro-engine"],
 
     "astro-graph": ["astro-graph@workspace:packages/astro-graph"],
 

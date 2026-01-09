@@ -21,7 +21,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), { message: "hello world" });
 
@@ -64,7 +64,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), { value: 5 });
 
@@ -112,7 +112,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), { value: 0 });
 
@@ -160,7 +160,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), { value: 0 });
 
@@ -181,12 +181,17 @@ describe("Engine", () => {
 
     const nodes = new Map(Object.entries(compiled.nodes));
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {
-      onStartNodeExecute: (nodeId) => {
-        const node = nodes.get(nodeId);
-        if (node) nodeExecutions.push(node.name);
-      },
-    });
+    const engine = new Engine(
+      compiled,
+      NODE_DEFINITIONS,
+      {},
+      {
+        onStartNodeExecute: (nodeId) => {
+          const node = nodes.get(nodeId);
+          if (node) nodeExecutions.push(node.name);
+        },
+      }
+    );
 
     await engine.run(engine.getStartNodeId(), { x: 0 });
 
@@ -207,12 +212,17 @@ describe("Engine", () => {
 
     const nodes = new Map(Object.entries(compiled.nodes));
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {
-      onNodeExecuted: (nodeId, outputs) => {
-        const node = nodes.get(nodeId);
-        if (node) nodeOutputs.push({ name: node.name, outputs });
-      },
-    });
+    const engine = new Engine(
+      compiled,
+      NODE_DEFINITIONS,
+      {},
+      {
+        onNodeExecuted: (nodeId, outputs) => {
+          const node = nodes.get(nodeId);
+          if (node) nodeOutputs.push({ name: node.name, outputs });
+        },
+      }
+    );
 
     await engine.run(engine.getStartNodeId(), { x: 0 });
 
@@ -233,11 +243,16 @@ describe("Engine", () => {
       })
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {
-      onEngineFinished: () => {
-        engineFinished = true;
-      },
-    });
+    const engine = new Engine(
+      compiled,
+      NODE_DEFINITIONS,
+      {},
+      {
+        onEngineFinished: () => {
+          engineFinished = true;
+        },
+      }
+    );
 
     await engine.run(engine.getStartNodeId(), {});
 
@@ -259,11 +274,16 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {
-      onNodeError: (nodeId, error) => {
-        errors.push({ nodeId, error });
-      },
-    });
+    const engine = new Engine(
+      compiled,
+      NODE_DEFINITIONS,
+      {},
+      {
+        onNodeError: (nodeId, error) => {
+          errors.push({ nodeId, error });
+        },
+      }
+    );
 
     await engine.run(engine.getStartNodeId(), {});
 
@@ -297,7 +317,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), {});
 
@@ -336,7 +356,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     // Start execution but don't await
     const runPromise = engine.run(engine.getStartNodeId(), {});
@@ -369,11 +389,16 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {
-      onNodeExternalOutput: (outputName, data) => {
-        externalOutputs.push({ name: outputName, data });
-      },
-    });
+    const engine = new Engine(
+      compiled,
+      NODE_DEFINITIONS,
+      {},
+      {
+        onNodeExternalOutput: (outputName, data) => {
+          externalOutputs.push({ name: outputName, data });
+        },
+      }
+    );
 
     await engine.run(engine.getStartNodeId(), {});
 
@@ -427,7 +452,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), {});
 
@@ -466,7 +491,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), { initial: 10 });
 
@@ -516,7 +541,7 @@ describe("Engine", () => {
       )
       .compile();
 
-    const engine = new Engine(compiled, NODE_DEFINITIONS, {});
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
 
     await engine.run(engine.getStartNodeId(), { input: 5 });
 
@@ -525,5 +550,373 @@ describe("Engine", () => {
 
     // (5 + 10) * 2 = 30
     expect(finalResult).toBe(30);
+  });
+
+  // Config tests
+  describe("config", () => {
+    test("passes config values to evaluate node functions", async () => {
+      let receivedConfig: Record<string, string> = {};
+
+      type MyConfig = { apiKey: string; mode: string };
+
+      const compiled = new Graph<{ value: number }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                receivedConfig = config;
+                return { result: input.value * 2 };
+              },
+            }),
+          { name: "Process" }
+        )
+        .compile();
+
+      const engine = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { apiKey: "sk-123", mode: "fast" },
+        {}
+      );
+
+      await engine.run(engine.getStartNodeId(), { value: 10 });
+
+      expect(receivedConfig).toEqual({ apiKey: "sk-123", mode: "fast" });
+    });
+
+    test("passes config values to if node conditions", async () => {
+      let receivedConfig: Record<string, string> = {};
+      const executedBranches: string[] = [];
+
+      type MyConfig = { threshold: string };
+
+      const compiled = new Graph<{ value: number }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input) => ({ value: input.value }),
+            }),
+          { name: "Passthrough" }
+        )
+        .if(
+          {
+            condition: (input, config) => {
+              receivedConfig = config;
+              return input.value > parseInt(config.threshold);
+            },
+            then: (branch) =>
+              branch.run(
+                (f) =>
+                  f.evaluate({
+                    fn: async () => {
+                      executedBranches.push("then");
+                      return { branch: "then" };
+                    },
+                  }),
+                { name: "Above Threshold" }
+              ),
+            else: (branch) =>
+              branch.run(
+                (f) =>
+                  f.evaluate({
+                    fn: async () => {
+                      executedBranches.push("else");
+                      return { branch: "else" };
+                    },
+                  }),
+                { name: "Below Threshold" }
+              ),
+          },
+          "Check Threshold"
+        )
+        .compile();
+
+      // Test with value above threshold
+      const engine1 = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { threshold: "50" },
+        {}
+      );
+      await engine1.run(engine1.getStartNodeId(), { value: 100 });
+
+      expect(receivedConfig).toEqual({ threshold: "50" });
+      expect(executedBranches).toEqual(["then"]);
+
+      // Reset and test with value below threshold
+      executedBranches.length = 0;
+      const engine2 = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { threshold: "50" },
+        {}
+      );
+      await engine2.run(engine2.getStartNodeId(), { value: 25 });
+
+      expect(executedBranches).toEqual(["else"]);
+    });
+
+    test("config is available in all nodes in a chain", async () => {
+      const configsReceived: Array<Record<string, string>> = [];
+
+      type MyConfig = { multiplier: string };
+
+      const compiled = new Graph<{ start: number }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                configsReceived.push({ ...config });
+                return { value: input.start * parseInt(config.multiplier) };
+              },
+            }),
+          { name: "First Multiply" }
+        )
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                configsReceived.push({ ...config });
+                return { value: input.value * parseInt(config.multiplier) };
+              },
+            }),
+          { name: "Second Multiply" }
+        )
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                configsReceived.push({ ...config });
+                return { final: input.value };
+              },
+            }),
+          { name: "Finalize" }
+        )
+        .compile();
+
+      const engine = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { multiplier: "3" },
+        {}
+      );
+
+      await engine.run(engine.getStartNodeId(), { start: 2 });
+
+      // All 3 nodes should have received the same config
+      expect(configsReceived).toHaveLength(3);
+      expect(configsReceived[0]).toEqual({ multiplier: "3" });
+      expect(configsReceived[1]).toEqual({ multiplier: "3" });
+      expect(configsReceived[2]).toEqual({ multiplier: "3" });
+    });
+
+    test("config values affect computation results", async () => {
+      let finalResult: number = 0;
+
+      type MyConfig = {
+        operation: "add" | "multiply";
+        operand: string;
+      };
+
+      const compiled = new Graph<{ value: number }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                const operand = parseInt(config.operand);
+                if (config.operation === "add") {
+                  return { result: input.value + operand };
+                } else {
+                  return { result: input.value * operand };
+                }
+              },
+            }),
+          { name: "Calculate" }
+        )
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input) => {
+                finalResult = input.result;
+                return { final: input.result };
+              },
+            }),
+          { name: "Capture Result" }
+        )
+        .compile();
+
+      // Test with add operation
+      const addEngine = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { operation: "add", operand: "10" },
+        {}
+      );
+      await addEngine.run(addEngine.getStartNodeId(), { value: 5 });
+      expect(finalResult).toBe(15); // 5 + 10
+
+      // Test with multiply operation
+      const multiplyEngine = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { operation: "multiply", operand: "10" },
+        {}
+      );
+      await multiplyEngine.run(multiplyEngine.getStartNodeId(), { value: 5 });
+      expect(finalResult).toBe(50); // 5 * 10
+    });
+
+    test("empty config works correctly", async () => {
+      let receivedConfig: Record<string, string> = { unexpected: "value" };
+
+      const compiled = new Graph<{ x: number }>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                receivedConfig = config;
+                return { result: input.x };
+              },
+            }),
+          { name: "Process" }
+        )
+        .compile();
+
+      const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
+
+      await engine.run(engine.getStartNodeId(), { x: 42 });
+
+      expect(receivedConfig).toEqual({});
+    });
+
+    test("boolean and string config values work correctly", async () => {
+      const receivedConfigs: Array<{ verbose: boolean; multiplier: string }> =
+        [];
+
+      type MyConfig = {
+        verbose: boolean;
+        multiplier: string;
+      };
+
+      const compiled = new Graph<{ value: number }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                // TypeScript knows verbose is boolean, multiplier is string
+                receivedConfigs.push({
+                  verbose: config.verbose,
+                  multiplier: config.multiplier,
+                });
+                const mult = parseInt(config.multiplier);
+                return {
+                  result: input.value * mult,
+                  wasVerbose: config.verbose,
+                };
+              },
+            }),
+          { name: "Process" }
+        )
+        .compile();
+
+      // Pass boolean true for switch
+      const engine1 = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { verbose: true, multiplier: "2" },
+        {}
+      );
+      await engine1.run(engine1.getStartNodeId(), { value: 5 });
+      expect(receivedConfigs[0].verbose).toBe(true);
+      expect(typeof receivedConfigs[0].verbose).toBe("boolean");
+
+      // Pass boolean false for switch
+      const engine2 = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { verbose: false, multiplier: "3" },
+        {}
+      );
+      await engine2.run(engine2.getStartNodeId(), { value: 5 });
+      expect(receivedConfigs[1].verbose).toBe(false);
+      expect(typeof receivedConfigs[1].verbose).toBe("boolean");
+    });
+
+    test("config is available inside if branches", async () => {
+      const configsInBranches: Array<{
+        branch: string;
+        config: Record<string, string>;
+      }> = [];
+
+      type MyConfig = { branchLabel: string };
+
+      const compiled = new Graph<{ goLeft: boolean }, MyConfig>()
+        .if(
+          {
+            condition: (input) => input.goLeft,
+            then: (branch) =>
+              branch.run(
+                (f) =>
+                  f.evaluate({
+                    fn: async (input, config) => {
+                      configsInBranches.push({
+                        branch: "then",
+                        config: { ...config },
+                      });
+                      return { path: "left" };
+                    },
+                  }),
+                { name: "Left Branch" }
+              ),
+            else: (branch) =>
+              branch.run(
+                (f) =>
+                  f.evaluate({
+                    fn: async (input, config) => {
+                      configsInBranches.push({
+                        branch: "else",
+                        config: { ...config },
+                      });
+                      return { path: "right" };
+                    },
+                  }),
+                { name: "Right Branch" }
+              ),
+          },
+          "Choose Path"
+        )
+        .compile();
+
+      // Test left branch
+      const engine1 = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { branchLabel: "test-config" },
+        {}
+      );
+      await engine1.run(engine1.getStartNodeId(), { goLeft: true });
+
+      expect(configsInBranches).toHaveLength(1);
+      expect(configsInBranches[0]).toEqual({
+        branch: "then",
+        config: { branchLabel: "test-config" },
+      });
+
+      // Test right branch
+      configsInBranches.length = 0;
+      const engine2 = new Engine(
+        compiled,
+        NODE_DEFINITIONS,
+        { branchLabel: "test-config" },
+        {}
+      );
+      await engine2.run(engine2.getStartNodeId(), { goLeft: false });
+
+      expect(configsInBranches).toHaveLength(1);
+      expect(configsInBranches[0]).toEqual({
+        branch: "else",
+        config: { branchLabel: "test-config" },
+      });
+    });
   });
 });

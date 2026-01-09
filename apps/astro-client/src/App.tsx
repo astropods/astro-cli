@@ -296,21 +296,7 @@ function App() {
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0">
         {selectedAgent ? (
-          <>
-            <header className="p-6 border-b border-zinc-800 bg-zinc-900/30">
-              <h2 className="text-xl font-semibold text-zinc-100">
-                {selectedAgent.title}
-              </h2>
-              <p className="text-sm text-zinc-500 mt-1">
-                {selectedAgent.description}
-              </p>
-            </header>
-            <div className="flex-1">
-              <ReactFlowProvider key={selectedAgent.id}>
-                <FlowContent selectedAgent={selectedAgent} />
-              </ReactFlowProvider>
-            </div>
-          </>
+          <AgentContent selectedAgent={selectedAgent} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-zinc-500">
             <p>Select an agent from the sidebar</p>
@@ -318,6 +304,38 @@ function App() {
         )}
       </main>
     </div>
+  );
+}
+
+// Separate component to handle agent content
+function AgentContent({
+  selectedAgent,
+}: {
+  selectedAgent: {
+    id: string;
+    title: string;
+    description: string;
+    compiled: CompiledGraph;
+  };
+}) {
+  return (
+    <>
+      <header className="p-6 border-b border-zinc-800 bg-zinc-900/30">
+        <h2 className="text-xl font-semibold text-zinc-100">
+          {selectedAgent.title}
+        </h2>
+        <p className="text-sm text-zinc-500 mt-1">
+          {selectedAgent.description}
+        </p>
+      </header>
+      <div className="flex-1 flex min-h-0">
+        <div className="flex-1">
+          <ReactFlowProvider key={selectedAgent.id}>
+            <FlowContent selectedAgent={selectedAgent} />
+          </ReactFlowProvider>
+        </div>
+      </div>
+    </>
   );
 }
 

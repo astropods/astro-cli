@@ -15,7 +15,7 @@ const nodeTypeConfig: Record<string, { container: string; title: string; icon: L
     title: "text-amber-200",
     icon: Braces,
   },
-  generate: {
+  generateText: {
     container: "bg-[#1a0f2e] border-violet-500/50",
     title: "text-violet-200",
     icon: Sparkles,

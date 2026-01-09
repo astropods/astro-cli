@@ -1,11 +1,13 @@
 import type { NodeDefinition, NodeType } from "astro-types";
 
-export type EvalFn<TInput = unknown, TOutput = unknown> = (
-  input: TInput
+export type EvalFn<TInput = unknown, TOutput = unknown, TConfig = unknown> = (
+  input: TInput,
+  config: TConfig
 ) => Promise<TOutput>;
 
-export type ConditionFn<TInput = unknown> = (
-  input: TInput
+export type ConditionFn<TInput = unknown, TConfig = unknown> = (
+  input: TInput,
+  config: TConfig
 ) => boolean | Promise<boolean>;
 
 // #region Node Definitions
@@ -29,7 +31,7 @@ export const node_start: NodeDefinition<
 export const node_evaluate: NodeDefinition<
   any,
   { output: any },
-  { fn: EvalFn<any, any> }
+  { fn: EvalFn<any, any, any> }
 > = {
   type: "evaluate",
   meta: {
@@ -37,7 +39,7 @@ export const node_evaluate: NodeDefinition<
     description: "Evaluates a function and returns the result.",
   },
   execute: async (input, data, ctx) => {
-    const result = await data.fn(input);
+    const result = await data.fn(input, ctx.config);
     ctx.output("output", result);
   },
 };
@@ -62,7 +64,7 @@ export const node_generate_text: NodeDefinition<
 export const node_if: NodeDefinition<
   any,
   { then: any; else: any },
-  { condition: ConditionFn<any> }
+  { condition: ConditionFn<any, any> }
 > = {
   type: "if",
   meta: {
@@ -71,7 +73,7 @@ export const node_if: NodeDefinition<
   },
   private: true,
   execute: async (input, data, ctx) => {
-    const result = await data.condition(input);
+    const result = await data.condition(input, ctx.config);
     if (result) {
       ctx.output("then", input);
     } else {

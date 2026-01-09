@@ -4,13 +4,18 @@ import {
   Edge,
   NodeType,
   EngineContext,
+  ConfigValue,
 } from "astro-types";
 import type { CompiledGraph } from "astro-graph";
 
-export class Engine<TInput = Record<string, unknown>> {
+export class Engine<
+  TInput = Record<string, unknown>,
+  TConfig = Record<string, ConfigValue>
+> {
   private nodes: Map<string, Node>;
   private edges: Map<string, Edge>;
   private nodeDefs: Record<NodeType, NodeDefinition>;
+  private config: Record<string, ConfigValue>;
   private status: "idle" | "running" | "paused" = "idle";
   private cancelled: boolean = false;
   private pendingTasks: Map<string, null> = new Map();
@@ -28,8 +33,9 @@ export class Engine<TInput = Record<string, unknown>> {
   private onEngineFinished?: () => void;
 
   constructor(
-    graph: CompiledGraph<TInput, unknown>,
+    graph: CompiledGraph<TInput, unknown, TConfig>,
     nodeDefs: Record<NodeType, NodeDefinition>,
+    config: TConfig,
     events: {
       onStartNodeExecute?: (
         nodeId: string,
@@ -47,6 +53,7 @@ export class Engine<TInput = Record<string, unknown>> {
     this.nodes = new Map(Object.entries(graph.nodes));
     this.edges = new Map(Object.entries(graph.edges));
     this.nodeDefs = nodeDefs;
+    this.config = config as Record<string, ConfigValue>;
     this.onStartNodeExecute = events.onStartNodeExecute;
     this.onNodeExternalOutput = events.onNodeExternalOutput;
     this.onNodeExecuted = events.onNodeExecuted;
@@ -102,6 +109,7 @@ export class Engine<TInput = Record<string, unknown>> {
             outputExternal: (outputName, d) =>
               this.onNodeExternalOutput?.(outputName, d),
             nodeDefinitions: this.nodeDefs,
+            config: this.config,
           });
         }
       };
@@ -113,6 +121,7 @@ export class Engine<TInput = Record<string, unknown>> {
         outputExternal: (outputName, data) =>
           this.onNodeExternalOutput?.(outputName, data),
         nodeDefinitions: this.nodeDefs,
+        config: this.config,
       });
     });
   }
@@ -169,6 +178,7 @@ export class Engine<TInput = Record<string, unknown>> {
 
       const context: EngineContext = {
         ...ctx,
+        config: this.config,
         output: (outputName, data) => {
           nodeOutput[outputName] = data;
           ctx.output(outputName, data);

@@ -421,4 +421,166 @@ describe("Graph", () => {
     const formatNode = nodes.find((n) => n.name === "Format");
     expect(formatNode).toBeDefined();
   });
+
+  // Config tests
+  describe("config", () => {
+    test("config type flows through the chain", () => {
+      // This test verifies TypeScript type inference for config
+      type MyConfig = {
+        apiKey: string;
+        mode: "a" | "b" | "c";
+        verbose: boolean;
+      };
+
+      const compiled = new Graph<{ text: string }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              // The fn receives typed config
+              fn: async (input, config) => {
+                const key: string = config.apiKey;
+                const mode: "a" | "b" | "c" = config.mode;
+                const isVerbose: boolean = config.verbose;
+                return { processed: `${key}-${mode}-${isVerbose}` };
+              },
+            }),
+          { name: "Use Config" }
+        )
+        .compile();
+
+      // Type check: compiled graph should have the correct config type
+      const _typeCheck: CompiledGraph<
+        { text: string },
+        { processed: string },
+        MyConfig
+      > = compiled;
+
+      expect(compiled).toBeDefined();
+    });
+
+    test("config type is preserved through if branches", () => {
+      type ThresholdConfig = {
+        threshold: string;
+      };
+
+      const compiled = new Graph<{ value: number }, ThresholdConfig>()
+        .if(
+          {
+            // Condition has access to typed config
+            condition: (input, config) => {
+              const t: string = config.threshold;
+              return input.value > parseInt(t);
+            },
+            then: (branch) =>
+              branch.run(
+                (f) =>
+                  f.evaluate({
+                    // Then branch also has typed config
+                    fn: async (input, config) => {
+                      const t: string = config.threshold;
+                      return { result: "above", threshold: t };
+                    },
+                  }),
+                { name: "Above" }
+              ),
+            else: (branch) =>
+              branch.run(
+                (f) =>
+                  f.evaluate({
+                    // Else branch also has typed config
+                    fn: async (input, config) => {
+                      const t: string = config.threshold;
+                      return { result: "below", threshold: t };
+                    },
+                  }),
+                { name: "Below" }
+              ),
+          },
+          "Check Threshold"
+        )
+        .compile();
+
+      expect(compiled).toBeDefined();
+    });
+
+    test("compiled graph config type enforces Engine config parameter", () => {
+      type MyConfig = {
+        apiKey: string;
+        enabled: boolean;
+      };
+
+      // This test verifies that TypeScript enforces the config shape
+      const compiled = new Graph<{ x: number }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => ({
+                result: config.enabled ? input.x : 0,
+              }),
+            }),
+          { name: "Process" }
+        )
+        .compile();
+
+      // Type check: the compiled graph's config type should be extracted
+      type GraphConfigType = NonNullable<(typeof compiled)["_config"]>;
+
+      // This should match exactly what the graph expects
+      const validConfig: GraphConfigType = {
+        apiKey: "test-key",
+        enabled: true,
+      };
+
+      // Type assertion: these should be the correct types
+      const _keyCheck: string = validConfig.apiKey;
+      const _enabledCheck: boolean = validConfig.enabled;
+
+      expect(validConfig).toEqual({ apiKey: "test-key", enabled: true });
+    });
+
+    test("graph without config uses empty object type", () => {
+      const compiled = new Graph<{ x: number }>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input) => ({ doubled: input.x * 2 }),
+            }),
+          { name: "Double" }
+        )
+        .compile();
+
+      expect(compiled).toBeDefined();
+    });
+
+    test("config types are correctly inferred", () => {
+      type MyConfig = {
+        apiSecret: string;
+        maxRetries: number;
+      };
+
+      const compiled = new Graph<{ text: string }, MyConfig>()
+        .run(
+          (f) =>
+            f.evaluate({
+              fn: async (input, config) => {
+                // Type check: secret should be string, number should be number
+                const secret: string = config.apiSecret;
+                const retries: number = config.maxRetries;
+                return { result: `${secret}-${retries}` };
+              },
+            }),
+          { name: "Use Config" }
+        )
+        .compile();
+
+      // Type check: compiled graph should have the correct config type
+      const _typeCheck: CompiledGraph<
+        { text: string },
+        { result: string },
+        MyConfig
+      > = compiled;
+
+      expect(compiled).toBeDefined();
+    });
+  });
 });
