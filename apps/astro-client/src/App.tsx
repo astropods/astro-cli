@@ -15,13 +15,13 @@ import {
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
-import { agents } from "astro-agents";
+import { workflows } from "astro-workflows";
 import { AgentNode } from "./components/AgentNode";
 import type { AgentNodeData, Port, CompiledGraph } from "./types";
 
 // Build a list of agents from the agents export
-const agentList = Object.entries(agents).map(([key, agent]) => {
-  const compiled = agent.compile() as CompiledGraph;
+const agentList = Object.entries(workflows).map(([key, workflow]) => {
+  const compiled = workflow.compile() as CompiledGraph;
 
   return {
     id: key,

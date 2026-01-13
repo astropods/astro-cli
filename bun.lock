@@ -12,6 +12,7 @@
         "@tailwindcss/vite": "^4.1.18",
         "@xyflow/react": "^12.10.0",
         "astro-agents": "workspace:*",
+        "astro-workflows": "workspace:*",
         "lucide-react": "^0.562.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
@@ -71,6 +72,13 @@
     "packages/astro-types": {
       "name": "astro-types",
       "version": "1.0.0",
+    },
+    "packages/astro-workflows": {
+      "name": "astro-workflows",
+      "version": "1.0.0",
+      "dependencies": {
+        "astro-graph": "workspace:*",
+      },
     },
   },
   "packages": {
@@ -403,6 +411,8 @@
     "astro-nodes": ["astro-nodes@workspace:packages/astro-nodes"],
 
     "astro-types": ["astro-types@workspace:packages/astro-types"],
+
+    "astro-workflows": ["astro-workflows@workspace:packages/astro-workflows"],
 
     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 

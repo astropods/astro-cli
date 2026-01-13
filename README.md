@@ -50,5 +50,6 @@ Open your browser to the URL shown in the terminal (typically http://localhost:5
 │   ├── astro-agents/      # Agent implementations
 │   ├── astro-graph/       # Graph data structures
 │   ├── astro-nodes/       # Node types
-│   └── astro-types/       # Shared TypeScript types
+│   ├── astro-types/       # Shared TypeScript types
+│   └── astro-workflows/   # Reusable workflow tools
 ```
