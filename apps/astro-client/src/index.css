@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* Base styles */
 * {
   box-sizing: border-box;
 }
@@ -7,31 +8,18 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
-/* React Flow dark theme overrides */
-.react-flow__pane {
-  background-color: #09090b !important;
-}
-
-.react-flow__edge-path {
-  stroke: #71717a !important;
-  stroke-width: 2 !important;
-}
-
-.react-flow__edge.animated .react-flow__edge-path {
-  stroke-dasharray: 5;
-  animation: dashdraw 0.5s linear infinite;
-}
-
-@keyframes dashdraw {
+/* Animation */
+@keyframes spin {
   from {
-    stroke-dashoffset: 10;
+    transform: rotate(0deg);
   }
   to {
-    stroke-dashoffset: 0;
+    transform: rotate(360deg);
   }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
