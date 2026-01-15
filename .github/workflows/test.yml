@@ -5,8 +5,9 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  test:
+  test-bun:
     runs-on: ubuntu-latest
+    name: Test Bun packages
 
     steps:
       - name: Checkout repository
@@ -22,3 +23,33 @@ jobs:
 
       - name: Run tests
         run: bun test --recursive
+
+  test-go:
+    runs-on: ubuntu-latest
+    name: Test Go applications
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: apps/astro-server/go.sum
+
+      - name: Install dependencies
+        working-directory: apps/astro-server
+        run: go mod download
+
+      - name: Run go vet
+        working-directory: apps/astro-server
+        run: go vet ./...
+
+      - name: Run tests
+        working-directory: apps/astro-server
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Build
+        working-directory: apps/astro-server
+        run: go build -v ./...
