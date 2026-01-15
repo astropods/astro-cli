@@ -3,6 +3,9 @@
   "workspaces": {
     "": {
       "name": "astro",
+      "dependencies": {
+        "zod": "^4.3.5",
+      },
     },
     "apps/astro-client": {
       "name": "astro-client",

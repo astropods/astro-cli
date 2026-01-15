@@ -1,12 +1,12 @@
-import { Graph } from "astro-graph";
+import { Graph, z } from "astro-graph";
 
 /**
- * Input type for the GitHub README fetch workflow
+ * Input schema for the GitHub README fetch workflow
  */
-type FetchReadmeInput = {
-  username: string;
-  repo: string;
-};
+const FetchReadmeInputSchema = z.object({
+  username: z.string(),
+  repo: z.string(),
+});
 
 /**
  * Output type for the GitHub README fetch workflow
@@ -21,7 +21,7 @@ type FetchReadmeOutput = {
  * A workflow that fetches the README from a GitHub repository.
  * Takes a username and repo name, returns the README content.
  */
-export const fetchGithubReadme = new Graph<FetchReadmeInput>()
+export const fetchGithubReadme = new Graph(FetchReadmeInputSchema)
   .meta({
     title: "Fetch GitHub README",
     description:

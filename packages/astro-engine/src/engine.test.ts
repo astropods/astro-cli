@@ -1,6 +1,6 @@
 import { describe, test, expect, mock } from "bun:test";
 import { Engine } from "./engine";
-import { Graph } from "astro-graph";
+import { Graph, z } from "astro-graph";
 import { NODE_DEFINITIONS } from "astro-nodes";
 import type { Node, Edge, NodeType, NodeDefinition } from "astro-types";
 
@@ -8,7 +8,7 @@ describe("Engine", () => {
   test("executes a simple single-node graph with input data", async () => {
     const results: string[] = [];
 
-    const compiled = new Graph<{ message: string }>()
+    const compiled = new Graph(z.object({ message: z.string() }))
       .run(
         (f) =>
           f.evaluate({
@@ -31,7 +31,7 @@ describe("Engine", () => {
   test("executes a chain of nodes in sequence", async () => {
     const executionOrder: string[] = [];
 
-    const compiled = new Graph<{ value: number }>()
+    const compiled = new Graph(z.object({ value: z.number() }))
       .run(
         (f) =>
           f.evaluate({
@@ -74,7 +74,7 @@ describe("Engine", () => {
   test("executes the 'then' branch when condition is true", async () => {
     const executedBranches: string[] = [];
 
-    const compiled = new Graph<{ value: number }>()
+    const compiled = new Graph(z.object({ value: z.number() }))
       .run(
         (f) =>
           f.evaluate({
@@ -122,7 +122,7 @@ describe("Engine", () => {
   test("executes the 'else' branch when condition is false", async () => {
     const executedBranches: string[] = [];
 
-    const compiled = new Graph<{ value: number }>()
+    const compiled = new Graph(z.object({ value: z.number() }))
       .run(
         (f) =>
           f.evaluate({
@@ -170,7 +170,7 @@ describe("Engine", () => {
   test("calls onStartNodeExecute event for each node", async () => {
     const nodeExecutions: string[] = [];
 
-    const compiled = new Graph<{ x: number }>()
+    const compiled = new Graph(z.object({ x: z.number() }))
       .run((f) => f.evaluate({ fn: async () => ({ a: 1 }) }), {
         name: "Node A",
       })
@@ -204,7 +204,7 @@ describe("Engine", () => {
       outputs: Record<string, unknown>;
     }> = [];
 
-    const compiled = new Graph<{ x: number }>()
+    const compiled = new Graph(z.object({ x: z.number() }))
       .run((f) => f.evaluate({ fn: async () => ({ result: 42 }) }), {
         name: "Calculator",
       })
@@ -237,7 +237,7 @@ describe("Engine", () => {
   test("calls onEngineFinished when all nodes complete", async () => {
     let engineFinished = false;
 
-    const compiled = new Graph<{}>()
+    const compiled = new Graph(z.object({}))
       .run((f) => f.evaluate({ fn: async () => ({ done: true }) }), {
         name: "Final",
       })
@@ -262,7 +262,7 @@ describe("Engine", () => {
   test("calls onNodeError when a node throws", async () => {
     const errors: Array<{ nodeId: string; error: string }> = [];
 
-    const compiled = new Graph<{}>()
+    const compiled = new Graph(z.object({}))
       .run(
         (f) =>
           f.evaluate({
@@ -294,7 +294,7 @@ describe("Engine", () => {
   test("stops execution after error in a node", async () => {
     const executedNodes: string[] = [];
 
-    const compiled = new Graph<{}>()
+    const compiled = new Graph(z.object({}))
       .run(
         (f) =>
           f.evaluate({
@@ -329,7 +329,7 @@ describe("Engine", () => {
     const executedNodes: string[] = [];
     let resolveDelay: () => void;
 
-    const compiled = new Graph<{}>()
+    const compiled = new Graph(z.object({}))
       .run(
         (f) =>
           f.evaluate({
@@ -379,7 +379,7 @@ describe("Engine", () => {
   test("calls outputExternal for external outputs", async () => {
     const externalOutputs: Array<{ name: string; data: unknown }> = [];
 
-    const compiled = new Graph<{}>()
+    const compiled = new Graph(z.object({}))
       .run(
         (f) =>
           f.evaluate({
@@ -410,7 +410,7 @@ describe("Engine", () => {
   test("handles async conditions in if nodes", async () => {
     const executedBranches: string[] = [];
 
-    const compiled = new Graph<{}>()
+    const compiled = new Graph(z.object({}))
       .run(
         (f) =>
           f.evaluate({
@@ -462,7 +462,7 @@ describe("Engine", () => {
   test("data flows correctly through the graph", async () => {
     let finalOutput: unknown = null;
 
-    const compiled = new Graph<{ initial: number }>()
+    const compiled = new Graph(z.object({ initial: z.number() }))
       .run(
         (f) =>
           f.evaluate({
@@ -504,7 +504,7 @@ describe("Engine", () => {
     let finalResult: unknown = null;
 
     // Create a reusable module that doubles a value
-    const doublerModule = new Graph<{ value: number }>().run(
+    const doublerModule = new Graph(z.object({ value: z.number() })).run(
       (f) =>
         f.evaluate({
           fn: async (input) => {
@@ -516,7 +516,7 @@ describe("Engine", () => {
     );
 
     // Main graph that uses the module
-    const compiled = new Graph<{ input: number }>()
+    const compiled = new Graph(z.object({ input: z.number() }))
       .run(
         (f) =>
           f.evaluate({
@@ -557,9 +557,10 @@ describe("Engine", () => {
     test("passes config values to evaluate node functions", async () => {
       let receivedConfig: Record<string, string> = {};
 
-      type MyConfig = { apiKey: string; mode: string };
+      const MyConfigSchema = z.object({ apiKey: z.string(), mode: z.string() });
+      const valueSchema = z.object({ value: z.number() });
 
-      const compiled = new Graph<{ value: number }, MyConfig>()
+      const compiled = new Graph(valueSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -588,9 +589,10 @@ describe("Engine", () => {
       let receivedConfig: Record<string, string> = {};
       const executedBranches: string[] = [];
 
-      type MyConfig = { threshold: string };
+      const MyConfigSchema = z.object({ threshold: z.string() });
+      const valueSchema = z.object({ value: z.number() });
 
-      const compiled = new Graph<{ value: number }, MyConfig>()
+      const compiled = new Graph(valueSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -659,9 +661,10 @@ describe("Engine", () => {
     test("config is available in all nodes in a chain", async () => {
       const configsReceived: Array<Record<string, string>> = [];
 
-      type MyConfig = { multiplier: string };
+      const MyConfigSchema = z.object({ multiplier: z.string() });
+      const startSchema = z.object({ start: z.number() });
 
-      const compiled = new Graph<{ start: number }, MyConfig>()
+      const compiled = new Graph(startSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -713,12 +716,13 @@ describe("Engine", () => {
     test("config values affect computation results", async () => {
       let finalResult: number = 0;
 
-      type MyConfig = {
-        operation: "add" | "multiply";
-        operand: string;
-      };
+      const MyConfigSchema = z.object({
+        operation: z.enum(["add", "multiply"]),
+        operand: z.string(),
+      });
+      const valueSchema = z.object({ value: z.number() });
 
-      const compiled = new Graph<{ value: number }, MyConfig>()
+      const compiled = new Graph(valueSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -769,7 +773,7 @@ describe("Engine", () => {
     test("empty config works correctly", async () => {
       let receivedConfig: Record<string, string> = { unexpected: "value" };
 
-      const compiled = new Graph<{ x: number }>()
+      const compiled = new Graph(z.object({ x: z.number() }))
         .run(
           (f) =>
             f.evaluate({
@@ -793,12 +797,13 @@ describe("Engine", () => {
       const receivedConfigs: Array<{ verbose: boolean; multiplier: string }> =
         [];
 
-      type MyConfig = {
-        verbose: boolean;
-        multiplier: string;
-      };
+      const MyConfigSchema = z.object({
+        verbose: z.boolean(),
+        multiplier: z.string(),
+      });
+      const valueSchema = z.object({ value: z.number() });
 
-      const compiled = new Graph<{ value: number }, MyConfig>()
+      const compiled = new Graph(valueSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -848,9 +853,10 @@ describe("Engine", () => {
         config: Record<string, string>;
       }> = [];
 
-      type MyConfig = { branchLabel: string };
+      const MyConfigSchema = z.object({ branchLabel: z.string() });
+      const goLeftSchema = z.object({ goLeft: z.boolean() });
 
-      const compiled = new Graph<{ goLeft: boolean }, MyConfig>()
+      const compiled = new Graph(goLeftSchema, MyConfigSchema)
         .if(
           {
             condition: (input) => input.goLeft,

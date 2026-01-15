@@ -13,6 +13,7 @@ import {
   node_start,
 } from "astro-nodes";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 
 type GraphMeta = {
   title: string;
@@ -29,24 +30,24 @@ type GraphContext = {
  * A compiled graph with phantom types for input/output/config.
  * Can be used as a module in other graphs.
  *
- * @template TInput - The type the graph accepts as input
+ * @template TInputSchema - The Zod schema type for input validation
  * @template TOutput - The type the graph produces as output
- * @template TConfig - The type of config values the graph requires
+ * @template TConfigSchema - The Zod schema type for config validation
  */
 export type CompiledGraph<
-  TInput = unknown,
+  TInputSchema extends z.ZodType = z.ZodType,
   TOutput = unknown,
-  TConfig = unknown
+  TConfigSchema extends z.ZodType = z.ZodType<{}>
 > = {
   meta: GraphMeta;
   nodes: Record<string, Node>;
   edges: Record<string, Edge>;
-  /** Phantom field to carry input type - doesn't exist at runtime */
-  readonly _input?: TInput;
+  /** The Zod schema for validating graph input */
+  inputSchema: TInputSchema;
+  /** The Zod schema for validating graph config */
+  configSchema: TConfigSchema;
   /** Phantom field to carry output type - doesn't exist at runtime */
   readonly _output?: TOutput;
-  /** Phantom field to carry config type - doesn't exist at runtime */
-  readonly _config?: TConfig;
 };
 
 /**
@@ -56,10 +57,10 @@ export type CompiledGraph<
 export type BranchBuilderFn<
   TBranchInput,
   TBranchOutput,
-  TBranchConfig extends Record<string, unknown> = {}
+  TBranchConfigSchema extends z.ZodType = z.ZodType<{}>
 > = (
-  branch: Graph<TBranchInput, TBranchConfig, TBranchInput>
-) => Graph<TBranchInput, TBranchConfig, TBranchOutput>;
+  branch: Graph<z.ZodType<TBranchInput>, TBranchConfigSchema, TBranchInput>
+) => Graph<z.ZodType<TBranchInput>, TBranchConfigSchema, TBranchOutput>;
 
 /**
  * Data for an if node with separate types for each branch.
@@ -69,11 +70,14 @@ export type IfNodeData<
   TInput,
   TThen,
   TElse,
-  TIfConfig extends Record<string, unknown> = {}
+  TIfConfigSchema extends z.ZodType = z.ZodType<{}>
 > = {
-  condition: (input: TInput, config: TIfConfig) => boolean | Promise<boolean>;
-  then: BranchBuilderFn<TInput, TThen, TIfConfig>;
-  else: BranchBuilderFn<TInput, TElse, TIfConfig>;
+  condition: (
+    input: TInput,
+    config: z.infer<TIfConfigSchema>
+  ) => boolean | Promise<boolean>;
+  then: BranchBuilderFn<TInput, TThen, TIfConfigSchema>;
+  else: BranchBuilderFn<TInput, TElse, TIfConfigSchema>;
 };
 
 export type NodeConfig<
@@ -99,21 +103,28 @@ type StaticNodeFactories = {
   ) => NodeConfig<(typeof NODE_DEFINITIONS)[K]>;
 };
 
-/** Bound factories - TIn and TConfig are pre-bound from the graph's current state */
-type BoundFactories<TIn, TConfig = {}> = StaticNodeFactories & {
+/** Bound factories - TIn and TConfigSchema are pre-bound from the graph's current state */
+type BoundFactories<
+  TIn,
+  TConfigSchema extends z.ZodType = z.ZodType<{}>
+> = StaticNodeFactories & {
   /** Evaluate factory with input and config types pre-bound */
   evaluate: <TOut>(data: {
-    fn: (input: TIn, config: TConfig) => Promise<TOut>;
+    fn: (input: TIn, config: z.infer<TConfigSchema>) => Promise<TOut>;
   }) => NodeConfig<
-    NodeDefinition<TIn, { output: TOut }, { fn: EvalFn<TIn, TOut, TConfig> }>
+    NodeDefinition<
+      TIn,
+      { output: TOut },
+      { fn: EvalFn<TIn, TOut, z.infer<TConfigSchema>> }
+    >
   >;
 };
 
-function createBoundFactories<TIn, TConfig = {}>(): BoundFactories<
+function createBoundFactories<
   TIn,
-  TConfig
-> {
-  const factories = {} as BoundFactories<TIn, TConfig>;
+  TConfigSchema extends z.ZodType = z.ZodType<{}>
+>(): BoundFactories<TIn, TConfigSchema> {
+  const factories = {} as BoundFactories<TIn, TConfigSchema>;
 
   // Auto-generate factories for non-generic, non-private nodes
   for (const [key, definition] of Object.entries(NODE_DEFINITIONS)) {
@@ -125,16 +136,20 @@ function createBoundFactories<TIn, TConfig = {}>(): BoundFactories<
     });
   }
 
-  // Evaluate factory with TIn and TConfig pre-bound
+  // Evaluate factory with TIn and TConfigSchema pre-bound
   factories.evaluate = <TOut>(data: {
-    fn: (input: TIn, config: TConfig) => Promise<TOut>;
+    fn: (input: TIn, config: z.infer<TConfigSchema>) => Promise<TOut>;
   }) =>
     ({
       type: "evaluate" as const,
       name: "Evaluate",
       data,
     } as NodeConfig<
-      NodeDefinition<TIn, { output: TOut }, { fn: EvalFn<TIn, TOut, TConfig> }>
+      NodeDefinition<
+        TIn,
+        { output: TOut },
+        { fn: EvalFn<TIn, TOut, z.infer<TConfigSchema>> }
+      >
     >);
 
   return factories;
@@ -144,23 +159,27 @@ function createBoundFactories<TIn, TConfig = {}>(): BoundFactories<
  * A chainable builder for constructing graphs.
  * Can represent the root graph or a branch.
  *
- * @template TStart - The type the graph accepts as input
- * @template TConfig - The config type (must be a record/object type)
+ * @template TInputSchema - The Zod schema type for input validation
+ * @template TConfigSchema - The Zod schema type for config validation
  * @template TCurrent - The type at the current position in the chain
  */
 class Graph<
-  TStart = unknown,
-  TConfig extends Record<string, unknown> = {},
-  TCurrent = TStart
+  TInputSchema extends z.ZodType = z.ZodType<unknown>,
+  TConfigSchema extends z.ZodType = z.ZodType<{}>,
+  TCurrent = z.infer<TInputSchema>
 > {
   private ctx: GraphContext;
   private lastNodeId: string | null;
   private nextPort: string;
+  private inputSchema: TInputSchema;
+  private configSchema: TConfigSchema;
 
-  /** Bound factories with TCurrent and TConfig pre-bound for type inference */
-  private boundFactories = createBoundFactories<TCurrent, TConfig>();
+  /** Bound factories with TCurrent and TConfigSchema pre-bound for type inference */
+  private boundFactories = createBoundFactories<TCurrent, TConfigSchema>();
 
   constructor(
+    inputSchema: TInputSchema,
+    configSchema: TConfigSchema = z.object({}) as unknown as TConfigSchema,
     ctx: GraphContext = {
       meta: { title: "", description: "" },
       nodes: {},
@@ -169,6 +188,8 @@ class Graph<
     startNodeId: string | null = null,
     initialPort: string = "output"
   ) {
+    this.inputSchema = inputSchema;
+    this.configSchema = configSchema;
     this.ctx = ctx;
     this.lastNodeId = startNodeId;
     this.nextPort = initialPort;
@@ -206,8 +227,10 @@ class Graph<
   private createBranch<TBranchStart>(
     fromNodeId: string,
     fromPort: string
-  ): Graph<TBranchStart, TConfig, TBranchStart> {
-    return new Graph<TBranchStart, TConfig, TBranchStart>(
+  ): Graph<z.ZodType<TBranchStart>, TConfigSchema, TBranchStart> {
+    return new Graph<z.ZodType<TBranchStart>, TConfigSchema, TBranchStart>(
+      z.any() as z.ZodType<TBranchStart>,
+      this.configSchema,
       this.ctx,
       fromNodeId,
       fromPort
@@ -223,9 +246,9 @@ class Graph<
    * @returns Graph with output type as union of both branches
    */
   if<TThen, TElse>(
-    data: IfNodeData<TCurrent, TThen, TElse, TConfig>,
+    data: IfNodeData<TCurrent, TThen, TElse, TConfigSchema>,
     name: string
-  ): Graph<TStart, TConfig, TThen | TElse> {
+  ): Graph<TInputSchema, TConfigSchema, TThen | TElse> {
     const { condition, then: thenBuilder, else: elseBuilder } = data;
 
     const node: Node<typeof node_if> = {
@@ -244,7 +267,9 @@ class Graph<
     elseBuilder(elseBranch);
 
     // Return type is union of both branches
-    return new Graph<TStart, TConfig, TThen | TElse>(
+    return new Graph<TInputSchema, TConfigSchema, TThen | TElse>(
+      this.inputSchema,
+      this.configSchema,
       this.ctx,
       node.id,
       "output"
@@ -275,18 +300,24 @@ class Graph<
    */
   run<TNodeInput, TOut>(
     configFn: (
-      factories: BoundFactories<TCurrent, TConfig>
+      factories: BoundFactories<TCurrent, TConfigSchema>
     ) => NodeConfig<NodeDefinition<TNodeInput, { output: TOut }, any>>,
     options: TCurrent extends TNodeInput
       ? {
           name?: string;
-          transform?: (input: TCurrent, config: TConfig) => TNodeInput;
+          transform?: (
+            input: TCurrent,
+            config: z.infer<TConfigSchema>
+          ) => TNodeInput;
         }
       : {
           name?: string;
-          transform: (input: TCurrent, config: TConfig) => TNodeInput;
+          transform: (
+            input: TCurrent,
+            config: z.infer<TConfigSchema>
+          ) => TNodeInput;
         }
-  ): Graph<TStart, TConfig, TOut> {
+  ): Graph<TInputSchema, TConfigSchema, TOut> {
     const config = configFn(this.boundFactories);
 
     const node: Node = {
@@ -298,8 +329,14 @@ class Graph<
 
     this.addNode(node);
 
-    // Preserve TStart and TConfig, update TCurrent to TOut
-    return new Graph<TStart, TConfig, TOut>(this.ctx, node.id, "output");
+    // Preserve TInputSchema and TConfigSchema, update TCurrent to TOut
+    return new Graph<TInputSchema, TConfigSchema, TOut>(
+      this.inputSchema,
+      this.configSchema,
+      this.ctx,
+      node.id,
+      "output"
+    );
   }
 
   /**
@@ -311,18 +348,18 @@ class Graph<
    * @returns Graph with output type from the module
    *
    * @example
-   * const textProcessor = new Graph<{ text: string }>()
+   * const textProcessor = new Graph(z.object({ text: z.string() }))
    *   .run((f) => f.evaluate({ fn: async (input) => ({ length: input.text.length }) }));
    *
-   * const mainGraph = new Graph<{ rawText: string }>()
+   * const mainGraph = new Graph(z.object({ rawText: z.string() }))
    *   .run((f) => f.evaluate({ fn: async (input) => ({ text: input.rawText }) }))
    *   .useModule(textProcessor)
    *   .compile();
    */
-  useModule<TModuleInput, TModuleOutput>(
-    module: Graph<TModuleInput, any, TModuleOutput>
-  ): TCurrent extends TModuleInput
-    ? Graph<TStart, TConfig, TModuleOutput>
+  useModule<TModuleInputSchema extends z.ZodType, TModuleOutput>(
+    module: Graph<TModuleInputSchema, any, TModuleOutput>
+  ): TCurrent extends z.infer<TModuleInputSchema>
+    ? Graph<TInputSchema, TConfigSchema, TModuleOutput>
     : never {
     // Get the module's compiled representation
     const compiled = module.compile();
@@ -394,8 +431,8 @@ class Graph<
 
     this.nextPort = "output";
 
-    return this as unknown as TCurrent extends TModuleInput
-      ? Graph<TStart, TConfig, TModuleOutput>
+    return this as unknown as TCurrent extends z.infer<TModuleInputSchema>
+      ? Graph<TInputSchema, TConfigSchema, TModuleOutput>
       : never;
   }
 
@@ -405,7 +442,7 @@ class Graph<
   meta(meta: {
     title: string;
     description: string;
-  }): Graph<TStart, TConfig, TCurrent> {
+  }): Graph<TInputSchema, TConfigSchema, TCurrent> {
     this.ctx.meta.title = meta.title;
     this.ctx.meta.description = meta.description;
     return this;
@@ -415,15 +452,17 @@ class Graph<
    * Exports internal graph details like nodes and edges for external consumption.
    * The compiled graph carries type information and can be used as a module.
    *
-   * @returns Compiled graph with input type TStart, output type TCurrent, and config type TConfig
+   * @returns Compiled graph with input schema TInputSchema, output type TCurrent, and config schema TConfigSchema
    */
-  compile(): CompiledGraph<TStart, TCurrent, TConfig> {
+  compile(): CompiledGraph<TInputSchema, TCurrent, TConfigSchema> {
     return {
       meta: this.ctx.meta,
       nodes: this.ctx.nodes,
       edges: this.ctx.edges,
+      inputSchema: this.inputSchema,
+      configSchema: this.configSchema,
     };
   }
 }
 
-export { Graph };
+export { Graph, z };

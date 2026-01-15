@@ -7,10 +7,11 @@ import {
   ConfigValue,
 } from "astro-types";
 import type { CompiledGraph } from "astro-graph";
+import { type z } from "zod";
 
 export class Engine<
-  TInput = Record<string, unknown>,
-  TConfig = Record<string, ConfigValue>
+  TInputSchema extends z.ZodType = z.ZodType,
+  TConfigSchema extends z.ZodType = z.ZodType<{}>
 > {
   private nodes: Map<string, Node>;
   private edges: Map<string, Edge>;
@@ -33,9 +34,9 @@ export class Engine<
   private onEngineFinished?: () => void;
 
   constructor(
-    graph: CompiledGraph<TInput, unknown, TConfig>,
+    graph: CompiledGraph<TInputSchema, unknown, TConfigSchema>,
     nodeDefs: Record<NodeType, NodeDefinition>,
-    config: TConfig,
+    config: z.infer<TConfigSchema>,
     events: {
       onStartNodeExecute?: (
         nodeId: string,
@@ -76,7 +77,7 @@ export class Engine<
     return startNode.id;
   }
 
-  public async run(startNodeId: string, input: TInput) {
+  public async run(startNodeId: string, input: z.infer<TInputSchema>) {
     return new Promise<void>((resolve, _reject) => {
       this.runFinishedResolver = resolve;
 

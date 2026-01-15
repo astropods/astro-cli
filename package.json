@@ -4,5 +4,8 @@
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "dependencies": {
+    "zod": "^4.3.5"
+  }
 }

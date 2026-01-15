@@ -1,9 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { Graph, type CompiledGraph } from "./index";
+import { Graph, z, type CompiledGraph } from "./index";
 
 describe("Graph", () => {
   test("creates a graph with a single evaluate node", () => {
-    const graph = new Graph();
+    const graph = new Graph(z.unknown());
     const evaluateFn = async () => {};
 
     const result = graph
@@ -31,7 +31,7 @@ describe("Graph", () => {
   });
 
   test("chains multiple evaluate nodes with edges", () => {
-    const graph = new Graph();
+    const graph = new Graph(z.unknown());
 
     const result = graph
       .run((f) => f.evaluate({ fn: async () => {} }), { name: "First" })
@@ -58,7 +58,7 @@ describe("Graph", () => {
   });
 
   test("creates an if node with then and else branches", () => {
-    const graph = new Graph();
+    const graph = new Graph(z.unknown());
     const condition = () => true;
 
     const result = graph
@@ -111,7 +111,7 @@ describe("Graph", () => {
     // 2. Into the if condition
     // 3. Through blocks inside each branch
 
-    const result = new Graph<{ text: string }>()
+    const result = new Graph(z.object({ text: z.string() }))
       // First transform: { text: string } -> { words: string[], count: number }
       .run(
         (f) =>
@@ -218,7 +218,7 @@ describe("Graph", () => {
   });
 
   test("edges have correct port configuration", () => {
-    const graph = new Graph();
+    const graph = new Graph(z.unknown());
 
     const result = graph
       .run((f) => f.evaluate({ fn: async () => {} }), { name: "A" })
@@ -235,7 +235,7 @@ describe("Graph", () => {
   });
 
   test("nodes have unique ids", () => {
-    const graph = new Graph();
+    const graph = new Graph(z.unknown());
 
     const result = graph
       .run((f) => f.evaluate({ fn: async () => {} }), { name: "A" })
@@ -255,7 +255,8 @@ describe("Graph", () => {
     // This test verifies that branches can produce different types
     // and the result is a union type
 
-    const result = new Graph<{ value: number }>()
+    const valueSchema = z.object({ value: z.number() });
+    const result = new Graph(valueSchema)
       .if(
         {
           condition: (input) => input.value > 10,
@@ -287,7 +288,8 @@ describe("Graph", () => {
       | { status: "low"; offset: number };
 
     // This line would fail to compile if types don't match
-    const _typeCheck: CompiledGraph<{ value: number }, ExpectedOutput> = result;
+    const _typeCheck: CompiledGraph<typeof valueSchema, ExpectedOutput> =
+      result;
 
     const nodes = Object.values(result.nodes);
 
@@ -302,7 +304,8 @@ describe("Graph", () => {
   });
 
   test("compiled graph carries both input and output types", () => {
-    const graph = new Graph<{ input: string }>()
+    const inputSchema = z.object({ input: z.string() });
+    const graph = new Graph(inputSchema)
       .run(
         (f) =>
           f.evaluate({
@@ -320,18 +323,17 @@ describe("Graph", () => {
       .compile();
 
     // Type check: the compiled graph should have the correct types
-    type InputType = { input: string };
     type OutputType = { doubled: number };
 
     // This assignment verifies the types at compile time
-    const _typeCheck: CompiledGraph<InputType, OutputType> = graph;
+    const _typeCheck: CompiledGraph<typeof inputSchema, OutputType> = graph;
 
     expect(Object.values(graph.nodes)).toHaveLength(3); // start + 2 nodes
   });
 
   test("useModule inlines a graph and types flow through", () => {
     // Create a reusable module
-    const textLengthModule = new Graph<{ text: string }>().run(
+    const textLengthModule = new Graph(z.object({ text: z.string() })).run(
       (f) =>
         f.evaluate({
           fn: async (input) => ({ length: input.text.length }),
@@ -340,7 +342,8 @@ describe("Graph", () => {
     );
 
     // Use the module in another graph
-    const mainGraph = new Graph<{ rawInput: string }>()
+    const rawInputSchema = z.object({ rawInput: z.string() });
+    const mainGraph = new Graph(rawInputSchema)
       .run(
         (f) =>
           f.evaluate({
@@ -359,8 +362,10 @@ describe("Graph", () => {
       .compile();
 
     // Type check: main graph should flow from rawInput to isLong
-    const _typeCheck: CompiledGraph<{ rawInput: string }, { isLong: boolean }> =
-      mainGraph;
+    const _typeCheck: CompiledGraph<
+      typeof rawInputSchema,
+      { isLong: boolean }
+    > = mainGraph;
 
     const nodes = Object.values(mainGraph.nodes);
     const edges = Object.values(mainGraph.edges);
@@ -377,7 +382,8 @@ describe("Graph", () => {
   });
 
   test("chaining after if preserves start type and uses union as current", () => {
-    const result = new Graph<{ text: string }>()
+    const textSchema = z.object({ text: z.string() });
+    const result = new Graph(textSchema)
       .if(
         {
           condition: (input) => input.text.length > 5,
@@ -411,7 +417,7 @@ describe("Graph", () => {
 
     // The final type should preserve the original start type
     // and have the output of the last node
-    const _typeCheck: CompiledGraph<{ text: string }, { message: string }> =
+    const _typeCheck: CompiledGraph<typeof textSchema, { message: string }> =
       result;
 
     const nodes = Object.values(result.nodes);
@@ -426,13 +432,14 @@ describe("Graph", () => {
   describe("config", () => {
     test("config type flows through the chain", () => {
       // This test verifies TypeScript type inference for config
-      type MyConfig = {
-        apiKey: string;
-        mode: "a" | "b" | "c";
-        verbose: boolean;
-      };
+      const MyConfigSchema = z.object({
+        apiKey: z.string(),
+        mode: z.enum(["a", "b", "c"]),
+        verbose: z.boolean(),
+      });
 
-      const compiled = new Graph<{ text: string }, MyConfig>()
+      const textSchema = z.object({ text: z.string() });
+      const compiled = new Graph(textSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -450,20 +457,21 @@ describe("Graph", () => {
 
       // Type check: compiled graph should have the correct config type
       const _typeCheck: CompiledGraph<
-        { text: string },
+        typeof textSchema,
         { processed: string },
-        MyConfig
+        typeof MyConfigSchema
       > = compiled;
 
       expect(compiled).toBeDefined();
     });
 
     test("config type is preserved through if branches", () => {
-      type ThresholdConfig = {
-        threshold: string;
-      };
+      const ThresholdConfigSchema = z.object({
+        threshold: z.string(),
+      });
 
-      const compiled = new Graph<{ value: number }, ThresholdConfig>()
+      const valueSchema = z.object({ value: z.number() });
+      const compiled = new Graph(valueSchema, ThresholdConfigSchema)
         .if(
           {
             // Condition has access to typed config
@@ -504,13 +512,14 @@ describe("Graph", () => {
     });
 
     test("compiled graph config type enforces Engine config parameter", () => {
-      type MyConfig = {
-        apiKey: string;
-        enabled: boolean;
-      };
+      const MyConfigSchema = z.object({
+        apiKey: z.string(),
+        enabled: z.boolean(),
+      });
 
       // This test verifies that TypeScript enforces the config shape
-      const compiled = new Graph<{ x: number }, MyConfig>()
+      const xSchema = z.object({ x: z.number() });
+      const compiled = new Graph(xSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -522,8 +531,8 @@ describe("Graph", () => {
         )
         .compile();
 
-      // Type check: the compiled graph's config type should be extracted
-      type GraphConfigType = NonNullable<(typeof compiled)["_config"]>;
+      // Type check: the compiled graph's config schema should be available
+      type GraphConfigType = z.infer<(typeof compiled)["configSchema"]>;
 
       // This should match exactly what the graph expects
       const validConfig: GraphConfigType = {
@@ -539,7 +548,7 @@ describe("Graph", () => {
     });
 
     test("graph without config uses empty object type", () => {
-      const compiled = new Graph<{ x: number }>()
+      const compiled = new Graph(z.object({ x: z.number() }))
         .run(
           (f) =>
             f.evaluate({
@@ -553,12 +562,13 @@ describe("Graph", () => {
     });
 
     test("config types are correctly inferred", () => {
-      type MyConfig = {
-        apiSecret: string;
-        maxRetries: number;
-      };
+      const MyConfigSchema = z.object({
+        apiSecret: z.string(),
+        maxRetries: z.number(),
+      });
 
-      const compiled = new Graph<{ text: string }, MyConfig>()
+      const textSchema = z.object({ text: z.string() });
+      const compiled = new Graph(textSchema, MyConfigSchema)
         .run(
           (f) =>
             f.evaluate({
@@ -575,9 +585,9 @@ describe("Graph", () => {
 
       // Type check: compiled graph should have the correct config type
       const _typeCheck: CompiledGraph<
-        { text: string },
+        typeof textSchema,
         { result: string },
-        MyConfig
+        typeof MyConfigSchema
       > = compiled;
 
       expect(compiled).toBeDefined();
