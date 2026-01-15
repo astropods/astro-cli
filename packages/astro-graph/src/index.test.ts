@@ -3,7 +3,7 @@ import { Graph, z, type CompiledGraph } from "./index";
 
 describe("Graph", () => {
   test("creates a graph with a single evaluate node", () => {
-    const graph = new Graph(z.unknown());
+    const graph = new Graph(z.object({}));
     const evaluateFn = async () => {};
 
     const result = graph
@@ -31,7 +31,7 @@ describe("Graph", () => {
   });
 
   test("chains multiple evaluate nodes with edges", () => {
-    const graph = new Graph(z.unknown());
+    const graph = new Graph(z.object({}));
 
     const result = graph
       .run((f) => f.evaluate({ fn: async () => {} }), { name: "First" })
@@ -58,7 +58,7 @@ describe("Graph", () => {
   });
 
   test("creates an if node with then and else branches", () => {
-    const graph = new Graph(z.unknown());
+    const graph = new Graph(z.object({}));
     const condition = () => true;
 
     const result = graph
@@ -218,7 +218,7 @@ describe("Graph", () => {
   });
 
   test("edges have correct port configuration", () => {
-    const graph = new Graph(z.unknown());
+    const graph = new Graph(z.object({}));
 
     const result = graph
       .run((f) => f.evaluate({ fn: async () => {} }), { name: "A" })
@@ -235,7 +235,7 @@ describe("Graph", () => {
   });
 
   test("nodes have unique ids", () => {
-    const graph = new Graph(z.unknown());
+    const graph = new Graph(z.object({}));
 
     const result = graph
       .run((f) => f.evaluate({ fn: async () => {} }), { name: "A" })

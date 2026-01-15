@@ -10,8 +10,8 @@ import type { CompiledGraph } from "astro-graph";
 import { type z } from "zod";
 
 export class Engine<
-  TInputSchema extends z.ZodType = z.ZodType,
-  TConfigSchema extends z.ZodType = z.ZodType<{}>
+  TInputSchema extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
+  TConfigSchema extends z.ZodType = z.ZodType<{}>,
 > {
   private nodes: Map<string, Node>;
   private edges: Map<string, Edge>;

@@ -14,6 +14,13 @@
     }
   },
   "dependencies": {
+    "@mastra/core": "^1.0.0-beta.21",
+    "@mastra/memory": "^1.0.0-beta.12",
+    "astro-engine": "workspace:*",
     "astro-graph": "workspace:*"
+  },
+  "devDependencies": {
+    "mastra": "^1.0.0-beta.14",
+    "typescript": "^5.9.3"
   }
 }

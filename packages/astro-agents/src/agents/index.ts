@@ -1,1 +1,1 @@
-export const example = "";
+export * from "./example-github-agent";

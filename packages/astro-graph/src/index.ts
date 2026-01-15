@@ -1,5 +1,6 @@
 import type {
-  Edge,
+  CompiledGraph,
+  GraphContext,
   Node,
   NodeDataType,
   NodeDefinition,
@@ -15,40 +16,8 @@ import {
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-type GraphMeta = {
-  title: string;
-  description: string;
-};
-
-type GraphContext = {
-  meta: GraphMeta;
-  nodes: Record<string, Node>;
-  edges: Record<string, Edge>;
-};
-
-/**
- * A compiled graph with phantom types for input/output/config.
- * Can be used as a module in other graphs.
- *
- * @template TInputSchema - The Zod schema type for input validation
- * @template TOutput - The type the graph produces as output
- * @template TConfigSchema - The Zod schema type for config validation
- */
-export type CompiledGraph<
-  TInputSchema extends z.ZodType = z.ZodType,
-  TOutput = unknown,
-  TConfigSchema extends z.ZodType = z.ZodType<{}>
-> = {
-  meta: GraphMeta;
-  nodes: Record<string, Node>;
-  edges: Record<string, Edge>;
-  /** The Zod schema for validating graph input */
-  inputSchema: TInputSchema;
-  /** The Zod schema for validating graph config */
-  configSchema: TConfigSchema;
-  /** Phantom field to carry output type - doesn't exist at runtime */
-  readonly _output?: TOutput;
-};
+// Re-export CompiledGraph for backward compatibility
+export type { CompiledGraph } from "astro-types";
 
 /**
  * Branch builder function for if/else branches.
@@ -57,10 +26,10 @@ export type CompiledGraph<
 export type BranchBuilderFn<
   TBranchInput,
   TBranchOutput,
-  TBranchConfigSchema extends z.ZodType = z.ZodType<{}>
+  TBranchConfigSchema extends z.ZodType = z.ZodType<{}>,
 > = (
-  branch: Graph<z.ZodType<TBranchInput>, TBranchConfigSchema, TBranchInput>
-) => Graph<z.ZodType<TBranchInput>, TBranchConfigSchema, TBranchOutput>;
+  branch: Graph<z.ZodObject<z.ZodRawShape>, TBranchConfigSchema, TBranchInput>
+) => Graph<z.ZodObject<z.ZodRawShape>, TBranchConfigSchema, TBranchOutput>;
 
 /**
  * Data for an if node with separate types for each branch.
@@ -70,7 +39,7 @@ export type IfNodeData<
   TInput,
   TThen,
   TElse,
-  TIfConfigSchema extends z.ZodType = z.ZodType<{}>
+  TIfConfigSchema extends z.ZodType = z.ZodType<{}>,
 > = {
   condition: (
     input: TInput,
@@ -81,7 +50,7 @@ export type IfNodeData<
 };
 
 export type NodeConfig<
-  ND extends NodeDefinition<any, any, any> = NodeDefinition
+  ND extends NodeDefinition<any, any, any> = NodeDefinition,
 > = {
   type: ND["type"];
   name: string;
@@ -97,8 +66,8 @@ type StaticNodeFactories = {
   [K in keyof typeof NODE_DEFINITIONS as K extends "evaluate"
     ? never
     : (typeof NODE_DEFINITIONS)[K] extends { private: true }
-    ? never
-    : K]: (
+      ? never
+      : K]: (
     data: NodeDataType<(typeof NODE_DEFINITIONS)[K]>
   ) => NodeConfig<(typeof NODE_DEFINITIONS)[K]>;
 };
@@ -106,7 +75,7 @@ type StaticNodeFactories = {
 /** Bound factories - TIn and TConfigSchema are pre-bound from the graph's current state */
 type BoundFactories<
   TIn,
-  TConfigSchema extends z.ZodType = z.ZodType<{}>
+  TConfigSchema extends z.ZodType = z.ZodType<{}>,
 > = StaticNodeFactories & {
   /** Evaluate factory with input and config types pre-bound */
   evaluate: <TOut>(data: {
@@ -122,7 +91,7 @@ type BoundFactories<
 
 function createBoundFactories<
   TIn,
-  TConfigSchema extends z.ZodType = z.ZodType<{}>
+  TConfigSchema extends z.ZodType = z.ZodType<{}>,
 >(): BoundFactories<TIn, TConfigSchema> {
   const factories = {} as BoundFactories<TIn, TConfigSchema>;
 
@@ -144,13 +113,13 @@ function createBoundFactories<
       type: "evaluate" as const,
       name: "Evaluate",
       data,
-    } as NodeConfig<
+    }) as NodeConfig<
       NodeDefinition<
         TIn,
         { output: TOut },
         { fn: EvalFn<TIn, TOut, z.infer<TConfigSchema>> }
       >
-    >);
+    >;
 
   return factories;
 }
@@ -159,14 +128,14 @@ function createBoundFactories<
  * A chainable builder for constructing graphs.
  * Can represent the root graph or a branch.
  *
- * @template TInputSchema - The Zod schema type for input validation
+ * @template TInputSchema - The Zod object schema type for input validation (must be a z.object())
  * @template TConfigSchema - The Zod schema type for config validation
  * @template TCurrent - The type at the current position in the chain
  */
 class Graph<
-  TInputSchema extends z.ZodType = z.ZodType<unknown>,
+  TInputSchema extends z.ZodObject<z.ZodRawShape> = z.ZodObject<z.ZodRawShape>,
   TConfigSchema extends z.ZodType = z.ZodType<{}>,
-  TCurrent = z.infer<TInputSchema>
+  TCurrent = z.infer<TInputSchema>,
 > {
   private ctx: GraphContext;
   private lastNodeId: string | null;
@@ -181,7 +150,7 @@ class Graph<
     inputSchema: TInputSchema,
     configSchema: TConfigSchema = z.object({}) as unknown as TConfigSchema,
     ctx: GraphContext = {
-      meta: { title: "", description: "" },
+      meta: { title: "", description: "", toolName: "", toolDescription: null },
       nodes: {},
       edges: {},
     },
@@ -227,9 +196,9 @@ class Graph<
   private createBranch<TBranchStart>(
     fromNodeId: string,
     fromPort: string
-  ): Graph<z.ZodType<TBranchStart>, TConfigSchema, TBranchStart> {
-    return new Graph<z.ZodType<TBranchStart>, TConfigSchema, TBranchStart>(
-      z.any() as z.ZodType<TBranchStart>,
+  ): Graph<z.ZodObject<z.ZodRawShape>, TConfigSchema, TBranchStart> {
+    return new Graph<z.ZodObject<z.ZodRawShape>, TConfigSchema, TBranchStart>(
+      z.object({}) as z.ZodObject<z.ZodRawShape>,
       this.configSchema,
       this.ctx,
       fromNodeId,
@@ -356,7 +325,10 @@ class Graph<
    *   .useModule(textProcessor)
    *   .compile();
    */
-  useModule<TModuleInputSchema extends z.ZodType, TModuleOutput>(
+  useModule<
+    TModuleInputSchema extends z.ZodObject<z.ZodRawShape>,
+    TModuleOutput,
+  >(
     module: Graph<TModuleInputSchema, any, TModuleOutput>
   ): TCurrent extends z.infer<TModuleInputSchema>
     ? Graph<TInputSchema, TConfigSchema, TModuleOutput>
@@ -442,9 +414,15 @@ class Graph<
   meta(meta: {
     title: string;
     description: string;
+    toolDescription?: string;
   }): Graph<TInputSchema, TConfigSchema, TCurrent> {
     this.ctx.meta.title = meta.title;
     this.ctx.meta.description = meta.description;
+    this.ctx.meta.toolName = meta.title
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, "")
+      .replace(/ /g, "_");
+    this.ctx.meta.toolDescription = meta.toolDescription ?? null;
     return this;
   }
 

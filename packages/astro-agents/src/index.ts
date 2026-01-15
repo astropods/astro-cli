@@ -1,1 +1,1 @@
-export * from "./agents";
+export * from "./agent";
