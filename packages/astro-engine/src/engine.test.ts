@@ -499,6 +499,32 @@ describe("Engine", () => {
     expect(finalOutput).toBe(30);
   });
 
+  test("run() returns the final result from terminal node", async () => {
+    const compiled = new Graph(z.object({ value: z.number() }))
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({ doubled: input.value * 2 }),
+          }),
+        { name: "Double" }
+      )
+      .run(
+        (f) =>
+          f.evaluate({
+            fn: async (input) => ({ result: input.doubled + 10 }),
+          }),
+        { name: "Add 10" }
+      )
+      .compile();
+
+    const engine = new Engine(compiled, NODE_DEFINITIONS, {}, {});
+
+    const result = await engine.run(engine.getStartNodeId(), { value: 5 });
+
+    // (5 * 2) + 10 = 20
+    expect(result).toEqual({ result: 20 });
+  });
+
   test("executes a graph that uses a module", async () => {
     const executionOrder: string[] = [];
     let finalResult: unknown = null;

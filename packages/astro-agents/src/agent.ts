@@ -4,6 +4,7 @@ import { DynamicArgument } from "@mastra/core/types";
 import { Engine } from "astro-engine";
 import { NODE_DEFINITIONS } from "astro-nodes";
 import { Memory } from "@mastra/memory";
+import { LibSQLStore } from "@mastra/libsql";
 
 type AgentMeta = {
   title: string;
@@ -42,7 +43,12 @@ export class AstroAgent {
   }
 
   private createInMemoryStorage(): Memory {
-    return new Memory();
+    return new Memory({
+      storage: new LibSQLStore({
+        id: "memory",
+        url: ":memory:",
+      }),
+    });
   }
 
   private convertTools(): DynamicArgument<ToolsInput> {
@@ -88,6 +94,7 @@ export class AstroAgent {
     prompt: string;
     threadId: string;
     userId: string;
+    model?: Agent["model"];
     onChunk?: (chunk: string) => void;
     onStepStart?: (step: AgentStep) => void;
     onStepEnd?: (step: AgentStep) => void;
@@ -97,7 +104,10 @@ export class AstroAgent {
     onError?: (error: Error) => void;
     onFinish?: (result: string) => void;
   }): Promise<void> {
-    if (!this._agent) {
+    // Recreate agent if model changed or not initialized
+    const targetModel = config.model || this._model;
+    if (!this._agent || (config.model && config.model !== this._model)) {
+      this._model = targetModel;
       this._agent = this.createAgent();
     }
 

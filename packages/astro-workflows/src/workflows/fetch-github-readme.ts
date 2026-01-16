@@ -18,8 +18,25 @@ type FetchReadmeOutput = {
 };
 
 /**
+ * Helper to check if README content is just a path reference to another file
+ */
+function isPathReference(content: string): string | null {
+  const trimmed = content.trim();
+  // Check if content is just a path (e.g., "packages/ai/README.md")
+  if (
+    trimmed.match(/^[\w\-./]+\.md$/i) &&
+    !trimmed.includes("\n") &&
+    trimmed.length < 200
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+/**
  * A workflow that fetches the README from a GitHub repository.
  * Takes a username and repo name, returns the README content.
+ * If the root README is a path reference, follows it to get the actual content.
  */
 export const fetchGithubReadme = new Graph(FetchReadmeInputSchema)
   .meta({
@@ -43,7 +60,19 @@ export const fetchGithubReadme = new Graph(FetchReadmeInputSchema)
               const response = await fetch(url);
 
               if (response.ok) {
-                const readme = await response.text();
+                let readme = await response.text();
+
+                // Check if the README is just a path reference to another file
+                const pathRef = isPathReference(readme);
+                if (pathRef) {
+                  // Fetch the actual README from the referenced path
+                  const actualUrl = `https://raw.githubusercontent.com/${username}/${repo}/${branch}/${pathRef}`;
+                  const actualResponse = await fetch(actualUrl);
+                  if (actualResponse.ok) {
+                    readme = await actualResponse.text();
+                  }
+                }
+
                 return {
                   readme,
                   success: true,
@@ -64,7 +93,26 @@ export const fetchGithubReadme = new Graph(FetchReadmeInputSchema)
             });
 
             if (response.ok) {
-              const readme = await response.text();
+              let readme = await response.text();
+
+              // Check if the README is just a path reference
+              const pathRef = isPathReference(readme);
+              if (pathRef) {
+                // Try to fetch from the referenced path (try main first, then master)
+                for (const branch of branches) {
+                  const actualUrl = `https://raw.githubusercontent.com/${username}/${repo}/${branch}/${pathRef}`;
+                  try {
+                    const actualResponse = await fetch(actualUrl);
+                    if (actualResponse.ok) {
+                      readme = await actualResponse.text();
+                      break;
+                    }
+                  } catch {
+                    // Continue to next branch
+                  }
+                }
+              }
+
               return {
                 readme,
                 success: true,

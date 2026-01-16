@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/index.ts"
+    "dev": "bun --watch src/index.ts",
+    "playground": "cd playground && bun x --bun vite",
+    "playground:server": "bun --watch --env-file=playground/.env playground/server.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -15,6 +17,7 @@
   },
   "dependencies": {
     "@mastra/core": "^1.0.0-beta.21",
+    "@mastra/libsql": "^1.0.0-beta.11",
     "@mastra/memory": "^1.0.0-beta.12",
     "astro-engine": "workspace:*",
     "astro-graph": "workspace:*"

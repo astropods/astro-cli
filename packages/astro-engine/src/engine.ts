@@ -78,16 +78,23 @@ export class Engine<
   }
 
   public async run(startNodeId: string, input: z.infer<TInputSchema>) {
-    return new Promise<void>((resolve, _reject) => {
-      this.runFinishedResolver = resolve;
-
+    return new Promise<unknown>((resolve, reject) => {
       const startNode = this.nodes.get(startNodeId);
       if (!startNode) {
-        throw new Error("Start node not found");
+        reject(new Error("Start node not found"));
+        return;
       }
 
       this.status = "running";
       this.cancelled = false;
+
+      // Track the last output from terminal nodes (nodes with no outgoing edges)
+      let finalResult: unknown = undefined;
+
+      // Set the resolver to return the final result when all tasks complete
+      this.runFinishedResolver = () => {
+        resolve(finalResult);
+      };
 
       const handleNodeOutput = (
         nodeId: string,
@@ -98,10 +105,16 @@ export class Engine<
           (edge) => edge.sourcePort === outputName
         );
 
+        // If no outgoing edges, this is a terminal node - capture the result
+        if (outgoingEdges.length === 0) {
+          finalResult = data;
+          return;
+        }
+
         for (const edge of outgoingEdges) {
           const targetNode = this.nodes.get(edge.target);
 
-          if (!targetNode) return;
+          if (!targetNode) continue; // Skip invalid edges instead of returning
 
           // Pass data directly to the next node (unwrapped)
           this.executeNode(edge.target, data, {
@@ -111,6 +124,8 @@ export class Engine<
               this.onNodeExternalOutput?.(outputName, d),
             nodeDefinitions: this.nodeDefs,
             config: this.config,
+          }).catch(() => {
+            // Errors already reported via onNodeError in executeNode
           });
         }
       };
@@ -123,6 +138,8 @@ export class Engine<
           this.onNodeExternalOutput?.(outputName, data),
         nodeDefinitions: this.nodeDefs,
         config: this.config,
+      }).catch(() => {
+        // Errors already reported via onNodeError in executeNode
       });
     });
   }
@@ -160,19 +177,21 @@ export class Engine<
 
     this.pendingTasks.set(taskId, null);
 
-    const node = this.nodes.get(nodeId);
-
-    if (!node) {
-      throw new Error("Node not found, could not execute node");
-    }
-
-    const blockDef = this.nodeDefs[node.type];
-
-    if (!blockDef) {
-      throw new Error("Block definition not found, could not execute node");
-    }
-
     try {
+      const node = this.nodes.get(nodeId);
+
+      if (!node) {
+        throw new Error(`Node not found: ${nodeId}`);
+      }
+
+      const blockDef = this.nodeDefs[node.type];
+
+      if (!blockDef) {
+        throw new Error(
+          `Block definition not found for node type: ${node.type}`
+        );
+      }
+
       this.onStartNodeExecute?.(nodeId, input as Record<string, unknown>);
 
       const nodeOutput: Record<string, any> = {};
@@ -199,6 +218,7 @@ export class Engine<
         (error as Error)?.message ??
           "An unknown error occurred while running this block."
       );
+      throw error; // Re-throw so the caller can handle it
     } finally {
       this.pendingTasks.delete(taskId);
       this.checkForPendingTasks();
