@@ -23,7 +23,7 @@ const defaultChunks = [
   { type: "finish", payload: {} },
 ];
 
-// Mock the Agent class
+// Mock the Agent class and other exports from @mastra/core/agent
 mock.module("@mastra/core/agent", () => ({
   Agent: class MockAgent {
     constructor(config: any) {
@@ -42,6 +42,17 @@ mock.module("@mastra/core/agent", () => ({
       };
     }
   },
+  // Must include all exports that the real module provides
+  MessageList: class MockMessageList {},
+  TripWire: class MockTripWire {},
+  TypeDetector: class MockTypeDetector {},
+  isSupportedLanguageModel: () => true,
+  resolveThreadIdFromArgs: () => null,
+  supportedLanguageModelSpecifications: [],
+  tryGenerateWithJsonFallback: async () => ({}),
+  tryStreamWithJsonFallback: async () => ({}),
+  aiV5ModelMessageToV2PromptMessage: () => ({}),
+  convertMessages: () => [],
 }));
 
 mock.module("@mastra/memory", () => ({
