@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "playground": "cd playground && bun x --bun vite",
+    "playground:setup": "bun playground/setup-env.ts",
     "playground:server": "bun --watch --env-file=playground/.env playground/server.ts"
   },
   "main": "./src/index.ts",
