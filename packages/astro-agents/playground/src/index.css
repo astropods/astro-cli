@@ -330,3 +330,36 @@ pre,
 .markdown-content-user tr:nth-child(even) {
   background: rgba(0, 0, 0, 0.1);
 }
+
+/* React Flow custom styles */
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  background: #ffffff !important;
+  border: 2px solid var(--color-bg-primary) !important;
+  border-radius: 50% !important;
+}
+
+.react-flow__handle-left {
+  left: 0 !important;
+}
+
+.react-flow__handle-right {
+  right: 0 !important;
+}
+
+.react-flow__edge-path {
+  stroke: var(--color-text-muted) !important;
+  stroke-width: 2 !important;
+}
+
+.react-flow__edge.animated path {
+  stroke-dasharray: 5 !important;
+  animation: flowEdge 0.5s linear infinite !important;
+}
+
+@keyframes flowEdge {
+  to {
+    stroke-dashoffset: -10;
+  }
+}

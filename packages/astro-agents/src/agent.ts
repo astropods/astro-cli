@@ -42,6 +42,62 @@ export class AstroAgent {
     return this;
   }
 
+  getConfig(): {
+    systemPrompt: string;
+    tools: {
+      name: string;
+      description: string;
+      type: "graph" | "other";
+      graph?: {
+        nodes: { id: string; name: string; type: string }[];
+        edges: { id: string; source: string; target: string }[];
+      };
+    }[];
+  } {
+    const toolInfos = this._tools
+      .map((tool) => {
+        if (tool.type === "graph") {
+          const nodes = Object.entries(tool.graph.nodes).map(([id, node]) => ({
+            id,
+            name: (node as { name: string }).name,
+            type: (node as { type: string }).type,
+          }));
+          const edges = Object.entries(tool.graph.edges).map(([id, edge]) => ({
+            id,
+            source: (edge as { source: string }).source,
+            target: (edge as { target: string }).target,
+          }));
+
+          return {
+            name: tool.graph.meta.toolName,
+            description:
+              tool.graph.meta.toolDescription ?? tool.graph.meta.description,
+            type: "graph" as const,
+            graph: { nodes, edges },
+          };
+        }
+        return undefined;
+      })
+      .filter(
+        (
+          tool
+        ): tool is {
+          name: string;
+          description: string;
+          type: "graph";
+          graph: {
+            nodes: { id: string; name: string; type: string }[];
+            edges: { id: string; source: string; target: string }[];
+          };
+        } => tool !== undefined
+      );
+
+    return {
+      systemPrompt: this._instructions.join("\n\n"),
+      tools: toolInfos,
+    };
+  }
+
   private createInMemoryStorage(): Memory {
     return new Memory({
       storage: new LibSQLStore({

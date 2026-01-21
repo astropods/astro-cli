@@ -39,6 +39,24 @@ const server = Bun.serve({
       });
     }
 
+    // Get agent configuration
+    if (url.pathname.match(/^\/api\/agents\/[^/]+\/config$/) && req.method === "GET") {
+      const agentId = url.pathname.split("/")[3];
+      const agent = AGENTS[agentId];
+
+      if (!agent) {
+        return new Response(JSON.stringify({ error: "Agent not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const config = agent.getConfig();
+      return new Response(JSON.stringify(config), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Stream chat with an agent
     if (url.pathname === "/api/chat" && req.method === "POST") {
       const body = await req.json();
