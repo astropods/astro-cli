@@ -46,6 +46,7 @@ export class AstroAgent {
     systemPrompt: string;
     tools: {
       name: string;
+      title: string;
       description: string;
       type: "graph" | "other";
       graph?: {
@@ -70,6 +71,7 @@ export class AstroAgent {
 
           return {
             name: tool.graph.meta.toolName,
+            title: tool.graph.meta.title,
             description:
               tool.graph.meta.toolDescription ?? tool.graph.meta.description,
             type: "graph" as const,
@@ -83,6 +85,7 @@ export class AstroAgent {
           tool
         ): tool is {
           name: string;
+          title: string;
           description: string;
           type: "graph";
           graph: {

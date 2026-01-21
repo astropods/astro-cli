@@ -45,6 +45,7 @@ type AgentInfo = {
 
 type ToolConfig = {
   name: string;
+  title: string;
   description: string;
   type: "graph" | "other";
   graph?: {
@@ -391,7 +392,7 @@ function ViewToggle({
 function GraphNode({ data }: NodeProps) {
   const isStartOrEnd = data.isStart || data.isEnd;
   const bgColor = isStartOrEnd ? "#7c3aed" : "#1e1e2e";
-  
+
   // Map string positions to Position enum
   const targetPositionMap: Record<string, Position> = {
     left: Position.Left,
@@ -405,7 +406,7 @@ function GraphNode({ data }: NodeProps) {
     right: Position.Right,
     bottom: Position.Bottom,
   };
-  
+
   const targetPosition = targetPositionMap[data.targetPosition as string] || Position.Left;
   const sourcePosition = sourcePositionMap[data.sourcePosition as string] || Position.Right;
 
@@ -569,7 +570,7 @@ function ToolGraphView({ tool }: { tool: ToolConfig }) {
   const height = Math.max(200, Math.min(400, nodeCount * 30));
 
   return (
-    <div 
+    <div
       className="w-full bg-[#0d0d14] rounded-lg border border-[var(--color-border)] mt-3"
       style={{ height: `${height}px` }}
     >
@@ -596,7 +597,7 @@ function ToolCard({ tool, index }: { tool: ToolConfig; index: number }) {
         </div>
         <div className="flex-1 min-w-0">
           <h4 className="text-sm font-medium text-[var(--color-text-primary)]">
-            {tool.name}
+            {tool.title}
           </h4>
           <p className="text-xs text-[var(--color-text-muted)] mt-1">
             {tool.description || "No description"}
