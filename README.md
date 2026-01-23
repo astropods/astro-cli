@@ -1,135 +1,216 @@
 # Astro CLI
 
-A powerful command-line interface for the Astro platform, combining the structure of [Cobra](https://github.com/spf13/cobra) with the beautiful interactive TUI capabilities of [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+A command-line interface for developing, building, and publishing AI agents on the Astro platform. Define your agent infrastructure declaratively in `astro.yml` and deploy with a single command.
 
 ## Features
 
-- **Command-line interface** powered by Cobra for structured commands
-- **Interactive TUI mode** with Bubble Tea for beautiful terminal interactions
-- **Version information** display with build details
+- **Spec-driven development** - Declarative YAML configuration for agents, models, knowledge bases, tools, and integrations
+- **Local development mode** - Run agents locally with hot reload for rapid iteration
+- **Container orchestration** - Automatic Docker Compose generation for self-hosted components
+- **OCI-native publishing** - Push agents and specs to any OCI-compatible registry
+- **Multi-component builds** - Build agent containers plus custom models, knowledge stores, and tools
+- **Message interface support** - Built-in Slack, Discord, and Teams messaging sidecars
+- **Injection pipelines** - Schedule data ingestion from external sources with cron triggers
 
 ## Installation
 
 ### Build from source
 
 ```bash
-cd apps/astro-cli
-go build -o astro .
-```
-
-### Install globally
-
-```bash
-cd apps/astro-cli
-go install
+moon run astro-cli:build
 ```
 
 ## Usage
 
 ### Commands
 
-#### Interactive Mode (TUI)
+#### `dev` - Local Development
 
-Launch the beautiful terminal user interface:
-
-```bash
-./astro interactive
-```
-
-Or simply run without arguments to show help:
+Run your agent locally with hot reload:
 
 ```bash
-./astro
+./astro dev
 ```
 
-Navigation in interactive mode:
-- `↑/↓` or `j/k` - Navigate menu
-- `Enter` or `Space` - Select option
-- `Esc` - Go back to main menu
-- `q` - Quit
+This command:
+- Loads environment variables from `.env`
+- Builds and starts all self-hosted components (models, knowledge stores, tools)
+- Runs your agent container with live code reloading
+- Sets up messaging interfaces (Slack, Discord, Teams)
+- Schedules injection workers based on cron triggers
+- Watches `./src` for changes and auto-restarts
 
-#### Version Information
+**Flags:**
+- `--env` - Path to environment file (default: `.env`)
+- `--no-reload` - Disable hot reload
+- `--file, -f` - Path to spec file (default: `astro.yml`)
 
-Display version, commit, and build date:
+#### `build` - Build Containers
+
+Build agent and custom component containers:
 
 ```bash
-./astro version
+./astro build
 ```
+
+Builds:
+- Agent container (if `container.build` is specified)
+- Custom model containers (`models.*.container.build`)
+- Custom knowledge store containers (`knowledge.*.container.build`)
+- Custom tool containers (`tools.*.container.build`)
+
+**Flags:**
+- `--tag, -t` - Image tag (default: `latest`)
+- `--no-cache` - Build without using cache
+- `--file, -f` - Path to spec file (default: `astro.yml`)
+
+#### `publish` - Publish to Registry
+
+Publish agent, components, and spec to an OCI registry:
+
+```bash
+./astro publish --registry ghcr.io/myorg
+```
+
+Publishes:
+- Agent container image
+- Custom component images
+- Spec as OCI artifact (via ORAS)
+
+**Flags:**
+- `--registry, -r` - Registry URL (required)
+- `--tag, -t` - Image tag (default: `latest`)
+- `--build` - Build before publishing
+- `--file, -f` - Path to spec file (default: `astro.yml`)
 
 ### Global Flags
 
-- `-v, --verbose` - Enable verbose output for more detailed information
-- `-h, --help` - Show help for any command
+- `--file, -f` - Path to astro.yml spec file (default: `astro.yml`)
+- `--verbose, -v` - Enable verbose output
+- `--quiet, -q` - Minimal output
+- `--help, -h` - Show help
+
+## Quick Start
+
+1. Create an `astro.yml` spec file:
+
+```yaml
+spec: astro/v1
+agent: my-agent
+
+meta:
+  version: 1.0.0
+  description: My AI agent
+
+container:
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+integrations:
+  models:
+    llm:
+      provider: anthropic
+
+interfaces:
+  slack:
+    type: messaging/slack
+    config:
+      bot_token: ${SLACK_BOT_TOKEN}
+      app_token: ${SLACK_APP_TOKEN}
+```
+
+2. Create a `.env` file with credentials:
+
+```
+ANTHROPIC_API_KEY=sk-...
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+```
+
+3. Develop locally:
+
+```bash
+./astro dev
+```
+
+4. Build containers:
+
+```bash
+./astro build --tag v1.0.0
+```
+
+5. Publish to registry:
+
+```bash
+./astro publish --registry ghcr.io/myorg --tag v1.0.0
+```
+
+## Spec Format
+
+The `astro.yml` spec supports:
+
+- **`meta`** - Version, description, tags, owner
+- **`container`** - Agent runtime container configuration
+- **`models`** - Self-hosted models (embeddings, inference)
+- **`knowledge`** - Vector stores, key-value stores, graph databases
+- **`tools`** - Custom functions and capabilities
+- **`integrations`** - Cloud providers (Anthropic, OpenAI, GitHub, Tavily)
+- **`interfaces`** - Messaging (Slack, Discord, Teams), HTTP APIs
+- **`injections`** - Data pipelines with cron/event triggers
+
+See example specs in `packages/astro-agents/` for reference.
 
 ## Development
 
 ### Prerequisites
 
 - Go 1.24 or higher
+- Docker and Docker Compose
 
 ### Dependencies
 
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea) - TUI framework
-- [Lip Gloss](https://github.com/charmbracelet/lipgloss) - Terminal styling
+- [Docker SDK](https://github.com/docker/docker) - Container builds and orchestration
+- [ORAS](https://oras.land) - OCI artifact publishing
+- [Compose Go](https://github.com/compose-spec/compose-go) - Docker Compose generation
+- [fsnotify](https://github.com/fsnotify/fsnotify) - File watching for hot reload
+- [cron](https://github.com/robfig/cron) - Cron scheduling for injections
 
 ### Project Structure
 
 ```
 astro-cli/
-├── main.go              # Entry point
+├── main.go                     # Entry point
 ├── cmd/
-│   ├── root.go         # Root command definition
-│   ├── interactive.go  # Interactive TUI mode
-│   └── version.go      # Version command
-├── ui/
-│   └── model.go        # Bubble Tea TUI model
+│   ├── root.go                # Root command and global flags
+│   ├── dev.go                 # Local development with hot reload
+│   ├── build.go               # Container build orchestration
+│   └── publish.go             # OCI registry publishing
+├── internal/
+│   ├── spec/
+│   │   ├── parser.go          # YAML spec parsing
+│   │   └── types.go           # Spec data structures
+│   ├── compose/
+│   │   └── builder.go         # Dynamic Compose project generation
+│   └── watcher/
+│       └── watcher.go         # File watcher for hot reload
 ├── go.mod
-├── go.sum
-└── README.md
-```
-
-## Command Examples
-
-```bash
-# Show help
-./astro --help
-
-# Show version
-./astro version
-
-# Launch interactive mode
-./astro interactive
-```
-
-## Building
-
-Use the included Makefile for common tasks:
-
-```bash
-# Build the binary
-make build
-
-# Install globally
-make install
-
-# Clean build artifacts
-make clean
-
-# Run tests
-make test
-
-# Format code
-make fmt
+└── go.sum
 ```
 
 ## Architecture
 
-The Astro CLI combines two powerful Go libraries:
+The Astro CLI is a spec-driven orchestration tool that:
 
-1. **Cobra**: Provides the command structure, argument parsing, and help generation for the CLI commands
-2. **Bubble Tea**: Powers the interactive TUI mode with elegant terminal rendering and user interactions
+1. **Parses** declarative `astro.yml` specs into structured data
+2. **Generates** Docker Compose projects dynamically based on declared components
+3. **Builds** multi-stage container images for agents and custom components
+4. **Orchestrates** local development environments with hot reload
+5. **Publishes** containers and specs to OCI registries using ORAS
 
-This hybrid approach gives users the flexibility to:
-- Use traditional command-line arguments for scripting and automation
-- Use the interactive TUI for exploratory workflows and better UX
+Key design principles:
+- **Declarative over imperative** - Infrastructure as code via YAML specs
+- **Container-native** - Everything runs in Docker for portability
+- **OCI-compatible** - Works with any container registry
+- **Developer-friendly** - Hot reload, credential injection, automatic service discovery

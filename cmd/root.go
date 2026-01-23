@@ -9,23 +9,25 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "astro",
-	Short: "Astro CLI - A tool for running astro commands",
-	Long: `Astro CLI is a command-line interface for interacting with the Astro platform.
+	Short: "Astro CLI - Build, publish, and develop AI agents",
+	Long: `Astro CLI is a tool for building, publishing, and developing AI agents.
 
-Run 'astro interactive' to launch the interactive TUI mode, or just run 'astro' without arguments.`,
-	// No Run function - will show help by default
+It reads an astro.yml specification file that declares:
+- Self-hosted components (models, knowledge stores, tools)
+- Cloud integrations (Anthropic, GitHub, etc.)
+- Interfaces (Slack, HTTP API)
+- Data injection pipelines`,
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func init() {
-	// Global flags can be added here
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.astro.yaml)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
+	rootCmd.PersistentFlags().StringP("file", "f", "astro.yml", "Path to astro.yml spec file")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
+	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
 }

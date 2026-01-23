@@ -26,3 +26,10 @@ astro
 *.swp
 *.swo
 *~
+
+# Environment files with secrets
+.env
+.env.local
+
+# Credentials
+.secrets/
