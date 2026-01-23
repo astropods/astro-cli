@@ -9,9 +9,10 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Server   ServerConfig
-	Log      LogConfig
-	Security SecurityConfig
+	Server     ServerConfig
+	Log        LogConfig
+	Security   SecurityConfig
+	Deployment DeploymentConfig
 }
 
 // ServerConfig holds server-specific configuration
@@ -36,6 +37,15 @@ type SecurityConfig struct {
 	TrustedProxies []string
 }
 
+// DeploymentConfig holds deployment-related configuration
+type DeploymentConfig struct {
+	ArtifactDir       string
+	RegistryURL       string
+	K8sKubeconfigPath string
+	K8sInCluster      bool
+	K8sMasterURL      string
+}
+
 // Load loads configuration from environment variables with defaults
 func Load() (*Config, error) {
 	cfg := &Config{
@@ -54,6 +64,13 @@ func Load() (*Config, error) {
 		Security: SecurityConfig{
 			AllowedOrigins: getEnvSlice("ALLOWED_ORIGINS", []string{"*"}),
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
+		},
+		Deployment: DeploymentConfig{
+			ArtifactDir:       getEnv("ARTIFACT_DIR", "/tmp/astro-artifacts"),
+			RegistryURL:       getEnv("REGISTRY_URL", "ghcr.io/saswatds"),
+			K8sKubeconfigPath: getEnv("K8S_KUBECONFIG_PATH", ""),
+			K8sInCluster:      getEnv("K8S_IN_CLUSTER", "false") == "true",
+			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
 		},
 	}
 
@@ -78,6 +95,10 @@ func (c *Config) Validate() error {
 	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
 	if !validLogLevels[c.Log.Level] {
 		return fmt.Errorf("invalid log level: %s", c.Log.Level)
+	}
+
+	if c.Deployment.RegistryURL == "" {
+		return fmt.Errorf("REGISTRY_URL environment variable is required")
 	}
 
 	return nil

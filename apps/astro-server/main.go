@@ -6,17 +6,23 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"github.com/postman/astro/apps/astro-server/handlers"
+	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
 )
 
 func main() {
+	// Load .env file if it exists (ignore error if not found)
+	_ = godotenv.Load()
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -51,8 +57,17 @@ func main() {
 		}
 	}
 
+	// Initialize agent index for tracking published agents
+	indexPath := filepath.Join(cfg.Deployment.ArtifactDir, "agent-index.db")
+	agentIndex, err := agentindex.NewIndex(indexPath)
+	if err != nil {
+		log.Error("Failed to create agent index", "error", err)
+		os.Exit(1)
+	}
+	log.Info("Agent index initialized", "path", indexPath)
+
 	// Register routes
-	setupRoutes(router, log)
+	setupRoutes(router, log, agentIndex, cfg)
 
 	// Create HTTP server with timeouts
 	srv := &http.Server{
@@ -93,7 +108,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config) {
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
@@ -102,5 +117,16 @@ func setupRoutes(router *gin.Engine, log *logger.Logger) {
 
 		// Readiness check endpoint
 		v1.GET("/ready", handlers.ReadinessCheck(log))
+
+		// Agent registry endpoints
+		v1.GET("/agents", handlers.ListAgents(log, agentIndex))
+		v1.GET("/agents/:name", handlers.GetAgent(log, agentIndex))
+		v1.GET("/agents/:name/:version", handlers.GetAgentVersion(log, agentIndex))
+		v1.GET("/agents/:name/:version/credentials", handlers.GetAgentCredentials(log, agentIndex))
+		v1.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
+
+		// Deployment endpoints
+		v1.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
+		v1.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
 	}
 }

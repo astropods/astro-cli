@@ -132,6 +132,162 @@ Returns the readiness status for orchestration systems (Kubernetes, Docker Swarm
 ```
 Status Code: 503
 
+### Deploy Agent
+
+```
+POST /api/v1/deploy
+```
+
+Deploys an AI agent to Kubernetes from the agent index.
+
+**Request Body:**
+```json
+{
+  "name": "customer-support-agent",
+  "version": "1.0.0",
+  "user_credentials": {
+    "OPENAI_API_KEY": "sk-...",
+    "DATABASE_URL": "postgres://..."
+  },
+  "k8s_namespace": "production"
+}
+```
+
+**Parameters:**
+- `name` (required): Agent name
+- `version` (required): Agent version to deploy
+- `user_credentials` (optional): Map of credential keys to values required by the agent
+- `k8s_namespace` (required): Target Kubernetes namespace for deployment
+
+**Response (Success):**
+```json
+{
+  "status": "success",
+  "name": "customer-support-agent",
+  "version": "1.0.0",
+  "k8s_namespace": "production",
+  "deployed_at": "2024-01-15T10:30:00Z",
+  "resources": [
+    {
+      "kind": "Deployment",
+      "name": "customer-support-agent-agent",
+      "namespace": "production",
+      "status": "created"
+    },
+    {
+      "kind": "Service",
+      "name": "customer-support-agent-agent",
+      "namespace": "production",
+      "status": "created"
+    }
+  ],
+  "service_endpoints": [
+    {
+      "name": "http",
+      "type": "ClusterIP",
+      "url": "customer-support-agent-agent.production.svc.cluster.local",
+      "port": 8080
+    }
+  ]
+}
+```
+
+**Response (Validation Error):**
+```json
+{
+  "error": "spec validation failed",
+  "validation_errors": [
+    {
+      "field": "runtime.image",
+      "message": "image is required"
+    }
+  ],
+  "missing_credentials": ["OPENAI_API_KEY"]
+}
+```
+Status Code: 400
+
+**Response (Agent Not Found):**
+```json
+{
+  "error": "agent version not found",
+  "details": "customer-support-agent:1.0.0 not found in index"
+}
+```
+Status Code: 404
+
+**Example:**
+```bash
+curl -X POST http://localhost:8080/api/v1/deploy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "customer-support-agent",
+    "version": "1.0.0",
+    "k8s_namespace": "production",
+    "user_credentials": {
+      "OPENAI_API_KEY": "sk-..."
+    }
+  }'
+```
+
+### Undeploy Agent
+
+```
+POST /api/v1/undeploy
+```
+
+Removes a deployed agent from Kubernetes.
+
+**Request Body:**
+```json
+{
+  "name": "customer-support-agent",
+  "version": "1.0.0",
+  "k8s_namespace": "production"
+}
+```
+
+**Parameters:**
+- `name` (required): Agent name
+- `version` (required): Agent version to undeploy
+- `k8s_namespace` (required): Target Kubernetes namespace
+
+**Response (Success):**
+```json
+{
+  "status": "success",
+  "name": "customer-support-agent",
+  "version": "1.0.0",
+  "k8s_namespace": "production",
+  "undeployed_at": "2024-01-15T11:00:00Z",
+  "resources": [
+    {
+      "kind": "Deployment",
+      "name": "customer-support-agent-agent",
+      "namespace": "production",
+      "status": "deleted"
+    },
+    {
+      "kind": "Service",
+      "name": "customer-support-agent-agent",
+      "namespace": "production",
+      "status": "deleted"
+    }
+  ]
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:8080/api/v1/undeploy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "customer-support-agent",
+    "version": "1.0.0",
+    "k8s_namespace": "production"
+  }'
+```
+
 ## Make Commands
 
 ```bash
@@ -191,7 +347,8 @@ astro-server/
 ├── main.go                    # Application entry point
 ├── handlers/                  # HTTP request handlers
 │   ├── health.go             # Health check handler
-│   └── readiness.go          # Readiness check handler
+│   ├── readiness.go          # Readiness check handler
+│   └── deploy.go             # Agent deployment handlers
 ├── internal/
 │   ├── config/               # Configuration management
 │   │   └── config.go

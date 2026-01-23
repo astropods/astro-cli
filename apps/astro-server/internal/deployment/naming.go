@@ -1,0 +1,137 @@
+package deployment
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+var (
+	// Regex for sanitizing names (alphanumeric and hyphens only)
+	sanitizeRegex = regexp.MustCompile(`[^a-z0-9-]`)
+	// Regex for consecutive hyphens
+	consecutiveHyphensRegex = regexp.MustCompile(`-+`)
+)
+
+// SanitizeName sanitizes a name to be Kubernetes-compliant
+// - Lowercase
+// - Max 63 characters
+// - Only alphanumeric and hyphens
+// - Cannot start or end with hyphen
+func SanitizeName(name string) string {
+	// Convert to lowercase
+	sanitized := strings.ToLower(name)
+
+	// Replace underscores and dots with hyphens
+	sanitized = strings.ReplaceAll(sanitized, "_", "-")
+	sanitized = strings.ReplaceAll(sanitized, ".", "-")
+
+	// Remove invalid characters
+	sanitized = sanitizeRegex.ReplaceAllString(sanitized, "")
+
+	// Replace consecutive hyphens with single hyphen
+	sanitized = consecutiveHyphensRegex.ReplaceAllString(sanitized, "-")
+
+	// Trim hyphens from start and end
+	sanitized = strings.Trim(sanitized, "-")
+
+	// Truncate to 63 characters (K8s limit)
+	if len(sanitized) > 63 {
+		sanitized = sanitized[:63]
+		// Ensure it doesn't end with a hyphen after truncation
+		sanitized = strings.TrimRight(sanitized, "-")
+	}
+
+	return sanitized
+}
+
+// GenerateResourceName generates a Kubernetes resource name
+// Format: {agent}-{type}-{name}
+func GenerateResourceName(agent, resourceType, name string) string {
+	parts := []string{
+		SanitizeName(agent),
+		SanitizeName(resourceType),
+		SanitizeName(name),
+	}
+
+	fullName := strings.Join(parts, "-")
+	return SanitizeName(fullName)
+}
+
+// GenerateAgentResourceName generates a resource name for the main agent
+// Format: {agent}-{type}
+func GenerateAgentResourceName(agent, resourceType string) string {
+	parts := []string{
+		SanitizeName(agent),
+		SanitizeName(resourceType),
+	}
+
+	fullName := strings.Join(parts, "-")
+	return SanitizeName(fullName)
+}
+
+// GenerateCredentialSecretName generates the name for the credentials secret
+// Format: {agent}-{version}-credentials
+func GenerateCredentialSecretName(agent, version string) string {
+	versionSanitized := strings.ReplaceAll(version, ".", "-")
+	parts := []string{
+		SanitizeName(agent),
+		SanitizeName(versionSanitized),
+		"credentials",
+	}
+
+	fullName := strings.Join(parts, "-")
+	return SanitizeName(fullName)
+}
+
+// GenerateConfigMapName generates the name for configuration ConfigMap
+// Format: {agent}-{version}-config
+func GenerateConfigMapName(agent, version string) string {
+	versionSanitized := strings.ReplaceAll(version, ".", "-")
+	parts := []string{
+		SanitizeName(agent),
+		SanitizeName(versionSanitized),
+		"config",
+	}
+
+	fullName := strings.Join(parts, "-")
+	return SanitizeName(fullName)
+}
+
+// GenerateServiceDNS generates the internal DNS name for a service
+// Format: {serviceName}.{namespace}.svc.cluster.local
+func GenerateServiceDNS(serviceName, namespace string) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace)
+}
+
+// GenerateLabels generates standard Kubernetes labels for resources
+func GenerateLabels(agent, version, component string) map[string]string {
+	labels := map[string]string{
+		"app.kubernetes.io/name":       SanitizeName(agent),
+		"app.kubernetes.io/instance":   SanitizeName(agent),
+		"app.kubernetes.io/version":    SanitizeName(version),
+		"app.kubernetes.io/managed-by": "astro-server",
+		"astro.dev/agent":              SanitizeName(agent),
+	}
+
+	if component != "" {
+		labels["app.kubernetes.io/component"] = SanitizeName(component)
+	}
+
+	return labels
+}
+
+// GenerateSelector generates selector labels (subset of full labels)
+func GenerateSelector(agent, component string) map[string]string {
+	selector := map[string]string{
+		"app.kubernetes.io/name":     SanitizeName(agent),
+		"app.kubernetes.io/instance": SanitizeName(agent),
+		"astro.dev/agent":            SanitizeName(agent),
+	}
+
+	if component != "" {
+		selector["app.kubernetes.io/component"] = SanitizeName(component)
+	}
+
+	return selector
+}

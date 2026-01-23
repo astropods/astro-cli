@@ -1,0 +1,54 @@
+layer: "application"
+language: "go"
+
+tasks:
+  build:
+    command: "go build -o bin/astro-server main.go"
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+    outputs:
+      - "bin/astro-server"
+
+  test:
+    command: "go test -v ./..."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+
+  run:
+    command: "go run main.go"
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+    preset: "server"
+
+  fmt:
+    command: "go fmt ./..."
+    inputs:
+      - "**/*.go"
+
+  vet:
+    command: "go vet ./..."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+
+  lint:
+    command: "golangci-lint run"
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+
+  deps:
+    script: "go mod download && go mod tidy"
+    inputs:
+      - "go.mod"
+    outputs:
+      - "go.sum"

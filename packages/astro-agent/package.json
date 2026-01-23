@@ -1,0 +1,29 @@
+{
+  "name": "astro-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@mastra/core": "^1.0.4",
+    "@mastra/libsql": "^1.0.0",
+    "@mastra/memory": "^1.0.0",
+    "astro-engine": "workspace:*",
+    "astro-nodes": "workspace:*",
+    "astro-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.5",
+    "astro-graph": "workspace:*"
+  }
+}

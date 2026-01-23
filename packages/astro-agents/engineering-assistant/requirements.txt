@@ -1,0 +1,5 @@
+flask==3.0.0
+anthropic==0.40.0
+qdrant-client==1.7.0
+redis==5.0.1
+requests==2.31.0

@@ -1,0 +1,10 @@
+layer: "application"
+language: "go"
+
+tasks:
+  build:
+    command: "go build -o bin/astro ."
+    inputs:
+      - "**/*.go"
+    outputs:
+      - "bin/astro"

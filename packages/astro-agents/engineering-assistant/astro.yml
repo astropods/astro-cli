@@ -1,0 +1,92 @@
+spec: astro/v1
+agent: engineering-assistant
+
+meta:
+  version: 1.0.0
+  description: Engineering knowledge assistant with self-hosted embeddings and vector store
+  tags: [engineering, support, internal, example]
+  owner: platform-team
+
+container:
+  build:
+    context: ../..
+    dockerfile: astro-agents/engineering-assistant/Dockerfile
+  environment:
+    GRPC_SERVER_ADDR: astro-messaging:9090
+
+models:
+  embedder:
+    provider: sentence-transformers
+    model: all-MiniLM-L6-v2
+    config:
+      dimensions: 384
+    container:
+      build:
+        context: ./embedder
+        dockerfile: Dockerfile
+      port: 8000
+
+knowledge:
+  docs:
+    type: vector
+    provider: qdrant
+    config:
+      collection: engineering-docs
+      dimensions: 384
+      metric: cosine
+    embedding: models.embedder
+    container:
+      image: qdrant/qdrant:latest
+      persistent: true
+
+  cache:
+    type: kv
+    provider: redis
+    config:
+      ttl: 3600
+    container:
+      image: redis:7-alpine
+
+tools:
+  doc_search:
+    type: function
+    config:
+      runtime: python
+      handler: tools/search.py
+      functions:
+        - name: search_docs
+          description: Search internal documentation
+
+integrations:
+  models:
+    primary_llm:
+      provider: anthropic
+
+  tools:
+    github:
+      provider: github
+      scopes:
+        - repo:read
+        - issues:read
+
+interfaces:
+  messaging:
+    type: slack
+
+injections:
+  issues_sync:
+    persistent: true  # Enable state persistence across container restarts
+    source:
+      type: github
+      config:
+        repo: postmanlabs/postman-app-support
+    trigger:
+      type: schedule
+      cron: "*/5 * * * *"
+    pipeline:
+      - step: chunk
+        config: {strategy: semantic, max_size: 1000}
+      - step: embed
+        model: models.embedder
+      - step: upsert
+        target: knowledge.docs

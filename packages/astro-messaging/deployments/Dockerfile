@@ -1,0 +1,54 @@
+# Multi-stage build for Go messaging service
+
+# Stage 1: Build
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies including gcc and musl-dev for CGO
+RUN apk add --no-cache git gcc musl-dev
+
+# Allow Go to download required toolchain version
+ENV GOTOOLCHAIN=auto
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build arguments for version information
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+# Build binary with CGO enabled to avoid pure-Go netpoll issues on Alpine
+# Build for native architecture (no GOARCH specified)
+RUN CGO_ENABLED=1 go build \
+    -ldflags="-w -s \
+      -X 'github.com/astro/messaging/internal/version.Version=${VERSION}' \
+      -X 'github.com/astro/messaging/internal/version.Commit=${COMMIT}' \
+      -X 'github.com/astro/messaging/internal/version.BuildDate=${BUILD_DATE}'" \
+    -o messaging \
+    ./cmd/sidecar
+
+# Stage 2: Runtime
+FROM alpine:latest
+
+# Install runtime dependencies for CGO-enabled binary
+RUN apk --no-cache add ca-certificates libc6-compat
+
+WORKDIR /root/
+
+# Copy binary from builder
+COPY --from=builder /app/messaging .
+
+# Copy config (optional - can be overridden by env vars)
+COPY config/config.yaml ./config/
+
+# Expose messaging service port
+EXPOSE 8081
+
+# Run the binary
+CMD ["./messaging"]

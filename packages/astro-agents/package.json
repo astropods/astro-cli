@@ -2,14 +2,11 @@
   "name": "astro-agents",
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "bun --watch src/index.ts",
-    "playground": "cd playground && bun x --bun vite",
-    "playground:setup": "bun playground/setup-env.ts",
-    "playground:server": "bun --watch --env-file=playground/.env playground/server.ts"
-  },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "scripts": {
+    "playground": "bun dev/playground.ts"
+  },
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -17,14 +14,10 @@
     }
   },
   "dependencies": {
-    "@mastra/core": "^1.0.0-beta.21",
-    "@mastra/libsql": "^1.0.0-beta.11",
-    "@mastra/memory": "^1.0.0-beta.12",
-    "astro-engine": "workspace:*",
-    "astro-graph": "workspace:*"
+    "astro-agent": "workspace:*",
+    "astro-workflows": "workspace:*"
   },
   "devDependencies": {
-    "mastra": "^1.0.0-beta.14",
-    "typescript": "^5.9.3"
+    "astro-playground": "workspace:*"
   }
 }
