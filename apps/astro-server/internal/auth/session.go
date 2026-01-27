@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var (
@@ -21,6 +23,13 @@ var (
 	ErrInvalidCookie    = errors.New("invalid cookie data")
 )
 
+// sessionKeySalt is a fixed salt for PBKDF2 key derivation.
+var sessionKeySalt = []byte("astro-session-key-v1")
+
+// pbkdf2Iterations is the number of iterations for PBKDF2.
+// OWASP 2023 recommends 600,000 for PBKDF2-HMAC-SHA256.
+const pbkdf2Iterations = 600000
+
 // SessionManager handles session encryption and decryption
 type SessionManager struct {
 	cookiePassword []byte
@@ -29,10 +38,16 @@ type SessionManager struct {
 
 // NewSessionManager creates a new session manager
 func NewSessionManager(cookiePassword string, maxAge time.Duration) *SessionManager {
-	// Derive a 32-byte key from the password using SHA-256
-	hash := sha256.Sum256([]byte(cookiePassword))
+	// Derive a 32-byte key using PBKDF2-HMAC-SHA256
+	key := pbkdf2.Key(
+		[]byte(cookiePassword),
+		sessionKeySalt,
+		pbkdf2Iterations,
+		32, // 32 bytes = 256 bits for AES-256
+		sha256.New,
+	)
 	return &SessionManager{
-		cookiePassword: hash[:],
+		cookiePassword: key,
 		maxAge:         maxAge,
 	}
 }
