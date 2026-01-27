@@ -68,6 +68,7 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 		}
 
 		// Store state in a short-lived cookie for validation
+		h.setSameSiteMode(c)
 		c.SetCookie(
 			"auth_state",
 			state,
@@ -129,6 +130,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		}
 
 		// Clear the state cookie
+		h.setSameSiteMode(c)
 		c.SetCookie("auth_state", "", -1, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, true)
 
 		// Exchange code for tokens
@@ -172,6 +174,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 
 		// Set the session cookie
 		maxAge := int(h.cfg.Auth.CookieMaxAge.Seconds())
+		h.setSameSiteMode(c)
 		c.SetCookie(
 			h.cfg.Auth.CookieName,
 			sealed,
@@ -213,6 +216,7 @@ func (h *AuthHandler) Logout() gin.HandlerFunc {
 		}
 
 		// Clear the session cookie
+		h.setSameSiteMode(c)
 		c.SetCookie(
 			h.cfg.Auth.CookieName,
 			"",
@@ -260,6 +264,7 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 			h.log.Debug("Failed to unseal session", "error", err)
 
 			// Clear invalid cookie
+			h.setSameSiteMode(c)
 			c.SetCookie(
 				h.cfg.Auth.CookieName,
 				"",
@@ -285,6 +290,7 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 				h.log.Debug("Failed to refresh session", "error", err)
 
 				// Clear expired cookie
+				h.setSameSiteMode(c)
 				c.SetCookie(
 					h.cfg.Auth.CookieName,
 					"",
@@ -388,6 +394,7 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	}
 
 	maxAge := int(h.cfg.Auth.CookieMaxAge.Seconds())
+	h.setSameSiteMode(c)
 	c.SetCookie(
 		h.cfg.Auth.CookieName,
 		sealed,
@@ -418,4 +425,16 @@ func generateRandomState() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// setSameSiteMode configures the SameSite mode on the context based on config
+func (h *AuthHandler) setSameSiteMode(c *gin.Context) {
+	switch h.cfg.Auth.CookieSameSite {
+	case "Strict":
+		c.SetSameSite(http.SameSiteStrictMode)
+	case "None":
+		c.SetSameSite(http.SameSiteNoneMode)
+	default: // "Lax" or any other value defaults to Lax
+		c.SetSameSite(http.SameSiteLaxMode)
+	}
 }

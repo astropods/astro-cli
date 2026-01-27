@@ -26,6 +26,7 @@ type AuthConfig struct {
 	CookiePassword string
 	CookieDomain   string
 	CookieSecure   bool
+	CookieSameSite string // "Strict", "Lax", or "None"
 	CookieMaxAge   time.Duration
 	SessionMaxAge  time.Duration
 	JWTIssuer      string
@@ -98,6 +99,7 @@ func Load() (*Config, error) {
 			CookiePassword: getEnv("AUTH_COOKIE_PASSWORD", ""),
 			CookieDomain:   getEnv("AUTH_COOKIE_DOMAIN", ""),
 			CookieSecure:   getEnv("AUTH_COOKIE_SECURE", "false") == "true",
+			CookieSameSite: getEnv("AUTH_COOKIE_SAMESITE", "Lax"),
 			CookieMaxAge:   getEnvDuration("AUTH_COOKIE_MAX_AGE", 7*24*time.Hour),
 			SessionMaxAge:  getEnvDuration("AUTH_SESSION_MAX_AGE", 24*time.Hour),
 			JWTIssuer:      getEnv("AUTH_JWT_ISSUER", "https://api.workos.com"),
