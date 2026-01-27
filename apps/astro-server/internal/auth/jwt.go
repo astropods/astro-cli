@@ -107,7 +107,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return key, nil
-	}, jwt.WithIssuer(v.issuer))
+	}, jwt.WithIssuer(v.issuer), jwt.WithAudience(v.audience))
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
