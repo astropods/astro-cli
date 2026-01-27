@@ -1,4 +1,5 @@
-import { X } from "lucide-react";
+import { X, Sparkles, Shield } from "lucide-react";
+import { useAuth } from "../lib/auth";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -6,7 +7,13 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ isOpen, onClose }: AuthModalProps) {
+  const { login, isLoading } = useAuth();
+
   if (!isOpen) return null;
+
+  const handleSignIn = () => {
+    login();
+  };
 
   return (
     <div
@@ -18,73 +25,57 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute top-3 right-3 bg-transparent border-none cursor-pointer p-1"
+          className="absolute top-3 right-3 bg-transparent border-none cursor-pointer p-1 hover:bg-gray-100 rounded"
           onClick={onClose}
+          aria-label="Close"
         >
           <X size={20} />
         </button>
 
-        <div className="text-center mb-5">
-          <h2 className="text-xl font-semibold mb-1">Welcome to Astro</h2>
-          <p className="text-gray-600 text-sm">Create your account to get started</p>
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-100 rounded-full mb-4">
+            <Sparkles size={24} className="text-gray-800" />
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Welcome to Astro</h2>
+          <p className="text-gray-600 text-sm">
+            Sign in to deploy and manage your AI agents
+          </p>
         </div>
 
-        <form className="flex flex-col" onSubmit={(e) => e.preventDefault()}>
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="fullName" className="text-sm text-gray-600">
-              Full Name
-            </label>
-            <input
-              type="text"
-              id="fullName"
-              placeholder="Enter your full name"
-              className="px-3 py-2 border border-gray-300 text-sm focus:outline-2 focus:outline-gray-800 focus:-outline-offset-2"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="email" className="text-sm text-gray-600">
-              Email
-            </label>
-            <input
-              type="email"
-              id="email"
-              placeholder="Enter your email"
-              className="px-3 py-2 border border-gray-300 text-sm focus:outline-2 focus:outline-gray-800 focus:-outline-offset-2"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="password" className="text-sm text-gray-600">
-              Password
-            </label>
-            <input
-              type="password"
-              id="password"
-              placeholder="Create a password"
-              className="px-3 py-2 border border-gray-300 text-sm focus:outline-2 focus:outline-gray-800 focus:-outline-offset-2"
-            />
-          </div>
-
+        <div className="flex flex-col gap-4">
           <button
-            type="submit"
-            className="w-full px-4 py-2 bg-gray-800 text-white border border-gray-800 text-sm cursor-pointer hover:bg-gray-700"
+            onClick={handleSignIn}
+            disabled={isLoading}
+            className="w-full px-4 py-3 bg-gray-800 text-white border border-gray-800 text-sm cursor-pointer hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            Create Account
+            {isLoading ? (
+              "Redirecting..."
+            ) : (
+              <>
+                <Shield size={18} />
+                Continue with WorkOS
+              </>
+            )}
           </button>
 
-          <p className="text-center text-xs text-gray-500 mt-3">
-            By signing up, you agree to our{" "}
-            <a href="/terms" className="text-gray-600 underline">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-500">Secure authentication</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+
+          <p className="text-center text-xs text-gray-500">
+            By signing in, you agree to our{" "}
+            <a href="/terms" className="text-gray-600 underline hover:text-gray-800">
               Terms of Service
             </a>{" "}
             and{" "}
-            <a href="/privacy" className="text-gray-600 underline">
+            <a href="/privacy" className="text-gray-600 underline hover:text-gray-800">
               Privacy Policy
             </a>
             .
           </p>
-        </form>
+        </div>
       </div>
     </div>
   );

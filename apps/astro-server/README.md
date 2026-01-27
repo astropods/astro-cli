@@ -16,6 +16,11 @@ A production-ready Go backend HTTP server for the Astro platform using the Gin f
 - **Health Checks**:
   - `/api/v1/health` - Health check endpoint
   - `/api/v1/ready` - Readiness check for orchestration systems
+- **Authentication**: WorkOS-powered authentication with AuthKit
+  - OAuth 2.0 authorization flow
+  - Secure session management with encrypted cookies
+  - JWT validation for API access
+  - Role-based access control support
 - **Production Best Practices**:
   - Configurable timeouts (read, write, idle)
   - Trusted proxy configuration
@@ -68,6 +73,23 @@ cp .env.example .env
 | `ALLOWED_ORIGINS` | CORS allowed origins | `*` | Comma-separated list or `*` |
 | `TRUSTED_PROXIES` | Trusted proxy IPs | (empty) | Comma-separated IP list |
 
+### Authentication Configuration
+
+| Variable | Description | Default | Notes |
+|----------|-------------|---------|-------|
+| `AUTH_ENABLED` | Enable authentication | `true` | Set to `false` to disable |
+| `WORKOS_API_KEY` | WorkOS API key | (required) | Get from WorkOS Dashboard |
+| `WORKOS_CLIENT_ID` | WorkOS client ID | (required) | Get from WorkOS Dashboard |
+| `WORKOS_REDIRECT_URI` | OAuth callback URL | `http://localhost:8080/auth/callback` | Must match WorkOS settings |
+| `FRONTEND_URL` | Frontend app URL | `http://localhost:5173` | Redirect after auth |
+| `AUTH_COOKIE_NAME` | Session cookie name | `astro_session` | |
+| `AUTH_COOKIE_PASSWORD` | Cookie encryption key | (required) | Min 32 characters |
+| `AUTH_COOKIE_DOMAIN` | Cookie domain | (empty) | Set for production |
+| `AUTH_COOKIE_SECURE` | HTTPS-only cookies | `false` | Set `true` in production |
+| `AUTH_COOKIE_MAX_AGE` | Cookie lifetime | `168h` | Duration string |
+| `AUTH_SESSION_MAX_AGE` | Session lifetime | `24h` | Duration string |
+| `AUTH_JWT_ISSUER` | JWT issuer for validation | `https://api.workos.com` | |
+
 ### Example Configuration
 
 ```bash
@@ -90,6 +112,109 @@ WRITE_TIMEOUT=30s
 ```
 
 ## Endpoints
+
+### Authentication
+
+#### Login
+
+```
+GET /auth/login
+```
+
+Initiates the authentication flow by redirecting the user to WorkOS AuthKit.
+
+**Response:** Redirects to WorkOS authorization URL
+
+**Example:**
+```bash
+# Open in browser or redirect user to:
+curl -I http://localhost:8080/auth/login
+```
+
+#### Callback
+
+```
+GET /auth/callback
+```
+
+Handles the OAuth callback from WorkOS. This endpoint receives the authorization code
+and exchanges it for an access token. On success, it sets a secure session cookie and
+redirects to the frontend.
+
+**Query Parameters:**
+- `code`: Authorization code from WorkOS
+- `state`: CSRF protection state parameter
+
+**Response:** Redirects to frontend URL with session cookie set
+
+#### Get Current User
+
+```
+GET /auth/me
+```
+
+Returns the currently authenticated user's information.
+
+**Response (Success - 200):**
+```json
+{
+  "user": {
+    "id": "user_01E4ZCR3C56J083X43JQXF3JK5",
+    "email": "user@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "email_verified": true,
+    "profile_picture_url": "https://...",
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T10:30:00Z"
+  },
+  "session_id": "session_01HQAG1HENBZMAZD82YRXDFC0B",
+  "organization_id": "org_01E4ZCR3C56J083X43JQXF3JK5",
+  "role": "admin",
+  "expires_at": "2024-01-16T10:30:00Z"
+}
+```
+
+**Response (Unauthorized - 401):**
+```json
+{
+  "error": "unauthorized",
+  "error_description": "No session found"
+}
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/auth/me \
+  --cookie "astro_session=<session_cookie>"
+```
+
+#### Refresh Session
+
+```
+POST /auth/refresh
+```
+
+Explicitly refreshes the current session using the refresh token.
+
+**Response:** Same as `/auth/me` with updated expiration
+
+#### Logout
+
+```
+GET /auth/logout
+```
+
+Logs out the current user by clearing the session cookie and redirecting to
+WorkOS logout endpoint to end the session there as well.
+
+**Response:** Redirects to WorkOS logout, then to frontend URL
+
+**Example:**
+```bash
+curl -I http://localhost:8080/auth/logout \
+  --cookie "astro_session=<session_cookie>"
+```
 
 ### Health Check
 
@@ -346,18 +471,38 @@ make test-cover
 astro-server/
 ├── main.go                    # Application entry point
 ├── handlers/                  # HTTP request handlers
+│   ├── agents.go             # Agent registry handlers
+│   ├── auth.go               # Authentication handlers (login, callback, logout, me)
+│   ├── deploy.go             # Agent deployment handlers
 │   ├── health.go             # Health check handler
-│   ├── readiness.go          # Readiness check handler
-│   └── deploy.go             # Agent deployment handlers
+│   └── readiness.go          # Readiness check handler
 ├── internal/
+│   ├── agentindex/           # Agent index database
+│   │   └── index.go
+│   ├── auth/                 # Authentication internals
+│   │   ├── jwt.go            # JWT token validation
+│   │   ├── session.go        # Session encryption/management
+│   │   ├── types.go          # Auth types (User, Session, etc.)
+│   │   └── workos.go         # WorkOS SDK wrapper
 │   ├── config/               # Configuration management
 │   │   └── config.go
+│   ├── deployment/           # Kubernetes deployment logic
+│   │   ├── envbuilder.go
+│   │   ├── naming.go
+│   │   ├── translator.go
+│   │   ├── types.go
+│   │   └── validator.go
+│   ├── k8s/                  # Kubernetes client operations
+│   │   └── ...
 │   ├── logger/               # Structured logging
 │   │   └── logger.go
-│   └── middleware/           # HTTP middleware
-│       ├── logging.go        # Request logging
-│       ├── recovery.go       # Panic recovery
-│       └── security.go       # CORS and security headers
+│   ├── middleware/           # HTTP middleware
+│   │   ├── auth.go           # Auth middleware (RequireAuth, etc.)
+│   │   ├── logging.go        # Request logging
+│   │   ├── recovery.go       # Panic recovery
+│   │   └── security.go       # CORS and security headers
+│   └── spec/                 # Agent spec types
+│       └── types.go
 ├── .env.example              # Example environment variables
 ├── .gitignore
 ├── Makefile                  # Build automation
@@ -506,6 +651,44 @@ The server implements several security best practices:
 - **Panic Recovery**: Graceful handling of panics with stack traces
 - **Timeouts**: Read, write, and idle timeouts to prevent slowloris attacks
 - **Graceful Shutdown**: Prevents request loss during deployments
+
+### Authentication & Authorization
+
+When `AUTH_ENABLED=true`, certain endpoints require authentication:
+
+**Public Endpoints (no auth required):**
+- `GET /api/v1/health`
+- `GET /api/v1/ready`
+- `GET /api/v1/agents`
+- `GET /api/v1/agents/:name`
+- `GET /api/v1/agents/:name/:version`
+
+**Protected Endpoints (auth required):**
+- `GET /api/v1/agents/:name/:version/credentials`
+- `POST /api/v1/agents/register`
+- `POST /api/v1/deploy`
+- `POST /api/v1/undeploy`
+
+**Authentication Methods:**
+
+1. **Session Cookie** (for web clients):
+   After logging in via `/auth/login`, a secure session cookie is set automatically.
+
+2. **Bearer Token** (for API clients):
+   Pass the access token in the Authorization header:
+   ```bash
+   curl http://localhost:8080/api/v1/deploy \
+     -H "Authorization: Bearer <access_token>" \
+     -H "Content-Type: application/json" \
+     -d '{"name": "my-agent", "version": "1.0.0", "k8s_namespace": "default"}'
+   ```
+
+**Session Security:**
+- Sessions are encrypted using AES-256-GCM before being stored in cookies
+- Cookie encryption key must be at least 32 characters
+- Sessions have configurable expiration (default: 24 hours)
+- Cookies have configurable lifetime (default: 7 days)
+- In production, enable `AUTH_COOKIE_SECURE=true` for HTTPS-only cookies
 
 ## Troubleshooting
 

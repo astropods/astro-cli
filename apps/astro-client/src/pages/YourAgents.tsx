@@ -1,12 +1,10 @@
-import { Link, useOutletContext } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Users, CheckCircle, Clock } from "lucide-react";
+import { useAuth, getUserDisplayName } from "../lib/auth";
+import { ProtectedRoute } from "../components/ProtectedRoute";
 
-interface OutletContext {
-  openAuthModal: () => void;
-}
-
-export function YourAgents() {
-  const { openAuthModal } = useOutletContext<OutletContext>();
+function YourAgentsContent() {
+  const { user } = useAuth();
 
   // Placeholder metrics - these would come from actual user data
   const metrics = {
@@ -20,7 +18,14 @@ export function YourAgents() {
   return (
     <div className="max-w-[900px]">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-semibold">Your Agents</h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Your Agents</h1>
+          {user && (
+            <p className="text-sm text-gray-600 mt-1">
+              Welcome back, {getUserDisplayName(user)}
+            </p>
+          )}
+        </div>
         <span className="px-2.5 py-1 border border-gray-300 text-sm">
           {metrics.activeAgents} Active
         </span>
@@ -74,19 +79,21 @@ export function YourAgents() {
             </p>
             <Link
               to="/hire"
-              className="inline-block px-4 py-2 bg-gray-800 text-white border border-gray-800 text-sm no-underline"
+              className="inline-block px-4 py-2 bg-gray-800 text-white border border-gray-800 text-sm no-underline hover:bg-gray-700"
             >
               Hire your first agent
             </Link>
-            <button
-              className="block mx-auto mt-2 bg-transparent border-none text-gray-600 text-sm underline cursor-pointer"
-              onClick={openAuthModal}
-            >
-              Or sign in to see your agents
-            </button>
           </div>
         )}
       </section>
     </div>
+  );
+}
+
+export function YourAgents() {
+  return (
+    <ProtectedRoute>
+      <YourAgentsContent />
+    </ProtectedRoute>
   );
 }

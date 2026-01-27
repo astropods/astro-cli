@@ -109,24 +109,56 @@ func main() {
 
 // setupRoutes configures all application routes
 func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config) {
+	// Setup authentication if enabled
+	var authMw *middleware.AuthMiddleware
+	if cfg.Auth.Enabled {
+		authHandler := handlers.NewAuthHandler(log, cfg)
+
+		// Auth routes (no auth required)
+		auth := router.Group("/auth")
+		{
+			auth.GET("/login", authHandler.Login())
+			auth.GET("/callback", authHandler.Callback())
+			auth.GET("/logout", authHandler.Logout())
+			auth.GET("/me", authHandler.Me())
+			auth.POST("/refresh", authHandler.Refresh())
+		}
+
+		// Create auth middleware
+		authMw = middleware.NewAuthMiddleware(
+			log,
+			cfg,
+			authHandler.GetSessionManager(),
+			authHandler.GetJWTValidator(),
+		)
+
+		log.Info("Authentication enabled", "provider", "WorkOS")
+	}
+
 	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
-		// Health check endpoint
+		// Health check endpoint (public)
 		v1.GET("/health", handlers.HealthCheck(log))
 
-		// Readiness check endpoint
+		// Readiness check endpoint (public)
 		v1.GET("/ready", handlers.ReadinessCheck(log))
 
-		// Agent registry endpoints
+		// Agent registry endpoints (public read, protected write)
 		v1.GET("/agents", handlers.ListAgents(log, agentIndex))
 		v1.GET("/agents/:name", handlers.GetAgent(log, agentIndex))
 		v1.GET("/agents/:name/:version", handlers.GetAgentVersion(log, agentIndex))
-		v1.GET("/agents/:name/:version/credentials", handlers.GetAgentCredentials(log, agentIndex))
-		v1.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
 
-		// Deployment endpoints
-		v1.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
-		v1.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
+		// Protected endpoints (require authentication when enabled)
+		protected := v1.Group("")
+		if authMw != nil {
+			protected.Use(authMw.RequireAuth())
+		}
+		{
+			protected.GET("/agents/:name/:version/credentials", handlers.GetAgentCredentials(log, agentIndex))
+			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
+			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
+			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
+		}
 	}
 }

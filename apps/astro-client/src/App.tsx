@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./lib/auth";
 import { Layout } from "./components/Layout";
 import { Home } from "./pages/Home";
 import { Hire } from "./pages/Hire";
@@ -9,18 +10,20 @@ import { NotFound } from "./pages/NotFound";
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Home />} />
-          <Route path="hire" element={<Hire />} />
-          <Route path="hire/:agentSlug" element={<AgentDetail />} />
-          <Route path="request-agent" element={<RequestAgent />} />
-          <Route path="agents" element={<YourAgents />} />
-          <Route path="*" element={<NotFound />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Home />} />
+            <Route path="hire" element={<Hire />} />
+            <Route path="hire/:agentSlug" element={<AgentDetail />} />
+            <Route path="request-agent" element={<RequestAgent />} />
+            <Route path="agents" element={<YourAgents />} />
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

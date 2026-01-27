@@ -13,6 +13,23 @@ type Config struct {
 	Log        LogConfig
 	Security   SecurityConfig
 	Deployment DeploymentConfig
+	Auth       AuthConfig
+}
+
+// AuthConfig holds WorkOS authentication configuration
+type AuthConfig struct {
+	WorkOSAPIKey   string
+	WorkOSClientID string
+	RedirectURI    string
+	FrontendURL    string
+	CookieName     string
+	CookiePassword string
+	CookieDomain   string
+	CookieSecure   bool
+	CookieMaxAge   time.Duration
+	SessionMaxAge  time.Duration
+	JWTIssuer      string
+	Enabled        bool
 }
 
 // ServerConfig holds server-specific configuration
@@ -72,6 +89,20 @@ func Load() (*Config, error) {
 			K8sInCluster:      getEnv("K8S_IN_CLUSTER", "false") == "true",
 			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
 		},
+		Auth: AuthConfig{
+			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
+			WorkOSClientID: getEnv("WORKOS_CLIENT_ID", ""),
+			RedirectURI:    getEnv("WORKOS_REDIRECT_URI", "http://localhost:8080/auth/callback"),
+			FrontendURL:    getEnv("FRONTEND_URL", "http://localhost:5173"),
+			CookieName:     getEnv("AUTH_COOKIE_NAME", "astro_session"),
+			CookiePassword: getEnv("AUTH_COOKIE_PASSWORD", ""),
+			CookieDomain:   getEnv("AUTH_COOKIE_DOMAIN", ""),
+			CookieSecure:   getEnv("AUTH_COOKIE_SECURE", "false") == "true",
+			CookieMaxAge:   getEnvDuration("AUTH_COOKIE_MAX_AGE", 7*24*time.Hour),
+			SessionMaxAge:  getEnvDuration("AUTH_SESSION_MAX_AGE", 24*time.Hour),
+			JWTIssuer:      getEnv("AUTH_JWT_ISSUER", "https://api.workos.com"),
+			Enabled:        getEnv("AUTH_ENABLED", "true") == "true",
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -99,6 +130,25 @@ func (c *Config) Validate() error {
 
 	if c.Deployment.RegistryURL == "" {
 		return fmt.Errorf("REGISTRY_URL environment variable is required")
+	}
+
+	// Validate auth configuration when enabled
+	if c.Auth.Enabled {
+		if c.Auth.WorkOSAPIKey == "" {
+			return fmt.Errorf("WORKOS_API_KEY environment variable is required when auth is enabled")
+		}
+		if c.Auth.WorkOSClientID == "" {
+			return fmt.Errorf("WORKOS_CLIENT_ID environment variable is required when auth is enabled")
+		}
+		if c.Auth.RedirectURI == "" {
+			return fmt.Errorf("WORKOS_REDIRECT_URI environment variable is required when auth is enabled")
+		}
+		if c.Auth.CookiePassword == "" {
+			return fmt.Errorf("AUTH_COOKIE_PASSWORD environment variable is required when auth is enabled (must be at least 32 characters)")
+		}
+		if len(c.Auth.CookiePassword) < 32 {
+			return fmt.Errorf("AUTH_COOKIE_PASSWORD must be at least 32 characters for secure encryption")
+		}
 	}
 
 	return nil
