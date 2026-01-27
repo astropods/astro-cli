@@ -51,8 +51,8 @@ func (sm *SessionManager) SealSession(data *SessionData) (string, error) {
 		return "", fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 	}
 
-	// Base64 encode for cookie storage
-	return base64.StdEncoding.EncodeToString(encrypted), nil
+	// Use URL-safe base64 encoding for cookie storage (avoids issues with + and / chars)
+	return base64.RawURLEncoding.EncodeToString(encrypted), nil
 }
 
 // UnsealSession decrypts and decodes session data from a cookie
@@ -61,8 +61,8 @@ func (sm *SessionManager) UnsealSession(sealedData string) (*SessionData, error)
 		return nil, ErrInvalidCookie
 	}
 
-	// Base64 decode
-	encrypted, err := base64.StdEncoding.DecodeString(sealedData)
+	// URL-safe base64 decode
+	encrypted, err := base64.RawURLEncoding.DecodeString(sealedData)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid base64 encoding", ErrDecryptionFailed)
 	}
