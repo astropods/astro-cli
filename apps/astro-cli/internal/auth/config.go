@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -118,7 +119,23 @@ func GetServerURL() string {
 	return ServerURL
 }
 
-// GetEnvAccessToken returns the access token from environment if set
+// envToken caches the access token read from environment
+// This allows us to clear the env var after first read to prevent
+// child processes from inheriting it
+var (
+	envToken     string
+	envTokenOnce sync.Once
+)
+
+// GetEnvAccessToken returns the access token from environment if set.
+// On first call, it reads and caches the token, then clears the environment
+// variable to prevent child processes from inheriting it.
 func GetEnvAccessToken() string {
-	return os.Getenv(EnvAccessToken)
+	envTokenOnce.Do(func() {
+		envToken = os.Getenv(EnvAccessToken)
+		if envToken != "" {
+			os.Unsetenv(EnvAccessToken)
+		}
+	})
+	return envToken
 }
