@@ -26,8 +26,8 @@ This command initiates the OAuth device authorization flow:
 3. Enter the code and sign in with your account
 4. The CLI automatically receives your credentials
 
-Your credentials are stored securely using your system's keychain when available,
-or in an encrypted file at ~/.config/astro/credentials.json.
+Your credentials are stored in your system's keychain when available,
+otherwise in ~/.astro/credentials.json with restricted permissions.
 
 Example:
   astro login

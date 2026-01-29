@@ -18,7 +18,7 @@ func resetEnvToken() {
 	envTokenOnce = sync.Once{}
 }
 
-// setupTokenTestDir creates a temp directory and sets XDG_CONFIG_HOME for testing
+// setupTokenTestDir creates a temp directory and sets HOME for testing
 func setupTokenTestDir(t *testing.T) (string, func()) {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "astro-cli-token-test-*")
@@ -26,14 +26,14 @@ func setupTokenTestDir(t *testing.T) (string, func()) {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
 
 	return tmpDir, func() {
-		if originalXDG == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+		if originalHome == "" {
+			os.Unsetenv("HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", originalXDG)
+			os.Setenv("HOME", originalHome)
 		}
 		os.RemoveAll(tmpDir)
 	}

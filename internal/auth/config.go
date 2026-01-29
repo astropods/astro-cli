@@ -35,18 +35,13 @@ type Config struct {
 	ServerURL string `yaml:"server_url,omitempty"`
 }
 
-// ConfigDir returns the path to the astro config directory
+// ConfigDir returns the path to the astro config directory (~/.astro)
 func ConfigDir() (string, error) {
-	// Use XDG_CONFIG_HOME if set, otherwise ~/.config
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		configHome = filepath.Join(home, ".config")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(configHome, "astro"), nil
+	return filepath.Join(home, ".astro"), nil
 }
 
 // ConfigPath returns the path to the config file
