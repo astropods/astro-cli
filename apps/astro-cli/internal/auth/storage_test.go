@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// setupTestDir creates a temp directory and sets XDG_CONFIG_HOME for testing
+// setupTestDir creates a temp directory and sets HOME for testing
 func setupTestDir(t *testing.T) (string, func()) {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "astro-cli-test-*")
@@ -16,18 +16,18 @@ func setupTestDir(t *testing.T) (string, func()) {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 
-	// Save original XDG_CONFIG_HOME
-	originalXDG := os.Getenv("XDG_CONFIG_HOME")
+	// Save original HOME
+	originalHome := os.Getenv("HOME")
 
-	// Set XDG_CONFIG_HOME to temp dir so CredentialsPath uses it
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	// Set HOME to temp dir so ConfigDir uses it
+	os.Setenv("HOME", tmpDir)
 
 	return tmpDir, func() {
-		// Restore original XDG_CONFIG_HOME
-		if originalXDG == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+		// Restore original HOME
+		if originalHome == "" {
+			os.Unsetenv("HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", originalXDG)
+			os.Setenv("HOME", originalHome)
 		}
 		os.RemoveAll(tmpDir)
 	}
@@ -167,10 +167,10 @@ func TestSaveCredentials_CreatesDirectory(t *testing.T) {
 	tmpDir, cleanup := setupTestDir(t)
 	defer cleanup()
 
-	// Verify the astro subdirectory doesn't exist yet
-	astroDir := filepath.Join(tmpDir, "astro")
+	// Verify the .astro directory doesn't exist yet
+	astroDir := filepath.Join(tmpDir, ".astro")
 	if _, err := os.Stat(astroDir); !os.IsNotExist(err) {
-		t.Fatal("expected astro directory to not exist initially")
+		t.Fatal("expected .astro directory to not exist initially")
 	}
 
 	storage := createTestStorage()
