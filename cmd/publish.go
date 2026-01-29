@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/postman/astro/apps/astro-cli/internal/auth"
 	"github.com/postman/astro/apps/astro-cli/internal/spec"
 )
 
@@ -45,11 +47,12 @@ Requirements:
 }
 
 var (
-	registry      string
-	publishTag    string
-	buildFirst    bool
-	serverURL     string
-	skipRegister  bool
+	registry     string
+	publishTag   string
+	buildFirst   bool
+	serverURL    string
+	skipRegister bool
+	noAuth       bool
 )
 
 func init() {
@@ -57,8 +60,9 @@ func init() {
 	publishCmd.Flags().StringVarP(&registry, "registry", "r", "", "OCI registry URL (required)")
 	publishCmd.Flags().StringVarP(&publishTag, "tag", "t", "latest", "Tag to publish")
 	publishCmd.Flags().BoolVar(&buildFirst, "build", false, "Build before publishing")
-	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL for agent registration (optional)")
+	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL for agent registration (overrides ASTRO_SERVER_URL)")
 	publishCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent with server")
+	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication for server registration")
 	publishCmd.MarkFlagRequired("registry")
 }
 
@@ -190,11 +194,16 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	log.Printf("✅ Image publish complete!")
 	log.Printf("   Pushed %d custom container image(s)", imagesPushed)
 
-	// 5. Register agent with server (if server URL is provided)
-	if !skipRegister && serverURL != "" {
+	// 5. Register agent with server (if server URL is provided or configured)
+	effectiveServerURL := serverURL
+	if effectiveServerURL == "" {
+		effectiveServerURL = auth.GetServerURL()
+	}
+
+	if !skipRegister && effectiveServerURL != "" {
 		log.Printf("📝 Registering agent with server...")
 
-		if err := registerAgent(serverURL, astroSpec.Agent, astroSpec.Meta.Version, registryClean, specPath, publishTag, verbose); err != nil {
+		if err := registerAgent(effectiveServerURL, astroSpec.Agent, astroSpec.Meta.Version, registryClean, specPath, publishTag, verbose, noAuth); err != nil {
 			log.Printf("⚠️  Warning: Failed to register agent with server: %v", err)
 			log.Printf("   Agent images were published successfully, but registration failed")
 		} else {
@@ -203,7 +212,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	} else if skipRegister {
 		log.Printf("⏭️  Skipping agent registration (--skip-register flag set)")
 	} else {
-		log.Printf("ℹ️  No server URL provided (use --server to register agent)")
+		log.Printf("ℹ️  No server URL provided (use --server or set ASTRO_SERVER_URL to register agent)")
 	}
 
 	return nil
@@ -264,7 +273,7 @@ func pushImage(localImageName, remoteImageName string, verbose bool) error {
 }
 
 // registerAgent registers the agent with the astro server
-func registerAgent(serverURL, name, version, registry, specPath, publishTag string, verbose bool) error {
+func registerAgent(serverURL, name, version, registry, specPath, publishTag string, verbose bool, skipAuth bool) error {
 	// Read and parse spec file
 	specData, err := os.ReadFile(specPath)
 	if err != nil {
@@ -301,12 +310,24 @@ func registerAgent(serverURL, name, version, registry, specPath, publishTag stri
 
 	// Send POST request to server
 	url := fmt.Sprintf("%s/api/v1/agents/register", strings.TrimSuffix(serverURL, "/"))
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add authentication header if not skipped
+	if !skipAuth {
+		if err := auth.AddAuthHeader(context.Background(), req); err != nil {
+			// Check if we should fail or just warn
+			tokenManager := auth.NewTokenManager()
+			if tokenManager.IsAuthenticated() {
+				return fmt.Errorf("failed to add authentication: %w", err)
+			}
+			log.Printf("⚠️  Warning: Not authenticated. Use 'astro login' for authenticated requests or --no-auth to skip")
+		}
+	}
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -314,6 +335,10 @@ func registerAgent(serverURL, name, version, registry, specPath, publishTag stri
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("authentication required. Run 'astro login' to authenticate")
+	}
 
 	if resp.StatusCode != http.StatusCreated {
 		var errorResp map[string]interface{}
