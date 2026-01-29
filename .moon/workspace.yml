@@ -19,9 +19,9 @@ projects:
 # is required for determining touched (added, modified, etc) files, calculating file hashes,
 # computing affected files, and much more.
 vcs:
-  # The client to use when managing the repository.
+  # The manager to use when managing the repository.
   # Accepts "git". Defaults to "git".
-  client: "git"
+  manager: "git"
 
   # The default branch (master/main/trunk) in the repository for comparing the
   # local branch against. For git, this is is typically "master" or "main",
