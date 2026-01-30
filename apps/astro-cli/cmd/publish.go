@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
-	"github.com/postman/astro/apps/astro-cli/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 var publishCmd = &cobra.Command{
@@ -426,4 +426,3 @@ func transformSpecForRegistry(specObj map[string]interface{}, registry, agentNam
 
 	return specObj
 }
-

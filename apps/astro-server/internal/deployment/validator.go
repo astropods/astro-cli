@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 	"github.com/robfig/cron/v3"
 )
 
@@ -98,6 +98,9 @@ func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec) []stri
 	for _, model := range astroSpec.Integrations.Models {
 		credKey := v.getCredentialKeyForProvider(model.Provider)
 		if credKey != "" {
+			if model.Env != nil && model.Env.Prefix != "" {
+				credKey = model.Env.Prefix + credKey
+			}
 			credSet[credKey] = true
 		}
 	}
@@ -106,6 +109,9 @@ func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec) []stri
 	for _, knowledge := range astroSpec.Integrations.Knowledge {
 		credKey := v.getCredentialKeyForProvider(knowledge.Provider)
 		if credKey != "" {
+			if knowledge.Env != nil && knowledge.Env.Prefix != "" {
+				credKey = knowledge.Env.Prefix + credKey
+			}
 			credSet[credKey] = true
 		}
 	}
@@ -114,6 +120,9 @@ func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec) []stri
 	for _, tool := range astroSpec.Integrations.Tools {
 		credKey := v.getCredentialKeyForProvider(tool.Provider)
 		if credKey != "" {
+			if tool.Env != nil && tool.Env.Prefix != "" {
+				credKey = tool.Env.Prefix + credKey
+			}
 			credSet[credKey] = true
 		}
 	}
@@ -164,6 +173,9 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []Credenti
 	// Check integration models (cloud providers)
 	for _, model := range astroSpec.Integrations.Models {
 		if info := v.getCredentialInfo(model.Provider, "model"); info.Key != "" {
+			if model.Env != nil && model.Env.Prefix != "" {
+				info.Key = model.Env.Prefix + info.Key
+			}
 			credMap[info.Key] = info
 		}
 	}
@@ -171,6 +183,9 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []Credenti
 	// Check integration knowledge stores (cloud providers)
 	for _, knowledge := range astroSpec.Integrations.Knowledge {
 		if info := v.getCredentialInfo(knowledge.Provider, "knowledge"); info.Key != "" {
+			if knowledge.Env != nil && knowledge.Env.Prefix != "" {
+				info.Key = knowledge.Env.Prefix + info.Key
+			}
 			credMap[info.Key] = info
 		}
 	}
@@ -178,6 +193,9 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []Credenti
 	// Check integration tools
 	for _, tool := range astroSpec.Integrations.Tools {
 		if info := v.getCredentialInfo(tool.Provider, "tool"); info.Key != "" {
+			if tool.Env != nil && tool.Env.Prefix != "" {
+				info.Key = tool.Env.Prefix + info.Key
+			}
 			credMap[info.Key] = info
 		}
 	}

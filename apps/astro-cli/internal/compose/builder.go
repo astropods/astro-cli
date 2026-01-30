@@ -1,14 +1,13 @@
 package compose
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/types"
-	"github.com/postman/astro/apps/astro-cli/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 // BuildProject converts an AstroSpec to a Docker Compose project
@@ -274,60 +273,33 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 	}
 
-	// Add injection worker if injections are defined
-	// Note: The worker runs once and exits when complete
-	// Cron will restart it on schedule
-	if len(s.Injections) > 0 {
-		// The injection worker is at the package level: packages/astro-injection-worker
-		// Navigate from agent dir (packages/astro-agents/XXX) to packages/astro-injection-worker
-		injectionWorkerPath := filepath.Join(workingDir, "..", "..", "astro-injection-worker")
-
-		injectionWorkerService := types.ServiceConfig{
-			Name: "injection-worker",
-			Build: &types.BuildConfig{
-				Context:    injectionWorkerPath,
-				Dockerfile: "Dockerfile",
-			},
+	// Add ingestion services if defined
+	// Each ingestion is a container that runs on a trigger (schedule, manual, startup)
+	for name, ingestion := range s.Ingestion {
+		serviceName := fmt.Sprintf("ingestion-%s", name)
+		service := types.ServiceConfig{
+			Name: serviceName,
 			Networks: map[string]*types.ServiceNetworkConfig{
 				"astro-dev": nil,
 			},
-			Environment: buildInjectionEnvironment(s, envVars),
-			// Don't auto-restart when it exits - cron will restart on schedule
-			Restart: "no",
-			// Wait for required services to be started
-			// Note: Using service_started instead of service_healthy because
-			// some containers don't have healthcheck tools (wget/curl) available
-			DependsOn: types.DependsOnConfig{
-				"model-embedder": types.ServiceDependency{
-					Condition: types.ServiceConditionStarted,
-					Required:  false, // Don't prevent startup if embedder is missing
-				},
-				"knowledge-docs": types.ServiceDependency{
-					Condition: types.ServiceConditionStarted,
-					Required:  false, // Don't prevent startup if Qdrant is missing
-				},
-			},
+			// Don't auto-start - triggered by scheduler or manually
+			Profiles: []string{"ingestion"},
 		}
 
-		// Add persistent volume if any injection requires it
-		for _, injection := range s.Injections {
-			if injection.Persistent {
-				volumeName := "injection-worker-state"
-				project.Volumes[volumeName] = types.VolumeConfig{
-					Name: volumeName,
-				}
-				injectionWorkerService.Volumes = []types.ServiceVolumeConfig{
-					{
-						Type:   types.VolumeTypeVolume,
-						Source: volumeName,
-						Target: "/app/state",
-					},
-				}
-				break
+		// Build or image configuration
+		if ingestion.Container.Build != nil {
+			service.Build = &types.BuildConfig{
+				Context:    filepath.Join(workingDir, ingestion.Container.Build.Context),
+				Dockerfile: ingestion.Container.Build.Dockerfile,
 			}
+		} else if ingestion.Container.Image != "" {
+			service.Image = ingestion.Container.Image
 		}
 
-		project.Services["injection-worker"] = injectionWorkerService
+		// Environment variables - inherit from agent
+		service.Environment = buildEnvironment(s, envVars)
+
+		project.Services[serviceName] = service
 	}
 
 	// Add agent service
@@ -353,8 +325,8 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		agentService.Volumes = []types.ServiceVolumeConfig{
 			{
 				Type:   types.VolumeTypeBind,
-				Source: filepath.Join(workingDir, "src"),
-				Target: "/app/src",
+				Source: filepath.Join(workingDir, "agent"),
+				Target: "/app/agent",
 			},
 		}
 	}
@@ -429,42 +401,55 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	}
 
 	// Inject integration credentials from .env
-	if s.Integrations.Models != nil {
-		for _, model := range s.Integrations.Models {
-			switch model.Provider {
-			case "anthropic":
-				if val, ok := envVars["ANTHROPIC_API_KEY"]; ok {
-					env["ANTHROPIC_API_KEY"] = &val
-				}
-			case "openai":
-				if val, ok := envVars["OPENAI_API_KEY"]; ok {
-					env["OPENAI_API_KEY"] = &val
-				}
+	for _, model := range s.Integrations.Models {
+		// Determine env var prefix
+		prefix := ""
+		if model.Env != nil && model.Env.Prefix != "" {
+			prefix = model.Env.Prefix
+		}
+
+		switch model.Provider {
+		case "anthropic":
+			key := prefix + "ANTHROPIC_API_KEY"
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
+			}
+		case "openai":
+			key := prefix + "OPENAI_API_KEY"
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
 			}
 		}
 	}
 
-	if s.Integrations.Tools != nil {
-		for name, tool := range s.Integrations.Tools {
-			switch tool.Provider {
-			case "github":
-				if val, ok := envVars["GITHUB_TOKEN"]; ok {
-					env["GITHUB_TOKEN"] = &val
-				}
-			case "slack":
-				if val, ok := envVars["SLACK_BOT_TOKEN"]; ok {
-					env["SLACK_BOT_TOKEN"] = &val
-				}
-			case "tavily":
-				if val, ok := envVars["TAVILY_API_KEY"]; ok {
-					env["TAVILY_API_KEY"] = &val
-				}
-			default:
-				// Generic pattern: PROVIDER_API_KEY
-				key := fmt.Sprintf("%s_API_KEY", name)
-				if val, ok := envVars[key]; ok {
-					env[key] = &val
-				}
+	for _, tool := range s.Integrations.Tools {
+		// Determine env var prefix
+		prefix := ""
+		if tool.Env != nil && tool.Env.Prefix != "" {
+			prefix = tool.Env.Prefix
+		}
+
+		switch tool.Provider {
+		case "github":
+			key := prefix + "GITHUB_TOKEN"
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
+			}
+		case "slack":
+			key := prefix + "SLACK_BOT_TOKEN"
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
+			}
+		case "tavily":
+			key := prefix + "TAVILY_API_KEY"
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
+			}
+		default:
+			// Generic pattern: PROVIDER_API_KEY
+			key := prefix + fmt.Sprintf("%s_API_KEY", strings.ToUpper(tool.Provider))
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
 			}
 		}
 	}
@@ -550,80 +535,3 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	return env
 }
 
-// buildInjectionEnvironment creates environment variables for the injection worker
-func buildInjectionEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
-	env := make(types.MappingWithEquals)
-
-	// Get the first injection configuration (for now, support single injection)
-	var injection *spec.Injection
-	for _, inj := range s.Injections {
-		injection = &inj
-		break
-	}
-
-	if injection == nil {
-		return env
-	}
-
-	// INJECTION_SOURCE_TYPE - the type of source (e.g., "github")
-	sourceType := injection.Source.Type
-	env["INJECTION_SOURCE_TYPE"] = &sourceType
-
-	// INJECTION_SOURCE_CONFIG - JSON string of source configuration
-	if len(injection.Source.Config) > 0 {
-		sourceConfigJSON, err := json.Marshal(injection.Source.Config)
-		if err == nil {
-			sourceConfigStr := string(sourceConfigJSON)
-			env["INJECTION_SOURCE_CONFIG"] = &sourceConfigStr
-		}
-	}
-
-	// INJECTION_PIPELINE - JSON array of pipeline steps
-	if len(injection.Pipeline) > 0 {
-		pipelineJSON, err := json.Marshal(injection.Pipeline)
-		if err == nil {
-			pipelineStr := string(pipelineJSON)
-			env["INJECTION_PIPELINE"] = &pipelineStr
-		}
-	}
-
-	// INJECTION_PERSISTENT - whether to persist state
-	persistentStr := "false"
-	if injection.Persistent {
-		persistentStr = "true"
-	}
-	env["INJECTION_PERSISTENT"] = &persistentStr
-
-	// INJECTION_COLLECTION_NAME - from knowledge config
-	for _, knowledge := range s.Knowledge {
-		if knowledge.Type == "vector" {
-			if collection, ok := knowledge.Config["collection"].(string); ok {
-				env["INJECTION_COLLECTION_NAME"] = &collection
-			}
-			if dims, ok := knowledge.Config["dimensions"].(int); ok {
-				dimsStr := fmt.Sprintf("%d", dims)
-				env["INJECTION_VECTOR_SIZE"] = &dimsStr
-			}
-			break
-		}
-	}
-
-	// Embedder URL (references the model service)
-	embedderURL := "http://model-embedder:8000"
-	env["EMBEDDER_URL"] = &embedderURL
-
-	// Qdrant configuration
-	qdrantHost := "knowledge-docs"
-	qdrantPort := "6333"
-	env["QDRANT_HOST"] = &qdrantHost
-	env["QDRANT_PORT"] = &qdrantPort
-
-	// GitHub token if available (for GitHub source type)
-	if injection.Source.Type == "github" {
-		if token, ok := envVars["GITHUB_TOKEN"]; ok {
-			env["GITHUB_TOKEN"] = &token
-		}
-	}
-
-	return env
-}

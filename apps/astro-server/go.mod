@@ -6,6 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/joho/godotenv v1.5.1
+	github.com/postman/astro/packages/astro-spec v0.0.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/workos/workos-go/v4 v4.46.1
 	golang.org/x/crypto v0.47.0
@@ -15,6 +16,8 @@ require (
 	k8s.io/client-go v0.35.0
 	modernc.org/sqlite v1.44.2
 )
+
+replace github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
 
 require (
 	github.com/bytedance/sonic v1.14.0 // indirect

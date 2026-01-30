@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 // EnvBuilder builds environment variables for deployments

@@ -3,7 +3,7 @@ package deployment
 import (
 	"fmt"
 
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 // TranslationResult holds the result of spec translation

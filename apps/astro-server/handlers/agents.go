@@ -8,7 +8,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 	"gopkg.in/yaml.v3"
 )
 

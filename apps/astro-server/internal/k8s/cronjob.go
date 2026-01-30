@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

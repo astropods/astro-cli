@@ -2,7 +2,7 @@ package k8s
 
 import (
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -64,6 +64,14 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 			},
 		},
 		ImagePullPolicy: corev1.PullIfNotPresent,
+	}
+
+	// Add container-specific environment variables
+	for key, value := range cfg.Container.Environment {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  key,
+			Value: value,
+		})
 	}
 
 	// Add ConfigMap and Secret env vars

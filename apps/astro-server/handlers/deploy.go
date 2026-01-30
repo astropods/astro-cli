@@ -12,7 +12,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 // DeployAgent returns a handler for deploying agents to Kubernetes

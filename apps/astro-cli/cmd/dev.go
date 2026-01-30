@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/postman/astro/apps/astro-cli/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
 	"github.com/postman/astro/apps/astro-cli/internal/watcher"
 )
@@ -157,54 +157,71 @@ func runDev(cmd *cobra.Command, args []string) error {
 		log.Printf("💬 Messaging service running on gRPC port 9090")
 	}
 
-	// Set up cron scheduler for injection workers
+	// Set up cron scheduler for ingestion workers
 	var cronScheduler *cron.Cron
-	if len(astroSpec.Injections) > 0 {
+	if len(astroSpec.Ingestion) > 0 {
 		cronScheduler = cron.New()
 
-		for name, injection := range astroSpec.Injections {
-			if injection.Trigger.Type == "schedule" && injection.Trigger.Cron != "" {
-				cronPattern := injection.Trigger.Cron
-				injectionName := name
+		for name, ingestion := range astroSpec.Ingestion {
+			if ingestion.Trigger.Type == "schedule" && ingestion.Trigger.Schedule != "" {
+				cronPattern := ingestion.Trigger.Schedule
+				ingestionName := name
 
-				log.Printf("⏰ Scheduling injection '%s' with pattern: %s", injectionName, cronPattern)
+				log.Printf("⏰ Scheduling ingestion '%s' with pattern: %s", ingestionName, cronPattern)
 
 				// Add cron job
 				_, err := cronScheduler.AddFunc(cronPattern, func() {
-					log.Printf("🔄 Checking injection worker: %s", injectionName)
+					log.Printf("🔄 Running ingestion: %s", ingestionName)
 
-					// Use 'start' instead of 'restart' - it only starts if stopped
-					// If already running, it does nothing (no-op)
-					startCmd := exec.Command("docker", "compose", "-f", composePath, "start", "injection-worker")
-					startCmd.Stdout = os.Stdout
-					startCmd.Stderr = os.Stderr
+					// Run the ingestion container
+					serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
+					runCmd := exec.Command("docker", "compose", "-f", composePath, "run", "--rm", serviceName)
+					runCmd.Stdout = os.Stdout
+					runCmd.Stderr = os.Stderr
 
-					if err := startCmd.Run(); err != nil {
-						log.Printf("❌ Failed to start injection worker for '%s': %v", injectionName, err)
+					if err := runCmd.Run(); err != nil {
+						log.Printf("❌ Failed to run ingestion '%s': %v", ingestionName, err)
 					} else {
-						log.Printf("✅ Injection worker running for '%s'", injectionName)
+						log.Printf("✅ Ingestion '%s' completed", ingestionName)
 					}
 				})
 
 				if err != nil {
-					log.Printf("⚠️  Failed to schedule injection '%s': %v", injectionName, err)
+					log.Printf("⚠️  Failed to schedule ingestion '%s': %v", ingestionName, err)
 				}
+			} else if ingestion.Trigger.Type == "startup" {
+				// Run immediately on startup
+				ingestionName := name
+				log.Printf("🚀 Running startup ingestion: %s", ingestionName)
+
+				serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
+				go func() {
+					runCmd := exec.Command("docker", "compose", "-f", composePath, "run", "--rm", serviceName)
+					runCmd.Stdout = os.Stdout
+					runCmd.Stderr = os.Stderr
+					if err := runCmd.Run(); err != nil {
+						log.Printf("❌ Failed to run startup ingestion '%s': %v", ingestionName, err)
+					} else {
+						log.Printf("✅ Startup ingestion '%s' completed", ingestionName)
+					}
+				}()
 			}
 		}
 
-		cronScheduler.Start()
-		defer cronScheduler.Stop()
-
-		log.Printf("📅 Injection scheduler started (will restart worker on cron schedule)")
+		if cronScheduler != nil {
+			cronScheduler.Start()
+			defer cronScheduler.Stop()
+			log.Printf("📅 Ingestion scheduler started")
+		}
 	}
 
 	// Set up file watcher for hot reload
 	if !noReload {
-		log.Printf("👀 Watching for file changes in ./src...")
+		log.Printf("👀 Watching for file changes in ./agent...")
 
-		srcDir := filepath.Join(workingDir, "src")
-		if _, err := os.Stat(srcDir); err == nil {
-			fw, err := watcher.New(srcDir, func(path string) {
+		agentDir := filepath.Join(workingDir, "agent")
+		if _, err := os.Stat(agentDir); err == nil {
+			fw, err := watcher.New(agentDir, func(path string) {
 				log.Printf("📝 File changed: %s", path)
 				log.Printf("🔄 Rebuilding agent...")
 
@@ -238,7 +255,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 				defer fw.Stop()
 			}
 		} else {
-			log.Printf("⚠️  ./src directory not found (hot reload disabled)")
+			log.Printf("⚠️  ./agent directory not found (hot reload disabled)")
 		}
 	}
 
