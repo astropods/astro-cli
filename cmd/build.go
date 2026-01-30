@@ -15,7 +15,7 @@ import (
 	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/spec"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 var buildCmd = &cobra.Command{
