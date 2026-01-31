@@ -59,13 +59,15 @@ func main() {
 	}
 
 	// Initialize agent index for tracking published agents
-	indexPath := filepath.Join(cfg.Deployment.ArtifactDir, "agent-index.db")
-	agentIndex, err := agentindex.NewIndex(indexPath)
+	agentIndex, err := agentindex.NewIndex(cfg.Database.URL)
 	if err != nil {
 		log.Error("Failed to create agent index", "error", err)
 		os.Exit(1)
 	}
-	log.Info("Agent index initialized", "path", indexPath)
+	log.Info("Agent index initialized")
+
+	// Initialize probe handler for K8s health checks
+	probeHandler := handlers.NewProbeHandler(log, agentIndex)
 
 	// Initialize probe handler for K8s health checks
 	probeHandler := handlers.NewProbeHandler(log, agentIndex)

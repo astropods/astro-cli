@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: astro
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate:v4.17.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path=/migrations",
+        "-database=postgres://postgres:postgres@postgres:5432/astro?sslmode=disable",
+        "up",
+      ]
+
+  server:
+    build:
+      context: ../..
+      dockerfile: apps/astro-server/Dockerfile.dev
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/app/apps/astro-server
+      - ../../packages:/app/packages
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+    environment:
+      # Database
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/astro?sslmode=disable
+      # Server
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      GIN_MODE: debug
+      # Logging
+      LOG_LEVEL: debug
+      LOG_FORMAT: json
+      # Security
+      ALLOWED_ORIGINS: "*"
+      # Deployment
+      REGISTRY_URL: ghcr.io/saswatds
+      # Auth disabled for local dev
+      AUTH_ENABLED: "false"
+
+volumes:
+  postgres_data:
+  go_mod_cache:
+  go_build_cache:

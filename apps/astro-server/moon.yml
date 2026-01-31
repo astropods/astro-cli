@@ -19,12 +19,11 @@ tasks:
       - "go.sum"
 
   run:
-    command: "go run main.go"
-    inputs:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
+    command: "docker compose up --build"
     preset: "server"
+
+  stop:
+    command: "docker compose down"
 
   fmt:
     command: "go fmt ./..."

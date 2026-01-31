@@ -1,0 +1,19 @@
+FROM golang:1.25-alpine
+
+RUN apk add --no-cache git
+
+# Install air for hot reloading
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app/apps/astro-server
+
+# Copy go.mod files first for better caching
+COPY apps/astro-server/go.mod apps/astro-server/go.sum ./
+COPY packages/astro-spec/go.mod packages/astro-spec/go.sum /app/packages/astro-spec/
+
+# Download dependencies
+RUN go mod download
+
+EXPOSE 8080
+
+CMD ["air", "-c", ".air.toml"]

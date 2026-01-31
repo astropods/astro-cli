@@ -14,6 +14,12 @@ type Config struct {
 	Security   SecurityConfig
 	Deployment DeploymentConfig
 	Auth       AuthConfig
+	Database   DatabaseConfig
+}
+
+// DatabaseConfig holds database configuration
+type DatabaseConfig struct {
+	URL string // DATABASE_URL connection string (postgres://user:pass@host:port/dbname?sslmode=disable)
 }
 
 // AuthConfig holds WorkOS authentication configuration
@@ -58,7 +64,6 @@ type SecurityConfig struct {
 
 // DeploymentConfig holds deployment-related configuration
 type DeploymentConfig struct {
-	ArtifactDir       string
 	RegistryURL       string
 	K8sKubeconfigPath string
 	K8sInCluster      bool
@@ -86,7 +91,6 @@ func Load() (*Config, error) {
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Deployment: DeploymentConfig{
-			ArtifactDir:       getEnv("ARTIFACT_DIR", "/tmp/astro-artifacts"),
 			RegistryURL:       getEnv("REGISTRY_URL", "ghcr.io/saswatds"),
 			K8sKubeconfigPath: getEnv("K8S_KUBECONFIG_PATH", ""),
 			K8sInCluster:      getEnv("K8S_IN_CLUSTER", "false") == "true",
@@ -106,6 +110,9 @@ func Load() (*Config, error) {
 			SessionMaxAge:  getEnvDuration("AUTH_SESSION_MAX_AGE", 24*time.Hour),
 			JWTIssuer:      getEnv("AUTH_JWT_ISSUER", "https://api.workos.com"),
 			Enabled:        getEnv("AUTH_ENABLED", "true") == "true",
+		},
+		Database: DatabaseConfig{
+			URL: getEnv("DATABASE_URL", ""),
 		},
 	}
 
@@ -134,6 +141,10 @@ func (c *Config) Validate() error {
 
 	if c.Deployment.RegistryURL == "" {
 		return fmt.Errorf("REGISTRY_URL environment variable is required")
+	}
+
+	if c.Database.URL == "" {
+		return fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 
 	// Validate auth configuration when enabled

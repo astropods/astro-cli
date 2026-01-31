@@ -4,11 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/lib/pq"
 )
 
 // AgentVersion represents a specific version of an agent
@@ -28,66 +26,31 @@ type Agent struct {
 	UpdatedAt time.Time                `json:"updated_at"`
 }
 
-// Index manages the registry of published agents using SQLite
+// Index manages the registry of published agents using PostgreSQL
 type Index struct {
 	db *sql.DB
 }
 
-// NewIndex creates a new agent index with SQLite backend
-func NewIndex(dbPath string) (*Index, error) {
-	// Create directory if it doesn't exist
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create index directory: %w", err)
-	}
-
-	// Open SQLite database
-	db, err := sql.Open("sqlite", dbPath)
+// NewIndex creates a new agent index with PostgreSQL backend
+func NewIndex(databaseURL string) (*Index, error) {
+	// Open PostgreSQL database
+	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	idx := &Index{db: db}
-
-	// Initialize schema
-	if err := idx.initSchema(); err != nil {
+	// Verify connection
+	if err := db.Ping(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return idx, nil
+	return &Index{db: db}, nil
 }
 
 // Close closes the database connection
 func (idx *Index) Close() error {
 	return idx.db.Close()
-}
-
-// initSchema creates the database tables
-func (idx *Index) initSchema() error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS agents (
-		name TEXT NOT NULL PRIMARY KEY,
-		registry TEXT NOT NULL,
-		created_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS agent_versions (
-		name TEXT NOT NULL,
-		version TEXT NOT NULL,
-		spec_json TEXT NOT NULL,
-		published_at DATETIME NOT NULL,
-		updated_at DATETIME NOT NULL,
-		PRIMARY KEY (name, version),
-		FOREIGN KEY (name) REFERENCES agents(name) ON DELETE CASCADE
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_versions_agent ON agent_versions(name);
-	`
-
-	_, err := idx.db.Exec(schema)
-	return err
 }
 
 // Register adds or updates an agent version in the index
@@ -106,44 +69,22 @@ func (idx *Index) Register(name, version, registry string, spec map[string]inter
 		return fmt.Errorf("failed to marshal spec: %w", err)
 	}
 
-	// Insert or update agent using REPLACE which is more compatible
-	// First check if agent exists to preserve created_at
-	var existingCreatedAt *time.Time
-	err = tx.QueryRow(`SELECT created_at FROM agents WHERE name = ?`, name).Scan(&existingCreatedAt)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("failed to query existing agent: %w", err)
-	}
-
-	createdAt := now
-	if existingCreatedAt != nil {
-		createdAt = *existingCreatedAt
-	}
-
+	// Insert or update agent using ON CONFLICT
 	_, err = tx.Exec(`
-		INSERT OR REPLACE INTO agents (name, registry, created_at, updated_at)
-		VALUES (?, ?, ?, ?)
-	`, name, registry, createdAt, now)
+		INSERT INTO agents (name, registry, created_at, updated_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (name) DO UPDATE SET registry = $2, updated_at = $4
+	`, name, registry, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to insert agent: %w", err)
 	}
 
-	// Insert or update version using REPLACE
-	// Check if version exists to preserve published_at
-	var existingPublishedAt *time.Time
-	err = tx.QueryRow(`SELECT published_at FROM agent_versions WHERE name = ? AND version = ?`, name, version).Scan(&existingPublishedAt)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("failed to query existing version: %w", err)
-	}
-
-	publishedAt := now
-	if existingPublishedAt != nil {
-		publishedAt = *existingPublishedAt
-	}
-
+	// Insert or update version using ON CONFLICT
 	_, err = tx.Exec(`
-		INSERT OR REPLACE INTO agent_versions (name, version, spec_json, published_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, name, version, string(specJSON), publishedAt, now)
+		INSERT INTO agent_versions (name, version, spec_json, published_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (name, version) DO UPDATE SET spec_json = $3, updated_at = $5
+	`, name, version, string(specJSON), now, now)
 	if err != nil {
 		return fmt.Errorf("failed to insert version: %w", err)
 	}
@@ -157,7 +98,7 @@ func (idx *Index) Get(name string) (*Agent, error) {
 	err := idx.db.QueryRow(`
 		SELECT name, registry, created_at, updated_at
 		FROM agents
-		WHERE name = ?
+		WHERE name = $1
 	`, name).Scan(&agent.Name, &agent.Registry, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -172,7 +113,7 @@ func (idx *Index) Get(name string) (*Agent, error) {
 	rows, err := idx.db.Query(`
 		SELECT version, spec_json, published_at, updated_at
 		FROM agent_versions
-		WHERE name = ?
+		WHERE name = $1
 	`, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query versions: %w", err)
@@ -204,7 +145,7 @@ func (idx *Index) GetVersion(name, version string) (*AgentVersion, error) {
 	err := idx.db.QueryRow(`
 		SELECT version, spec_json, published_at, updated_at
 		FROM agent_versions
-		WHERE name = ? AND version = ?
+		WHERE name = $1 AND version = $2
 	`, name, version).Scan(&v.Version, &specJSON, &v.PublishedAt, &v.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -246,7 +187,7 @@ func (idx *Index) List() ([]*Agent, error) {
 		versionRows, err := idx.db.Query(`
 			SELECT version, spec_json, published_at, updated_at
 			FROM agent_versions
-			WHERE name = ?
+			WHERE name = $1
 		`, agent.Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query versions: %w", err)
@@ -280,7 +221,7 @@ func (idx *Index) List() ([]*Agent, error) {
 func (idx *Index) Delete(name string) error {
 	result, err := idx.db.Exec(`
 		DELETE FROM agents
-		WHERE name = ?
+		WHERE name = $1
 	`, name)
 	if err != nil {
 		return fmt.Errorf("failed to delete agent: %w", err)
@@ -302,7 +243,7 @@ func (idx *Index) Delete(name string) error {
 func (idx *Index) DeleteVersion(name, version string) error {
 	result, err := idx.db.Exec(`
 		DELETE FROM agent_versions
-		WHERE name = ? AND version = ?
+		WHERE name = $1 AND version = $2
 	`, name, version)
 	if err != nil {
 		return fmt.Errorf("failed to delete version: %w", err)
@@ -321,7 +262,7 @@ func (idx *Index) DeleteVersion(name, version string) error {
 	var count int
 	err = idx.db.QueryRow(`
 		SELECT COUNT(*) FROM agent_versions
-		WHERE name = ?
+		WHERE name = $1
 	`, name).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("failed to count versions: %w", err)
@@ -330,7 +271,7 @@ func (idx *Index) DeleteVersion(name, version string) error {
 	if count == 0 {
 		_, err = idx.db.Exec(`
 			DELETE FROM agents
-			WHERE name = ?
+			WHERE name = $1
 		`, name)
 		if err != nil {
 			return fmt.Errorf("failed to delete agent: %w", err)

@@ -139,3 +139,7 @@ dist
 # moon
 .moon/cache
 .moon/docker
+
+# air (Go hot reload)
+tmp/
+build-errors.log
