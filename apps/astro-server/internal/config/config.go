@@ -41,6 +41,7 @@ type ServerConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
+	StaticDir       string // Directory containing static frontend assets (empty to disable)
 }
 
 // LogConfig holds logging configuration
@@ -74,6 +75,7 @@ func Load() (*Config, error) {
 			ReadTimeout:     getEnvDuration("READ_TIMEOUT", 10*time.Second),
 			WriteTimeout:    getEnvDuration("WRITE_TIMEOUT", 10*time.Second),
 			ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
+			StaticDir:       getEnv("STATIC_DIR", ""),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),

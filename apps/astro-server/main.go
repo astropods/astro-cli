@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -66,8 +67,11 @@ func main() {
 	}
 	log.Info("Agent index initialized", "path", indexPath)
 
+	// Initialize probe handler for K8s health checks
+	probeHandler := handlers.NewProbeHandler(log, agentIndex)
+
 	// Register routes
-	setupRoutes(router, log, agentIndex, cfg)
+	setupRoutes(router, log, agentIndex, cfg, probeHandler)
 
 	// Create HTTP server with timeouts
 	srv := &http.Server{
@@ -94,6 +98,9 @@ func main() {
 
 	log.Info("Shutting down server...")
 
+	// Mark as not ready to stop receiving new traffic
+	probeHandler.SetReady(false)
+
 	// Create shutdown context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer cancel()
@@ -108,7 +115,17 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, probeHandler *handlers.ProbeHandler) {
+	// Kubernetes-style health probe endpoints (at root, no middleware)
+	router.GET("/livez", probeHandler.Livez())
+	router.GET("/readyz", probeHandler.Readyz())
+	router.GET("/healthz", probeHandler.Healthz())
+
+	// Serve static frontend assets if configured
+	if cfg.Server.StaticDir != "" {
+		setupStaticFiles(router, log, cfg.Server.StaticDir)
+	}
+
 	// Setup authentication if enabled
 	var authMw *middleware.AuthMiddleware
 	if cfg.Auth.Enabled {
@@ -161,4 +178,36 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
 		}
 	}
+}
+
+// setupStaticFiles configures static file serving for the SPA frontend
+func setupStaticFiles(router *gin.Engine, log *logger.Logger, staticDir string) {
+	// Verify static directory exists
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		log.Warn("Static directory does not exist, skipping static file serving", "path", staticDir)
+		return
+	}
+
+	log.Info("Serving static files", "path", staticDir)
+
+	// Serve static assets (js, css, images, etc.)
+	router.Static("/assets", filepath.Join(staticDir, "assets"))
+
+	// Serve other static files at root (favicon, robots.txt, etc.)
+	router.StaticFile("/favicon.ico", filepath.Join(staticDir, "favicon.ico"))
+	router.StaticFile("/robots.txt", filepath.Join(staticDir, "robots.txt"))
+
+	// SPA fallback: serve index.html for all non-API, non-auth, non-static routes
+	router.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		// Don't serve index.html for API or auth routes
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		// Serve index.html for SPA routing
+		c.File(filepath.Join(staticDir, "index.html"))
+	})
 }

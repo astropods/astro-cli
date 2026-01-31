@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1
+
+# =============================================================================
+# Stage 1: Build the frontend (native architecture)
+# =============================================================================
+FROM oven/bun:1 AS frontend-builder
+
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package.json bun.lock ./
+COPY apps/astro-client/package.json ./apps/astro-client/
+COPY packages/astro-agents/package.json ./packages/astro-agents/
+COPY packages/astro-workflows/package.json ./packages/astro-workflows/
+COPY packages/astro-agent/package.json ./packages/astro-agent/
+COPY packages/astro-graph/package.json ./packages/astro-graph/
+COPY packages/astro-engine/package.json ./packages/astro-engine/
+COPY packages/astro-nodes/package.json ./packages/astro-nodes/
+COPY packages/astro-types/package.json ./packages/astro-types/
+COPY packages/astro-messaging/package.json ./packages/astro-messaging/
+COPY packages/astro-playground/package.json ./packages/astro-playground/
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy source files needed for astro-client build
+COPY apps/astro-client ./apps/astro-client
+COPY packages ./packages
+
+# Build the frontend
+WORKDIR /app/apps/astro-client
+RUN bun run build
+
+# =============================================================================
+# Stage 2: Build the Go backend (native, cross-compile to amd64)
+# =============================================================================
+FROM golang:1.25-alpine AS backend-builder
+
+WORKDIR /app
+
+# Copy go.mod files for dependency caching
+COPY apps/astro-server/go.mod apps/astro-server/go.sum ./apps/astro-server/
+COPY packages/astro-spec/go.mod ./packages/astro-spec/
+
+# Download dependencies
+WORKDIR /app/apps/astro-server
+RUN go mod download
+
+# Copy source files
+WORKDIR /app
+COPY apps/astro-server ./apps/astro-server
+COPY packages/astro-spec ./packages/astro-spec
+
+# Cross-compile for linux/amd64 (CGO_ENABLED=0 for pure Go, no C deps)
+WORKDIR /app/apps/astro-server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /app/astro-server main.go
+
+# =============================================================================
+# Stage 3: Production image (amd64)
+# =============================================================================
+FROM --platform=linux/amd64 alpine:3.21
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1000 astro && \
+    adduser -u 1000 -G astro -s /bin/sh -D astro
+
+# Copy the built artifacts
+COPY --from=backend-builder /app/astro-server /app/astro-server
+COPY --from=frontend-builder /app/apps/astro-client/dist /app/static
+
+# Create directories for runtime data
+RUN mkdir -p /app/data && chown -R astro:astro /app
+
+# Switch to non-root user
+USER astro
+
+# Environment defaults
+ENV PORT=8080 \
+    HOST=0.0.0.0 \
+    GIN_MODE=release \
+    STATIC_DIR=/app/static \
+    ARTIFACT_DIR=/app/data
+
+# Expose port
+EXPOSE 8080
+
+# Health check (K8s-style liveness probe)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/livez || exit 1
+
+# Run the server
+ENTRYPOINT ["/app/astro-server"]
