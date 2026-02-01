@@ -69,9 +69,6 @@ func main() {
 	// Initialize probe handler for K8s health checks
 	probeHandler := handlers.NewProbeHandler(log, agentIndex)
 
-	// Initialize probe handler for K8s health checks
-	probeHandler := handlers.NewProbeHandler(log, agentIndex)
-
 	// Register routes
 	setupRoutes(router, log, agentIndex, cfg, probeHandler)
 
