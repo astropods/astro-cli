@@ -79,3 +79,18 @@ func TeamsCapabilities() AdapterCapabilities {
 		SupportsCards:            true,   // Adaptive Cards
 	}
 }
+
+// WebCapabilities returns capabilities for web browser clients via HTTP + SSE
+func WebCapabilities() AdapterCapabilities {
+	return AdapterCapabilities{
+		SupportsStreaming:        true,  // SSE streaming
+		SupportsStatusUpdates:    true,  // Status events via SSE
+		SupportsSuggestedPrompts: true,  // Suggested prompts in SSE events
+		SupportsThreads:          true,  // Conversation threading
+		SupportsTypingIndicator:  false, // No typing indicator
+		MaxUpdateRateHz:          0,     // No rate limit
+		MaxContentLength:         0,     // No content length limit
+		SupportsReactions:        false, // No reactions
+		SupportsCards:            true,  // Rich cards/embeds
+	}
+}
