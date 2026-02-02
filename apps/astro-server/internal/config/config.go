@@ -91,7 +91,7 @@ func Load() (*Config, error) {
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:    getEnv("REGISTRY_URL", "ghcr.io/saswatds"),
+			RegistryURL:    getEnv("REGISTRY_URL", ""),
 			EKSClusterName: getEnv("EKS_CLUSTER_NAME", ""),
 			K8sMasterURL:   getEnv("K8S_MASTER_URL", ""),
 			AWSRegion:      getEnv("AWS_REGION", ""),

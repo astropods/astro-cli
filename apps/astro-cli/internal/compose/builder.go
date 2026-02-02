@@ -191,7 +191,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			iface.Type == "messaging/slack" || iface.Type == "messaging/discord" || iface.Type == "messaging/teams" {
 			messagingService := types.ServiceConfig{
 				Name:  "astro-messaging",
-				Image: "ghcr.io/saswatds/astro-messaging:latest",
+				Image: fmt.Sprintf("%s/prod-astro-messaging:latest", envVars["REGISTRY_URL"]),
 				Networks: map[string]*types.ServiceNetworkConfig{
 					"astro-dev": nil,
 				},

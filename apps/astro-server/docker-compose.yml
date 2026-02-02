@@ -54,7 +54,7 @@ services:
       # Security
       ALLOWED_ORIGINS: "*"
       # Deployment
-      REGISTRY_URL: ghcr.io/saswatds
+      REGISTRY_URL: ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
       # Auth disabled for local dev
       AUTH_ENABLED: "false"
 
