@@ -105,16 +105,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			return
 		}
 
-		// Initialize Kubernetes client
-		k8sClient, err := k8s.NewClient(k8s.ClientConfig{
-			KubeconfigPath: cfg.Deployment.K8sKubeconfigPath,
-			InCluster:      cfg.Deployment.K8sInCluster,
-			MasterURL:      cfg.Deployment.K8sMasterURL,
+		// Initialize EKS client for managed cluster
+		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
+			ClusterName:     cfg.Deployment.EKSClusterName,
+			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
+			Region:          cfg.Deployment.AWSRegion,
+			Logger:          log,
 		})
 		if err != nil {
-			log.Error("Failed to create Kubernetes client", "error", err)
+			log.Error("Failed to create EKS client", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to connect to Kubernetes",
+				"error":   "failed to connect to EKS cluster",
 				"details": err.Error(),
 			})
 			return
@@ -196,16 +197,17 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			"k8s_namespace", req.K8sNamespace,
 		)
 
-		// Initialize Kubernetes client
-		k8sClient, err := k8s.NewClient(k8s.ClientConfig{
-			KubeconfigPath: cfg.Deployment.K8sKubeconfigPath,
-			InCluster:      cfg.Deployment.K8sInCluster,
-			MasterURL:      cfg.Deployment.K8sMasterURL,
+		// Initialize EKS client for managed cluster
+		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
+			ClusterName:     cfg.Deployment.EKSClusterName,
+			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
+			Region:          cfg.Deployment.AWSRegion,
+			Logger:          log,
 		})
 		if err != nil {
-			log.Error("Failed to create Kubernetes client", "error", err)
+			log.Error("Failed to create EKS client", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to connect to Kubernetes",
+				"error":   "failed to connect to EKS cluster",
 				"details": err.Error(),
 			})
 			return

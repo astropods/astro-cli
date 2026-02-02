@@ -16,6 +16,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/handlers"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
+	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
 )
@@ -66,11 +67,46 @@ func main() {
 	}
 	log.Info("Agent index initialized")
 
+	// Initialize EKS client for managed cluster
+	var k8sClient *k8s.EKSClient
+	log.Info("Initializing EKS client for managed cluster",
+		"cluster_name", cfg.Deployment.EKSClusterName,
+		"region", cfg.Deployment.AWSRegion,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	var k8sErr error
+	k8sClient, k8sErr = k8s.NewEKSClient(ctx, k8s.EKSClientConfig{
+		ClusterName:     cfg.Deployment.EKSClusterName,
+		ClusterEndpoint: cfg.Deployment.K8sMasterURL,
+		Region:          cfg.Deployment.AWSRegion,
+		Logger:          log,
+	})
+	cancel()
+	if k8sErr != nil {
+		log.Warn("Failed to create EKS client", "error", k8sErr)
+		log.Warn("Kubernetes features will be unavailable")
+	} else {
+		// Test connectivity and get server version
+		if version, connErr := k8sClient.GetServerVersion(); connErr != nil {
+			log.Warn("EKS client created but connection failed", "error", connErr)
+			// Log diagnostic info for troubleshooting
+			diag := k8sClient.DiagnoseConnection()
+			for key, val := range diag {
+				log.Debug("EKS diagnostic", key, val)
+			}
+		} else {
+			log.Info("EKS connection established",
+				"version", version,
+				"cluster", cfg.Deployment.EKSClusterName,
+			)
+		}
+	}
+
 	// Initialize probe handler for K8s health checks
-	probeHandler := handlers.NewProbeHandler(log, agentIndex)
+	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, cfg, probeHandler)
+	setupRoutes(router, log, agentIndex, cfg, probeHandler, k8sClient)
 
 	// Create HTTP server with timeouts
 	srv := &http.Server{
@@ -101,11 +137,11 @@ func main() {
 	probeHandler.SetReady(false)
 
 	// Create shutdown context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	defer shutdownCancel()
 
 	// Attempt graceful shutdown
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("Server forced to shutdown", "error", err)
 		os.Exit(1)
 	}
@@ -114,7 +150,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, probeHandler *handlers.ProbeHandler) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient *k8s.EKSClient) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -175,6 +211,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
 			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
+			protected.GET("/cluster/status", handlers.ClusterStatus(log, k8sClient))
 		}
 	}
 }

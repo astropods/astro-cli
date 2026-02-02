@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
+	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
@@ -14,15 +15,17 @@ import (
 type ProbeHandler struct {
 	log        *logger.Logger
 	agentIndex *agentindex.Index
+	k8sClient  *k8s.EKSClient
 	ready      atomic.Bool
 	startTime  time.Time
 }
 
 // NewProbeHandler creates a new probe handler
-func NewProbeHandler(log *logger.Logger, agentIndex *agentindex.Index) *ProbeHandler {
+func NewProbeHandler(log *logger.Logger, agentIndex *agentindex.Index, k8sClient *k8s.EKSClient) *ProbeHandler {
 	h := &ProbeHandler{
 		log:        log,
 		agentIndex: agentIndex,
+		k8sClient:  k8sClient,
 		startTime:  time.Now(),
 	}
 	h.ready.Store(true)
@@ -89,7 +92,18 @@ func (h *ProbeHandler) Healthz() gin.HandlerFunc {
 			checks["database"] = "not configured"
 		}
 
-		// Check 3: Ready state
+		// Check 3: Kubernetes API connectivity (informational, does not affect overall health)
+		if h.k8sClient != nil {
+			if version, err := h.k8sClient.GetServerVersion(); err != nil {
+				checks["kubernetes"] = "failed: " + err.Error()
+			} else {
+				checks["kubernetes"] = "ok (version: " + version + ")"
+			}
+		} else {
+			checks["kubernetes"] = "not configured"
+		}
+
+		// Check 4: Ready state
 		if h.ready.Load() {
 			checks["ready"] = "ok"
 		} else {

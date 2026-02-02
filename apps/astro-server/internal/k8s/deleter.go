@@ -10,12 +10,12 @@ import (
 
 // Deleter handles deletion of Kubernetes resources
 type Deleter struct {
-	client    *Client
+	client    *EKSClient
 	namespace string
 }
 
 // NewDeleter creates a new Deleter
-func NewDeleter(client *Client, namespace string) *Deleter {
+func NewDeleter(client *EKSClient, namespace string) *Deleter {
 	return &Deleter{
 		client:    client,
 		namespace: namespace,
@@ -66,7 +66,7 @@ func (d *Deleter) Delete(ctx context.Context, agentName, version string) (*Delet
 func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	cronJobs, err := d.client.clientset.BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{
+	cronJobs, err := d.client.Clientset().BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -79,7 +79,7 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *
 	}
 
 	for _, cronJob := range cronJobs.Items {
-		err := d.client.clientset.BatchV1().CronJobs(d.namespace).Delete(ctx, cronJob.Name, metav1.DeleteOptions{})
+		err := d.client.Clientset().BatchV1().CronJobs(d.namespace).Delete(ctx, cronJob.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: cronJob.Name,
@@ -101,7 +101,7 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *
 func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	deployments, err := d.client.clientset.AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{
+	deployments, err := d.client.Clientset().AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -114,7 +114,7 @@ func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, resul
 	}
 
 	for _, dep := range deployments.Items {
-		err := d.client.clientset.AppsV1().Deployments(d.namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
+		err := d.client.Clientset().AppsV1().Deployments(d.namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: dep.Name,
@@ -136,7 +136,7 @@ func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, resul
 func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	statefulSets, err := d.client.clientset.AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{
+	statefulSets, err := d.client.Clientset().AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -149,7 +149,7 @@ func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, resu
 	}
 
 	for _, sts := range statefulSets.Items {
-		err := d.client.clientset.AppsV1().StatefulSets(d.namespace).Delete(ctx, sts.Name, metav1.DeleteOptions{})
+		err := d.client.Clientset().AppsV1().StatefulSets(d.namespace).Delete(ctx, sts.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: sts.Name,
@@ -171,7 +171,7 @@ func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, resu
 func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	services, err := d.client.clientset.CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{
+	services, err := d.client.Clientset().CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -184,7 +184,7 @@ func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *
 	}
 
 	for _, svc := range services.Items {
-		err := d.client.clientset.CoreV1().Services(d.namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
+		err := d.client.Clientset().CoreV1().Services(d.namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: svc.Name,
@@ -206,7 +206,7 @@ func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *
 func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, versionSanitized string, result *DeleteResult) {
 	configMapName := deployment.GenerateConfigMapName(agentName, versionSanitized)
 
-	err := d.client.clientset.CoreV1().ConfigMaps(d.namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
+	err := d.client.Clientset().CoreV1().ConfigMaps(d.namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: configMapName,
@@ -227,7 +227,7 @@ func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, versionSanitiz
 func (d *Deleter) deleteSecret(ctx context.Context, agentName, versionSanitized string, result *DeleteResult) {
 	secretName := deployment.GenerateCredentialSecretName(agentName, versionSanitized)
 
-	err := d.client.clientset.CoreV1().Secrets(d.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
+	err := d.client.Clientset().CoreV1().Secrets(d.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: secretName,
@@ -248,7 +248,7 @@ func (d *Deleter) deleteSecret(ctx context.Context, agentName, versionSanitized 
 func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	pvcs, err := d.client.clientset.CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{
+	pvcs, err := d.client.Clientset().CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -261,7 +261,7 @@ func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *Dele
 	}
 
 	for _, pvc := range pvcs.Items {
-		err := d.client.clientset.CoreV1().PersistentVolumeClaims(d.namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})
+		err := d.client.Clientset().CoreV1().PersistentVolumeClaims(d.namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: pvc.Name,
@@ -281,7 +281,7 @@ func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *Dele
 
 // deleteNamespace deletes the Kubernetes namespace
 func (d *Deleter) deleteNamespace(ctx context.Context, result *DeleteResult) {
-	err := d.client.clientset.CoreV1().Namespaces().Delete(ctx, d.namespace, metav1.DeleteOptions{})
+	err := d.client.Clientset().CoreV1().Namespaces().Delete(ctx, d.namespace, metav1.DeleteOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: d.namespace,

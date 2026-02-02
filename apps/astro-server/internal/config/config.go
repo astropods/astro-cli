@@ -64,10 +64,10 @@ type SecurityConfig struct {
 
 // DeploymentConfig holds deployment-related configuration
 type DeploymentConfig struct {
-	RegistryURL       string
-	K8sKubeconfigPath string
-	K8sInCluster      bool
-	K8sMasterURL      string
+	RegistryURL    string
+	EKSClusterName string // EKS cluster name (required)
+	K8sMasterURL   string // K8s API server endpoint (required)
+	AWSRegion      string // AWS region (optional, auto-detected from IRSA)
 }
 
 // Load loads configuration from environment variables with defaults
@@ -84,17 +84,17 @@ func Load() (*Config, error) {
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
-			Format: getEnv("LOG_FORMAT", "json"),
+			Format: getEnv("LOG_FORMAT", "text"),
 		},
 		Security: SecurityConfig{
 			AllowedOrigins: getEnvSlice("ALLOWED_ORIGINS", []string{"*"}),
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:       getEnv("REGISTRY_URL", "ghcr.io/saswatds"),
-			K8sKubeconfigPath: getEnv("K8S_KUBECONFIG_PATH", ""),
-			K8sInCluster:      getEnv("K8S_IN_CLUSTER", "false") == "true",
-			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
+			RegistryURL:    getEnv("REGISTRY_URL", "ghcr.io/saswatds"),
+			EKSClusterName: getEnv("EKS_CLUSTER_NAME", ""),
+			K8sMasterURL:   getEnv("K8S_MASTER_URL", ""),
+			AWSRegion:      getEnv("AWS_REGION", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

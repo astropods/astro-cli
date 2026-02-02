@@ -25,7 +25,7 @@ type Applier struct {
 }
 
 // NewApplier creates a new applier
-func NewApplier(client *Client, namespace, registryURL string) *Applier {
+func NewApplier(client *EKSClient, namespace, registryURL string) *Applier {
 	return &Applier{
 		clientset:   client.Clientset(),
 		namespace:   namespace,
