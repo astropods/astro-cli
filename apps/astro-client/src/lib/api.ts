@@ -28,9 +28,11 @@ export interface ApiError {
 
 class ApiClient {
   private baseUrl: string;
+  private authUrl: string;
 
-  constructor(baseUrl: string = '') {
+  constructor(baseUrl: string = '', authUrl: string = '') {
     this.baseUrl = baseUrl;
+    this.authUrl = authUrl;
   }
 
   private async request<T>(
@@ -65,21 +67,48 @@ class ApiClient {
     return JSON.parse(text);
   }
 
-  // Auth endpoints
+  // Auth endpoints - use authUrl for direct backend communication
   async getCurrentUser(): Promise<AuthResponse> {
-    return this.request<AuthResponse>('/auth/me');
+    const url = `${this.authUrl}/auth/me`;
+    const response = await fetch(url, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'request_failed',
+        error_description: `Request failed with status ${response.status}`,
+      }));
+      throw error;
+    }
+    return response.json();
   }
 
   async refreshSession(): Promise<AuthResponse> {
-    return this.request<AuthResponse>('/auth/refresh', { method: 'POST' });
+    const url = `${this.authUrl}/auth/refresh`;
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'request_failed',
+        error_description: `Request failed with status ${response.status}`,
+      }));
+      throw error;
+    }
+    return response.json();
   }
 
   getLoginUrl(): string {
-    return `${this.baseUrl}/auth/login`;
+    return `${this.authUrl}/auth/login`;
   }
 
   getLogoutUrl(): string {
-    return `${this.baseUrl}/auth/logout`;
+    // Pass current origin as redirect parameter for reliable post-logout redirect
+    const redirectUrl = encodeURIComponent(window.location.origin);
+    return `${this.authUrl}/auth/logout?redirect=${redirectUrl}`;
   }
 
   // Agent endpoints
@@ -129,7 +158,9 @@ class ApiClient {
 }
 
 // Export singleton instance
-export const api = new ApiClient();
+// Auth endpoints go directly to the backend (for cookies), API endpoints use proxy
+const authUrl = import.meta.env.VITE_API_URL || '';
+export const api = new ApiClient('', authUrl);
 
 // Export class for testing or custom instances
 export { ApiClient };

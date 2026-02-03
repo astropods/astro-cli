@@ -4,7 +4,8 @@
       "Bash(go build:*)",
       "Bash(bun run build:*)",
       "Bash(go test:*)",
-      "Bash(git -C /Users/christopher.patty@postman.com/projects/astro log --oneline -15)"
+      "Bash(git -C /Users/christopher.patty@postman.com/projects/astro log --oneline -15)",
+      "Bash(chmod:*)"
     ]
   }
 }

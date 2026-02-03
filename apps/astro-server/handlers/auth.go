@@ -500,11 +500,20 @@ func (h *AuthHandler) getRedirectURL(c *gin.Context) string {
 	return h.cfg.Auth.FrontendURL
 }
 
-// getRedirectURLFromRequest determines the redirect URL from request headers (Origin/Referer)
-// Used for logout where there's no stored cookie
+// getRedirectURLFromRequest determines the redirect URL from query param, headers, or config
+// Priority: 1) redirect query param, 2) Origin header, 3) Referer header, 4) configured FrontendURL
 func (h *AuthHandler) getRedirectURLFromRequest(c *gin.Context) string {
+	// First check for explicit redirect query parameter
+	if redirect := c.Query("redirect"); redirect != "" {
+		if h.isAllowedOrigin(redirect) {
+			return redirect
+		}
+	}
+
+	// Fall back to Origin header
 	origin := c.Request.Header.Get("Origin")
 	if origin == "" {
+		// Fall back to Referer header
 		if referer := c.Request.Header.Get("Referer"); referer != "" {
 			if u, err := url.Parse(referer); err == nil {
 				origin = u.Scheme + "://" + u.Host

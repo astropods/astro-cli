@@ -1,73 +1,135 @@
-# React + TypeScript + Vite
+# Astro Client
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Web frontend for the Astro platform.
 
-Currently, two official plugins are available:
+## Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Local Backend Development
 
-## React Compiler
+If you're running the astro-server locally:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+bun install
+bun run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The app will be available at `http://localhost:5173`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Remote Backend Development
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+To develop the frontend against a deployed backend (e.g., `https://odesdaz.com`), you need to set up local HTTPS with a same-site domain. This is required for authentication cookies to work properly.
+
+**One-time setup (macOS):**
+
+```bash
+bun run setup
 ```
+
+This interactive script will:
+1. Add `local.odesdaz.com` to your `/etc/hosts` (requires sudo)
+2. Install [mkcert](https://github.com/FiloSottile/mkcert) for local certificate generation
+3. Generate trusted HTTPS certificates
+4. Configure `.env` for the remote backend
+
+**After setup:**
+
+```bash
+bun run dev
+```
+
+Open `https://local.odesdaz.com:5173` in your browser.
+
+### Manual Setup (Linux/Other)
+
+If the setup script doesn't work for your OS:
+
+1. **Add hosts entry:**
+   ```bash
+   echo "127.0.0.1 local.odesdaz.com" | sudo tee -a /etc/hosts
+   ```
+
+2. **Install mkcert:**
+   - Linux: `sudo apt install mkcert` or see [mkcert docs](https://github.com/FiloSottile/mkcert#installation)
+   - Then run: `mkcert -install`
+
+3. **Generate certificates:**
+   ```bash
+   mkdir -p .certs
+   cd .certs
+   mkcert local.odesdaz.com
+   ```
+
+4. **Configure environment:**
+   ```bash
+   echo "VITE_API_URL=https://odesdaz.com" > .env
+   ```
+
+5. **Start the dev server:**
+   ```bash
+   bun run dev
+   ```
+
+## Architecture
+
+### Authentication Flow
+
+When developing against a remote backend, authentication uses a same-site subdomain approach:
+
+1. Your local frontend runs at `https://local.odesdaz.com:5173`
+2. The backend runs at `https://odesdaz.com`
+3. Both share the same registrable domain (`odesdaz.com`)
+4. Session cookies set by the backend work on your local domain
+
+This avoids `SameSite` cookie restrictions without compromising security.
+
+### API Communication
+
+- **Auth endpoints** (`/auth/*`): Called directly to the backend URL for proper cookie handling
+- **API endpoints** (`/api/*`): Proxied through Vite dev server to the backend
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_API_URL` | Backend API URL | `http://localhost:8080` |
+
+## Project Structure
+
+```
+src/
+├── components/     # React components
+├── contexts/       # React contexts (auth, etc.)
+├── lib/           # Utilities and API client
+├── pages/         # Page components
+└── main.tsx       # Entry point
+```
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `bun dev` | Start development server |
+| `bun build` | Build for production |
+| `bun preview` | Preview production build |
+| `bun lint` | Run ESLint |
+| `bun setup` | Set up local development environment (macOS) |
+
+## Troubleshooting
+
+### "State parameter mismatch" error
+
+This happens when cookies aren't being shared properly. Make sure:
+- You're accessing the app via `https://local.odesdaz.com:5173` (not `localhost`)
+- The setup script completed successfully
+- Your browser trusts the local certificate (check for HTTPS errors)
+
+### Certificate not trusted
+
+Run `mkcert -install` to install the local CA in your system trust store.
+
+### "No session found" after login
+
+Ensure:
+1. The backend has `http://localhost:5173` and `https://local.odesdaz.com:5173` in `ALLOWED_ORIGINS`
+2. The backend has `AUTH_COOKIE_DOMAIN=.odesdaz.com` set
+3. You're using the HTTPS local domain URL
