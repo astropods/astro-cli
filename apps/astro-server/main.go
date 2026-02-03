@@ -211,7 +211,21 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
 			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
-			protected.GET("/cluster/status", handlers.ClusterStatus(log, k8sClient))
+		}
+
+		// Admin endpoints (require basic auth)
+		admin := v1.Group("/admin")
+		if cfg.Admin.Enabled {
+			admin.Use(middleware.BasicAuth(middleware.BasicAuthConfig{
+				Username: cfg.Admin.Username,
+				Password: cfg.Admin.Password,
+				Realm:    "Astro Admin",
+			}))
+			log.Info("Admin API enabled with basic auth")
+		}
+		{
+			admin.GET("/cluster/status", handlers.ClusterStatus(log, k8sClient))
+			admin.GET("/images", handlers.ListImages(log, cfg.Deployment.AWSRegion))
 		}
 	}
 }

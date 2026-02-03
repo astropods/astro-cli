@@ -12,11 +12,11 @@ RUN apk add --no-cache git gcc musl-dev
 ENV GOTOOLCHAIN=auto
 
 # Copy go mod files
-COPY go.mod go.sum ./
+COPY packages/astro-messaging/go.mod packages/astro-messaging/go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY packages/astro-messaging/ .
 
 # Build arguments for version information
 ARG VERSION=dev
@@ -45,7 +45,7 @@ WORKDIR /root/
 COPY --from=builder /app/messaging .
 
 # Copy config (optional - can be overridden by env vars)
-COPY config/config.yaml ./config/
+COPY packages/astro-messaging/config/config.yaml ./config/
 
 # Expose messaging service port
 EXPOSE 8081

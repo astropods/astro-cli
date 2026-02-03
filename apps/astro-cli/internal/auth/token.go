@@ -2,9 +2,12 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -51,7 +54,8 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 
 		newProfile, err := m.refreshToken(ctx, profile)
 		if err != nil {
-			return "", fmt.Errorf("failed to refresh token: %w", err)
+			// Return more specific error for refresh failures
+			return "", fmt.Errorf("token expired and refresh failed: %w. Run 'astro login' to re-authenticate", err)
 		}
 		profile = newProfile
 	}
@@ -71,7 +75,7 @@ func (m *TokenManager) shouldRefresh(profile *Profile) bool {
 func (m *TokenManager) refreshToken(ctx context.Context, profile *Profile) (*Profile, error) {
 	tokenResp, err := m.client.RefreshAccessToken(ctx, profile.RefreshToken)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("refresh request failed: %w", err)
 	}
 
 	// Update profile with new tokens
@@ -79,8 +83,18 @@ func (m *TokenManager) refreshToken(ctx context.Context, profile *Profile) (*Pro
 	if tokenResp.RefreshToken != "" {
 		profile.RefreshToken = tokenResp.RefreshToken
 	}
+
+	// Update expiry time
 	if tokenResp.ExpiresIn > 0 {
 		profile.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	} else {
+		// Parse expiry from JWT if expires_in not provided
+		if exp, err := parseJWTExpiry(tokenResp.AccessToken); err == nil {
+			profile.ExpiresAt = exp
+		} else {
+			// Fallback to 5 minutes if we can't parse
+			profile.ExpiresAt = time.Now().Add(5 * time.Minute)
+		}
 	}
 
 	// Save updated profile
@@ -110,14 +124,30 @@ func (m *TokenManager) GetCurrentUser() (*StoredUser, error) {
 	return profile.User, nil
 }
 
-// IsAuthenticated checks if the user is authenticated
+// IsAuthenticated checks if the user is authenticated (has valid or refreshable credentials)
 func (m *TokenManager) IsAuthenticated() bool {
 	// Check environment variable first
 	if GetEnvAccessToken() != "" {
 		return true
 	}
 
-	return m.storage.HasValidCredentials()
+	// Check if we have valid credentials or can refresh them
+	profile, err := m.storage.GetCurrentProfile()
+	if err != nil {
+		return false
+	}
+
+	// Have a valid (unexpired) access token
+	if profile.AccessToken != "" && time.Now().Before(profile.ExpiresAt) {
+		return true
+	}
+
+	// Access token expired but have a refresh token we can use
+	if profile.RefreshToken != "" {
+		return true
+	}
+
+	return false
 }
 
 // RequireAuth returns an error if the user is not authenticated
@@ -176,4 +206,41 @@ func GetAuthHeader(ctx context.Context) (string, error) {
 	}
 
 	return fmt.Sprintf("Bearer %s", token), nil
+}
+
+// parseJWTExpiry extracts the expiry time from a JWT token
+func parseJWTExpiry(tokenString string) (time.Time, error) {
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return time.Time{}, errors.New("invalid JWT format")
+	}
+
+	// Decode the payload (second part)
+	payload := parts[1]
+	// Add padding if needed
+	if pad := len(payload) % 4; pad > 0 {
+		payload += strings.Repeat("=", 4-pad)
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		// Try standard encoding
+		decoded, err = base64.StdEncoding.DecodeString(payload)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("failed to decode JWT payload: %w", err)
+		}
+	}
+
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse JWT claims: %w", err)
+	}
+
+	if claims.Exp == 0 {
+		return time.Time{}, errors.New("no exp claim in JWT")
+	}
+
+	return time.Unix(claims.Exp, 0), nil
 }

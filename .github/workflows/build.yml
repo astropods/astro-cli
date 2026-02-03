@@ -3,22 +3,51 @@ name: Build and Push to ECR
 on:
   workflow_dispatch:
     inputs:
-      service:
-        description: 'Service to build'
-        required: true
-        type: choice
-        options:
-          - astro-server
-          - astro-messaging
+      astro-server:
+        description: 'Build astro-server'
+        type: boolean
+        default: false
+      astro-registry:
+        description: 'Build astro-registry'
+        type: boolean
+        default: false
+      astro-messaging:
+        description: 'Build astro-messaging'
+        type: boolean
+        default: false
 
 env:
   AWS_REGION: us-east-1
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
 jobs:
-  build-and-push:
+  prepare:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          services=()
+          [ "${{ inputs.astro-server }}" == "true" ] && services+=("astro-server")
+          [ "${{ inputs.astro-registry }}" == "true" ] && services+=("astro-registry")
+          [ "${{ inputs.astro-messaging }}" == "true" ] && services+=("astro-messaging")
+
+          if [ ${#services[@]} -eq 0 ]; then
+            echo "::error::No services selected. Please select at least one service to build."
+            exit 1
+          fi
+
+          json=$(printf '%s\n' "${services[@]}" | jq -R . | jq -sc .)
+          echo "matrix=$json" >> $GITHUB_OUTPUT
+
+  build-and-push:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     permissions:
       id-token: write
@@ -31,16 +60,8 @@ jobs:
       - name: Set build context
         id: config
         run: |
-          case "${{ inputs.service }}" in
-            astro-server)
-              echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
-              echo "context=." >> $GITHUB_OUTPUT
-              ;;
-            astro-messaging)
-              echo "dockerfile=packages/astro-messaging/deployments/Dockerfile" >> $GITHUB_OUTPUT
-              echo "context=packages/astro-messaging" >> $GITHUB_OUTPUT
-              ;;
-          esac
+          echo "dockerfile=deployment/Dockerfile.${{ matrix.service }}" >> $GITHUB_OUTPUT
+          echo "context=." >> $GITHUB_OUTPUT
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,7 +76,7 @@ jobs:
       - name: Build, tag, and push image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: prod-${{ inputs.service }}
+          ECR_REPOSITORY: prod-${{ matrix.service }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build \
@@ -68,4 +89,4 @@ jobs:
 
       - name: Output image URI
         run: |
-          echo "Image pushed: ${{ steps.login-ecr.outputs.registry }}/prod-${{ inputs.service }}:${{ github.sha }}"
+          echo "Image pushed: ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}"

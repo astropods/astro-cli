@@ -1,0 +1,42 @@
+# Build stage
+FROM golang:1.25-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /app
+
+# Copy go.mod files first for better caching
+COPY apps/astro-registry/go.mod apps/astro-registry/go.sum ./apps/astro-registry/
+
+# Download dependencies
+WORKDIR /app/apps/astro-registry
+RUN go mod download
+
+# Copy source code
+WORKDIR /app
+COPY apps/astro-registry/ ./apps/astro-registry/
+
+# Build the binary
+WORKDIR /app/apps/astro-registry
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /astro-registry .
+
+# Runtime stage
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1000 astro && \
+    adduser -u 1000 -G astro -s /bin/sh -D astro
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /astro-registry .
+
+# Use non-root user
+USER astro
+
+EXPOSE 8081
+
+ENTRYPOINT ["/app/astro-registry"]

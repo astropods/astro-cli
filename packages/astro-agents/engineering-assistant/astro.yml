@@ -11,8 +11,6 @@ container:
   build:
     context: ../..
     dockerfile: astro-agents/engineering-assistant/Dockerfile
-  environment:
-    GRPC_SERVER_ADDR: astro-messaging:9090
 
 models:
   embedder:
@@ -59,34 +57,17 @@ tools:
 
 integrations:
   models:
-    primary_llm:
+    - name: primary_llm
       provider: anthropic
 
   tools:
-    github:
+    - name: github
       provider: github
-      scopes:
-        - repo:read
-        - issues:read
+      config:
+        scopes:
+          - repo:read
+          - issues:read
 
 interfaces:
   messaging:
     type: slack
-
-injections:
-  issues_sync:
-    persistent: true  # Enable state persistence across container restarts
-    source:
-      type: github
-      config:
-        repo: postmanlabs/postman-app-support
-    trigger:
-      type: schedule
-      cron: "*/5 * * * *"
-    pipeline:
-      - step: chunk
-        config: {strategy: semantic, max_size: 1000}
-      - step: embed
-        model: models.embedder
-      - step: upsert
-        target: knowledge.docs

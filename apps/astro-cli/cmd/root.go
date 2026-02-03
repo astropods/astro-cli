@@ -17,6 +17,8 @@ It reads an astro.yml specification file that declares:
 - Cloud integrations (Anthropic, GitHub, etc.)
 - Interfaces (Slack, HTTP API)
 - Data injection pipelines`,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 func Execute() {

@@ -27,6 +27,13 @@ jobs:
   test-go:
     runs-on: ubuntu-latest
     name: Test Go applications
+    strategy:
+      matrix:
+        app:
+          - name: astro-server
+            path: apps/astro-server
+          - name: astro-registry
+            path: apps/astro-registry
 
     steps:
       - name: Checkout repository
@@ -36,20 +43,20 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-          cache-dependency-path: apps/astro-server/go.sum
+          cache-dependency-path: ${{ matrix.app.path }}/go.sum
 
       - name: Install dependencies
-        working-directory: apps/astro-server
+        working-directory: ${{ matrix.app.path }}
         run: go mod download
 
       - name: Run go vet
-        working-directory: apps/astro-server
+        working-directory: ${{ matrix.app.path }}
         run: go vet ./...
 
       - name: Run tests
-        working-directory: apps/astro-server
+        working-directory: ${{ matrix.app.path }}
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Build
-        working-directory: apps/astro-server
+        working-directory: ${{ matrix.app.path }}
         run: go build -v ./...

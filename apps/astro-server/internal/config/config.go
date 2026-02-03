@@ -15,6 +15,14 @@ type Config struct {
 	Deployment DeploymentConfig
 	Auth       AuthConfig
 	Database   DatabaseConfig
+	Admin      AdminConfig
+}
+
+// AdminConfig holds admin API configuration
+type AdminConfig struct {
+	Username string
+	Password string
+	Enabled  bool
 }
 
 // DatabaseConfig holds database configuration
@@ -114,6 +122,11 @@ func Load() (*Config, error) {
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", ""),
 		},
+		Admin: AdminConfig{
+			Username: getEnv("ADMIN_BASIC_USER", ""),
+			Password: getEnv("ADMIN_BASIC_PASSWORD", ""),
+			Enabled:  getEnv("ADMIN_ENABLED", "true") == "true",
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -163,6 +176,16 @@ func (c *Config) Validate() error {
 		}
 		if len(c.Auth.CookiePassword) < 32 {
 			return fmt.Errorf("AUTH_COOKIE_PASSWORD must be at least 32 characters for secure encryption")
+		}
+	}
+
+	// Validate admin configuration when enabled
+	if c.Admin.Enabled {
+		if c.Admin.Username == "" {
+			return fmt.Errorf("ADMIN_BASIC_USER environment variable is required when admin is enabled")
+		}
+		if c.Admin.Password == "" {
+			return fmt.Errorf("ADMIN_BASIC_PASSWORD environment variable is required when admin is enabled")
 		}
 	}
 

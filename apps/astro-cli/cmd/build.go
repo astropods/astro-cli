@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,8 +54,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Get spec file path
 	specFile, _ := cmd.Flags().GetString("file")
 	verbose, _ := cmd.Flags().GetBool("verbose")
+	quiet, _ := cmd.Flags().GetBool("quiet")
 
-	log.Printf("🔨 Building agent from spec: %s", specFile)
+	if !quiet {
+		fmt.Printf("%s→%s Parsing spec: %s\n", colorCyan, colorReset, specFile)
+	}
 
 	// Parse astro.yml
 	workingDir, err := os.Getwd()
@@ -70,7 +72,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	log.Printf("✅ Loaded spec for agent: %s (v%s)", astroSpec.Agent, astroSpec.Meta.Version)
+	if !quiet {
+		fmt.Printf("%s→%s Agent: %s%s%s (v%s)\n", colorCyan, colorReset, colorBold, astroSpec.Agent, colorReset, astroSpec.Meta.Version)
+	}
 
 	// Create Docker client
 	ctx := context.Background()
@@ -89,7 +93,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	if astroSpec.Container.Build != nil {
 		imageName := fmt.Sprintf("%s:%s", astroSpec.Agent, buildTag)
-		log.Printf("📦 Building agent container: %s", imageName)
+		if !quiet {
+			fmt.Printf("%s→%s Building %s[agent]%s %s%s%s", colorCyan, colorReset, colorDim, colorReset, colorBold, imageName, colorReset)
+		}
 
 		contextPath := filepath.Join(workingDir, astroSpec.Container.Build.Context)
 		dockerfile := astroSpec.Container.Build.Dockerfile
@@ -97,20 +103,28 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			dockerfile = "Dockerfile"
 		}
 
-		if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, astroSpec.Container.Build.Args, buildNoCache, verbose); err != nil {
+		if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, astroSpec.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+			if !quiet {
+				fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+			}
 			return fmt.Errorf("failed to build agent image: %w", err)
 		}
 
+		if !quiet {
+			fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+		}
 		imagesBuilt++
-	} else if astroSpec.Container.Image != "" {
-		log.Printf("⏭️  Agent using pre-built image: %s", astroSpec.Container.Image)
+	} else if astroSpec.Container.Image != "" && !quiet {
+		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Container.Image, colorReset)
 	}
 
 	// Build custom model containers (those with build config)
 	for name, model := range astroSpec.Models {
 		if model.Container.Build != nil {
 			imageName := fmt.Sprintf("%s-model-%s:%s", astroSpec.Agent, name, buildTag)
-			log.Printf("📦 Building model container: %s", imageName)
+			if !quiet {
+				fmt.Printf("%s→%s Building %s[model: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
+			}
 
 			contextPath := filepath.Join(workingDir, model.Container.Build.Context)
 			dockerfile := model.Container.Build.Dockerfile
@@ -118,13 +132,19 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, model.Container.Build.Args, buildNoCache, verbose); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, model.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+				if !quiet {
+					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				}
 				return fmt.Errorf("failed to build model %s: %w", name, err)
 			}
 
+			if !quiet {
+				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			}
 			imagesBuilt++
-		} else if model.Container.Image != "" {
-			log.Printf("⏭️  Model '%s' using pre-built image: %s", name, model.Container.Image)
+		} else if model.Container.Image != "" && !quiet {
+			fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, model.Container.Image, colorReset)
 		}
 	}
 
@@ -132,7 +152,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	for name, knowledge := range astroSpec.Knowledge {
 		if knowledge.Container.Build != nil {
 			imageName := fmt.Sprintf("%s-knowledge-%s:%s", astroSpec.Agent, name, buildTag)
-			log.Printf("📦 Building knowledge store container: %s", imageName)
+			if !quiet {
+				fmt.Printf("%s→%s Building %s[knowledge: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
+			}
 
 			contextPath := filepath.Join(workingDir, knowledge.Container.Build.Context)
 			dockerfile := knowledge.Container.Build.Dockerfile
@@ -140,13 +162,19 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, knowledge.Container.Build.Args, buildNoCache, verbose); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, knowledge.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+				if !quiet {
+					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				}
 				return fmt.Errorf("failed to build knowledge store %s: %w", name, err)
 			}
 
+			if !quiet {
+				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			}
 			imagesBuilt++
-		} else if knowledge.Container.Image != "" {
-			log.Printf("⏭️  Knowledge store '%s' using pre-built image: %s", name, knowledge.Container.Image)
+		} else if knowledge.Container.Image != "" && !quiet {
+			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, knowledge.Container.Image, colorReset)
 		}
 	}
 
@@ -154,7 +182,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	for name, tool := range astroSpec.Tools {
 		if tool.Container != nil && tool.Container.Build != nil {
 			imageName := fmt.Sprintf("%s-tool-%s:%s", astroSpec.Agent, name, buildTag)
-			log.Printf("📦 Building tool container: %s", imageName)
+			if !quiet {
+				fmt.Printf("%s→%s Building %s[tool: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
+			}
 
 			contextPath := filepath.Join(workingDir, tool.Container.Build.Context)
 			dockerfile := tool.Container.Build.Dockerfile
@@ -162,13 +192,19 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, tool.Container.Build.Args, buildNoCache, verbose); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, tool.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+				if !quiet {
+					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				}
 				return fmt.Errorf("failed to build tool %s: %w", name, err)
 			}
 
+			if !quiet {
+				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			}
 			imagesBuilt++
-		} else if tool.Container != nil && tool.Container.Image != "" {
-			log.Printf("⏭️  Tool '%s' using pre-built image: %s", name, tool.Container.Image)
+		} else if tool.Container != nil && tool.Container.Image != "" && !quiet {
+			fmt.Printf("%s→%s Skipping %s[tool: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 		}
 	}
 
@@ -176,7 +212,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	for name, iface := range astroSpec.Interfaces {
 		if iface.Service != nil && iface.Service.Build != nil {
 			imageName := fmt.Sprintf("%s-interface-%s:%s", astroSpec.Agent, name, buildTag)
-			log.Printf("📦 Building interface service container: %s", imageName)
+			if !quiet {
+				fmt.Printf("%s→%s Building %s[interface: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
+			}
 
 			contextPath := filepath.Join(workingDir, iface.Service.Build.Context)
 			dockerfile := iface.Service.Build.Dockerfile
@@ -184,23 +222,30 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, iface.Service.Build.Args, buildNoCache, verbose); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, iface.Service.Build.Args, buildNoCache, verbose, quiet); err != nil {
+				if !quiet {
+					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				}
 				return fmt.Errorf("failed to build interface %s: %w", name, err)
 			}
 
+			if !quiet {
+				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			}
 			imagesBuilt++
-		} else if iface.Service != nil && iface.Service.Image != "" {
-			log.Printf("⏭️  Interface '%s' using pre-built image: %s", name, iface.Service.Image)
+		} else if iface.Service != nil && iface.Service.Image != "" && !quiet {
+			fmt.Printf("%s→%s Skipping %s[interface: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, iface.Service.Image, colorReset)
 		}
 	}
 
-	log.Printf("")
-	log.Printf("✅ Build complete! Built %d custom container(s)", imagesBuilt)
+	if !quiet {
+		fmt.Printf("%s✓%s Built %s%d%s image(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset)
+	}
 
 	return nil
 }
 
-func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, noCache, verbose bool) error {
+func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, noCache, verbose, quiet bool) error {
 	// Create build context tar
 	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{})
 	if err != nil {
@@ -232,16 +277,17 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 	defer resp.Body.Close()
 
 	// Stream build output
-	if err := streamBuildOutput(resp.Body, verbose); err != nil {
+	if err := streamBuildOutput(resp.Body, verbose, quiet); err != nil {
 		return fmt.Errorf("error during build: %w", err)
 	}
 
 	return nil
 }
 
-func streamBuildOutput(reader io.Reader, verbose bool) error {
+func streamBuildOutput(reader io.Reader, verbose, quiet bool) error {
 	decoder := json.NewDecoder(reader)
 	var lastError string
+	var currentStep string
 
 	for {
 		var msg struct {
@@ -261,16 +307,35 @@ func streamBuildOutput(reader io.Reader, verbose bool) error {
 
 		if msg.Error != "" {
 			lastError = msg.Error
-			log.Printf("❌ Error: %s", msg.Error)
-		}
-
-		if verbose && msg.Stream != "" {
-			// Clean up and print build output
-			output := strings.TrimSpace(msg.Stream)
-			if output != "" {
-				log.Printf("   %s", output)
+			if !quiet {
+				fmt.Printf("\n      %s%s%s", colorRed, msg.Error, colorReset)
 			}
 		}
+
+		if msg.Stream != "" {
+			output := strings.TrimSpace(msg.Stream)
+			// Show step progress (e.g., "Step 1/5 : FROM golang:1.21")
+			if strings.HasPrefix(output, "Step ") {
+				if !quiet {
+					// Clear previous step indicator and show new one
+					if currentStep != "" {
+						fmt.Printf("\r      %s%s%s", colorDim, output, colorReset)
+					} else {
+						fmt.Printf("\n      %s%s%s", colorDim, output, colorReset)
+					}
+					currentStep = output
+				}
+			} else if verbose && output != "" {
+				// In verbose mode, show all output
+				fmt.Printf("\n      %s%s%s", colorDim, output, colorReset)
+			}
+		}
+	}
+
+	// Clear step line
+	if !quiet && currentStep != "" {
+		fmt.Printf("\r%s", strings.Repeat(" ", 80))
+		fmt.Printf("\r")
 	}
 
 	if lastError != "" {
