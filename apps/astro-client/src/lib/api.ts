@@ -1,8 +1,5 @@
 // API client for communicating with the astro-server backend
 
-// Use relative URLs - Vite proxy handles routing to the backend
-const API_BASE_URL = '';
-
 export interface User {
   id: string;
   email: string;
@@ -32,7 +29,7 @@ export interface ApiError {
 class ApiClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string = API_BASE_URL) {
+  constructor(baseUrl: string = '') {
     this.baseUrl = baseUrl;
   }
 
