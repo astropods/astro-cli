@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -242,16 +243,18 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
 		var tokenErr TokenError
-		if err := json.NewDecoder(resp.Body).Decode(&tokenErr); err == nil {
+		if err := json.Unmarshal(body, &tokenErr); err == nil {
 			return nil, fmt.Errorf("token refresh failed: %s - %s", tokenErr.Error, tokenErr.ErrorDescription)
 		}
 		return nil, fmt.Errorf("token refresh failed with status %d", resp.StatusCode)
 	}
 
 	var tokenResp TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return nil, fmt.Errorf("failed to decode token response: %w", err)
 	}
 
