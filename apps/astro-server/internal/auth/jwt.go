@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,7 +108,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return key, nil
-	}, jwt.WithIssuer(v.issuer), jwt.WithAudience(v.audience))
+	})
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -118,6 +119,35 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 
 	if !validatedToken.Valid {
 		return nil, ErrInvalidToken
+	}
+
+	// Manually validate issuer (WorkOS uses format: https://api.workos.com/user_management/client_ID)
+	if claims.Issuer != "" {
+		// Accept either exact match or WorkOS user management issuer format
+		validIssuer := claims.Issuer == v.issuer ||
+			(v.issuer == "https://api.workos.com" &&
+			 strings.HasPrefix(claims.Issuer, "https://api.workos.com/user_management/"))
+
+		if !validIssuer {
+			return nil, fmt.Errorf("%w: invalid issuer %q (expected %q)", ErrInvalidToken, claims.Issuer, v.issuer)
+		}
+	}
+
+	// Validate audience - token must have audience if validator expects one
+	if v.audience != "" {
+		if len(claims.Audience) == 0 {
+			return nil, fmt.Errorf("%w: missing audience claim", ErrInvalidToken)
+		}
+		validAudience := false
+		for _, aud := range claims.Audience {
+			if aud == v.audience {
+				validAudience = true
+				break
+			}
+		}
+		if !validAudience {
+			return nil, fmt.Errorf("%w: invalid audience", ErrInvalidToken)
+		}
 	}
 
 	return claims, nil
