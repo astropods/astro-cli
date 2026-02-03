@@ -46,7 +46,7 @@ Example:
 
 Requirements:
   - Must be authenticated with astro (run 'astro login' first)
-  - ASTRO_SERVER_URL and ASTRO_REGISTRY_URL environment variables must be set`,
+  - Server and registry URLs must be configured (run 'astro configure')`,
 	RunE: runPublish,
 }
 
@@ -85,15 +85,15 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	// Get registry URL
 	effectiveRegistryURL := registryURL
 	if effectiveRegistryURL == "" {
-		effectiveRegistryURL = os.Getenv("ASTRO_REGISTRY_URL")
+		effectiveRegistryURL = auth.GetRegistryURL()
 	}
 
 	if effectiveRegistryURL == "" {
-		return fmt.Errorf("registry URL required: set ASTRO_REGISTRY_URL environment variable or use --registry flag")
+		return fmt.Errorf("registry URL required: run 'ast configure', set ASTRO_REGISTRY_URL environment variable, or use --registry flag")
 	}
 
 	if effectiveServerURL == "" && !skipRegister && !dryRun {
-		return fmt.Errorf("server URL required for registration: set ASTRO_SERVER_URL environment variable, use --server flag, or use --skip-register")
+		return fmt.Errorf("server URL required for registration: run 'ast configure', set ASTRO_SERVER_URL environment variable, use --server flag, or use --skip-register")
 	}
 
 	// Parse astro.yml
@@ -562,11 +562,23 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 	}
 
 	if resp.StatusCode != http.StatusCreated {
+		// Read the full response body for detailed error logging
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("server returned status %d (failed to read response body: %v)", resp.StatusCode, readErr)
+		}
+
+		// Log the raw error response
+		log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body))
+
+		// Try to parse as JSON for structured error
 		var errorResp map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil {
+		if err := json.Unmarshal(body, &errorResp); err == nil {
 			return fmt.Errorf("server returned error (status %d): %v", resp.StatusCode, errorResp)
 		}
-		return fmt.Errorf("server returned status %d", resp.StatusCode)
+
+		// If not JSON, return the raw body
+		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	if verbose {
