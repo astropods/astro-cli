@@ -3,8 +3,8 @@ language: "go"
 
 tasks:
   build:
-    command: "go build -o bin/astro ."
+    command: "go build -o bin/ast ."
     inputs:
       - "**/*.go"
     outputs:
-      - "bin/astro"
+      - "bin/ast"
