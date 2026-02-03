@@ -58,6 +58,13 @@
     "packages/astro-agents": {
       "name": "astro-agents",
       "version": "1.0.0",
+      "dependencies": {
+        "astro-agent": "workspace:*",
+        "astro-workflows": "workspace:*",
+      },
+      "devDependencies": {
+        "astro-playground": "workspace:*",
+      },
     },
     "packages/astro-engine": {
       "name": "astro-engine",

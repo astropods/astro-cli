@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ type AuthHandler struct {
 	workos         *auth.WorkOSClient
 	sessionManager *auth.SessionManager
 	jwtValidator   *auth.JWTValidator
+	allowedOrigins map[string]bool
 }
 
 // NewAuthHandler creates a new auth handler
@@ -44,12 +46,19 @@ func NewAuthHandler(log *logger.Logger, cfg *config.Config) *AuthHandler {
 		cfg.Auth.WorkOSClientID,
 	)
 
+	// Build allowed origins map for quick lookup
+	allowedOrigins := make(map[string]bool)
+	for _, origin := range cfg.Security.AllowedOrigins {
+		allowedOrigins[origin] = true
+	}
+
 	return &AuthHandler{
 		log:            log,
 		cfg:            cfg,
 		workos:         workos,
 		sessionManager: sessionManager,
 		jwtValidator:   jwtValidator,
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -79,6 +88,28 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 			true, // httpOnly
 		)
 
+		// Store the origin for post-auth redirect (if allowed)
+		origin := c.Request.Header.Get("Origin")
+		if origin == "" {
+			// Fall back to Referer header and extract origin
+			if referer := c.Request.Header.Get("Referer"); referer != "" {
+				if u, err := url.Parse(referer); err == nil {
+					origin = u.Scheme + "://" + u.Host
+				}
+			}
+		}
+		if origin != "" && h.isAllowedOrigin(origin) {
+			c.SetCookie(
+				"auth_origin",
+				origin,
+				300, // 5 minutes
+				"/",
+				h.cfg.Auth.CookieDomain,
+				h.cfg.Auth.CookieSecure,
+				true, // httpOnly
+			)
+		}
+
 		// Get the authorization URL
 		authURL, err := h.workos.GetAuthorizationURL(state)
 		if err != nil {
@@ -98,6 +129,19 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 // Callback handles the OAuth callback from WorkOS
 func (h *AuthHandler) Callback() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get the redirect URL early (before clearing cookies)
+		redirectURL := h.getRedirectURL(c)
+
+		// Helper to build error redirect URL
+		buildErrorURL := func(errorCode, errorDesc string) string {
+			u, _ := url.Parse(redirectURL)
+			q := u.Query()
+			q.Set("error", errorCode)
+			q.Set("error_description", errorDesc)
+			u.RawQuery = q.Encode()
+			return u.String()
+		}
+
 		// Check for error in callback
 		if errCode := c.Query("error"); errCode != "" {
 			errDesc := c.Query("error_description")
@@ -105,8 +149,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 				"error", errCode,
 				"description", errDesc,
 			)
-			redirectURL := h.workos.BuildCallbackErrorURL(errCode, errDesc)
-			c.Redirect(http.StatusFound, redirectURL)
+			c.Redirect(http.StatusFound, buildErrorURL(errCode, errDesc))
 			return
 		}
 
@@ -114,8 +157,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		code := c.Query("code")
 		if code == "" {
 			h.log.Warn("Missing authorization code in callback")
-			redirectURL := h.workos.BuildCallbackErrorURL("invalid_request", "Missing authorization code")
-			c.Redirect(http.StatusFound, redirectURL)
+			c.Redirect(http.StatusFound, buildErrorURL("invalid_request", "Missing authorization code"))
 			return
 		}
 
@@ -124,21 +166,20 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		storedState, err := c.Cookie("auth_state")
 		if err != nil || state != storedState {
 			h.log.Warn("State mismatch in callback", "received", state, "expected", storedState)
-			redirectURL := h.workos.BuildCallbackErrorURL("invalid_state", "State parameter mismatch")
-			c.Redirect(http.StatusFound, redirectURL)
+			c.Redirect(http.StatusFound, buildErrorURL("invalid_state", "State parameter mismatch"))
 			return
 		}
 
-		// Clear the state cookie
+		// Clear the state and origin cookies
 		h.setSameSiteMode(c)
 		c.SetCookie("auth_state", "", -1, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, true)
+		c.SetCookie("auth_origin", "", -1, "/", h.cfg.Auth.CookieDomain, h.cfg.Auth.CookieSecure, true)
 
 		// Exchange code for tokens
 		result, err := h.workos.AuthenticateWithCode(c.Request.Context(), code)
 		if err != nil {
 			h.log.Error("Failed to authenticate with code", "error", err)
-			redirectURL := h.workos.BuildCallbackErrorURL("authentication_failed", "Failed to authenticate")
-			c.Redirect(http.StatusFound, redirectURL)
+			c.Redirect(http.StatusFound, buildErrorURL("authentication_failed", "Failed to authenticate"))
 			return
 		}
 
@@ -167,8 +208,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		sealed, err := h.sessionManager.SealSession(sessionData)
 		if err != nil {
 			h.log.Error("Failed to seal session", "error", err)
-			redirectURL := h.workos.BuildCallbackErrorURL("server_error", "Failed to create session")
-			c.Redirect(http.StatusFound, redirectURL)
+			c.Redirect(http.StatusFound, buildErrorURL("server_error", "Failed to create session"))
 			return
 		}
 
@@ -186,18 +226,21 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		)
 
 		// Redirect to frontend
-		c.Redirect(http.StatusFound, h.workos.BuildCallbackSuccessURL())
+		c.Redirect(http.StatusFound, redirectURL)
 	}
 }
 
 // Logout handles user logout
 func (h *AuthHandler) Logout() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Determine redirect URL based on origin
+		redirectURL := h.getRedirectURLFromRequest(c)
+
 		// Get session from cookie
 		sessionCookie, err := c.Cookie(h.cfg.Auth.CookieName)
 		if err != nil {
 			// No session, just redirect to frontend
-			c.Redirect(http.StatusFound, h.cfg.Auth.FrontendURL)
+			c.Redirect(http.StatusFound, redirectURL)
 			return
 		}
 
@@ -227,12 +270,12 @@ func (h *AuthHandler) Logout() gin.HandlerFunc {
 			true,
 		)
 
-		// If we have a session ID, redirect to WorkOS logout
+		// If we have a session ID, redirect to WorkOS logout with return URL
 		if sessionID != "" {
-			logoutURL, err := h.workos.GetLogoutURL(sessionID)
+			logoutURL, err := h.workos.GetLogoutURLWithReturnTo(sessionID, redirectURL)
 			if err != nil {
 				h.log.Warn("Failed to get logout URL", "error", err)
-				c.Redirect(http.StatusFound, h.cfg.Auth.FrontendURL)
+				c.Redirect(http.StatusFound, redirectURL)
 				return
 			}
 
@@ -241,7 +284,7 @@ func (h *AuthHandler) Logout() gin.HandlerFunc {
 			return
 		}
 
-		c.Redirect(http.StatusFound, h.cfg.Auth.FrontendURL)
+		c.Redirect(http.StatusFound, redirectURL)
 	}
 }
 
@@ -437,4 +480,39 @@ func (h *AuthHandler) setSameSiteMode(c *gin.Context) {
 	default: // "Lax" or any other value defaults to Lax
 		c.SetSameSite(http.SameSiteLaxMode)
 	}
+}
+
+// isAllowedOrigin checks if an origin is in the allowed origins list
+func (h *AuthHandler) isAllowedOrigin(origin string) bool {
+	if h.allowedOrigins["*"] {
+		return true
+	}
+	return h.allowedOrigins[origin]
+}
+
+// getRedirectURL determines the appropriate redirect URL based on the stored origin cookie
+// Falls back to the configured frontend URL if the origin is not allowed
+func (h *AuthHandler) getRedirectURL(c *gin.Context) string {
+	origin, err := c.Cookie("auth_origin")
+	if err == nil && origin != "" && h.isAllowedOrigin(origin) {
+		return origin
+	}
+	return h.cfg.Auth.FrontendURL
+}
+
+// getRedirectURLFromRequest determines the redirect URL from request headers (Origin/Referer)
+// Used for logout where there's no stored cookie
+func (h *AuthHandler) getRedirectURLFromRequest(c *gin.Context) string {
+	origin := c.Request.Header.Get("Origin")
+	if origin == "" {
+		if referer := c.Request.Header.Get("Referer"); referer != "" {
+			if u, err := url.Parse(referer); err == nil {
+				origin = u.Scheme + "://" + u.Host
+			}
+		}
+	}
+	if origin != "" && h.isAllowedOrigin(origin) {
+		return origin
+	}
+	return h.cfg.Auth.FrontendURL
 }

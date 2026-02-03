@@ -1,6 +1,7 @@
 // API client for communicating with the astro-server backend
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+// Use relative URLs - Vite proxy handles routing to the backend
+const API_BASE_URL = '';
 
 export interface User {
   id: string;

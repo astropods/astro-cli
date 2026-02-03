@@ -95,11 +95,16 @@ func (c *WorkOSClient) GetUser(ctx context.Context, userID string) (*User, error
 	return UserFromWorkOS(user), nil
 }
 
-// GetLogoutURL returns the WorkOS logout URL
+// GetLogoutURL returns the WorkOS logout URL with the default frontend URL
 func (c *WorkOSClient) GetLogoutURL(sessionID string) (string, error) {
+	return c.GetLogoutURLWithReturnTo(sessionID, c.frontendURL)
+}
+
+// GetLogoutURLWithReturnTo returns the WorkOS logout URL with a custom return URL
+func (c *WorkOSClient) GetLogoutURLWithReturnTo(sessionID, returnTo string) (string, error) {
 	logoutURL, err := usermanagement.GetLogoutURL(usermanagement.GetLogoutURLOpts{
 		SessionID: sessionID,
-		ReturnTo:  c.frontendURL,
+		ReturnTo:  returnTo,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate logout URL: %w", err)
