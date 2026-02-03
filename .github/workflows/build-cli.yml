@@ -1,0 +1,64 @@
+name: Build CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            binary: ast
+          - os: macos-intel
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            binary: ast
+          - os: macos-arm
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            binary: ast
+          - os: windows
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+            binary: ast.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: apps/astro-cli/go.sum
+
+      - name: Install dependencies
+        working-directory: apps/astro-cli
+        run: go mod download
+
+      - name: Build
+        working-directory: apps/astro-cli
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: go build -ldflags="-s -w" -o ${{ matrix.binary }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ast-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: apps/astro-cli/${{ matrix.binary }}
+          retention-days: 30

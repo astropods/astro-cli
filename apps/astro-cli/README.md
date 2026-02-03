@@ -29,7 +29,7 @@ moon run astro-cli:build
 Run your agent locally with hot reload:
 
 ```bash
-./astro dev
+ast dev
 ```
 
 This command:
@@ -50,7 +50,7 @@ This command:
 Build agent and custom component containers:
 
 ```bash
-./astro build
+ast build
 ```
 
 Builds:
@@ -69,7 +69,7 @@ Builds:
 Publish agent, components, and spec to an OCI registry:
 
 ```bash
-./astro publish --registry ghcr.io/myorg
+ast publish --registry ghcr.io/myorg
 ```
 
 Publishes:
@@ -131,19 +131,19 @@ SLACK_APP_TOKEN=xapp-...
 3. Develop locally:
 
 ```bash
-./astro dev
+ast dev
 ```
 
 4. Build containers:
 
 ```bash
-./astro build --tag v1.0.0
+ast build --tag v1.0.0
 ```
 
 5. Publish to registry:
 
 ```bash
-./astro publish --registry ghcr.io/myorg --tag v1.0.0
+ast publish --registry ghcr.io/myorg --tag v1.0.0
 ```
 
 ## Spec Format
@@ -167,6 +167,19 @@ See example specs in `packages/astro-agents/` for reference.
 
 - Go 1.24 or higher
 - Docker and Docker Compose
+- [moon](https://moonrepo.dev) - monorepo build tool
+
+#### Installing moon
+
+```bash
+bash <(curl -fsSL https://moonrepo.dev/install/moon.sh)
+export PATH="$HOME/.moon/bin:$PATH"
+```
+
+**Using npm/yarn/pnpm/bun:**
+```bash
+npm install --save-dev @moonrepo/cli
+```
 
 ### Dependencies
 
