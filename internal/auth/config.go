@@ -26,13 +26,15 @@ var (
 // Environment variable names
 const (
 	EnvServerURL    = "ASTRO_SERVER_URL"
+	EnvRegistryURL  = "ASTRO_REGISTRY_URL"
 	EnvAccessToken  = "ASTRO_ACCESS_TOKEN"
 	EnvRefreshToken = "ASTRO_REFRESH_TOKEN"
 )
 
 // Config holds CLI configuration
 type Config struct {
-	ServerURL string `yaml:"server_url,omitempty"`
+	ServerURL   string `yaml:"server_url,omitempty"`
+	RegistryURL string `yaml:"registry_url,omitempty"`
 }
 
 // ConfigDir returns the path to the astro config directory (~/.astro)
@@ -106,12 +108,27 @@ func SaveConfig(config *Config) error {
 }
 
 // GetServerURL returns the server URL.
-// Priority: ASTRO_SERVER_URL env var > build-time ServerURL constant
+// Priority: ASTRO_SERVER_URL env var > config file > build-time ServerURL constant
 func GetServerURL() string {
 	if url := os.Getenv(EnvServerURL); url != "" {
 		return url
 	}
+	if config, err := LoadConfig(); err == nil && config.ServerURL != "" {
+		return config.ServerURL
+	}
 	return ServerURL
+}
+
+// GetRegistryURL returns the registry URL.
+// Priority: ASTRO_REGISTRY_URL env var > config file
+func GetRegistryURL() string {
+	if url := os.Getenv(EnvRegistryURL); url != "" {
+		return url
+	}
+	if config, err := LoadConfig(); err == nil && config.RegistryURL != "" {
+		return config.RegistryURL
+	}
+	return ""
 }
 
 // envToken caches the access token read from environment
