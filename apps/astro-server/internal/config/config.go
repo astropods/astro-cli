@@ -72,10 +72,11 @@ type SecurityConfig struct {
 
 // DeploymentConfig holds deployment-related configuration
 type DeploymentConfig struct {
-	RegistryURL    string
-	EKSClusterName string // EKS cluster name (required)
-	K8sMasterURL   string // K8s API server endpoint (required)
-	AWSRegion      string // AWS region (optional, auto-detected from IRSA)
+	RegistryURL       string // ECR registry URL
+	ProxyRegistryHost string // Proxy registry host (e.g., registry.odesdaz.com)
+	EKSClusterName    string // EKS cluster name (required)
+	K8sMasterURL      string // K8s API server endpoint (required)
+	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
 }
 
 // Load loads configuration from environment variables with defaults
@@ -99,10 +100,11 @@ func Load() (*Config, error) {
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:    getEnv("REGISTRY_URL", ""),
-			EKSClusterName: getEnv("EKS_CLUSTER_NAME", ""),
-			K8sMasterURL:   getEnv("K8S_MASTER_URL", ""),
-			AWSRegion:      getEnv("AWS_REGION", ""),
+			RegistryURL:       getEnv("REGISTRY_URL", ""),
+			ProxyRegistryHost: getEnv("PROXY_REGISTRY_HOST", ""),
+			EKSClusterName:    getEnv("EKS_CLUSTER_NAME", ""),
+			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
+			AWSRegion:         getEnv("AWS_REGION", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

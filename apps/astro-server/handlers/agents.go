@@ -188,14 +188,14 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc 
 	}
 }
 
-// GetAgentCredentials handles GET /api/v1/agents/:name/:version/credentials
-// Returns required credentials for deploying a specific agent version
-func GetAgentCredentials(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
+// GetAgentConfig handles GET /api/v1/agents/:name/:version/config
+// Returns required credentials and config for deploying a specific agent version
+func GetAgentConfig(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		version := c.Param("version")
 
-		log.Info("Getting required credentials for agent",
+		log.Info("Getting required config for agent",
 			"name", name,
 			"version", version,
 		)

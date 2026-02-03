@@ -19,18 +19,37 @@ import (
 
 // Applier applies Kubernetes manifests to a cluster
 type Applier struct {
-	clientset   *kubernetes.Clientset
-	namespace   string
-	registryURL string
+	clientset     *kubernetes.Clientset
+	namespace     string
+	registryURL   string
+	imageResolver *ImageResolver
 }
 
 // NewApplier creates a new applier
-func NewApplier(client *EKSClient, namespace, registryURL string) *Applier {
+func NewApplier(client *EKSClient, namespace, registryURL, proxyRegistryHost string) *Applier {
 	return &Applier{
-		clientset:   client.Clientset(),
-		namespace:   namespace,
-		registryURL: registryURL,
+		clientset:     client.Clientset(),
+		namespace:     namespace,
+		registryURL:   registryURL,
+		imageResolver: NewImageResolver(proxyRegistryHost, registryURL),
 	}
+}
+
+// resolveContainerImage resolves a container image reference to its ECR path
+func (a *Applier) resolveContainerImage(container spec.ContainerConfig) (spec.ContainerConfig, error) {
+	if container.Image == "" {
+		return container, nil
+	}
+
+	resolvedImage, err := a.imageResolver.ResolveImage(container.Image)
+	if err != nil {
+		return container, err
+	}
+
+	// Create a copy with resolved image
+	resolved := container
+	resolved.Image = resolvedImage
+	return resolved, nil
 }
 
 // ApplyResult holds the result of applying manifests
@@ -282,13 +301,24 @@ func (a *Applier) Apply(
 				}
 			}
 
+			// Resolve image to ECR path
+			resolvedContainer, err := a.resolveContainerImage(knowledge.Container)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: resourceName,
+					Kind:     "StatefulSet",
+					Error:    fmt.Sprintf("failed to resolve image: %v", err),
+				})
+				continue
+			}
+
 			statefulSetCfg := StatefulSetConfig{
 				Name:           resourceName,
 				Namespace:      a.namespace,
 				AgentName:      agentName,
 				Version:        version,
 				Component:      fmt.Sprintf("knowledge-%s", name),
-				Container:      knowledge.Container,
+				Container:      resolvedContainer,
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
@@ -317,13 +347,24 @@ func (a *Applier) Apply(
 				port = 8080
 			}
 
+			// Resolve image to ECR path
+			resolvedContainer, err := a.resolveContainerImage(model.Container)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: resourceName,
+					Kind:     "Deployment",
+					Error:    fmt.Sprintf("failed to resolve image: %v", err),
+				})
+				continue
+			}
+
 			deploymentCfg := DeploymentConfig{
 				Name:           resourceName,
 				Namespace:      a.namespace,
 				AgentName:      agentName,
 				Version:        version,
 				Component:      fmt.Sprintf("model-%s", name),
-				Container:      model.Container,
+				Container:      resolvedContainer,
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
@@ -364,13 +405,24 @@ func (a *Applier) Apply(
 				}
 			}
 
+			// Resolve image to ECR path
+			resolvedContainer, err := a.resolveContainerImage(knowledge.Container)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: resourceName,
+					Kind:     "Deployment",
+					Error:    fmt.Sprintf("failed to resolve image: %v", err),
+				})
+				continue
+			}
+
 			deploymentCfg := DeploymentConfig{
 				Name:           resourceName,
 				Namespace:      a.namespace,
 				AgentName:      agentName,
 				Version:        version,
 				Component:      fmt.Sprintf("knowledge-%s", name),
-				Container:      knowledge.Container,
+				Container:      resolvedContainer,
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
@@ -397,13 +449,24 @@ func (a *Applier) Apply(
 				port = 8080
 			}
 
+			// Resolve image to ECR path
+			resolvedContainer, err := a.resolveContainerImage(*tool.Container)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: resourceName,
+					Kind:     "Deployment",
+					Error:    fmt.Sprintf("failed to resolve image: %v", err),
+				})
+				continue
+			}
+
 			deploymentCfg := DeploymentConfig{
 				Name:           resourceName,
 				Namespace:      a.namespace,
 				AgentName:      agentName,
 				Version:        version,
 				Component:      fmt.Sprintf("tool-%s", name),
-				Container:      *tool.Container,
+				Container:      resolvedContainer,
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
@@ -422,27 +485,38 @@ func (a *Applier) Apply(
 	}
 
 	// Main agent deployment
-	agentDeploymentCfg := DeploymentConfig{
-		Name:           agentResourceName,
-		Namespace:      a.namespace,
-		AgentName:      agentName,
-		Version:        version,
-		Component:      "agent",
-		Container:      spec.ContainerConfig{Image: astroSpec.Container.Image},
-		Port:           8080,
-		SecretName:     secretName,
-		ConfigMapName:  configMapName,
-		Healthcheck:    astroSpec.Container.Healthcheck,
-	}
-	agentDeployment := BuildDeployment(agentDeploymentCfg)
-	status, err = a.applyDeployment(ctx, agentDeployment)
-	result.Resources = append(result.Resources, status)
+	// Resolve agent container image to ECR path
+	agentContainer := spec.ContainerConfig{Image: astroSpec.Container.Image}
+	resolvedAgentContainer, err := a.resolveContainerImage(agentContainer)
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
-			Resource: agentDeployment.Name,
+			Resource: agentResourceName,
 			Kind:     "Deployment",
-			Error:    err.Error(),
+			Error:    fmt.Sprintf("failed to resolve image: %v", err),
 		})
+	} else {
+		agentDeploymentCfg := DeploymentConfig{
+			Name:           agentResourceName,
+			Namespace:      a.namespace,
+			AgentName:      agentName,
+			Version:        version,
+			Component:      "agent",
+			Container:      resolvedAgentContainer,
+			Port:           8080,
+			SecretName:     secretName,
+			ConfigMapName:  configMapName,
+			Healthcheck:    astroSpec.Container.Healthcheck,
+		}
+		agentDeployment := BuildDeployment(agentDeploymentCfg)
+		status, err = a.applyDeployment(ctx, agentDeployment)
+		result.Resources = append(result.Resources, status)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: agentDeployment.Name,
+				Kind:     "Deployment",
+				Error:    err.Error(),
+			})
+		}
 	}
 
 	// Messaging interfaces (Slack, Discord, etc.)
@@ -527,17 +601,28 @@ func (a *Applier) Apply(
 			}
 
 			// Create deployment with custom container
+			// Resolve custom interface image to ECR path
 			containerCfg := spec.ContainerConfig{
 				Image: iface.Service.Image,
 				Port:  int(port),
 			}
+			resolvedContainerCfg, err := a.resolveContainerImage(containerCfg)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: resourceName,
+					Kind:     "Deployment",
+					Error:    fmt.Sprintf("failed to resolve image: %v", err),
+				})
+				continue
+			}
+
 			interfaceDeploymentCfg := DeploymentConfig{
 				Name:          resourceName,
 				Namespace:     a.namespace,
 				AgentName:     agentName,
 				Version:       version,
 				Component:     fmt.Sprintf("interface-%s", name),
-				Container:     containerCfg,
+				Container:     resolvedContainerCfg,
 				Port:          port,
 				SecretName:    secretName,
 				ConfigMapName: configMapName,

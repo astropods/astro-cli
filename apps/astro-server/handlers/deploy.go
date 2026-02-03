@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,8 +13,49 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/postman/astro/apps/astro-server/internal/middleware"
 	"github.com/postman/astro/packages/astro-spec"
 )
+
+// sanitizeNamespace converts a user ID to a valid Kubernetes namespace name
+// Kubernetes namespace names must:
+// - contain only lowercase alphanumeric characters or '-'
+// - start and end with an alphanumeric character
+// - be at most 63 characters long
+func sanitizeNamespace(userID string) string {
+	// Convert to lowercase
+	ns := strings.ToLower(userID)
+
+	// Replace any non-alphanumeric characters (except hyphens) with hyphens
+	var sanitized strings.Builder
+	for _, ch := range ns {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			sanitized.WriteRune(ch)
+		} else {
+			sanitized.WriteRune('-')
+		}
+	}
+
+	result := sanitized.String()
+
+	// Trim leading/trailing hyphens
+	result = strings.Trim(result, "-")
+
+	// Ensure it starts with alphanumeric if it doesn't
+	if len(result) == 0 || result[0] == '-' {
+		result = "user-" + result
+	}
+
+	// Truncate to 63 characters if needed
+	if len(result) > 63 {
+		result = result[:63]
+	}
+
+	// Ensure it ends with alphanumeric
+	result = strings.TrimRight(result, "-")
+
+	return result
+}
 
 // DeployAgent returns a handler for deploying agents to Kubernetes
 func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config) gin.HandlerFunc {
@@ -30,10 +72,24 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			return
 		}
 
+		// Get authenticated user from context
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			log.Error("User not found in context")
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "authentication required",
+			})
+			return
+		}
+
+		// Derive namespace from user ID (use user ID as namespace, with sanitization)
+		k8sNamespace := sanitizeNamespace(user.ID)
+
 		log.Info("Received deploy request",
 			"name", req.Name,
 			"version", req.Version,
-			"k8s_namespace", req.K8sNamespace,
+			"k8s_namespace", k8sNamespace,
+			"user_id", user.ID,
 		)
 
 		// Fetch agent spec from index
@@ -83,14 +139,14 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 		}
 
 		log.Info("Deploying to Kubernetes",
-			"k8s_namespace", req.K8sNamespace,
+			"k8s_namespace", k8sNamespace,
 		)
 
 		// Translate spec to K8s manifests
 		translator := deployment.NewTranslator(
 			req.Name,
 			req.Version,
-			req.K8sNamespace,
+			k8sNamespace,
 			cfg.Deployment.RegistryURL,
 			req.UserCredentials,
 		)
@@ -122,7 +178,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 		}
 
 		// Apply manifests to cluster
-		applier := k8s.NewApplier(k8sClient, req.K8sNamespace, cfg.Deployment.RegistryURL)
+		applier := k8s.NewApplier(k8sClient, k8sNamespace, cfg.Deployment.RegistryURL, cfg.Deployment.ProxyRegistryHost)
 		applyResult, err := applier.Apply(
 			c.Request.Context(),
 			&astroSpec,
@@ -155,7 +211,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			Status:           status,
 			Name:             req.Name,
 			Version:          req.Version,
-			K8sNamespace:     req.K8sNamespace,
+			K8sNamespace:     k8sNamespace,
 			DeployedAt:       time.Now().UTC(),
 			Resources:        applyResult.Resources,
 			ServiceEndpoints: applyResult.ServiceEndpoints,
@@ -187,14 +243,28 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			return
 		}
 
+		// Get authenticated user from context
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			log.Error("User not found in context")
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "authentication required",
+			})
+			return
+		}
+
+		// Derive namespace from user ID (use user ID as namespace, with sanitization)
+		k8sNamespace := sanitizeNamespace(user.ID)
+
 		log.Info("Received undeploy request",
 			"name", req.Name,
 			"version", req.Version,
-			"k8s_namespace", req.K8sNamespace,
+			"k8s_namespace", k8sNamespace,
+			"user_id", user.ID,
 		)
 
 		log.Info("Undeploying from Kubernetes",
-			"k8s_namespace", req.K8sNamespace,
+			"k8s_namespace", k8sNamespace,
 		)
 
 		// Initialize EKS client for managed cluster
@@ -214,7 +284,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 		}
 
 		// Delete resources from cluster
-		deleter := k8s.NewDeleter(k8sClient, req.K8sNamespace)
+		deleter := k8s.NewDeleter(k8sClient, k8sNamespace)
 		deleteResult, err := deleter.Delete(
 			c.Request.Context(),
 			req.Name,
@@ -244,7 +314,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			Status:       status,
 			Name:         req.Name,
 			Version:      req.Version,
-			K8sNamespace: req.K8sNamespace,
+			K8sNamespace: k8sNamespace,
 			UndeployedAt: time.Now().UTC(),
 			Resources:    deleteResult.Resources,
 			Errors:       deleteResult.Errors,

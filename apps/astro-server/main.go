@@ -207,7 +207,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.Use(authMw.RequireAuth())
 		}
 		{
-			protected.GET("/agents/:name/:version/credentials", handlers.GetAgentCredentials(log, agentIndex))
+			protected.GET("/agents/:name/:version/config", handlers.GetAgentConfig(log, agentIndex))
 			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
 			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))

@@ -7,7 +7,6 @@ type DeployRequest struct {
 	Name            string            `json:"name" binding:"required"`
 	Version         string            `json:"version" binding:"required"`
 	UserCredentials map[string]string `json:"user_credentials,omitempty"`
-	K8sNamespace    string            `json:"k8s_namespace" binding:"required"`
 }
 
 // DeployResponse represents a deployment response
@@ -61,9 +60,8 @@ type ValidationResult struct {
 
 // UndeployRequest represents an undeploy request
 type UndeployRequest struct {
-	Name         string `json:"name" binding:"required"`
-	Version      string `json:"version" binding:"required"`
-	K8sNamespace string `json:"k8s_namespace" binding:"required"`
+	Name    string `json:"name" binding:"required"`
+	Version string `json:"version" binding:"required"`
 }
 
 // UndeployResponse represents an undeploy response
