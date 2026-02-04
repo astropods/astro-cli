@@ -3,6 +3,10 @@ name: Build and Push to ECR
 on:
   workflow_dispatch:
     inputs:
+      sync-secrets:
+        description: 'Sync secrets from 1Password first'
+        type: boolean
+        default: false
       astro-server:
         description: 'Build astro-server'
         type: boolean
@@ -19,9 +23,19 @@ on:
 env:
   AWS_REGION: us-east-1
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  EKS_CLUSTER: prod-primary-eks
 
 jobs:
+  # Optional: Sync secrets if requested
+  sync-secrets:
+    name: Sync secrets
+    if: github.event.inputs.sync-secrets == 'true'
+    uses: ./.github/workflows/sync-secrets.yml
+    secrets: inherit
+
   prepare:
+    needs: [sync-secrets]
+    if: always() && (needs.sync-secrets.result == 'success' || needs.sync-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -89,4 +103,23 @@ jobs:
 
       - name: Output image URI
         run: |
-          echo "Image pushed: ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}"
+          echo "::notice::✅ Image pushed: ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}"
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Deploy ConfigMap
+        run: |
+          # Determine config file path based on service
+          CONFIG_FILE="config/${{ matrix.service }}/prod.env"
+
+          if [ -f "$CONFIG_FILE" ]; then
+            kubectl create configmap ${{ matrix.service }}-config \
+              --from-env-file="$CONFIG_FILE" \
+              --namespace=${{ matrix.service }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "::notice::✅ ConfigMap updated for ${{ matrix.service }}"
+          else
+            echo "::warning::No $CONFIG_FILE found, skipping ConfigMap for ${{ matrix.service }}"
+          fi
