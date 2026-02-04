@@ -1,6 +1,6 @@
 {
   "name": "@saswatds/astro-playground",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
-    "@saswatds/astro-agent": "workspace:*",
+    "@saswatds/astro-agent": "1.1.3",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^5.1.1",

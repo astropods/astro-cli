@@ -1,6 +1,6 @@
 {
   "name": "@saswatds/astro-graph",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,8 +27,8 @@
   },
   "dependencies": {
     "ai": "^6.0.11",
-    "@saswatds/astro-types": "workspace:*",
-    "@saswatds/astro-nodes": "workspace:*",
+    "@saswatds/astro-types": "1.0.3",
+    "@saswatds/astro-nodes": "1.0.3",
     "nanoid": "^5.1.6",
     "zod": "^4.3.5"
   },
