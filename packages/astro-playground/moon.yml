@@ -1,0 +1,21 @@
+language: "typescript"
+type: "library"
+
+dependsOn:
+  - "astro-agent"
+
+tasks:
+  build:
+    command: "bun run tsc -b && bun run vite build"
+    inputs:
+      - "src/**/*"
+      - "app/**/*"
+      - "tsconfig.json"
+      - "tsconfig.app.json"
+      - "tsconfig.node.json"
+      - "vite.config.ts"
+      - "index.html"
+    outputs:
+      - "dist"
+    deps:
+      - "^:build"

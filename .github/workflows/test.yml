@@ -1,6 +1,8 @@
 name: Test
 
 on:
+  push:
+    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -18,8 +20,16 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Moon
+        run: |
+          curl -fsSL https://moonrepo.dev/install/moon.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
       - name: Install dependencies
         run: bun install
+
+      - name: Build packages
+        run: bun run build
 
       - name: Run tests
         run: bun test --recursive

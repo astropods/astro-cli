@@ -30,13 +30,13 @@
     "@mastra/core": "^1.0.4",
     "@mastra/libsql": "^1.0.0",
     "@mastra/memory": "^1.0.0",
-    "@saswatds/astro-engine": "1.0.3",
-    "@saswatds/astro-nodes": "1.0.3",
-    "@saswatds/astro-types": "1.0.3"
+    "@saswatds/astro-engine": "workspace:*",
+    "@saswatds/astro-nodes": "workspace:*",
+    "@saswatds/astro-types": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.3.5",
-    "@saswatds/astro-graph": "1.0.3",
+    "@saswatds/astro-graph": "workspace:*",
     "typescript": "^5.3.0"
   }
 }

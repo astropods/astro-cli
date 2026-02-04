@@ -1,4 +1,4 @@
-import type { NodeDefinition, NodeType } from "astro-types";
+import type { NodeDefinition, NodeType } from "@saswatds/astro-types";
 
 export type EvalFn<TInput = unknown, TOutput = unknown, TConfig = unknown> = (
   input: TInput,

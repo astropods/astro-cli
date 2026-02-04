@@ -53,3 +53,62 @@ Open your browser to the URL shown in the terminal (typically http://localhost:5
 │   ├── astro-types/       # Shared TypeScript types
 │   └── astro-workflows/   # Reusable workflow tools
 ```
+
+## Building
+
+Build all packages:
+
+```bash
+bun run build
+```
+
+This uses [Moon](https://moonrepo.dev/) to build packages in dependency order.
+
+## Releasing
+
+All publishable packages are scoped under `@saswatds/` and published to the GitHub Package Registry.
+
+### Preview a release
+
+```bash
+bun run release:dry
+```
+
+### Publish affected packages
+
+```bash
+bun run release
+```
+
+This will:
+1. Detect packages changed since the last publish (using Moon's affected detection)
+2. Include transitive dependents (packages that depend on changed packages)
+3. Bump versions (patch by default)
+4. Resolve workspace references to actual versions
+5. Build all packages
+6. Publish in dependency order
+7. Create a git tag and commit
+
+### Options
+
+```bash
+# Minor version bump
+bun run release -- --bump minor
+
+# Major version bump
+bun run release -- --bump major
+
+# Skip confirmation prompt (for CI)
+bun run release -- --yes
+
+# Compare against a specific git ref
+./scripts/publish-affected.sh --base main
+```
+
+### After releasing
+
+Push the commits and tags:
+
+```bash
+git push && git push --tags
+```

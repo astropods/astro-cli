@@ -1,6 +1,6 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { Graph, z } from "astro-graph";
-import type { AgentStep, AgentTool } from "astro-types";
+import { Graph, z } from "@saswatds/astro-graph";
+import type { AgentStep, AgentTool } from "@saswatds/astro-types";
 
 // Track captured configs and stream calls
 let capturedAgentConfig: any = null;

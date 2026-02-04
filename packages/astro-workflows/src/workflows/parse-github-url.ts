@@ -1,4 +1,4 @@
-import { Graph, z } from "astro-graph";
+import { Graph, z } from "@saswatds/astro-graph";
 
 /**
  * Input schema for the GitHub URL parser workflow

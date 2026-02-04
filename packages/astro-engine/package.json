@@ -26,9 +26,11 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@saswatds/astro-types": "1.0.3"
+    "@saswatds/astro-types": "workspace:*"
   },
   "devDependencies": {
+    "@saswatds/astro-graph": "workspace:*",
+    "@saswatds/astro-nodes": "workspace:*",
     "typescript": "^5.3.0"
   }
 }

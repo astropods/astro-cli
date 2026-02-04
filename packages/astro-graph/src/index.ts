@@ -6,18 +6,18 @@ import type {
   NodeDefinition,
   NodeInputType,
   NodeOutputType,
-} from "astro-types";
+} from "@saswatds/astro-types";
 import {
   type EvalFn,
   NODE_DEFINITIONS,
   node_if,
   node_start,
-} from "astro-nodes";
+} from "@saswatds/astro-nodes";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 // Re-export CompiledGraph for backward compatibility
-export type { CompiledGraph } from "astro-types";
+export type { CompiledGraph } from "@saswatds/astro-types";
 
 /**
  * Branch builder function for if/else branches.

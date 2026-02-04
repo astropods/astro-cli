@@ -1,5 +1,5 @@
-import { workflows } from "astro-workflows";
-import { AstroAgent } from "astro-agent";
+import { workflows } from "@saswatds/astro-workflows";
+import { AstroAgent } from "@saswatds/astro-agent";
 
 /**
  * GitHub Agent Example

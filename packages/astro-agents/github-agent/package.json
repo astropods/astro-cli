@@ -1,6 +1,7 @@
 {
   "name": "github-agent",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "description": "Example GitHub agent using Astro workflows",
   "scripts": {
@@ -16,18 +17,23 @@
       "import": "./src/index.ts"
     }
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postman-eng/astro.git",
+    "directory": "packages/astro-agents/github-agent"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
-    "astro-engine": "workspace:*",
-    "astro-graph": "workspace:*",
-    "astro-nodes": "workspace:*",
-    "astro-types": "workspace:*",
-    "astro-agent": "workspace:*",
-    "astro-workflows": "workspace:*"
+    "@saswatds/astro-engine": "workspace:*",
+    "@saswatds/astro-graph": "workspace:*",
+    "@saswatds/astro-nodes": "workspace:*",
+    "@saswatds/astro-types": "workspace:*",
+    "@saswatds/astro-agent": "workspace:*",
+    "@saswatds/astro-workflows": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
-    "astro-playground": "workspace:*",
+    "@saswatds/astro-playground": "workspace:*",
     "mastra": "^1.0.0-beta.14",
     "typescript": "^5.9.3"
   }

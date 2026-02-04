@@ -143,3 +143,6 @@ dist
 # air (Go hot reload)
 tmp/
 build-errors.log
+
+# Claude Code
+.claude

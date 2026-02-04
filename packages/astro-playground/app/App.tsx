@@ -581,7 +581,7 @@ function ToolGraphView({ tool }: { tool: ToolConfig }) {
   );
 }
 
-function ToolCard({ tool, index }: { tool: ToolConfig; index: number }) {
+function ToolCard({ tool }: { tool: ToolConfig }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const hasGraph = tool.type === "graph" && tool.graph;
 
@@ -682,7 +682,7 @@ function AgentConfigView({
             ) : (
               <div className="space-y-3">
                 {config.tools.map((tool, index) => (
-                  <ToolCard key={index} tool={tool} index={index} />
+                  <ToolCard key={index} tool={tool} />
                 ))}
               </div>
             )}

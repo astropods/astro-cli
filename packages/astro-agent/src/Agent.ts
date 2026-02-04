@@ -1,8 +1,8 @@
-import { AgentStep, AgentTool } from "astro-types";
+import { AgentStep, AgentTool } from "@saswatds/astro-types";
 import { Agent, ToolsInput } from "@mastra/core/agent";
 import { DynamicArgument } from "@mastra/core/types";
-import { Engine } from "astro-engine";
-import { NODE_DEFINITIONS } from "astro-nodes";
+import { Engine } from "@saswatds/astro-engine";
+import { NODE_DEFINITIONS } from "@saswatds/astro-nodes";
 import { Memory } from "@mastra/memory";
 import { LibSQLStore } from "@mastra/libsql";
 
@@ -121,7 +121,7 @@ export class AstroAgent {
               description:
                 tool.graph.meta.toolDescription ?? tool.graph.meta.description,
               inputSchema: tool.graph.inputSchema,
-              execute: async (input) => {
+              execute: async (input: Record<string, unknown>) => {
                 const engine = new Engine(tool.graph, NODE_DEFINITIONS, {}, {});
                 return engine.run(engine.getStartNodeId(), input);
               },

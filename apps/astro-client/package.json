@@ -1,7 +1,7 @@
 {
   "name": "astro-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,12 +10,17 @@
     "preview": "vite preview",
     "setup": "./scripts/setup-local-dev.sh"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postman-eng/astro.git",
+    "directory": "apps/astro-client"
+  },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
     "@tailwindcss/vite": "^4.1.18",
     "@xyflow/react": "^12.10.0",
     "astro-agents": "workspace:*",
-    "astro-workflows": "workspace:*",
+    "@saswatds/astro-workflows": "workspace:*",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

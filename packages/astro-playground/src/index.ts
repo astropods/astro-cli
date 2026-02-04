@@ -1,4 +1,4 @@
-import type { AstroAgent } from "astro-agents";
+import type { AstroAgent } from "@saswatds/astro-agent";
 import {
   createApiServer,
   type PlaygroundApiServer,

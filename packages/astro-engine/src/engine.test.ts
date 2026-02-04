@@ -1,8 +1,8 @@
 import { describe, test, expect, mock } from "bun:test";
 import { Engine } from "./engine";
-import { Graph, z } from "astro-graph";
-import { NODE_DEFINITIONS } from "astro-nodes";
-import type { Node, Edge, NodeType, NodeDefinition } from "astro-types";
+import { Graph, z } from "@saswatds/astro-graph";
+import { NODE_DEFINITIONS } from "@saswatds/astro-nodes";
+import type { Node, Edge, NodeType, NodeDefinition } from "@saswatds/astro-types";
 
 describe("Engine", () => {
   test("executes a simple single-node graph with input data", async () => {

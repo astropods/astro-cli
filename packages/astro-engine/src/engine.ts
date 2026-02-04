@@ -5,8 +5,8 @@ import {
   NodeType,
   EngineContext,
   ConfigValue,
-} from "astro-types";
-import type { CompiledGraph } from "astro-graph";
+  CompiledGraph,
+} from "@saswatds/astro-types";
 import { type z } from "zod";
 
 export class Engine<

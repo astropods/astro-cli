@@ -1,0 +1,17 @@
+language: "typescript"
+type: "library"
+
+dependsOn:
+  - "astro-graph"
+
+tasks:
+  build:
+    command: "bun run tsc"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+    deps:
+      - "^:build"
