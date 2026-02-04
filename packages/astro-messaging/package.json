@@ -1,5 +1,5 @@
 {
-  "name": "@astro/messaging-sdk-ts",
+  "name": "@saswatds/astro-messaging",
   "version": "1.0.0",
   "description": "TypeScript SDK for Astro Messaging",
   "main": "dist/index.js",
@@ -11,6 +11,14 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postman-eng/astro.git",
+    "directory": "packages/astro-messaging"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.9.0",

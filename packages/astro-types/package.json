@@ -1,16 +1,34 @@
 {
-  "name": "astro-types",
-  "version": "1.0.0",
+  "name": "@saswatds/astro-types",
+  "version": "1.0.1",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postman-eng/astro.git",
+    "directory": "packages/astro-types"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
   }
 }

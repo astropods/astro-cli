@@ -1,26 +1,38 @@
 {
-  "name": "astro-playground",
-  "version": "1.0.0",
+  "name": "@saswatds/astro-playground",
+  "version": "1.0.1",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b && vite build",
+    "dev": "vite",
     "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postman-eng/astro.git",
+    "directory": "packages/astro-playground"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
+    "@saswatds/astro-agent": "workspace:*",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^5.1.1",
     "@xyflow/react": "^12.10.0",
-    "astro-agents": "workspace:*",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
