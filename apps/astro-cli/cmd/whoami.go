@@ -19,7 +19,7 @@ This command shows your user details and validates that your credentials
 are still valid, refreshing them if necessary.
 
 Example:
-  astro whoami`,
+  ast whoami`,
 	RunE: runWhoami,
 }
 
@@ -45,18 +45,18 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	// Load current profile
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return fmt.Errorf("not logged in. Run 'astro login' to authenticate")
+		return fmt.Errorf("not logged in. Run 'ast login' to authenticate")
 	}
 
 	if profile.AccessToken == "" {
-		return fmt.Errorf("not logged in. Run 'astro login' to authenticate")
+		return fmt.Errorf("not logged in. Run 'ast login' to authenticate")
 	}
 
 	// Validate token is still valid (this will refresh if needed)
 	tokenManager := auth.NewTokenManager()
 	_, err = tokenManager.GetValidAccessToken(context.Background())
 	if err != nil {
-		return fmt.Errorf("session expired or invalid. Run 'astro login' to re-authenticate")
+		return fmt.Errorf("session expired or invalid. Run 'ast login' to re-authenticate")
 	}
 
 	// Reload profile in case it was refreshed

@@ -30,8 +30,8 @@ Your credentials are stored in your system's keychain when available,
 otherwise in ~/.astro/credentials.json with restricted permissions.
 
 Example:
-  astro login
-  astro login --no-browser`,
+  ast login
+  ast login --no-browser`,
 	RunE: runLogin,
 }
 

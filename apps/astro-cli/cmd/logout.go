@@ -18,8 +18,8 @@ This command removes your stored authentication credentials from your system.
 If you used the system keychain, credentials are removed from there as well.
 
 Example:
-  astro logout
-  astro logout --all`,
+  ast logout
+  ast logout --all`,
 	RunE: runLogout,
 }
 

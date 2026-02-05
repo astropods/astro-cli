@@ -8,7 +8,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "astro",
+	Use:   "ast",
 	Short: "Astro CLI - Build, publish, and develop AI agents",
 	Long: `Astro CLI is a tool for building, publishing, and developing AI agents.
 

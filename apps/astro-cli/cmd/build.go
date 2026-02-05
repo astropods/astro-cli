@@ -37,9 +37,9 @@ Components with pre-built images (container.image) are skipped and will be
 pulled at deployment time by the deployment server.
 
 Example:
-  astro build
-  astro build --tag v1.0.0
-  astro build --no-cache`,
+  ast build
+  ast build --tag v1.0.0
+  ast build --no-cache`,
 	RunE: runBuild,
 }
 
