@@ -17,15 +17,17 @@ container:
     secrets:
       - id: npm_token
         env: GITHUB_PACKAGES_TOKEN
-{{- if ne .Interface "none"}}
+{{- if gt (len .Interfaces) 0}}
 
 interfaces:
-{{- if eq .Interface "http"}}
-  api:
-    type: http
-{{- else if eq .Interface "slack"}}
-  messaging:
+{{- range .Interfaces}}
+{{- if eq . "web"}}
+  web:
+    type: web
+{{- else if eq . "slack"}}
+  slack:
     type: slack
+{{- end}}
 {{- end}}
 {{- end}}
 {{- if or (ne .Model "none") (gt (len .Tools) 0)}}
@@ -231,11 +233,13 @@ OPENAI_API_KEY=your-api-key-here
 GITHUB_TOKEN=your-github-token-here
 {{- end}}
 {{- end}}
-{{- if eq .Interface "slack"}}
+{{- range .Interfaces}}
+{{- if eq . "slack"}}
 
 # Slack Integration
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_APP_TOKEN=xapp-your-app-token
+{{- end}}
 {{- end}}
 `
 
@@ -287,121 +291,177 @@ dist/
 const agentIndexTemplate = `/**
  * {{.Name}} - {{.Description}}
  *
- * This is your Astro agent's entry point. When running with 'astro dev',
- * the following environment variables are automatically injected:
+ * This agent connects to the Astro messaging service via gRPC and responds
+ * to incoming messages from any configured interface (web, slack, etc.).
  *
- *   PORT - Server port (default: 8080)
+ * Environment variables (automatically injected by 'astro dev'):
+ *   GRPC_SERVER_ADDR - Messaging service address (default: localhost:9090)
 {{- if eq .Model "anthropic"}}
  *   ANTHROPIC_API_KEY - Anthropic API key for Claude models
 {{- else if eq .Model "openai"}}
  *   OPENAI_API_KEY - OpenAI API key for GPT models
 {{- end}}
 {{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
- *   QDRANT_URL - Qdrant vector database connection URL
+ *   QDRANT_HOST - Qdrant vector database host
+ *   QDRANT_PORT - Qdrant vector database port
 {{- end}}
 {{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
- *   REDIS_URL - Redis key-value store connection URL
-{{- end}}
-{{- range .Tools}}
-{{- if eq . "github"}}
- *   GITHUB_TOKEN - GitHub API token for repository access
-{{- end}}
-{{- end}}
-{{- if eq .Interface "slack"}}
- *   SLACK_BOT_TOKEN - Slack bot OAuth token
- *   SLACK_APP_TOKEN - Slack app-level token for Socket Mode
+ *   REDIS_HOST - Redis host
+ *   REDIS_PORT - Redis port
 {{- end}}
  */
 
-// Create an HTTP server using Bun's built-in server
-// Astro will route requests to this server based on your interface config
-const server = Bun.serve({
-  port: process.env.PORT || 8080,
+import { MessagingClient, type AgentResponse, type Message } from '@saswatds/astro-messaging';
 
-  async fetch(req) {
-    const url = new URL(req.url);
+const AGENT_NAME = '{{.Name}}';
+const GRPC_SERVER_ADDR = process.env.GRPC_SERVER_ADDR || 'localhost:9090';
 
-    // Health check endpoint - used by Astro to verify the agent is running
-    if (url.pathname === "/health") {
-      return Response.json({ status: "healthy" });
-    }
+// Create the messaging client
+const client = new MessagingClient(GRPC_SERVER_ADDR);
 
-    // Main agent endpoint - receives incoming requests
-    if (req.method === "POST" && url.pathname === "/") {
-      const body = await req.json();
+async function handleMessage(response: AgentResponse, stream: any) {
+  const { conversationId } = response;
 
-      //
-      // TODO: Implement your agent logic here
-      //
-      // Example: Parse the incoming message and generate a response
-      // The request body typically contains:
-      //   - message: The user's input text
-      //   - context: Additional context from the conversation
-      //
+  // Extract the incoming message from the response payload
+  const message = (response as any).incoming_message as Message | undefined;
+
+  if (!message) {
+    // Not a message event (could be status update, etc.)
+    return;
+  }
+
+  console.log('📨 Received message:');
+  console.log('   From:', message.user?.username || 'Unknown');
+  console.log('   Platform:', message.platform);
+  console.log('   Content:', message.content);
+
+  // Get platform context for routing the response back
+  const platformContext = (message as any).platform_context;
+
+  //
+  // TODO: Implement your agent logic here
+  //
+  // This is where you would:
+  // 1. Process the incoming message
+  // 2. Call your AI model (Anthropic, OpenAI, etc.)
+  // 3. Search your knowledge base
+  // 4. Generate a response
+  //
 {{- if eq .Model "anthropic"}}
 
-      // Access your Anthropic API key:
-      // const apiKey = process.env.ANTHROPIC_API_KEY;
-      //
-      // Example: Call Claude API
-      // const response = await fetch("https://api.anthropic.com/v1/messages", {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     "x-api-key": apiKey,
-      //     "anthropic-version": "2023-06-01",
-      //   },
-      //   body: JSON.stringify({
-      //     model: "claude-sonnet-4-20250514",
-      //     max_tokens: 1024,
-      //     messages: [{ role: "user", content: body.message }],
-      //   }),
-      // });
+  // Example with Anthropic Claude:
+  // const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  // const result = await anthropic.messages.create({
+  //   model: 'claude-sonnet-4-20250514',
+  //   max_tokens: 1024,
+  //   messages: [{ role: 'user', content: message.content }],
+  // });
+  // const reply = result.content[0].text;
 {{- else if eq .Model "openai"}}
 
-      // Access your OpenAI API key:
-      // const apiKey = process.env.OPENAI_API_KEY;
-      //
-      // Example: Call OpenAI API
-      // const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     "Authorization": ` + "`Bearer ${apiKey}`" + `,
-      //   },
-      //   body: JSON.stringify({
-      //     model: "gpt-4o",
-      //     messages: [{ role: "user", content: body.message }],
-      //   }),
-      // });
-{{- end}}
-{{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
-
-      // Connect to Qdrant vector store:
-      // const qdrantUrl = process.env.QDRANT_URL;
-      // Use for semantic search over your knowledge base
-{{- end}}
-{{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
-
-      // Connect to Redis cache:
-      // const redisUrl = process.env.REDIS_URL;
-      // Use for caching responses or storing conversation state
+  // Example with OpenAI:
+  // const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  //   method: 'POST',
+  //   headers: {
+  //     'Content-Type': 'application/json',
+  //     'Authorization': ` + "`Bearer ${process.env.OPENAI_API_KEY}`" + `,
+  //   },
+  //   body: JSON.stringify({
+  //     model: 'gpt-4o',
+  //     messages: [{ role: 'user', content: message.content }],
+  //   }),
+  // });
+  // const data = await response.json();
+  // const reply = data.choices[0].message.content;
 {{- end}}
 
-      const response = {
-        message: "Hello from {{.Name}}!",
-        received: body,
-      };
+  // For now, echo the message back
+  const reply = ` + "`Hello! You said: \"${message.content}\". I'm ${AGENT_NAME}, ready to help!`" + `;
 
-      return Response.json(response);
+  console.log('📤 Sending response...');
+
+  // Send the response back through the stream
+  stream.sendMessage({
+    conversationId,
+    platform: message.platform,
+    platform_context: platformContext,
+    content: reply,
+    user: {
+      id: AGENT_NAME.toLowerCase().replace(/\\s+/g, '-'),
+      username: AGENT_NAME,
+    },
+  });
+
+  console.log('✅ Response sent\n');
+}
+
+async function main() {
+  console.log('🚀 Starting ' + AGENT_NAME + '...');
+  console.log('   gRPC Server:', GRPC_SERVER_ADDR);
+
+  // Connect to the messaging service
+  console.log('📡 Connecting to messaging service...');
+  await client.connect();
+  console.log('✓ Connected');
+
+  // Check service health
+  const health = await client.healthCheck();
+  console.log('✓ Service health:', health.status);
+
+  // Create a bidirectional conversation stream
+  console.log('🌊 Creating conversation stream...');
+  const stream = client.createConversationStream();
+
+  // Handle incoming messages
+  stream.on('response', async (response: AgentResponse) => {
+    try {
+      await handleMessage(response, stream);
+    } catch (error) {
+      console.error('❌ Error handling message:', error);
     }
+  });
 
-    // Return 404 for unhandled routes
-    return new Response("Not Found", { status: 404 });
-  },
+  stream.on('error', (error: Error) => {
+    console.error('❌ Stream error:', error);
+  });
+
+  stream.on('end', () => {
+    console.log('Stream ended');
+  });
+
+  // Register the agent
+  console.log('📝 Registering agent...');
+  stream.sendMessage({
+    conversationId: 'agent-registration',
+    platform: 'grpc',
+    content: 'Agent ready',
+    user: {
+      id: AGENT_NAME.toLowerCase().replace(/\\s+/g, '-'),
+      username: AGENT_NAME,
+    },
+  });
+
+  console.log('✅ ' + AGENT_NAME + ' is ready and listening for messages!\n');
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down...');
+  client.close();
+  process.exit(0);
 });
 
-console.log("{{.Name}} listening on http://localhost:" + server.port);
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Shutting down...');
+  client.close();
+  process.exit(0);
+});
+
+// Start the agent
+main().catch((error) => {
+  console.error('❌ Fatal error:', error);
+  process.exit(1);
+});
 `
 
 const ingestionIndexTemplate = `/**
