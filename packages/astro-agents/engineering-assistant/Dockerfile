@@ -9,11 +9,6 @@ ENV CI=true
 
 WORKDIR /app
 
-# Copy SDK package (includes proto files)
-COPY astro-messaging ./astro-messaging
-WORKDIR /app/astro-messaging
-RUN pnpm install && pnpm build
-
 # Copy and build agent
 WORKDIR /app/astro-agents/engineering-assistant
 COPY astro-agents/engineering-assistant/package*.json ./
@@ -44,17 +39,6 @@ RUN npm install -g pnpm
 ENV CI=true
 
 WORKDIR /app
-
-# Copy SDK package
-COPY astro-messaging ./astro-messaging
-WORKDIR /app/astro-messaging
-RUN --mount=type=secret,id=npm_token \
-    if [ -f /run/secrets/npm_token ]; then \
-      echo "@saswatds:registry=https://npm.pkg.github.com" >> ~/.npmrc; \
-      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
-    fi && \
-    pnpm install --prod && \
-    rm -f ~/.npmrc
 
 # Setup agent
 WORKDIR /app/astro-agents/engineering-assistant

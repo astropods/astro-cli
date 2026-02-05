@@ -4,7 +4,7 @@ import {
   type AgentResponse,
   type Message,
   type ThreadHistoryResponse,
-} from '@astro/messaging-sdk-ts';
+} from '@saswatds/astro-messaging';
 import Anthropic from '@anthropic-ai/sdk';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { createClient, type RedisClientType } from 'redis';

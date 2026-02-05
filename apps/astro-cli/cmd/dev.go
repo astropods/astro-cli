@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -84,6 +85,11 @@ func runDev(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to read .env file: %w", err)
 		}
 		envVars = envMap
+
+		// Export env vars to OS environment for Docker build secrets
+		for key, val := range envVars {
+			os.Setenv(key, val)
+		}
 	} else {
 		log.Printf("⚠️  No .env file found at %s (continuing without integration credentials)", envFile)
 	}
@@ -119,6 +125,16 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	if verbose {
 		log.Printf("   Wrote compose file to: %s", composePath)
+	}
+
+	// Login to GHCR if token is available (for pulling astro-messaging image)
+	if ghcrToken := os.Getenv("GITHUB_NPM_TOKEN"); ghcrToken != "" {
+		log.Printf("🔑 Logging into GHCR...")
+		loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
+		loginCmd.Stdin = strings.NewReader(ghcrToken)
+		if err := loginCmd.Run(); err != nil {
+			log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
+		}
 	}
 
 	// Start services using Docker Compose CLI

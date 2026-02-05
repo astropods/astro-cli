@@ -76,7 +76,8 @@ PUBLISH_ORDER=(
   "astro-graph"
   "astro-workflows"
   "astro-agent"
-  "astro-playground"
+  "astro-playground",
+  "astro-messaging"
 )
 
 # Function to check if array contains element
