@@ -128,9 +128,6 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/agent ./agent
 COPY --from=builder /app/package.json ./
 
-# Set default gRPC server address for messaging container
-ENV GRPC_SERVER_ADDR=astro-messaging:9090
-
 # Run the agent
 CMD ["bun", "run", "agent/index.ts"]
 `
@@ -167,9 +164,6 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/ingestion ./ingestion
 COPY --from=builder /app/package.json ./
 
-# Set default gRPC server address for messaging container
-ENV GRPC_SERVER_ADDR=astro-messaging:9090
-
 # Run the ingestion script
 CMD ["bun", "run", "ingestion/index.ts"]
 `
@@ -186,6 +180,9 @@ const packageJsonTemplate = `{
     "ingest": "bun ingestion/index.ts"
   },
   "main": "./agent/index.ts",
+  "dependencies": {
+    "@saswatds/astro-messaging": "latest"
+  },
   "devDependencies": {
     "@types/bun": "^1.1.14",
     "typescript": "^5.9.3"
