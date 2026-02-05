@@ -83,7 +83,7 @@ ingestion:
           NPM_REGISTRY: "https://npm.pkg.github.com"
         secrets:
           - id: npm_token
-            env: NPM_TOKEN
+            env: GITHUB_PACKAGES_TOKEN
     trigger:
 {{- if eq .Ingestion "schedule"}}
       type: schedule
