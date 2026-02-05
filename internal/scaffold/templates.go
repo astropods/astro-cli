@@ -16,7 +16,7 @@ container:
       NPM_REGISTRY: "https://npm.pkg.github.com"
     secrets:
       - id: npm_token
-        env: NPM_TOKEN
+        env: GITHUB_PACKAGES_TOKEN
 {{- if ne .Interface "none"}}
 
 interfaces:
@@ -211,9 +211,9 @@ const tsconfigTemplate = `{
 const envExampleTemplate = `# {{.Name}} Environment Variables
 # Copy this file to .env and fill in your values
 
-# NPM Private Registry (build secret for GitHub Packages)
-# Set this in your environment or pass via: --secret id=npm_token,env=NPM_TOKEN
-NPM_TOKEN=your-github-npm-token-here
+# GitHub Packages Token (for npm registry and container images)
+# Required for pulling private packages from GitHub Packages
+GITHUB_PACKAGES_TOKEN=your-github-token-here
 {{- if eq .Model "anthropic"}}
 
 # Anthropic API Key

@@ -128,7 +128,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	// Login to GHCR if token is available (for pulling astro-messaging image)
-	if ghcrToken := os.Getenv("GITHUB_NPM_TOKEN"); ghcrToken != "" {
+	if ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN"); ghcrToken != "" {
 		log.Printf("🔑 Logging into GHCR...")
 		loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
 		loginCmd.Stdin = strings.NewReader(ghcrToken)
