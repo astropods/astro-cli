@@ -40,13 +40,13 @@ Images are pushed through the astro-registry service which proxies to ECR.
 The spec is registered with astro-server which validates and stores it.
 
 Example:
-  astro publish
-  astro publish --tag v1.0.0
-  astro publish --build --tag v1.0.0
+  ast publish
+  ast publish --tag v1.0.0
+  ast publish --build --tag v1.0.0
 
 Requirements:
-  - Must be authenticated with astro (run 'astro login' first)
-  - Server and registry URLs must be configured (run 'astro configure')`,
+  - Must be authenticated (run 'ast login' first)
+  - Server and registry URLs must be configured (run 'ast configure')`,
 	RunE: runPublish,
 }
 
@@ -130,7 +130,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	if !noAuth {
 		tokenManager := auth.NewTokenManager()
 		if !tokenManager.IsAuthenticated() {
-			return fmt.Errorf("not authenticated. Run 'astro login' to authenticate")
+			return fmt.Errorf("not authenticated. Run 'ast login' to authenticate")
 		}
 	}
 
@@ -348,7 +348,7 @@ func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, 
 		if verbose {
 			log.Printf("   Registry auth failed: %s", string(body))
 		}
-		return "", fmt.Errorf("authentication required. Run 'astro login' to authenticate")
+		return "", fmt.Errorf("authentication required. Run 'ast login' to authenticate")
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -546,7 +546,7 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 			if tokenManager.IsAuthenticated() {
 				return fmt.Errorf("failed to add authentication: %w", err)
 			}
-			log.Printf("Warning: Not authenticated. Use 'astro login' for authenticated requests or --no-auth to skip")
+			log.Printf("Warning: Not authenticated. Use 'ast login' for authenticated requests or --no-auth to skip")
 		}
 	}
 
@@ -558,7 +558,7 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("authentication required. Run 'astro login' to authenticate")
+		return fmt.Errorf("authentication required. Run 'ast login' to authenticate")
 	}
 
 	if resp.StatusCode != http.StatusCreated {

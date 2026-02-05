@@ -35,9 +35,9 @@ The dev command:
 5. Auto-configures component connection strings
 
 Example:
-  astro dev
-  astro dev --file custom-astro.yml
-  astro dev --env .env.local`,
+  ast dev
+  ast dev --file custom-astro.yml
+  ast dev --env .env.local`,
 	RunE: runDev,
 }
 
@@ -136,14 +136,18 @@ func runDev(cmd *cobra.Command, args []string) error {
 		log.Printf("   Wrote compose file to: %s", composePath)
 	}
 
-	// Login to GHCR if token is available (for pulling astro-messaging image)
-	if ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN"); ghcrToken != "" {
-		log.Printf("🔑 Logging into GHCR...")
-		loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
-		loginCmd.Stdin = strings.NewReader(ghcrToken)
-		if err := loginCmd.Run(); err != nil {
-			log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
-		}
+	// Check for GITHUB_PACKAGES_TOKEN before building
+	ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN")
+	if ghcrToken == "" {
+		return fmt.Errorf("GITHUB_PACKAGES_TOKEN environment variable is required.\nAdd it to your .env file or set it in your shell.\nYou can get it through 1Password by requesting the Astro team.")
+	}
+
+	// Login to GHCR (for pulling astro-messaging image)
+	log.Printf("🔑 Logging into GHCR...")
+	loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
+	loginCmd.Stdin = strings.NewReader(ghcrToken)
+	if err := loginCmd.Run(); err != nil {
+		log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
 	}
 
 	// Start services using Docker Compose CLI

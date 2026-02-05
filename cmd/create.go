@@ -26,8 +26,8 @@ The create command generates a new agent project with TypeScript and Bun:
 - ingestion/index.ts for data pipelines
 
 Example:
-  astro create my-agent
-  astro create my-agent --yes`,
+  ast create my-agent
+  ast create my-agent --yes`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreate,
 }
@@ -68,32 +68,19 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
 
-	printSuccess(name, config)
+	// Change into the created directory
+	if err := os.Chdir(name); err != nil {
+		return fmt.Errorf("failed to cd into %s: %w", name, err)
+	}
+
+	printSuccess(name)
 	return nil
 }
 
-func printSuccess(name string, config scaffold.ScaffoldConfig) {
-	fmt.Printf("\n✅ Created agent '%s' in ./%s/\n\n", name, name)
-	fmt.Println("Files generated:")
-	fmt.Println("  - astro.yml")
-	fmt.Println("  - Dockerfile")
-	if config.Ingestion != "none" {
-		fmt.Println("  - Dockerfile.ingestion")
-	}
-	fmt.Println("  - package.json")
-	fmt.Println("  - tsconfig.json")
-	fmt.Println("  - .env.example")
-	fmt.Println("  - .gitignore")
-	fmt.Println("  - .dockerignore")
-	fmt.Println("  - agent/index.ts")
-	fmt.Println("  - ingestion/index.ts")
-	fmt.Println()
+func printSuccess(name string) {
+	fmt.Printf("\n%s✓%s Created agent %s%s%s\n\n", colorGreen, colorReset, colorBold, name, colorReset)
 	fmt.Println("Next steps:")
-	fmt.Printf("  1. cd %s\n", name)
-	fmt.Println("  2. bun install")
-	fmt.Println("  3. Edit agent/index.ts with your agent logic")
-	fmt.Println("  4. Edit ingestion/index.ts for data pipelines")
-	fmt.Println("  5. Copy .env.example to .env and add credentials")
-	fmt.Println("  6. Run: astro dev")
+	fmt.Printf("  %s→%s cp .env.example .env\n", colorCyan, colorReset)
+	fmt.Printf("  %s→%s ast dev\n", colorCyan, colorReset)
 	fmt.Println()
 }
