@@ -33,6 +33,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
+    },
     server: {
       // When certs are present, bind to the local domain for same-site cookies
       host: useLocalDomain ? LOCAL_DOMAIN : "localhost",
