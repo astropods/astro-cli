@@ -86,6 +86,13 @@ func runDev(cmd *cobra.Command, args []string) error {
 		}
 		envVars = envMap
 
+		// Log loaded environment variable names (not values, for security)
+		var envKeys []string
+		for key := range envVars {
+			envKeys = append(envKeys, key)
+		}
+		log.Printf("   Loaded %d environment variables: %s", len(envKeys), strings.Join(envKeys, ", "))
+
 		// Export env vars to OS environment for Docker build secrets
 		for key, val := range envVars {
 			os.Setenv(key, val)
