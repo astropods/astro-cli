@@ -7,17 +7,19 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/postman/astro/packages/astro-spec"
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
 	"github.com/postman/astro/apps/astro-cli/internal/watcher"
+	"github.com/postman/astro/packages/astro-spec"
 )
 
 var devCmd = &cobra.Command{
@@ -169,15 +171,33 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	// Check if messaging interface is configured
 	hasMessagingInterface := false
+	hasWebInterface := false
 	for _, iface := range astroSpec.Interfaces {
 		if iface.Type == "messaging/slack" || iface.Type == "messaging/discord" || iface.Type == "messaging/teams" {
 			hasMessagingInterface = true
-			break
+		}
+		if iface.Type == "slack" || iface.Type == "web" {
+			hasMessagingInterface = true
+		}
+		if iface.Type == "web" {
+			hasWebInterface = true
 		}
 	}
 
 	if hasMessagingInterface {
 		log.Printf("💬 Messaging service running on gRPC port 9090")
+	}
+
+	if hasWebInterface {
+		log.Printf("🌐 Playground running at http://localhost:3000")
+		log.Printf("   Web API available at http://localhost:8080")
+
+		// Open playground in browser
+		go func() {
+			// Small delay to ensure services are ready
+			time.Sleep(2 * time.Second)
+			openBrowser("http://localhost:3000")
+		}()
 	}
 
 	// Set up cron scheduler for ingestion workers
@@ -306,5 +326,24 @@ func runDev(cmd *cobra.Command, args []string) error {
 	log.Printf("✅ Cleanup complete")
 
 	return nil
+}
+
+// openBrowser opens the specified URL in the default browser
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		log.Printf("⚠️  Unable to open browser automatically on %s", runtime.GOOS)
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		log.Printf("⚠️  Failed to open browser: %v", err)
+	}
 }
 

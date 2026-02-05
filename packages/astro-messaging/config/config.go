@@ -10,14 +10,14 @@ import (
 
 // Config holds the overall messaging service configuration
 type Config struct {
-	// Deployment mode: "all", "slack", "discord", "teams"
-	DeploymentMode string
-
 	// gRPC Server configuration
 	GRPC GRPCConfig
 
 	// Slack configuration
 	Slack SlackConfig
+
+	// Web configuration
+	Web WebConfig
 
 	// Storage configuration
 	Storage StorageConfig
@@ -53,6 +53,12 @@ type SlackConfig struct {
 	Config     adapter.Config
 }
 
+// WebConfig holds web adapter configuration
+type WebConfig struct {
+	Enabled    bool
+	ListenAddr string
+}
+
 // StorageConfig holds storage configuration
 type StorageConfig struct {
 	Type     string // "redis" or "memory"
@@ -63,8 +69,7 @@ type StorageConfig struct {
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
-		DeploymentMode: getEnv("DEPLOYMENT_MODE", "all"),
-		LogLevel:       getEnv("LOG_LEVEL", "info"),
+		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 
 	// gRPC configuration
@@ -83,7 +88,7 @@ func Load() (*Config, error) {
 
 	// Slack configuration
 	cfg.Slack = SlackConfig{
-		Enabled:    getEnvBool("SLACK_ENABLED", true),
+		Enabled:    getEnvBool("SLACK_ENABLED", false),
 		BotToken:   getEnv("SLACK_BOT_TOKEN", ""),
 		AppToken:   getEnv("SLACK_APP_TOKEN", ""),
 		SocketMode: getEnvBool("SLACK_SOCKET_MODE", true),
@@ -110,6 +115,12 @@ func Load() (*Config, error) {
 			RequestsPerSecond: getEnvFloat("SLACK_RATE_LIMIT_RPS", 3.0),
 			BurstSize:         getEnvInt("SLACK_RATE_LIMIT_BURST", 10),
 		},
+	}
+
+	// Web configuration
+	cfg.Web = WebConfig{
+		Enabled:    getEnvBool("WEB_ENABLED", false),
+		ListenAddr: getEnv("WEB_LISTEN_ADDR", ":8080"),
 	}
 
 	// Storage configuration

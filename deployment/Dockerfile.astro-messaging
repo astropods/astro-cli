@@ -1,12 +1,10 @@
 # Multi-stage build for Go messaging service
+# Supports multi-platform builds (linux/amd64, linux/arm64)
 
 # Stage 1: Build
-FROM golang:1.23-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
 
 WORKDIR /app
-
-# Install build dependencies including gcc and musl-dev for CGO
-RUN apk add --no-cache git gcc musl-dev
 
 # Allow Go to download required toolchain version
 ENV GOTOOLCHAIN=auto
@@ -18,14 +16,16 @@ RUN go mod download
 # Copy source code
 COPY packages/astro-messaging/ .
 
-# Build arguments for version information
+# Build arguments for version information and target platform
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG TARGETOS
+ARG TARGETARCH
 
-# Build binary with CGO enabled to avoid pure-Go netpoll issues on Alpine
-# Build for native architecture (no GOARCH specified)
-RUN CGO_ENABLED=1 go build \
+# Build static binary - CGO disabled for easy cross-compilation
+# Debian/glibc doesn't have the netpoll issues that Alpine/musl has
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s \
       -X 'github.com/astro/messaging/internal/version.Version=${VERSION}' \
       -X 'github.com/astro/messaging/internal/version.Commit=${COMMIT}' \
@@ -34,12 +34,12 @@ RUN CGO_ENABLED=1 go build \
     ./cmd/sidecar
 
 # Stage 2: Runtime
-FROM alpine:latest
+FROM debian:bookworm-slim
 
-# Install runtime dependencies for CGO-enabled binary
-RUN apk --no-cache add ca-certificates libc6-compat
+# Install CA certificates for HTTPS
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /root/
+WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /app/messaging .
@@ -47,8 +47,8 @@ COPY --from=builder /app/messaging .
 # Copy config (optional - can be overridden by env vars)
 COPY packages/astro-messaging/config/config.yaml ./config/
 
-# Expose messaging service port
-EXPOSE 8081
+# Expose ports: 8080 (HTTP/SSE), 9090 (gRPC)
+EXPOSE 8080 9090
 
 # Run the binary
 CMD ["./messaging"]

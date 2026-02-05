@@ -226,24 +226,49 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Add interface services (messaging sidecar, grpc services, etc.)
 	for _, iface := range s.Interfaces {
-		// Check for messaging interfaces (with or without messaging/ prefix)
-		if iface.Type == "slack" || iface.Type == "discord" || iface.Type == "teams" ||
-			iface.Type == "messaging/slack" || iface.Type == "messaging/discord" || iface.Type == "messaging/teams" {
+		// Check for messaging interfaces
+		if iface.Type == "slack" || iface.Type == "web" {
 			messagingService := types.ServiceConfig{
-				Name:  "astro-messaging",
-				Image: "ghcr.io/saswatds/astro-messaging:latest",
+				Name:       "astro-messaging",
+				Image:      "ghcr.io/saswatds/astro-messaging:latest",
+				PullPolicy: types.PullPolicyAlways,
 				Networks: map[string]*types.ServiceNetworkConfig{
 					"astro-dev": nil,
 				},
 				Environment: buildMessagingEnvironment(s, envVars),
+				Ports:       buildMessagingPorts(s),
+			}
+			project.Services["astro-messaging"] = messagingService
+		}
+
+		// Add playground for web interface
+		if iface.Type == "web" {
+			// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
+			apiURL := ""
+			playgroundService := types.ServiceConfig{
+				Name:       "playground",
+				Image:      "ghcr.io/saswatds/astro-playground:latest",
+				PullPolicy: types.PullPolicyIfNotPresent,
+				Networks: map[string]*types.ServiceNetworkConfig{
+					"astro-dev": nil,
+				},
+				Environment: types.MappingWithEquals{
+					"API_URL": &apiURL,
+				},
 				Ports: []types.ServicePortConfig{
 					{
-						Target:    9090,
-						Published: "9090",
+						Target:    80,
+						Published: "3000",
+					},
+				},
+				DependsOn: types.DependsOnConfig{
+					"astro-messaging": types.ServiceDependency{
+						Condition: types.ServiceConditionStarted,
+						Required:  true,
 					},
 				},
 			}
-			project.Services["astro-messaging"] = messagingService
+			project.Services["playground"] = playgroundService
 		}
 
 		// Check for custom interfaces with explicit service configuration
@@ -508,8 +533,7 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	// Add GRPC_SERVER_ADDR if messaging interface is configured
 	for _, iface := range s.Interfaces {
-		if iface.Type == "slack" || iface.Type == "discord" || iface.Type == "teams" ||
-			iface.Type == "messaging/slack" || iface.Type == "messaging/discord" || iface.Type == "messaging/teams" {
+		if iface.Type == "slack" || iface.Type == "web" {
 			grpcAddr := "astro-messaging:9090"
 			env["GRPC_SERVER_ADDR"] = &grpcAddr
 			break
@@ -517,6 +541,29 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	}
 
 	return env
+}
+
+// buildMessagingPorts creates port mappings for the astro-messaging sidecar
+func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
+	ports := []types.ServicePortConfig{
+		{
+			Target:    9090,
+			Published: "9090",
+		},
+	}
+
+	// Add HTTP port if web adapter is enabled
+	for _, iface := range s.Interfaces {
+		if iface.Type == "web" {
+			ports = append(ports, types.ServicePortConfig{
+				Target:    8080,
+				Published: "8080",
+			})
+			break
+		}
+	}
+
+	return ports
 }
 
 // buildMessagingEnvironment creates environment variables for the astro-messaging sidecar
@@ -537,14 +584,10 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	logLevel := "info"
 	env["LOG_LEVEL"] = &logLevel
 
-	// Deployment mode - determine which adapters to enable
-	deploymentMode := "all"
-	env["DEPLOYMENT_MODE"] = &deploymentMode
-
 	// Configure adapters based on interfaces
 	for _, iface := range s.Interfaces {
 		switch iface.Type {
-		case "slack", "messaging/slack":
+		case "slack":
 			// Enable Slack adapter
 			enabled := "true"
 			env["SLACK_ENABLED"] = &enabled
@@ -558,26 +601,12 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 				env["SLACK_APP_TOKEN"] = &val
 			}
 
-		case "discord", "messaging/discord":
-			// Enable Discord adapter (when implemented)
+		case "web":
+			// Enable Web adapter for HTTP/SSE access
 			enabled := "true"
-			env["DISCORD_ENABLED"] = &enabled
-
-			if val, ok := envVars["DISCORD_BOT_TOKEN"]; ok {
-				env["DISCORD_BOT_TOKEN"] = &val
-			}
-
-		case "teams", "messaging/teams":
-			// Enable Teams adapter (when implemented)
-			enabled := "true"
-			env["TEAMS_ENABLED"] = &enabled
-
-			if val, ok := envVars["TEAMS_APP_ID"]; ok {
-				env["TEAMS_APP_ID"] = &val
-			}
-			if val, ok := envVars["TEAMS_APP_PASSWORD"]; ok {
-				env["TEAMS_APP_PASSWORD"] = &val
-			}
+			env["WEB_ENABLED"] = &enabled
+			listenAddr := ":8080"
+			env["WEB_LISTEN_ADDR"] = &listenAddr
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 	pb "github.com/astro/messaging/pkg/gen/astro/messaging/v1"
 	"github.com/astro/messaging/internal/adapter"
 	"github.com/astro/messaging/internal/store"
+	"github.com/astro/messaging/pkg/types"
 )
 
 // WebAdapter implements GRPCAdapter and StreamingAdapter for web browser clients
@@ -82,6 +83,14 @@ func (a *WebAdapter) Initialize(ctx context.Context, config adapter.Config) erro
 
 // Start begins the HTTP server and SSE connections
 func (a *WebAdapter) Start(ctx context.Context) error {
+	// Ensure adapter is initialized
+	if a.connManager == nil {
+		return fmt.Errorf("connection manager not initialized - call Initialize first")
+	}
+	if a.handlers == nil {
+		return fmt.Errorf("handlers not initialized - call Initialize first")
+	}
+
 	// Start connection manager heartbeat
 	a.connManager.Start(ctx)
 
@@ -255,4 +264,48 @@ func (a *WebAdapter) SetThreadStore(store *store.ThreadHistoryStore) {
 	if a.handlers != nil {
 		a.handlers.threadStore = store
 	}
+}
+
+// OnMessage registers a handler for incoming messages (implements adapter.Adapter)
+func (a *WebAdapter) OnMessage(handler adapter.MessageHandler) {
+	// Convert the unified MessageHandler to our internal GRPCMessageHandler
+	a.SetMessageHandler(func(ctx context.Context, msg *pb.Message) error {
+		unified := &types.UnifiedMessage{
+			ID:             msg.Id,
+			ConversationID: msg.ConversationId,
+			Content:        msg.Content,
+			Platform:       "web",
+		}
+		_, err := handler(ctx, unified)
+		return err
+	})
+}
+
+// SendMessage sends a message to the platform (implements adapter.Adapter)
+func (a *WebAdapter) SendMessage(ctx context.Context, req *types.SendMessageRequest) (*types.SendMessageResult, error) {
+	// For web adapter, messages are sent via SSE broadcast
+	// Use ChannelID as the conversation ID for broadcasting
+	if a.connManager == nil {
+		return &types.SendMessageResult{
+			Success: false,
+		}, fmt.Errorf("connection manager not initialized")
+	}
+
+	event := NewChunkEvent(&pb.ContentChunk{
+		Content: req.Content,
+		Type:    pb.ContentChunk_END,
+	}, "")
+	a.connManager.Broadcast(req.ChannelID, event)
+
+	return &types.SendMessageResult{
+		Success: true,
+	}, nil
+}
+
+// UpdateMessage updates an existing message (implements adapter.Adapter)
+func (a *WebAdapter) UpdateMessage(ctx context.Context, messageID string, content string) error {
+	// Web adapter doesn't support message updates - SSE is append-only
+	// Just broadcast a new chunk with the updated content
+	log.Printf("[Web] UpdateMessage called but SSE is append-only, ignoring update for %s", messageID)
+	return nil
 }

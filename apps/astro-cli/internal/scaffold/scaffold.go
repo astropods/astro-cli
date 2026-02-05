@@ -10,7 +10,7 @@ import (
 type ScaffoldConfig struct {
 	Name        string   // Agent name (required)
 	Description string   // Agent description
-	Interface   string   // "http" | "slack" | "none"
+	Interfaces  []string // ["web", "slack"]
 	Model       string   // "anthropic" | "openai" | "none"
 	Knowledge   string   // "vector" | "kv" | "both" | "none"
 	Tools       []string // ["github"]
@@ -22,11 +22,11 @@ func DefaultConfig(name string) ScaffoldConfig {
 	return ScaffoldConfig{
 		Name:        name,
 		Description: "An AI-powered agent",
-		Interface:   "http",
-		Model:       "anthropic",
+		Interfaces:  []string{"web"},
+		Model:       "openai",
 		Knowledge:   "none",
 		Tools:       []string{},
-		Ingestion:   "startup",
+		Ingestion:   "none",
 	}
 }
 

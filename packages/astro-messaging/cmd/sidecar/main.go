@@ -11,6 +11,7 @@ import (
 	"github.com/astro/messaging/config"
 	"github.com/astro/messaging/internal/adapter"
 	"github.com/astro/messaging/internal/adapter/slack"
+	"github.com/astro/messaging/internal/adapter/web"
 	"github.com/astro/messaging/internal/grpc"
 	"github.com/astro/messaging/internal/store"
 	"github.com/astro/messaging/internal/version"
@@ -25,8 +26,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
-
-	log.Printf("Deployment mode: %s", cfg.DeploymentMode)
 
 	ctx := context.Background()
 
@@ -63,8 +62,8 @@ func main() {
 		log.Printf("gRPC server initialized on %s", cfg.GRPC.ListenAddr)
 	}
 
-	// Initialize adapters based on deployment mode
-	adapters := initializeAdapters(ctx, cfg)
+	// Initialize adapters
+	adapters := initializeAdapters(ctx, cfg, threadStore)
 	if len(adapters) == 0 && !cfg.GRPC.Enabled {
 		log.Fatal("No adapters enabled or configured and gRPC is disabled")
 	}
@@ -139,33 +138,31 @@ func main() {
 }
 
 // initializeAdapters creates and initializes adapters based on configuration
-func initializeAdapters(ctx context.Context, cfg *config.Config) map[string]adapter.Adapter {
+func initializeAdapters(ctx context.Context, cfg *config.Config, threadStore *store.ThreadHistoryStore) map[string]adapter.Adapter {
 	adapters := make(map[string]adapter.Adapter)
 
-	// Determine which platforms to enable based on deployment mode
-	enableSlack := false
-
-	switch cfg.DeploymentMode {
-	case "all":
-		// Enable all platforms that are configured
-		enableSlack = cfg.Slack.Enabled
-	case "slack":
-		// Only Slack
-		enableSlack = cfg.Slack.Enabled
-	default:
-		log.Printf("Unknown deployment mode: %s, defaulting to 'all'", cfg.DeploymentMode)
-		enableSlack = cfg.Slack.Enabled
-	}
-
-	// Initialize Slack adapter
-	if enableSlack {
+	// Initialize Slack adapter if enabled
+	if cfg.Slack.Enabled {
 		log.Println("Initializing Slack adapter...")
 		slackAdapter := slack.New()
 		if err := slackAdapter.Initialize(ctx, cfg.Slack.Config); err != nil {
 			log.Printf("Error initializing Slack adapter: %v", err)
 		} else {
 			adapters["slack"] = slackAdapter
-			log.Println("Slack adapter initialized (HTTP + gRPC)")
+			log.Println("Slack adapter initialized")
+		}
+	}
+
+	// Initialize Web adapter if enabled
+	if cfg.Web.Enabled {
+		log.Println("Initializing Web adapter...")
+		webAdapter := web.New(web.WithListenAddr(cfg.Web.ListenAddr))
+		if err := webAdapter.Initialize(ctx, adapter.Config{}); err != nil {
+			log.Printf("Error initializing Web adapter: %v", err)
+		} else {
+			webAdapter.SetThreadStore(threadStore)
+			adapters["web"] = webAdapter
+			log.Println("Web adapter initialized")
 		}
 	}
 

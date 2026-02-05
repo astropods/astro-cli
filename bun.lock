@@ -100,7 +100,7 @@
     },
     "packages/astro-messaging": {
       "name": "@saswatds/astro-messaging",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "dependencies": {
         "@grpc/grpc-js": "^1.9.0",
         "@grpc/proto-loader": "^0.7.10",
@@ -126,6 +126,29 @@
       "dependencies": {
         "@dagrejs/dagre": "^1.1.4",
         "@saswatds/astro-agent": "workspace:*",
+        "@tailwindcss/vite": "^4.1.18",
+        "@types/react-syntax-highlighter": "^15.5.13",
+        "@vitejs/plugin-react": "^5.1.1",
+        "@xyflow/react": "^12.10.0",
+        "lucide-react": "^0.562.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "react-markdown": "^10.1.0",
+        "react-syntax-highlighter": "^16.1.0",
+        "tailwindcss": "^4.1.18",
+        "vite": "^7.2.4",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.5",
+        "@types/react-dom": "^19.2.3",
+        "typescript": "~5.9.3",
+      },
+    },
+    "packages/astro-playground-web": {
+      "name": "@saswatds/astro-playground-web",
+      "version": "1.0.0",
+      "dependencies": {
+        "@dagrejs/dagre": "^1.1.4",
         "@tailwindcss/vite": "^4.1.18",
         "@types/react-syntax-highlighter": "^15.5.13",
         "@vitejs/plugin-react": "^5.1.1",
@@ -455,6 +478,8 @@
     "@saswatds/astro-nodes": ["@saswatds/astro-nodes@workspace:packages/astro-nodes"],
 
     "@saswatds/astro-playground": ["@saswatds/astro-playground@workspace:packages/astro-playground"],
+
+    "@saswatds/astro-playground-web": ["@saswatds/astro-playground-web@workspace:packages/astro-playground-web"],
 
     "@saswatds/astro-types": ["@saswatds/astro-types@workspace:packages/astro-types"],
 

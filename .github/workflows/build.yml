@@ -19,6 +19,10 @@ on:
         description: 'Build astro-messaging'
         type: boolean
         default: false
+      astro-playground:
+        description: 'Build astro-playground'
+        type: boolean
+        default: false
 
 env:
   AWS_REGION: us-east-1
@@ -47,6 +51,7 @@ jobs:
           [ "${{ inputs.astro-server }}" == "true" ] && services+=("astro-server")
           [ "${{ inputs.astro-registry }}" == "true" ] && services+=("astro-registry")
           [ "${{ inputs.astro-messaging }}" == "true" ] && services+=("astro-messaging")
+          [ "${{ inputs.astro-playground }}" == "true" ] && services+=("astro-playground")
 
           if [ ${#services[@]} -eq 0 ]; then
             echo "::error::No services selected. Please select at least one service to build."
@@ -79,7 +84,23 @@ jobs:
           echo "dockerfile=deployment/Dockerfile.${{ matrix.service }}" >> $GITHUB_OUTPUT
           echo "context=." >> $GITHUB_OUTPUT
 
+          # Determine which registries to push to
+          # astro-messaging: both ECR and GHCR
+          # astro-playground: GHCR only
+          # astro-server, astro-registry: ECR only
+          if [[ "${{ matrix.service }}" == "astro-messaging" ]]; then
+            echo "push_ghcr=true" >> $GITHUB_OUTPUT
+            echo "push_ecr=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ matrix.service }}" == "astro-playground" ]]; then
+            echo "push_ghcr=true" >> $GITHUB_OUTPUT
+            echo "push_ecr=false" >> $GITHUB_OUTPUT
+          else
+            echo "push_ghcr=false" >> $GITHUB_OUTPUT
+            echo "push_ecr=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS credentials
+        if: steps.config.outputs.push_ecr == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
@@ -87,46 +108,72 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
+        if: steps.config.outputs.push_ecr == 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Login to GitHub Container Registry
+        if: steps.config.outputs.push_ghcr == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: saswatds
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Build, tag, and push image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: prod-${{ matrix.service }}
-          GHCR_REGISTRY: ghcr.io/saswatds
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build \
-            -f ${{ steps.config.outputs.dockerfile }} \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-            -t $GHCR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG \
-            -t $GHCR_REGISTRY/${{ matrix.service }}:latest \
-            ${{ steps.config.outputs.context }}
-          # Push to ECR (production)
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          # Push to GHCR (for astro dev)
-          docker push $GHCR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG
-          docker push $GHCR_REGISTRY/${{ matrix.service }}:latest
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Output image URIs
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push to ECR (multi-platform)
+        if: steps.config.outputs.push_ecr == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.config.outputs.context }}
+          file: ${{ steps.config.outputs.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:latest
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+      - name: Build and push to GHCR (multi-platform)
+        if: steps.config.outputs.push_ghcr == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ steps.config.outputs.context }}
+          file: ${{ steps.config.outputs.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/saswatds/${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/saswatds/${{ matrix.service }}:latest
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+      - name: Output image URIs (ECR)
+        if: steps.config.outputs.push_ecr == 'true'
         run: |
           echo "::notice::✅ ECR: ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}"
+
+      - name: Output image URIs (GHCR)
+        if: steps.config.outputs.push_ghcr == 'true'
+        run: |
           echo "::notice::✅ GHCR: ghcr.io/saswatds/${{ matrix.service }}:${{ github.sha }}"
 
       - name: Update kubeconfig
+        if: steps.config.outputs.push_ecr == 'true'
         run: |
           aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
 
       - name: Deploy ConfigMap
+        if: steps.config.outputs.push_ecr == 'true'
         run: |
           # Determine config file path based on service
           CONFIG_FILE="config/${{ matrix.service }}/prod.env"

@@ -57,8 +57,9 @@ func initialModel(name string) model {
 		screen:    screenDescription,
 		descInput: ti,
 		config: scaffold.ScaffoldConfig{
-			Name:  name,
-			Tools: []string{},
+			Name:       name,
+			Interfaces: []string{},
+			Tools:      []string{},
 		},
 		selected: make(map[int]bool),
 	}
@@ -115,8 +116,10 @@ func (m model) updateDescription(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.config.Description = desc
 			m.screen = screenInterface
 			m.cursor = 0
+			m.selected = make(map[int]bool)
+			m.selected[0] = true // Pre-select "Web" (first option)
 			m.options = []option{
-				{"HTTP API", "http"},
+				{"Web (HTTP/SSE)", "web"},
 				{"Slack", "slack"},
 			}
 			return m, nil
@@ -130,7 +133,7 @@ func (m model) updateDescription(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateInterface(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.options = []option{
-		{"HTTP API", "http"},
+		{"Web (HTTP/SSE)", "web"},
 		{"Slack", "slack"},
 	}
 
@@ -145,10 +148,22 @@ func (m model) updateInterface(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.options)-1 {
 				m.cursor++
 			}
+		case " ":
+			m.selected[m.cursor] = !m.selected[m.cursor]
 		case "enter":
-			m.config.Interface = m.options[m.cursor].value
+			interfaces := []string{}
+			for i, opt := range m.options {
+				if m.selected[i] {
+					interfaces = append(interfaces, opt.value)
+				}
+			}
+			// Default to web if nothing selected
+			if len(interfaces) == 0 {
+				interfaces = []string{"web"}
+			}
+			m.config.Interfaces = interfaces
 			m.screen = screenModel
-			m.cursor = 0
+			m.cursor = 1 // Default to OpenAI
 			return m, nil
 		}
 	}
@@ -243,7 +258,7 @@ func (m model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.config.Tools = tools
 			m.screen = screenIngestion
-			m.cursor = 0
+			m.cursor = 3 // Default to None
 			return m, nil
 		}
 	}
@@ -314,14 +329,14 @@ func (m model) View() string {
 		b.WriteString("\n\n")
 		b.WriteString(dimStyle.Render("Press Enter to continue"))
 	case screenInterface:
-		b.WriteString(promptStyle.Render("Interface type:"))
+		b.WriteString(promptStyle.Render("Interface type (select one or more):"))
 		b.WriteString("\n")
-		b.WriteString(m.renderOptions([]option{
-			{"HTTP API", "http"},
+		b.WriteString(m.renderMultiSelectOptions([]option{
+			{"Web (HTTP/SSE)", "web"},
 			{"Slack", "slack"},
 		}))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("↑/↓ to navigate, Enter to select"))
+		b.WriteString(dimStyle.Render("↑/↓ to navigate, Space to toggle, Enter to continue"))
 	case screenModel:
 		b.WriteString(promptStyle.Render("Model provider:"))
 		b.WriteString("\n")
@@ -406,7 +421,11 @@ func (m model) renderSummary() string {
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("  Name:        %s\n", m.config.Name))
 	b.WriteString(fmt.Sprintf("  Description: %s\n", m.config.Description))
-	b.WriteString(fmt.Sprintf("  Interface:   %s\n", m.config.Interface))
+	if len(m.config.Interfaces) > 0 {
+		b.WriteString(fmt.Sprintf("  Interfaces:  %s\n", strings.Join(m.config.Interfaces, ", ")))
+	} else {
+		b.WriteString("  Interfaces:  web\n")
+	}
 	b.WriteString(fmt.Sprintf("  Model:       %s\n", m.config.Model))
 	b.WriteString(fmt.Sprintf("  Knowledge:   %s\n", m.config.Knowledge))
 	if len(m.config.Tools) > 0 {
