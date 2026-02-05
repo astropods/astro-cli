@@ -10,6 +10,40 @@ import (
 	"github.com/postman/astro/packages/astro-spec"
 )
 
+// buildSecretsConfig converts spec secrets to compose secrets configuration
+func buildSecretsConfig(secrets []spec.BuildSecret, project *types.Project) []types.ServiceSecretConfig {
+	if len(secrets) == 0 {
+		return nil
+	}
+	if project.Secrets == nil {
+		project.Secrets = make(types.Secrets)
+	}
+	result := make([]types.ServiceSecretConfig, 0, len(secrets))
+	for _, s := range secrets {
+		project.Secrets[s.ID] = types.SecretConfig{
+			Name:        s.ID,
+			Environment: s.Env,
+		}
+		result = append(result, types.ServiceSecretConfig{
+			Source: s.ID,
+		})
+	}
+	return result
+}
+
+// convertArgs converts map[string]string to map[string]*string for compose
+func convertArgs(args map[string]string) map[string]*string {
+	if len(args) == 0 {
+		return nil
+	}
+	result := make(map[string]*string, len(args))
+	for k, v := range args {
+		val := v
+		result[k] = &val
+	}
+	return result
+}
+
 // BuildProject converts an AstroSpec to a Docker Compose project
 func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
 	project := &types.Project{
@@ -41,6 +75,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			service.Build = &types.BuildConfig{
 				Context:    filepath.Join(workingDir, model.Container.Build.Context),
 				Dockerfile: model.Container.Build.Dockerfile,
+				Target:     model.Container.Build.Target,
+				Args:       types.MappingWithEquals(convertArgs(model.Container.Build.Args)),
+				Secrets:    buildSecretsConfig(model.Container.Build.Secrets, project),
 			}
 		} else if model.Container.Image != "" {
 			service.Image = model.Container.Image
@@ -85,6 +122,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			service.Build = &types.BuildConfig{
 				Context:    filepath.Join(workingDir, knowledge.Container.Build.Context),
 				Dockerfile: knowledge.Container.Build.Dockerfile,
+				Target:     knowledge.Container.Build.Target,
+				Args:       types.MappingWithEquals(convertArgs(knowledge.Container.Build.Args)),
+				Secrets:    buildSecretsConfig(knowledge.Container.Build.Secrets, project),
 			}
 		} else if knowledge.Container.Image != "" {
 			service.Image = knowledge.Container.Image
@@ -220,6 +260,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				service.Build = &types.BuildConfig{
 					Context:    filepath.Join(workingDir, iface.Service.Build.Context),
 					Dockerfile: iface.Service.Build.Dockerfile,
+					Target:     iface.Service.Build.Target,
+					Args:       types.MappingWithEquals(convertArgs(iface.Service.Build.Args)),
+					Secrets:    buildSecretsConfig(iface.Service.Build.Secrets, project),
 				}
 			} else if iface.Service.Image != "" {
 				service.Image = iface.Service.Image
@@ -291,6 +334,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			service.Build = &types.BuildConfig{
 				Context:    filepath.Join(workingDir, ingestion.Container.Build.Context),
 				Dockerfile: ingestion.Container.Build.Dockerfile,
+				Target:     ingestion.Container.Build.Target,
+				Args:       types.MappingWithEquals(convertArgs(ingestion.Container.Build.Args)),
+				Secrets:    buildSecretsConfig(ingestion.Container.Build.Secrets, project),
 			}
 		} else if ingestion.Container.Image != "" {
 			service.Image = ingestion.Container.Image
@@ -315,6 +361,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		agentService.Build = &types.BuildConfig{
 			Context:    filepath.Join(workingDir, s.Container.Build.Context),
 			Dockerfile: s.Container.Build.Dockerfile,
+			Target:     s.Container.Build.Target,
+			Args:       types.MappingWithEquals(convertArgs(s.Container.Build.Args)),
+			Secrets:    buildSecretsConfig(s.Container.Build.Secrets, project),
 		}
 	} else if s.Container.Image != "" {
 		agentService.Image = s.Container.Image

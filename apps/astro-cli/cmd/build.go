@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types/build"
+	"github.com/joho/godotenv"
+	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
@@ -76,6 +80,17 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s Agent: %s%s%s (v%s)\n", colorCyan, colorReset, colorBold, astroSpec.Agent, colorReset, astroSpec.Meta.Version)
 	}
 
+	// Load .env file for secrets
+	envVars := make(map[string]string)
+	envPath := filepath.Join(workingDir, ".env")
+	if _, err := os.Stat(envPath); err == nil {
+		envMap, err := godotenv.Read(envPath)
+		if err != nil {
+			return fmt.Errorf("failed to read .env file: %w", err)
+		}
+		envVars = envMap
+	}
+
 	// Create Docker client
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -103,7 +118,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			dockerfile = "Dockerfile"
 		}
 
-		if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, astroSpec.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+		if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, astroSpec.Container.Build.Args, astroSpec.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
 			if !quiet {
 				fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 			}
@@ -132,7 +147,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, model.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, model.Container.Build.Args, model.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -162,7 +177,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, knowledge.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, knowledge.Container.Build.Args, knowledge.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -192,7 +207,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, tool.Container.Build.Args, buildNoCache, verbose, quiet); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, tool.Container.Build.Args, tool.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -222,7 +237,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, iface.Service.Build.Args, buildNoCache, verbose, quiet); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, iface.Service.Build.Args, iface.Service.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -245,7 +260,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, noCache, verbose, quiet bool) error {
+func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, secrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool) error {
 	// Create build context tar
 	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{})
 	if err != nil {
@@ -267,6 +282,39 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 		Remove:     true,
 		NoCache:    noCache,
 		BuildArgs:  buildArgsPtr,
+	}
+
+	// If secrets are defined, create a BuildKit session with secrets provider
+	if len(secrets) > 0 {
+		// Create session for BuildKit
+		sess, err := session.NewSession(ctx, filepath.Base(contextPath))
+		if err != nil {
+			return fmt.Errorf("failed to create build session: %w", err)
+		}
+
+		// Build secret map from env vars
+		secretMap := make(map[string][]byte)
+		for _, s := range secrets {
+			if val, ok := envVars[s.Env]; ok {
+				secretMap[s.ID] = []byte(val)
+			}
+		}
+
+		// Add secrets provider to session (FromMap returns an Attachable directly)
+		sess.Allow(secretsprovider.FromMap(secretMap))
+
+		// Create dialer for session
+		dialSession := func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error) {
+			return cli.DialHijack(ctx, "/session", proto, meta)
+		}
+
+		// Run session in background
+		go sess.Run(ctx, dialSession)
+		defer sess.Close()
+
+		// Enable BuildKit and attach session
+		opts.Version = build.BuilderBuildKit
+		opts.SessionID = sess.ID()
 	}
 
 	// Build the image

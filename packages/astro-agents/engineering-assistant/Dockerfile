@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM node:20-alpine AS builder
 
 # Install pnpm
@@ -18,8 +19,14 @@ WORKDIR /app/astro-agents/engineering-assistant
 COPY astro-agents/engineering-assistant/package*.json ./
 COPY astro-agents/engineering-assistant/tsconfig.json ./
 
-# Install dependencies
-RUN pnpm install
+# Install dependencies (with optional GitHub NPM token for @saswatds private packages)
+RUN --mount=type=secret,id=npm_token \
+    if [ -f /run/secrets/npm_token ]; then \
+      echo "@saswatds:registry=https://npm.pkg.github.com" >> ~/.npmrc; \
+      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
+    fi && \
+    pnpm install && \
+    rm -f ~/.npmrc
 
 # Copy source code
 COPY astro-agents/engineering-assistant/src ./src
@@ -41,14 +48,26 @@ WORKDIR /app
 # Copy SDK package
 COPY astro-messaging ./astro-messaging
 WORKDIR /app/astro-messaging
-RUN pnpm install --prod
+RUN --mount=type=secret,id=npm_token \
+    if [ -f /run/secrets/npm_token ]; then \
+      echo "@saswatds:registry=https://npm.pkg.github.com" >> ~/.npmrc; \
+      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
+    fi && \
+    pnpm install --prod && \
+    rm -f ~/.npmrc
 
 # Setup agent
 WORKDIR /app/astro-agents/engineering-assistant
 COPY astro-agents/engineering-assistant/package*.json ./
 
-# Install production dependencies only
-RUN pnpm install --prod
+# Install production dependencies only (with optional GitHub NPM token for @saswatds private packages)
+RUN --mount=type=secret,id=npm_token \
+    if [ -f /run/secrets/npm_token ]; then \
+      echo "@saswatds:registry=https://npm.pkg.github.com" >> ~/.npmrc; \
+      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
+    fi && \
+    pnpm install --prod && \
+    rm -f ~/.npmrc
 
 # Copy built application
 COPY --from=builder /app/astro-agents/engineering-assistant/dist ./dist

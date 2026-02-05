@@ -11,6 +11,9 @@ container:
   build:
     context: ../..
     dockerfile: astro-agents/engineering-assistant/Dockerfile
+    secrets:
+      - id: npm_token
+        env: GITHUB_NPM_TOKEN
 
 models:
   embedder:

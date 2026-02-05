@@ -35,6 +35,12 @@ type BuildConfig struct {
 	Dockerfile string            `json:"dockerfile" yaml:"dockerfile"`
 	Target     string            `json:"target,omitempty" yaml:"target,omitempty"`
 	Args       map[string]string `json:"args,omitempty" yaml:"args,omitempty"`
+	Secrets    []BuildSecret     `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+}
+
+type BuildSecret struct {
+	ID  string `json:"id" yaml:"id"`
+	Env string `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
 type Healthcheck struct {
