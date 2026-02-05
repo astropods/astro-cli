@@ -114,7 +114,7 @@ RUN --mount=type=secret,id=npm_token \
       echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}" >> ~/.npmrc; \
       echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
     fi && \
-    bun install --frozen-lockfile && \
+    bun install && \
     rm -f ~/.npmrc
 
 # Copy source
@@ -150,7 +150,7 @@ RUN --mount=type=secret,id=npm_token \
       echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}" >> ~/.npmrc; \
       echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
     fi && \
-    bun install --frozen-lockfile && \
+    bun install && \
     rm -f ~/.npmrc
 
 # Copy source
@@ -311,7 +311,12 @@ const agentIndexTemplate = `/**
 {{- end}}
  */
 
-import { MessagingClient, type AgentResponse, type Message } from '@saswatds/astro-messaging';
+import {
+  MessagingClient,
+  type AgentResponse,
+  type Message,
+  type PlatformContext,
+} from '@saswatds/astro-messaging';
 
 const AGENT_NAME = '{{.Name}}';
 const GRPC_SERVER_ADDR = process.env.GRPC_SERVER_ADDR || 'localhost:9090';
@@ -323,7 +328,8 @@ async function handleMessage(response: AgentResponse, stream: any) {
   const { conversationId } = response;
 
   // Extract the incoming message from the response payload
-  const message = (response as any).incoming_message as Message | undefined;
+  // proto-loader with keepCase:false converts snake_case to camelCase at runtime
+  const message = (response as { incomingMessage?: Message }).incomingMessage;
 
   if (!message) {
     // Not a message event (could be status update, etc.)
@@ -331,12 +337,12 @@ async function handleMessage(response: AgentResponse, stream: any) {
   }
 
   console.log('📨 Received message:');
-  console.log('   From:', message.user?.username || 'Unknown');
+  console.log('   From:', message.user?.username || message.user?.id || 'Unknown');
   console.log('   Platform:', message.platform);
   console.log('   Content:', message.content);
 
   // Get platform context for routing the response back
-  const platformContext = (message as any).platform_context;
+  const platformContext: PlatformContext | undefined = message.platformContext;
 
   //
   // TODO: Implement your agent logic here
@@ -380,11 +386,19 @@ async function handleMessage(response: AgentResponse, stream: any) {
 
   console.log('📤 Sending response...');
 
+  // Ensure platformContext is provided for proper routing
+  if (!platformContext) {
+    console.warn('⚠️  No platformContext available, using fallback');
+  }
+
   // Send the response back through the stream
   stream.sendMessage({
     conversationId,
     platform: message.platform,
-    platform_context: platformContext,
+    platformContext: platformContext || {
+      messageId: conversationId,
+      channelId: conversationId,
+    },
     content: reply,
     user: {
       id: AGENT_NAME.toLowerCase().replace(/\\s+/g, '-'),
