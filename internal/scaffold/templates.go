@@ -11,6 +11,12 @@ container:
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      NPM_SCOPE: "@saswatds"
+      NPM_REGISTRY: "https://npm.pkg.github.com"
+    secrets:
+      - id: npm_token
+        env: NPM_TOKEN
 {{- if ne .Interface "none"}}
 
 interfaces:
@@ -72,6 +78,12 @@ ingestion:
       build:
         context: .
         dockerfile: Dockerfile.ingestion
+        args:
+          NPM_SCOPE: "@saswatds"
+          NPM_REGISTRY: "https://npm.pkg.github.com"
+        secrets:
+          - id: npm_token
+            env: NPM_TOKEN
     trigger:
 {{- if eq .Ingestion "schedule"}}
       type: schedule
@@ -89,9 +101,19 @@ FROM oven/bun:1 AS builder
 
 WORKDIR /app
 
+# NPM private registry configuration
+ARG NPM_SCOPE
+ARG NPM_REGISTRY
+
 # Install dependencies
 COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile
+RUN --mount=type=secret,id=npm_token \
+    if [ -f /run/secrets/npm_token ]; then \
+      echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}" >> ~/.npmrc; \
+      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
+    fi && \
+    bun install --frozen-lockfile && \
+    rm -f ~/.npmrc
 
 # Copy source
 COPY . .
@@ -106,6 +128,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/agent ./agent
 COPY --from=builder /app/package.json ./
 
+# Set default gRPC server address for messaging container
+ENV GRPC_SERVER_ADDR=astro-messaging:9090
+
 # Run the agent
 CMD ["bun", "run", "agent/index.ts"]
 `
@@ -115,9 +140,19 @@ FROM oven/bun:1 AS builder
 
 WORKDIR /app
 
+# NPM private registry configuration
+ARG NPM_SCOPE
+ARG NPM_REGISTRY
+
 # Install dependencies
 COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile
+RUN --mount=type=secret,id=npm_token \
+    if [ -f /run/secrets/npm_token ]; then \
+      echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}" >> ~/.npmrc; \
+      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
+    fi && \
+    bun install --frozen-lockfile && \
+    rm -f ~/.npmrc
 
 # Copy source
 COPY . .
@@ -131,6 +166,9 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/ingestion ./ingestion
 COPY --from=builder /app/package.json ./
+
+# Set default gRPC server address for messaging container
+ENV GRPC_SERVER_ADDR=astro-messaging:9090
 
 # Run the ingestion script
 CMD ["bun", "run", "ingestion/index.ts"]
@@ -175,6 +213,10 @@ const tsconfigTemplate = `{
 
 const envExampleTemplate = `# {{.Name}} Environment Variables
 # Copy this file to .env and fill in your values
+
+# NPM Private Registry (build secret for GitHub Packages)
+# Set this in your environment or pass via: --secret id=npm_token,env=NPM_TOKEN
+NPM_TOKEN=your-github-npm-token-here
 {{- if eq .Model "anthropic"}}
 
 # Anthropic API Key
