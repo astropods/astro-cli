@@ -61,6 +61,22 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_123/image@sha256:abcdef123456",
 			expectError:       false,
 		},
+		{
+			name:              "resolve with ECR URL without scheme",
+			proxyRegistryHost: "registry.odesdaz.com",
+			ecrRegistryURL:    "123456789.dkr.ecr.us-east-1.amazonaws.com",
+			inputImage:        "registry.odesdaz.com/user_123/image:latest",
+			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_123/image:latest",
+			expectError:       false,
+		},
+		{
+			name:              "error on empty ECR URL",
+			proxyRegistryHost: "registry.odesdaz.com",
+			ecrRegistryURL:    "",
+			inputImage:        "registry.odesdaz.com/user_123/image:latest",
+			expectedImage:     "",
+			expectError:       true,
+		},
 	}
 
 	for _, tt := range tests {

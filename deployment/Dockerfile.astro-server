@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # =============================================================================
-# Stage 1: Build the frontend (native architecture)
+# Stage 1: Build the frontend
 # =============================================================================
 FROM oven/bun:1 AS frontend-builder
 
@@ -20,8 +20,9 @@ COPY packages/astro-types/package.json ./packages/astro-types/
 COPY packages/astro-messaging/package.json ./packages/astro-messaging/
 COPY packages/astro-playground/package.json ./packages/astro-playground/
 
-# Install dependencies
-RUN bun install --frozen-lockfile
+# Install dependencies with cache mount
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install
 
 # Copy source files needed for astro-client build
 COPY apps/astro-client ./apps/astro-client
@@ -32,9 +33,13 @@ WORKDIR /app/apps/astro-client
 RUN bun run build
 
 # =============================================================================
-# Stage 2: Build the Go backend (native, cross-compile to amd64)
+# Stage 2: Build the Go backend
 # =============================================================================
-FROM golang:1.25-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend-builder
+
+# Build arguments for cross-compilation
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -42,23 +47,27 @@ WORKDIR /app
 COPY apps/astro-server/go.mod apps/astro-server/go.sum ./apps/astro-server/
 COPY packages/astro-spec/go.mod ./packages/astro-spec/
 
-# Download dependencies
+# Download dependencies with cache mount
 WORKDIR /app/apps/astro-server
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source files
 WORKDIR /app
 COPY apps/astro-server ./apps/astro-server
 COPY packages/astro-spec ./packages/astro-spec
 
-# Cross-compile for linux/amd64 (CGO_ENABLED=0 for pure Go, no C deps)
+# Build with cache mounts for faster compilation
 WORKDIR /app/apps/astro-server
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /app/astro-server main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /app/astro-server main.go
 
 # =============================================================================
-# Stage 3: Production image (amd64)
+# Stage 3: Production image
 # =============================================================================
-FROM --platform=linux/amd64 alpine:3.21
+FROM alpine:3.21
 
 WORKDIR /app
 

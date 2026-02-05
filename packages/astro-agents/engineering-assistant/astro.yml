@@ -72,5 +72,7 @@ integrations:
           - issues:read
 
 interfaces:
-  messaging:
+  slack:
     type: slack
+  web:
+    type: web

@@ -17,6 +17,7 @@ import (
 )
 
 func TestJWKSCache_InitialFetch(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -71,6 +72,7 @@ func TestJWKSCache_InitialFetch(t *testing.T) {
 }
 
 func TestJWKSCache_UsesCachedKeys(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -138,6 +140,7 @@ func TestJWKSCache_UsesCachedKeys(t *testing.T) {
 }
 
 func TestJWKSCache_RefreshesExpiredCache(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -207,6 +210,7 @@ func TestJWKSCache_RefreshesExpiredCache(t *testing.T) {
 }
 
 func TestJWKSCache_HandlesServerError(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -281,6 +285,7 @@ func TestJWKSCache_HandlesServerError(t *testing.T) {
 }
 
 func TestJWKSCache_NoStaleCache_ServerError(t *testing.T) {
+	t.Parallel()
 	// Test case where server errors and there's no stale cache to fall back on
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -308,14 +313,16 @@ func TestJWKSCache_NoStaleCache_ServerError(t *testing.T) {
 }
 
 func TestJWKSCache_KeyRotation(t *testing.T) {
+	t.Parallel()
 	// Test that a new key ID triggers a refresh attempt
-	kp1, err := generateTestKeyPair()
+	// Use fresh keys since we need distinct key pairs for rotation testing
+	kp1, err := generateFreshTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair 1: %v", err)
 	}
 	kp1.keyID = "key-1"
 
-	kp2, err := generateTestKeyPair()
+	kp2, err := generateFreshTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair 2: %v", err)
 	}

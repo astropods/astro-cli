@@ -1,0 +1,102 @@
+name: Sync Config
+
+on:
+  workflow_dispatch:
+    inputs:
+      astro-server:
+        description: 'Sync astro-server config'
+        type: boolean
+        default: true
+      astro-registry:
+        description: 'Sync astro-registry config'
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  OP_VAULT: Astro
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  EKS_CLUSTER: prod-primary-eks
+
+jobs:
+  sync-config:
+    name: Sync secrets and ConfigMaps
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install 1Password CLI
+        uses: 1password/install-cli-action@v1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      # astro-server
+      - name: Sync astro-server secrets
+        if: ${{ inputs.astro-server == true }}
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          SECRET_JSON=$(op item get "astro-server-secrets" --vault "${{ env.OP_VAULT }}" --format json | \
+            jq '[.fields[] | select(.label != null and .value != null and (.label | test("^[A-Z0-9_]+$"))) | {(.label): .value}] | add')
+          KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
+          echo "::notice::🔐 Syncing astro-server secrets: $KEYS"
+          aws secretsmanager put-secret-value \
+            --secret-id prod/astro-server/secrets \
+            --secret-string "$SECRET_JSON"
+          echo "::notice::✅ astro-server secrets synced"
+
+      - name: Deploy astro-server ConfigMap
+        if: ${{ inputs.astro-server == true }}
+        run: |
+          CONFIG_FILE="config/astro-server/prod.env"
+          if [ -f "$CONFIG_FILE" ]; then
+            kubectl create configmap astro-server-config \
+              --from-env-file="$CONFIG_FILE" \
+              --namespace=astro-server \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "::notice::⚙️ astro-server ConfigMap updated"
+          else
+            echo "::warning::No $CONFIG_FILE found"
+          fi
+
+      # astro-registry
+      - name: Sync astro-registry secrets
+        if: ${{ inputs.astro-registry == true }}
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          SECRET_JSON=$(op item get "astro-registry-secrets" --vault "${{ env.OP_VAULT }}" --format json | \
+            jq '[.fields[] | select(.label != null and .value != null and (.label | test("^[A-Z0-9_]+$"))) | {(.label): .value}] | add')
+          KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
+          echo "::notice::🔐 Syncing astro-registry secrets: $KEYS"
+          aws secretsmanager put-secret-value \
+            --secret-id prod/astro-registry/secrets \
+            --secret-string "$SECRET_JSON"
+          echo "::notice::✅ astro-registry secrets synced"
+
+      - name: Deploy astro-registry ConfigMap
+        if: ${{ inputs.astro-registry == true }}
+        run: |
+          CONFIG_FILE="config/astro-registry/prod.env"
+          if [ -f "$CONFIG_FILE" ]; then
+            kubectl create configmap astro-registry-config \
+              --from-env-file="$CONFIG_FILE" \
+              --namespace=astro-registry \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "::notice::⚙️ astro-registry ConfigMap updated"
+          else
+            echo "::warning::No $CONFIG_FILE found"
+          fi

@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # Multi-stage build for Go messaging service
 # Supports multi-platform builds (linux/amd64, linux/arm64)
 
@@ -11,7 +13,10 @@ ENV GOTOOLCHAIN=auto
 
 # Copy go mod files
 COPY packages/astro-messaging/go.mod packages/astro-messaging/go.sum ./
-RUN go mod download
+
+# Download dependencies with cache
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY packages/astro-messaging/ .
@@ -23,9 +28,10 @@ ARG BUILD_DATE=unknown
 ARG TARGETOS
 ARG TARGETARCH
 
-# Build static binary - CGO disabled for easy cross-compilation
-# Debian/glibc doesn't have the netpoll issues that Alpine/musl has
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+# Build static binary with cache
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s \
       -X 'github.com/astro/messaging/internal/version.Version=${VERSION}' \
       -X 'github.com/astro/messaging/internal/version.Commit=${COMMIT}' \

@@ -20,10 +20,18 @@ export interface AuthResponse {
   expires_at: string;
 }
 
+export interface ValidationError {
+  field: string;
+  message: string;
+}
+
 export interface ApiError {
   error: string;
   error_description?: string;
   code?: string;
+  details?: string;
+  validation_errors?: ValidationError[];
+  missing_credentials?: string[];
 }
 
 class ApiClient {
@@ -112,34 +120,26 @@ class ApiClient {
   }
 
   // Agent endpoints
-  async listAgents(): Promise<unknown[]> {
-    return this.request<unknown[]>('/api/v1/agents');
+  async listAgents(): Promise<AgentsListResponse> {
+    return this.request<AgentsListResponse>('/api/v1/agents');
   }
 
-  async getAgent(name: string): Promise<unknown> {
-    return this.request<unknown>(`/api/v1/agents/${encodeURIComponent(name)}`);
+  async getAgent(name: string): Promise<Agent> {
+    return this.request<Agent>(`/api/v1/agents/${encodeURIComponent(name)}`);
   }
 
-  async getAgentVersion(name: string, version: string): Promise<unknown> {
-    return this.request<unknown>(
+  async getAgentVersion(name: string, version: string): Promise<AgentVersion> {
+    return this.request<AgentVersion>(
       `/api/v1/agents/${encodeURIComponent(name)}/${encodeURIComponent(version)}`
     );
-  }
-
-  async registerAgent(data: unknown): Promise<unknown> {
-    return this.request<unknown>('/api/v1/agents/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
   }
 
   async deployAgent(data: {
     name: string;
     version: string;
-    k8s_namespace: string;
     user_credentials?: Record<string, string>;
-  }): Promise<unknown> {
-    return this.request<unknown>('/api/v1/deploy', {
+  }): Promise<DeployResponse> {
+    return this.request<DeployResponse>('/api/v1/deploy', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -148,13 +148,121 @@ class ApiClient {
   async undeployAgent(data: {
     name: string;
     version: string;
-    k8s_namespace: string;
-  }): Promise<unknown> {
-    return this.request<unknown>('/api/v1/undeploy', {
+  }): Promise<UndeployResponse> {
+    return this.request<UndeployResponse>('/api/v1/undeploy', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
+
+  // Get required credentials for deploying an agent
+  async getAgentConfig(name: string, version: string): Promise<AgentConfigResponse> {
+    return this.request<AgentConfigResponse>(
+      `/api/v1/agents/${encodeURIComponent(name)}/${encodeURIComponent(version)}/config`
+    );
+  }
+
+  // List current deployments for the authenticated user
+  async listDeployments(): Promise<DeploymentsListResponse> {
+    return this.request<DeploymentsListResponse>('/api/v1/deployments');
+  }
+}
+
+// Response types
+export interface AgentVersion {
+  version: string;
+  spec: Record<string, unknown>;
+  published_at: string;
+}
+
+export interface Agent {
+  name: string;
+  registry: string;
+  versions: AgentVersion[];
+}
+
+export interface AgentsListResponse {
+  agents: Agent[];
+  count: number;
+}
+
+export interface CredentialInfo {
+  key: string;
+  provider: string;
+  category: string;
+  description: string;
+  optional: boolean;
+}
+
+export interface AgentConfigResponse {
+  agent: string;
+  version: string;
+  credentials: CredentialInfo[];
+}
+
+export interface ResourceStatus {
+  kind: string;
+  name: string;
+  namespace?: string;
+  status: string;
+  message?: string;
+}
+
+export interface ServiceEndpoint {
+  name: string;
+  type: string;
+  url: string;
+  port?: number;
+}
+
+export interface DeploymentError {
+  resource: string;
+  kind: string;
+  error: string;
+}
+
+export interface DeployResponse {
+  status: string;
+  name: string;
+  version: string;
+  k8s_namespace: string;
+  deployed_at: string;
+  resources: ResourceStatus[];
+  service_endpoints?: ServiceEndpoint[];
+  errors?: DeploymentError[];
+}
+
+export interface UndeployResponse {
+  status: string;
+  name: string;
+  version: string;
+  k8s_namespace: string;
+  undeployed_at: string;
+  resources: ResourceStatus[];
+  errors?: DeploymentError[];
+}
+
+export interface ServiceEndpointInfo {
+  name: string;
+  url: string;
+}
+
+export interface AgentDeployment {
+  name: string;
+  version: string;
+  status: string;
+  replicas: number;
+  ready: number;
+  created_at: string;
+  components: string[];
+  service_endpoint?: ServiceEndpointInfo;
+  external_url?: string;
+}
+
+export interface DeploymentsListResponse {
+  deployments: AgentDeployment[];
+  count: number;
+  namespace: string;
 }
 
 // Export singleton instance

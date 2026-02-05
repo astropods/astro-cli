@@ -14,6 +14,7 @@ func init() {
 }
 
 func TestRegistryVersionCheck(t *testing.T) {
+	t.Parallel()
 	router := gin.New()
 	router.GET("/v2/", RegistryVersionCheck())
 
@@ -32,6 +33,7 @@ func TestRegistryVersionCheck(t *testing.T) {
 }
 
 func TestBuildTargetURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		registryURL string
@@ -83,6 +85,7 @@ func TestBuildTargetURL(t *testing.T) {
 }
 
 func TestAddTenantPrefix(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -121,6 +124,7 @@ func TestAddTenantPrefix(t *testing.T) {
 }
 
 func TestStripTenantPrefix(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -154,6 +158,7 @@ func TestStripTenantPrefix(t *testing.T) {
 }
 
 func TestRewriteLocationHeader(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		location    string
@@ -188,6 +193,7 @@ func TestRewriteLocationHeader(t *testing.T) {
 }
 
 func TestValidateNamespaceAccess_ReadOperations(t *testing.T) {
+	t.Parallel()
 	// GET and HEAD should always pass for authenticated users
 	methods := []string{http.MethodGet, http.MethodHead}
 
@@ -208,6 +214,7 @@ func TestValidateNamespaceAccess_ReadOperations(t *testing.T) {
 }
 
 func TestValidateNamespaceAccess_WriteOperations_OwnNamespace(t *testing.T) {
+	t.Parallel()
 	methods := []string{http.MethodPut, http.MethodPost, http.MethodPatch, http.MethodDelete}
 
 	for _, method := range methods {
@@ -228,6 +235,7 @@ func TestValidateNamespaceAccess_WriteOperations_OwnNamespace(t *testing.T) {
 }
 
 func TestValidateNamespaceAccess_WriteOperations_OrgNamespace(t *testing.T) {
+	t.Parallel()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPut, "/v2/org456/myapp/manifests/latest", nil)
@@ -243,6 +251,7 @@ func TestValidateNamespaceAccess_WriteOperations_OrgNamespace(t *testing.T) {
 }
 
 func TestValidateNamespaceAccess_WriteOperations_ForeignNamespace(t *testing.T) {
+	t.Parallel()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPut, "/v2/otheruser/myapp/manifests/latest", nil)
@@ -262,6 +271,7 @@ func TestValidateNamespaceAccess_WriteOperations_ForeignNamespace(t *testing.T) 
 }
 
 func TestValidateNamespaceAccess_NoUser(t *testing.T) {
+	t.Parallel()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPut, "/v2/user123/myapp/manifests/latest", nil)
@@ -278,6 +288,7 @@ func TestValidateNamespaceAccess_NoUser(t *testing.T) {
 }
 
 func TestGetUserNamespace(t *testing.T) {
+	t.Parallel()
 	router := gin.New()
 
 	// Mock the auth context
@@ -309,6 +320,7 @@ func TestGetUserNamespace(t *testing.T) {
 }
 
 func TestGetUserNamespace_Unauthorized(t *testing.T) {
+	t.Parallel()
 	router := gin.New()
 	router.GET("/api/namespace", GetUserNamespace(nil))
 
@@ -323,6 +335,7 @@ func TestGetUserNamespace_Unauthorized(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
+	t.Parallel()
 	router := gin.New()
 	router.GET("/healthz", HealthCheck())
 

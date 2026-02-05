@@ -40,6 +40,7 @@ type MessagingDeploymentConfig struct {
 	SecretName     string
 	AgentURL       string
 	InterfaceType  string
+	WebEnabled     bool  // Whether web adapter is enabled (exposes HTTP endpoint)
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest
@@ -185,15 +186,25 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 				Value: "true",
 			},
 		)
-	} else if cfg.InterfaceType == "discord" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name:  "DISCORD_ENABLED",
-			Value: "true",
-		})
-	} else if cfg.InterfaceType == "teams" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name:  "TEAMS_ENABLED",
-			Value: "true",
+	}
+
+	// Enable web adapter if configured
+	if cfg.WebEnabled {
+		container.Env = append(container.Env,
+			corev1.EnvVar{
+				Name:  "WEB_ENABLED",
+				Value: "true",
+			},
+			corev1.EnvVar{
+				Name:  "WEB_LISTEN_ADDR",
+				Value: ":8080",
+			},
+		)
+		// Add web port
+		container.Ports = append(container.Ports, corev1.ContainerPort{
+			Name:          "http",
+			ContainerPort: 8080,
+			Protocol:      corev1.ProtocolTCP,
 		})
 	}
 

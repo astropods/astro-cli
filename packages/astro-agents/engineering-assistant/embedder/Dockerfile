@@ -5,7 +5,7 @@ WORKDIR /app
 # Install dependencies with compatible versions
 RUN pip install --no-cache-dir \
     "numpy<2" \
-    torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && \
+    torch==2.5.1 --extra-index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir \
     sentence-transformers==3.3.1 \
     flask==3.0.0

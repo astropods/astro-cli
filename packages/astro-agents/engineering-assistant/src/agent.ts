@@ -4,6 +4,8 @@ import {
   type AgentResponse,
   type Message,
   type ThreadHistoryResponse,
+  type PlatformContext,
+  type ThreadMessage,
 } from '@saswatds/astro-messaging';
 import Anthropic from '@anthropic-ai/sdk';
 import { QdrantClient } from '@qdrant/js-client-rest';
@@ -86,6 +88,7 @@ export class EngineeringAgent {
         id: 'engineering-assistant',
         username: 'Engineering Assistant',
       },
+      // Note: No platformContext needed for internal agent registration
     });
 
     this.isRunning = true;
@@ -98,15 +101,16 @@ export class EngineeringAgent {
     try {
       // Handle incoming platform messages
       // Note: protobuf oneofs put fields directly on the response object
-      const message = (response as any).incoming_message;
+      // proto-loader with keepCase:false converts snake_case to camelCase
+      const message = (response as { incomingMessage?: Message }).incomingMessage;
 
       if (message) {
-        console.log(`\n📨 Received message from ${message.user?.username}`);
+        console.log(`\n📨 Received message from ${message.user?.username || message.user?.id || 'Unknown'}`);
         console.log(`   Platform: ${message.platform}`);
         console.log(`   Content: "${message.content.substring(0, 50)}..."`);
 
-        // Access platform_context using snake_case (protobuf field name)
-        const platformContext = (message as any).platform_context;
+        // Access platformContext using camelCase (proto-loader converts snake_case)
+        const platformContext: PlatformContext | undefined = message.platformContext;
 
         const cacheKey = `response:${message.content}`;
         const cachedResponse = await this.redis.get(cacheKey);
@@ -116,10 +120,19 @@ export class EngineeringAgent {
 
           console.log('📤 Sending cached response back to platform');
           console.log('   platformContext:', JSON.stringify(platformContext, null, 2));
+
+          // Ensure platformContext is provided for proper routing
+          if (!platformContext) {
+            console.warn('⚠️  No platformContext available for cached response, using fallback');
+          }
+
           this.stream.sendMessage({
             conversationId,
             platform: message.platform,
-            platform_context: platformContext,
+            platformContext: platformContext || {
+              messageId: conversationId,
+              channelId: conversationId,
+            },
             content: cachedResponse,
             user: {
               id: 'engineering-assistant',
@@ -150,11 +163,20 @@ export class EngineeringAgent {
           EX: 3600,
         });
 
-        console.log(`📤 Sending response to ${message.platform} | channel=${platformContext?.channel_id || 'unknown'} thread=${platformContext?.thread_id || platformContext?.message_id || 'none'}`);
+        console.log(`📤 Sending response to ${message.platform} | channel=${platformContext?.channelId || 'unknown'} thread=${platformContext?.threadId || platformContext?.messageId || 'none'}`);
+
+        // Ensure platformContext is provided for proper routing
+        if (!platformContext) {
+          console.warn('⚠️  No platformContext available, using fallback');
+        }
+
         this.stream.sendMessage({
           conversationId,
           platform: message.platform,
-          platform_context: platformContext,
+          platformContext: platformContext || {
+            messageId: conversationId,
+            channelId: conversationId,
+          },
           content: answer,
           user: {
             id: 'engineering-assistant',
@@ -230,7 +252,7 @@ export class EngineeringAgent {
       .join('\n\n');
 
     const conversationContext = history.messages
-      .map((msg) => `${msg.user.username}: ${msg.content}`)
+      .map((msg: ThreadMessage) => `${msg.user?.username || msg.user?.id || 'Unknown'}: ${msg.content}`)
       .join('\n');
 
     const systemPrompt = `You are an engineering assistant helping with Postman-related questions. Use the following documentation to answer questions accurately:

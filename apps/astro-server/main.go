@@ -211,6 +211,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
 			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
+			protected.GET("/deployments", handlers.ListDeployments(log, cfg))
 		}
 
 		// Admin endpoints (require basic auth)

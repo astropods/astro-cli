@@ -11,11 +11,23 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 )
+
+// ApplierConfig holds configuration for the Applier
+type ApplierConfig struct {
+	Namespace         string
+	RegistryURL       string
+	ProxyRegistryHost string
+	// Ingress configuration
+	IngressDomain     string
+	ACMCertificateARN string
+	ALBGroupName      string
+}
 
 // Applier applies Kubernetes manifests to a cluster
 type Applier struct {
@@ -23,15 +35,22 @@ type Applier struct {
 	namespace     string
 	registryURL   string
 	imageResolver *ImageResolver
+	// Ingress configuration
+	ingressDomain     string
+	acmCertificateARN string
+	albGroupName      string
 }
 
 // NewApplier creates a new applier
-func NewApplier(client *EKSClient, namespace, registryURL, proxyRegistryHost string) *Applier {
+func NewApplier(client *EKSClient, cfg ApplierConfig) *Applier {
 	return &Applier{
-		clientset:     client.Clientset(),
-		namespace:     namespace,
-		registryURL:   registryURL,
-		imageResolver: NewImageResolver(proxyRegistryHost, registryURL),
+		clientset:         client.Clientset(),
+		namespace:         cfg.Namespace,
+		registryURL:       cfg.RegistryURL,
+		imageResolver:     NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL),
+		ingressDomain:     cfg.IngressDomain,
+		acmCertificateARN: cfg.ACMCertificateARN,
+		albGroupName:      cfg.ALBGroupName,
 	}
 }
 
@@ -519,13 +538,16 @@ func (a *Applier) Apply(
 		}
 	}
 
-	// Messaging interfaces (Slack, Discord, etc.)
+	// Messaging interfaces (Slack, Web)
 	for name, iface := range astroSpec.Interfaces {
 		interfaceType := iface.Type
-		if interfaceType == "slack" || interfaceType == "discord" || interfaceType == "teams" {
+		if interfaceType == "slack" || interfaceType == "web" {
 			resourceName := deployment.GenerateResourceName(agentName, "messaging", name)
 
-			// Create service first (gRPC on port 9090)
+			// Web adapter is enabled only for interfaces with type "web"
+			webEnabled := interfaceType == "web"
+
+			// Create service (gRPC on port 9090, and HTTP on 8080 if web enabled)
 			messagingServiceCfg := ServiceConfig{
 				Name:           resourceName,
 				Namespace:      a.namespace,
@@ -536,6 +558,17 @@ func (a *Applier) Apply(
 				ServiceType:    corev1.ServiceTypeClusterIP,
 			}
 			messagingService := BuildService(messagingServiceCfg)
+
+			// Add HTTP port if web is enabled
+			if webEnabled {
+				messagingService.Spec.Ports = append(messagingService.Spec.Ports, corev1.ServicePort{
+					Name:       "http",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       8080,
+					TargetPort: intstr.FromInt(8080),
+				})
+			}
+
 			status, err := a.applyService(ctx, messagingService)
 			result.Resources = append(result.Resources, status)
 			if err != nil {
@@ -553,10 +586,11 @@ func (a *Applier) Apply(
 				AgentName:      agentName,
 				Version:        version,
 				Component:      fmt.Sprintf("messaging-%s", name),
-				Image:          fmt.Sprintf("%s/astro-messaging:latest", a.registryURL),
+				Image:          fmt.Sprintf("%s/prod-astro-messaging:latest", a.registryURL),
 				Port:           9090,
 				SecretName:     secretName,
 				InterfaceType:  interfaceType,
+				WebEnabled:     webEnabled,
 			}
 			messagingDepl := BuildMessagingDeployment(messagingDeploymentCfg)
 			status, err = a.applyDeployment(ctx, messagingDepl)
@@ -566,6 +600,44 @@ func (a *Applier) Apply(
 					Resource: messagingDepl.Name,
 					Kind:     "Deployment",
 					Error:    err.Error(),
+				})
+			}
+
+			// Create Ingress for external access (only if web is enabled and ingress domain is configured)
+			if webEnabled && a.ingressDomain != "" {
+				ingressName := deployment.GenerateResourceName(agentName, "ingress", name)
+				host := GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
+
+				ingressCfg := IngressConfig{
+					Name:              ingressName,
+					Namespace:         a.namespace,
+					AgentName:         agentName,
+					Version:           version,
+					Component:         fmt.Sprintf("messaging-%s", name),
+					ServiceName:       resourceName,
+					ServicePort:       8080, // Web adapter port
+					Host:              host,
+					ACMCertificateARN: a.acmCertificateARN,
+					ALBGroupName:      a.albGroupName,
+				}
+				ingress := BuildIngress(ingressCfg)
+				status, err = a.applyIngress(ctx, ingress)
+				result.Resources = append(result.Resources, status)
+				if err != nil {
+					result.Errors = append(result.Errors, deployment.DeploymentError{
+						Resource: ingress.Name,
+						Kind:     "Ingress",
+						Error:    err.Error(),
+					})
+				}
+
+				// Add external URL to service endpoints
+				externalURL := GenerateExternalURL(agentName, a.namespace, a.ingressDomain)
+				result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
+					Name: fmt.Sprintf("messaging-%s", name),
+					Type: interfaceType,
+					URL:  externalURL,
+					Port: 443,
 				})
 			}
 		} else if interfaceType == "custom" && iface.Service != nil {
@@ -929,6 +1001,44 @@ func (a *Applier) applyCronJob(ctx context.Context, cj *batchv1.CronJob) (deploy
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			_, err = a.clientset.BatchV1().CronJobs(a.namespace).Update(ctx, cj, metav1.UpdateOptions{})
+			if err != nil {
+				status.Status = "failed"
+				status.Message = err.Error()
+				return status, err
+			}
+			status.Status = "updated"
+			return status, nil
+		}
+		status.Status = "failed"
+		status.Message = err.Error()
+		return status, err
+	}
+
+	status.Status = "created"
+	return status, nil
+}
+
+// applyIngress creates or updates an Ingress
+func (a *Applier) applyIngress(ctx context.Context, ing *networkingv1.Ingress) (deployment.ResourceStatus, error) {
+	status := deployment.ResourceStatus{
+		Kind:      "Ingress",
+		Name:      ing.Name,
+		Namespace: a.namespace,
+	}
+
+	_, err := a.clientset.NetworkingV1().Ingresses(a.namespace).Create(ctx, ing, metav1.CreateOptions{})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			// Get existing ingress to preserve resource version
+			existing, getErr := a.clientset.NetworkingV1().Ingresses(a.namespace).Get(ctx, ing.Name, metav1.GetOptions{})
+			if getErr != nil {
+				status.Status = "failed"
+				status.Message = getErr.Error()
+				return status, getErr
+			}
+			ing.ResourceVersion = existing.ResourceVersion
+
+			_, err = a.clientset.NetworkingV1().Ingresses(a.namespace).Update(ctx, ing, metav1.UpdateOptions{})
 			if err != nil {
 				status.Status = "failed"
 				status.Message = err.Error()

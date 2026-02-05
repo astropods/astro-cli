@@ -41,7 +41,7 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 			// This should never happen as config validation should catch it
 			panic("REGISTRY_URL is required but not set")
 		}
-		image = fmt.Sprintf("%s/astro-injection-worker:latest", cfg.RegistryURL)
+		image = fmt.Sprintf("%s/prod-astro-injection-worker:latest", cfg.RegistryURL)
 	}
 
 	// Serialize source config to JSON

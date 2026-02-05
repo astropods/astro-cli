@@ -17,13 +17,15 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/daemon"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 var publishCmd = &cobra.Command{
@@ -51,24 +53,28 @@ Requirements:
 }
 
 var (
-	publishTag   string
-	buildFirst   bool
-	serverURL    string
-	registryURL  string
-	skipRegister bool
-	noAuth       bool
-	dryRun       bool
+	publishTag      string
+	skipBuild       bool
+	skipPush        bool
+	serverURL       string
+	registryURL     string
+	skipRegister    bool
+	noAuth          bool
+	dryRun          bool
+	publishPlatform string
 )
 
 func init() {
 	rootCmd.AddCommand(publishCmd)
 	publishCmd.Flags().StringVarP(&publishTag, "tag", "t", "latest", "Tag to publish")
-	publishCmd.Flags().BoolVar(&buildFirst, "build", false, "Build before publishing")
+	publishCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before publishing")
+	publishCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
 	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides ASTRO_SERVER_URL)")
 	publishCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (overrides ASTRO_REGISTRY_URL)")
 	publishCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
 	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
 	publishCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be published without actually doing it")
+	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64,linux/arm64", "Target platform(s) for publish (comma-separated)")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {
@@ -123,7 +129,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		if ns, err := getUserNamespace(effectiveRegistryURL, noAuth, verbose); err == nil {
 			namespace = ns
 		}
-		return printDryRun(astroSpec, registryHost, namespace, publishTag, effectiveServerURL, skipRegister, buildFirst)
+		return printDryRun(astroSpec, registryHost, namespace, publishTag, effectiveServerURL, skipRegister, !skipBuild)
 	}
 
 	// Check authentication (only for actual publish)
@@ -148,8 +154,12 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 	// Build images first if requested
 	imagesPushed := 0
+	platforms := parsePlatforms(publishPlatform)
+	multiPlatform := len(platforms) > 1
 
-	if buildFirst {
+	if !skipBuild {
+		// Sync the build platform flag with publish platform
+		buildPlatform = publishPlatform
 		printStep("Building images")
 		fmt.Println()
 		if err := runBuild(cmd, args); err != nil {
@@ -158,105 +168,163 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	// Push images
-	// 1. Publish agent container image
-	localImageName := fmt.Sprintf("%s:%s", astroSpec.Agent, publishTag)
-	remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag)
+	if !skipPush {
+		// 1. Publish agent container image
+		if multiPlatform {
+			baseName := astroSpec.Agent
+			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
-	printPushStart("agent", astroSpec.Agent)
-	if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-		printPushComplete(false, 0)
-		return fmt.Errorf("failed to tag agent image: %w", err)
-	}
-	size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
-	if err != nil {
-		printPushComplete(false, 0)
-		return fmt.Errorf("failed to push agent image: %w", err)
-	}
-	printPushComplete(true, size)
-	imagesPushed++
+			printPushStart("agent", baseName)
+			size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+			if err != nil {
+				printPushComplete(false, 0)
+				return fmt.Errorf("failed to push agent image: %w", err)
+			}
+			printPushComplete(true, size)
+			imagesPushed++
+		} else {
+			localImageName := fmt.Sprintf("%s:%s", astroSpec.Agent, publishTag)
+			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag)
 
-	// 2. Publish custom-built model images
-	for modelName, model := range astroSpec.Models {
-		if model.Container.Build != nil {
-			localImageName := fmt.Sprintf("%s-model-%s:%s", astroSpec.Agent, modelName, publishTag)
-			remoteImageName := fmt.Sprintf("%s/%s/%s-model-%s:%s", registryHost, namespace, astroSpec.Agent, modelName, publishTag)
-
-			printPushStart("model", modelName)
+			printPushStart("agent", astroSpec.Agent)
 			if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
 				printPushComplete(false, 0)
-				return fmt.Errorf("failed to tag model %s: %w", modelName, err)
+				return fmt.Errorf("failed to tag agent image: %w", err)
 			}
 			size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
 			if err != nil {
 				printPushComplete(false, 0)
-				return fmt.Errorf("failed to push model %s: %w", modelName, err)
+				return fmt.Errorf("failed to push agent image: %w", err)
 			}
 			printPushComplete(true, size)
 			imagesPushed++
 		}
-	}
 
-	// 3. Publish custom-built knowledge store images
-	for knowledgeName, knowledge := range astroSpec.Knowledge {
-		if knowledge.Container.Build != nil {
-			localImageName := fmt.Sprintf("%s-knowledge-%s:%s", astroSpec.Agent, knowledgeName, publishTag)
-			remoteImageName := fmt.Sprintf("%s/%s/%s-knowledge-%s:%s", registryHost, namespace, astroSpec.Agent, knowledgeName, publishTag)
+		// 2. Publish custom-built model images
+		for modelName, model := range astroSpec.Models {
+			if model.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Agent, modelName)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
-			printPushStart("knowledge", knowledgeName)
-			if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to tag knowledge store %s: %w", knowledgeName, err)
+				printPushStart("model", modelName)
+				if multiPlatform {
+					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push model %s: %w", modelName, err)
+					}
+					printPushComplete(true, size)
+				} else {
+					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to tag model %s: %w", modelName, err)
+					}
+					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push model %s: %w", modelName, err)
+					}
+					printPushComplete(true, size)
+				}
+				imagesPushed++
 			}
-			size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
-			if err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
-			}
-			printPushComplete(true, size)
-			imagesPushed++
 		}
-	}
 
-	// 4. Publish custom-built tool images
-	for toolName, tool := range astroSpec.Tools {
-		if tool.Container != nil && tool.Container.Build != nil {
-			localImageName := fmt.Sprintf("%s-tool-%s:%s", astroSpec.Agent, toolName, publishTag)
-			remoteImageName := fmt.Sprintf("%s/%s/%s-tool-%s:%s", registryHost, namespace, astroSpec.Agent, toolName, publishTag)
+		// 3. Publish custom-built knowledge store images
+		for knowledgeName, knowledge := range astroSpec.Knowledge {
+			if knowledge.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, knowledgeName)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
-			printPushStart("tool", toolName)
-			if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to tag tool %s: %w", toolName, err)
+				printPushStart("knowledge", knowledgeName)
+				if multiPlatform {
+					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
+					}
+					printPushComplete(true, size)
+				} else {
+					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to tag knowledge store %s: %w", knowledgeName, err)
+					}
+					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
+					}
+					printPushComplete(true, size)
+				}
+				imagesPushed++
 			}
-			size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
-			if err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to push tool %s: %w", toolName, err)
-			}
-			printPushComplete(true, size)
-			imagesPushed++
 		}
-	}
 
-	// 5. Publish custom-built interface service images
-	for ifaceName, iface := range astroSpec.Interfaces {
-		if iface.Service != nil && iface.Service.Build != nil {
-			localImageName := fmt.Sprintf("%s-interface-%s:%s", astroSpec.Agent, ifaceName, publishTag)
-			remoteImageName := fmt.Sprintf("%s/%s/%s-interface-%s:%s", registryHost, namespace, astroSpec.Agent, ifaceName, publishTag)
+		// 4. Publish custom-built tool images
+		for toolName, tool := range astroSpec.Tools {
+			if tool.Container != nil && tool.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Agent, toolName)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
-			printPushStart("interface", ifaceName)
-			if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to tag interface %s: %w", ifaceName, err)
+				printPushStart("tool", toolName)
+				if multiPlatform {
+					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
+					}
+					printPushComplete(true, size)
+				} else {
+					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to tag tool %s: %w", toolName, err)
+					}
+					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
+					}
+					printPushComplete(true, size)
+				}
+				imagesPushed++
 			}
-			size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
-			if err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
-			}
-			printPushComplete(true, size)
-			imagesPushed++
 		}
+
+		// 5. Publish custom-built interface service images
+		for ifaceName, iface := range astroSpec.Interfaces {
+			if iface.Service != nil && iface.Service.Build != nil {
+				baseName := fmt.Sprintf("%s-interface-%s", astroSpec.Agent, ifaceName)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
+
+				printPushStart("interface", ifaceName)
+				if multiPlatform {
+					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
+					}
+					printPushComplete(true, size)
+				} else {
+					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to tag interface %s: %w", ifaceName, err)
+					}
+					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					if err != nil {
+						printPushComplete(false, 0)
+						return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
+					}
+					printPushComplete(true, size)
+				}
+				imagesPushed++
+			}
+		}
+	} else {
+		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
 	}
 
 	fmt.Println()
@@ -493,6 +561,119 @@ func pushImageToRegistry(localImageName, remoteImageName string, skipAuth bool, 
 	return imageSize, nil
 }
 
+// pushMultiPlatformToRegistry loads platform-specific images from the Docker daemon,
+// creates an OCI image index (manifest list), and pushes it to the registry.
+func pushMultiPlatformToRegistry(baseName, tag, remoteImageName string, platforms []string, skipAuth bool, verbose bool) (int64, error) {
+	fmt.Printf("  %sloading platform images...%s", colorDim, colorReset)
+
+	var addendums []mutate.IndexAddendum
+	var totalSize int64
+
+	for _, plat := range platforms {
+		parts := strings.SplitN(plat, "/", 2)
+		if len(parts) != 2 {
+			fmt.Println()
+			return 0, fmt.Errorf("invalid platform format %q, expected os/arch", plat)
+		}
+		platOS, platArch := parts[0], parts[1]
+
+		localTag := platformImageTag(baseName, tag, plat)
+		localRef, err := name.ParseReference(localTag)
+		if err != nil {
+			fmt.Println()
+			return 0, fmt.Errorf("failed to parse local image ref %s: %w", localTag, err)
+		}
+
+		img, err := daemon.Image(localRef)
+		if err != nil {
+			fmt.Println()
+			return 0, fmt.Errorf("failed to load image %s from Docker daemon: %w", localTag, err)
+		}
+
+		// Accumulate size
+		layers, err := img.Layers()
+		if err == nil {
+			for _, layer := range layers {
+				sz, _ := layer.Size()
+				totalSize += sz
+			}
+		}
+
+		addendums = append(addendums, mutate.IndexAddendum{
+			Add: img,
+			Descriptor: v1.Descriptor{
+				Platform: &v1.Platform{
+					OS:           platOS,
+					Architecture: platArch,
+				},
+			},
+		})
+	}
+
+	// Create the manifest list
+	index := mutate.AppendManifests(empty.Index, addendums...)
+
+	// Clear "loading..." line
+	fmt.Print("\r                              \r")
+
+	// Parse remote ref
+	remoteRef, err := name.ParseReference(remoteImageName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse remote image name: %w", err)
+	}
+
+	// Build remote options with authentication
+	var opts []remote.Option
+	if !skipAuth {
+		opts = append(opts, remote.WithAuth(auth.GetCraneAuth()))
+	}
+
+	// Set up progress tracking
+	progressChan := make(chan v1.Update, 100)
+	opts = append(opts, remote.WithProgress(progressChan))
+
+	bar := progressbar.NewOptions64(
+		totalSize,
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(25),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[cyan]█[reset]",
+			SaucerHead:    "[cyan]█[reset]",
+			SaucerPadding: "░",
+			BarStart:      "",
+			BarEnd:        "",
+		}),
+		progressbar.OptionSetRenderBlankState(true),
+	)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for update := range progressChan {
+			if update.Complete > 0 {
+				bar.Set64(update.Complete)
+			}
+		}
+		bar.Finish()
+	}()
+
+	pushErr := remote.WriteIndex(remoteRef, index, opts...)
+
+	<-done
+
+	if pushErr != nil {
+		return 0, fmt.Errorf("failed to push multi-platform image: %w", pushErr)
+	}
+
+	if verbose {
+		log.Printf("   Pushed manifest list for %d platforms to %s", len(platforms), remoteImageName)
+	}
+
+	return totalSize, nil
+}
+
 // registerAgent registers the agent spec with the astro-server
 func registerAgent(serverURL, agentName, version, registry, specPath, publishTag string, verbose bool, skipAuth bool) error {
 	// Read and parse spec file
@@ -541,12 +722,21 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 	// Add authentication header if not skipped
 	if !skipAuth {
 		if err := auth.AddAuthHeader(context.Background(), req); err != nil {
-			// Check if we should fail or just warn
-			tokenManager := auth.NewTokenManager()
-			if tokenManager.IsAuthenticated() {
-				return fmt.Errorf("failed to add authentication: %w", err)
+			return fmt.Errorf("failed to add authentication: %w. Run 'astro login' to re-authenticate", err)
+		}
+		if verbose {
+			authHeader := req.Header.Get("Authorization")
+			if authHeader != "" {
+				// Show first/last few chars of token for debugging
+				token := strings.TrimPrefix(authHeader, "Bearer ")
+				if len(token) > 20 {
+					log.Printf("   Auth: Bearer %s...%s (len=%d)", token[:10], token[len(token)-5:], len(token))
+				} else {
+					log.Printf("   Auth: Bearer <short token, len=%d>", len(token))
+				}
+			} else {
+				log.Printf("   Auth: WARNING - no Authorization header set!")
 			}
-			log.Printf("Warning: Not authenticated. Use 'ast login' for authenticated requests or --no-auth to skip")
 		}
 	}
 
@@ -558,7 +748,8 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("authentication required. Run 'ast login' to authenticate")
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("authentication failed (401). Server response: %s\nRun 'ast login' to re-authenticate", string(body))
 	}
 
 	if resp.StatusCode != http.StatusCreated {

@@ -77,6 +77,10 @@ type DeploymentConfig struct {
 	EKSClusterName    string // EKS cluster name (required)
 	K8sMasterURL      string // K8s API server endpoint (required)
 	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
+	// Ingress configuration for external access
+	IngressDomain     string // Domain for agent ingress (e.g., agents.odesdaz.com)
+	ACMCertificateARN string // ACM certificate ARN for HTTPS
+	ALBGroupName      string // ALB group name to share ALB across ingresses
 }
 
 // Load loads configuration from environment variables with defaults
@@ -105,6 +109,9 @@ func Load() (*Config, error) {
 			EKSClusterName:    getEnv("EKS_CLUSTER_NAME", ""),
 			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
 			AWSRegion:         getEnv("AWS_REGION", ""),
+			IngressDomain:     getEnv("INGRESS_DOMAIN", ""),
+			ACMCertificateARN: getEnv("ACM_CERTIFICATE_ARN", ""),
+			ALBGroupName:      getEnv("ALB_GROUP_NAME", "astro-agents"),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

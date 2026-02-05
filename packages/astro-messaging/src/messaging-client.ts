@@ -18,9 +18,9 @@ export interface Message {
 export interface User {
   id: string;
   username?: string;
-  displayName?: string;
   email?: string;
   avatarUrl?: string;
+  userData?: { [key: string]: string };
 }
 
 export interface PlatformContext {
@@ -47,7 +47,7 @@ export interface AgentResponse {
 }
 
 export type AgentResponsePayload =
-  | { incoming_message: Message }
+  | { incomingMessage: Message }
   | { status: StatusUpdate }
   | { content: ContentChunk }
   | { prompts: SuggestedPrompts }
@@ -112,7 +112,7 @@ export interface ThreadMessage {
   attachments?: Attachment[];
   timestamp: any;
   wasEdited?: boolean;
-  wasDeleted?: boolean;
+  isDeleted?: boolean;
   originalContent?: string;
   editedAt?: any;
   deletedAt?: any;

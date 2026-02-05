@@ -84,77 +84,29 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		if _, exists := userCredentials[credKey]; !exists {
 			result.Valid = false
 			result.MissingCredentials = append(result.MissingCredentials, credKey)
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   "credentials." + credKey,
+				Message: fmt.Sprintf("missing required credential: %s", credKey),
+			})
 		}
 	}
 
 	return result
 }
 
-// collectRequiredCredentials identifies all required credentials from the spec
+// collectRequiredCredentials identifies all required (non-optional) credentials from the spec.
+// It derives from GetRequiredCredentials to ensure consistency between validation and config endpoint.
 func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec) []string {
-	credSet := make(map[string]bool)
+	allCreds := v.GetRequiredCredentials(astroSpec)
 
-	// Check integration models (cloud providers)
-	for _, model := range astroSpec.Integrations.Models {
-		credKey := v.getCredentialKeyForProvider(model.Provider)
-		if credKey != "" {
-			if model.Env != nil && model.Env.Prefix != "" {
-				credKey = model.Env.Prefix + credKey
-			}
-			credSet[credKey] = true
+	var required []string
+	for _, cred := range allCreds {
+		if !cred.Optional {
+			required = append(required, cred.Key)
 		}
 	}
 
-	// Check integration knowledge stores (cloud providers)
-	for _, knowledge := range astroSpec.Integrations.Knowledge {
-		credKey := v.getCredentialKeyForProvider(knowledge.Provider)
-		if credKey != "" {
-			if knowledge.Env != nil && knowledge.Env.Prefix != "" {
-				credKey = knowledge.Env.Prefix + credKey
-			}
-			credSet[credKey] = true
-		}
-	}
-
-	// Check integration tools
-	for _, tool := range astroSpec.Integrations.Tools {
-		credKey := v.getCredentialKeyForProvider(tool.Provider)
-		if credKey != "" {
-			if tool.Env != nil && tool.Env.Prefix != "" {
-				credKey = tool.Env.Prefix + credKey
-			}
-			credSet[credKey] = true
-		}
-	}
-
-	// Check messaging interfaces
-	for _, iface := range astroSpec.Interfaces {
-		ifaceType := strings.ToLower(iface.Type)
-
-		if ifaceType == "slack" || ifaceType == "messaging/slack" || strings.Contains(ifaceType, "slack") {
-			credSet["SLACK_APP_TOKEN"] = true
-			credSet["SLACK_BOT_TOKEN"] = true
-		} else if ifaceType == "discord" || ifaceType == "messaging/discord" || strings.Contains(ifaceType, "discord") {
-			credSet["DISCORD_BOT_TOKEN"] = true
-		}
-	}
-
-	// Check injection sources
-	for _, injection := range astroSpec.Injections {
-		if injection.Source.Type == "github" {
-			credSet["GITHUB_TOKEN"] = true
-		} else if injection.Source.Type == "gitlab" {
-			credSet["GITLAB_TOKEN"] = true
-		}
-	}
-
-	// Convert set to slice
-	var creds []string
-	for cred := range credSet {
-		creds = append(creds, cred)
-	}
-
-	return creds
+	return required
 }
 
 // CredentialInfo provides metadata about a required credential
@@ -306,6 +258,22 @@ func (v *Validator) getCredentialInfo(provider, category string) CredentialInfo 
 			Description: "Pinecone API key for vector database",
 			Optional:    false,
 		}
+	case "github":
+		return CredentialInfo{
+			Key:         "GITHUB_TOKEN",
+			Provider:    "github",
+			Category:    category,
+			Description: "GitHub token for API access",
+			Optional:    false,
+		}
+	case "gitlab":
+		return CredentialInfo{
+			Key:         "GITLAB_TOKEN",
+			Provider:    "gitlab",
+			Category:    category,
+			Description: "GitLab token for API access",
+			Optional:    false,
+		}
 	default:
 		// For unknown providers, generate a generic key
 		if providerLower != "" && providerLower != "self-hosted" {
@@ -322,34 +290,3 @@ func (v *Validator) getCredentialInfo(provider, category string) CredentialInfo 
 	}
 }
 
-// getCredentialKeyForProvider returns the credential key for a given provider
-func (v *Validator) getCredentialKeyForProvider(provider string) string {
-	providerLower := strings.ToLower(provider)
-
-	switch providerLower {
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "google", "gemini":
-		return "GOOGLE_API_KEY"
-	case "cohere":
-		return "COHERE_API_KEY"
-	case "github":
-		return "GITHUB_TOKEN"
-	case "gitlab":
-		return "GITLAB_TOKEN"
-	case "slack":
-		return "SLACK_BOT_TOKEN"
-	case "discord":
-		return "DISCORD_BOT_TOKEN"
-	case "pinecone":
-		return "PINECONE_API_KEY"
-	default:
-		// For unknown providers, generate a generic key
-		if providerLower != "" && providerLower != "self-hosted" {
-			return fmt.Sprintf("%s_API_KEY", strings.ToUpper(provider))
-		}
-		return ""
-	}
-}

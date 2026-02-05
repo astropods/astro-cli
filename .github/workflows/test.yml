@@ -65,7 +65,14 @@ jobs:
 
       - name: Run tests
         working-directory: ${{ matrix.app.path }}
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: |
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            # Full test suite with race detection and coverage on main branch
+            go test -v -race -coverprofile=coverage.out ./...
+          else
+            # Fast tests for PRs (no race detector)
+            go test -v ./...
+          fi
 
       - name: Build
         working-directory: ${{ matrix.app.path }}

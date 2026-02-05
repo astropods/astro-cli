@@ -266,7 +266,7 @@ func (t *Translator) Translate(astroSpec *spec.AstroSpec) (*TranslationResult, e
 				Namespace: t.k8sNamespace,
 				Object: map[string]interface{}{
 					"container": map[string]interface{}{
-						"image": fmt.Sprintf("%s/astro-messaging:latest", t.registryURL),
+						"image": fmt.Sprintf("%s/prod-astro-messaging:latest", t.registryURL),
 					},
 					"component":   fmt.Sprintf("messaging-%s", name),
 					"secretName":  result.SecretName,

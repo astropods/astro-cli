@@ -23,8 +23,29 @@ type testKeyPair struct {
 	keyID      string
 }
 
-// generateTestKeyPair creates an RSA key pair for testing
+// cachedTestKeyPair is a package-level cached key pair to avoid expensive RSA generation in each test
+var cachedTestKeyPair *testKeyPair
+
+func init() {
+	// Generate once at package init - RSA key generation is expensive
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic("failed to generate test key pair: " + err.Error())
+	}
+	cachedTestKeyPair = &testKeyPair{
+		privateKey: privateKey,
+		publicKey:  &privateKey.PublicKey,
+		keyID:      "test-key-id",
+	}
+}
+
+// generateTestKeyPair returns the cached RSA key pair for testing
 func generateTestKeyPair() (*testKeyPair, error) {
+	return cachedTestKeyPair, nil
+}
+
+// generateFreshTestKeyPair creates a new RSA key pair (for tests that need unique keys)
+func generateFreshTestKeyPair() (*testKeyPair, error) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
@@ -65,6 +86,7 @@ func createMockJWKSServer(kp *testKeyPair) *httptest.Server {
 }
 
 func TestJWTValidator_ValidToken(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -103,6 +125,7 @@ func TestJWTValidator_ValidToken(t *testing.T) {
 }
 
 func TestJWTValidator_WrongAudience(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -140,6 +163,7 @@ func TestJWTValidator_WrongAudience(t *testing.T) {
 }
 
 func TestJWTValidator_WrongIssuer(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -171,6 +195,7 @@ func TestJWTValidator_WrongIssuer(t *testing.T) {
 }
 
 func TestJWTValidator_ExpiredToken(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -206,6 +231,7 @@ func TestJWTValidator_ExpiredToken(t *testing.T) {
 }
 
 func TestJWTValidator_TokenFromDifferentApp(t *testing.T) {
+	t.Parallel()
 	// This test simulates the "token confusion" attack scenario:
 	// A token issued for a different application (different audience)
 	// should be rejected even if the signature is valid.
@@ -248,6 +274,7 @@ func TestJWTValidator_TokenFromDifferentApp(t *testing.T) {
 }
 
 func TestJWTValidator_MissingAudience(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -279,6 +306,7 @@ func TestJWTValidator_MissingAudience(t *testing.T) {
 }
 
 func TestJWTValidator_MultipleAudiences(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -319,6 +347,7 @@ func TestJWTValidator_MultipleAudiences(t *testing.T) {
 // The validator must accept this format when configured with base issuer https://api.workos.com
 
 func TestJWTValidator_WorkOSIssuerFormat(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -357,6 +386,7 @@ func TestJWTValidator_WorkOSIssuerFormat(t *testing.T) {
 }
 
 func TestJWTValidator_WorkOSIssuerFormat_ExactMatch(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -394,6 +424,7 @@ func TestJWTValidator_WorkOSIssuerFormat_ExactMatch(t *testing.T) {
 }
 
 func TestJWTValidator_WorkOSIssuerFormat_RejectsOtherPaths(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -435,6 +466,7 @@ func TestJWTValidator_WorkOSIssuerFormat_RejectsOtherPaths(t *testing.T) {
 // This test documents why we can't use jwt.WithAudience() directly -
 // it would fail with "aud claim is required" for tokens missing the claim.
 func TestJWTValidator_StrictAudienceValidation(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -530,6 +562,7 @@ func TestJWTValidator_StrictAudienceValidation(t *testing.T) {
 // "https://api.workos.com/user_management/client_id" format when
 // configured with "https://api.workos.com".
 func TestJWTValidator_StrictIssuerValidation(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)
@@ -624,6 +657,7 @@ func TestJWTValidator_StrictIssuerValidation(t *testing.T) {
 
 // TestJWTValidator_EmptyAudienceConfig tests behavior when validator has no expected audience
 func TestJWTValidator_EmptyAudienceConfig(t *testing.T) {
+	t.Parallel()
 	kp, err := generateTestKeyPair()
 	if err != nil {
 		t.Fatalf("failed to generate key pair: %v", err)

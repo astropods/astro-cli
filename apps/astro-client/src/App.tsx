@@ -6,6 +6,7 @@ import { Hire } from "./pages/Hire";
 import { AgentDetail } from "./pages/AgentDetail";
 import { RequestAgent } from "./pages/RequestAgent";
 import { YourAgents } from "./pages/YourAgents";
+import { Operator } from "./pages/Operator";
 import { NotFound } from "./pages/NotFound";
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
             <Route path="hire/:agentSlug" element={<AgentDetail />} />
             <Route path="request-agent" element={<RequestAgent />} />
             <Route path="agents" element={<YourAgents />} />
+            <Route path="operator" element={<Operator />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

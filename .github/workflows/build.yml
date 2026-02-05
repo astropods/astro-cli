@@ -24,50 +24,127 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   AWS_REGION: us-east-1
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   EKS_CLUSTER: prod-primary-eks
 
 jobs:
-  # Optional: Sync secrets if requested
+  # Sync secrets from 1Password (optional, always succeeds if skipped)
   sync-secrets:
     name: Sync secrets
-    if: github.event.inputs.sync-secrets == 'true'
-    uses: ./.github/workflows/sync-secrets.yml
-    secrets: inherit
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Skip if not requested
+        if: ${{ inputs.sync-secrets != true }}
+        run: echo "Secret sync not requested, skipping"
+
+      - name: Install 1Password CLI
+        if: ${{ inputs.sync-secrets == true }}
+        uses: 1password/install-cli-action@v1
+
+      - name: Configure AWS credentials
+        if: ${{ inputs.sync-secrets == true }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync astro-server secrets
+        if: ${{ inputs.sync-secrets == true }}
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          OP_VAULT: Astro
+        run: |
+          # Secrets (sensitive) → AWS Secrets Manager
+          SECRET_JSON=$(op item get "astro-server-secrets" --vault "$OP_VAULT" --format json | \
+            jq '[.fields[] | select(.label != null and .value != null and (.label | test("^[A-Z0-9_]+$"))) | {(.label): .value}] | add')
+          KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
+          echo "::notice::🔐 Syncing secrets to Secrets Manager: $KEYS"
+          aws secretsmanager put-secret-value \
+            --secret-id prod/astro-server/secrets \
+            --secret-string "$SECRET_JSON"
+          echo "::notice::✅ astro-server secrets synced"
 
   prepare:
     needs: [sync-secrets]
-    if: always() && (needs.sync-secrets.result == 'success' || needs.sync-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      build_matrix: ${{ steps.set-matrix.outputs.build_matrix }}
+      merge_matrix: ${{ steps.set-matrix.outputs.merge_matrix }}
     steps:
       - name: Set matrix
         id: set-matrix
         run: |
-          services=()
-          [ "${{ inputs.astro-server }}" == "true" ] && services+=("astro-server")
-          [ "${{ inputs.astro-registry }}" == "true" ] && services+=("astro-registry")
-          [ "${{ inputs.astro-messaging }}" == "true" ] && services+=("astro-messaging")
-          [ "${{ inputs.astro-playground }}" == "true" ] && services+=("astro-playground")
+          # Build matrix: service × platform combinations
+          # All services build both amd64 and arm64 using native runners
+          build_items='[]'
+          merge_items='[]'
 
-          if [ ${#services[@]} -eq 0 ]; then
+          if [ "${{ inputs.astro-server }}" == "true" ]; then
+            build_items=$(echo "$build_items" | jq -c '. + [
+              {"service":"astro-server","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_ghcr":false},
+              {"service":"astro-server","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_ghcr":false}
+            ]')
+            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-server","platforms":"linux/amd64,linux/arm64","push_ecr":true,"push_ghcr":false}]')
+          fi
+
+          if [ "${{ inputs.astro-registry }}" == "true" ]; then
+            build_items=$(echo "$build_items" | jq -c '. + [
+              {"service":"astro-registry","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_ghcr":false},
+              {"service":"astro-registry","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_ghcr":false}
+            ]')
+            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-registry","platforms":"linux/amd64,linux/arm64","push_ecr":true,"push_ghcr":false}]')
+          fi
+
+          if [ "${{ inputs.astro-messaging }}" == "true" ]; then
+            build_items=$(echo "$build_items" | jq -c '. + [
+              {"service":"astro-messaging","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_ghcr":true},
+              {"service":"astro-messaging","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_ghcr":true}
+            ]')
+            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-messaging","platforms":"linux/amd64,linux/arm64","push_ecr":true,"push_ghcr":true}]')
+          fi
+
+          if [ "${{ inputs.astro-playground }}" == "true" ]; then
+            build_items=$(echo "$build_items" | jq -c '. + [
+              {"service":"astro-playground","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":false,"push_ghcr":true},
+              {"service":"astro-playground","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":false,"push_ghcr":true}
+            ]')
+            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-playground","platforms":"linux/amd64,linux/arm64","push_ecr":false,"push_ghcr":true}]')
+          fi
+
+          # Check if any services were selected
+          count=$(echo "$build_items" | jq length)
+          if [ "$count" -eq 0 ]; then
             echo "::error::No services selected. Please select at least one service to build."
             exit 1
           fi
 
-          json=$(printf '%s\n' "${services[@]}" | jq -R . | jq -sc .)
-          echo "matrix=$json" >> $GITHUB_OUTPUT
+          # Create final matrix format
+          build_matrix=$(echo "$build_items" | jq -c '{"include":.}')
+          merge_matrix=$(echo "$merge_items" | jq -c '{"include":.}')
 
-  build-and-push:
-    needs: prepare
-    if: always() && needs.prepare.result == 'success'
-    runs-on: ubuntu-latest
+          echo "build_matrix=$build_matrix" >> "$GITHUB_OUTPUT"
+          echo "merge_matrix=$merge_matrix" >> "$GITHUB_OUTPUT"
+
+          # Debug output
+          echo "::notice::Build matrix: $build_matrix"
+          echo "::notice::Merge matrix: $merge_matrix"
+
+  build:
+    needs: [prepare]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
-      matrix:
-        service: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
 
     permissions:
       id-token: write
@@ -78,29 +155,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set build context
-        id: config
+      - name: Prepare
         run: |
-          echo "dockerfile=deployment/Dockerfile.${{ matrix.service }}" >> $GITHUB_OUTPUT
-          echo "context=." >> $GITHUB_OUTPUT
-
-          # Determine which registries to push to
-          # astro-messaging: both ECR and GHCR
-          # astro-playground: GHCR only
-          # astro-server, astro-registry: ECR only
-          if [[ "${{ matrix.service }}" == "astro-messaging" ]]; then
-            echo "push_ghcr=true" >> $GITHUB_OUTPUT
-            echo "push_ecr=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ matrix.service }}" == "astro-playground" ]]; then
-            echo "push_ghcr=true" >> $GITHUB_OUTPUT
-            echo "push_ecr=false" >> $GITHUB_OUTPUT
-          else
-            echo "push_ghcr=false" >> $GITHUB_OUTPUT
-            echo "push_ecr=true" >> $GITHUB_OUTPUT
-          fi
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
 
       - name: Configure AWS credentials
-        if: steps.config.outputs.push_ecr == 'true'
+        if: matrix.push_ecr
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
@@ -108,74 +169,169 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        if: steps.config.outputs.push_ecr == 'true'
+        if: matrix.push_ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Login to GitHub Container Registry
-        if: steps.config.outputs.push_ghcr == 'true'
+        if: matrix.push_ghcr
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: saswatds
+          username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push to ECR (multi-platform)
-        if: steps.config.outputs.push_ecr == 'true'
+      - name: Build and push to ECR by digest
+        if: matrix.push_ecr
+        id: build-ecr
         uses: docker/build-push-action@v6
         with:
-          context: ${{ steps.config.outputs.context }}
-          file: ${{ steps.config.outputs.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:latest
+          context: .
+          file: deployment/Dockerfile.${{ matrix.service }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.service }}-ecr-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-ecr-${{ env.PLATFORM_PAIR }}
           build-args: |
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
 
-      - name: Build and push to GHCR (multi-platform)
-        if: steps.config.outputs.push_ghcr == 'true'
+      - name: Build and push to GHCR by digest
+        if: matrix.push_ghcr
+        id: build-ghcr
         uses: docker/build-push-action@v6
         with:
-          context: ${{ steps.config.outputs.context }}
-          file: ${{ steps.config.outputs.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/saswatds/${{ matrix.service }}:${{ github.sha }}
-            ghcr.io/saswatds/${{ matrix.service }}:latest
+          context: .
+          file: deployment/Dockerfile.${{ matrix.service }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/saswatds/${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.service }}-ghcr-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-ghcr-${{ env.PLATFORM_PAIR }}
           build-args: |
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
 
-      - name: Output image URIs (ECR)
-        if: steps.config.outputs.push_ecr == 'true'
+      - name: Export ECR digest
+        if: matrix.push_ecr
         run: |
-          echo "::notice::✅ ECR: ${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}"
+          mkdir -p ${{ runner.temp }}/digests/ecr/${{ matrix.service }}
+          digest="${{ steps.build-ecr.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/ecr/${{ matrix.service }}/${digest#sha256:}"
 
-      - name: Output image URIs (GHCR)
-        if: steps.config.outputs.push_ghcr == 'true'
+      - name: Export GHCR digest
+        if: matrix.push_ghcr
         run: |
-          echo "::notice::✅ GHCR: ghcr.io/saswatds/${{ matrix.service }}:${{ github.sha }}"
+          mkdir -p ${{ runner.temp }}/digests/ghcr/${{ matrix.service }}
+          digest="${{ steps.build-ghcr.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/ghcr/${{ matrix.service }}/${digest#sha256:}"
+
+      - name: Upload digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.service }}-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.merge_matrix) }}
+
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.service }}-*
+          merge-multiple: true
+
+      - name: Configure AWS credentials
+        if: matrix.push_ecr
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        if: matrix.push_ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Login to GitHub Container Registry
+        if: matrix.push_ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create ECR manifest and push
+        if: matrix.push_ecr
+        working-directory: ${{ runner.temp }}/digests/ecr/${{ matrix.service }}
+        run: |
+          IMAGE="${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}"
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+          echo "::notice::✅ ECR: $IMAGE:${{ github.sha }}"
+
+      - name: Create GHCR manifest and push
+        if: matrix.push_ghcr
+        working-directory: ${{ runner.temp }}/digests/ghcr/${{ matrix.service }}
+        run: |
+          IMAGE="ghcr.io/saswatds/${{ matrix.service }}"
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+          echo "::notice::✅ GHCR: $IMAGE:${{ github.sha }}"
+
+  deploy:
+    needs: [prepare, merge]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.merge_matrix) }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        if: matrix.push_ecr
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
-        if: steps.config.outputs.push_ecr == 'true'
+        if: matrix.push_ecr
         run: |
           aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
 
       - name: Deploy ConfigMap
-        if: steps.config.outputs.push_ecr == 'true'
+        if: matrix.push_ecr
         run: |
-          # Determine config file path based on service
           CONFIG_FILE="config/${{ matrix.service }}/prod.env"
 
           if [ -f "$CONFIG_FILE" ]; then

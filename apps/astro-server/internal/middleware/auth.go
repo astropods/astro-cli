@@ -168,7 +168,7 @@ func (m *AuthMiddleware) RequireRole(role string) gin.HandlerFunc {
 func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) bool {
 	claims, err := m.jwtValidator.ValidateToken(c.Request.Context(), token)
 	if err != nil {
-		m.log.Debug("Token validation failed", "error", err)
+		m.log.Warn("Token validation failed", "error", err)
 		return false
 	}
 

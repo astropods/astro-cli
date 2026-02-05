@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
-    "@saswatds/astro-messaging": "^1.0.1",
+    "@saswatds/astro-messaging": "^1.0.2",
     "@qdrant/js-client-rest": "^1.9.0",
     "dotenv": "^16.3.0",
     "express": "^5.2.1",

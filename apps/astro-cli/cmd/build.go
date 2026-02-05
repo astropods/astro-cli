@@ -2,21 +2,25 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/docker/docker/api/types/build"
 	"github.com/joho/godotenv"
+	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/client"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/postman/astro/packages/astro-spec"
 )
@@ -44,14 +48,16 @@ Example:
 }
 
 var (
-	buildTag     string
-	buildNoCache bool
+	buildTag      string
+	buildNoCache  bool
+	buildPlatform string
 )
 
 func init() {
 	rootCmd.AddCommand(buildCmd)
 	buildCmd.Flags().StringVarP(&buildTag, "tag", "t", "latest", "Tag for the images")
 	buildCmd.Flags().BoolVar(&buildNoCache, "no-cache", false, "Build without using cache")
+	buildCmd.Flags().StringVar(&buildPlatform, "platform", "linux/amd64,linux/arm64", "Target platform(s) for the build (comma-separated)")
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
@@ -100,6 +106,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	defer cli.Close()
 
 	imagesBuilt := 0
+	platforms := parsePlatforms(buildPlatform)
 
 	// Build agent container
 	if astroSpec.Container.Build == nil && astroSpec.Container.Image == "" {
@@ -107,28 +114,41 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	if astroSpec.Container.Build != nil {
-		imageName := fmt.Sprintf("%s:%s", astroSpec.Agent, buildTag)
-		if !quiet {
-			fmt.Printf("%s→%s Building %s[agent]%s %s%s%s", colorCyan, colorReset, colorDim, colorReset, colorBold, imageName, colorReset)
-		}
-
+		baseName := astroSpec.Agent
 		contextPath := filepath.Join(workingDir, astroSpec.Container.Build.Context)
 		dockerfile := astroSpec.Container.Build.Dockerfile
 		if dockerfile == "" {
 			dockerfile = "Dockerfile"
 		}
 
-		if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, astroSpec.Container.Build.Args, astroSpec.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
+		for _, plat := range platforms {
+			platTag := platformImageTag(baseName, buildTag, plat)
 			if !quiet {
-				fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				fmt.Printf("%s→%s Building %s[agent %s]%s %s%s%s", colorCyan, colorReset, colorDim, plat, colorReset, colorBold, platTag, colorReset)
 			}
-			return fmt.Errorf("failed to build agent image: %w", err)
+
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, astroSpec.Container.Build.Args, astroSpec.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if !quiet {
+					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				}
+				return fmt.Errorf("failed to build agent image for %s: %w", plat, err)
+			}
+
+			if !quiet {
+				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			}
+			imagesBuilt++
 		}
 
-		if !quiet {
-			fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+		// Tag native-arch image as the convenience local tag
+		nativePlat := nativePlatform()
+		nativeTag := platformImageTag(baseName, buildTag, nativePlat)
+		localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
+		if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
+			if !quiet {
+				fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
+			}
 		}
-		imagesBuilt++
 	} else if astroSpec.Container.Image != "" && !quiet {
 		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Container.Image, colorReset)
 	}
@@ -136,28 +156,39 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom model containers (those with build config)
 	for name, model := range astroSpec.Models {
 		if model.Container.Build != nil {
-			imageName := fmt.Sprintf("%s-model-%s:%s", astroSpec.Agent, name, buildTag)
-			if !quiet {
-				fmt.Printf("%s→%s Building %s[model: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
-			}
-
+			baseName := fmt.Sprintf("%s-model-%s", astroSpec.Agent, name)
 			contextPath := filepath.Join(workingDir, model.Container.Build.Context)
 			dockerfile := model.Container.Build.Dockerfile
 			if dockerfile == "" {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, model.Container.Build.Args, model.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
+			for _, plat := range platforms {
+				platTag := platformImageTag(baseName, buildTag, plat)
 				if !quiet {
-					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					fmt.Printf("%s→%s Building %s[model: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
-				return fmt.Errorf("failed to build model %s: %w", name, err)
+
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, model.Container.Build.Args, model.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+					if !quiet {
+						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					}
+					return fmt.Errorf("failed to build model %s for %s: %w", name, plat, err)
+				}
+
+				if !quiet {
+					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+				}
+				imagesBuilt++
 			}
 
-			if !quiet {
-				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
+			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
+			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
+				if !quiet {
+					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
+				}
 			}
-			imagesBuilt++
 		} else if model.Container.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, model.Container.Image, colorReset)
 		}
@@ -166,28 +197,39 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom knowledge store containers (those with build config)
 	for name, knowledge := range astroSpec.Knowledge {
 		if knowledge.Container.Build != nil {
-			imageName := fmt.Sprintf("%s-knowledge-%s:%s", astroSpec.Agent, name, buildTag)
-			if !quiet {
-				fmt.Printf("%s→%s Building %s[knowledge: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
-			}
-
+			baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, name)
 			contextPath := filepath.Join(workingDir, knowledge.Container.Build.Context)
 			dockerfile := knowledge.Container.Build.Dockerfile
 			if dockerfile == "" {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, knowledge.Container.Build.Args, knowledge.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
+			for _, plat := range platforms {
+				platTag := platformImageTag(baseName, buildTag, plat)
 				if !quiet {
-					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					fmt.Printf("%s→%s Building %s[knowledge: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
-				return fmt.Errorf("failed to build knowledge store %s: %w", name, err)
+
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, knowledge.Container.Build.Args, knowledge.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+					if !quiet {
+						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					}
+					return fmt.Errorf("failed to build knowledge store %s for %s: %w", name, plat, err)
+				}
+
+				if !quiet {
+					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+				}
+				imagesBuilt++
 			}
 
-			if !quiet {
-				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
+			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
+			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
+				if !quiet {
+					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
+				}
 			}
-			imagesBuilt++
 		} else if knowledge.Container.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, knowledge.Container.Image, colorReset)
 		}
@@ -196,28 +238,39 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom tool containers (those with build config)
 	for name, tool := range astroSpec.Tools {
 		if tool.Container != nil && tool.Container.Build != nil {
-			imageName := fmt.Sprintf("%s-tool-%s:%s", astroSpec.Agent, name, buildTag)
-			if !quiet {
-				fmt.Printf("%s→%s Building %s[tool: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
-			}
-
+			baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Agent, name)
 			contextPath := filepath.Join(workingDir, tool.Container.Build.Context)
 			dockerfile := tool.Container.Build.Dockerfile
 			if dockerfile == "" {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, tool.Container.Build.Args, tool.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
+			for _, plat := range platforms {
+				platTag := platformImageTag(baseName, buildTag, plat)
 				if !quiet {
-					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					fmt.Printf("%s→%s Building %s[tool: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
-				return fmt.Errorf("failed to build tool %s: %w", name, err)
+
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, tool.Container.Build.Args, tool.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+					if !quiet {
+						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					}
+					return fmt.Errorf("failed to build tool %s for %s: %w", name, plat, err)
+				}
+
+				if !quiet {
+					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+				}
+				imagesBuilt++
 			}
 
-			if !quiet {
-				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
+			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
+			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
+				if !quiet {
+					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
+				}
 			}
-			imagesBuilt++
 		} else if tool.Container != nil && tool.Container.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[tool: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 		}
@@ -226,41 +279,52 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom interface service containers (those with build config)
 	for name, iface := range astroSpec.Interfaces {
 		if iface.Service != nil && iface.Service.Build != nil {
-			imageName := fmt.Sprintf("%s-interface-%s:%s", astroSpec.Agent, name, buildTag)
-			if !quiet {
-				fmt.Printf("%s→%s Building %s[interface: %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, colorReset, colorBold, imageName, colorReset)
-			}
-
+			baseName := fmt.Sprintf("%s-interface-%s", astroSpec.Agent, name)
 			contextPath := filepath.Join(workingDir, iface.Service.Build.Context)
 			dockerfile := iface.Service.Build.Dockerfile
 			if dockerfile == "" {
 				dockerfile = "Dockerfile"
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, imageName, iface.Service.Build.Args, iface.Service.Build.Secrets, envVars, buildNoCache, verbose, quiet); err != nil {
+			for _, plat := range platforms {
+				platTag := platformImageTag(baseName, buildTag, plat)
 				if !quiet {
-					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					fmt.Printf("%s→%s Building %s[interface: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
-				return fmt.Errorf("failed to build interface %s: %w", name, err)
+
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, iface.Service.Build.Args, iface.Service.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+					if !quiet {
+						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+					}
+					return fmt.Errorf("failed to build interface %s for %s: %w", name, plat, err)
+				}
+
+				if !quiet {
+					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+				}
+				imagesBuilt++
 			}
 
-			if !quiet {
-				fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
+			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
+			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
+				if !quiet {
+					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
+				}
 			}
-			imagesBuilt++
 		} else if iface.Service != nil && iface.Service.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[interface: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, iface.Service.Image, colorReset)
 		}
 	}
 
 	if !quiet {
-		fmt.Printf("%s✓%s Built %s%d%s image(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset)
+		fmt.Printf("%s✓%s Built %s%d%s image(s) for %s%d%s platform(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset, colorBold, len(platforms), colorReset)
 	}
 
 	return nil
 }
 
-func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, secrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool) error {
+func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, secrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool, platform string) error {
 	// Create build context tar
 	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{})
 	if err != nil {
@@ -284,37 +348,38 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 		BuildArgs:  buildArgsPtr,
 	}
 
-	// If secrets are defined, create a BuildKit session with secrets provider
-	if len(secrets) > 0 {
-		// Create session for BuildKit
+	// BuildKit is needed for cross-platform builds or secrets
+	needBuildKit := platform != "" || len(secrets) > 0
+	if needBuildKit {
 		sess, err := session.NewSession(ctx, filepath.Base(contextPath))
 		if err != nil {
 			return fmt.Errorf("failed to create build session: %w", err)
 		}
 
-		// Build secret map from env vars
-		secretMap := make(map[string][]byte)
-		for _, s := range secrets {
-			if val, ok := envVars[s.Env]; ok {
-				secretMap[s.ID] = []byte(val)
+		// Add secrets provider if secrets are defined
+		if len(secrets) > 0 {
+			secretMap := make(map[string][]byte)
+			for _, s := range secrets {
+				if val, ok := envVars[s.Env]; ok {
+					secretMap[s.ID] = []byte(val)
+				}
 			}
+			sess.Allow(secretsprovider.FromMap(secretMap))
 		}
 
-		// Add secrets provider to session (FromMap returns an Attachable directly)
-		sess.Allow(secretsprovider.FromMap(secretMap))
-
-		// Create dialer for session
 		dialSession := func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error) {
 			return cli.DialHijack(ctx, "/session", proto, meta)
 		}
 
-		// Run session in background
 		go sess.Run(ctx, dialSession)
 		defer sess.Close()
 
-		// Enable BuildKit and attach session
 		opts.Version = build.BuilderBuildKit
 		opts.SessionID = sess.ID()
+
+		if platform != "" {
+			opts.Platform = platform
+		}
 	}
 
 	// Build the image
@@ -332,58 +397,82 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 	return nil
 }
 
-func streamBuildOutput(reader io.Reader, verbose, quiet bool) error {
-	decoder := json.NewDecoder(reader)
+func streamBuildOutput(reader io.Reader, _, quiet bool) error {
+	if !quiet {
+		fmt.Println()
+	}
+
 	var lastError string
-	var currentStep string
+	decoder := json.NewDecoder(reader)
+	seenVertices := make(map[string]bool)
 
 	for {
 		var msg struct {
-			Stream      string `json:"stream"`
-			Error       string `json:"error"`
-			ErrorDetail struct {
-				Message string `json:"message"`
-			} `json:"errorDetail"`
+			ID     string `json:"id"`
+			Aux    string `json:"aux"`
+			Stream string `json:"stream"`
+			Error  string `json:"error"`
 		}
 
 		if err := decoder.Decode(&msg); err != nil {
 			if err == io.EOF {
 				break
 			}
-			return err
+			continue
 		}
 
+		// Handle errors
 		if msg.Error != "" {
 			lastError = msg.Error
 			if !quiet {
-				fmt.Printf("\n      %s%s%s", colorRed, msg.Error, colorReset)
+				fmt.Printf("      %sERROR: %s%s\n", colorRed, msg.Error, colorReset)
 			}
 		}
 
-		if msg.Stream != "" {
-			output := strings.TrimSpace(msg.Stream)
-			// Show step progress (e.g., "Step 1/5 : FROM golang:1.21")
-			if strings.HasPrefix(output, "Step ") {
-				if !quiet {
-					// Clear previous step indicator and show new one
-					if currentStep != "" {
-						fmt.Printf("\r      %s%s%s", colorDim, output, colorReset)
-					} else {
-						fmt.Printf("\n      %s%s%s", colorDim, output, colorReset)
-					}
-					currentStep = output
+		// Handle traditional Docker build stream output
+		if msg.Stream != "" && !quiet {
+			fmt.Print(msg.Stream)
+		}
+
+		// Handle BuildKit trace data
+		if msg.ID == "moby.buildkit.trace" && msg.Aux != "" && !quiet {
+			// Decode base64
+			data, err := base64.StdEncoding.DecodeString(msg.Aux)
+			if err != nil {
+				continue
+			}
+
+			// Parse protobuf
+			var status controlapi.StatusResponse
+			if err := proto.Unmarshal(data, &status); err != nil {
+				continue
+			}
+
+			// Print vertex names (build steps)
+			for _, v := range status.Vertexes {
+				if v.Name != "" && !seenVertices[v.Digest] {
+					seenVertices[v.Digest] = true
+					fmt.Printf("      %s%s%s\n", colorCyan, v.Name, colorReset)
 				}
-			} else if verbose && output != "" {
-				// In verbose mode, show all output
-				fmt.Printf("\n      %s%s%s", colorDim, output, colorReset)
+				if v.Error != "" {
+					lastError = v.Error
+					fmt.Printf("      %sERROR: %s%s\n", colorRed, v.Error, colorReset)
+				}
+			}
+
+			// Print logs (command output)
+			for _, l := range status.Logs {
+				if len(l.Msg) > 0 {
+					// Print each line with indentation
+					lines := strings.Split(string(l.Msg), "\n")
+					for _, line := range lines {
+						if line != "" {
+							fmt.Printf("      %s%s%s\n", colorDim, line, colorReset)
+						}
+					}
+				}
 			}
 		}
-	}
-
-	// Clear step line
-	if !quiet && currentStep != "" {
-		fmt.Printf("\r%s", strings.Repeat(" ", 80))
-		fmt.Printf("\r")
 	}
 
 	if lastError != "" {
@@ -391,4 +480,26 @@ func streamBuildOutput(reader io.Reader, verbose, quiet bool) error {
 	}
 
 	return nil
+}
+
+// tagImageLocal tags an image in the local Docker daemon using the Docker SDK.
+func tagImageLocal(ctx context.Context, cli *client.Client, source, target string) error {
+	return cli.ImageTag(ctx, source, target)
+}
+
+// parsePlatforms splits a comma-separated platform string into a slice.
+func parsePlatforms(s string) []string {
+	return strings.Split(s, ",")
+}
+
+// platformImageTag returns a platform-specific image tag.
+// e.g. ("myagent", "latest", "linux/amd64") -> "myagent-linux-amd64:latest"
+func platformImageTag(baseName, tag, platform string) string {
+	sanitized := strings.ReplaceAll(platform, "/", "-")
+	return fmt.Sprintf("%s-%s:%s", baseName, sanitized, tag)
+}
+
+// nativePlatform returns the platform string for the host machine.
+func nativePlatform() string {
+	return fmt.Sprintf("linux/%s", runtime.GOARCH)
 }

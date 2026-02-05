@@ -8,6 +8,7 @@ import {
   LogOut,
   HelpCircle,
   Loader2,
+  Wrench,
 } from "lucide-react";
 import { useAuth, getUserDisplayName, getUserInitials } from "../lib/auth";
 
@@ -40,6 +41,11 @@ export function Sidebar() {
         <NavLink to="/agents" className={linkClass}>
           <Users size={18} />
           <span>Your agents</span>
+        </NavLink>
+
+        <NavLink to="/operator" className={linkClass}>
+          <Wrench size={18} />
+          <span>Operator</span>
         </NavLink>
 
         <NavLink

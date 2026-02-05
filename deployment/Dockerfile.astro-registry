@@ -1,5 +1,10 @@
+# syntax=docker/dockerfile:1
+
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 RUN apk add --no-cache git ca-certificates
 
@@ -8,17 +13,21 @@ WORKDIR /app
 # Copy go.mod files first for better caching
 COPY apps/astro-registry/go.mod apps/astro-registry/go.sum ./apps/astro-registry/
 
-# Download dependencies
+# Download dependencies with cache
 WORKDIR /app/apps/astro-registry
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 WORKDIR /app
 COPY apps/astro-registry/ ./apps/astro-registry/
 
-# Build the binary
+# Build the binary with cache
 WORKDIR /app/apps/astro-registry
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /astro-registry .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags="-w -s" -o /astro-registry .
 
 # Runtime stage
 FROM alpine:3.21
