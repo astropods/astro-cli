@@ -2,12 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies with compatible versions
+# Install wget for healthcheck
+RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+
+# Use fastembed (ONNX-based, no torch dependency) to keep image small
 RUN pip install --no-cache-dir \
-    "numpy<2" \
-    torch==2.5.1 --extra-index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir \
-    sentence-transformers==3.3.1 \
+    fastembed \
     flask==3.0.0
 
 # Copy server

@@ -59,8 +59,8 @@ func Load() (*Config, error) {
 			Port:            getEnv("PORT", "5000"),
 			Host:            getEnv("HOST", "0.0.0.0"),
 			Mode:            getEnv("GIN_MODE", "release"),
-			ReadTimeout:     getEnvDuration("READ_TIMEOUT", 30*time.Second),
-			WriteTimeout:    getEnvDuration("WRITE_TIMEOUT", 30*time.Second),
+			ReadTimeout:     getEnvDuration("READ_TIMEOUT", 10*time.Minute),
+			WriteTimeout:    getEnvDuration("WRITE_TIMEOUT", 10*time.Minute),
 			ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 		},
 		Log: LogConfig{

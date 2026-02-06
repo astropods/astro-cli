@@ -1,7 +1,9 @@
 package k8s
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"strings"
 
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -84,9 +86,38 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 }
 
 // GenerateIngressHost generates the hostname for an agent's ingress
-// Format: <agent-name>-<namespace>.domain
+// Format: <agent-name>-<hash>.domain
+// Always uses a hash to avoid leaking namespace information
+// Ensures the hostname label doesn't exceed 59 characters
 func GenerateIngressHost(agentName, namespace, domain string) string {
-	return fmt.Sprintf("%s-%s.%s", agentName, namespace, domain)
+	const maxLabelLength = 59
+	const hashLength = 16 // 16 character hex hash
+
+	// Sanitize inputs
+	sanitizedAgent := deployment.SanitizeName(agentName)
+	sanitizedNs := deployment.SanitizeName(namespace)
+
+	// Generate hash from agent + namespace for uniqueness and privacy
+	combined := fmt.Sprintf("%s-%s", sanitizedAgent, sanitizedNs)
+	hash := sha256.Sum256([]byte(combined))
+	hashSuffix := fmt.Sprintf("%x", hash[:8]) // 8 bytes = 16 hex chars
+
+	// Format: {agent}-{hash}
+	// Calculate max agent name length: maxLabelLength - hashLength - 1 (for hyphen)
+	maxAgentLength := maxLabelLength - hashLength - 1
+
+	// Truncate agent name if needed
+	agentPart := sanitizedAgent
+	if len(agentPart) > maxAgentLength {
+		agentPart = agentPart[:maxAgentLength]
+		// Ensure doesn't end with hyphen after truncation
+		agentPart = strings.TrimRight(agentPart, "-")
+	}
+
+	// Combine: agent-hash
+	label := fmt.Sprintf("%s-%s", agentPart, hashSuffix)
+
+	return fmt.Sprintf("%s.%s", label, domain)
 }
 
 // GenerateExternalURL generates the full external URL for an agent

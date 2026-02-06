@@ -342,6 +342,8 @@ func (a *Applier) Apply(
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
 				StorageSize:    "10Gi",
+				Healthcheck:    knowledge.Container.Healthcheck,
+				Provider:       knowledge.Provider,
 			}
 			statefulSet := BuildStatefulSet(statefulSetCfg)
 			status, err := a.applyStatefulSet(ctx, statefulSet)
@@ -387,6 +389,8 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
+				Healthcheck:    model.Container.Healthcheck,
+				Provider:       model.Provider,
 			}
 			depl := BuildDeployment(deploymentCfg)
 			status, err := a.applyDeployment(ctx, depl)
@@ -445,6 +449,8 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
+				Healthcheck:    knowledge.Container.Healthcheck,
+				Provider:       knowledge.Provider,
 			}
 			depl := BuildDeployment(deploymentCfg)
 			status, err := a.applyDeployment(ctx, depl)
@@ -489,6 +495,8 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
+				Healthcheck:    tool.Container.Healthcheck,
+				Provider:       tool.Type, // Use tool type as provider hint
 			}
 			depl := BuildDeployment(deploymentCfg)
 			status, err := a.applyDeployment(ctx, depl)
@@ -525,6 +533,7 @@ func (a *Applier) Apply(
 			SecretName:     secretName,
 			ConfigMapName:  configMapName,
 			Healthcheck:    astroSpec.Container.Healthcheck,
+			Provider:       "", // Agent uses HTTP health check if defined
 		}
 		agentDeployment := BuildDeployment(agentDeploymentCfg)
 		status, err = a.applyDeployment(ctx, agentDeployment)
@@ -558,6 +567,8 @@ func (a *Applier) Apply(
 				ServiceType:    corev1.ServiceTypeClusterIP,
 			}
 			messagingService := BuildService(messagingServiceCfg)
+			// Rename the default port from "http" to "grpc" for messaging services
+			messagingService.Spec.Ports[0].Name = "grpc"
 
 			// Add HTTP port if web is enabled
 			if webEnabled {
@@ -698,6 +709,7 @@ func (a *Applier) Apply(
 				Port:          port,
 				SecretName:    secretName,
 				ConfigMapName: configMapName,
+				Provider:      "", // Interface services use HTTP health check if defined
 			}
 			interfaceDepl := BuildDeployment(interfaceDeploymentCfg)
 

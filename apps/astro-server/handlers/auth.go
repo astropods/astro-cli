@@ -40,10 +40,12 @@ func NewAuthHandler(log *logger.Logger, cfg *config.Config) *AuthHandler {
 	// Get JWKS URL for token validation
 	jwksURL, _ := workos.GetJWKSURL()
 
+	// Note: WorkOS access tokens don't include an 'aud' claim, so we pass empty string
+	// to skip audience validation. The issuer already includes the client ID for validation.
 	jwtValidator := auth.NewJWTValidator(
 		jwksURL,
 		cfg.Auth.JWTIssuer,
-		cfg.Auth.WorkOSClientID,
+		"", // No audience validation for WorkOS tokens
 	)
 
 	// Build allowed origins map for quick lookup

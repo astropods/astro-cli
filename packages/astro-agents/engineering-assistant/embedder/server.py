@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 import logging
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Load model on startup
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')
 logging.info("Embedding model loaded successfully")
 
 @app.route('/health', methods=['GET'])
@@ -22,10 +22,10 @@ def embed():
         return jsonify({"error": "No texts provided"}), 400
 
     # Generate embeddings
-    embeddings = model.encode(texts)
+    embeddings = list(model.embed(texts))
 
     return jsonify({
-        "embeddings": embeddings.tolist(),
+        "embeddings": [e.tolist() for e in embeddings],
         "model": "all-MiniLM-L6-v2",
         "dimensions": 384
     })

@@ -44,9 +44,11 @@ type BuildSecret struct {
 }
 
 type Healthcheck struct {
-	Path     string `json:"path" yaml:"path"`
-	Interval string `json:"interval,omitempty" yaml:"interval,omitempty"`
-	Timeout  string `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	Test     []string `json:"test,omitempty" yaml:"test,omitempty"`         // Custom health check command (e.g., ["CMD", "redis-cli", "ping"])
+	Path     string   `json:"path,omitempty" yaml:"path,omitempty"`         // HTTP path for health check (legacy, auto-generates test command)
+	Interval string   `json:"interval,omitempty" yaml:"interval,omitempty"` // How often to check (default: 10s)
+	Timeout  string   `json:"timeout,omitempty" yaml:"timeout,omitempty"`   // Time to wait for response (default: 5s)
+	Retries  int      `json:"retries,omitempty" yaml:"retries,omitempty"`   // Number of retries before unhealthy (default: 3)
 }
 
 type Model struct {
@@ -77,6 +79,7 @@ type ContainerConfig struct {
 	Persistent  bool              `json:"persistent,omitempty" yaml:"persistent,omitempty"`
 	Port        int               `json:"port,omitempty" yaml:"port,omitempty"`
 	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Healthcheck *Healthcheck      `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 }
 
 type Integrations struct {

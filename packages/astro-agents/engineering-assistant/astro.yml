@@ -26,6 +26,8 @@ models:
         context: ./embedder
         dockerfile: Dockerfile
       port: 8000
+      healthcheck:
+        path: /health
 
 knowledge:
   docs:

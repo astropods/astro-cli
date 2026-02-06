@@ -1,21 +1,20 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM oven/bun:1 AS builder
 WORKDIR /app
 
 # Copy package files
-COPY packages/astro-playground-web/package.json packages/astro-playground-web/package-lock.json* ./
+COPY packages/astro-playground-web/package.json ./
 
-# Install dependencies with cache
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+# Install dependencies
+RUN bun install
 
 # Copy source files
 COPY packages/astro-playground-web/ ./
 
 # Build the application
-RUN npm run build
+RUN bun run build
 
 # Stage 2: Serve
 FROM nginx:alpine

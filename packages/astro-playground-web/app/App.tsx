@@ -879,9 +879,11 @@ export default function App() {
     const es = new EventSource(`${API_URL}/api/conversations/${convId}/stream`);
     eventSourceRef.current = es;
 
-    es.onmessage = (event) => {
+    // Handle message events (both named and unnamed)
+    const handleEvent = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
+        console.log('📨 SSE Event received:', data.type, data);
 
         switch (data.type) {
           case "chunk":
@@ -980,6 +982,16 @@ export default function App() {
         // Skip invalid JSON
       }
     };
+
+    // Listen to all event types
+    es.addEventListener('chunk', handleEvent);
+    es.addEventListener('step-start', handleEvent);
+    es.addEventListener('step-end', handleEvent);
+    es.addEventListener('reasoning-delta', handleEvent);
+    es.addEventListener('finish', handleEvent);
+    es.addEventListener('error', handleEvent);
+    es.addEventListener('connected', handleEvent);
+    es.onmessage = handleEvent; // Also handle unnamed events
 
     es.onerror = () => {
       setMessages((prev) =>

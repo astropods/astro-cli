@@ -80,7 +80,7 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 				Value: "false",
 			},
 		},
-		ImagePullPolicy: corev1.PullIfNotPresent,
+		ImagePullPolicy: corev1.PullAlways,
 	}
 
 	// Add ConfigMap and Secret env vars

@@ -26,6 +26,7 @@ type DeploymentConfig struct {
 	SecretName       string
 	ConfigMapName    string
 	Healthcheck      *spec.Healthcheck
+	Provider         string // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -151,7 +152,7 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		ImagePullPolicy: corev1.PullIfNotPresent,
+		ImagePullPolicy: corev1.PullAlways,
 	}
 
 	// Add messaging-specific environment variables
@@ -254,7 +255,7 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		ImagePullPolicy: corev1.PullIfNotPresent,
+		ImagePullPolicy: corev1.PullAlways,
 	}
 
 	// Add container-specific environment variables
@@ -291,9 +292,11 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 
 	// Add health checks if specified
 	if cfg.Healthcheck != nil {
-		probe := buildProbe(cfg.Healthcheck, port)
-		container.LivenessProbe = probe
-		container.ReadinessProbe = probe
+		probe := buildProbe(cfg.Healthcheck, cfg.Provider, port)
+		if probe != nil {
+			container.LivenessProbe = probe
+			container.ReadinessProbe = probe
+		}
 	}
 
 	// Set resource requests and limits
@@ -304,19 +307,30 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 }
 
 // buildProbe creates a probe from healthcheck config
-func buildProbe(healthcheck *spec.Healthcheck, port int32) *corev1.Probe {
+func buildProbe(healthcheck *spec.Healthcheck, provider string, port int32) *corev1.Probe {
 	probe := &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path: healthcheck.Path,
-				Port: intstr.FromInt(int(port)),
-			},
-		},
 		InitialDelaySeconds: 10,
 		PeriodSeconds:       10,
 		TimeoutSeconds:      5,
 		SuccessThreshold:    1,
 		FailureThreshold:    3,
+	}
+
+	// If custom test command is provided, use it
+	if len(healthcheck.Test) > 0 {
+		probe.ProbeHandler = corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: healthcheck.Test,
+			},
+		}
+	} else {
+		// Generate provider-specific health check
+		handler := buildProbeHandler(provider, port, healthcheck.Path)
+		if handler == nil {
+			// No suitable health check could be generated
+			return nil
+		}
+		probe.ProbeHandler = *handler
 	}
 
 	// Parse interval and timeout if provided
@@ -332,7 +346,70 @@ func buildProbe(healthcheck *spec.Healthcheck, port int32) *corev1.Probe {
 		}
 	}
 
+	if healthcheck.Retries > 0 {
+		probe.FailureThreshold = int32(healthcheck.Retries)
+	}
+
 	return probe
+}
+
+// buildProbeHandler generates a provider-specific probe handler
+func buildProbeHandler(provider string, port int32, path string) *corev1.ProbeHandler {
+	switch provider {
+	case "redis":
+		return &corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"redis-cli", "ping"},
+			},
+		}
+
+	case "postgres", "postgresql":
+		return &corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"pg_isready", "-U", "postgres"},
+			},
+		}
+
+	case "qdrant":
+		// Qdrant has a health endpoint at /healthz
+		if port == 0 {
+			port = 6333
+		}
+		return &corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/healthz",
+				Port: intstr.FromInt(int(port)),
+			},
+		}
+
+	case "mongo", "mongodb":
+		return &corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"mongosh", "--eval", "db.adminCommand('ping')"},
+			},
+		}
+
+	case "sqlite":
+		// SQLite doesn't need a health check (file-based)
+		return nil
+
+	default:
+		// Fallback: if a path is provided, use HTTP health check
+		if path != "" {
+			if port == 0 {
+				port = 8080
+			}
+			return &corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: path,
+					Port: intstr.FromInt(int(port)),
+				},
+			}
+		}
+	}
+
+	// No suitable health check
+	return nil
 }
 
 // buildResourceRequirements creates resource requirements based on GPU needs

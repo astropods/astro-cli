@@ -271,10 +271,16 @@ func (a *WebAdapter) OnMessage(handler adapter.MessageHandler) {
 	// Convert the unified MessageHandler to our internal GRPCMessageHandler
 	a.SetMessageHandler(func(ctx context.Context, msg *pb.Message) error {
 		unified := &types.UnifiedMessage{
-			ID:             msg.Id,
-			ConversationID: msg.ConversationId,
-			Content:        msg.Content,
-			Platform:       "web",
+			ID:                msg.Id,
+			PlatformMessageID: msg.PlatformContext.GetMessageId(),
+			Platform:          "web",
+			Content:           msg.Content,
+			UserID:            msg.User.GetId(),
+			UserName:          msg.User.GetUsername(),
+			ChannelID:         msg.PlatformContext.GetChannelId(),
+			ThreadID:          msg.PlatformContext.GetThreadId(),
+			ConversationID:    msg.ConversationId,
+			Timestamp:         msg.Timestamp.AsTime(),
 		}
 		_, err := handler(ctx, unified)
 		return err
@@ -291,11 +297,16 @@ func (a *WebAdapter) SendMessage(ctx context.Context, req *types.SendMessageRequ
 		}, fmt.Errorf("connection manager not initialized")
 	}
 
+	// Send chunk event
 	event := NewChunkEvent(&pb.ContentChunk{
 		Content: req.Content,
 		Type:    pb.ContentChunk_END,
 	}, "")
 	a.connManager.Broadcast(req.ChannelID, event)
+
+	// Send finish event to signal completion
+	finishEvent := NewFinishEvent("")
+	a.connManager.Broadcast(req.ChannelID, finishEvent)
 
 	return &types.SendMessageResult{
 		Success: true,

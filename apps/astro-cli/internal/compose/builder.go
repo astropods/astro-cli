@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/types"
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 // buildSecretsConfig converts spec secrets to compose secrets configuration
@@ -42,6 +42,48 @@ func convertArgs(args map[string]string) map[string]*string {
 		result[k] = &val
 	}
 	return result
+}
+
+// buildHealthCheckTest generates the appropriate health check command
+func buildHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port int) types.HealthCheckTest {
+	// If custom test command is provided, use it
+	if len(healthcheck.Test) > 0 {
+		return types.HealthCheckTest(healthcheck.Test)
+	}
+
+	// Provider-specific health checks
+	switch provider {
+	case "redis":
+		return types.HealthCheckTest([]string{"CMD", "redis-cli", "ping"})
+
+	case "postgres":
+		return types.HealthCheckTest([]string{"CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"})
+
+	case "qdrant":
+		// Qdrant has a health endpoint at /healthz
+		if port == 0 {
+			port = 6333
+		}
+		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d/healthz || exit 1", port)})
+
+	case "mongo", "mongodb":
+		return types.HealthCheckTest([]string{"CMD", "mongosh", "--eval", "db.adminCommand('ping')"})
+
+	case "sqlite":
+		// SQLite doesn't need a health check (file-based)
+		return nil
+	}
+
+	// Fallback: if a path is provided, use HTTP health check with curl
+	if healthcheck.Path != "" {
+		if port == 0 {
+			port = 8080
+		}
+		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d%s || exit 1", port, healthcheck.Path)})
+	}
+
+	// No health check
+	return nil
 }
 
 // BuildProject converts an AstroSpec to a Docker Compose project
@@ -92,15 +134,21 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				},
 			}
 
-			// Add healthcheck for model services
-			interval := types.Duration(10000000000) // 10 seconds
-			timeout := types.Duration(5000000000)   // 5 seconds
-			retries := uint64(3)
-			service.HealthCheck = &types.HealthCheckConfig{
-				Test:     types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("wget --no-verbose --tries=1 --spider http://localhost:%d/ || exit 1", model.Container.Port)}),
-				Interval: &interval,
-				Timeout:  &timeout,
-				Retries:  &retries,
+			// Add healthcheck only if defined in spec
+			if model.Container.Healthcheck != nil {
+				interval := types.Duration(10000000000) // 10 seconds
+				timeout := types.Duration(5000000000)   // 5 seconds
+				retries := uint64(3)
+
+				test := buildHealthCheckTest(model.Container.Healthcheck, model.Provider, model.Container.Port)
+				if test != nil {
+					service.HealthCheck = &types.HealthCheckConfig{
+						Test:     test,
+						Interval: &interval,
+						Timeout:  &timeout,
+						Retries:  &retries,
+					}
+				}
 			}
 		}
 
@@ -148,29 +196,24 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
-		// Add healthcheck for knowledge services (e.g., Qdrant, Redis)
-		interval := types.Duration(10000000000) // 10 seconds
-		retries := uint64(3)
-		if knowledge.Provider == "qdrant" {
-			timeout := types.Duration(5000000000) // 5 seconds
-			// Use default Qdrant port if not specified
+		// Add healthcheck only if defined in spec
+		if knowledge.Container.Healthcheck != nil {
+			interval := types.Duration(10000000000) // 10 seconds
+			timeout := types.Duration(5000000000)   // 5 seconds
+			retries := uint64(3)
 			port := knowledge.Container.Port
-			if port == 0 {
-				port = 6333
+			if port == 0 && knowledge.Provider == "qdrant" {
+				port = 6333 // default for Qdrant
 			}
-			service.HealthCheck = &types.HealthCheckConfig{
-				Test:     types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("wget --no-verbose --tries=1 --spider http://localhost:%d/healthz || exit 1", port)}),
-				Interval: &interval,
-				Timeout:  &timeout,
-				Retries:  &retries,
-			}
-		} else if knowledge.Provider == "redis" {
-			timeout := types.Duration(3000000000) // 3 seconds
-			service.HealthCheck = &types.HealthCheckConfig{
-				Test:     types.HealthCheckTest([]string{"CMD", "redis-cli", "ping"}),
-				Interval: &interval,
-				Timeout:  &timeout,
-				Retries:  &retries,
+
+			test := buildHealthCheckTest(knowledge.Container.Healthcheck, knowledge.Provider, port)
+			if test != nil {
+				service.HealthCheck = &types.HealthCheckConfig{
+					Test:     test,
+					Interval: &interval,
+					Timeout:  &timeout,
+					Retries:  &retries,
+				}
 			}
 		}
 
@@ -248,7 +291,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			playgroundService := types.ServiceConfig{
 				Name:       "playground",
 				Image:      "ghcr.io/saswatds/astro-playground:latest",
-				PullPolicy: types.PullPolicyIfNotPresent,
+				PullPolicy: types.PullPolicyAlways,
 				Networks: map[string]*types.ServiceNetworkConfig{
 					"astro-dev": nil,
 				},
@@ -612,4 +655,3 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 
 	return env
 }
-

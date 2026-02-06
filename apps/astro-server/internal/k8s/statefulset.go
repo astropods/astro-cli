@@ -21,6 +21,8 @@ type StatefulSetConfig struct {
 	SecretName     string
 	ConfigMapName  string
 	StorageSize    string
+	Healthcheck    *spec.Healthcheck
+	Provider       string // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage
@@ -63,7 +65,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 				MountPath: "/qdrant/storage",
 			},
 		},
-		ImagePullPolicy: corev1.PullIfNotPresent,
+		ImagePullPolicy: corev1.PullAlways,
 	}
 
 	// Add container-specific environment variables
@@ -97,6 +99,15 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 
 	// Set resources
 	container.Resources = buildResourceRequirements(cfg.Container.GPU)
+
+	// Add health checks if specified
+	if cfg.Healthcheck != nil {
+		probe := buildProbe(cfg.Healthcheck, cfg.Provider, port)
+		if probe != nil {
+			container.LivenessProbe = probe
+			container.ReadinessProbe = probe
+		}
+	}
 
 	// Create VolumeClaimTemplate
 	volumeClaimTemplate := corev1.PersistentVolumeClaim{
