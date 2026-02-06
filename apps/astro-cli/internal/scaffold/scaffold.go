@@ -66,6 +66,8 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
 		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
 		{filepath.Join(targetDir, "ingestion", "index.ts"), paths.IngestionIndex},
+		{filepath.Join(targetDir, "CLAUDE.md"), paths.LlmMd},
+		{filepath.Join(targetDir, "AGENTS.md"), paths.LlmMd},
 	}
 
 	// Add Dockerfile.ingestion if ingestion is enabled
