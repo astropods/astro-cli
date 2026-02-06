@@ -11,6 +11,8 @@
   },
   "main": "./agent/index.ts",
   "dependencies": {
+    "@saswatds/astro-agent": "latest",
+    "@saswatds/astro-graph": "latest",
     "@saswatds/astro-messaging": "latest"
   },
   "devDependencies": {
