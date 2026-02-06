@@ -97,10 +97,12 @@ This avoids `SameSite` cookie restrictions without compromising security.
 
 ```
 src/
+├── api/queries/    # TanStack Query hooks and tests
 ├── components/     # React components
 ├── contexts/       # React contexts (auth, etc.)
 ├── lib/           # Utilities and API client
 ├── pages/         # Page components
+├── test/          # Test setup, utilities, and MSW mocks
 └── main.tsx       # Entry point
 ```
 
@@ -112,7 +114,31 @@ src/
 | `bun build` | Build for production |
 | `bun preview` | Preview production build |
 | `bun lint` | Run ESLint |
+| `bun run test` | Run tests once |
+| `bun run test:watch` | Run tests in watch mode |
+| `bun run test:coverage` | Run tests with coverage report |
 | `bun setup` | Set up local development environment (macOS) |
+
+## Testing
+
+Tests use [Vitest](https://vitest.dev/) with [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/) and [MSW](https://mswjs.io/) for API mocking.
+
+```bash
+bun run test            # single run
+bun run test:watch      # re-run on file changes
+bun run test:coverage   # single run with coverage report
+```
+
+Tests live next to the code they cover (e.g. `src/api/queries/agents.test.tsx`). Shared test infrastructure is in `src/test/`:
+
+| File | Purpose |
+|------|---------|
+| `test/setup.ts` | Global setup — starts MSW server, resets handlers between tests |
+| `test/test-utils.tsx` | `renderWithProviders` and `createHookWrapper` — wraps components/hooks with QueryClient and MemoryRouter |
+| `test/msw/handlers.ts` | Default MSW request handlers and fixture data |
+| `test/msw/server.ts` | MSW server instance |
+
+To override a handler for a specific test, use `server.use()` inside the test — it resets automatically after each test via the setup file.
 
 ## Troubleshooting
 

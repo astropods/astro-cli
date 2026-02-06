@@ -32,7 +32,8 @@ jobs:
         run: bun run build
 
       - name: Run tests
-        run: bun test --recursive
+        run: bun run test
+        working-directory: apps/astro-client
 
   test-go:
     runs-on: ubuntu-latest
