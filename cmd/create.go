@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -11,7 +12,8 @@ import (
 )
 
 var (
-	yesFlag bool
+	yesFlag  bool
+	pathFlag string
 )
 
 var createCmd = &cobra.Command{
@@ -27,7 +29,8 @@ The create command generates a new agent project with TypeScript and Bun:
 
 Example:
   ast create my-agent
-  ast create my-agent --yes`,
+  ast create my-agent --yes
+  ast create my-agent --path /path/to/projects`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreate,
 }
@@ -35,6 +38,7 @@ Example:
 func init() {
 	rootCmd.AddCommand(createCmd)
 	createCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
+	createCmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -45,8 +49,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid name: %w", err)
 	}
 
+	// Determine target directory
+	targetDir := name
+	if pathFlag != "" {
+		// Create the parent directory if it doesn't exist
+		if err := os.MkdirAll(pathFlag, 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
+		targetDir = filepath.Join(pathFlag, name)
+	}
+
 	// Validate directory doesn't exist
-	if err := scaffold.ValidateDirectory(name); err != nil {
+	if err := scaffold.ValidateDirectory(targetDir); err != nil {
 		return err
 	}
 
@@ -63,23 +77,22 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate files
-	if err := scaffold.GenerateFiles(name, config); err != nil {
-		os.RemoveAll(name)
+	if err := scaffold.GenerateFiles(targetDir, config); err != nil {
+		os.RemoveAll(targetDir)
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
 
-	// Change into the created directory
-	if err := os.Chdir(name); err != nil {
-		return fmt.Errorf("failed to cd into %s: %w", name, err)
-	}
-
-	printSuccess(name)
+	printSuccess(name, targetDir)
 	return nil
 }
 
-func printSuccess(name string) {
+func printSuccess(name, targetDir string) {
 	fmt.Printf("\n%s✓%s Created agent %s%s%s\n\n", colorGreen, colorReset, colorBold, name, colorReset)
 	fmt.Println("Next steps:")
+	// Show cd command if created in a different directory
+	if targetDir != name {
+		fmt.Printf("  %s→%s cd %s\n", colorCyan, colorReset, targetDir)
+	}
 	fmt.Printf("  %s→%s cp .env.example .env\n", colorCyan, colorReset)
 	fmt.Printf("  %s→%s ast dev\n", colorCyan, colorReset)
 	fmt.Println()
