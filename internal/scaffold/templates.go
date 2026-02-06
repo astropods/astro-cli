@@ -327,6 +327,11 @@ const client = new MessagingClient(GRPC_SERVER_ADDR);
 async function handleMessage(response: AgentResponse, stream: any) {
   const { conversationId } = response;
 
+  // Uncomment to debug raw gRPC messages:
+  // console.log('🔍 RAW GRPC MESSAGE:');
+  // console.log(JSON.stringify(response, null, 2));
+  // console.log('---\n');
+
   // Extract the incoming message from the response payload
   // proto-loader with keepCase:false converts snake_case to camelCase at runtime
   const message = (response as { incomingMessage?: Message }).incomingMessage;
@@ -336,8 +341,12 @@ async function handleMessage(response: AgentResponse, stream: any) {
     return;
   }
 
+  // Extract user info with fallback for empty strings
+  const username = message.user?.username || message.user?.id || 'Anonymous User';
+  const displayName = username.trim() === '' ? 'Anonymous User' : username;
+
   console.log('📨 Received message:');
-  console.log('   From:', message.user?.username || message.user?.id || 'Unknown');
+  console.log('   From:', displayName);
   console.log('   Platform:', message.platform);
   console.log('   Content:', message.content);
 
@@ -386,25 +395,24 @@ async function handleMessage(response: AgentResponse, stream: any) {
 
   console.log('📤 Sending response...');
 
-  // Ensure platformContext is provided for proper routing
-  if (!platformContext) {
-    console.warn('⚠️  No platformContext available, using fallback');
-  }
-
-  // Send the response back through the stream
-  stream.sendMessage({
+  const responseMessage = {
     conversationId,
     platform: message.platform,
-    platformContext: platformContext || {
-      messageId: conversationId,
-      channelId: conversationId,
-    },
+    platformContext: platformContext,
     content: reply,
     user: {
       id: AGENT_NAME.toLowerCase().replace(/\\s+/g, '-'),
       username: AGENT_NAME,
     },
-  });
+  };
+
+  // Uncomment to debug outgoing messages:
+  // console.log('📤 OUTGOING MESSAGE:');
+  // console.log(JSON.stringify(responseMessage, null, 2));
+  // console.log('---\n');
+
+  // Send the response back through the stream
+  stream.sendMessage(responseMessage);
 
   console.log('✅ Response sent\n');
 }

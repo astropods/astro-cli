@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,23 +11,30 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/daemon"
-	"github.com/google/go-containerregistry/pkg/v1/empty"
-	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
+
+// getOptimizedTransport returns an HTTP transport optimized for large file uploads
+// This explicitly disables HTTP/2 to ensure compatibility with all registries
+func getOptimizedTransport() *http.Transport {
+	return &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90,
+		DisableCompression:  false,
+		// Explicitly disable HTTP/2 by setting TLSNextProto to empty map
+		// This prevents "http2: client conn could not be established" errors
+		// with registries that have incomplete or misconfigured HTTP/2 support
+		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+	}
+}
 
 var publishCmd = &cobra.Command{
 	Use:   "publish",
@@ -175,7 +183,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
 			printPushStart("agent", baseName)
-			size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+			size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
 			if err != nil {
 				printPushComplete(false, 0)
 				return fmt.Errorf("failed to push agent image: %w", err)
@@ -187,11 +195,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag)
 
 			printPushStart("agent", astroSpec.Agent)
-			if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-				printPushComplete(false, 0)
-				return fmt.Errorf("failed to tag agent image: %w", err)
-			}
-			size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+			size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 			if err != nil {
 				printPushComplete(false, 0)
 				return fmt.Errorf("failed to push agent image: %w", err)
@@ -208,7 +212,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 				printPushStart("model", modelName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push model %s: %w", modelName, err)
@@ -216,11 +220,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
-					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to tag model %s: %w", modelName, err)
-					}
-					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push model %s: %w", modelName, err)
@@ -239,7 +239,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 				printPushStart("knowledge", knowledgeName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
@@ -247,11 +247,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
-					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to tag knowledge store %s: %w", knowledgeName, err)
-					}
-					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
@@ -270,7 +266,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 				printPushStart("tool", toolName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
@@ -278,11 +274,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
-					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to tag tool %s: %w", toolName, err)
-					}
-					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
@@ -301,7 +293,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 				printPushStart("interface", ifaceName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistry(baseName, publishTag, remoteImageName, platforms, noAuth, verbose)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
@@ -309,11 +301,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
-					if err := tagImage(localImageName, remoteImageName, verbose); err != nil {
-						printPushComplete(false, 0)
-						return fmt.Errorf("failed to tag interface %s: %w", ifaceName, err)
-					}
-					size, err := pushImageToRegistry(localImageName, remoteImageName, noAuth, verbose)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
@@ -454,224 +442,6 @@ func getRegistryHost(registryURL string) (string, error) {
 		return "", err
 	}
 	return u.Host, nil
-}
-
-func tagImage(sourceImage, targetImage string, verbose bool) error {
-	tagCmd := exec.Command("docker", "tag", sourceImage, targetImage)
-
-	if verbose {
-		tagCmd.Stdout = os.Stdout
-		tagCmd.Stderr = os.Stderr
-	}
-
-	if err := tagCmd.Run(); err != nil {
-		return fmt.Errorf("failed to tag image: %w", err)
-	}
-
-	return nil
-}
-
-// pushImageToRegistry pushes an image to the astro-registry service with progress tracking.
-// Returns the size of the pushed image in bytes.
-func pushImageToRegistry(localImageName, remoteImageName string, skipAuth bool, _ bool) (int64, error) {
-	fmt.Printf("  %sloading...%s", colorDim, colorReset)
-
-	// Parse the local image name reference
-	localRef, err := name.ParseReference(localImageName)
-	if err != nil {
-		fmt.Println()
-		return 0, fmt.Errorf("failed to parse local image name: %w", err)
-	}
-
-	// Load the image from Docker daemon
-	img, err := daemon.Image(localRef)
-	if err != nil {
-		fmt.Println()
-		return 0, fmt.Errorf("failed to load image from Docker daemon: %w", err)
-	}
-
-	// Get image size for progress bar
-	var imageSize int64
-	layers, err := img.Layers()
-	if err == nil {
-		for _, layer := range layers {
-			size, _ := layer.Size()
-			imageSize += size
-		}
-	}
-
-	// Clear "loading..." and move to next line for progress bar
-	fmt.Print("\r                    \r")
-
-	// Parse the remote image name reference
-	remoteRef, err := name.ParseReference(remoteImageName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse remote image name: %w", err)
-	}
-
-	// Build remote options with authentication
-	var opts []remote.Option
-	if !skipAuth {
-		opts = append(opts, remote.WithAuth(auth.GetCraneAuth()))
-	}
-
-	// Set up progress tracking
-	progressChan := make(chan v1.Update, 100)
-	opts = append(opts, remote.WithProgress(progressChan))
-
-	// Create progress bar
-	bar := progressbar.NewOptions64(
-		imageSize,
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetWidth(25),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[cyan]█[reset]",
-			SaucerHead:    "[cyan]█[reset]",
-			SaucerPadding: "░",
-			BarStart:      "",
-			BarEnd:        "",
-		}),
-		progressbar.OptionSetRenderBlankState(true),
-	)
-
-	// Update progress bar from channel
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for update := range progressChan {
-			if update.Complete > 0 {
-				bar.Set64(update.Complete)
-			}
-		}
-		bar.Finish()
-	}()
-
-	// Push the image to the registry
-	pushErr := remote.Write(remoteRef, img, opts...)
-
-	// Wait for progress display to finish
-	<-done
-
-	if pushErr != nil {
-		return 0, fmt.Errorf("failed to push image: %w", pushErr)
-	}
-
-	return imageSize, nil
-}
-
-// pushMultiPlatformToRegistry loads platform-specific images from the Docker daemon,
-// creates an OCI image index (manifest list), and pushes it to the registry.
-func pushMultiPlatformToRegistry(baseName, tag, remoteImageName string, platforms []string, skipAuth bool, verbose bool) (int64, error) {
-	fmt.Printf("  %sloading platform images...%s", colorDim, colorReset)
-
-	var addendums []mutate.IndexAddendum
-	var totalSize int64
-
-	for _, plat := range platforms {
-		parts := strings.SplitN(plat, "/", 2)
-		if len(parts) != 2 {
-			fmt.Println()
-			return 0, fmt.Errorf("invalid platform format %q, expected os/arch", plat)
-		}
-		platOS, platArch := parts[0], parts[1]
-
-		localTag := platformImageTag(baseName, tag, plat)
-		localRef, err := name.ParseReference(localTag)
-		if err != nil {
-			fmt.Println()
-			return 0, fmt.Errorf("failed to parse local image ref %s: %w", localTag, err)
-		}
-
-		img, err := daemon.Image(localRef)
-		if err != nil {
-			fmt.Println()
-			return 0, fmt.Errorf("failed to load image %s from Docker daemon: %w", localTag, err)
-		}
-
-		// Accumulate size
-		layers, err := img.Layers()
-		if err == nil {
-			for _, layer := range layers {
-				sz, _ := layer.Size()
-				totalSize += sz
-			}
-		}
-
-		addendums = append(addendums, mutate.IndexAddendum{
-			Add: img,
-			Descriptor: v1.Descriptor{
-				Platform: &v1.Platform{
-					OS:           platOS,
-					Architecture: platArch,
-				},
-			},
-		})
-	}
-
-	// Create the manifest list
-	index := mutate.AppendManifests(empty.Index, addendums...)
-
-	// Clear "loading..." line
-	fmt.Print("\r                              \r")
-
-	// Parse remote ref
-	remoteRef, err := name.ParseReference(remoteImageName)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse remote image name: %w", err)
-	}
-
-	// Build remote options with authentication
-	var opts []remote.Option
-	if !skipAuth {
-		opts = append(opts, remote.WithAuth(auth.GetCraneAuth()))
-	}
-
-	// Set up progress tracking
-	progressChan := make(chan v1.Update, 100)
-	opts = append(opts, remote.WithProgress(progressChan))
-
-	bar := progressbar.NewOptions64(
-		totalSize,
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetWidth(25),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[cyan]█[reset]",
-			SaucerHead:    "[cyan]█[reset]",
-			SaucerPadding: "░",
-			BarStart:      "",
-			BarEnd:        "",
-		}),
-		progressbar.OptionSetRenderBlankState(true),
-	)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for update := range progressChan {
-			if update.Complete > 0 {
-				bar.Set64(update.Complete)
-			}
-		}
-		bar.Finish()
-	}()
-
-	pushErr := remote.WriteIndex(remoteRef, index, opts...)
-
-	<-done
-
-	if pushErr != nil {
-		return 0, fmt.Errorf("failed to push multi-platform image: %w", pushErr)
-	}
-
-	if verbose {
-		log.Printf("   Pushed manifest list for %d platforms to %s", len(platforms), remoteImageName)
-	}
-
-	return totalSize, nil
 }
 
 // registerAgent registers the agent spec with the astro-server
