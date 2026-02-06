@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"text/template"
@@ -31,7 +32,13 @@ func DefaultConfig(name string) ScaffoldConfig {
 }
 
 // GenerateFiles creates all project files in the target directory.
-func GenerateFiles(targetDir string, config ScaffoldConfig) error {
+func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
+	// Get template paths for the specified language
+	paths, err := GetTemplatePaths(lang)
+	if err != nil {
+		return err
+	}
+
 	// Create directory structure
 	dirs := []string{
 		targetDir,
@@ -47,30 +54,30 @@ func GenerateFiles(targetDir string, config ScaffoldConfig) error {
 
 	// Generate files from templates
 	files := []struct {
-		path     string
-		template string
+		path         string
+		templatePath string
 	}{
-		{filepath.Join(targetDir, "astro.yml"), astroYmlTemplate},
-		{filepath.Join(targetDir, "Dockerfile"), dockerfileTemplate},
-		{filepath.Join(targetDir, "package.json"), packageJsonTemplate},
-		{filepath.Join(targetDir, "tsconfig.json"), tsconfigTemplate},
-		{filepath.Join(targetDir, ".env.example"), envExampleTemplate},
-		{filepath.Join(targetDir, ".gitignore"), gitignoreTemplate},
-		{filepath.Join(targetDir, ".dockerignore"), dockerignoreTemplate},
-		{filepath.Join(targetDir, "agent", "index.ts"), agentIndexTemplate},
-		{filepath.Join(targetDir, "ingestion", "index.ts"), ingestionIndexTemplate},
+		{filepath.Join(targetDir, "astro.yml"), paths.AstroYml},
+		{filepath.Join(targetDir, "Dockerfile"), paths.Dockerfile},
+		{filepath.Join(targetDir, "package.json"), paths.PackageJson},
+		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
+		{filepath.Join(targetDir, ".env.example"), paths.EnvExample},
+		{filepath.Join(targetDir, ".gitignore"), paths.Gitignore},
+		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
+		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
+		{filepath.Join(targetDir, "ingestion", "index.ts"), paths.IngestionIndex},
 	}
 
 	// Add Dockerfile.ingestion if ingestion is enabled
 	if config.Ingestion != "none" {
 		files = append(files, struct {
-			path     string
-			template string
-		}{filepath.Join(targetDir, "Dockerfile.ingestion"), dockerfileIngestionTemplate})
+			path         string
+			templatePath string
+		}{filepath.Join(targetDir, "Dockerfile.ingestion"), paths.DockerfileIngestion})
 	}
 
 	for _, f := range files {
-		if err := writeTemplate(f.path, f.template, config); err != nil {
+		if err := writeTemplateFromEmbed(f.path, f.templatePath, config); err != nil {
 			return err
 		}
 	}
@@ -78,13 +85,19 @@ func GenerateFiles(targetDir string, config ScaffoldConfig) error {
 	return nil
 }
 
-func writeTemplate(path, tmplStr string, config ScaffoldConfig) error {
-	tmpl, err := template.New("file").Parse(tmplStr)
+func writeTemplateFromEmbed(outputPath, templatePath string, config ScaffoldConfig) error {
+	// Read template from embedded filesystem
+	tmplStr, err := GetTemplate(templatePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read template %s: %w", templatePath, err)
 	}
 
-	file, err := os.Create(path)
+	tmpl, err := template.New(filepath.Base(templatePath)).Parse(tmplStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse template %s: %w", templatePath, err)
+	}
+
+	file, err := os.Create(outputPath)
 	if err != nil {
 		return err
 	}

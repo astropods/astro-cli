@@ -1,0 +1,96 @@
+spec: astro/v1
+agent: {{.Name}}
+
+meta:
+  version: 0.1.0
+  description: {{.Description}}
+
+container:
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      NPM_SCOPE: "@saswatds"
+      NPM_REGISTRY: "https://npm.pkg.github.com"
+    secrets:
+      - id: npm_token
+        env: GITHUB_PACKAGES_TOKEN
+{{- if gt (len .Interfaces) 0}}
+
+interfaces:
+{{- range .Interfaces}}
+{{- if eq . "web"}}
+  web:
+    type: web
+{{- else if eq . "slack"}}
+  slack:
+    type: slack
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if or (ne .Model "none") (gt (len .Tools) 0)}}
+
+integrations:
+{{- if ne .Model "none"}}
+  models:
+{{- if eq .Model "anthropic"}}
+    - name: llm
+      provider: anthropic
+{{- else if eq .Model "openai"}}
+    - name: llm
+      provider: openai
+{{- end}}
+{{- end}}
+{{- if gt (len .Tools) 0}}
+  tools:
+{{- range .Tools}}
+{{- if eq . "github"}}
+    - name: github
+      provider: github
+{{- end}}
+{{- end}}
+{{- end}}
+{{- end}}
+{{- if or (eq .Knowledge "vector") (eq .Knowledge "both") (eq .Knowledge "kv")}}
+
+knowledge:
+{{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
+  docs:
+    type: vector
+    provider: qdrant
+    container:
+      image: qdrant/qdrant:latest
+      persistent: true
+{{- end}}
+{{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
+  cache:
+    type: kv
+    provider: redis
+    container:
+      image: redis:7-alpine
+{{- end}}
+{{- end}}
+{{- if ne .Ingestion "none"}}
+
+ingestion:
+  data:
+    container:
+      build:
+        context: .
+        dockerfile: Dockerfile.ingestion
+        args:
+          NPM_SCOPE: "@saswatds"
+          NPM_REGISTRY: "https://npm.pkg.github.com"
+        secrets:
+          - id: npm_token
+            env: GITHUB_PACKAGES_TOKEN
+    trigger:
+{{- if eq .Ingestion "schedule"}}
+      type: schedule
+      schedule: "0 * * * *"  # every hour
+{{- else if eq .Ingestion "manual"}}
+      type: manual
+{{- else if eq .Ingestion "startup"}}
+      type: startup
+{{- end}}
+{{- end}}
