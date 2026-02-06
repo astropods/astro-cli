@@ -2,10 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { deploymentKeys } from './keys';
 
-export function useDeployments() {
+export function useDeployments(enabled = true) {
   return useQuery({
     queryKey: deploymentKeys.all,
     queryFn: () => api.listDeployments(),
+    enabled,
   });
 }
 
@@ -17,7 +18,7 @@ export function useDeploymentLogs(
   tailLines?: number,
 ) {
   return useQuery({
-    queryKey: deploymentKeys.logs(name, version, pod, container),
+    queryKey: deploymentKeys.logs(name, version, pod, container, tailLines),
     queryFn: () => api.getDeploymentLogs(name, version, pod, container, tailLines),
     enabled: !!name && !!version && !!pod && !!container,
     // Logs are ephemeral — always refetch, never serve stale

@@ -13,6 +13,6 @@ export const agentKeys = {
 
 export const deploymentKeys = {
   all: ['deployments'] as const,
-  logs: (name: string, version: string, pod: string, container: string) =>
-    ['deployments', name, version, 'logs', pod, container] as const,
+  logs: (name: string, version: string, pod: string, container: string, tailLines?: number) =>
+    ['deployments', name, version, 'logs', pod, container, tailLines] as const,
 };

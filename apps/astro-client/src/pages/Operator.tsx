@@ -15,17 +15,16 @@ import {
   Copy,
   FileText,
 } from "lucide-react";
-import { api } from "../lib/api";
 import type {
   Agent,
   AgentDeployment,
-  AgentsListResponse,
-  CredentialInfo,
+  ApiError,
   DeployResponse,
-  DeploymentsListResponse,
   PodDetail,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useAgents, useAgentConfig, useDeployAgent } from "../api/queries/agents";
+import { useDeployments, useDeploymentLogs, useUndeployAgent } from "../api/queries/deployments";
 
 interface DeployModalProps {
   agent: Agent;
@@ -42,36 +41,28 @@ function DeployModal({
   onDeploy,
   isDeploying,
 }: DeployModalProps) {
-  const [credentials, setCredentials] = useState<CredentialInfo[]>([]);
+  const { data: configData, isLoading: loading, error: configError } = useAgentConfig(agent.name, version);
+  const credentials = configData?.credentials ?? [];
+  const error = configError
+    ? (configError as ApiError).error_description ?? configError.message ?? "Failed to load configuration"
+    : null;
+
   const [credentialValues, setCredentialValues] = useState<
     Record<string, string>
   >({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
+  // Initialize credential values when config loads
   useEffect(() => {
-    async function fetchConfig() {
-      try {
-        setLoading(true);
-        setError(null);
-        const config = await api.getAgentConfig(agent.name, version);
-        setCredentials(config.credentials || []);
-        // Initialize credential values
+    if (credentials.length > 0) {
+      setCredentialValues((prev) => {
         const initial: Record<string, string> = {};
-        for (const cred of config.credentials || []) {
-          initial[cred.key] = "";
+        for (const cred of credentials) {
+          initial[cred.key] = prev[cred.key] ?? "";
         }
-        setCredentialValues(initial);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load configuration"
-        );
-      } finally {
-        setLoading(false);
-      }
+        return initial;
+      });
     }
-    fetchConfig();
-  }, [agent.name, version]);
+  }, [credentials]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -332,9 +323,6 @@ interface LogModalProps {
 }
 
 function LogModal({ deployment, pod, onClose }: LogModalProps) {
-  const [logs, setLogs] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedContainer, setSelectedContainer] = useState(
     pod.containers[0]?.name || ""
   );
@@ -343,31 +331,15 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
     if (node) node.scrollTop = node.scrollHeight;
   }, []);
 
-  const fetchLogs = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const text = await api.getDeploymentLogs(
-        deployment.name,
-        deployment.version,
-        pod.name,
-        selectedContainer,
-        tailLines
-      );
-      setLogs(text);
-    } catch (err) {
-      const apiErr = err as { error?: string; details?: string };
-      setError(
-        apiErr?.details || apiErr?.error || (err instanceof Error ? err.message : "Failed to fetch logs")
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [deployment.name, deployment.version, pod.name, selectedContainer, tailLines]);
-
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+  const { data: logs, isLoading: loading, error: logsError, refetch } = useDeploymentLogs(
+    deployment.name, deployment.version, pod.name, selectedContainer, tailLines
+  );
+  const error = logsError
+    ? (logsError as ApiError & { details?: string }).details
+      ?? (logsError as ApiError).error_description
+      ?? logsError.message
+      ?? "Failed to fetch logs"
+    : null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -417,7 +389,7 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
             </select>
           </label>
           <button
-            onClick={fetchLogs}
+            onClick={() => refetch()}
             disabled={loading}
             className="flex items-center gap-1 px-2 py-1 text-sm border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer disabled:opacity-50"
           >
@@ -441,7 +413,7 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
               ref={logRef}
               className="bg-gray-900 text-gray-100 text-xs font-mono p-3 overflow-y-scroll h-full whitespace-pre-wrap break-all"
             >
-              {logs || "(no logs available)"}
+              {logs ?? "(no logs available)"}
             </pre>
           )}
         </div>
@@ -792,58 +764,25 @@ function AgentCard({ agent, onDeploy }: AgentCardProps) {
 
 export function Operator() {
   const { isAuthenticated, login } = useAuth();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [deployments, setDeployments] = useState<AgentDeployment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [deploymentsLoading, setDeploymentsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // Server data via TanStack Query
+  const { data: agentsData, isLoading: loading, error: agentsError, refetch: refetchAgents } = useAgents();
+  const agents = agentsData?.agents ?? [];
+  const error = agentsError
+    ? (agentsError as ApiError).error_description ?? agentsError.message ?? "Failed to load agents"
+    : null;
+
+  const { data: deploymentsData, isLoading: deploymentsLoading, refetch: refetchDeployments } = useDeployments(isAuthenticated);
+  const deployments = deploymentsData?.deployments ?? [];
 
   // Deploy modal state
   const [deployAgent, setDeployAgent] = useState<Agent | null>(null);
   const [deployVersion, setDeployVersion] = useState<string>("");
-  const [isDeploying, setIsDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<DeployResponse | null>(null);
 
-  // Undeploy state
-  const [undeployingAgent, setUndeployingAgent] = useState<string | null>(null);
-
-  const fetchAgents = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = (await api.listAgents()) as AgentsListResponse;
-      setAgents(response.agents || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchDeployments = useCallback(async () => {
-    if (!isAuthenticated) {
-      setDeployments([]);
-      return;
-    }
-    try {
-      setDeploymentsLoading(true);
-      const response = (await api.listDeployments()) as DeploymentsListResponse;
-      setDeployments(response.deployments || []);
-    } catch (err) {
-      console.error("Failed to fetch deployments:", err);
-      setDeployments([]);
-    } finally {
-      setDeploymentsLoading(false);
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    fetchAgents();
-  }, []);
-
-  useEffect(() => {
-    fetchDeployments();
-  }, [fetchDeployments]);
+  // Mutations
+  const deployMutation = useDeployAgent();
+  const undeployMutation = useUndeployAgent();
 
   const handleDeploy = (agent: Agent, version: string) => {
     if (!isAuthenticated) {
@@ -858,16 +797,13 @@ export function Operator() {
     if (!deployAgent || !deployVersion) return;
 
     try {
-      setIsDeploying(true);
-      const result = await api.deployAgent({
+      const result = await deployMutation.mutateAsync({
         name: deployAgent.name,
         version: deployVersion,
         user_credentials: credentials,
       });
       setDeployResult(result);
       setDeployAgent(null);
-      // Refresh deployments list
-      fetchDeployments();
     } catch (err) {
       // Extract error details from API error response
       const apiErr = err as { error?: string; details?: string; validation_errors?: Array<{ field: string; message: string }>; missing_credentials?: string[] };
@@ -915,25 +851,15 @@ export function Operator() {
         errors,
       });
       setDeployAgent(null);
-    } finally {
-      setIsDeploying(false);
     }
   };
 
   const handleUndeploy = async (name: string, version: string) => {
     try {
-      setUndeployingAgent(`${name}:${version}`);
-      await api.undeployAgent({
-        name,
-        version,
-      });
-      // Refresh deployments list
-      fetchDeployments();
+      await undeployMutation.mutateAsync({ name, version });
     } catch (err) {
       console.error("Failed to undeploy:", err);
       alert(err instanceof Error ? err.message : "Failed to undeploy agent");
-    } finally {
-      setUndeployingAgent(null);
     }
   };
 
@@ -947,7 +873,7 @@ export function Operator() {
           </p>
         </div>
         <button
-          onClick={fetchAgents}
+          onClick={() => refetchAgents()}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
         >
@@ -975,7 +901,7 @@ export function Operator() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Current Deployments</h2>
             <button
-              onClick={fetchDeployments}
+              onClick={() => refetchDeployments()}
               disabled={deploymentsLoading}
               className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-800"
             >
@@ -1006,7 +932,7 @@ export function Operator() {
                   key={`${dep.name}:${dep.version}`}
                   deployment={dep}
                   onUndeploy={handleUndeploy}
-                  isUndeploying={undeployingAgent === `${dep.name}:${dep.version}`}
+                  isUndeploying={undeployMutation.isPending && undeployMutation.variables?.name === dep.name && undeployMutation.variables?.version === dep.version}
                 />
               ))}
             </div>
@@ -1033,7 +959,7 @@ export function Operator() {
           <p className="font-medium">Failed to load agents</p>
           <p className="text-sm">{error}</p>
           <button
-            onClick={fetchAgents}
+            onClick={() => refetchAgents()}
             className="mt-2 px-3 py-1 text-sm border border-red-300 bg-white text-red-700 hover:bg-red-50 cursor-pointer"
           >
             Retry
@@ -1061,7 +987,7 @@ export function Operator() {
           version={deployVersion}
           onClose={() => setDeployAgent(null)}
           onDeploy={handleDeploySubmit}
-          isDeploying={isDeploying}
+          isDeploying={deployMutation.isPending}
         />
       )}
 
