@@ -13,6 +13,7 @@ import {
   Activity,
   Link,
   Copy,
+  FileText,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type {
@@ -22,6 +23,7 @@ import type {
   CredentialInfo,
   DeployResponse,
   DeploymentsListResponse,
+  PodDetail,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -323,6 +325,168 @@ function DeployResultModal({ result, onClose }: DeployResultModalProps) {
   );
 }
 
+interface LogModalProps {
+  deployment: AgentDeployment;
+  pod: PodDetail;
+  onClose: () => void;
+}
+
+function LogModal({ deployment, pod, onClose }: LogModalProps) {
+  const [logs, setLogs] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedContainer, setSelectedContainer] = useState(
+    pod.containers[0]?.name || ""
+  );
+  const [tailLines, setTailLines] = useState(200);
+  const logRef = useCallback((node: HTMLPreElement | null) => {
+    if (node) node.scrollTop = node.scrollHeight;
+  }, []);
+
+  const fetchLogs = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const text = await api.getDeploymentLogs(
+        deployment.name,
+        deployment.version,
+        pod.name,
+        selectedContainer,
+        tailLines
+      );
+      setLogs(text);
+    } catch (err) {
+      const apiErr = err as { error?: string; details?: string };
+      setError(
+        apiErr?.details || apiErr?.error || (err instanceof Error ? err.message : "Failed to fetch logs")
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [deployment.name, deployment.version, pod.name, selectedContainer, tailLines]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white border border-gray-300 w-full max-w-[800px] max-h-[85vh] relative overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-300">
+          <div>
+            <h2 className="text-lg font-semibold">Pod Logs</h2>
+            <p className="text-sm text-gray-600 font-mono">{pod.name}</p>
+          </div>
+          <button
+            className="bg-transparent border-none cursor-pointer p-1"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-gray-50">
+          {pod.containers.length > 1 && (
+            <label className="flex items-center gap-1 text-sm">
+              Container:
+              <select
+                value={selectedContainer}
+                onChange={(e) => setSelectedContainer(e.target.value)}
+                className="border border-gray-300 text-sm px-2 py-1"
+              >
+                {pod.containers.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-1 text-sm">
+            Tail lines:
+            <select
+              value={tailLines}
+              onChange={(e) => setTailLines(Number(e.target.value))}
+              className="border border-gray-300 text-sm px-2 py-1"
+            >
+              {[50, 100, 200, 500].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={fetchLogs}
+            disabled={loading}
+            className="flex items-center gap-1 px-2 py-1 text-sm border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="animate-spin text-gray-500" />
+              <span className="ml-2 text-gray-600">Loading logs...</span>
+            </div>
+          ) : error ? (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm">
+              {error}
+            </div>
+          ) : (
+            <pre
+              ref={logRef}
+              className="bg-gray-900 text-gray-100 text-xs font-mono p-3 overflow-y-scroll h-full whitespace-pre-wrap break-all"
+            >
+              {logs || "(no logs available)"}
+            </pre>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-gray-300">
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 border border-gray-800 text-sm bg-gray-800 text-white hover:bg-gray-700 cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function containerStateColor(state: string): string {
+  switch (state) {
+    case "Running":
+      return "text-green-600";
+    case "Waiting":
+      return "text-yellow-600";
+    case "Terminated":
+      return "text-red-600";
+    default:
+      return "text-gray-500";
+  }
+}
+
+function phaseColor(phase: string): string {
+  switch (phase) {
+    case "Running":
+      return "text-green-600";
+    case "Pending":
+      return "text-yellow-600";
+    case "Failed":
+      return "text-red-600";
+    case "Succeeded":
+      return "text-blue-600";
+    default:
+      return "text-gray-500";
+  }
+}
+
 interface DeploymentCardProps {
   deployment: AgentDeployment;
   onUndeploy: (name: string, version: string) => void;
@@ -335,6 +499,8 @@ function DeploymentCard({
   isUndeploying,
 }: DeploymentCardProps) {
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [logPod, setLogPod] = useState<PodDetail | null>(null);
 
   const statusColor =
     deployment.status === "Running"
@@ -358,9 +524,14 @@ function DeploymentCard({
     }
   };
 
+  const pods = deployment.pods || [];
+
   return (
-    <div className="border border-gray-300 bg-white p-4">
-      <div className="flex items-center justify-between">
+    <div className="border border-gray-300 bg-white">
+      <div
+        className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
+        onClick={() => setExpanded(!expanded)}
+      >
         <div className="flex items-center gap-3">
           <Activity size={20} className={statusColor} />
           <div>
@@ -380,7 +551,10 @@ function DeploymentCard({
             {deployment.ready}/{deployment.replicas} ready
           </span>
           <button
-            onClick={() => onUndeploy(deployment.name, deployment.version)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onUndeploy(deployment.name, deployment.version);
+            }}
             disabled={isUndeploying}
             className="px-3 py-1.5 border border-red-300 text-sm text-red-600 bg-white hover:bg-red-50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
@@ -391,44 +565,155 @@ function DeploymentCard({
             )}
             Undeploy
           </button>
+          {expanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
         </div>
       </div>
-      {deployment.components.length > 0 && (
-        <div className="mt-2 flex gap-1 flex-wrap">
-          {deployment.components.map((c) => (
-            <span
-              key={c}
-              className="px-2 py-0.5 text-xs bg-gray-100 border border-gray-200"
+
+      {/* Summary info always visible */}
+      <div className="px-4 pb-3">
+        {deployment.components.length > 0 && (
+          <div className="flex gap-1 flex-wrap mb-2">
+            {deployment.components.map((c) => (
+              <span
+                key={c}
+                className="px-2 py-0.5 text-xs bg-gray-100 border border-gray-200"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
+        {deployment.external_url && (
+          <div className="flex items-center gap-2 mb-2">
+            <Link size={14} className="text-green-600" />
+            <a
+              href={deployment.external_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline font-mono truncate flex-1"
+              onClick={(e) => e.stopPropagation()}
             >
-              {c}
-            </span>
-          ))}
+              {deployment.external_url}
+            </a>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyEndpoint();
+              }}
+              className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer flex items-center gap-1"
+              title="Copy endpoint URL"
+            >
+              <Copy size={12} />
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        )}
+        <p className="text-xs text-gray-400">
+          Deployed: {new Date(deployment.created_at).toLocaleString()}
+        </p>
+      </div>
+
+      {/* Expanded pod details */}
+      {expanded && (
+        <div className="border-t border-gray-300 p-4 bg-gray-50">
+          <h4 className="text-sm font-medium mb-3">
+            Pods ({pods.length})
+          </h4>
+          {pods.length === 0 ? (
+            <p className="text-sm text-gray-500">No pods found</p>
+          ) : (
+            <div className="space-y-2">
+              {pods.map((pod) => {
+                const readyContainers = pod.containers.filter((c) => c.ready).length;
+                const totalContainers = pod.containers.length;
+                const totalRestarts = pod.containers.reduce(
+                  (sum, c) => sum + c.restart_count,
+                  0
+                );
+
+                return (
+                  <div
+                    key={pod.name}
+                    className="bg-white border border-gray-200 p-3"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm truncate max-w-[300px]">
+                          {pod.name}
+                        </span>
+                        <span className={`text-xs font-medium ${phaseColor(pod.phase)}`}>
+                          {pod.phase}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500">
+                          {readyContainers}/{totalContainers} ready
+                        </span>
+                        {totalRestarts > 0 && (
+                          <span className="text-xs text-orange-600">
+                            {totalRestarts} restart{totalRestarts !== 1 ? "s" : ""}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-400">{pod.age}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLogPod(pod);
+                          }}
+                          className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer flex items-center gap-1"
+                        >
+                          <FileText size={12} />
+                          View Logs
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Container details */}
+                    {pod.containers.length > 0 && (
+                      <div className="mt-1">
+                        {pod.containers.map((container) => (
+                          <div
+                            key={container.name}
+                            className="flex items-center gap-3 text-xs py-1 border-t border-gray-100 first:border-t-0"
+                          >
+                            <span className="font-mono text-gray-700 w-32 truncate">
+                              {container.name}
+                            </span>
+                            <span className={`font-medium ${containerStateColor(container.state)}`}>
+                              {container.state}
+                            </span>
+                            {container.reason && (
+                              <span className="text-gray-500" title={container.message || ""}>
+                                ({container.reason})
+                              </span>
+                            )}
+                            <span className={container.ready ? "text-green-600" : "text-gray-400"}>
+                              {container.ready ? "Ready" : "Not Ready"}
+                            </span>
+                            {container.restart_count > 0 && (
+                              <span className="text-orange-600">
+                                {container.restart_count} restart{container.restart_count !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
-      {deployment.external_url && (
-        <div className="mt-3 flex items-center gap-2">
-          <Link size={14} className="text-green-600" />
-          <a
-            href={deployment.external_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:underline font-mono truncate flex-1"
-          >
-            {deployment.external_url}
-          </a>
-          <button
-            onClick={handleCopyEndpoint}
-            className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer flex items-center gap-1"
-            title="Copy endpoint URL"
-          >
-            <Copy size={12} />
-            {copied ? "Copied!" : "Copy"}
-          </button>
-        </div>
+
+      {logPod && (
+        <LogModal
+          deployment={deployment}
+          pod={logPod}
+          onClose={() => setLogPod(null)}
+        />
       )}
-      <p className="text-xs text-gray-400 mt-2">
-        Deployed: {new Date(deployment.created_at).toLocaleString()}
-      </p>
     </div>
   );
 }

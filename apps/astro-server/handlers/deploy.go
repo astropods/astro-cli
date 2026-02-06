@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
 	"github.com/postman/astro/packages/astro-spec"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -345,6 +348,25 @@ type ServiceEndpointInfo struct {
 	URL  string `json:"url"`
 }
 
+// ContainerStatus represents the status of a single container in a pod
+type ContainerStatus struct {
+	Name         string `json:"name"`
+	State        string `json:"state"`
+	Ready        bool   `json:"ready"`
+	RestartCount int32  `json:"restart_count"`
+	Reason       string `json:"reason,omitempty"`
+	Message      string `json:"message,omitempty"`
+}
+
+// PodDetail represents details about a single pod
+type PodDetail struct {
+	Name       string            `json:"name"`
+	Phase      string            `json:"phase"`
+	PodIP      string            `json:"pod_ip,omitempty"`
+	Age        string            `json:"age"`
+	Containers []ContainerStatus `json:"containers"`
+}
+
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
 	Name            string               `json:"name"`
@@ -356,6 +378,7 @@ type AgentDeployment struct {
 	Components      []string             `json:"components"`
 	ServiceEndpoint *ServiceEndpointInfo `json:"service_endpoint,omitempty"`
 	ExternalURL     string               `json:"external_url,omitempty"`
+	Pods            []PodDetail          `json:"pods,omitempty"`
 }
 
 // ListDeployments returns a handler for listing deployed agents
@@ -442,6 +465,14 @@ func listAstroDeployments(ctx context.Context, k8sClient *k8s.EKSClient, namespa
 	if err != nil {
 		// Ingress listing failure is not critical, log and continue
 		ingressList = nil
+	}
+
+	// List pods for the namespace
+	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
 
 	// Build a map of agent services (only agent component services)
@@ -543,6 +574,54 @@ func listAstroDeployments(ctx context.Context, k8sClient *k8s.EKSClient, namespa
 		}
 	}
 
+	// Attach pods to their respective agent deployments
+	for _, pod := range podList.Items {
+		agentName := pod.Labels["astro.dev/agent"]
+		version := pod.Labels["app.kubernetes.io/version"]
+		if agentName == "" {
+			continue
+		}
+
+		key := agentName + ":" + version
+		info, exists := agentDeployments[key]
+		if !exists {
+			continue
+		}
+
+		podDetail := PodDetail{
+			Name:       pod.Name,
+			Phase:      string(pod.Status.Phase),
+			PodIP:      pod.Status.PodIP,
+			Age:        formatAge(pod.CreationTimestamp.Time),
+			Containers: []ContainerStatus{},
+		}
+
+		for _, cs := range pod.Status.ContainerStatuses {
+			container := ContainerStatus{
+				Name:         cs.Name,
+				Ready:        cs.Ready,
+				RestartCount: cs.RestartCount,
+			}
+			switch {
+			case cs.State.Running != nil:
+				container.State = "Running"
+			case cs.State.Waiting != nil:
+				container.State = "Waiting"
+				container.Reason = cs.State.Waiting.Reason
+				container.Message = cs.State.Waiting.Message
+			case cs.State.Terminated != nil:
+				container.State = "Terminated"
+				container.Reason = cs.State.Terminated.Reason
+				container.Message = cs.State.Terminated.Message
+			default:
+				container.State = "Unknown"
+			}
+			podDetail.Containers = append(podDetail.Containers, container)
+		}
+
+		info.Pods = append(info.Pods, podDetail)
+	}
+
 	// Convert map to slice
 	result := make([]AgentDeployment, 0, len(agentDeployments))
 	for _, info := range agentDeployments {
@@ -550,4 +629,88 @@ func listAstroDeployments(ctx context.Context, k8sClient *k8s.EKSClient, namespa
 	}
 
 	return result, nil
+}
+
+// formatAge returns a human-readable age string
+func formatAge(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
+// GetDeploymentLogs returns a handler for fetching pod logs
+func GetDeploymentLogs(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get authenticated user from context
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		k8sNamespace := sanitizeNamespace(user.ID)
+		podName := c.Query("pod")
+		containerName := c.Query("container")
+
+		if podName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "pod query parameter is required"})
+			return
+		}
+
+		tailLines := int64(200)
+		if tl := c.Query("tailLines"); tl != "" {
+			if parsed, err := strconv.ParseInt(tl, 10, 64); err == nil && parsed > 0 {
+				tailLines = parsed
+			}
+		}
+
+		// Initialize EKS client
+		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
+			ClusterName:     cfg.Deployment.EKSClusterName,
+			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
+			Region:          cfg.Deployment.AWSRegion,
+			Logger:          log,
+		})
+		if err != nil {
+			log.Error("Failed to create EKS client", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to connect to EKS cluster"})
+			return
+		}
+
+		logOpts := &corev1.PodLogOptions{
+			TailLines: &tailLines,
+		}
+		if containerName != "" {
+			logOpts.Container = containerName
+		}
+
+		req := k8sClient.Clientset().CoreV1().Pods(k8sNamespace).GetLogs(podName, logOpts)
+		stream, err := req.Stream(c.Request.Context())
+		if err != nil {
+			log.Error("Failed to get pod logs", "error", err, "pod", podName)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to get pod logs",
+				"details": err.Error(),
+			})
+			return
+		}
+		defer stream.Close()
+
+		logBytes, err := io.ReadAll(stream)
+		if err != nil {
+			log.Error("Failed to read pod logs", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read pod logs"})
+			return
+		}
+
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", logBytes)
+	}
 }

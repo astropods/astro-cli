@@ -166,6 +166,33 @@ class ApiClient {
   async listDeployments(): Promise<DeploymentsListResponse> {
     return this.request<DeploymentsListResponse>('/api/v1/deployments');
   }
+
+  // Fetch logs for a specific pod in a deployment
+  async getDeploymentLogs(
+    name: string,
+    version: string,
+    pod: string,
+    container: string,
+    tailLines: number = 200
+  ): Promise<string> {
+    const params = new URLSearchParams({
+      pod,
+      container,
+      tailLines: String(tailLines),
+    });
+    const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(name)}/${encodeURIComponent(version)}/logs?${params}`;
+    const response = await fetch(url, {
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({
+        error: 'request_failed',
+        details: `Request failed with status ${response.status}`,
+      }));
+      throw error;
+    }
+    return response.text();
+  }
 }
 
 // Response types
@@ -247,6 +274,23 @@ export interface ServiceEndpointInfo {
   url: string;
 }
 
+export interface ContainerStatus {
+  name: string;
+  state: string;
+  ready: boolean;
+  restart_count: number;
+  reason?: string;
+  message?: string;
+}
+
+export interface PodDetail {
+  name: string;
+  phase: string;
+  pod_ip?: string;
+  age: string;
+  containers: ContainerStatus[];
+}
+
 export interface AgentDeployment {
   name: string;
   version: string;
@@ -257,6 +301,7 @@ export interface AgentDeployment {
   components: string[];
   service_endpoint?: ServiceEndpointInfo;
   external_url?: string;
+  pods?: PodDetail[];
 }
 
 export interface DeploymentsListResponse {
