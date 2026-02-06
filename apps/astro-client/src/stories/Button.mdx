@@ -1,0 +1,114 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as ButtonStories from "./Button.stories"
+
+<Meta of={ButtonStories} />
+
+# Button
+
+A button component built on [shadcn/ui](https://ui.shadcn.com/docs/components/button) with Astro design system tokens.
+
+## Import
+
+```tsx
+import { Button } from "@/components/ui/button"
+```
+
+## Usage
+
+```tsx
+<Button>Primary Action</Button>
+<Button variant="outline">Secondary Action</Button>
+```
+
+## Variants
+
+### Default (Primary)
+
+Filled background using the primary color. Use for the main action in a view.
+
+<Canvas of={ButtonStories.Default} />
+
+### Outline (Secondary)
+
+Bordered with transparent background. Use for secondary actions alongside a primary button.
+
+<Canvas of={ButtonStories.Outline} />
+
+### Destructive
+
+For dangerous or irreversible actions like deleting resources.
+
+<Canvas of={ButtonStories.Destructive} />
+
+### Secondary
+
+Muted fill for lower-emphasis actions.
+
+<Canvas of={ButtonStories.Secondary} />
+
+### Ghost
+
+No border or background until hovered. Use for toolbar actions or compact UI.
+
+<Canvas of={ButtonStories.Ghost} />
+
+### Link
+
+Renders as an inline text link. Pair with `asChild` to wrap an `<a>` tag.
+
+<Canvas of={ButtonStories.Link} />
+
+## With Icons
+
+Icons placed as children are automatically sized to `16px` and shrunk to prevent layout shift.
+
+<Canvas of={ButtonStories.WithIcon} />
+
+## Icon Button
+
+Use `size="icon"` for square icon-only buttons. Renders at 32×32px by default.
+
+<Canvas of={ButtonStories.IconButton} />
+
+```tsx
+<Button variant="outline" size="icon">
+  <Plus />
+</Button>
+```
+
+## Sizes
+
+All text button sizes shown together for comparison: `xs` (24px), `sm` (28px), `default` (32px), `lg` (40px).
+
+<Canvas of={ButtonStories.Sizes} />
+
+Icon button sizes: `icon-xs` (24px), `icon-sm` (28px), `icon` (32px), `icon-lg` (40px).
+
+<Canvas of={ButtonStories.IconSizes} />
+
+## Loading State
+
+Disable the button and add a spinner icon.
+
+<Canvas of={ButtonStories.Loading} />
+
+```tsx
+<Button disabled>
+  <Loader2 className="animate-spin" /> Please wait
+</Button>
+```
+
+## As Child
+
+Use `asChild` to render the button styles on a different element, like a link.
+
+```tsx
+<Button asChild>
+  <a href="/dashboard">Go to Dashboard</a>
+</Button>
+```
+
+## Playground
+
+<Canvas of={ButtonStories.Default} />
+<Controls of={ButtonStories.Default} />

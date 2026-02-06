@@ -1,0 +1,207 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as AppSidebarStories from "./AppSidebar.stories"
+import * as NavGroupStories from "./SidebarNavGroup.stories"
+import * as CollapsibleGroupStories from "./SidebarCollapsibleGroup.stories"
+import * as UserMenuStories from "./SidebarUserMenu.stories"
+import Markdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+
+export const Md = ({ children }) => <Markdown remarkPlugins={[remarkGfm]}>{children}</Markdown>
+
+<Meta title="Components/Sidebar/Overview" />
+
+# Sidebar
+
+The application sidebar built on [shadcn/ui Sidebar](https://ui.shadcn.com/docs/components/sidebar) primitives. It provides primary navigation, collapsible agent lists, resource links, a CTA, and user authentication controls.
+
+## Architecture
+
+The sidebar is composed of three reusable sub-components:
+
+<Md>{`| Component | Description |
+|---|---|
+| \`SidebarNavGroup\` | Data-driven nav list with optional group label, icons, and external link support |
+| \`SidebarCollapsibleGroup\` | Expandable/collapsible section with chevron animation |
+| \`SidebarUserMenu\` | Auth footer with loading, signed-in, and signed-out states |`}</Md>
+
+These are assembled in `AppSidebar`, which is a presentational component that receives auth state via props.
+
+## Import
+
+```tsx
+import { AppSidebar } from "@/components/AppSidebar"
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
+```
+
+## Usage
+
+```tsx
+<SidebarProvider>
+  <AppSidebar
+    user={user}
+    isAuthenticated={isAuthenticated}
+    isLoading={isLoading}
+    onSignIn={login}
+    onSignOut={logout}
+    onTalkToAstro={handleTalkToAstro}
+  />
+  <SidebarInset>
+    <main>{/* page content */}</main>
+  </SidebarInset>
+</SidebarProvider>
+```
+
+## Full Sidebar
+
+The complete assembled sidebar with all sections.
+
+<Canvas of={AppSidebarStories.SignedInWithAvatar} />
+
+### Auth States
+
+**Signed out** — shows a Sign In button in the footer.
+
+<Canvas of={AppSidebarStories.SignedOut} />
+
+**Loading** — spinner placeholder while auth resolves. Sized to match the signed-in state to prevent layout shift.
+
+<Canvas of={AppSidebarStories.Loading} />
+
+## Nav Group
+
+A reusable navigation group that renders a list of links. Supports optional group labels, icons, external links, and active state.
+
+```tsx
+import { SidebarNavGroup } from "@/components/sidebar/SidebarNavGroup"
+```
+
+```tsx
+<SidebarNavGroup
+  label="Resources"
+  items={[
+    { label: "Docs", icon: DocumentTextIcon, to: "https://docs.example.com", external: true },
+    { label: "Settings", icon: CogIcon, to: "/settings", isActive: true },
+  ]}
+/>
+```
+
+### With Icons
+
+<Canvas of={NavGroupStories.PrimaryNav} />
+
+### With Group Label
+
+<Canvas of={NavGroupStories.WithLabel} />
+
+### Text Only
+
+<Canvas of={NavGroupStories.TextOnly} />
+
+### Active State
+
+<Canvas of={NavGroupStories.WithActiveItem} />
+
+## Collapsible Group
+
+An expandable section with a labeled trigger and chevron indicator.
+
+```tsx
+import { SidebarCollapsibleGroup } from "@/components/sidebar/SidebarCollapsibleGroup"
+```
+
+```tsx
+<SidebarCollapsibleGroup
+  label="My Agents"
+  defaultOpen
+  items={[
+    { label: "Research Assistant", to: "/agents/research-assistant" },
+    { label: "Code Reviewer", to: "/agents/code-reviewer" },
+  ]}
+/>
+```
+
+### Expanded
+
+<Canvas of={CollapsibleGroupStories.Default} />
+
+### Collapsed
+
+<Canvas of={CollapsibleGroupStories.Collapsed} />
+
+### Long List
+
+<Canvas of={CollapsibleGroupStories.ManyItems} />
+
+## User Menu
+
+The auth footer. Renders one of three states based on props: loading, authenticated (with dropdown), or signed out.
+
+```tsx
+import { SidebarUserMenu } from "@/components/sidebar/SidebarUserMenu"
+```
+
+```tsx
+<SidebarUserMenu
+  user={user}
+  isAuthenticated
+  onSignOut={logout}
+/>
+```
+
+### With Avatar
+
+<Canvas of={UserMenuStories.WithAvatar} />
+
+### With Initials Fallback
+
+<Canvas of={UserMenuStories.WithInitials} />
+
+### Email-Only User
+
+<Canvas of={UserMenuStories.EmailOnly} />
+
+### Loading
+
+<Canvas of={UserMenuStories.Loading} />
+
+### Signed Out
+
+<Canvas of={UserMenuStories.SignedOut} />
+
+## Props
+
+### AppSidebar
+
+<Md>{`| Prop | Type | Default | Description |
+|---|---|---|---|
+| \`user\` | \`User \\| null\` | \`undefined\` | The authenticated user object |
+| \`isLoading\` | \`boolean\` | \`false\` | Show loading state in footer |
+| \`isAuthenticated\` | \`boolean\` | \`false\` | Whether the user is signed in |
+| \`onSignIn\` | \`() => void\` | — | Called when Sign In is clicked |
+| \`onSignOut\` | \`() => void\` | — | Called when Sign Out is clicked |
+| \`onTalkToAstro\` | \`() => void\` | — | Called when the CTA button is clicked |`}</Md>
+
+### SidebarNavGroup
+
+<Md>{`| Prop | Type | Default | Description |
+|---|---|---|---|
+| \`label\` | \`string\` | — | Optional group label displayed above the items |
+| \`items\` | \`NavItem[]\` | — | Array of nav items to render |`}</Md>
+
+### SidebarCollapsibleGroup
+
+<Md>{`| Prop | Type | Default | Description |
+|---|---|---|---|
+| \`label\` | \`string\` | — | Group label (also the collapse trigger) |
+| \`items\` | \`CollapsibleItem[]\` | — | Array of items to render |
+| \`defaultOpen\` | \`boolean\` | \`true\` | Whether the section starts expanded |`}</Md>
+
+### SidebarUserMenu
+
+<Md>{`| Prop | Type | Default | Description |
+|---|---|---|---|
+| \`user\` | \`User \\| null\` | \`undefined\` | The authenticated user object |
+| \`isLoading\` | \`boolean\` | \`false\` | Show loading spinner |
+| \`isAuthenticated\` | \`boolean\` | \`false\` | Whether the user is signed in |
+| \`onSignIn\` | \`() => void\` | — | Called when Sign In is clicked |
+| \`onSignOut\` | \`() => void\` | — | Called when Sign Out is clicked |`}</Md>
