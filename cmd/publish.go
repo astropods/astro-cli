@@ -102,6 +102,11 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		effectiveRegistryURL = auth.GetRegistryURL()
 	}
 
+	if verbose {
+		fmt.Printf("%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, effectiveServerURL, colorReset)
+		fmt.Printf("%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, effectiveRegistryURL, colorReset)
+	}
+
 	if effectiveRegistryURL == "" {
 		return fmt.Errorf("registry URL required: run 'ast configure', set ASTRO_REGISTRY_URL environment variable, or use --registry flag")
 	}
@@ -380,14 +385,8 @@ func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, 
 	}
 
 	if !skipAuth {
-		if verbose {
-			log.Printf("   Adding auth header...")
-		}
 		if err := auth.AddAuthHeader(context.Background(), req); err != nil {
 			return "", fmt.Errorf("failed to add authentication: %w", err)
-		}
-		if verbose {
-			log.Printf("   Auth header added successfully")
 		}
 	}
 
@@ -402,7 +401,7 @@ func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, 
 		// Read response body for more details
 		body, _ := io.ReadAll(resp.Body)
 		if verbose {
-			log.Printf("   Registry auth failed: %s", string(body))
+			fmt.Fprintf(os.Stderr, "  %sRegistry auth failed: %s%s\n", colorDim, string(body), colorReset)
 		}
 		return "", fmt.Errorf("authentication required. Run 'ast login' to authenticate")
 	}
@@ -425,9 +424,9 @@ func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, 
 	}
 
 	if verbose {
-		log.Printf("   User ID: %s", result.UserID)
+		fmt.Fprintf(os.Stderr, "  %sUser ID: %s%s\n", colorDim, result.UserID, colorReset)
 		if result.OrganizationID != "" {
-			log.Printf("   Organization ID: %s", result.OrganizationID)
+			fmt.Fprintf(os.Stderr, "  %sOrganization ID: %s%s\n", colorDim, result.OrganizationID, colorReset)
 		}
 	}
 
