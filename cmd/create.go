@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	yesFlag  bool
-	pathFlag string
-	langFlag string
+	yesFlag   bool
+	pathFlag  string
+	langFlag  string
+	forceFlag bool
 )
 
 // Supported languages for project templates
@@ -39,7 +40,8 @@ Example:
   ast create my-agent
   ast create my-agent --yes
   ast create my-agent --lang ts
-  ast create my-agent --path /path/to/projects`,
+  ast create my-agent --path /path/to/projects
+  ast create my-agent --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runCreate,
 }
@@ -49,6 +51,7 @@ func init() {
 	createCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
 	createCmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
 	createCmd.Flags().StringVarP(&langFlag, "lang", "l", "ts", "Project language template (ts)")
+	createCmd.Flags().BoolVar(&forceFlag, "force", false, "Recreate in place if directory already exists")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -74,8 +77,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		targetDir = filepath.Join(pathFlag, name)
 	}
 
-	// Validate directory doesn't exist
-	if err := scaffold.ValidateDirectory(targetDir); err != nil {
+	// Validate directory doesn't exist (or remove it if --force)
+	if forceFlag {
+		if err := os.RemoveAll(targetDir); err != nil {
+			return fmt.Errorf("failed to remove existing directory: %w", err)
+		}
+	} else if err := scaffold.ValidateDirectory(targetDir); err != nil {
 		return err
 	}
 
