@@ -31,6 +31,11 @@ type Index struct {
 	db *sql.DB
 }
 
+// NewIndexWithDB creates a new agent index with a provided database connection (for testing)
+func NewIndexWithDB(db *sql.DB) *Index {
+	return &Index{db: db}
+}
+
 // NewIndex creates a new agent index with PostgreSQL backend
 func NewIndex(databaseURL string) (*Index, error) {
 	// Open PostgreSQL database
