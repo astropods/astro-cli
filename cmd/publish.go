@@ -509,12 +509,28 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 		}
 	}
 
-	client := &http.Client{}
+	client := &http.Client{
+		// Don't follow redirects — a 301/302 redirect downgrades POST to GET,
+		// which causes the request to hit GET /agents/:name instead of POST /agents/register.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// If the server redirected, report it clearly instead of silently failing
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		location := resp.Header.Get("Location")
+		hint := ""
+		if strings.HasPrefix(reqURL, "http://") && strings.HasPrefix(location, "https://") {
+			hint = ". It looks like the server requires HTTPS — try updating your server URL to use https://"
+		}
+		return fmt.Errorf("server returned redirect (%d) to %q%s", resp.StatusCode, location, hint)
+	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		body, _ := io.ReadAll(resp.Body)
