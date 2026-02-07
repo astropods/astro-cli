@@ -44,7 +44,7 @@ function DeployModal({
   const { data: configData, isLoading: loading, error: configError } = useAgentConfig(agent.name, version);
   const credentials = configData?.credentials ?? [];
   const error = configError
-    ? (configError as ApiError).error_description ?? configError.message ?? "Failed to load configuration"
+    ? (configError as unknown as ApiError).error_description ?? configError.message ?? "Failed to load configuration"
     : null;
 
   const [credentialValues, setCredentialValues] = useState<
@@ -335,8 +335,8 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
     deployment.name, deployment.version, pod.name, selectedContainer, tailLines
   );
   const error = logsError
-    ? (logsError as ApiError & { details?: string }).details
-      ?? (logsError as ApiError).error_description
+    ? (logsError as unknown as ApiError & { details?: string }).details
+      ?? (logsError as unknown as ApiError).error_description
       ?? logsError.message
       ?? "Failed to fetch logs"
     : null;
@@ -769,7 +769,7 @@ export function Operator() {
   const { data: agentsData, isLoading: loading, error: agentsError, refetch: refetchAgents } = useAgents();
   const agents = agentsData?.agents ?? [];
   const error = agentsError
-    ? (agentsError as ApiError).error_description ?? agentsError.message ?? "Failed to load agents"
+    ? (agentsError as unknown as ApiError).error_description ?? agentsError.message ?? "Failed to load agents"
     : null;
 
   const { data: deploymentsData, isLoading: deploymentsLoading, refetch: refetchDeployments } = useDeployments(isAuthenticated);

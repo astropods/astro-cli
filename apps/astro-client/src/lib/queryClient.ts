@@ -8,7 +8,7 @@ export const queryClient = new QueryClient({
       gcTime: 1000 * 60 * 5, // 5 minutes before inactive cache is garbage collected
       retry: (failureCount, error) => {
         // Don't retry on 4xx errors (auth failures, not found, validation, etc.)
-        const apiError = error as ApiError;
+        const apiError = error as unknown as ApiError;
         if (apiError?.code?.startsWith('4')) return false;
         return failureCount < 2;
       },
