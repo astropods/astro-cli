@@ -19,7 +19,7 @@ var (
 	WorkOSBaseURL = "https://api.workos.com"
 
 	// Default host (used when not set in profile or env)
-	DefaultServerURL = "https://odesdaz.com"
+	DefaultServerURL = "https://astromode.ai"
 )
 
 // Environment variable names
