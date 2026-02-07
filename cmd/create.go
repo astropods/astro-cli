@@ -111,11 +111,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 func printSuccess(name, targetDir string) {
 	fmt.Printf("\n%s✓%s Created agent %s%s%s\n\n", colorGreen, colorReset, colorBold, name, colorReset)
 	fmt.Println("Next steps:")
-	// Show cd command if created in a different directory
-	if targetDir != name {
-		fmt.Printf("  %s→%s cd %s\n", colorCyan, colorReset, targetDir)
-	}
-	fmt.Printf("  %s→%s cp .env.example .env\n", colorCyan, colorReset)
+	fmt.Printf("  %s→%s cd %s\n", colorCyan, colorReset, targetDir)
+	fmt.Printf("  %s→%s update .env as needed\n", colorCyan, colorReset)
 	fmt.Printf("  %s→%s ast dev\n", colorCyan, colorReset)
 	fmt.Println()
 }

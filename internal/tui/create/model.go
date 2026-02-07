@@ -16,6 +16,7 @@ const (
 	screenDescription screen = iota
 	screenInterface
 	screenModel
+	screenApiKey
 	screenKnowledge
 	screenTools
 	screenIngestion
@@ -34,6 +35,8 @@ type model struct {
 
 	// Text input for description
 	descInput textinput.Model
+	// Masked input for API key (used on screenApiKey)
+	apiKeyInput textinput.Model
 
 	// Select state
 	options  []option
@@ -62,6 +65,7 @@ func initialModel(name string) model {
 			Tools:      []string{},
 		},
 		selected: make(map[int]bool),
+		// apiKeyInput is initialized when entering screenApiKey
 	}
 }
 
@@ -91,6 +95,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateInterface(msg)
 	case screenModel:
 		return m.updateModel(msg)
+	case screenApiKey:
+		return m.updateApiKey(msg)
 	case screenKnowledge:
 		return m.updateKnowledge(msg)
 	case screenTools:
@@ -191,13 +197,43 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			m.config.Model = m.options[m.cursor].value
+			if m.config.Model == "none" {
+				m.screen = screenKnowledge
+				m.cursor = 0
+				return m, nil
+			}
+			// Show API key step for OpenAI or Anthropic
+			ti := textinput.New()
+			ti.EchoMode = textinput.EchoPassword
+			ti.EchoCharacter = '*'
+			ti.Placeholder = ""
+			ti.Width = 60
+			m.apiKeyInput = ti
+			m.screen = screenApiKey
+			return m, m.apiKeyInput.Focus()
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) updateApiKey(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "enter" {
+			key := strings.TrimSpace(m.apiKeyInput.Value())
+			if key != "" && strings.ToLower(key) != "n" {
+				m.config.ModelApiKey = key
+			}
 			m.screen = screenKnowledge
 			m.cursor = 0
 			return m, nil
 		}
 	}
 
-	return m, nil
+	var cmd tea.Cmd
+	m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
+	return m, cmd
 }
 
 func (m model) updateKnowledge(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -347,6 +383,16 @@ func (m model) View() string {
 		}))
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("↑/↓ to navigate, Enter to select"))
+	case screenApiKey:
+		modelLabel := "OpenAI"
+		if m.config.Model == "anthropic" {
+			modelLabel = "Anthropic"
+		}
+		b.WriteString(promptStyle.Render(fmt.Sprintf("Add your %s API key now?", modelLabel)))
+		b.WriteString("\n")
+		b.WriteString(m.apiKeyInput.View())
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("Paste key (masked) or press Enter to skip"))
 	case screenKnowledge:
 		b.WriteString(promptStyle.Render("Knowledge store:"))
 		b.WriteString("\n")
@@ -380,7 +426,7 @@ func (m model) View() string {
 	case screenConfirm:
 		b.WriteString(m.renderSummary())
 		b.WriteString("\n")
-		b.WriteString(promptStyle.Render("Create this agent? (y/n)"))
+		b.WriteString(promptStyle.Render("Create this agent? (Y/n)"))
 	}
 
 	return b.String()
@@ -427,6 +473,13 @@ func (m model) renderSummary() string {
 		b.WriteString("  Interfaces:  web\n")
 	}
 	b.WriteString(fmt.Sprintf("  Model:       %s\n", m.config.Model))
+	if m.config.Model == "openai" || m.config.Model == "anthropic" {
+		if m.config.ModelApiKey != "" {
+			b.WriteString("  API key:     (set)\n")
+		} else {
+			b.WriteString("  API key:     (not set)\n")
+		}
+	}
 	b.WriteString(fmt.Sprintf("  Knowledge:   %s\n", m.config.Knowledge))
 	if len(m.config.Tools) > 0 {
 		b.WriteString(fmt.Sprintf("  Tools:       %s\n", strings.Join(m.config.Tools, ", ")))

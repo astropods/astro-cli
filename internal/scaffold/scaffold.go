@@ -13,6 +13,7 @@ type ScaffoldConfig struct {
 	Description string   // Agent description
 	Interfaces  []string // ["web", "slack"]
 	Model       string   // "anthropic" | "openai" | "none"
+	ModelApiKey string   // Optional API key for the selected model (written to .env)
 	Knowledge   string   // "vector" | "kv" | "both" | "none"
 	Tools       []string // ["github"]
 	Ingestion   string   // "schedule" | "manual" | "none"
@@ -61,7 +62,7 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		{filepath.Join(targetDir, "Dockerfile"), paths.Dockerfile},
 		{filepath.Join(targetDir, "package.json"), paths.PackageJson},
 		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
-		{filepath.Join(targetDir, ".env.example"), paths.EnvExample},
+		{filepath.Join(targetDir, ".env"), paths.EnvExample},
 		{filepath.Join(targetDir, ".gitignore"), paths.Gitignore},
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
 		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
