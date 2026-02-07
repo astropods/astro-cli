@@ -171,7 +171,7 @@ func TestRewriteLocationHeader(t *testing.T) {
 			location:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com/v2/tenant-user123/myapp/blobs/uploads/abc-123",
 			registryURL: "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
 			proxyHost:   "registry.astro.example.com",
-			expected:    "//registry.astro.example.com/v2/user123/myapp/blobs/uploads/abc-123",
+			expected:    "https://registry.astro.example.com/v2/user123/myapp/blobs/uploads/abc-123",
 		},
 		{
 			name:        "don't rewrite external location",

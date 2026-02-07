@@ -299,7 +299,7 @@ func rewriteLocationHeader(location, registryURL, proxyHost string) string {
 		// Strip tenant- prefix from the path
 		path = stripTenantPrefix(path)
 
-		locURL.Scheme = ""
+		locURL.Scheme = "https"
 		locURL.Host = proxyHost
 		locURL.Path = "/v2" + path
 
