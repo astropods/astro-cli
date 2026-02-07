@@ -26,8 +26,8 @@ This command initiates the OAuth device authorization flow:
 3. Enter the code and sign in with your account
 4. The CLI automatically receives your credentials
 
-Your credentials are stored in your system's keychain when available,
-otherwise in ~/.astro/credentials.json with restricted permissions.
+Your Astro credentials and Astro server URL are stored in your system's keychain
+when available, otherwise in ~/.astro/credentials.json with restricted permissions.
 
 Example:
   ast login
@@ -36,10 +36,13 @@ Example:
 }
 
 var noBrowser bool
+var loginHost string
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
 	loginCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't automatically open browser")
+	loginCmd.Flags().StringVar(&loginHost, "host", auth.DefaultServerURL, "Astro server host")
+	loginCmd.Flags().MarkHidden("host")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
@@ -65,8 +68,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}()
 
-	// Get server URL
-	serverURL := auth.GetServerURL()
+	// Normalize host and derive registry URL (registry.<hostname>)
+	serverURL := auth.NormalizeServerURL(loginHost)
+	registryURL := auth.RegistryURLFromServerURL(serverURL)
 
 	// Create auth client
 	client := auth.NewClient()
@@ -144,6 +148,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	profile := &auth.Profile{
 		ServerURL:    serverURL,
+		RegistryURL:  registryURL,
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),

@@ -73,12 +73,12 @@ type SecurityConfig struct {
 // DeploymentConfig holds deployment-related configuration
 type DeploymentConfig struct {
 	RegistryURL       string // ECR registry URL
-	ProxyRegistryHost string // Proxy registry host (e.g., registry.odesdaz.com)
+	ProxyRegistryHost string // Proxy registry host (e.g., registry.example.com)
 	EKSClusterName    string // EKS cluster name (required)
 	K8sMasterURL      string // K8s API server endpoint (required)
 	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
 	// Ingress configuration for external access
-	IngressDomain     string // Domain for agent ingress (e.g., agents.odesdaz.com)
+	IngressDomain     string // Domain for agent ingress (e.g., agents.example.com)
 	ACMCertificateARN string // ACM certificate ARN for HTTPS
 	ALBGroupName      string // ALB group name to share ALB across ingresses
 }

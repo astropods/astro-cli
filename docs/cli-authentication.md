@@ -66,9 +66,10 @@ When keyring is unavailable, credentials are stored in `~/.astro/credentials.jso
 
 ```
 ~/.astro/
-├── config.yaml         # CLI configuration
-└── credentials.json    # Profile metadata (tokens in keyring if available)
+└── credentials.json    # Profile metadata and server/registry URLs (tokens in keyring if available)
 ```
+
+Server and registry URLs are stored per profile. Registry is derived as `registry.<hostname>` from the host set at login (`ast login --host <url>`).
 
 ### Profile Structure
 
@@ -77,6 +78,7 @@ When keyring is unavailable, credentials are stored in `~/.astro/credentials.jso
   "profiles": {
     "default": {
       "server_url": "https://api.astro.example.com",
+      "registry_url": "https://registry.astro.example.com",
       "expires_at": "2025-01-15T10:00:00Z",
       "user": {
         "id": "user_123",

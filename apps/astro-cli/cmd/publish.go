@@ -56,7 +56,7 @@ Example:
 
 Requirements:
   - Must be authenticated (run 'ast login' first)
-  - Server and registry URLs must be configured (run 'ast configure')`,
+  - Server and registry URLs come from your login profile (set via 'ast login')`,
 	RunE: runPublish,
 }
 
@@ -81,7 +81,7 @@ func init() {
 	publishCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (overrides ASTRO_REGISTRY_URL)")
 	publishCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
 	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
-	publishCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be published without actually doing it")
+	publishCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be published without actually doing it")
 	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64,linux/arm64", "Target platform(s) for publish (comma-separated)")
 }
 
@@ -108,11 +108,11 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	if effectiveRegistryURL == "" {
-		return fmt.Errorf("registry URL required: run 'ast configure', set ASTRO_REGISTRY_URL environment variable, or use --registry flag")
+		return fmt.Errorf("registry URL required: run 'ast login', set ASTRO_REGISTRY_URL environment variable, or use --registry")
 	}
 
 	if effectiveServerURL == "" && !skipRegister && !dryRun {
-		return fmt.Errorf("server URL required for registration: run 'ast configure', set ASTRO_SERVER_URL environment variable, use --server flag, or use --skip-register")
+		return fmt.Errorf("server URL required for registration: run 'ast login', set ASTRO_SERVER_URL environment variable, use --server, or use --skip-register")
 	}
 
 	// Parse astro.yml

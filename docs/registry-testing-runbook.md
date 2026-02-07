@@ -14,7 +14,7 @@ Guide for testing an Astro registry deployment.
 
 ```bash
 # V2 API endpoint
-curl -I https://registry.odesdaz.com/v2/
+curl -I https://registry.astromode.ai/v2/
 
 # Expected: 200 OK with Docker-Distribution-API-Version header
 ```
@@ -22,7 +22,7 @@ curl -I https://registry.odesdaz.com/v2/
 ### Check Namespace Endpoint (requires auth)
 
 ```bash
-curl -H "Authorization: Bearer <token>" https://registry.odesdaz.com/api/namespace
+curl -H "Authorization: Bearer <token>" https://registry.astromode.ai/api/namespace
 
 # Expected: {"user_id": "...", "organization_id": "..."}
 ```
@@ -32,8 +32,8 @@ curl -H "Authorization: Bearer <token>" https://registry.odesdaz.com/api/namespa
 ### Environment Setup
 
 ```bash
-export ASTRO_REGISTRY_URL=https://registry.odesdaz.com
-export ASTRO_SERVER_URL=https://odesdaz.com
+export ASTRO_REGISTRY_URL=https://registry.astromode.ai
+export ASTRO_SERVER_URL=https://astromode.ai
 ```
 
 ### Authentication
@@ -76,7 +76,7 @@ Run:
 astro publish --tag test --skip-register
 ```
 
-Image pushes to: `registry.odesdaz.com/<namespace>/test-agent:test`
+Image pushes to: `registry.astromode.ai/<namespace>/test-agent:test`
 
 ## Troubleshooting
 

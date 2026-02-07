@@ -19,7 +19,7 @@ type IngressConfig struct {
 	Component         string
 	ServiceName       string
 	ServicePort       int32
-	Host              string // Full hostname (e.g., agent-name-namespace.agents.odesdaz.com)
+	Host              string // Full hostname (e.g., agent-name-namespace.agents.example.com)
 	ACMCertificateARN string
 	ALBGroupName      string
 }
@@ -31,10 +31,10 @@ func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
 
 	annotations := map[string]string{
 		// ALB Ingress Controller annotations
-		"alb.ingress.kubernetes.io/scheme":        "internet-facing",
-		"alb.ingress.kubernetes.io/target-type":   "ip",
-		"alb.ingress.kubernetes.io/listen-ports":  `[{"HTTPS":443}]`,
-		"alb.ingress.kubernetes.io/ssl-redirect":  "443",
+		"alb.ingress.kubernetes.io/scheme":       "internet-facing",
+		"alb.ingress.kubernetes.io/target-type":  "ip",
+		"alb.ingress.kubernetes.io/listen-ports": `[{"HTTPS":443}]`,
+		"alb.ingress.kubernetes.io/ssl-redirect": "443",
 		// external-dns annotation for automatic DNS record creation
 		"external-dns.alpha.kubernetes.io/hostname": cfg.Host,
 	}

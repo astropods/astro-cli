@@ -8,7 +8,7 @@ import (
 
 // ImageResolver resolves proxy registry image references to ECR paths
 type ImageResolver struct {
-	proxyRegistryHost string // e.g., "registry.odesdaz.com"
+	proxyRegistryHost string // e.g., "registry.example.com"
 	ecrRegistryURL    string // e.g., "123456789.dkr.ecr.us-east-1.amazonaws.com" (scheme optional)
 }
 
@@ -21,7 +21,7 @@ func NewImageResolver(proxyRegistryHost, ecrRegistryURL string) *ImageResolver {
 }
 
 // ResolveImage resolves a proxy registry image reference to an ECR path
-// Input:  registry.odesdaz.com/user_xxx/image:tag
+// Input:  registry.example.com/user_xxx/image:tag
 // Output: 123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_xxx/image:tag
 func (r *ImageResolver) ResolveImage(image string) (string, error) {
 	// If no proxy host configured, return image as-is

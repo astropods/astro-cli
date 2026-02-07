@@ -30,10 +30,11 @@ type Credentials struct {
 
 // Profile represents a single authentication profile
 type Profile struct {
-	ServerURL    string     `json:"server_url,omitempty"`
-	AccessToken  string     `json:"access_token,omitempty"`
-	RefreshToken string     `json:"refresh_token,omitempty"`
-	ExpiresAt    time.Time  `json:"expires_at,omitempty"`
+	ServerURL    string      `json:"server_url,omitempty"`
+	RegistryURL  string      `json:"registry_url,omitempty"`
+	AccessToken  string      `json:"access_token,omitempty"`
+	RefreshToken string      `json:"refresh_token,omitempty"`
+	ExpiresAt    time.Time   `json:"expires_at,omitempty"`
 	User         *StoredUser `json:"user,omitempty"`
 }
 
