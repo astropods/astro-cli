@@ -12,8 +12,9 @@ $schema: "./cache/schemas/workspace.json"
 # path to the project folder as the map value. File paths are relative from the workspace root,
 # and cannot reference projects located outside the workspace boundary.
 projects:
-  - "apps/*"
-  - "packages/*"
+  - "apps/*/moon.yml"
+  - "packages/*/moon.yml"
+  - "deployment"
 
 # Configures the version control system to utilize within the workspace. A VCS
 # is required for determining touched (added, modified, etc) files, calculating file hashes,

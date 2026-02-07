@@ -215,7 +215,7 @@ ast dev          # Start agent in dev mode
 bun run ingest   # Run ingestion pipeline
 ```
 
-Environment variables are automatically injected by `ast dev`. See `.env.example`.
+Environment variables are automatically injected by `ast dev`. See `.env`.
 
 ---
 

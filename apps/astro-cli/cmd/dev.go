@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,7 +21,7 @@ import (
 
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
 	"github.com/postman/astro/apps/astro-cli/internal/watcher"
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 var devCmd = &cobra.Command{
@@ -42,9 +44,11 @@ Example:
 }
 
 var (
-	envFile   string
-	noReload  bool
-	rebuild   bool
+	envFile  string
+	noReload bool
+	rebuild  bool
+	noPull   bool
+	local    bool
 )
 
 func init() {
@@ -52,12 +56,23 @@ func init() {
 	devCmd.Flags().StringVar(&envFile, "env", ".env", "Environment file for integration credentials")
 	devCmd.Flags().BoolVar(&noReload, "no-reload", false, "Disable hot reload")
 	devCmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
+	devCmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
+	devCmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
+	_ = devCmd.Flags().MarkHidden("local")
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
 	// Get spec file path
 	specFile, _ := cmd.Flags().GetString("file")
 	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	// --local implies --no-pull and requires ASTRO_ROOT for local packages
+	if local {
+		noPull = true
+		if os.Getenv("ASTRO_ROOT") == "" {
+			return fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)")
+		}
+	}
 
 	log.Printf("🚀 Starting Astro dev mode...")
 	log.Printf("📄 Loading spec from: %s", specFile)
@@ -110,6 +125,29 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
 
+	// Strip remote registry prefix from images so we use locally built images
+	if local {
+		for name, svc := range project.Services {
+			if svc.Image != "" {
+				if i := strings.LastIndex(svc.Image, "/"); i >= 0 {
+					svc.Image = svc.Image[i+1:]
+					project.Services[name] = svc
+				}
+			}
+		}
+		if verbose {
+			log.Printf("   --local: using local image names (no pull)")
+		}
+	}
+
+	// --local: omit agent from compose and run it as a local process
+	if local {
+		delete(project.Services, "agent")
+		if verbose {
+			log.Printf("   --local: agent will run as local process")
+		}
+	}
+
 	if verbose {
 		log.Printf("   Services: %d", len(project.Services))
 		for name := range project.Services {
@@ -136,18 +174,20 @@ func runDev(cmd *cobra.Command, args []string) error {
 		log.Printf("   Wrote compose file to: %s", composePath)
 	}
 
-	// Check for GITHUB_PACKAGES_TOKEN before building
-	ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN")
-	if ghcrToken == "" {
-		return fmt.Errorf("GITHUB_PACKAGES_TOKEN environment variable is required.\nAdd it to your .env file or set it in your shell.\nYou can get it through 1Password by requesting the Astro team.")
-	}
+	// Check for GITHUB_PACKAGES_TOKEN before building (unless skipping pull)
+	if !noPull {
+		ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN")
+		if ghcrToken == "" {
+			return fmt.Errorf("GITHUB_PACKAGES_TOKEN environment variable is required.\nAdd it to your .env file or set it in your shell.\nYou can get it through 1Password by requesting the Astro team.")
+		}
 
-	// Login to GHCR (for pulling astro-messaging image)
-	log.Printf("🔑 Logging into GHCR...")
-	loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
-	loginCmd.Stdin = strings.NewReader(ghcrToken)
-	if err := loginCmd.Run(); err != nil {
-		log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
+		// Login to GHCR (for pulling astro-messaging image)
+		log.Printf("🔑 Logging into GHCR...")
+		loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
+		loginCmd.Stdin = strings.NewReader(ghcrToken)
+		if err := loginCmd.Run(); err != nil {
+			log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
+		}
 	}
 
 	// Start services using Docker Compose CLI
@@ -164,7 +204,11 @@ func runDev(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	upCmd := exec.Command("docker", "compose", "-f", composePath, "up", "-d", "--build")
+	upArgs := []string{"compose", "-f", composePath, "up", "-d", "--build"}
+	if noPull {
+		upArgs = append(upArgs, "--pull=never")
+	}
+	upCmd := exec.Command("docker", upArgs...)
 	upCmd.Stdout = os.Stdout
 	upCmd.Stderr = os.Stderr
 	if err := upCmd.Run(); err != nil {
@@ -172,6 +216,74 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Printf("✅ All services running!")
+
+	// Run agent as local process when --local
+	var (
+		agentCmd       *exec.Cmd
+		agentCmdMu     sync.Mutex
+		agentRestartCh chan struct{}
+		agentCtx       context.Context
+		agentCancel    context.CancelFunc
+	)
+	if local {
+		agentCtx, agentCancel = context.WithCancel(context.Background())
+		agentRestartCh = make(chan struct{}, 1)
+		agentEnv := buildLocalAgentEnv(astroSpec, envVars)
+		workingDirForAgent := workingDir
+
+		// Use local @saswatds/* packages from ASTRO_ROOT
+		astroRoot, err := resolveAstroSourceRoot()
+		if err != nil {
+			agentCancel()
+			return err
+		}
+		if err := linkLocalPackages(workingDir, astroRoot); err != nil {
+			agentCancel()
+			return fmt.Errorf("link local packages: %w", err)
+		}
+		log.Printf("📦 Using local packages from %s", astroRoot)
+
+		runAgent := func() {
+			cmd := exec.CommandContext(agentCtx, "bun", "run", "start")
+			cmd.Dir = workingDirForAgent
+			cmd.Env = agentEnv
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			agentCmdMu.Lock()
+			agentCmd = cmd
+			agentCmdMu.Unlock()
+			if err := cmd.Start(); err != nil {
+				log.Printf("❌ Failed to start agent: %v (is bun installed? run from project root with package.json)", err)
+				return
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			select {
+			case <-agentCtx.Done():
+				_ = cmd.Process.Kill()
+				<-done
+			case <-agentRestartCh:
+				_ = cmd.Process.Kill()
+				<-done
+			case <-done:
+				// process exited (e.g. crash)
+			}
+		}
+
+		go func() {
+			for {
+				runAgent()
+				if agentCtx.Err() != nil {
+					return
+				}
+				log.Printf("🔄 Restarting agent...")
+			}
+		}()
+
+		// Give the agent a moment to start so we don't spam restart on first run
+		time.Sleep(500 * time.Millisecond)
+		log.Printf("🤖 Agent running as local process (bun run start)")
+	}
 
 	// Check if messaging interface is configured
 	hasMessagingInterface := false
@@ -270,6 +382,14 @@ func runDev(cmd *cobra.Command, args []string) error {
 		if _, err := os.Stat(agentDir); err == nil {
 			fw, err := watcher.New(agentDir, func(path string) {
 				log.Printf("📝 File changed: %s", path)
+				if local && agentRestartCh != nil {
+					select {
+					case agentRestartCh <- struct{}{}:
+					default:
+					}
+					log.Printf("✅ Agent reloaded!")
+					return
+				}
 				log.Printf("🔄 Rebuilding agent...")
 
 				// Rebuild and restart only the agent service
@@ -319,6 +439,15 @@ func runDev(cmd *cobra.Command, args []string) error {
 	log.Printf("")
 	log.Printf("🛑 Shutting down...")
 
+	if local && agentCancel != nil {
+		agentCancel()
+		agentCmdMu.Lock()
+		if agentCmd != nil && agentCmd.Process != nil {
+			_ = agentCmd.Process.Kill()
+		}
+		agentCmdMu.Unlock()
+	}
+
 	// Stop all services
 	downCmd := exec.Command("docker", "compose", "-f", composePath, "down")
 	downCmd.Stdout = os.Stdout
@@ -330,6 +459,73 @@ func runDev(cmd *cobra.Command, args []string) error {
 	log.Printf("✅ Cleanup complete")
 
 	return nil
+}
+
+// resolveAstroSourceRoot returns the Astro monorepo root from ASTRO_ROOT.
+// Used in --local to link @saswatds/* from packages/.
+func resolveAstroSourceRoot() (string, error) {
+	p := os.Getenv("ASTRO_ROOT")
+	if p == "" {
+		return "", fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)")
+	}
+	return filepath.Clean(p), nil
+}
+
+// linkLocalPackages symlinks node_modules/@saswatds/* to the given Astro repo packages/
+// so the agent uses local source in --local mode. Includes transitive workspace deps
+// (astro-agent, astro-graph, astro-messaging, astro-engine, astro-nodes, astro-types).
+func linkLocalPackages(workingDir, astroRoot string) error {
+	scopeDir := filepath.Join(workingDir, "node_modules", "@saswatds")
+	if err := os.MkdirAll(scopeDir, 0755); err != nil {
+		return err
+	}
+	packages := []string{
+		"astro-agent", "astro-graph", "astro-messaging",
+		"astro-engine", "astro-nodes", "astro-types",
+	}
+	for _, pkg := range packages {
+		target := filepath.Join(astroRoot, "packages", pkg)
+		target, err := filepath.Abs(target)
+		if err != nil {
+			return err
+		}
+		if st, err := os.Stat(target); err != nil {
+			return fmt.Errorf("%s: %w", pkg, err)
+		} else if !st.IsDir() {
+			return fmt.Errorf("%s is not a directory", target)
+		}
+		link := filepath.Join(scopeDir, pkg)
+		_ = os.RemoveAll(link)
+		if err := os.Symlink(target, link); err != nil {
+			return fmt.Errorf("symlink %s: %w", pkg, err)
+		}
+	}
+	return nil
+}
+
+// buildLocalAgentEnv returns env for the agent process when running with --no-container.
+// Uses .env vars and sets GRPC_SERVER_ADDR=localhost:9090 so the agent talks to the messaging container.
+func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
+	envMap := make(map[string]string)
+	for _, e := range os.Environ() {
+		if i := strings.Index(e, "="); i > 0 {
+			envMap[e[:i]] = e[i+1:]
+		}
+	}
+	for k, v := range envVars {
+		envMap[k] = v
+	}
+	for _, iface := range s.Interfaces {
+		if iface.Type == "slack" || iface.Type == "web" {
+			envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
+			break
+		}
+	}
+	out := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 // openBrowser opens the specified URL in the default browser
@@ -350,4 +546,3 @@ func openBrowser(url string) {
 		log.Printf("⚠️  Failed to open browser: %v", err)
 	}
 }
-

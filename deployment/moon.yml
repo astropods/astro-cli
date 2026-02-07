@@ -1,0 +1,13 @@
+# Docker image builds (context = workspace root). Used by `ast dev --local` and CI.
+tasks:
+  "messaging":
+    command: "cd .. && docker build -t astro-messaging:latest -f deployment/Dockerfile.astro-messaging ."
+    options:
+      cache: false
+      runInCI: false
+
+  "playground":
+    command: "cd .. && docker build -t astro-playground:latest -f deployment/Dockerfile.astro-playground ."
+    options:
+      cache: false
+      runInCI: false
