@@ -5,6 +5,10 @@ WORKDIR /app
 # Install wget for healthcheck
 RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user
+RUN groupadd -g 1000 astro && \
+    useradd -u 1000 -g astro -s /bin/sh astro
+
 # Use fastembed (ONNX-based, no torch dependency) to keep image small
 RUN pip install --no-cache-dir \
     fastembed \
@@ -12,6 +16,10 @@ RUN pip install --no-cache-dir \
 
 # Copy server
 COPY server.py .
+
+# Set ownership and switch to non-root user
+RUN chown -R astro:astro /app
+USER astro
 
 EXPOSE 8000
 

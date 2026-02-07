@@ -26,8 +26,10 @@ COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Run as non-root user
-RUN adduser -D -u 1000 worker && \
+RUN adduser -D -u 1000 astro && \
     mkdir -p /app/state && \
-    chown -R worker:worker /app/state
+    chown -R astro:astro /app/state
+
+USER astro
 
 ENTRYPOINT ["/app/entrypoint.sh"]

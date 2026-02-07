@@ -5,6 +5,10 @@ RUN apk add --no-cache git
 # Install air for hot reloading
 RUN go install github.com/air-verse/air@latest
 
+# Create non-root user
+RUN addgroup -g 1000 astro && \
+    adduser -u 1000 -G astro -s /bin/sh -D astro
+
 WORKDIR /app/apps/astro-server
 
 # Copy go.mod files first for better caching
@@ -13,6 +17,11 @@ COPY packages/astro-spec/go.mod packages/astro-spec/go.sum /app/packages/astro-s
 
 # Download dependencies
 RUN go mod download
+
+# Set ownership for astro user
+RUN chown -R astro:astro /app
+
+USER astro
 
 EXPOSE 8080
 

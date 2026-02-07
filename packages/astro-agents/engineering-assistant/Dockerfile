@@ -38,6 +38,10 @@ RUN npm install -g pnpm
 # Set CI environment for pnpm
 ENV CI=true
 
+# Create non-root user
+RUN addgroup -g 1000 astro && \
+    adduser -u 1000 -G astro -s /bin/sh -D astro
+
 WORKDIR /app
 
 # Setup agent
@@ -55,6 +59,10 @@ RUN --mount=type=secret,id=npm_token \
 
 # Copy built application
 COPY --from=builder /app/astro-agents/engineering-assistant/dist ./dist
+
+# Set ownership and switch to non-root user
+RUN chown -R astro:astro /app
+USER astro
 
 # Set default gRPC server address (can be overridden by astro CLI)
 ENV GRPC_SERVER_ADDR=astro-messaging:9090

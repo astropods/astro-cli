@@ -30,6 +30,8 @@ COPY packages/astro-playground-web/env-config.template.js /usr/share/nginx/html/
 COPY packages/astro-playground-web/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
+USER nginx
+
 EXPOSE 80
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
