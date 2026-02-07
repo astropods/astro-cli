@@ -119,9 +119,40 @@ export interface ThreadMessage {
   platformData?: { [key: string]: string };
 }
 
+export interface AgentToolGraphNode {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface AgentToolGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface AgentToolGraph {
+  nodes: AgentToolGraphNode[];
+  edges: AgentToolGraphEdge[];
+}
+
+export interface AgentToolConfig {
+  name: string;
+  title: string;
+  description: string;
+  type: string;
+  graph?: AgentToolGraph;
+}
+
+export interface AgentConfig {
+  systemPrompt: string;
+  tools: AgentToolConfig[];
+}
+
 export interface ConversationRequest {
   message?: Message;
   feedback?: any;
+  agentConfig?: AgentConfig;
 }
 
 /**
@@ -314,6 +345,16 @@ export class ConversationStream extends EventEmitter {
   sendFeedback(feedback: any): void {
     const request: ConversationRequest = {
       feedback,
+    };
+    this.stream.write(request);
+  }
+
+  /**
+   * Send agent configuration through the stream
+   */
+  sendAgentConfig(config: AgentConfig): void {
+    const request: ConversationRequest = {
+      agentConfig: config,
     };
     this.stream.write(request);
   }

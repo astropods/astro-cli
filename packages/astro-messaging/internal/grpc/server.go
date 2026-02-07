@@ -27,6 +27,9 @@ type Server struct {
 	// Thread history store
 	threadStore *store.ThreadHistoryStore
 
+	// Agent config store
+	agentConfigStore *store.AgentConfigStore
+
 	// Conversation metadata cache
 	conversationCache store.ConversationStore
 
@@ -48,10 +51,11 @@ type conversationStream struct {
 }
 
 // NewServer creates a new gRPC server
-func NewServer(listenAddr string, threadStore *store.ThreadHistoryStore, convStore store.ConversationStore) *Server {
+func NewServer(listenAddr string, threadStore *store.ThreadHistoryStore, convStore store.ConversationStore, agentConfigStore *store.AgentConfigStore) *Server {
 	return &Server{
 		adapters:          make(map[string]adapter.Adapter),
 		threadStore:       threadStore,
+		agentConfigStore:  agentConfigStore,
 		conversationCache: convStore,
 		streams:           make(map[string]*conversationStream),
 		listenAddr:        listenAddr,
@@ -127,6 +131,13 @@ func (s *Server) ProcessConversation(stream pb.AgentMessaging_ProcessConversatio
 	switch payload := req.Request.(type) {
 	case *pb.ConversationRequest_Message:
 		conversationID = payload.Message.ConversationId
+	case *pb.ConversationRequest_AgentConfig:
+		// Agent sent config as first message; store it and wait for registration
+		if s.agentConfigStore != nil {
+			s.agentConfigStore.Set(payload.AgentConfig)
+			log.Printf("[gRPC] Stored agent config from stream")
+		}
+		conversationID = "agent-stream"
 	default:
 		// For now, use a generic ID if no message provided
 		conversationID = "agent-stream"
@@ -177,6 +188,13 @@ func (s *Server) ProcessConversation(stream pb.AgentMessaging_ProcessConversatio
 		case *pb.ConversationRequest_Feedback:
 			// Agent acknowledging feedback
 			log.Printf("[gRPC] Agent feedback: %s", payload.Feedback.ConversationId)
+
+		case *pb.ConversationRequest_AgentConfig:
+			// Agent sending/updating its config
+			if s.agentConfigStore != nil {
+				s.agentConfigStore.Set(payload.AgentConfig)
+				log.Printf("[gRPC] Stored agent config from stream")
+			}
 
 		default:
 			log.Printf("[gRPC] Unknown request type in stream")

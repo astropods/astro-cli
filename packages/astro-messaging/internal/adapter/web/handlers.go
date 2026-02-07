@@ -16,21 +16,23 @@ import (
 
 // Handlers contains HTTP handlers for the web adapter
 type Handlers struct {
-	connManager    *ConnectionManager
-	sessionManager SessionManager
-	grpcHandler    GRPCMessageHandler
-	threadStore    *store.ThreadHistoryStore
+	connManager      *ConnectionManager
+	sessionManager   SessionManager
+	grpcHandler      GRPCMessageHandler
+	threadStore      *store.ThreadHistoryStore
+	agentConfigStore *store.AgentConfigStore
 }
 
 // GRPCMessageHandler is called when a message is received from the web client
 type GRPCMessageHandler func(ctx context.Context, msg *pb.Message) error
 
 // NewHandlers creates a new Handlers instance
-func NewHandlers(connManager *ConnectionManager, sessionManager SessionManager, threadStore *store.ThreadHistoryStore) *Handlers {
+func NewHandlers(connManager *ConnectionManager, sessionManager SessionManager, threadStore *store.ThreadHistoryStore, agentConfigStore *store.AgentConfigStore) *Handlers {
 	return &Handlers{
-		connManager:    connManager,
-		sessionManager: sessionManager,
-		threadStore:    threadStore,
+		connManager:      connManager,
+		sessionManager:   sessionManager,
+		threadStore:      threadStore,
+		agentConfigStore: agentConfigStore,
 	}
 }
 
@@ -335,6 +337,79 @@ func (h *Handlers) HandleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":      "healthy",
 		"connections": h.connManager.GetTotalConnections(),
 		"timestamp":   time.Now().UTC().Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// HandleAgentConfig handles GET /api/agent/config
+func (h *Handlers) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {
+	if h.agentConfigStore == nil {
+		http.Error(w, "Agent config not available", http.StatusNotFound)
+		return
+	}
+
+	config := h.agentConfigStore.Get()
+	if config == nil {
+		http.Error(w, "Agent config not yet received", http.StatusNotFound)
+		return
+	}
+
+	// Build JSON response matching the playground's AgentConfig type
+	type toolGraphNode struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	type toolGraphEdge struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+		Target string `json:"target"`
+	}
+	type toolGraph struct {
+		Nodes []toolGraphNode `json:"nodes"`
+		Edges []toolGraphEdge `json:"edges"`
+	}
+	type toolConfig struct {
+		Name        string     `json:"name"`
+		Title       string     `json:"title"`
+		Description string     `json:"description"`
+		Type        string     `json:"type"`
+		Graph       *toolGraph `json:"graph,omitempty"`
+	}
+	type agentConfigResp struct {
+		SystemPrompt string       `json:"systemPrompt"`
+		Tools        []toolConfig `json:"tools"`
+	}
+
+	tools := make([]toolConfig, 0, len(config.Tools))
+	for _, t := range config.Tools {
+		tc := toolConfig{
+			Name:        t.Name,
+			Title:       t.Title,
+			Description: t.Description,
+			Type:        t.Type,
+		}
+		if t.Graph != nil {
+			g := &toolGraph{
+				Nodes: make([]toolGraphNode, 0, len(t.Graph.Nodes)),
+				Edges: make([]toolGraphEdge, 0, len(t.Graph.Edges)),
+			}
+			for _, n := range t.Graph.Nodes {
+				g.Nodes = append(g.Nodes, toolGraphNode{ID: n.Id, Name: n.Name, Type: n.Type})
+			}
+			for _, e := range t.Graph.Edges {
+				g.Edges = append(g.Edges, toolGraphEdge{ID: e.Id, Source: e.Source, Target: e.Target})
+			}
+			tc.Graph = g
+		}
+		tools = append(tools, tc)
+	}
+
+	resp := agentConfigResp{
+		SystemPrompt: config.SystemPrompt,
+		Tools:        tools,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

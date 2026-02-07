@@ -54,16 +54,19 @@ func main() {
 	log.Printf("Thread history store initialized (max_size=%d, max_messages=%d, ttl=%dh)",
 		cfg.ThreadHistory.MaxSize, cfg.ThreadHistory.MaxMessages, cfg.ThreadHistory.TTL)
 
+	// Initialize agent config store
+	agentConfigStore := store.NewAgentConfigStore()
+
 	// Initialize gRPC server (if enabled)
 	var grpcServer *grpc.Server
 	if cfg.GRPC.Enabled {
 		log.Println("Initializing gRPC server...")
-		grpcServer = grpc.NewServer(cfg.GRPC.ListenAddr, threadStore, conversationStore)
+		grpcServer = grpc.NewServer(cfg.GRPC.ListenAddr, threadStore, conversationStore, agentConfigStore)
 		log.Printf("gRPC server initialized on %s", cfg.GRPC.ListenAddr)
 	}
 
 	// Initialize adapters
-	adapters := initializeAdapters(ctx, cfg, threadStore)
+	adapters := initializeAdapters(ctx, cfg, threadStore, agentConfigStore)
 	if len(adapters) == 0 && !cfg.GRPC.Enabled {
 		log.Fatal("No adapters enabled or configured and gRPC is disabled")
 	}
@@ -138,7 +141,7 @@ func main() {
 }
 
 // initializeAdapters creates and initializes adapters based on configuration
-func initializeAdapters(ctx context.Context, cfg *config.Config, threadStore *store.ThreadHistoryStore) map[string]adapter.Adapter {
+func initializeAdapters(ctx context.Context, cfg *config.Config, threadStore *store.ThreadHistoryStore, agentConfigStore *store.AgentConfigStore) map[string]adapter.Adapter {
 	adapters := make(map[string]adapter.Adapter)
 
 	// Initialize Slack adapter if enabled
@@ -161,6 +164,7 @@ func initializeAdapters(ctx context.Context, cfg *config.Config, threadStore *st
 			log.Printf("Error initializing Web adapter: %v", err)
 		} else {
 			webAdapter.SetThreadStore(threadStore)
+			webAdapter.SetAgentConfigStore(agentConfigStore)
 			adapters["web"] = webAdapter
 			log.Println("Web adapter initialized")
 		}

@@ -15,13 +15,14 @@ import (
 
 // WebAdapter implements GRPCAdapter and StreamingAdapter for web browser clients
 type WebAdapter struct {
-	config         adapter.Config
-	grpcHandler    adapter.GRPCMessageHandler
-	connManager    *ConnectionManager
-	sessionManager SessionManager
-	threadStore    *store.ThreadHistoryStore
-	server         *http.Server
-	handlers       *Handlers
+	config           adapter.Config
+	grpcHandler      adapter.GRPCMessageHandler
+	connManager      *ConnectionManager
+	sessionManager   SessionManager
+	threadStore      *store.ThreadHistoryStore
+	agentConfigStore *store.AgentConfigStore
+	server           *http.Server
+	handlers         *Handlers
 
 	// Configuration
 	listenAddr        string
@@ -75,7 +76,7 @@ func (a *WebAdapter) Initialize(ctx context.Context, config adapter.Config) erro
 	a.connManager = NewConnectionManager(a.heartbeatInterval)
 
 	// Initialize handlers
-	a.handlers = NewHandlers(a.connManager, a.sessionManager, a.threadStore)
+	a.handlers = NewHandlers(a.connManager, a.sessionManager, a.threadStore, a.agentConfigStore)
 
 	log.Printf("[Web] Adapter initialized (listen: %s)", a.listenAddr)
 	return nil
@@ -102,6 +103,7 @@ func (a *WebAdapter) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/conversations/{id}/messages", a.handlers.HandleSendMessage)
 	mux.HandleFunc("GET /api/conversations/{id}/stream", a.handlers.HandleStream)
 	mux.HandleFunc("GET /api/conversations/{id}/history", a.handlers.HandleHistory)
+	mux.HandleFunc("GET /api/agent/config", a.handlers.HandleAgentConfig)
 	mux.HandleFunc("GET /health", a.handlers.HandleHealth)
 
 	// Create server
@@ -259,10 +261,18 @@ func (a *WebAdapter) StreamContent(ctx context.Context, conversationID string, c
 }
 
 // SetThreadStore sets the thread history store
-func (a *WebAdapter) SetThreadStore(store *store.ThreadHistoryStore) {
-	a.threadStore = store
+func (a *WebAdapter) SetThreadStore(s *store.ThreadHistoryStore) {
+	a.threadStore = s
 	if a.handlers != nil {
-		a.handlers.threadStore = store
+		a.handlers.threadStore = s
+	}
+}
+
+// SetAgentConfigStore sets the agent config store
+func (a *WebAdapter) SetAgentConfigStore(s *store.AgentConfigStore) {
+	a.agentConfigStore = s
+	if a.handlers != nil {
+		a.handlers.agentConfigStore = s
 	}
 }
 

@@ -47,11 +47,6 @@ declare global {
 // Use relative URLs by default (works with nginx proxy), allow override via env
 const API_URL = window.__ENV__?.API_URL ?? import.meta.env.VITE_API_URL ?? "";
 
-const DUMMY_CONFIG: AgentConfig = {
-  systemPrompt: "You are a helpful AI assistant.",
-  tools: []
-};
-
 type ToolConfig = {
   name: string;
   title: string;
@@ -808,8 +803,8 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
-  const [agentConfig] = useState<AgentConfig | null>(DUMMY_CONFIG);
-  const [isLoadingConfig] = useState(false);
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
 
   // Conversation state for messaging API
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -841,6 +836,23 @@ export default function App() {
   useEffect(() => {
     checkConnection();
   }, [checkConnection]);
+
+  // Fetch agent config for the Config tab
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/agent/config`);
+        if (res.ok) {
+          setAgentConfig(await res.json());
+        }
+      } catch {
+        // Agent config endpoint not available
+      } finally {
+        setIsLoadingConfig(false);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   useEffect(() => {
     scrollToBottom();

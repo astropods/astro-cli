@@ -5,6 +5,7 @@ package astro.messaging.v1;
 import "astro/messaging/v1/message.proto";
 import "astro/messaging/v1/response.proto";
 import "astro/messaging/v1/feedback.proto";
+import "astro/messaging/v1/config.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/postman/astro/messaging/v1;messagingv1";
@@ -38,6 +39,7 @@ message ConversationRequest {
   oneof request {
     Message message = 1;
     PlatformFeedback feedback = 2;
+    AgentConfig agent_config = 3;
   }
 }
 

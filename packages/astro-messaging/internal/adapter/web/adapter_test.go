@@ -358,7 +358,7 @@ func TestNewErrorEvent(t *testing.T) {
 func TestHandlers_CreateConversation(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations", nil)
 	w := httptest.NewRecorder()
@@ -387,7 +387,7 @@ func TestHandlers_SendMessage(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
 	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	handlers := NewHandlers(cm, sm, threadStore)
+	handlers := NewHandlers(cm, sm, threadStore, nil)
 
 	var receivedMsg *pb.Message
 	handlers.SetMessageHandler(func(ctx context.Context, msg *pb.Message) error {
@@ -429,7 +429,7 @@ func TestHandlers_SendMessage(t *testing.T) {
 func TestHandlers_SendMessage_Unauthorized(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &HeaderSessionManager{UserIDHeader: "X-User-ID"} // Requires header
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	body := `{"content":"Hello"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations/conv-123/messages", bytes.NewReader([]byte(body)))
@@ -446,7 +446,7 @@ func TestHandlers_SendMessage_Unauthorized(t *testing.T) {
 func TestHandlers_SendMessage_EmptyContent(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	body := `{"content":""}`
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations/conv-123/messages", bytes.NewReader([]byte(body)))
@@ -463,7 +463,7 @@ func TestHandlers_SendMessage_EmptyContent(t *testing.T) {
 func TestHandlers_SendMessage_InvalidJSON(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	body := `{invalid json}`
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations/conv-123/messages", bytes.NewReader([]byte(body)))
@@ -480,7 +480,7 @@ func TestHandlers_SendMessage_InvalidJSON(t *testing.T) {
 func TestHandlers_SendMessage_NoHandler(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 	// Note: no SetMessageHandler called
 
 	body := `{"content":"Hello"}`
@@ -498,7 +498,7 @@ func TestHandlers_SendMessage_NoHandler(t *testing.T) {
 func TestHandlers_SendMessage_HandlerError(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	handlers.SetMessageHandler(func(ctx context.Context, msg *pb.Message) error {
 		return context.DeadlineExceeded // Simulate an error
@@ -519,7 +519,7 @@ func TestHandlers_SendMessage_HandlerError(t *testing.T) {
 func TestHandlers_SendMessage_MissingConversationID(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	body := `{"content":"Hello"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/conversations//messages", bytes.NewReader([]byte(body)))
@@ -537,7 +537,7 @@ func TestHandlers_History(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
 	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	handlers := NewHandlers(cm, sm, threadStore)
+	handlers := NewHandlers(cm, sm, threadStore, nil)
 
 	// Add some messages
 	threadStore.AddMessage("conv-123", &pb.ThreadMessage{
@@ -578,7 +578,7 @@ func TestHandlers_History(t *testing.T) {
 func TestHandlers_Health(t *testing.T) {
 	cm := NewConnectionManager(30 * time.Second)
 	sm := &NoopSessionManager{}
-	handlers := NewHandlers(cm, sm, nil)
+	handlers := NewHandlers(cm, sm, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -921,6 +921,348 @@ func TestHeaderSessionManager(t *testing.T) {
 	}
 	if session2 != nil {
 		t.Error("expected nil session when no headers present")
+	}
+}
+
+// --- Tests for HandleAgentConfig ---
+
+func TestHandlers_AgentConfig_NoStore(t *testing.T) {
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	handlers := NewHandlers(cm, sm, nil, nil) // nil config store
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestHandlers_AgentConfig_NotYetReceived(t *testing.T) {
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore() // empty — no config set
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestHandlers_AgentConfig_ValidConfig(t *testing.T) {
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore()
+	configStore.Set(&pb.AgentConfig{
+		SystemPrompt: "You are a helpful assistant.",
+		Tools: []*pb.AgentToolConfig{
+			{
+				Name:        "web_search",
+				Title:       "Web Search",
+				Description: "Search the internet",
+				Type:        "other",
+			},
+		},
+	})
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, w.Code, w.Body.String())
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("expected Content-Type 'application/json', got %q", contentType)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp["systemPrompt"] != "You are a helpful assistant." {
+		t.Errorf("systemPrompt: expected 'You are a helpful assistant.', got %v", resp["systemPrompt"])
+	}
+
+	tools, ok := resp["tools"].([]any)
+	if !ok {
+		t.Fatal("expected tools array")
+	}
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+
+	tool := tools[0].(map[string]any)
+	if tool["name"] != "web_search" {
+		t.Errorf("tool name: expected 'web_search', got %v", tool["name"])
+	}
+	if tool["title"] != "Web Search" {
+		t.Errorf("tool title: expected 'Web Search', got %v", tool["title"])
+	}
+	if tool["type"] != "other" {
+		t.Errorf("tool type: expected 'other', got %v", tool["type"])
+	}
+}
+
+func TestHandlers_AgentConfig_WithGraph(t *testing.T) {
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore()
+	configStore.Set(&pb.AgentConfig{
+		SystemPrompt: "Graph agent",
+		Tools: []*pb.AgentToolConfig{
+			{
+				Name:        "workflow",
+				Title:       "Workflow Engine",
+				Description: "Runs a workflow graph",
+				Type:        "graph",
+				Graph: &pb.AgentToolGraph{
+					Nodes: []*pb.AgentToolGraphNode{
+						{Id: "start", Name: "Start", Type: "start"},
+						{Id: "llm", Name: "LLM Call", Type: "step"},
+						{Id: "tools", Name: "Tool Router", Type: "step"},
+					},
+					Edges: []*pb.AgentToolGraphEdge{
+						{Id: "e1", Source: "start", Target: "llm"},
+						{Id: "e2", Source: "llm", Target: "tools"},
+						{Id: "e3", Source: "tools", Target: "llm"},
+					},
+				},
+			},
+		},
+	})
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	tools := resp["tools"].([]any)
+	tool := tools[0].(map[string]any)
+
+	graph, ok := tool["graph"].(map[string]any)
+	if !ok {
+		t.Fatal("expected graph object in tool")
+	}
+
+	nodes := graph["nodes"].([]any)
+	if len(nodes) != 3 {
+		t.Errorf("expected 3 nodes, got %d", len(nodes))
+	}
+
+	edges := graph["edges"].([]any)
+	if len(edges) != 3 {
+		t.Errorf("expected 3 edges, got %d", len(edges))
+	}
+
+	// Verify node structure
+	node0 := nodes[0].(map[string]any)
+	if node0["id"] != "start" {
+		t.Errorf("first node id: expected 'start', got %v", node0["id"])
+	}
+	if node0["name"] != "Start" {
+		t.Errorf("first node name: expected 'Start', got %v", node0["name"])
+	}
+	if node0["type"] != "start" {
+		t.Errorf("first node type: expected 'start', got %v", node0["type"])
+	}
+
+	// Verify edge structure
+	edge0 := edges[0].(map[string]any)
+	if edge0["id"] != "e1" {
+		t.Errorf("first edge id: expected 'e1', got %v", edge0["id"])
+	}
+	if edge0["source"] != "start" {
+		t.Errorf("first edge source: expected 'start', got %v", edge0["source"])
+	}
+	if edge0["target"] != "llm" {
+		t.Errorf("first edge target: expected 'llm', got %v", edge0["target"])
+	}
+}
+
+func TestHandlers_AgentConfig_EmptyTools(t *testing.T) {
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore()
+	configStore.Set(&pb.AgentConfig{
+		SystemPrompt: "No tools agent",
+		Tools:        []*pb.AgentToolConfig{},
+	})
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	tools := resp["tools"].([]any)
+	if len(tools) != 0 {
+		t.Errorf("expected 0 tools, got %d", len(tools))
+	}
+
+	if resp["systemPrompt"] != "No tools agent" {
+		t.Errorf("systemPrompt: expected 'No tools agent', got %v", resp["systemPrompt"])
+	}
+}
+
+func TestHandlers_AgentConfig_NilToolsInProto(t *testing.T) {
+	// When protobuf deserializes, repeated fields can be nil (not empty slice)
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore()
+	configStore.Set(&pb.AgentConfig{
+		SystemPrompt: "Prompt only",
+		// Tools is nil (not set)
+	})
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// tools should be an empty JSON array, not null
+	tools, ok := resp["tools"].([]any)
+	if !ok {
+		t.Fatalf("expected tools to be an array, got %T (%v)", resp["tools"], resp["tools"])
+	}
+	if len(tools) != 0 {
+		t.Errorf("expected 0 tools, got %d", len(tools))
+	}
+}
+
+func TestHandlers_AgentConfig_ToolWithoutGraph(t *testing.T) {
+	// When type is "other" and graph is nil, JSON should omit the graph field
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore()
+	configStore.Set(&pb.AgentConfig{
+		SystemPrompt: "test",
+		Tools: []*pb.AgentToolConfig{
+			{
+				Name:        "calculator",
+				Title:       "Calculator",
+				Description: "Does math",
+				Type:        "other",
+				Graph:       nil,
+			},
+		},
+	})
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	tools := resp["tools"].([]any)
+	tool := tools[0].(map[string]any)
+
+	// graph should be omitted (nil)
+	if _, exists := tool["graph"]; exists {
+		t.Error("expected graph field to be omitted when nil")
+	}
+}
+
+func TestHandlers_AgentConfig_MultipleTools(t *testing.T) {
+	cm := NewConnectionManager(30 * time.Second)
+	sm := &NoopSessionManager{}
+	configStore := store.NewAgentConfigStore()
+	configStore.Set(&pb.AgentConfig{
+		SystemPrompt: "Multi-tool agent",
+		Tools: []*pb.AgentToolConfig{
+			{Name: "search", Title: "Search", Description: "Search things", Type: "other"},
+			{Name: "calc", Title: "Calculator", Description: "Math", Type: "other"},
+			{
+				Name: "workflow", Title: "Workflow", Description: "Flow", Type: "graph",
+				Graph: &pb.AgentToolGraph{
+					Nodes: []*pb.AgentToolGraphNode{{Id: "a", Name: "A", Type: "start"}},
+					Edges: []*pb.AgentToolGraphEdge{},
+				},
+			},
+		},
+	})
+	handlers := NewHandlers(cm, sm, nil, configStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agent/config", nil)
+	w := httptest.NewRecorder()
+
+	handlers.HandleAgentConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	tools := resp["tools"].([]any)
+	if len(tools) != 3 {
+		t.Errorf("expected 3 tools, got %d", len(tools))
+	}
+
+	// Third tool should have a graph
+	tool2 := tools[2].(map[string]any)
+	if _, ok := tool2["graph"]; !ok {
+		t.Error("expected third tool to have a graph")
+	}
+
+	// First tool should NOT have a graph
+	tool0 := tools[0].(map[string]any)
+	if _, ok := tool0["graph"]; ok {
+		t.Error("expected first tool to not have a graph")
 	}
 }
 
