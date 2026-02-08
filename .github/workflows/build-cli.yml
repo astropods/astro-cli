@@ -5,34 +5,37 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to build'
+        required: false
+        default: mac
+        type: choice
+        options:
+          - mac
+          - all
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.platforms }}" = "all" ]; then
+            echo 'matrix=[{"os":"linux","runner":"ubuntu-latest","goos":"linux","goarch":"amd64","binary":"ast"},{"os":"macos-intel","runner":"macos-latest","goos":"darwin","goarch":"amd64","binary":"ast"},{"os":"macos-arm","runner":"macos-latest","goos":"darwin","goarch":"arm64","binary":"ast"},{"os":"windows","runner":"windows-latest","goos":"windows","goarch":"amd64","binary":"ast.exe"}]' >> $GITHUB_OUTPUT
+          else
+            echo 'matrix=[{"os":"macos-intel","runner":"macos-latest","goos":"darwin","goarch":"amd64","binary":"ast"},{"os":"macos-arm","runner":"macos-latest","goos":"darwin","goarch":"arm64","binary":"ast"}]' >> $GITHUB_OUTPUT
+          fi
+
   build:
     name: Build ${{ matrix.os }}
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        include:
-          - os: linux
-            runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            binary: ast
-          - os: macos-intel
-            runner: macos-latest
-            goos: darwin
-            goarch: amd64
-            binary: ast
-          - os: macos-arm
-            runner: macos-latest
-            goos: darwin
-            goarch: arm64
-            binary: ast
-          - os: windows
-            runner: windows-latest
-            goos: windows
-            goarch: amd64
-            binary: ast.exe
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
