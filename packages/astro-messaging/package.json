@@ -1,6 +1,6 @@
 {
   "name": "@saswatds/astro-messaging",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "TypeScript SDK for Astro Messaging",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
