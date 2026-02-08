@@ -4,10 +4,6 @@ FROM oven/bun:latest
 
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup --gid 1000 astro && \
-    adduser --uid 1000 --gid 1000 --disabled-password --gecos "" astro
-
 # Copy package files
 COPY package.json bun.lockb* ./
 
@@ -17,9 +13,9 @@ RUN bun install
 # Copy source code
 COPY src ./src
 
-# Set ownership and switch to non-root user
-RUN chown -R astro:astro /app
-USER astro
+# Use non-root user already present in oven/bun image (bun:1000)
+RUN chown -R bun:bun /app
+USER bun
 
 # Expose agent port
 EXPOSE 8080
