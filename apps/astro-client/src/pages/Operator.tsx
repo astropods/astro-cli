@@ -873,11 +873,14 @@ export function Operator() {
           </p>
         </div>
         <button
-          onClick={() => refetchAgents()}
-          disabled={loading}
+          onClick={() => {
+            refetchAgents();
+            if (isAuthenticated) refetchDeployments();
+          }}
+          disabled={loading || (isAuthenticated && deploymentsLoading)}
           className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
         >
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={16} className={loading || (isAuthenticated && deploymentsLoading) ? "animate-spin" : ""} />
           Refresh
         </button>
       </div>
@@ -898,20 +901,7 @@ export function Operator() {
       {/* Current Deployments Section */}
       {isAuthenticated && (
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Current Deployments</h2>
-            <button
-              onClick={() => refetchDeployments()}
-              disabled={deploymentsLoading}
-              className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-800"
-            >
-              <RefreshCw
-                size={14}
-                className={deploymentsLoading ? "animate-spin" : ""}
-              />
-              Refresh
-            </button>
-          </div>
+          <h2 className="text-lg font-semibold mb-4">Current Deployments</h2>
 
           {deploymentsLoading ? (
             <div className="flex items-center justify-center py-8 border border-gray-300 bg-gray-50">
@@ -943,7 +933,7 @@ export function Operator() {
       {/* Separator */}
       {isAuthenticated && (
         <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-1">Agent Registry</h2>
+          <h2 className="text-lg font-semibold mb-1">Private Agent Registry</h2>
           <p className="text-gray-600 text-sm">
             Available agents to deploy
           </p>
