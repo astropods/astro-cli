@@ -481,7 +481,7 @@ await runPassthrough(["bun", "install"]);
 
 // --- Step 12: Commit & tag ---
 
-let tag = `publish-${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15)}`;
+let tag = `publish-${new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14)}`;
 
 // Git tag collision check
 try {
