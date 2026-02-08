@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 var buildCmd = &cobra.Command{
@@ -139,16 +139,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 			imagesBuilt++
 		}
-
-		// Tag native-arch image as the convenience local tag
-		nativePlat := nativePlatform()
-		nativeTag := platformImageTag(baseName, buildTag, nativePlat)
-		localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
-		if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
-			if !quiet {
-				fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
-			}
-		}
 	} else if astroSpec.Container.Image != "" && !quiet {
 		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Container.Image, colorReset)
 	}
@@ -180,14 +170,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
 				}
 				imagesBuilt++
-			}
-
-			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
-			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
-			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
-				if !quiet {
-					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
-				}
 			}
 		} else if model.Container.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, model.Container.Image, colorReset)
@@ -222,14 +204,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				}
 				imagesBuilt++
 			}
-
-			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
-			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
-			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
-				if !quiet {
-					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
-				}
-			}
 		} else if knowledge.Container.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, knowledge.Container.Image, colorReset)
 		}
@@ -263,14 +237,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				}
 				imagesBuilt++
 			}
-
-			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
-			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
-			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
-				if !quiet {
-					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
-				}
-			}
 		} else if tool.Container != nil && tool.Container.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[tool: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 		}
@@ -303,14 +269,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 					fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
 				}
 				imagesBuilt++
-			}
-
-			nativeTag := platformImageTag(baseName, buildTag, nativePlatform())
-			localTag := fmt.Sprintf("%s:%s", baseName, buildTag)
-			if err := tagImageLocal(ctx, cli, nativeTag, localTag); err != nil {
-				if !quiet {
-					fmt.Printf("%s→%s Warning: could not tag native image as %s: %v\n", colorYellow, colorReset, localTag, err)
-				}
 			}
 		} else if iface.Service != nil && iface.Service.Image != "" && !quiet {
 			fmt.Printf("%s→%s Skipping %s[interface: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, iface.Service.Image, colorReset)

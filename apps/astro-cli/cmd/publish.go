@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -74,7 +76,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(publishCmd)
-	publishCmd.Flags().StringVarP(&publishTag, "tag", "t", "latest", "Tag to publish")
+	publishCmd.Flags().StringVarP(&publishTag, "tag", "t", "latest", "Tag to publish (use 'auto' for git hash + date or date only)")
 	publishCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before publishing")
 	publishCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
 	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides ASTRO_SERVER_URL)")
@@ -121,6 +123,10 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	if publishTag == "auto" {
+		publishTag = defaultPublishTag(workingDir)
 	}
 
 	specPath := filepath.Join(workingDir, specFile)
@@ -171,7 +177,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	multiPlatform := len(platforms) > 1
 
 	if !skipBuild {
-		// Sync the build platform flag with publish platform
+		// Use the same tag for build so built images match what we push
+		buildTag = publishTag
 		buildPlatform = publishPlatform
 		printStep("Building images")
 		fmt.Println()
@@ -196,7 +203,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			printPushComplete(true, size)
 			imagesPushed++
 		} else {
-			localImageName := fmt.Sprintf("%s:%s", astroSpec.Agent, publishTag)
+			// Single platform: push the platform-specific image we built (not the convenience tag)
+			localImageName := platformImageTag(astroSpec.Agent, publishTag, platforms[0])
 			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag)
 
 			printPushStart("agent", astroSpec.Agent)
@@ -224,7 +232,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					localImageName := platformImageTag(baseName, publishTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -251,7 +259,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					localImageName := platformImageTag(baseName, publishTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -278,7 +286,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					localImageName := platformImageTag(baseName, publishTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -305,7 +313,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := fmt.Sprintf("%s:%s", baseName, publishTag)
+					localImageName := platformImageTag(baseName, publishTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -342,7 +350,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 	// Final summary
 	fmt.Printf("\n%s%s✓ Published successfully!%s\n", colorBold, colorGreen, colorReset)
-	fmt.Printf("  %s%d%s image(s) pushed to %s%s%s\n\n", colorCyan, imagesPushed, colorReset, colorDim, registryHost, colorReset)
+	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, astroSpec.Agent, colorReset, colorDim, publishTag, colorReset)
 
 	return nil
 }
@@ -432,6 +440,28 @@ func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, 
 
 	// Docker/OCI registry names must be lowercase
 	return strings.ToLower(result.UserID), nil
+}
+
+// defaultPublishTag returns a tag for publish when --tag is not set.
+// In a git repo: shortHash-date[-dirty]. Otherwise: date only. Date format: yymmdd-hhmmss.
+func defaultPublishTag(workingDir string) string {
+	date := time.Now().Format("060102-150405")
+	shortHash := runGit(workingDir, "rev-parse", "--short", "HEAD")
+	if shortHash == "" {
+		return date
+	}
+	tag := shortHash + "-" + date
+	if runGit(workingDir, "status", "--porcelain", "-uno") != "" {
+		tag += "-dirty"
+	}
+	return tag
+}
+
+func runGit(dir, name string, args ...string) string {
+	cmd := exec.Command("git", append([]string{name}, args...)...)
+	cmd.Dir = dir
+	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out))
 }
 
 // getRegistryHost extracts the host from the registry URL for use as registry address.
