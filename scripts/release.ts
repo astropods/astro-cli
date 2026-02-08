@@ -26,6 +26,8 @@ if (BUMP_OVERRIDE && !["patch", "minor", "major"].includes(BUMP_OVERRIDE)) {
   process.exit(1);
 }
 
+const REGISTRY = "https://npm.pkg.github.com";
+
 // --- Helpers ---
 
 const c = {
@@ -107,7 +109,7 @@ async function preflight() {
 
   // 3. npm auth check
   try {
-    await run(["npm", "whoami"]);
+    await run(["npm", "whoami", "--registry", REGISTRY]);
   } catch {
     console.error(c.red("Not logged into npm. Run `npm login` first."));
     process.exit(1);
@@ -325,7 +327,7 @@ if (packagesToPublish.length === 0) {
 
 async function getRegistryVersion(pkgName: string): Promise<string | null> {
   try {
-    const out = await run(["npm", "view", pkgName, "version"]);
+    const out = await run(["npm", "view", pkgName, "version", "--registry", REGISTRY]);
     return out || null;
   } catch {
     return null; // not yet published
@@ -515,7 +517,7 @@ for (const name of packagesToPublish) {
   let verified = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const published = await run(["npm", "view", `${fullName}@${next}`, "version"]);
+      const published = await run(["npm", "view", `${fullName}@${next}`, "version", "--registry", REGISTRY]);
       if (published === next) {
         console.log(`  ${c.green(name)}: ${next} verified on registry`);
         verified = true;
