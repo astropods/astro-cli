@@ -1,0 +1,7 @@
+$schema: "../cache/schemas/tasks.json"
+
+tasks:
+  clean:
+    command: "rm -rf dist"
+    options:
+      runInCI: false

@@ -8,11 +8,9 @@
   ],
   "scripts": {
     "build": "moon run :build --query \"language=typescript AND projectType=library\"",
-    "clean": "rm -rf packages/astro-types/dist packages/astro-nodes/dist packages/astro-engine/dist packages/astro-graph/dist packages/astro-workflows/dist packages/astro-agent/dist packages/astro-playground/dist",
-    "publish:all": "./scripts/publish-all.sh",
-    "publish:affected": "./scripts/publish-affected.sh",
-    "release": "./scripts/publish-affected.sh --since-tag",
-    "release:dry": "./scripts/publish-affected.sh --since-tag --dry-run"
+    "clean": "moon run :clean --query \"language=typescript AND projectType=library\"",
+    "release": "bun scripts/release.ts",
+    "release:dry": "bun scripts/release.ts --dry-run"
   },
   "repository": {
     "type": "git",
