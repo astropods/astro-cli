@@ -22,9 +22,6 @@ FROM nginx:alpine
 # Copy built files
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx config template (entrypoint substitutes BACKEND_URL at runtime)
-COPY packages/astro-playground-web/nginx.conf.template /etc/nginx/nginx.conf.template
-
 # Copy env-config template and entrypoint script
 COPY packages/astro-playground-web/env-config.template.js /usr/share/nginx/html/env-config.template.js
 COPY packages/astro-playground-web/docker-entrypoint.sh /docker-entrypoint.sh
