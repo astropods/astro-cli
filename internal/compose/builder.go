@@ -574,13 +574,10 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
 
-	// Add GRPC_SERVER_ADDR if messaging interface is configured
-	for _, iface := range s.Interfaces {
-		if iface.Type == "slack" || iface.Type == "web" {
-			grpcAddr := "astro-messaging:9090"
-			env["GRPC_SERVER_ADDR"] = &grpcAddr
-			break
-		}
+	// Add GRPC_SERVER_ADDR if any interface is configured
+	if len(s.Interfaces) > 0 {
+		grpcAddr := "astro-messaging:9090"
+		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
 
 	return env

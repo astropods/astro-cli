@@ -541,11 +541,8 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 	for k, v := range envVars {
 		envMap[k] = v
 	}
-	for _, iface := range s.Interfaces {
-		if iface.Type == "slack" || iface.Type == "web" {
-			envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
-			break
-		}
+	if len(s.Interfaces) > 0 {
+		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
 	}
 	out := make([]string, 0, len(envMap))
 	for k, v := range envMap {
