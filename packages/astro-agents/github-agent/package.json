@@ -33,7 +33,6 @@
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
-    "@saswatds/astro-playground": "workspace:*",
     "mastra": "^1.0.0-beta.14",
     "typescript": "^5.9.3"
   }

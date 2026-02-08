@@ -14,8 +14,5 @@
   "dependencies": {
     "@saswatds/astro-agent": "workspace:*",
     "@saswatds/astro-workflows": "workspace:*"
-  },
-  "devDependencies": {
-    "@saswatds/astro-playground": "workspace:*"
   }
 }

@@ -73,7 +73,7 @@
     },
     "packages/astro-agent": {
       "name": "@saswatds/astro-agent",
-      "version": "1.1.5",
+      "version": "1.3.0",
       "dependencies": {
         "@mastra/core": "^1.0.4",
         "@mastra/libsql": "^1.0.0",
@@ -96,13 +96,10 @@
         "@saswatds/astro-agent": "workspace:*",
         "@saswatds/astro-workflows": "workspace:*",
       },
-      "devDependencies": {
-        "@saswatds/astro-playground": "workspace:*",
-      },
     },
     "packages/astro-engine": {
       "name": "@saswatds/astro-engine",
-      "version": "1.0.5",
+      "version": "1.2.0",
       "dependencies": {
         "@saswatds/astro-types": "workspace:*",
       },
@@ -115,7 +112,7 @@
     },
     "packages/astro-graph": {
       "name": "@saswatds/astro-graph",
-      "version": "1.0.5",
+      "version": "1.2.0",
       "dependencies": {
         "@saswatds/astro-nodes": "workspace:*",
         "@saswatds/astro-types": "workspace:*",
@@ -130,7 +127,7 @@
     },
     "packages/astro-messaging": {
       "name": "@saswatds/astro-messaging",
-      "version": "1.0.2",
+      "version": "1.2.0",
       "dependencies": {
         "@grpc/grpc-js": "^1.9.0",
         "@grpc/proto-loader": "^0.7.10",
@@ -142,35 +139,12 @@
     },
     "packages/astro-nodes": {
       "name": "@saswatds/astro-nodes",
-      "version": "1.0.5",
+      "version": "1.2.0",
       "dependencies": {
         "@saswatds/astro-types": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^5.3.0",
-      },
-    },
-    "packages/astro-playground": {
-      "name": "@saswatds/astro-playground",
-      "version": "1.0.4",
-      "dependencies": {
-        "@dagrejs/dagre": "^1.1.4",
-        "@saswatds/astro-agent": "workspace:*",
-        "@tailwindcss/vite": "^4.1.18",
-        "@types/react-syntax-highlighter": "^15.5.13",
-        "@vitejs/plugin-react": "^5.1.1",
-        "@xyflow/react": "^12.10.0",
-        "lucide-react": "^0.562.0",
-        "react": "^19.2.0",
-        "react-dom": "^19.2.0",
-        "react-markdown": "^10.1.0",
-        "react-syntax-highlighter": "^16.1.0",
-        "tailwindcss": "^4.1.18",
-        "vite": "^7.2.4",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.3.5",
-        "typescript": "~5.9.3",
       },
     },
     "packages/astro-playground-web": {
@@ -191,12 +165,14 @@
         "vite": "^7.2.4",
       },
       "devDependencies": {
+        "@types/react": "^19.2.5",
+        "@types/react-dom": "^19.2.3",
         "typescript": "~5.9.3",
       },
     },
     "packages/astro-types": {
       "name": "@saswatds/astro-types",
-      "version": "1.0.5",
+      "version": "1.2.0",
       "dependencies": {
         "zod": "^4.3.5",
       },
@@ -206,7 +182,7 @@
     },
     "packages/astro-workflows": {
       "name": "@saswatds/astro-workflows",
-      "version": "1.0.5",
+      "version": "1.2.0",
       "dependencies": {
         "@saswatds/astro-graph": "workspace:*",
       },
@@ -700,8 +676,6 @@
     "@saswatds/astro-messaging": ["@saswatds/astro-messaging@workspace:packages/astro-messaging"],
 
     "@saswatds/astro-nodes": ["@saswatds/astro-nodes@workspace:packages/astro-nodes"],
-
-    "@saswatds/astro-playground": ["@saswatds/astro-playground@workspace:packages/astro-playground"],
 
     "@saswatds/astro-playground-web": ["@saswatds/astro-playground-web@workspace:packages/astro-playground-web"],
 
