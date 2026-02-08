@@ -26,58 +26,6 @@ if (BUMP_OVERRIDE && !["patch", "minor", "major"].includes(BUMP_OVERRIDE)) {
   process.exit(1);
 }
 
-// --- Preflight checks ---
-
-const ALLOWED_BRANCHES = ["main"];
-
-async function preflight() {
-  // 1. Dirty working tree
-  const status = await run(["git", "status", "--porcelain"]);
-  if (status) {
-    console.error(c.red("Dirty working tree. Commit or stash changes before publishing:"));
-    console.error(status);
-    process.exit(1);
-  }
-
-  // 2. Branch guard
-  const branch = await run(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
-  if (!ALLOWED_BRANCHES.includes(branch)) {
-    console.error(c.red(`Publishing is only allowed from: ${ALLOWED_BRANCHES.join(", ")}`));
-    console.error(c.red(`Current branch: ${branch}`));
-    process.exit(1);
-  }
-
-  // 3. npm auth check
-  try {
-    await run(["npm", "whoami"]);
-  } catch {
-    console.error(c.red("Not logged into npm. Run `npm login` first."));
-    process.exit(1);
-  }
-
-  // 4. Local/remote sync
-  try {
-    await run(["git", "fetch", "origin", branch]);
-    const local = await run(["git", "rev-parse", "HEAD"]);
-    const remote = await run(["git", "rev-parse", `origin/${branch}`]);
-    if (local !== remote) {
-      const behind = await run(["git", "rev-list", "--count", `HEAD..origin/${branch}`]);
-      if (Number(behind) > 0) {
-        console.error(c.red(`Local branch is ${behind} commit(s) behind origin/${branch}. Pull before publishing.`));
-        process.exit(1);
-      }
-      console.log(c.yellow(`Local branch is ahead of origin/${branch} — make sure you've pushed your changes.`));
-    }
-  } catch {
-    console.log(c.yellow("Could not check remote sync (no remote tracking branch?)"));
-  }
-}
-
-if (!DRY_RUN) {
-  await preflight();
-  console.log(c.green("Preflight checks passed.\n"));
-}
-
 // --- Helpers ---
 
 const c = {
@@ -136,12 +84,64 @@ async function writePkgJson(name: string, data: any): Promise<void> {
   await Bun.write(resolve(pkgDir(name), "package.json"), JSON.stringify(data, null, 2) + "\n");
 }
 
+// --- Preflight checks ---
+
+const ALLOWED_BRANCHES = ["main"];
+
+async function preflight() {
+  // 1. Dirty working tree
+  const status = await run(["git", "status", "--porcelain"]);
+  if (status) {
+    console.error(c.red("Dirty working tree. Commit or stash changes before publishing:"));
+    console.error(status);
+    process.exit(1);
+  }
+
+  // 2. Branch guard
+  const branch = await run(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
+  if (!ALLOWED_BRANCHES.includes(branch)) {
+    console.error(c.red(`Publishing is only allowed from: ${ALLOWED_BRANCHES.join(", ")}`));
+    console.error(c.red(`Current branch: ${branch}`));
+    process.exit(1);
+  }
+
+  // 3. npm auth check
+  try {
+    await run(["npm", "whoami"]);
+  } catch {
+    console.error(c.red("Not logged into npm. Run `npm login` first."));
+    process.exit(1);
+  }
+
+  // 4. Local/remote sync
+  try {
+    await run(["git", "fetch", "origin", branch]);
+    const local = await run(["git", "rev-parse", "HEAD"]);
+    const remote = await run(["git", "rev-parse", `origin/${branch}`]);
+    if (local !== remote) {
+      const behind = await run(["git", "rev-list", "--count", `HEAD..origin/${branch}`]);
+      if (Number(behind) > 0) {
+        console.error(c.red(`Local branch is ${behind} commit(s) behind origin/${branch}. Pull before publishing.`));
+        process.exit(1);
+      }
+      console.log(c.yellow(`Local branch is ahead of origin/${branch} — make sure you've pushed your changes.`));
+    }
+  } catch {
+    console.log(c.yellow("Could not check remote sync (no remote tracking branch?)"));
+  }
+}
+
+if (!DRY_RUN) {
+  await preflight();
+  console.log(c.green("Preflight checks passed.\n"));
+}
+
 // --- Discover publishable packages and sort by dependency order ---
 
 const SCOPE = "@saswatds/";
 const packagesDir = resolve(ROOT_DIR, "packages");
 
-async function discoverPublishOrder(): Promise<string[]> {
+async function discoverPublishOrder(): Promise<{ sorted: string[]; dependentsOf: Map<string, string[]> }> {
   const { readdir } = await import("fs/promises");
   const entries = await readdir(packagesDir, { withFileTypes: true });
 
