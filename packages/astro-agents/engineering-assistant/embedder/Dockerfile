@@ -6,8 +6,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN groupadd -g 1000 astro && \
-    useradd -u 1000 -g astro -s /bin/sh astro
+RUN groupadd -g 1001 astro && \
+    useradd -u 1001 -g astro -s /bin/sh astro
 
 # Use fastembed (ONNX-based, no torch dependency) to keep image small
 RUN pip install --no-cache-dir \

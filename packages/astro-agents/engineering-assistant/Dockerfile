@@ -38,9 +38,9 @@ RUN npm install -g pnpm
 # Set CI environment for pnpm
 ENV CI=true
 
-# Create non-root user
-RUN addgroup -g 1000 astro && \
-    adduser -u 1000 -G astro -s /bin/sh -D astro
+# Create non-root user (node:alpine already has uid/gid 1000 for 'node')
+RUN addgroup -g 1001 astro && \
+    adduser -u 1001 -G astro -s /bin/sh -D astro
 
 WORKDIR /app
 

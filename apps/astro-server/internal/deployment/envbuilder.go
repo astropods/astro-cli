@@ -121,15 +121,12 @@ func (b *EnvBuilder) BuildConnectionStrings(astroSpec *spec.AstroSpec) map[strin
 	env["AGENT_URL"] = fmt.Sprintf("http://%s:8080", agentHost)
 	env["AGENT_HOST"] = agentHost
 
-	// Add messaging service gRPC address if messaging interface is configured
-	for name, iface := range astroSpec.Interfaces {
-		interfaceType := iface.Type
-		if interfaceType == "slack" || interfaceType == "discord" || interfaceType == "teams" {
-			messagingServiceName := GenerateResourceName(astroSpec.Agent, "messaging", name)
-			messagingHost := GenerateServiceDNS(messagingServiceName, b.k8sNamespace)
-			env["GRPC_SERVER_ADDR"] = fmt.Sprintf("%s:9090", messagingHost)
-			break // Only need one messaging service
-		}
+	// Add messaging service gRPC address for all interface types
+	for name := range astroSpec.Interfaces {
+		messagingServiceName := GenerateResourceName(astroSpec.Agent, "messaging", name)
+		messagingHost := GenerateServiceDNS(messagingServiceName, b.k8sNamespace)
+		env["GRPC_SERVER_ADDR"] = fmt.Sprintf("%s:9090", messagingHost)
+		break // Only need one messaging service
 	}
 
 	return env
