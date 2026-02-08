@@ -44,11 +44,12 @@ Example:
 }
 
 var (
-	envFile  string
-	noReload bool
-	rebuild  bool
-	noPull   bool
-	local    bool
+	envFile    string
+	noReload   bool
+	rebuild    bool
+	noPull     bool
+	local      bool
+	localReset bool
 )
 
 func init() {
@@ -58,6 +59,7 @@ func init() {
 	devCmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 	devCmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
 	devCmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
+	devCmd.Flags().BoolVar(&localReset, "local-reset", false, "Remove local package (use after ast dev --local); run 'bun install' to restore deps")
 	_ = devCmd.Flags().MarkHidden("local")
 }
 
@@ -65,6 +67,19 @@ func runDev(cmd *cobra.Command, args []string) error {
 	// Get spec file path
 	specFile, _ := cmd.Flags().GetString("file")
 	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	if localReset {
+		if err := unlinkLocalPackages(workingDir); err != nil {
+			return fmt.Errorf("local-reset: %w", err)
+		}
+		log.Printf("📦 Removed local packages. Run 'bun install' to restore dependencies.")
+		return nil
+	}
 
 	// --local implies --no-pull and requires ASTRO_ROOT for local packages
 	if local {
@@ -78,11 +93,6 @@ func runDev(cmd *cobra.Command, args []string) error {
 	log.Printf("📄 Loading spec from: %s", specFile)
 
 	// Parse astro.yml
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
 	specPath := filepath.Join(workingDir, specFile)
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
@@ -457,6 +467,9 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Printf("✅ Cleanup complete")
+	if local {
+		log.Printf("💡 Tip: run 'ast dev --local-reset' to remove injected local dependencies")
+	}
 
 	return nil
 }
@@ -471,19 +484,19 @@ func resolveAstroSourceRoot() (string, error) {
 	return filepath.Clean(p), nil
 }
 
+// localAstroPackages are the @saswatds/* packages we link in --local and remove in --local-reset.
+var localAstroPackages = []string{
+	"astro-agent", "astro-graph", "astro-messaging",
+}
+
 // linkLocalPackages symlinks node_modules/@saswatds/* to the given Astro repo packages/
-// so the agent uses local source in --local mode. Includes transitive workspace deps
-// (astro-agent, astro-graph, astro-messaging, astro-engine, astro-nodes, astro-types).
+// so the agent uses local source in --local mode.
 func linkLocalPackages(workingDir, astroRoot string) error {
 	scopeDir := filepath.Join(workingDir, "node_modules", "@saswatds")
 	if err := os.MkdirAll(scopeDir, 0755); err != nil {
 		return err
 	}
-	packages := []string{
-		"astro-agent", "astro-graph", "astro-messaging",
-		"astro-engine", "astro-nodes", "astro-types",
-	}
-	for _, pkg := range packages {
+	for _, pkg := range localAstroPackages {
 		target := filepath.Join(astroRoot, "packages", pkg)
 		target, err := filepath.Abs(target)
 		if err != nil {
@@ -498,6 +511,19 @@ func linkLocalPackages(workingDir, astroRoot string) error {
 		_ = os.RemoveAll(link)
 		if err := os.Symlink(target, link); err != nil {
 			return fmt.Errorf("symlink %s: %w", pkg, err)
+		}
+	}
+	return nil
+}
+
+// unlinkLocalPackages removes the @saswatds/* symlinks (or dirs) created by linkLocalPackages
+// so the user can run bun install to restore registry dependencies.
+func unlinkLocalPackages(workingDir string) error {
+	scopeDir := filepath.Join(workingDir, "node_modules", "@saswatds")
+	for _, pkg := range localAstroPackages {
+		path := filepath.Join(scopeDir, pkg)
+		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", pkg, err)
 		}
 	}
 	return nil
