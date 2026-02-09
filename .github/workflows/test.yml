@@ -45,6 +45,8 @@ jobs:
             path: apps/astro-server
           - name: astro-registry
             path: apps/astro-registry
+          - name: astro-cli
+            path: apps/astro-cli
 
     steps:
       - name: Checkout repository

@@ -53,8 +53,9 @@ The spec is registered with astro-server which validates and stores it.
 
 Example:
   ast publish
-  ast publish --tag v1.0.0
-  ast publish --build --tag v1.0.0
+  ast publish --version 0.2
+  ast publish --version auto
+  ast publish --build --version 0.2
 
 Requirements:
   - Must be authenticated (run 'ast login' first)
@@ -63,7 +64,8 @@ Requirements:
 }
 
 var (
-	publishTag      string
+	publishTag      string // set from spec meta.version after optional --version update
+	publishVersion  string // --version: set spec version; "auto" = current + "-auto-gen-tag"
 	skipBuild       bool
 	skipPush        bool
 	serverURL       string
@@ -76,7 +78,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(publishCmd)
-	publishCmd.Flags().StringVarP(&publishTag, "tag", "t", "latest", "Tag to publish (use 'auto' for git hash + date or date only)")
+	publishCmd.Flags().StringVar(&publishVersion, "version", "", "Set meta.version in spec (use 'auto' for current version + git hash + date or date only)")
 	publishCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before publishing")
 	publishCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
 	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides ASTRO_SERVER_URL)")
@@ -84,7 +86,7 @@ func init() {
 	publishCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
 	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
 	publishCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be published without actually doing it")
-	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64,linux/arm64", "Target platform(s) for publish (comma-separated)")
+	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64", "Target platform(s) for publish (comma-separated)")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {
@@ -125,15 +127,27 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	if publishTag == "auto" {
-		publishTag = defaultPublishTag(workingDir)
-	}
-
 	specPath := filepath.Join(workingDir, specFile)
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
+
+	if publishVersion != "" {
+		effectiveVersion := publishVersion
+		if publishVersion == "auto" {
+			effectiveVersion = baseVersion(astroSpec.Meta.Version) + astVersionAutoPrefix + defaultPublishTag(workingDir)
+		}
+		if err := updateSpecVersion(specPath, effectiveVersion); err != nil {
+			return fmt.Errorf("failed to update spec version: %w", err)
+		}
+		astroSpec, err = spec.ParseSpec(specPath)
+		if err != nil {
+			return fmt.Errorf("failed to re-parse spec: %w", err)
+		}
+	}
+
+	publishTag = astroSpec.Meta.Version
 
 	// Build registry host from URL
 	registryHost, err := getRegistryHost(effectiveRegistryURL)
@@ -442,17 +456,28 @@ func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, 
 	return strings.ToLower(result.UserID), nil
 }
 
-// defaultPublishTag returns a tag for publish when --tag is not set.
-// In a git repo: shortHash-date[-dirty]. Otherwise: date only. Date format: yymmdd-hhmmss.
+// astVersionAutoPrefix is the prefix for the auto-generated version suffix. Strip or replace "-ast_..." to get base.
+const astVersionAutoPrefix = "-ast_"
+
+// baseVersion returns the version without the trailing -ast_<auto> suffix so --version auto does not grow the string.
+func baseVersion(version string) string {
+	if i := strings.Index(version, astVersionAutoPrefix); i >= 0 {
+		return version[:i]
+	}
+	return version
+}
+
+// defaultPublishTag returns an auto tag for publish --version auto. Uses "." to separate parts (no ambiguity with "-" in base).
+// In a git repo: shortHash.date[.dirty]. Otherwise: date only. Date format: yymmdd.hhmmss.
 func defaultPublishTag(workingDir string) string {
-	date := time.Now().Format("060102-150405")
+	date := time.Now().Format("060102.150405")
 	shortHash := runGit(workingDir, "rev-parse", "--short", "HEAD")
 	if shortHash == "" {
 		return date
 	}
-	tag := shortHash + "-" + date
+	tag := shortHash + "." + date
 	if runGit(workingDir, "status", "--porcelain", "-uno") != "" {
-		tag += "-dirty"
+		tag += ".dirty"
 	}
 	return tag
 }
@@ -471,6 +496,34 @@ func getRegistryHost(registryURL string) (string, error) {
 		return "", err
 	}
 	return u.Host, nil
+}
+
+// updateSpecVersion sets meta.version in the spec file and writes it back.
+func updateSpecVersion(specPath, version string) error {
+	specData, err := os.ReadFile(specPath)
+	if err != nil {
+		return err
+	}
+	var specObj map[string]interface{}
+	if err := yaml.Unmarshal(specData, &specObj); err != nil {
+		return err
+	}
+	meta, _ := specObj["meta"].(map[string]interface{})
+	if meta == nil {
+		metaAny, _ := specObj["meta"].(map[interface{}]interface{})
+		if metaAny != nil {
+			metaAny["version"] = version
+		} else {
+			specObj["meta"] = map[string]interface{}{"version": version}
+		}
+	} else {
+		meta["version"] = version
+	}
+	out, err := yaml.Marshal(specObj)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(specPath, out, 0644)
 }
 
 // registerAgent registers the agent spec with the astro-server
