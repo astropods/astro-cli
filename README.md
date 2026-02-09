@@ -1,229 +1,110 @@
-# Astro CLI
+# Astro CLI — Internal
 
-A command-line interface for developing, building, and publishing AI agents on the Astro platform. Define your agent infrastructure declaratively in `astro.yml` and deploy with a single command.
+Internal notes for building, testing, and working on the CLI. For user-facing usage see [README.md](../README.md).
 
-## Features
+## Prerequisites
 
-- **Spec-driven development** - Declarative YAML configuration for agents, models, knowledge bases, tools, and integrations
-- **Local development mode** - Run agents locally with hot reload for rapid iteration
-- **Container orchestration** - Automatic Docker Compose generation for self-hosted components
-- **OCI-native publishing** - Push agents and specs to any OCI-compatible registry
-- **Multi-component builds** - Build agent containers plus custom models, knowledge stores, and tools
-- **Message interface support** - Built-in Slack, Discord, and Teams messaging sidecars
-- **Injection pipelines** - Schedule data ingestion from external sources with cron triggers
+- **Go** 1.24+
+- **Docker** and Docker Compose
+- **moon** — monorepo build tool
 
-## Installation
-
-### Build from source
-
-```bash
-moon run astro-cli:build
-```
-
-## Usage
-
-### Commands
-
-#### `dev` - Local Development
-
-Run your agent locally with hot reload:
-
-```bash
-ast dev
-```
-
-This command:
-- Loads environment variables from `.env`
-- Builds and starts all self-hosted components (models, knowledge stores, tools)
-- Runs your agent container with live code reloading
-- Sets up messaging interfaces (Slack, Discord, Teams)
-- Schedules injection workers based on cron triggers
-- Watches `./src` for changes and auto-restarts
-
-**Flags:**
-- `--env` - Path to environment file (default: `.env`)
-- `--no-reload` - Disable hot reload
-- `--file, -f` - Path to spec file (default: `astro.yml`)
-
-#### `build` - Build Containers
-
-Build agent and custom component containers:
-
-```bash
-ast build
-```
-
-Builds:
-- Agent container (if `container.build` is specified)
-- Custom model containers (`models.*.container.build`)
-- Custom knowledge store containers (`knowledge.*.container.build`)
-- Custom tool containers (`tools.*.container.build`)
-
-**Flags:**
-- `--tag, -t` - Image tag (default: `latest`)
-- `--no-cache` - Build without using cache
-- `--file, -f` - Path to spec file (default: `astro.yml`)
-
-#### `publish` - Publish to Registry
-
-Publish agent, components, and spec to an OCI registry:
-
-```bash
-ast publish --registry ghcr.io/myorg
-```
-
-Publishes:
-- Agent container image
-- Custom component images
-- Spec as OCI artifact (via ORAS)
-
-**Flags:**
-- `--registry, -r` - Registry URL (required)
-- `--tag, -t` - Image tag (default: `latest`)
-- `--build` - Build before publishing
-- `--file, -f` - Path to spec file (default: `astro.yml`)
-
-### Global Flags
-
-- `--file, -f` - Path to astro.yml spec file (default: `astro.yml`)
-- `--verbose, -v` - Enable verbose output
-- `--quiet, -q` - Minimal output
-- `--help, -h` - Show help
-
-## Quick Start
-
-1. Create an `astro.yml` spec file:
-
-```yaml
-spec: astro/v1
-agent: my-agent
-
-meta:
-  version: 1.0.0
-  description: My AI agent
-
-container:
-  build:
-    context: .
-    dockerfile: Dockerfile
-
-integrations:
-  models:
-    llm:
-      provider: anthropic
-
-interfaces:
-  slack:
-    type: messaging/slack
-    config:
-      bot_token: ${SLACK_BOT_TOKEN}
-      app_token: ${SLACK_APP_TOKEN}
-```
-
-2. Create a `.env` file with credentials:
-
-```
-ANTHROPIC_API_KEY=sk-...
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
-```
-
-3. Develop locally:
-
-```bash
-ast dev
-```
-
-4. Build containers:
-
-```bash
-ast build --tag v1.0.0
-```
-
-5. Publish to registry:
-
-```bash
-ast publish --registry ghcr.io/myorg --tag v1.0.0
-```
-
-## Spec Format
-
-The `astro.yml` spec supports:
-
-- **`meta`** - Version, description, tags, owner
-- **`container`** - Agent runtime container configuration
-- **`models`** - Self-hosted models (embeddings, inference)
-- **`knowledge`** - Vector stores, key-value stores, graph databases
-- **`tools`** - Custom functions and capabilities
-- **`integrations`** - Cloud providers (Anthropic, OpenAI, GitHub, Tavily)
-- **`interfaces`** - Messaging (Slack, Discord, Teams), HTTP APIs
-- **`injections`** - Data pipelines with cron/event triggers
-
-See example specs in `packages/astro-agents/` for reference.
-
-## Development
-
-### Prerequisites
-
-- Go 1.24 or higher
-- Docker and Docker Compose
-- [moon](https://moonrepo.dev) - monorepo build tool
-
-#### Installing moon
+### Installing moon
 
 ```bash
 bash <(curl -fsSL https://moonrepo.dev/install/moon.sh)
 export PATH="$HOME/.moon/bin:$PATH"
 ```
 
-**Using npm/yarn/pnpm/bun:**
+Or via npm/bun: `bun add -d @moonrepo/cli` (then `bun x moon run astro-cli:build`).
+
+## Building
+
+From repo root:
+
 ```bash
-npm install --save-dev @moonrepo/cli
+moon run astro-cli:build
 ```
 
-### Dependencies
+Output: `apps/astro-cli/bin/ast`.
 
-- [Cobra](https://github.com/spf13/cobra) - CLI framework
-- [Docker SDK](https://github.com/docker/docker) - Container builds and orchestration
-- [ORAS](https://oras.land) - OCI artifact publishing
-- [Compose Go](https://github.com/compose-spec/compose-go) - Docker Compose generation
-- [fsnotify](https://github.com/fsnotify/fsnotify) - File watching for hot reload
-- [cron](https://github.com/robfig/cron) - Cron scheduling for injections
+Optional: inject `GITHUB_PACKAGES_TOKEN` at link time so the binary can pull from GHCR without env:
 
-### Project Structure
+```bash
+GITHUB_PACKAGES_TOKEN=ghp_xxx moon run astro-cli:build
+```
+
+Without the token, the CLI falls back to `GITHUB_PACKAGES_TOKEN` from the environment (e.g. `.env`) at runtime.
+
+Plain Go build (no moon):
+
+```bash
+cd apps/astro-cli
+go build -o bin/ast .
+```
+
+## Testing
+
+```bash
+cd apps/astro-cli
+go test ./...
+```
+
+Verbose:
+
+```bash
+go test -v ./cmd/...
+```
+
+Tests include publish version/auto logic, `baseVersion`, `updateSpecVersion`, and `defaultPublishTag` (with temporary git repos for git-clean/git-dirty cases).
+
+## Dependencies
+
+- **Cobra** — CLI framework
+- **Docker SDK** — Container builds and orchestration
+- **Compose Go** — Docker Compose project generation
+- **ORAS** (crane) — OCI artifact push (via auth/crane)
+- **fsnotify** — File watching for hot reload
+- **cron** — Scheduling for injection triggers
+- **astro-spec** (internal package) — YAML spec parsing and types
+
+## Project structure
 
 ```
-astro-cli/
-├── main.go                     # Entry point
+apps/astro-cli/
+├── main.go                 # Entry point
 ├── cmd/
-│   ├── root.go                # Root command and global flags
-│   ├── dev.go                 # Local development with hot reload
-│   ├── build.go               # Container build orchestration
-│   └── publish.go             # OCI registry publishing
+│   ├── root.go             # Root command, global flags
+│   ├── dev.go              # ast dev — local development, compose, hot reload
+│   ├── build.go             # ast build — container builds (BuildKit)
+│   ├── publish.go           # ast publish — version logic, registry push, register
+│   ├── publish_streaming.go # Push progress, multi-platform
+│   ├── login.go / logout.go # Auth
+│   ├── playground.go       # ast playground
+│   ├── create.go            # ast create — scaffold new agent
+│   └── tokens.go            # GITHUB_PACKAGES_TOKEN (ldflags-injected or env)
 ├── internal/
-│   ├── spec/
-│   │   ├── parser.go          # YAML spec parsing
-│   │   └── types.go           # Spec data structures
-│   ├── compose/
-│   │   └── builder.go         # Dynamic Compose project generation
-│   └── watcher/
-│       └── watcher.go         # File watcher for hot reload
-├── go.mod
-└── go.sum
+│   ├── auth/               # Server/registry auth, token storage, crane
+│   ├── compose/             # Compose project generation from spec
+│   ├── scaffold/            # Templates for ast create
+│   ├── utils/               # Helpers (env, image names)
+│   └── watcher/             # File watcher for hot reload
+├── go.mod / go.sum
+├── moon.yml                 # moon build task (optional token injection)
+└── docs/
+    └── INTERNAL.md          # This file
 ```
+
+Spec types and parsing live in `packages/astro-spec` (shared with server).
 
 ## Architecture
 
-The Astro CLI is a spec-driven orchestration tool that:
+1. **Spec** — `astro.yml` is parsed by `packages/astro-spec` into structured types.
+2. **Dev** — `compose` builder turns the spec into a Docker Compose project; `dev` runs it and optionally runs the agent process locally with a watcher.
+3. **Build** — For each component with `container.build`, the CLI invokes Docker/BuildKit with the right context, Dockerfile, secrets (e.g. npm token from env or injected), and platform.
+4. **Publish** — Version can be set in spec via `--version` (literal or `auto`). Tag is taken from `meta.version` after any update. Images are tagged and pushed (single or multi-platform); spec is pushed as OCI artifact and optionally sent to Astro server for registration.
 
-1. **Parses** declarative `astro.yml` specs into structured data
-2. **Generates** Docker Compose projects dynamically based on declared components
-3. **Builds** multi-stage container images for agents and custom components
-4. **Orchestrates** local development environments with hot reload
-5. **Publishes** containers and specs to OCI registries using ORAS
+Design principles:
 
-Key design principles:
-- **Declarative over imperative** - Infrastructure as code via YAML specs
-- **Container-native** - Everything runs in Docker for portability
-- **OCI-compatible** - Works with any container registry
-- **Developer-friendly** - Hot reload, credential injection, automatic service discovery
+- **Declarative** — Infrastructure as code in YAML.
+- **Container-native** — Builds and runs everything in Docker.
+- **OCI-compatible** — Works with any registry; ORAS for spec artifacts.

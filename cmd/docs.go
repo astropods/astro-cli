@@ -4,21 +4,27 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
 )
 
-//go:embed docs_content.md
-var docsContent string
+//go:embed docs/agent_instructions.md
+var docsAgent string
+
+//go:embed docs/ast.md
+var docsHelp string
 
 var docsCmd = &cobra.Command{
-	Use:   "docs",
-	Short: "Display Astro agent development documentation",
-	Long: `Display comprehensive documentation for developing Astro agents.
+	Use:     "docs [category]",
+	Aliases: []string{"doc"},
+	Short:   "Display Astro documentation",
+	Long: `Display documentation in your terminal.
 
-This command renders the Astro development guide in your terminal,
-covering project structure, the Astro DSL, and best practices.`,
+Categories:
+  agent  Agent development guide (LLM, tools, messaging). Default.
+  help   CLI help: installation, quick start, commands, spec.`,
 	RunE: runDocs,
 }
 
@@ -27,6 +33,21 @@ func init() {
 }
 
 func runDocs(cmd *cobra.Command, args []string) error {
+	category := "agent"
+	if len(args) > 0 {
+		category = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+
+	var content string
+	switch category {
+	case "agent":
+		content = docsAgent
+	case "help":
+		content = docsHelp
+	default:
+		return fmt.Errorf("unknown category %q (use agent or help)", category)
+	}
+
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(100),
@@ -35,7 +56,7 @@ func runDocs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create renderer: %w", err)
 	}
 
-	out, err := renderer.Render(docsContent)
+	out, err := renderer.Render(content)
 	if err != nil {
 		return fmt.Errorf("failed to render docs: %w", err)
 	}
