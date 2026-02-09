@@ -45,6 +45,7 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		targetDir,
 		filepath.Join(targetDir, "agent"),
 		filepath.Join(targetDir, "ingestion"),
+		filepath.Join(targetDir, ".postman", "collections"),
 	}
 
 	for _, dir := range dirs {
@@ -85,6 +86,11 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		}
 	}
 
+	// Copy static Postman collection (no templating)
+	if err := copyStaticFile(filepath.Join(targetDir, ".postman", "collections", "Astro-API.postman_collection.json"), paths.PostmanCollection); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -107,4 +113,12 @@ func writeTemplateFromEmbed(outputPath, templatePath string, config ScaffoldConf
 	defer file.Close()
 
 	return tmpl.Execute(file, config)
+}
+
+func copyStaticFile(outputPath, embedPath string) error {
+	data, err := GetTemplate(embedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", embedPath, err)
+	}
+	return os.WriteFile(outputPath, []byte(data), 0644)
 }
