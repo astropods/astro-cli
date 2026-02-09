@@ -879,7 +879,7 @@ export default function App() {
     }
 
     const data = await res.json();
-    return data.id;
+    return data.conversation_id;
   };
 
   const setupEventSource = (convId: string, assistantMessageId: string) => {

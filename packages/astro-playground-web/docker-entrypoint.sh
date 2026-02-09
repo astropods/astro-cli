@@ -43,7 +43,7 @@ NGINX_PROXY
 
 cat >> /etc/nginx/conf.d/default.conf <<'NGINX_MID'
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_ssl_server_name on;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -64,7 +64,7 @@ NGINX_PROXY2
 
 cat >> /etc/nginx/conf.d/default.conf <<'NGINX_TAIL'
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_ssl_server_name on;
     }
 
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
