@@ -12,6 +12,9 @@ moon run deployment:messaging
 
 # Playground (web UI for agents)
 moon run deployment:playground
+
+# Remove astro Docker images (messaging, server, registry, playground; local and ghcr.io/saswatds/*)
+moon run deployment:clean
 ```
 
 Images are tagged `astro-messaging:latest` and `astro-playground:latest`. Use them with:
