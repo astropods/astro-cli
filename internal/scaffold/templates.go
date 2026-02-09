@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-//go:embed templates/*
+//go:embed all:templates
 var templateFS embed.FS
 
 // TemplatePaths holds the paths to template files for a specific language
@@ -20,7 +20,8 @@ type TemplatePaths struct {
 	Dockerignore        string
 	AgentIndex          string
 	IngestionIndex      string
-	LlmMd string
+	LlmMd               string
+	PostmanCollection   string
 }
 
 // GetTemplatePaths returns the template paths for the specified language
@@ -38,7 +39,8 @@ func GetTemplatePaths(lang string) (*TemplatePaths, error) {
 			Dockerignore:        "templates/template-ts/dockerignore.tmpl",
 			AgentIndex:          "templates/template-ts/agent/index.ts",
 			IngestionIndex:      "templates/template-ts/ingestion/index.ts",
-			LlmMd: "templates/template-ts/agents.md.tmpl",
+			LlmMd:               "templates/template-ts/agents.md.tmpl",
+			PostmanCollection:   "templates/template-ts/.postman/collections/Astro-API.postman_collection.json",
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", lang)
