@@ -1,5 +1,7 @@
 # Astro Agent Development Guide
 
+To view the CLI help (installation, quick start, commands) in the terminal, run **`ast docs help`**.
+
 ## Quick Start: Complete Agent Example
 
 This is the complete pattern for building an agent with tools and connecting it to messaging:
