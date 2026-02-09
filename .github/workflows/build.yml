@@ -198,6 +198,7 @@ jobs:
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
+            GITHUB_PACKAGES_TOKEN=${{ matrix.service == 'astro-server' && secrets.GHCR_PAT || '' }}
 
       - name: Build and push to GHCR by digest
         if: matrix.push_ghcr
@@ -214,6 +215,7 @@ jobs:
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
+            GITHUB_PACKAGES_TOKEN=${{ matrix.service == 'astro-server' && secrets.GHCR_PAT || '' }}
 
       - name: Export ECR digest
         if: matrix.push_ecr

@@ -56,6 +56,7 @@ type ServerConfig struct {
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
 	StaticDir       string // Directory containing static frontend assets (empty to disable)
+	CLIDir          string // Path to CLI binaries in container for /download/* (empty to disable)
 }
 
 // LogConfig holds logging configuration
@@ -94,6 +95,7 @@ func Load() (*Config, error) {
 			WriteTimeout:    getEnvDuration("WRITE_TIMEOUT", 10*time.Second),
 			ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 			StaticDir:       getEnv("STATIC_DIR", ""),
+			CLIDir:          getEnv("CLI_DIR", ""),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),

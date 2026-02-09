@@ -72,6 +72,8 @@ cp .env.example .env
 | `LOG_FORMAT` | Log output format | `json` | `json`, `text` |
 | `ALLOWED_ORIGINS` | CORS allowed origins | `*` | Comma-separated list or `*` |
 | `TRUSTED_PROXIES` | Trusted proxy IPs | (empty) | Comma-separated IP list |
+| `STATIC_DIR` | Path to built frontend (SPA) | (empty) | e.g. `/app/static` |
+| `CLI_DIR` | Path to CLI binaries in container for `/download/*` | (empty) | Leave empty to hide download links |
 
 ### Authentication Configuration
 
@@ -110,6 +112,69 @@ TRUSTED_PROXIES=10.0.0.0/8
 READ_TIMEOUT=30s
 WRITE_TIMEOUT=30s
 ```
+
+### Testing the /dev page and CLI download locally
+
+The server needs required env vars (see **Configuration** above). Use a `.env` file so you don’t have to export everything.
+
+1. **Start Postgres** (the server connects at startup; without it you get "connection refused"):
+   ```bash
+   docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=astro --name astro-postgres postgres:16
+   ```
+   Then run the schema migration (from repo root; uses the same Postgres container):
+   ```bash
+   docker run --rm --link astro-postgres:db -v "$(pwd)/apps/astro-server/migrations:/migrations" migrate/migrate:v4.17.0 -path=/migrations -database "postgres://postgres:postgres@db:5432/astro?sslmode=disable" up
+   ```
+2. **Create `.env`** in `apps/astro-server`. Suggested contents for local dev (Postgres from step 1, auth/admin off, CLI download from `./cli`):
+
+   ```env
+   # Required
+   DATABASE_URL=postgres://postgres:postgres@localhost:5432/astro?sslmode=disable
+   REGISTRY_URL=https://example.com
+
+   # EKS (required by config but unused when not deploying)
+   EKS_CLUSTER_NAME=local
+   K8S_MASTER_URL=https://localhost
+
+   # Disable auth and admin for local testing (no WorkOS or admin credentials needed)
+   AUTH_ENABLED=false
+   ADMIN_ENABLED=false
+
+   # Server
+   PORT=8080
+   GIN_MODE=debug
+   LOG_LEVEL=info
+   LOG_FORMAT=text
+
+   # Frontend (for CORS / redirects)
+   FRONTEND_URL=http://localhost:5173
+
+   # CLI binaries for /download/* – set after building into apps/astro-server/cli
+   CLI_DIR=./cli
+   ```
+
+   Save as `apps/astro-server/.env`. If you haven’t built the CLI yet, leave `CLI_DIR` empty or omit it; the `/dev` page will load but download links will 404.
+3. **Put CLI binaries where the server can serve them** (Mac only: `ast-darwin-amd64`, `ast-darwin-arm64`). From repo root:
+   ```bash
+   mkdir -p apps/astro-server/cli
+   cd apps/astro-cli
+   GOOS=darwin GOARCH=amd64 go build -o ../astro-server/cli/ast-darwin-amd64 .
+   GOOS=darwin GOARCH=arm64 go build -o ../astro-server/cli/ast-darwin-arm64 .
+   cd ../astro-server
+   ```
+   In `.env` add (or export): **`CLI_DIR=./cli`**. Without this, `/dev` still loads but download links 404.
+4. **Start the server** (it loads `.env` automatically):
+   ```bash
+   cd apps/astro-server
+   go run main.go
+   ```
+   Server runs at `http://localhost:8080`.
+5. **Start the frontend** in another terminal (Vite proxies `/api` and `/download` to the server):
+   ```bash
+   cd apps/astro-client
+   bun run dev
+   ```
+6. Open **`http://localhost:5173/dev`**. Use the download links or copy the curl commands; they hit the same origin and are proxied to the server’s `/download/:name`.
 
 ## Endpoints
 

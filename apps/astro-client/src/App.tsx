@@ -9,6 +9,7 @@ import { AgentDetail } from "./pages/AgentDetail";
 import { RequestAgent } from "./pages/RequestAgent";
 import { YourAgents } from "./pages/YourAgents";
 import { Operator } from "./pages/Operator";
+import { Dev } from "./pages/Dev";
 import { NotFound } from "./pages/NotFound";
 
 function App() {
@@ -24,6 +25,8 @@ function App() {
               <Route path="request-agent" element={<RequestAgent />} />
               <Route path="agents" element={<YourAgents />} />
               <Route path="operator" element={<Operator />} />
+              {/* /dev is public (no login required) — CLI download & quick start */}
+              <Route path="dev" element={<Dev />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

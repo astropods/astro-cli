@@ -4,6 +4,7 @@ import {
   BriefcaseIcon,
   SparklesIcon,
   WrenchIcon,
+  CommandLineIcon,
   DocumentTextIcon,
   ChatBubbleLeftIcon,
   PaperAirplaneIcon,
@@ -43,6 +44,7 @@ const myAgents = [
 ];
 
 const resourceItems: NavItem[] = [
+  { label: "CLI", icon: CommandLineIcon, to: "/dev" },
   { label: "Docs", icon: DocumentTextIcon, to: "https://docs.example.com", external: true },
   { label: "Community", icon: ChatBubbleLeftIcon, to: "https://community.example.com", external: true },
   { label: "Request Agent", icon: PaperAirplaneIcon, to: "/request-agent" },

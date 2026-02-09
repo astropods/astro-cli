@@ -50,6 +50,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
         },
+        // Proxy CLI binary download to the backend (Dev page links and curl use /download/*)
+        "/download": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: true,
+        },
         // Note: /auth endpoints go directly to the backend (not proxied)
         // to ensure cookies are set on the correct domain
       },

@@ -156,6 +156,11 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	router.GET("/readyz", probeHandler.Readyz())
 	router.GET("/healthz", probeHandler.Healthz())
 
+	// CLI binary download (how-to lives on SPA /dev)
+	if cfg.Server.CLIDir != "" {
+		router.GET("/download/:name", handlers.CLIDownload(cfg))
+	}
+
 	// Serve static frontend assets if configured
 	if cfg.Server.StaticDir != "" {
 		setupStaticFiles(router, log, cfg.Server.StaticDir)
