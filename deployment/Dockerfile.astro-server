@@ -42,10 +42,14 @@ ARG GITHUB_PACKAGES_TOKEN
 
 WORKDIR /app
 COPY apps/astro-cli/go.mod apps/astro-cli/go.sum ./apps/astro-cli/
+COPY packages/astro-spec/go.mod ./packages/astro-spec/
 WORKDIR /app/apps/astro-cli
 RUN go mod download
-COPY apps/astro-cli ./
+WORKDIR /app
+COPY apps/astro-cli ./apps/astro-cli
+COPY packages/astro-spec ./packages/astro-spec
 
+WORKDIR /app/apps/astro-cli
 RUN mkdir -p /out && \
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build \
       -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN}" \
