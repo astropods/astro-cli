@@ -120,6 +120,10 @@ func runDev(cmd *cobra.Command, args []string) error {
 			os.Setenv(key, val)
 		}
 	}
+	if t := getGitHubPackagesToken(); t != "" {
+		envVars["GITHUB_PACKAGES_TOKEN"] = t
+		os.Setenv("GITHUB_PACKAGES_TOKEN", t)
+	}
 
 	// Build Docker Compose project
 	log.Printf("🐳 Building Docker Compose project...")
@@ -177,9 +181,9 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	// Check for GITHUB_PACKAGES_TOKEN before building (unless skipping pull)
 	if !noPull {
-		ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN")
+		ghcrToken := getGitHubPackagesToken()
 		if ghcrToken == "" {
-			return fmt.Errorf("GITHUB_PACKAGES_TOKEN environment variable is required.\nAdd it to your .env file or set it in your shell.\nYou can get it through 1Password by requesting the Astro team.")
+			return fmt.Errorf("GITHUB_PACKAGES_TOKEN is required (set in env or use a CLI build that injects it)")
 		}
 
 		// Login to GHCR (for pulling astro-messaging image)
