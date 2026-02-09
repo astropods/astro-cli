@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
+	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	"github.com/postman/astro/apps/astro-cli/internal/watcher"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
@@ -54,7 +54,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(devCmd)
-	devCmd.Flags().StringVar(&envFile, "env", ".env", "Environment file for integration credentials")
+	devCmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
 	devCmd.Flags().BoolVar(&noReload, "no-reload", false, "Disable hot reload")
 	devCmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 	devCmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
@@ -102,30 +102,23 @@ func runDev(cmd *cobra.Command, args []string) error {
 	log.Printf("✅ Loaded spec for agent: %s (v%s)", astroSpec.Agent, astroSpec.Meta.Version)
 
 	// Load .env file
-	envPath := filepath.Join(workingDir, envFile)
-	envVars := make(map[string]string)
-
-	if _, err := os.Stat(envPath); err == nil {
+	envVars, err := utils.LoadEnvFile(workingDir, envFile)
+	if err != nil {
+		return fmt.Errorf("failed to read .env file: %w", err)
+	}
+	if envVars == nil {
+		envVars = make(map[string]string)
+		log.Printf("⚠️  No .env file found at %s (continuing without integration credentials)", envFile)
+	} else {
 		log.Printf("🔑 Loading environment from: %s", envFile)
-		envMap, err := godotenv.Read(envPath)
-		if err != nil {
-			return fmt.Errorf("failed to read .env file: %w", err)
-		}
-		envVars = envMap
-
-		// Log loaded environment variable names (not values, for security)
 		var envKeys []string
 		for key := range envVars {
 			envKeys = append(envKeys, key)
 		}
 		log.Printf("   Loaded %d environment variables: %s", len(envKeys), strings.Join(envKeys, ", "))
-
-		// Export env vars to OS environment for Docker build secrets
 		for key, val := range envVars {
 			os.Setenv(key, val)
 		}
-	} else {
-		log.Printf("⚠️  No .env file found at %s (continuing without integration credentials)", envFile)
 	}
 
 	// Build Docker Compose project
@@ -139,10 +132,8 @@ func runDev(cmd *cobra.Command, args []string) error {
 	if local {
 		for name, svc := range project.Services {
 			if svc.Image != "" {
-				if i := strings.LastIndex(svc.Image, "/"); i >= 0 {
-					svc.Image = svc.Image[i+1:]
-					project.Services[name] = svc
-				}
+				svc.Image = utils.ImageNameForLocal(svc.Image, true)
+				project.Services[name] = svc
 			}
 		}
 		if verbose {

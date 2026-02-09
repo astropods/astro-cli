@@ -13,8 +13,9 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types/build"
-	"github.com/joho/godotenv"
 	controlapi "github.com/moby/buildkit/api/services/control"
+
+	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
@@ -87,14 +88,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load .env file for secrets
-	envVars := make(map[string]string)
-	envPath := filepath.Join(workingDir, ".env")
-	if _, err := os.Stat(envPath); err == nil {
-		envMap, err := godotenv.Read(envPath)
-		if err != nil {
-			return fmt.Errorf("failed to read .env file: %w", err)
-		}
-		envVars = envMap
+	envVars, err := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile)
+	if err != nil {
+		return fmt.Errorf("failed to read .env file: %w", err)
+	}
+	if envVars == nil {
+		envVars = make(map[string]string)
 	}
 
 	// Create Docker client

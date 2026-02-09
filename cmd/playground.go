@@ -6,13 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+
+	"github.com/postman/astro/apps/astro-cli/internal/utils"
 )
 
 const playgroundImage = "ghcr.io/saswatds/astro-playground:latest"
@@ -28,7 +28,9 @@ The URL should be the base URL of the astro-messaging HTTP API
 Example:
   ast playground http://localhost:8080
   ast playground https://my-agent.example.com
-  ast playground http://localhost:8080 --port 4000`,
+  ast playground http://localhost:8080 --port 4000
+  ast playground http://localhost:8080 --local
+  ast playground http://localhost:8080 --no-pull`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPlayground,
 }
@@ -37,12 +39,14 @@ var (
 	playgroundPort   string
 	playgroundNoPull bool
 	playgroundNoOpen bool
+	playgroundLocal  bool
 )
 
 func init() {
 	rootCmd.AddCommand(playgroundCmd)
 	playgroundCmd.Flags().StringVar(&playgroundPort, "port", "3737", "Local port for the playground UI")
 	playgroundCmd.Flags().BoolVar(&playgroundNoPull, "no-pull", false, "Skip pulling the playground image")
+	playgroundCmd.Flags().BoolVar(&playgroundLocal, "local", false, "Use locally built playground image; do not pull (implies --no-pull)")
 	playgroundCmd.Flags().BoolVar(&playgroundNoOpen, "no-open", false, "Don't open the browser automatically")
 }
 
@@ -55,20 +59,25 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 
 	// Load .env file if present
 	workingDir, _ := os.Getwd()
-	envPath := filepath.Join(workingDir, ".env")
-	if _, err := os.Stat(envPath); err == nil {
-		envMap, err := godotenv.Read(envPath)
-		if err == nil {
-			for key, val := range envMap {
-				os.Setenv(key, val)
-			}
+	if envMap, _ := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile); envMap != nil {
+		for key, val := range envMap {
+			os.Setenv(key, val)
 		}
 	}
 
+	if playgroundLocal {
+		playgroundNoPull = true
+	}
+
+	imageToUse := utils.ImageNameForLocal(playgroundImage, playgroundLocal)
+
 	log.Printf("🎮 Starting Astro Playground...")
 	log.Printf("   Backend: %s", apiURL)
+	if playgroundLocal {
+		log.Printf("   Using local image: %s", imageToUse)
+	}
 
-	// Pull latest image
+	// Pull latest image unless --no-pull or --local
 	if !playgroundNoPull {
 		ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN")
 		if ghcrToken == "" {
@@ -83,7 +92,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 		}
 
 		log.Printf("📦 Pulling playground image...")
-		pullCmd := exec.Command("docker", "pull", playgroundImage)
+		pullCmd := exec.Command("docker", "pull", imageToUse)
 		pullCmd.Stdout = os.Stdout
 		pullCmd.Stderr = os.Stderr
 		if err := pullCmd.Run(); err != nil {
@@ -113,7 +122,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 		"--add-host=host.docker.internal:host-gateway",
 		"-p", playgroundPort + ":80",
 		"-e", "BACKEND_URL=" + containerBackendURL,
-		playgroundImage,
+		imageToUse,
 	}
 	dockerRun := exec.Command("docker", runArgs...)
 	dockerRun.Stdout = os.Stdout
