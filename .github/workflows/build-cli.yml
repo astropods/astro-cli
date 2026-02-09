@@ -57,7 +57,8 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
-        run: go build -ldflags="-s -w" -o ${{ matrix.binary }} .
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GHCR_PAT }}
+        run: go build -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=$GITHUB_PACKAGES_TOKEN" -o ${{ matrix.binary }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -79,9 +79,9 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 
 	// Pull latest image unless --no-pull or --local
 	if !playgroundNoPull {
-		ghcrToken := os.Getenv("GITHUB_PACKAGES_TOKEN")
+		ghcrToken := getGitHubPackagesToken()
 		if ghcrToken == "" {
-			return fmt.Errorf("GITHUB_PACKAGES_TOKEN environment variable is required.\nAdd it to your .env file or set it in your shell.\nYou can get it through 1Password by requesting the Astro team.")
+			return fmt.Errorf("GITHUB_PACKAGES_TOKEN is required (set in env or use a CLI build that injects it)")
 		}
 
 		log.Printf("🔑 Logging into GHCR...")
