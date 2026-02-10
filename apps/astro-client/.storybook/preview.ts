@@ -1,5 +1,15 @@
 import type { Preview } from '@storybook/react-vite'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
 import '../src/index.css'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+})
 
 const preview: Preview = {
   globalTypes: {
@@ -23,7 +33,11 @@ const preview: Preview = {
     (Story, context) => {
       const theme = context.globals.theme;
       document.documentElement.classList.toggle('dark', theme === 'dark');
-      return Story();
+      return React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        Story()
+      );
     },
   ],
   parameters: {

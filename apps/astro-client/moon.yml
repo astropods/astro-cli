@@ -1,0 +1,9 @@
+layer: "application"
+language: "typescript"
+
+tasks:
+  test:
+    command: "bun x vitest run"
+    inputs:
+      - "src/**/*"
+      - "vite.config.ts"

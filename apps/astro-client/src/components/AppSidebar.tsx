@@ -11,6 +11,7 @@ import {
   ChatBubbleOvalLeftIcon,
 } from "@heroicons/react/24/outline";
 import type { User } from "../lib/api";
+import { useDeployments } from "@/api/queries";
 
 import {
   Sidebar,
@@ -31,16 +32,8 @@ import { useLocation } from "react-router-dom";
 const primaryNav = [
   { label: "Home", icon: HomeIcon, to: "/", end: true },
   { label: "Hire Agents", icon: UserGroupIcon, to: "/hire", end: false },
-  { label: "Your Agents", icon: BriefcaseIcon, to: "/agents", end: true },
+  { label: "My Agents", icon: BriefcaseIcon, to: "/agents", end: true },
   { label: "Operator", icon: WrenchIcon, to: "/operator", end: false },
-];
-
-const myAgents = [
-  "Research Assistant",
-  "Code Reviewer",
-  "Data Analyst",
-  "Content Writer",
-  "QA Tester",
 ];
 
 const resourceItems: NavItem[] = [
@@ -68,6 +61,7 @@ export function AppSidebar({
   onTalkToAstro,
 }: AppSidebarProps) {
   const location = useLocation();
+  const { data: deployments } = useDeployments(isAuthenticated);
 
   const primaryNavItems: NavItem[] = primaryNav.map((item) => ({
     ...item,
@@ -76,9 +70,9 @@ export function AppSidebar({
       : location.pathname.startsWith(item.to),
   }));
 
-  const agentItems: CollapsibleItem[] = myAgents.map((agent) => ({
-    label: agent,
-    to: `/agents/${encodeURIComponent(agent.toLowerCase().replace(/ /g, "-"))}`,
+  const agentItems: CollapsibleItem[] = (deployments?.deployments ?? []).map((d) => ({
+    label: d.name,
+    to: `/agents/${encodeURIComponent(d.name)}`,
   }));
 
   return (
@@ -95,7 +89,9 @@ export function AppSidebar({
 
       <SidebarContent>
         <SidebarNavGroup items={primaryNavItems} />
-        <SidebarCollapsibleGroup label="My Agents" items={agentItems} />
+        {agentItems.length > 0 && (
+          <SidebarCollapsibleGroup label="My Agents" items={agentItems} />
+        )}
         <SidebarNavGroup label="Resources" items={resourceItems} />
       </SidebarContent>
 
