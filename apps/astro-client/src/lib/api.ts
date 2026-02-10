@@ -196,9 +196,15 @@ class ApiClient {
 }
 
 // Response types
+export interface AgentSpec {
+  meta?: { description?: string; tags?: string[] };
+  integrations?: { tools?: { provider: string }[] };
+  [key: string]: unknown;
+}
+
 export interface AgentVersion {
   version: string;
-  spec: Record<string, unknown>;
+  spec: AgentSpec;
   published_at: string;
 }
 
