@@ -13,51 +13,15 @@ export const mockAgents: Agent[] = [
     name: 'code-reviewer',
     registry: 'registry.example.com',
     versions: [
-      {
-        version: '1.1.0',
-        spec: {
-          model: 'gpt-4o',
-          meta: {
-            description: 'Automated code review agent that analyzes pull requests for quality and security issues.',
-            tags: ['Developer Tools', 'Security'],
-          },
-          integrations: {
-            tools: [{ provider: 'GitHub' }, { provider: 'Slack' }],
-          },
-        },
-        published_at: '2025-02-01T00:00:00Z',
-      },
-      {
-        version: '1.0.0',
-        spec: {
-          model: 'gpt-4',
-          meta: {
-            description: 'Automated code review agent.',
-            tags: ['Developer Tools'],
-          },
-        },
-        published_at: '2025-01-01T00:00:00Z',
-      },
+      { version: '1.0.0', spec: { model: 'gpt-4' }, published_at: '2025-01-01T00:00:00Z' },
+      { version: '1.1.0', spec: { model: 'gpt-4o' }, published_at: '2025-02-01T00:00:00Z' },
     ],
   },
   {
     name: 'data-analyst',
     registry: 'registry.example.com',
     versions: [
-      {
-        version: '0.9.0',
-        spec: {
-          model: 'claude-3',
-          meta: {
-            description: 'Analyzes datasets and generates visual reports with actionable insights.',
-            tags: ['Analytics'],
-          },
-          integrations: {
-            tools: [{ provider: 'Snowflake' }, { provider: 'Slack' }, { provider: 'Google Sheets' }],
-          },
-        },
-        published_at: '2025-03-01T00:00:00Z',
-      },
+      { version: '0.9.0', spec: { model: 'claude-3' }, published_at: '2025-03-01T00:00:00Z' },
     ],
   },
 ];

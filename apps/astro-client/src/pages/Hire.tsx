@@ -5,7 +5,7 @@ import {
   ChevronDownIcon,
   MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { PageTitle } from "@/components/PageTitle";
 import { AgentCard } from "@/components/AgentCard";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FindAgentsWizard } from "../components/FindAgentsWizard";
 import type { LayoutContext } from "@/components/Layout";
-import { useAgents } from "@/api/queries";
-import type { Agent } from "@/lib/api";
+
+const categories = [
+  "All",
+  "Developer Tools",
+  "IT Support",
+  "Customer Support",
+  "Analytics",
+  "Security",
+];
 
 const sortOptions = [
   { label: "Most recent", value: "recent" },
@@ -28,23 +35,56 @@ const sortOptions = [
 
 type SortValue = (typeof sortOptions)[number]["value"];
 
-function getLatestSpec(agent: Agent) {
-  return agent.versions[0]?.spec;
-}
-
-function getAgentCategories(agent: Agent): string[] {
-  return getLatestSpec(agent)?.meta?.tags ?? [];
-}
-
-function getAgentDescription(agent: Agent): string {
-  return getLatestSpec(agent)?.meta?.description ?? agent.name;
-}
-
-function getAgentIntegrations(agent: Agent): string[] {
-  const tools = getLatestSpec(agent)?.integrations?.tools;
-  if (!tools) return [];
-  return [...new Set(tools.map((t) => t.provider))];
-}
+const agents = [
+  {
+    slug: "customer-insight-engine",
+    name: "Customer Insight Engine",
+    description:
+      "Analyzes customer feedback to surface actionable insights and trends.",
+    integrations: ["Zendesk", "Slack", "Intercom", "Salesforce"],
+    categories: ["Analytics"],
+  },
+  {
+    slug: "incident-command",
+    name: "Incident Command",
+    description:
+      "Automatically routes and escalates incidents based on severity and team availability.",
+    integrations: ["PagerDuty", "Slack", "Opsgenie", "ServiceNow"],
+    categories: ["IT Support"],
+  },
+  {
+    slug: "personalized-support-responses",
+    name: "Personalized Support Responses",
+    description:
+      "Drafts personalized support replies using customer context and history.",
+    integrations: ["Zendesk", "Intercom", "Freshdesk", "Slack"],
+    categories: ["Customer Support"],
+  },
+  {
+    slug: "security-monitor",
+    name: "Security Monitor",
+    description:
+      "Continuously scans for vulnerabilities and alerts your security team.",
+    integrations: ["GitHub", "GitLab", "Slack", "Jira"],
+    categories: ["Security"],
+  },
+  {
+    slug: "sprint-insight-engine",
+    name: "Sprint Insight Engine",
+    description:
+      "Tracks sprint progress and generates automated status reports.",
+    integrations: ["Jira", "Linear", "Asana", "Slack"],
+    categories: ["Developer Tools"],
+  },
+  {
+    slug: "product-research-intel",
+    name: "Product Research Intel",
+    description:
+      "Aggregates product research and competitive intelligence from multiple sources.",
+    integrations: ["Slack", "Notion", "Confluence", "Google Docs"],
+    categories: ["Analytics"],
+  },
+];
 
 export function Hire() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -52,19 +92,6 @@ export function Hire() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState<SortValue>("recent");
   const { openAuthModal } = useOutletContext<LayoutContext>();
-
-  const { data, isLoading, isError, error, refetch } = useAgents();
-  const agents = data?.agents ?? [];
-
-  const categories = useMemo(() => {
-    const tagSet = new Set<string>();
-    for (const agent of agents) {
-      for (const tag of getAgentCategories(agent)) {
-        tagSet.add(tag);
-      }
-    }
-    return ["All", ...Array.from(tagSet).sort()];
-  }, [agents]);
 
   const isWizardOpen = searchParams.get("start") === "true";
 
@@ -79,7 +106,7 @@ export function Hire() {
         .includes(searchQuery.toLowerCase());
       const matchesCategory =
         selectedCategory === "All" ||
-        getAgentCategories(agent).includes(selectedCategory);
+        agent.categories.includes(selectedCategory);
       return matchesSearch && matchesCategory;
     });
 
@@ -88,7 +115,7 @@ export function Hire() {
     }
 
     return filtered;
-  }, [agents, searchQuery, selectedCategory, sortBy]);
+  }, [searchQuery, selectedCategory, sortBy]);
 
   const currentSort =
     sortOptions.find((o) => o.value === sortBy)?.label ?? "Sort";
@@ -164,48 +191,20 @@ export function Hire() {
         </div>
       </div>
 
-      {/* Loading state */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 size={32} className="animate-spin text-gray-500" />
-        </div>
-      ) : isError ? (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700">
-          <p className="font-medium">Failed to load agents</p>
-          <p className="text-sm">
-            {(error as { error_description?: string })?.error_description ??
-              (error instanceof Error ? error.message : "An unexpected error occurred")}
-          </p>
-          <button
-            onClick={() => refetch()}
-            className="mt-2 px-3 py-1 text-sm border border-red-300 bg-white text-red-700 hover:bg-red-50 cursor-pointer"
-          >
-            Retry
-          </button>
-        </div>
-      ) : agents.length === 0 ? (
-        <div className="p-8 border border-gray-300 text-center">
-          <h3 className="text-lg font-medium mb-2">No agents available</h3>
-          <p className="text-gray-600 text-sm">
-            There are no agents in the registry yet.
-          </p>
-        </div>
-      ) : (
-        /* Agent card grid */
-        <div className="grid grid-cols-1 gap-6 @[540px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4">
-          {filteredAgents.map((agent) => (
-            <AgentCard
-              key={agent.name}
-              slug={agent.name}
-              name={agent.name}
-              description={getAgentDescription(agent)}
-              integrations={getAgentIntegrations(agent)}
-              categories={getAgentCategories(agent)}
-              onInstall={() => openAuthModal()}
-            />
-          ))}
-        </div>
-      )}
+      {/* Agent card grid */}
+      <div className="grid grid-cols-1 gap-6 @[540px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4">
+        {filteredAgents.map((agent) => (
+          <AgentCard
+            key={agent.slug}
+            slug={agent.slug}
+            name={agent.name}
+            description={agent.description}
+            integrations={agent.integrations}
+            categories={agent.categories}
+            onInstall={() => openAuthModal()}
+          />
+        ))}
+      </div>
 
       {/* Wizard overlay — unchanged */}
       {isWizardOpen && (
