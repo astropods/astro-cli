@@ -63,7 +63,7 @@ func sanitizeNamespace(userID string) string {
 }
 
 // DeployAgent returns a handler for deploying agents to Kubernetes
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.DeployRequest
 
@@ -166,18 +166,9 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			return
 		}
 
-		// Initialize EKS client for managed cluster
-		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
-			ClusterName:     cfg.Deployment.EKSClusterName,
-			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
-			Region:          cfg.Deployment.AWSRegion,
-			Logger:          log,
-		})
-		if err != nil {
-			log.Error("Failed to create EKS client", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to connect to EKS cluster",
-				"details": err.Error(),
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "kubernetes client not configured",
 			})
 			return
 		}
@@ -187,6 +178,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			Namespace:         k8sNamespace,
 			RegistryURL:       cfg.Deployment.RegistryURL,
 			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
+			ImagePullPolicy:   imagePullPolicyForMode(cfg.Deployment.K8sClientMode),
 			IngressDomain:     cfg.Deployment.IngressDomain,
 			ACMCertificateARN: cfg.Deployment.ACMCertificateARN,
 			ALBGroupName:      cfg.Deployment.ALBGroupName,
@@ -241,7 +233,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 }
 
 // UndeployAgent returns a handler for undeploying agents from Kubernetes
-func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config) gin.HandlerFunc {
+func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.UndeployRequest
 
@@ -279,18 +271,9 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			"k8s_namespace", k8sNamespace,
 		)
 
-		// Initialize EKS client for managed cluster
-		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
-			ClusterName:     cfg.Deployment.EKSClusterName,
-			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
-			Region:          cfg.Deployment.AWSRegion,
-			Logger:          log,
-		})
-		if err != nil {
-			log.Error("Failed to create EKS client", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to connect to EKS cluster",
-				"details": err.Error(),
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "kubernetes client not configured",
 			})
 			return
 		}
@@ -382,7 +365,7 @@ type AgentDeployment struct {
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -402,18 +385,9 @@ func ListDeployments(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
 			"user_id", user.ID,
 		)
 
-		// Initialize EKS client
-		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
-			ClusterName:     cfg.Deployment.EKSClusterName,
-			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
-			Region:          cfg.Deployment.AWSRegion,
-			Logger:          log,
-		})
-		if err != nil {
-			log.Error("Failed to create EKS client", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to connect to EKS cluster",
-				"details": err.Error(),
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "kubernetes client not configured",
 			})
 			return
 		}
@@ -438,7 +412,7 @@ func ListDeployments(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
 }
 
 // listAstroDeployments lists all deployments managed by astro in a namespace
-func listAstroDeployments(ctx context.Context, k8sClient *k8s.EKSClient, namespace string) ([]AgentDeployment, error) {
+func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string) ([]AgentDeployment, error) {
 	clientset := k8sClient.Clientset()
 
 	// List deployments with astro label selector
@@ -647,7 +621,7 @@ func formatAge(t time.Time) string {
 }
 
 // GetDeploymentLogs returns a handler for fetching pod logs
-func GetDeploymentLogs(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
+func GetDeploymentLogs(log *logger.Logger, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -672,16 +646,8 @@ func GetDeploymentLogs(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
 			}
 		}
 
-		// Initialize EKS client
-		k8sClient, err := k8s.NewEKSClient(c.Request.Context(), k8s.EKSClientConfig{
-			ClusterName:     cfg.Deployment.EKSClusterName,
-			ClusterEndpoint: cfg.Deployment.K8sMasterURL,
-			Region:          cfg.Deployment.AWSRegion,
-			Logger:          log,
-		})
-		if err != nil {
-			log.Error("Failed to create EKS client", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to connect to EKS cluster"})
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
@@ -713,4 +679,13 @@ func GetDeploymentLogs(log *logger.Logger, cfg *config.Config) gin.HandlerFunc {
 
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", logBytes)
 	}
+}
+
+// imagePullPolicyForMode returns PullNever for local mode (images must be
+// built locally and available in the cluster), PullAlways otherwise.
+func imagePullPolicyForMode(mode string) corev1.PullPolicy {
+	if mode == "local" {
+		return corev1.PullNever
+	}
+	return corev1.PullAlways
 }

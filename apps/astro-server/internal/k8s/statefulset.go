@@ -11,18 +11,19 @@ import (
 
 // StatefulSetConfig holds configuration for building a StatefulSet
 type StatefulSetConfig struct {
-	Name           string
-	Namespace      string
-	AgentName      string
-	Version        string
-	Component      string
-	Container      spec.ContainerConfig
-	Port           int32
-	SecretName     string
-	ConfigMapName  string
-	StorageSize    string
-	Healthcheck    *spec.Healthcheck
-	Provider       string // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
+	Name            string
+	Namespace       string
+	AgentName       string
+	Version         string
+	Component       string
+	Container       spec.ContainerConfig
+	Port            int32
+	SecretName      string
+	ConfigMapName   string
+	StorageSize     string
+	Healthcheck     *spec.Healthcheck
+	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
+	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage
@@ -44,6 +45,11 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 	}
 
 	// Build container
+	ssPullPolicy := cfg.ImagePullPolicy
+	if ssPullPolicy == "" {
+		ssPullPolicy = corev1.PullAlways
+	}
+
 	container := corev1.Container{
 		Name:  "app",
 		Image: cfg.Container.Image,
@@ -65,7 +71,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 				MountPath: "/qdrant/storage",
 			},
 		},
-		ImagePullPolicy: corev1.PullAlways,
+		ImagePullPolicy: ssPullPolicy,
 	}
 
 	// Add container-specific environment variables

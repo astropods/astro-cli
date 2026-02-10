@@ -23,6 +23,7 @@ type ApplierConfig struct {
 	Namespace         string
 	RegistryURL       string
 	ProxyRegistryHost string
+	ImagePullPolicy   corev1.PullPolicy // Defaults to PullAlways; set PullNever for local dev
 	// Ingress configuration
 	IngressDomain     string
 	ACMCertificateARN string
@@ -31,10 +32,11 @@ type ApplierConfig struct {
 
 // Applier applies Kubernetes manifests to a cluster
 type Applier struct {
-	clientset     *kubernetes.Clientset
-	namespace     string
-	registryURL   string
-	imageResolver *ImageResolver
+	clientset       *kubernetes.Clientset
+	namespace       string
+	registryURL     string
+	imageResolver   *ImageResolver
+	imagePullPolicy corev1.PullPolicy
 	// Ingress configuration
 	ingressDomain     string
 	acmCertificateARN string
@@ -42,12 +44,17 @@ type Applier struct {
 }
 
 // NewApplier creates a new applier
-func NewApplier(client *EKSClient, cfg ApplierConfig) *Applier {
+func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
+	pullPolicy := cfg.ImagePullPolicy
+	if pullPolicy == "" {
+		pullPolicy = corev1.PullAlways
+	}
 	return &Applier{
 		clientset:         client.Clientset(),
 		namespace:         cfg.Namespace,
 		registryURL:       cfg.RegistryURL,
 		imageResolver:     NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL),
+		imagePullPolicy:   pullPolicy,
 		ingressDomain:     cfg.IngressDomain,
 		acmCertificateARN: cfg.ACMCertificateARN,
 		albGroupName:      cfg.ALBGroupName,
@@ -332,18 +339,19 @@ func (a *Applier) Apply(
 			}
 
 			statefulSetCfg := StatefulSetConfig{
-				Name:           resourceName,
-				Namespace:      a.namespace,
-				AgentName:      agentName,
-				Version:        version,
-				Component:      fmt.Sprintf("knowledge-%s", name),
-				Container:      resolvedContainer,
-				Port:           port,
-				SecretName:     secretName,
-				ConfigMapName:  configMapName,
-				StorageSize:    "10Gi",
-				Healthcheck:    knowledge.Container.Healthcheck,
-				Provider:       knowledge.Provider,
+				Name:            resourceName,
+				Namespace:       a.namespace,
+				AgentName:       agentName,
+				Version:         version,
+				Component:       fmt.Sprintf("knowledge-%s", name),
+				Container:       resolvedContainer,
+				Port:            port,
+				SecretName:      secretName,
+				ConfigMapName:   configMapName,
+				StorageSize:     "10Gi",
+				Healthcheck:     knowledge.Container.Healthcheck,
+				Provider:        knowledge.Provider,
+				ImagePullPolicy: a.imagePullPolicy,
 			}
 			statefulSet := BuildStatefulSet(statefulSetCfg)
 			status, err := a.applyStatefulSet(ctx, statefulSet)
@@ -389,8 +397,9 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
-				Healthcheck:    model.Container.Healthcheck,
-				Provider:       model.Provider,
+				Healthcheck:     model.Container.Healthcheck,
+				Provider:        model.Provider,
+				ImagePullPolicy: a.imagePullPolicy,
 			}
 			depl := BuildDeployment(deploymentCfg)
 			status, err := a.applyDeployment(ctx, depl)
@@ -449,8 +458,9 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
-				Healthcheck:    knowledge.Container.Healthcheck,
-				Provider:       knowledge.Provider,
+				Healthcheck:     knowledge.Container.Healthcheck,
+				Provider:        knowledge.Provider,
+				ImagePullPolicy: a.imagePullPolicy,
 			}
 			depl := BuildDeployment(deploymentCfg)
 			status, err := a.applyDeployment(ctx, depl)
@@ -495,8 +505,9 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
-				Healthcheck:    tool.Container.Healthcheck,
-				Provider:       tool.Type, // Use tool type as provider hint
+				Healthcheck:     tool.Container.Healthcheck,
+				Provider:        tool.Type, // Use tool type as provider hint
+				ImagePullPolicy: a.imagePullPolicy,
 			}
 			depl := BuildDeployment(deploymentCfg)
 			status, err := a.applyDeployment(ctx, depl)
@@ -532,8 +543,9 @@ func (a *Applier) Apply(
 			Port:           8080,
 			SecretName:     secretName,
 			ConfigMapName:  configMapName,
-			Healthcheck:    astroSpec.Container.Healthcheck,
-			Provider:       "", // Agent uses HTTP health check if defined
+			Healthcheck:     astroSpec.Container.Healthcheck,
+			Provider:        "", // Agent uses HTTP health check if defined
+			ImagePullPolicy: a.imagePullPolicy,
 		}
 		agentDeployment := BuildDeployment(agentDeploymentCfg)
 		status, err = a.applyDeployment(ctx, agentDeployment)
@@ -592,16 +604,17 @@ func (a *Applier) Apply(
 
 			// Create deployment
 			messagingDeploymentCfg := MessagingDeploymentConfig{
-				Name:           resourceName,
-				Namespace:      a.namespace,
-				AgentName:      agentName,
-				Version:        version,
-				Component:      fmt.Sprintf("messaging-%s", name),
-				Image:          fmt.Sprintf("%s/prod-astro-messaging:latest", a.registryURL),
-				Port:           9090,
-				SecretName:     secretName,
-				InterfaceType:  interfaceType,
-				WebEnabled:     webEnabled,
+				Name:            resourceName,
+				Namespace:       a.namespace,
+				AgentName:       agentName,
+				Version:         version,
+				Component:       fmt.Sprintf("messaging-%s", name),
+				Image:           fmt.Sprintf("%s/prod-astro-messaging:latest", a.registryURL),
+				Port:            9090,
+				SecretName:      secretName,
+				InterfaceType:   interfaceType,
+				WebEnabled:      webEnabled,
+				ImagePullPolicy: a.imagePullPolicy,
 			}
 			messagingDepl := BuildMessagingDeployment(messagingDeploymentCfg)
 			status, err = a.applyDeployment(ctx, messagingDepl)
@@ -700,16 +713,17 @@ func (a *Applier) Apply(
 			}
 
 			interfaceDeploymentCfg := DeploymentConfig{
-				Name:          resourceName,
-				Namespace:     a.namespace,
-				AgentName:     agentName,
-				Version:       version,
-				Component:     fmt.Sprintf("interface-%s", name),
-				Container:     resolvedContainerCfg,
-				Port:          port,
-				SecretName:    secretName,
-				ConfigMapName: configMapName,
-				Provider:      "", // Interface services use HTTP health check if defined
+				Name:            resourceName,
+				Namespace:       a.namespace,
+				AgentName:       agentName,
+				Version:         version,
+				Component:       fmt.Sprintf("interface-%s", name),
+				Container:       resolvedContainerCfg,
+				Port:            port,
+				SecretName:      secretName,
+				ConfigMapName:   configMapName,
+				Provider:        "", // Interface services use HTTP health check if defined
+				ImagePullPolicy: a.imagePullPolicy,
 			}
 			interfaceDepl := BuildDeployment(interfaceDeploymentCfg)
 

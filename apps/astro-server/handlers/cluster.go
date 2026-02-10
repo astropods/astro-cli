@@ -74,7 +74,7 @@ type ServicePort struct {
 }
 
 // ClusterStatus returns a handler that lists cluster resources
-func ClusterStatus(log *logger.Logger, k8sClient *k8s.EKSClient) gin.HandlerFunc {
+func ClusterStatus(log *logger.Logger, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{

@@ -67,37 +67,40 @@ func main() {
 	}
 	log.Info("Agent index initialized")
 
-	// Initialize EKS client for managed cluster
-	var k8sClient *k8s.EKSClient
-	log.Info("Initializing EKS client for managed cluster",
-		"cluster_name", cfg.Deployment.EKSClusterName,
-		"region", cfg.Deployment.AWSRegion,
+	// Initialize Kubernetes client (EKS for production, local for development)
+	var k8sClient k8s.ClusterClient
+	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
+	log.Info("Initializing Kubernetes client",
+		"mode", string(clientMode),
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	var k8sErr error
-	k8sClient, k8sErr = k8s.NewEKSClient(ctx, k8s.EKSClientConfig{
+	k8sClient, k8sErr = k8s.NewClusterClient(ctx, k8s.ClusterClientConfig{
+		Mode:            clientMode,
 		ClusterName:     cfg.Deployment.EKSClusterName,
 		ClusterEndpoint: cfg.Deployment.K8sMasterURL,
 		Region:          cfg.Deployment.AWSRegion,
+		KubeconfigPath:  cfg.Deployment.KubeconfigPath,
+		KubeContext:     cfg.Deployment.KubeContext,
 		Logger:          log,
 	})
 	cancel()
 	if k8sErr != nil {
-		log.Warn("Failed to create EKS client", "error", k8sErr)
+		log.Warn("Failed to create K8s client", "error", k8sErr)
 		log.Warn("Kubernetes features will be unavailable")
+		k8sClient = nil
 	} else {
 		// Test connectivity and get server version
 		if version, connErr := k8sClient.GetServerVersion(); connErr != nil {
-			log.Warn("EKS client created but connection failed", "error", connErr)
-			// Log diagnostic info for troubleshooting
+			log.Warn("K8s client created but connection failed", "error", connErr)
 			diag := k8sClient.DiagnoseConnection()
 			for key, val := range diag {
-				log.Debug("EKS diagnostic", key, val)
+				log.Debug("K8s diagnostic", key, val)
 			}
 		} else {
-			log.Info("EKS connection established",
+			log.Info("Kubernetes connection established",
+				"mode", string(clientMode),
 				"version", version,
-				"cluster", cfg.Deployment.EKSClusterName,
 			)
 		}
 	}
@@ -150,7 +153,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient *k8s.EKSClient) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -214,10 +217,10 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		{
 			protected.GET("/agents/:name/:version/config", handlers.GetAgentConfig(log, agentIndex))
 			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
-			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg))
-			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg))
-			protected.GET("/deployments", handlers.ListDeployments(log, cfg))
-			protected.GET("/deployments/:name/:version/logs", handlers.GetDeploymentLogs(log, cfg))
+			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg, k8sClient))
+			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg, k8sClient))
+			protected.GET("/deployments", handlers.ListDeployments(log, cfg, k8sClient))
+			protected.GET("/deployments/:name/:version/logs", handlers.GetDeploymentLogs(log, cfg, k8sClient))
 		}
 
 		// Admin endpoints (require basic auth)

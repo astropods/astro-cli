@@ -15,13 +15,13 @@ import (
 type ProbeHandler struct {
 	log        *logger.Logger
 	agentIndex *agentindex.Index
-	k8sClient  *k8s.EKSClient
+	k8sClient  k8s.ClusterClient
 	ready      atomic.Bool
 	startTime  time.Time
 }
 
 // NewProbeHandler creates a new probe handler
-func NewProbeHandler(log *logger.Logger, agentIndex *agentindex.Index, k8sClient *k8s.EKSClient) *ProbeHandler {
+func NewProbeHandler(log *logger.Logger, agentIndex *agentindex.Index, k8sClient k8s.ClusterClient) *ProbeHandler {
 	h := &ProbeHandler{
 		log:        log,
 		agentIndex: agentIndex,

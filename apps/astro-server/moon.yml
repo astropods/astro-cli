@@ -2,6 +2,14 @@ layer: "application"
 language: "go"
 
 tasks:
+  # Development
+  dev:
+    command: "bash scripts/dev.sh"
+    preset: "server"
+    options:
+      persistent: true
+
+  # Build & test
   build:
     command: "go build -o bin/astro-server main.go"
     inputs:
@@ -18,13 +26,7 @@ tasks:
       - "go.mod"
       - "go.sum"
 
-  run:
-    command: "docker compose up --build"
-    preset: "server"
-
-  stop:
-    command: "docker compose down"
-
+  # Code quality
   fmt:
     command: "go fmt ./..."
     inputs:
@@ -45,6 +47,7 @@ tasks:
       - "go.sum"
       - ".golangci.yml"
 
+  # Dependencies
   deps:
     script: "go mod download && go mod tidy"
     inputs:

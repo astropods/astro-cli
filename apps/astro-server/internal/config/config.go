@@ -73,11 +73,15 @@ type SecurityConfig struct {
 
 // DeploymentConfig holds deployment-related configuration
 type DeploymentConfig struct {
-	RegistryURL       string // ECR registry URL
+	RegistryURL       string // ECR registry URL (required for eks mode, defaults to "docker.io/library" for local)
 	ProxyRegistryHost string // Proxy registry host (e.g., registry.example.com)
-	EKSClusterName    string // EKS cluster name (required)
-	K8sMasterURL      string // K8s API server endpoint (required)
+	EKSClusterName    string // EKS cluster name (required for eks mode)
+	K8sMasterURL      string // K8s API server endpoint (required for eks mode)
 	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
+	// K8s client mode: "eks" (default) or "local" (Docker Desktop / kind / minikube)
+	K8sClientMode  string // K8S_CLIENT_MODE
+	KubeconfigPath string // KUBECONFIG path (local mode, defaults to ~/.kube/config)
+	KubeContext    string // KUBE_CONTEXT (local mode, defaults to current-context)
 	// Ingress configuration for external access
 	IngressDomain     string // Domain for agent ingress (e.g., agents.example.com)
 	ACMCertificateARN string // ACM certificate ARN for HTTPS
@@ -111,6 +115,9 @@ func Load() (*Config, error) {
 			EKSClusterName:    getEnv("EKS_CLUSTER_NAME", ""),
 			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
 			AWSRegion:         getEnv("AWS_REGION", ""),
+			K8sClientMode:     getEnv("K8S_CLIENT_MODE", "eks"),
+			KubeconfigPath:    getEnv("KUBECONFIG", ""),
+			KubeContext:       getEnv("KUBE_CONTEXT", ""),
 			IngressDomain:     getEnv("INGRESS_DOMAIN", ""),
 			ACMCertificateARN: getEnv("ACM_CERTIFICATE_ARN", ""),
 			ALBGroupName:      getEnv("ALB_GROUP_NAME", "astro-agents"),
@@ -164,7 +171,11 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Deployment.RegistryURL == "" {
-		return fmt.Errorf("REGISTRY_URL environment variable is required")
+		if c.Deployment.K8sClientMode == "local" {
+			c.Deployment.RegistryURL = "docker.io/library"
+		} else {
+			return fmt.Errorf("REGISTRY_URL environment variable is required")
+		}
 	}
 
 	if c.Database.URL == "" {

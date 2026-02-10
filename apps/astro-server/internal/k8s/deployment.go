@@ -16,32 +16,34 @@ import (
 
 // DeploymentConfig holds configuration for building a Deployment
 type DeploymentConfig struct {
-	Name             string
-	Namespace        string
-	AgentName        string
-	Version          string
-	Component        string
-	Container        spec.ContainerConfig
-	Port             int32
-	SecretName       string
-	ConfigMapName    string
-	Healthcheck      *spec.Healthcheck
-	Provider         string // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
+	Name            string
+	Namespace       string
+	AgentName       string
+	Version         string
+	Component       string
+	Container       spec.ContainerConfig
+	Port            int32
+	SecretName      string
+	ConfigMapName   string
+	Healthcheck     *spec.Healthcheck
+	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
+	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
 type MessagingDeploymentConfig struct {
-	Name           string
-	Namespace      string
-	AgentName      string
-	Version        string
-	Component      string
-	Image          string
-	Port           int32
-	SecretName     string
-	AgentURL       string
-	InterfaceType  string
-	WebEnabled     bool  // Whether web adapter is enabled (exposes HTTP endpoint)
+	Name            string
+	Namespace       string
+	AgentName       string
+	Version         string
+	Component       string
+	Image           string
+	Port            int32
+	SecretName      string
+	AgentURL        string
+	InterfaceType   string
+	WebEnabled      bool              // Whether web adapter is enabled (exposes HTTP endpoint)
+	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest
@@ -142,6 +144,11 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		port = 9090
 	}
 
+	msgPullPolicy := cfg.ImagePullPolicy
+	if msgPullPolicy == "" {
+		msgPullPolicy = corev1.PullAlways
+	}
+
 	container := corev1.Container{
 		Name:  "messaging",
 		Image: cfg.Image,
@@ -152,7 +159,7 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		ImagePullPolicy: corev1.PullAlways,
+		ImagePullPolicy: msgPullPolicy,
 	}
 
 	// Add messaging-specific environment variables
@@ -245,6 +252,11 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 		port = 8080
 	}
 
+	pullPolicy := cfg.ImagePullPolicy
+	if pullPolicy == "" {
+		pullPolicy = corev1.PullAlways
+	}
+
 	container := corev1.Container{
 		Name:  "app",
 		Image: cfg.Container.Image,
@@ -255,7 +267,7 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		ImagePullPolicy: corev1.PullAlways,
+		ImagePullPolicy: pullPolicy,
 	}
 
 	// Add container-specific environment variables

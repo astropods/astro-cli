@@ -10,12 +10,12 @@ import (
 
 // Deleter handles deletion of Kubernetes resources
 type Deleter struct {
-	client    *EKSClient
+	client    ClusterClient
 	namespace string
 }
 
 // NewDeleter creates a new Deleter
-func NewDeleter(client *EKSClient, namespace string) *Deleter {
+func NewDeleter(client ClusterClient, namespace string) *Deleter {
 	return &Deleter{
 		client:    client,
 		namespace: namespace,
