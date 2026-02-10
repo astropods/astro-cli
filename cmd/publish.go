@@ -74,6 +74,7 @@ var (
 	noAuth          bool
 	dryRun          bool
 	publishPlatform string
+	publishLocal    bool
 )
 
 func init() {
@@ -87,6 +88,7 @@ func init() {
 	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
 	publishCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be published without actually doing it")
 	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64", "Target platform(s) for publish (comma-separated)")
+	publishCmd.Flags().BoolVar(&publishLocal, "local", false, "Build and register with locally running astro-server (skip registry push)")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {
@@ -104,6 +106,15 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	effectiveRegistryURL := registryURL
 	if effectiveRegistryURL == "" {
 		effectiveRegistryURL = auth.GetRegistryURL()
+	}
+
+	if publishLocal {
+		effectiveServerURL = "http://localhost:4321"
+		skipPush = true
+		if !cmd.Flags().Changed("platform") {
+			publishPlatform = nativePlatform()
+		}
+		fmt.Printf("%s→%s Local mode: registering with %shttp://localhost:4321%s (skipping push, platform %s)\n", colorCyan, colorReset, colorBold, colorReset, publishPlatform)
 	}
 
 	if verbose {
@@ -165,8 +176,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		return printDryRun(astroSpec, registryHost, namespace, publishTag, effectiveServerURL, skipRegister, !skipBuild)
 	}
 
-	// Check authentication (only for actual publish)
-	if !noAuth {
+	// Check authentication (only for actual publish, skip for local)
+	if !noAuth && !publishLocal {
 		tokenManager := auth.NewTokenManager()
 		if !tokenManager.IsAuthenticated() {
 			return fmt.Errorf("not authenticated. Run 'ast login' to authenticate")
@@ -177,13 +188,21 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s→%s Publishing %s%s%s v%s\n\n", colorCyan, colorReset, colorBold, astroSpec.Agent, colorReset, astroSpec.Meta.Version)
 
 	// Step 1: Get namespace
-	printStep("Authenticating with registry...")
-	namespace, err := getUserNamespace(effectiveRegistryURL, noAuth, verbose)
-	if err != nil {
-		printStepFail()
-		return fmt.Errorf("failed to get user namespace: %w", err)
+	var namespace string
+	if publishLocal {
+		namespace = "local"
+		printStep("Using local namespace")
+		printStepDone(fmt.Sprintf("namespace: %s", namespace))
+	} else {
+		printStep("Authenticating with registry...")
+		var nsErr error
+		namespace, nsErr = getUserNamespace(effectiveRegistryURL, noAuth, verbose)
+		if nsErr != nil {
+			printStepFail()
+			return fmt.Errorf("failed to get user namespace: %w", nsErr)
+		}
+		printStepDone(fmt.Sprintf("namespace: %s", namespace))
 	}
-	printStepDone(fmt.Sprintf("namespace: %s", namespace))
 
 	// Build images first if requested
 	imagesPushed := 0
@@ -338,6 +357,81 @@ func runPublish(cmd *cobra.Command, args []string) error {
 				imagesPushed++
 			}
 		}
+	} else if publishLocal {
+		// Retag locally-built images so the spec's registry-path references resolve in local Docker
+		printStep("Retagging images for local use")
+		fmt.Println()
+
+		retag := func(local, remote string) error {
+			cmd := exec.Command("docker", "tag", local, remote)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("failed to retag %s → %s: %s", local, remote, strings.TrimSpace(string(out)))
+			}
+			fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
+			return nil
+		}
+
+		platform := platforms[0]
+
+		// Agent image
+		if err := retag(
+			platformImageTag(astroSpec.Agent, publishTag, platform),
+			fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag),
+		); err != nil {
+			return err
+		}
+
+		// Custom-built model images
+		for modelName, model := range astroSpec.Models {
+			if model.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Agent, modelName)
+				if err := retag(
+					platformImageTag(baseName, publishTag, platform),
+					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+				); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Custom-built knowledge images
+		for knowledgeName, knowledge := range astroSpec.Knowledge {
+			if knowledge.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, knowledgeName)
+				if err := retag(
+					platformImageTag(baseName, publishTag, platform),
+					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+				); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Custom-built tool images
+		for toolName, tool := range astroSpec.Tools {
+			if tool.Container != nil && tool.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Agent, toolName)
+				if err := retag(
+					platformImageTag(baseName, publishTag, platform),
+					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+				); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Custom-built interface images
+		for ifaceName, iface := range astroSpec.Interfaces {
+			if iface.Service != nil && iface.Service.Build != nil {
+				baseName := fmt.Sprintf("%s-interface-%s", astroSpec.Agent, ifaceName)
+				if err := retag(
+					platformImageTag(baseName, publishTag, platform),
+					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+				); err != nil {
+					return err
+				}
+			}
+		}
 	} else {
 		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
 	}
@@ -350,7 +444,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 		// Build the full registry path for the transformed spec
 		registryPath := fmt.Sprintf("%s/%s", registryHost, namespace)
-		if err := registerAgent(effectiveServerURL, astroSpec.Agent, astroSpec.Meta.Version, registryPath, specPath, publishTag, verbose, noAuth); err != nil {
+		if err := registerAgent(effectiveServerURL, astroSpec.Agent, astroSpec.Meta.Version, registryPath, specPath, publishTag, verbose, noAuth || publishLocal); err != nil {
 			printStepFail()
 			fmt.Printf("  %s%sWarning: Agent images were published, but registration failed%s\n", colorYellow, colorDim, colorReset)
 			fmt.Printf("  %s%s%v%s\n", colorDim, colorReset, err, colorReset)

@@ -103,6 +103,30 @@ Spec types and parsing live in `packages/astro-spec` (shared with server).
 3. **Build** — For each component with `container.build`, the CLI invokes Docker/BuildKit with the right context, Dockerfile, secrets (e.g. npm token from env or injected), and platform.
 4. **Publish** — Version can be set in spec via `--version` (literal or `auto`). Tag is taken from `meta.version` after any update. Images are tagged and pushed (single or multi-platform); spec is pushed as OCI artifact and optionally sent to Astro server for registration.
 
+### Local publish (`--local`)
+
+`ast publish --local` builds images and registers the spec with a locally running astro-server (`http://localhost:4321`) instead of the remote platform. The remote registry push is skipped.
+
+| Aspect | Normal | `--local` |
+|--------|--------|-----------|
+| Auth / namespace fetch | Remote registry | Skipped (uses namespace `local`) |
+| Build | Yes | Yes |
+| Image push | Remote registry | Skipped |
+| Image retag | — | Local `docker tag` to registry path |
+| Registration server | Remote (from profile) | `http://localhost:4321` |
+
+Because the spec's image references use the full registry path (e.g. `registry.example.com/ns/agent:tag`), the CLI retags each locally-built platform image to that path so the local astro-server (which deploys with `imagePullPolicy: Never`) can resolve them from the local Docker daemon.
+
+Usage:
+
+```bash
+# Start local astro-server
+cd apps/astro-server && moon run astro-server:dev
+
+# Publish to local server
+ast publish --local --version auto
+```
+
 Design principles:
 
 - **Declarative** — Infrastructure as code in YAML.
