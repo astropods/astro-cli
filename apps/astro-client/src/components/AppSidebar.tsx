@@ -76,7 +76,7 @@ export function AppSidebar({
   }));
 
   return (
-    <Sidebar>
+    <Sidebar variant="inset">
       <SidebarHeader>
         <div className="flex items-center justify-between px-2 py-1">
           <div className="flex items-center gap-2">

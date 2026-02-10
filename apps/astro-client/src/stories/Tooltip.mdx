@@ -1,0 +1,81 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as TooltipStories from "./Tooltip.stories"
+
+<Meta of={TooltipStories} />
+
+# Tooltip
+
+A small overlay that appears on hover, built on [Radix Tooltip](https://www.radix-ui.com/primitives/docs/components/tooltip). Uses a dark gray background in light mode and light gray in dark mode.
+
+## Import
+
+```tsx
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+```
+
+## Usage
+
+Wrap the trigger element with `TooltipTrigger` using `asChild`, and place the label inside `TooltipContent`. A `TooltipProvider` controls the open delay for all tooltips within it.
+
+```tsx
+<TooltipProvider delayDuration={300}>
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <Button variant="outline">Hover me</Button>
+    </TooltipTrigger>
+    <TooltipContent side="top">Tooltip content</TooltipContent>
+  </Tooltip>
+</TooltipProvider>
+```
+
+<Canvas of={TooltipStories.Default} />
+
+## Placement
+
+Use the `side` prop on `TooltipContent` to control placement.
+
+<Canvas of={TooltipStories.AllSides} />
+
+### Top
+
+<Canvas of={TooltipStories.Top} />
+
+### Bottom
+
+<Canvas of={TooltipStories.Bottom} />
+
+### Left
+
+<Canvas of={TooltipStories.Left} />
+
+### Right
+
+<Canvas of={TooltipStories.Right} />
+
+## With Delay
+
+Set `delayDuration` on `TooltipProvider` to add a hover delay before the tooltip appears.
+
+```tsx
+<TooltipProvider delayDuration={300}>
+  ...
+</TooltipProvider>
+```
+
+<Canvas of={TooltipStories.WithDelay} />
+
+## Icon Trigger
+
+Tooltips work well on icon-only buttons to provide an accessible label.
+
+<Canvas of={TooltipStories.IconTrigger} />
+
+## Playground
+
+<Canvas of={TooltipStories.Default} />
+<Controls of={TooltipStories.Default} />

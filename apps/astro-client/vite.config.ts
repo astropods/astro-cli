@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 
 // Local development domain (must match what's in /etc/hosts)
-const LOCAL_DOMAIN = "local.example.com";
+const LOCAL_DOMAIN = "local.astromode.ai";
 
 // Check for local HTTPS certificates
 function getHttpsConfig() {

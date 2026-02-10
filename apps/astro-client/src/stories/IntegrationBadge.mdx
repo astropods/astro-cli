@@ -1,0 +1,55 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as IntegrationBadgeStories from "./IntegrationBadge.stories"
+
+<Meta of={IntegrationBadgeStories} />
+
+# IntegrationBadge
+
+A small square badge for displaying a brand or integration icon. Uses a muted background with a subtle border and rounded corners. Badges can overlap with negative margin to form a compact group.
+
+## Import
+
+```tsx
+import { IntegrationBadge } from "@/components/IntegrationBadge"
+```
+
+## Usage
+
+Icons are passed as React nodes. Use SVGs from the `@svgl` registry installed via shadcn:
+
+```bash
+bun x shadcn@latest add @svgl/slack @svgl/github
+```
+
+```tsx
+import { Slack } from "@/components/ui/svgs/slack"
+
+<IntegrationBadge name="Slack" icon={<Slack />} />
+```
+
+## Single Badge
+
+<Canvas of={IntegrationBadgeStories.Default} />
+
+<Canvas of={IntegrationBadgeStories.GitHub} />
+
+<Canvas of={IntegrationBadgeStories.GoogleDrive} />
+
+## Overlapping Group
+
+Stack badges with `-ml-1` and ascending `style={{ zIndex: i }}` so the rightmost badge renders on top.
+
+```tsx
+<div className="flex items-center">
+  <IntegrationBadge name="Slack" icon={<Slack />} />
+  <IntegrationBadge name="GitHub" icon={<GithubLight />} className="-ml-1" style={{ zIndex: 1 }} />
+  <IntegrationBadge name="Linear" icon={<Linear />} className="-ml-1" style={{ zIndex: 2 }} />
+</div>
+```
+
+<Canvas of={IntegrationBadgeStories.OverlappingGroup} />
+
+## Playground
+
+<Canvas of={IntegrationBadgeStories.Default} />
+<Controls of={IntegrationBadgeStories.Default} />
