@@ -2,15 +2,6 @@ name: Sync Config
 
 on:
   workflow_dispatch:
-    inputs:
-      astro-server:
-        description: 'Sync astro-server config'
-        type: boolean
-        default: true
-      astro-registry:
-        description: 'Sync astro-registry config'
-        type: boolean
-        default: false
 
 env:
   AWS_REGION: us-east-1
@@ -45,7 +36,6 @@ jobs:
 
       # astro-server
       - name: Sync astro-server secrets
-        if: ${{ inputs.astro-server == true }}
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
         run: |
@@ -54,12 +44,11 @@ jobs:
           KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
           echo "::notice::🔐 Syncing astro-server secrets: $KEYS"
           aws secretsmanager put-secret-value \
-            --secret-id prod/astro-server/secrets \
+            --secret-id prod/astro-server/app \
             --secret-string "$SECRET_JSON"
           echo "::notice::✅ astro-server secrets synced"
 
       - name: Deploy astro-server ConfigMap
-        if: ${{ inputs.astro-server == true }}
         run: |
           CONFIG_FILE="config/astro-server/prod.env"
           if [ -f "$CONFIG_FILE" ]; then
@@ -73,22 +62,10 @@ jobs:
           fi
 
       # astro-registry
-      - name: Sync astro-registry secrets
-        if: ${{ inputs.astro-registry == true }}
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-        run: |
-          SECRET_JSON=$(op item get "astro-registry-secrets" --vault "${{ env.OP_VAULT }}" --format json | \
-            jq '[.fields[] | select(.label != null and .value != null and (.label | test("^[A-Z0-9_]+$"))) | {(.label): .value}] | add')
-          KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
-          echo "::notice::🔐 Syncing astro-registry secrets: $KEYS"
-          aws secretsmanager put-secret-value \
-            --secret-id prod/astro-registry/secrets \
-            --secret-string "$SECRET_JSON"
-          echo "::notice::✅ astro-registry secrets synced"
+      # Note: astro-registry secrets (WORKOS_CLIENT_ID) are sourced from
+      # prod/astro-server/app via ExternalSecret, so no separate secret sync needed.
 
       - name: Deploy astro-registry ConfigMap
-        if: ${{ inputs.astro-registry == true }}
         run: |
           CONFIG_FILE="config/astro-registry/prod.env"
           if [ -f "$CONFIG_FILE" ]; then

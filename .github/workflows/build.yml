@@ -69,7 +69,7 @@ jobs:
           KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
           echo "::notice::🔐 Syncing secrets to Secrets Manager: $KEYS"
           aws secretsmanager put-secret-value \
-            --secret-id prod/astro-server/secrets \
+            --secret-id prod/astro-server/app \
             --secret-string "$SECRET_JSON"
           echo "::notice::✅ astro-server secrets synced"
 
