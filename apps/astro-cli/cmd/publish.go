@@ -89,6 +89,7 @@ func init() {
 	publishCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be published without actually doing it")
 	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64", "Target platform(s) for publish (comma-separated)")
 	publishCmd.Flags().BoolVar(&publishLocal, "local", false, "Build and register with locally running astro-server (skip registry push)")
+	_ = publishCmd.Flags().MarkHidden("local")
 }
 
 func runPublish(cmd *cobra.Command, args []string) error {

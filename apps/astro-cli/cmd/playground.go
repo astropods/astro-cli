@@ -48,6 +48,7 @@ func init() {
 	playgroundCmd.Flags().BoolVar(&playgroundNoPull, "no-pull", false, "Skip pulling the playground image")
 	playgroundCmd.Flags().BoolVar(&playgroundLocal, "local", false, "Use locally built playground image; do not pull (implies --no-pull)")
 	playgroundCmd.Flags().BoolVar(&playgroundNoOpen, "no-open", false, "Don't open the browser automatically")
+	_ = playgroundCmd.Flags().MarkHidden("local")
 }
 
 func runPlayground(cmd *cobra.Command, args []string) error {
