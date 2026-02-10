@@ -2,13 +2,15 @@ import type { ReactNode } from "react";
 import { EllipsisHorizontalIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { ContentHeader } from "./ContentHeader";
-import { StatusBadge, type StatusBadgeVariant } from "./StatusBadge";
+import { Badge, type BadgeVariant } from "./Badge";
 import { IntegrationBadge } from "./IntegrationBadge";
+
+export type StatusVariant = Exclude<BadgeVariant, "default">;
 
 export interface AgentHeaderProps {
   name: string;
   avatarUrl?: string;
-  status: StatusBadgeVariant;
+  status: StatusVariant;
   integrations?: { name: string; icon: ReactNode }[];
   primaryAction?: { label: string; icon?: ReactNode; onClick: () => void };
   onMenuClick?: () => void;
@@ -57,7 +59,7 @@ export function AgentHeader({
       )}
 
       {/* Status badge */}
-      <StatusBadge variant={status} />
+      <Badge variant={status} showDot>{status}</Badge>
 
       {/* Spacer */}
       <div className="flex-1" />

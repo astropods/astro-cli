@@ -1,14 +1,27 @@
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export type StatusBadgeVariant = "active" | "pending" | "inactive" | "warning" | "error" | "info";
+export type BadgeVariant =
+  | "default"
+  | "active"
+  | "pending"
+  | "inactive"
+  | "warning"
+  | "error"
+  | "info";
 
-export interface StatusBadgeProps {
-  variant: StatusBadgeVariant;
+export interface BadgeProps {
+  variant?: BadgeVariant;
   showDot?: boolean;
+  children: ReactNode;
   className?: string;
 }
 
-const variantStyles: Record<StatusBadgeVariant, { dot: string; badge: string }> = {
+const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
+  default: {
+    dot: "bg-gray-600 border-[3px] border-gray-300",
+    badge: "bg-white/10 text-foreground border border-border",
+  },
   active: {
     dot: "bg-green-700 border-[3px] border-green-200",
     badge: "bg-green-50 text-green-700 border border-green-700",
@@ -35,13 +48,13 @@ const variantStyles: Record<StatusBadgeVariant, { dot: string; badge: string }> 
   },
 };
 
-export function StatusBadge({ variant, showDot = true, className }: StatusBadgeProps) {
+export function Badge({ variant = "default", showDot = false, children, className }: BadgeProps) {
   const styles = variantStyles[variant];
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full py-0.5 pr-2 text-xs font-medium capitalize",
+        "inline-flex items-center gap-1 rounded-full py-0.5 pr-2 text-xs font-medium",
         showDot ? "pl-1.5" : "pl-2",
         styles.badge,
         className,
@@ -50,7 +63,7 @@ export function StatusBadge({ variant, showDot = true, className }: StatusBadgeP
       {showDot && (
         <span className={cn("size-3 shrink-0 rounded-full", styles.dot)} />
       )}
-      {variant}
+      {children}
     </span>
   );
 }

@@ -1,0 +1,41 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as PageTitleStories from "./PageTitle.stories"
+
+<Meta of={PageTitleStories} />
+
+# PageTitle
+
+A page-level heading with an optional subtitle and action slot.
+
+## Import
+
+```tsx
+import { PageTitle } from "@/components/PageTitle"
+```
+
+## Usage
+
+```tsx
+<PageTitle
+  title="Available Agents"
+  subtitle="Browse agents available within your organization"
+  actions={<Button>Request agent</Button>}
+/>
+```
+
+## Default
+
+<Canvas of={PageTitleStories.Default} />
+
+## With Action
+
+<Canvas of={PageTitleStories.WithAction} />
+
+## Title Only
+
+<Canvas of={PageTitleStories.TitleOnly} />
+
+## Playground
+
+<Canvas of={PageTitleStories.Default} />
+<Controls of={PageTitleStories.Default} />

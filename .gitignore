@@ -144,5 +144,8 @@ dist
 tmp/
 build-errors.log
 
+# Storybook
+storybook-static
+
 # Claude Code
 .claude

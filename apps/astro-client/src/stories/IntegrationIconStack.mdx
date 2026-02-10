@@ -1,0 +1,54 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as IntegrationIconStackStories from "./IntegrationIconStack.stories"
+
+<Meta of={IntegrationIconStackStories} />
+
+# IntegrationIconStack
+
+A compact row of overlapping integration icons with an optional "+N" overflow count. Built on top of `IntegrationBadge`.
+
+## Import
+
+```tsx
+import { IntegrationIconStack } from "@/components/IntegrationIconStack"
+```
+
+## Usage
+
+```tsx
+<IntegrationIconStack
+  integrations={[
+    { name: "Slack", icon: <Slack /> },
+    { name: "GitHub", icon: <GithubLight /> },
+    { name: "Linear", icon: <Linear /> },
+    { name: "Notion", icon: <Notion /> },
+    { name: "Google Drive", icon: <Drive /> },
+  ]}
+  max={3}
+/>
+```
+
+## Default
+
+Shows up to 3 icons with a "+N" overflow indicator.
+
+<Canvas of={IntegrationIconStackStories.Default} />
+
+## With Overflow
+
+<Canvas of={IntegrationIconStackStories.WithOverflow} />
+
+## No Overflow
+
+When the number of integrations fits within `max`, no overflow count is shown.
+
+<Canvas of={IntegrationIconStackStories.NoOverflow} />
+
+## Single Icon
+
+<Canvas of={IntegrationIconStackStories.SingleIcon} />
+
+## Playground
+
+<Canvas of={IntegrationIconStackStories.Default} />
+<Controls of={IntegrationIconStackStories.Default} />

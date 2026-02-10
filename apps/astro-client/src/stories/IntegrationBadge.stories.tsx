@@ -3,12 +3,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IntegrationBadge } from "@/components/IntegrationBadge";
 import { Slack } from "@/components/ui/svgs/slack";
 import { GithubLight } from "@/components/ui/svgs/githubLight";
-import { Linear } from "@/components/ui/svgs/linear";
-import { Notion } from "@/components/ui/svgs/notion";
 import { Drive } from "@/components/ui/svgs/drive";
 
 const meta = {
-  title: "Components/IntegrationBadge",
+  title: "Components/Integration/IntegrationBadge",
   component: IntegrationBadge,
   argTypes: {
     icon: {
@@ -47,15 +45,3 @@ export const GoogleDrive: Story = {
   },
 };
 
-export const OverlappingGroup: Story = {
-  name: "Overlapping Group",
-  render: () => (
-    <div className="flex items-center">
-      <IntegrationBadge name="Slack" icon={<Slack />} />
-      <IntegrationBadge name="GitHub" icon={<GithubLight />} className="-ml-1" />
-      <IntegrationBadge name="Linear" icon={<Linear />} className="-ml-1" />
-      <IntegrationBadge name="Notion" icon={<Notion />} className="-ml-1" />
-      <IntegrationBadge name="Google Drive" icon={<Drive />} className="-ml-1" />
-    </div>
-  ),
-};

@@ -35,20 +35,6 @@ import { Slack } from "@/components/ui/svgs/slack"
 
 <Canvas of={IntegrationBadgeStories.GoogleDrive} />
 
-## Overlapping Group
-
-Stack badges with `-ml-1` and ascending `style={{ zIndex: i }}` so the rightmost badge renders on top.
-
-```tsx
-<div className="flex items-center">
-  <IntegrationBadge name="Slack" icon={<Slack />} />
-  <IntegrationBadge name="GitHub" icon={<GithubLight />} className="-ml-1" style={{ zIndex: 1 }} />
-  <IntegrationBadge name="Linear" icon={<Linear />} className="-ml-1" style={{ zIndex: 2 }} />
-</div>
-```
-
-<Canvas of={IntegrationBadgeStories.OverlappingGroup} />
-
 ## Playground
 
 <Canvas of={IntegrationBadgeStories.Default} />
