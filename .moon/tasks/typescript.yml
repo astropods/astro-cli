@@ -1,6 +1,15 @@
 $schema: "../cache/schemas/tasks.json"
 
 tasks:
+  typecheck:
+    command: "bun run tsc --noEmit"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    deps:
+      - "^:build"
+
   clean:
     command: "rm -rf dist"
     options:

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "build": "moon run :build --query \"language=typescript AND projectType=library\"",
+    "typecheck": "moon run :typecheck --query \"language=typescript\"",
     "clean": "moon run :clean --query \"language=typescript AND projectType=library\"",
     "release": "bun scripts/release.ts",
     "release:dry": "bun scripts/release.ts --dry-run"

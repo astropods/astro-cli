@@ -40,6 +40,7 @@ export const Info: Story = {
 
 export const AllVariants: Story = {
   name: "All Variants",
+  args: { children: "default" },
   render: () => (
     <div className="flex items-center gap-3">
       <Badge>default</Badge>
@@ -55,6 +56,7 @@ export const AllVariants: Story = {
 
 export const CategoryBadges: Story = {
   name: "Category Badges",
+  args: { children: "Marketing" },
   render: () => (
     <div className="flex items-center gap-1">
       <Badge>Marketing</Badge>

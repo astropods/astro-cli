@@ -12,7 +12,7 @@ import {
 function TooltipDemo({
   label = "Hover me",
   content = "Tooltip content",
-  side = "top" as const,
+  side = "top" as "top" | "bottom" | "left" | "right",
   delayDuration = 0,
 }) {
   return (

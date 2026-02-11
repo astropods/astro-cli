@@ -31,6 +31,9 @@ jobs:
       - name: Build packages
         run: bun run build
 
+      - name: Typecheck
+        run: bun run typecheck
+
       - name: Run tests
         run: bun run test
         working-directory: apps/astro-client

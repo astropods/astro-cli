@@ -2,6 +2,16 @@ layer: "application"
 language: "typescript"
 
 tasks:
+  typecheck:
+    command: "bun x tsc -p tsconfig.app.json"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "tsconfig.app.json"
+    options:
+      mergeArgs: "replace"
+      mergeInputs: "replace"
+
   test:
     command: "bun x vitest run"
     inputs:
