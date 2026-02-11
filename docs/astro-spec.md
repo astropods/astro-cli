@@ -31,7 +31,7 @@ The astro spec includes the following information:
 - Tool APIs: External API integrations (GitHub API, Slack API, web search, Jira, etc.)
 
 **Agent configuration:**
-- Injection definitions: Cron or event-based data collection/ingestion pipelines
+- Ingestion definitions: Cron or event-based data collection/ingestion pipelines
 - Interface definitions: User interaction channels (Slack, HTTP APIs, etc.)
 
 Note: User wouldn't be able to define anything and everyting, it must be supported by the astro platform. For example, if the astro platform does not support a particular LLM or vector store, the user would not be able to use it in the astro spec.
@@ -325,108 +325,65 @@ interfaces:
 
 **Types:** http, http/webhook, messaging/slack, messaging/discord, messaging/teams, grpc, websocket
 
-### injections
+### ingestion
 
 ```yaml
-injections:
+ingestion:
   docs_sync:
-    source:
-      type: github
-      config:
-        repo: company/docs
-        branch: main
-        paths: ["docs/**/*.md", "guides/**/*.md"]
-        token: ${GITHUB_TOKEN}
-
+    container:
+      image: my-ingest-worker:latest
+      environment:
+        SOURCE_REPO: company/docs
+        SOURCE_BRANCH: main
+        TARGET_COLLECTION: docs
     trigger:
       type: schedule
-      cron: "0 */4 * * *"  # every 4 hours
-
-    pipeline:
-      - step: extract
-        config:
-          format: markdown
-          include_frontmatter: true
-
-      - step: chunk
-        config:
-          strategy: semantic
-          max_size: 1000
-          overlap: 100
-
-      - step: embed
-        model: embedder  # ref to models
-
-      - step: upsert
-        target: docs  # ref to knowledge
-
-  realtime_updates:
-    source:
-      type: webhook
-      config:
-        path: /ingest/docs
-        auth: ${INGEST_TOKEN}
-
-    trigger:
-      type: event
-      event: document.updated
-
-    pipeline:
-      - step: validate
-        config:
-          schema: schemas/document.json
-
-      - step: transform
-        config:
-          script: transforms/normalize.js
-
-      - step: embed
-        model: embedder
-
-      - step: upsert
-        target: docs
+      schedule: "0 */4 * * *"  # every 4 hours
 
   api_sync:
-    source:
-      type: api
-      config:
-        url: https://api.internal.com/knowledge
-        method: GET
-        auth:
-          type: oauth2
-          client_id: ${CLIENT_ID}
-          client_secret: ${CLIENT_SECRET}
-        pagination:
-          type: cursor
-          param: cursor
-
+    container:
+      build:
+        context: ./ingestion
+        dockerfile: Dockerfile
+      environment:
+        API_URL: https://api.internal.com/knowledge
     trigger:
       type: schedule
-      cron: "0 0 * * *"  # daily
+      schedule: "0 0 * * *"  # daily
 
-    pipeline:
-      - step: filter
-        config:
-          include: {status: published}
+  initial_load:
+    container:
+      image: my-bootstrap-worker:latest
+      environment:
+        TARGET_COLLECTION: docs
+    trigger:
+      type: startup  # runs once automatically at deploy time
 
-      - step: chunk
-        config:
-          strategy: fixed
-          max_size: 500
+  on_demand_reindex:
+    container:
+      image: my-reindex-worker:latest
+      environment:
+        TARGET_COLLECTION: docs
+    trigger:
+      type: manual  # triggered via API: POST /api/v1/deployments/:name/:version/ingestion/on_demand_reindex/trigger
 
-      - step: embed
-        model: embedder
-
-      - step: upsert
-        target: docs
-        config:
-          dedup: true
-          key_field: id
+  event_listener:
+    container:
+      image: my-webhook-receiver:latest
+      port: 8080
+      environment:
+        TARGET_COLLECTION: docs
+    trigger:
+      type: webhook  # deploys as long-running Deployment + Service + Ingress
 ```
 
-**Source types:** github, gitlab, s3, gcs, api, database, webhook, file
-**Trigger types:** schedule (cron), event, manual
-**Pipeline steps:** extract, chunk, embed, transform, filter, validate, upsert, notify
+Each ingestion entry is a container that runs on a trigger. The container owns its own logic (fetching, chunking, embedding, upserting) and configuration via environment variables.
+
+**Trigger types:**
+- `schedule` — cron expression, creates a CronJob
+- `startup` — runs a one-shot Job automatically at deploy time
+- `manual` — runs a one-shot Job on demand via API endpoint
+- `webhook` — deploys a long-running Deployment + Service (+ Ingress) that listens for incoming HTTP calls from external systems
 
 ---
 
@@ -551,4 +508,4 @@ injections:
 8. **Defaults** - Sensible defaults; minimal config for simple agents
 9. **Extensible** - config maps allow new options without schema changes
 10. **Environment injection** - ${VAR} syntax for user-provided secrets
-11. **Pipeline-based injections** - Composable steps for data processing
+11. **Container-based ingestion** - Opaque containers for data processing

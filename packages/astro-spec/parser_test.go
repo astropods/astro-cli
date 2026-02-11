@@ -201,7 +201,7 @@ interfaces:
 			},
 		},
 		{
-			name: "spec with injections",
+			name: "spec with ingestion",
 			yaml: `
 spec: astro/v1
 agent: test-agent
@@ -209,46 +209,36 @@ meta:
   version: 1.0.0
 container:
   image: test:latest
-injections:
-  github-docs:
-    source:
-      type: github
-      config:
-        repo: owner/repo
+ingestion:
+  docs-sync:
+    container:
+      image: my-ingest-worker:latest
+      environment:
+        SOURCE_REPO: owner/repo
     trigger:
       type: schedule
-      cron: "0 0 * * *"
-    pipeline:
-      - step: chunk
-      - step: embed
-        model: embedder
-      - step: store
-        target: docs
-    persistent: true
+      schedule: "0 0 * * *"
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if len(s.Injections) != 1 {
-					t.Fatalf("len(Injections) = %d, want 1", len(s.Injections))
+				if len(s.Ingestion) != 1 {
+					t.Fatalf("len(Ingestion) = %d, want 1", len(s.Ingestion))
 				}
-				inj, ok := s.Injections["github-docs"]
+				ing, ok := s.Ingestion["docs-sync"]
 				if !ok {
-					t.Fatal("Injections[github-docs] not found")
+					t.Fatal("Ingestion[docs-sync] not found")
 				}
-				if inj.Source.Type != "github" {
-					t.Errorf("Injections[github-docs].Source.Type = %q, want %q", inj.Source.Type, "github")
+				if ing.Container.Image != "my-ingest-worker:latest" {
+					t.Errorf("Ingestion[docs-sync].Container.Image = %q, want %q", ing.Container.Image, "my-ingest-worker:latest")
 				}
-				if inj.Trigger.Type != "schedule" {
-					t.Errorf("Injections[github-docs].Trigger.Type = %q, want %q", inj.Trigger.Type, "schedule")
+				if ing.Container.Environment["SOURCE_REPO"] != "owner/repo" {
+					t.Errorf("Ingestion[docs-sync].Container.Environment[SOURCE_REPO] = %q, want %q", ing.Container.Environment["SOURCE_REPO"], "owner/repo")
 				}
-				if inj.Trigger.Cron != "0 0 * * *" {
-					t.Errorf("Injections[github-docs].Trigger.Cron = %q, want %q", inj.Trigger.Cron, "0 0 * * *")
+				if ing.Trigger.Type != "schedule" {
+					t.Errorf("Ingestion[docs-sync].Trigger.Type = %q, want %q", ing.Trigger.Type, "schedule")
 				}
-				if len(inj.Pipeline) != 3 {
-					t.Fatalf("len(Injections[github-docs].Pipeline) = %d, want 3", len(inj.Pipeline))
-				}
-				if !inj.Persistent {
-					t.Error("Injections[github-docs].Persistent = false, want true")
+				if ing.Trigger.Schedule != "0 0 * * *" {
+					t.Errorf("Ingestion[docs-sync].Trigger.Schedule = %q, want %q", ing.Trigger.Schedule, "0 0 * * *")
 				}
 			},
 		},

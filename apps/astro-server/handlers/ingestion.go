@@ -1,0 +1,126 @@
+package handlers
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/postman/astro/apps/astro-server/internal/agentindex"
+	"github.com/postman/astro/apps/astro-server/internal/deployment"
+	"github.com/postman/astro/apps/astro-server/internal/k8s"
+	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	spec "github.com/postman/astro/packages/astro-spec"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		agentName := c.Param("name")
+		version := c.Param("version")
+		ingestionName := c.Param("ingestion")
+
+		// Get authenticated user from context
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		k8sNamespace := sanitizeNamespace(user.ID)
+
+		// Fetch agent spec from index
+		agentVersion, err := agentIndex.GetVersion(agentName, version)
+		if err != nil {
+			log.Error("Agent version not found", "error", err)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "agent version not found",
+				"details": fmt.Sprintf("%s:%s not found in index", agentName, version),
+			})
+			return
+		}
+
+		// Parse spec
+		var astroSpec spec.AstroSpec
+		specBytes, err := json.Marshal(agentVersion.Spec)
+		if err != nil {
+			log.Error("Failed to marshal spec", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
+			return
+		}
+		if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
+			log.Error("Failed to unmarshal spec", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec"})
+			return
+		}
+
+		// Look up the ingestion entry
+		ingestion, ok := astroSpec.Ingestion[ingestionName]
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": fmt.Sprintf("ingestion %q not found in spec", ingestionName),
+			})
+			return
+		}
+
+		if ingestion.Trigger.Type != "manual" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("ingestion %q has trigger type %q, not \"manual\"", ingestionName, ingestion.Trigger.Type),
+			})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		// Generate unique job name with timestamp
+		resourceName := deployment.GenerateResourceName(agentName, "ingestion", ingestionName)
+		jobName := fmt.Sprintf("%s-%d", resourceName, time.Now().Unix())
+
+		secretName := deployment.GenerateCredentialSecretName(agentName, version)
+		configMapName := deployment.GenerateConfigMapName(agentName, version)
+
+		jobCfg := k8s.JobConfig{
+			Name:          jobName,
+			Namespace:     k8sNamespace,
+			AgentName:     agentName,
+			Version:       version,
+			Component:     fmt.Sprintf("ingestion-%s", ingestionName),
+			SecretName:    secretName,
+			ConfigMapName: configMapName,
+			Ingestion:     ingestion,
+		}
+		job := k8s.BuildJob(jobCfg)
+
+		_, err = k8sClient.Clientset().BatchV1().Jobs(k8sNamespace).Create(
+			c.Request.Context(), job, metav1.CreateOptions{},
+		)
+		if err != nil {
+			log.Error("Failed to create ingestion job", "error", err, "job", jobName)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to create ingestion job",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		log.Info("Manual ingestion triggered",
+			"agent", agentName,
+			"version", version,
+			"ingestion", ingestionName,
+			"job", jobName,
+			"namespace", k8sNamespace,
+		)
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":    "triggered",
+			"job_name":  jobName,
+			"namespace": k8sNamespace,
+		})
+	}
+}

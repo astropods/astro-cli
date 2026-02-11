@@ -221,6 +221,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg, k8sClient))
 			protected.GET("/deployments", handlers.ListDeployments(log, cfg, k8sClient))
 			protected.GET("/deployments/:name/:version/logs", handlers.GetDeploymentLogs(log, cfg, k8sClient))
+			protected.POST("/deployments/:name/:version/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, k8sClient))
 		}
 
 		// Admin endpoints (require basic auth)

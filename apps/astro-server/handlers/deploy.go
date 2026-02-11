@@ -175,15 +175,18 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 
 		// Apply manifests to cluster
 		applier := k8s.NewApplier(k8sClient, k8s.ApplierConfig{
-			Namespace:         k8sNamespace,
-			RegistryURL:       cfg.Deployment.RegistryURL,
-			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
-			ImagePullPolicy:   imagePullPolicyForMode(cfg.Deployment.K8sClientMode),
-			IngressDomain:     cfg.Deployment.IngressDomain,
-			ACMCertificateARN: cfg.Deployment.ACMCertificateARN,
-			ALBGroupName:      cfg.Deployment.ALBGroupName,
-			GalileoAPIKey:     cfg.Deployment.GalileoAPIKey,
-			GalileoProject:    cfg.Deployment.GalileoProject,
+			Namespace:              k8sNamespace,
+			RegistryURL:            cfg.Deployment.RegistryURL,
+			ProxyRegistryHost:      cfg.Deployment.ProxyRegistryHost,
+			ImagePullPolicy:        imagePullPolicyForMode(cfg.Deployment.K8sClientMode),
+			IngressDomain:          cfg.Deployment.IngressDomain,
+			ACMCertificateARN:      cfg.Deployment.ACMCertificateARN,
+			ALBGroupName:           cfg.Deployment.ALBGroupName,
+			IngestionIngressDomain: cfg.Deployment.IngestionIngressDomain,
+			IngestionACMCertARN:    cfg.Deployment.IngestionACMCertARN,
+			IngestionALBGroupName:  cfg.Deployment.IngestionALBGroupName,
+			GalileoAPIKey:          cfg.Deployment.GalileoAPIKey,
+			GalileoProject:         cfg.Deployment.GalileoProject,
 		})
 		applyResult, err := applier.Apply(
 			c.Request.Context(),

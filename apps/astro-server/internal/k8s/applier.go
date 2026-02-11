@@ -24,10 +24,14 @@ type ApplierConfig struct {
 	RegistryURL       string
 	ProxyRegistryHost string
 	ImagePullPolicy   corev1.PullPolicy // Defaults to PullAlways; set PullNever for local dev
-	// Ingress configuration
+	// Ingress configuration for agent workloads
 	IngressDomain     string
 	ACMCertificateARN string
 	ALBGroupName      string
+	// Ingress configuration for ingestion workloads (separate ALB)
+	IngestionIngressDomain string
+	IngestionACMCertARN    string
+	IngestionALBGroupName  string
 	// Observability (Galileo) — injected into collector sidecar
 	GalileoAPIKey  string
 	GalileoProject string
@@ -40,10 +44,14 @@ type Applier struct {
 	registryURL     string
 	imageResolver   *ImageResolver
 	imagePullPolicy corev1.PullPolicy
-	// Ingress configuration
+	// Ingress configuration for agent workloads
 	ingressDomain     string
 	acmCertificateARN string
 	albGroupName      string
+	// Ingress configuration for ingestion workloads (separate ALB)
+	ingestionIngressDomain string
+	ingestionACMCertARN    string
+	ingestionALBGroupName  string
 	// Observability
 	galileoAPIKey  string
 	galileoProject string
@@ -61,9 +69,12 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		registryURL:       cfg.RegistryURL,
 		imageResolver:     NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL),
 		imagePullPolicy:   pullPolicy,
-		ingressDomain:     cfg.IngressDomain,
-		acmCertificateARN: cfg.ACMCertificateARN,
-		albGroupName:      cfg.ALBGroupName,
+		ingressDomain:          cfg.IngressDomain,
+		acmCertificateARN:      cfg.ACMCertificateARN,
+		albGroupName:           cfg.ALBGroupName,
+		ingestionIngressDomain: cfg.IngestionIngressDomain,
+		ingestionACMCertARN:    cfg.IngestionACMCertARN,
+		ingestionALBGroupName:  cfg.IngestionALBGroupName,
 		galileoAPIKey:     cfg.GalileoAPIKey,
 		galileoProject:    cfg.GalileoProject,
 	}
@@ -817,51 +828,22 @@ func (a *Applier) Apply(
 		})
 	}
 
-	// Phase 7: Create CronJobs for injections
-	for name, injection := range astroSpec.Injections {
-		if injection.Trigger.Type == "schedule" && injection.Trigger.Cron != "" {
-			resourceName := deployment.GenerateResourceName(agentName, "injection", name)
+	// Phase 7: Create CronJobs/Jobs for ingestion
+	for name, ingestion := range astroSpec.Ingestion {
+		resourceName := deployment.GenerateResourceName(agentName, "ingestion", name)
+		component := fmt.Sprintf("ingestion-%s", name)
 
-			// Extract collection name and vector size from injection target
-			collectionName := "astro-docs" // fallback default
-			vectorSize := 384               // fallback default
-
-			// Find the upsert step and extract the target knowledge store
-			for _, step := range injection.Pipeline {
-				if step.Step == "upsert" && step.Target != "" {
-					// Parse target reference like "knowledge.docs"
-					parts := strings.Split(step.Target, ".")
-					if len(parts) == 2 && parts[0] == "knowledge" {
-						knowledgeName := parts[1]
-						if knowledge, ok := astroSpec.Knowledge[knowledgeName]; ok {
-							// Extract collection name from config
-							if col, ok := knowledge.Config["collection"].(string); ok {
-								collectionName = col
-							}
-							// Extract dimensions from config
-							if dims, ok := knowledge.Config["dimensions"].(float64); ok {
-								vectorSize = int(dims)
-							} else if dims, ok := knowledge.Config["dimensions"].(int); ok {
-								vectorSize = dims
-							}
-						}
-					}
-				}
-			}
-
+		if ingestion.Trigger.Type == "schedule" && ingestion.Trigger.Schedule != "" {
 			cronJobCfg := CronJobConfig{
-				Name:           resourceName,
-				Namespace:      a.namespace,
-				AgentName:      agentName,
-				Version:        version,
-				Component:      fmt.Sprintf("injection-%s", name),
-				Schedule:       injection.Trigger.Cron,
-				SecretName:     secretName,
-				ConfigMapName:  configMapName,
-				Injection:      injection,
-				CollectionName: collectionName,
-				VectorSize:     vectorSize,
-				RegistryURL:    a.registryURL,
+				Name:          resourceName,
+				Namespace:     a.namespace,
+				AgentName:     agentName,
+				Version:       version,
+				Component:     component,
+				Schedule:      ingestion.Trigger.Schedule,
+				SecretName:    secretName,
+				ConfigMapName: configMapName,
+				Ingestion:     ingestion,
 			}
 			cronJob := BuildCronJob(cronJobCfg)
 			status, err := a.applyCronJob(ctx, cronJob)
@@ -873,7 +855,115 @@ func (a *Applier) Apply(
 					Error:    err.Error(),
 				})
 			}
+		} else if ingestion.Trigger.Type == "startup" {
+			jobCfg := JobConfig{
+				Name:          resourceName,
+				Namespace:     a.namespace,
+				AgentName:     agentName,
+				Version:       version,
+				Component:     component,
+				SecretName:    secretName,
+				ConfigMapName: configMapName,
+				Ingestion:     ingestion,
+			}
+			job := BuildJob(jobCfg)
+			status, err := a.applyJob(ctx, job)
+			result.Resources = append(result.Resources, status)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: job.Name,
+					Kind:     "Job",
+					Error:    err.Error(),
+				})
+			}
+		} else if ingestion.Trigger.Type == "webhook" {
+			port := int32(ingestion.Container.Port)
+			if port == 0 {
+				port = 8080
+			}
+
+			// Create Service for the webhook ingestion
+			serviceCfg := ServiceConfig{
+				Name:        resourceName,
+				Namespace:   a.namespace,
+				AgentName:   agentName,
+				Version:     version,
+				Component:   component,
+				Port:        port,
+				ServiceType: corev1.ServiceTypeClusterIP,
+			}
+			service := BuildService(serviceCfg)
+			status, err := a.applyService(ctx, service)
+			result.Resources = append(result.Resources, status)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: service.Name,
+					Kind:     "Service",
+					Error:    err.Error(),
+				})
+			}
+
+			// Create Deployment for the webhook ingestion
+			jobCfg := JobConfig{
+				Name:          resourceName,
+				Namespace:     a.namespace,
+				AgentName:     agentName,
+				Version:       version,
+				Component:     component,
+				SecretName:    secretName,
+				ConfigMapName: configMapName,
+				Ingestion:     ingestion,
+			}
+			depl := BuildIngestionDeployment(jobCfg, port, a.imagePullPolicy)
+			status, err = a.applyDeployment(ctx, depl)
+			result.Resources = append(result.Resources, status)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: depl.Name,
+					Kind:     "Deployment",
+					Error:    err.Error(),
+				})
+			}
+
+			// Create Ingress if ingestion ingress domain is configured
+			if a.ingestionIngressDomain != "" {
+				ingressName := deployment.GenerateResourceName(agentName, "ingress", name)
+				host := GenerateIngestionIngressHost(agentName, a.namespace, name, a.ingestionIngressDomain)
+
+				ingressCfg := IngressConfig{
+					Name:              ingressName,
+					Namespace:         a.namespace,
+					AgentName:         agentName,
+					Version:           version,
+					Component:         component,
+					ServiceName:       resourceName,
+					ServicePort:       port,
+					Host:              host,
+					ACMCertificateARN: a.ingestionACMCertARN,
+					ALBGroupName:      a.ingestionALBGroupName,
+				}
+				ingr := BuildIngress(ingressCfg)
+				status, err = a.applyIngress(ctx, ingr)
+				result.Resources = append(result.Resources, status)
+				if err != nil {
+					result.Errors = append(result.Errors, deployment.DeploymentError{
+						Resource: ingr.Name,
+						Kind:     "Ingress",
+						Error:    err.Error(),
+					})
+				}
+
+				// Add webhook URL to service endpoints
+				externalURL := GenerateIngestionExternalURL(agentName, a.namespace, name, a.ingestionIngressDomain)
+				result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
+					Name: fmt.Sprintf("ingestion-%s-webhook", name),
+					Type: "webhook",
+					URL:  externalURL,
+					Port: 443,
+				})
+			}
 		}
+		// "manual" triggers: no resources created at deploy time
 	}
 
 	// Collect service endpoints
@@ -1092,6 +1182,46 @@ func (a *Applier) applyCronJob(ctx context.Context, cj *batchv1.CronJob) (deploy
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			_, err = a.clientset.BatchV1().CronJobs(a.namespace).Update(ctx, cj, metav1.UpdateOptions{})
+			if err != nil {
+				status.Status = "failed"
+				status.Message = err.Error()
+				return status, err
+			}
+			status.Status = "updated"
+			return status, nil
+		}
+		status.Status = "failed"
+		status.Message = err.Error()
+		return status, err
+	}
+
+	status.Status = "created"
+	return status, nil
+}
+
+// applyJob creates a Job, deleting any existing one first (Jobs are immutable)
+func (a *Applier) applyJob(ctx context.Context, job *batchv1.Job) (deployment.ResourceStatus, error) {
+	status := deployment.ResourceStatus{
+		Kind:      "Job",
+		Name:      job.Name,
+		Namespace: a.namespace,
+	}
+
+	_, err := a.clientset.BatchV1().Jobs(a.namespace).Create(ctx, job, metav1.CreateOptions{})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			// Jobs are immutable once created — delete and recreate
+			propagation := metav1.DeletePropagationForeground
+			deleteErr := a.clientset.BatchV1().Jobs(a.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
+				PropagationPolicy: &propagation,
+			})
+			if deleteErr != nil {
+				status.Status = "failed"
+				status.Message = fmt.Sprintf("failed to delete existing job: %v", deleteErr)
+				return status, deleteErr
+			}
+			// Recreate
+			_, err = a.clientset.BatchV1().Jobs(a.namespace).Create(ctx, job, metav1.CreateOptions{})
 			if err != nil {
 				status.Status = "failed"
 				status.Message = err.Error()

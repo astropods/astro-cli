@@ -29,7 +29,7 @@ It reads an astro.yml specification file that declares:
 - Self-hosted components (models, knowledge stores, tools)
 - Cloud integrations (Anthropic, GitHub, etc.)
 - Interfaces (Slack, HTTP API)
-- Data injection pipelines`,
+- Data ingestion pipelines`,
 	Version:       "placeholder",
 	SilenceUsage:  true,
 	SilenceErrors: true,

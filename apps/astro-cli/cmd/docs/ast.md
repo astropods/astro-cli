@@ -10,7 +10,7 @@ A command-line interface for developing, building, and publishing AI agents on t
 - **OCI-native publishing** — Push agents and specs to any OCI-compatible registry
 - **Multi-component builds** — Build agent containers plus custom models, knowledge stores, and tools
 - **Message interface support** — Built-in Slack sidecar
-- **Injection pipelines** — Schedule data ingestion from external sources with cron triggers
+- **Ingestion pipelines** — Schedule data ingestion from external sources with cron triggers
 
 ## Installation
 

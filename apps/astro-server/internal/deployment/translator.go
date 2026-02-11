@@ -337,25 +337,73 @@ func (t *Translator) Translate(astroSpec *spec.AstroSpec) (*TranslationResult, e
 		}
 	}
 
-	// 9. Process injections with schedule triggers
-	for name, injection := range astroSpec.Injections {
-		if injection.Trigger.Type == "schedule" && injection.Trigger.Cron != "" {
-			resourceName := GenerateResourceName(t.agentName, "injection", name)
+	// 9. Process ingestion triggers
+	var jobs []Manifest
+	for name, ingestion := range astroSpec.Ingestion {
+		resourceName := GenerateResourceName(t.agentName, "ingestion", name)
+		component := fmt.Sprintf("ingestion-%s", name)
 
+		if ingestion.Trigger.Type == "schedule" && ingestion.Trigger.Schedule != "" {
 			cronJob := Manifest{
 				Kind:      "CronJob",
 				Name:      resourceName,
 				Namespace: t.k8sNamespace,
 				Object: map[string]interface{}{
-					"schedule":   injection.Trigger.Cron,
-					"component":  fmt.Sprintf("injection-%s", name),
+					"schedule":   ingestion.Trigger.Schedule,
+					"component":  component,
 					"secretName": result.SecretName,
 					"configName": result.ConfigMapName,
-					"injection":  injection,
+					"ingestion":  ingestion,
 				},
 			}
 			cronJobs = append(cronJobs, cronJob)
+		} else if ingestion.Trigger.Type == "startup" {
+			job := Manifest{
+				Kind:      "Job",
+				Name:      resourceName,
+				Namespace: t.k8sNamespace,
+				Object: map[string]interface{}{
+					"component":  component,
+					"secretName": result.SecretName,
+					"configName": result.ConfigMapName,
+					"ingestion":  ingestion,
+				},
+			}
+			jobs = append(jobs, job)
+		} else if ingestion.Trigger.Type == "webhook" {
+			port := ingestion.Container.Port
+			if port == 0 {
+				port = 8080
+			}
+
+			webhookDeployment := Manifest{
+				Kind:      "Deployment",
+				Name:      resourceName,
+				Namespace: t.k8sNamespace,
+				Object: map[string]interface{}{
+					"component":  component,
+					"secretName": result.SecretName,
+					"configName": result.ConfigMapName,
+					"ingestion":  ingestion,
+				},
+			}
+			deployments = append(deployments, webhookDeployment)
+
+			webhookService := Manifest{
+				Kind:      "Service",
+				Name:      resourceName,
+				Namespace: t.k8sNamespace,
+				Object: map[string]interface{}{
+					"port":      port,
+					"component": component,
+					"type":      "ClusterIP",
+				},
+			}
+			services = append(services, webhookService)
+
+			result.ServiceDNSMap[resourceName] = GenerateServiceDNS(resourceName, t.k8sNamespace)
 		}
+		// "manual" triggers produce no manifests
 	}
 
 	// Append in dependency order
@@ -363,6 +411,7 @@ func (t *Translator) Translate(astroSpec *spec.AstroSpec) (*TranslationResult, e
 	result.Manifests = append(result.Manifests, statefulSets...)
 	result.Manifests = append(result.Manifests, deployments...)
 	result.Manifests = append(result.Manifests, cronJobs...)
+	result.Manifests = append(result.Manifests, jobs...)
 
 	return result, nil
 }

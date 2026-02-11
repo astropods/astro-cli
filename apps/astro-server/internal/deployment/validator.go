@@ -54,21 +54,31 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		})
 	}
 
-	// Validate cron expressions in injections
-	for name, injection := range astroSpec.Injections {
-		if injection.Trigger.Type == "schedule" {
-			if injection.Trigger.Cron == "" {
+	// Validate ingestion triggers
+	validTriggerTypes := map[string]bool{"schedule": true, "manual": true, "startup": true, "webhook": true}
+	for name, ingestion := range astroSpec.Ingestion {
+		triggerType := ingestion.Trigger.Type
+		if !validTriggerTypes[triggerType] {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("ingestion.%s.trigger.type", name),
+				Message: fmt.Sprintf("invalid trigger type %q: must be one of schedule, manual, startup, webhook", triggerType),
+			})
+			continue
+		}
+
+		if triggerType == "schedule" {
+			if ingestion.Trigger.Schedule == "" {
 				result.Valid = false
 				result.Errors = append(result.Errors, ValidationError{
-					Field:   fmt.Sprintf("injections.%s.trigger.cron", name),
-					Message: "cron expression is required for cron trigger",
+					Field:   fmt.Sprintf("ingestion.%s.trigger.schedule", name),
+					Message: "schedule expression is required for schedule trigger",
 				})
 			} else {
-				// Validate cron expression
-				if _, err := v.cronParser.Parse(injection.Trigger.Cron); err != nil {
+				if _, err := v.cronParser.Parse(ingestion.Trigger.Schedule); err != nil {
 					result.Valid = false
 					result.Errors = append(result.Errors, ValidationError{
-						Field:   fmt.Sprintf("injections.%s.trigger.cron", name),
+						Field:   fmt.Sprintf("ingestion.%s.trigger.schedule", name),
 						Message: fmt.Sprintf("invalid cron expression: %v", err),
 					})
 				}
@@ -179,27 +189,6 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []Credenti
 				Category:    "messaging",
 				Description: "Discord bot token for messaging interface",
 				Optional:    false,
-			}
-		}
-	}
-
-	// Check injection sources
-	for _, injection := range astroSpec.Injections {
-		if injection.Source.Type == "github" {
-			credMap["GITHUB_TOKEN"] = CredentialInfo{
-				Key:         "GITHUB_TOKEN",
-				Provider:    "github",
-				Category:    "injection",
-				Description: "GitHub token for accessing repositories and issues",
-				Optional:    true, // Optional for public repos
-			}
-		} else if injection.Source.Type == "gitlab" {
-			credMap["GITLAB_TOKEN"] = CredentialInfo{
-				Key:         "GITLAB_TOKEN",
-				Provider:    "gitlab",
-				Category:    "injection",
-				Description: "GitLab token for accessing repositories and issues",
-				Optional:    true, // Optional for public repos
 			}
 		}
 	}

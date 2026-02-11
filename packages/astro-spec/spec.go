@@ -14,7 +14,6 @@ type AstroSpec struct {
 	Integrations Integrations           `json:"integrations,omitempty" yaml:"integrations,omitempty"`
 	Interfaces   map[string]Interface   `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
 	Ingestion    map[string]Ingestion   `json:"ingestion,omitempty" yaml:"ingestion,omitempty"`
-	Injections   map[string]Injection   `json:"injections,omitempty" yaml:"injections,omitempty"` // deprecated, use ingestion
 }
 
 type Meta struct {
@@ -130,35 +129,7 @@ type InterfaceService struct {
 	Environment map[string]string `json:"environment,omitempty" yaml:"environment,omitempty"`
 }
 
-// Injection represents a data ingestion job (legacy format, deprecated)
-type Injection struct {
-	Source     InjectionSource  `json:"source,omitempty" yaml:"source,omitempty"`
-	Trigger    InjectionTrigger `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Pipeline   []PipelineStep   `json:"pipeline,omitempty" yaml:"pipeline,omitempty"`
-	Persistent bool             `json:"persistent,omitempty" yaml:"persistent,omitempty"`
-	// New simplified format
-	Container *ContainerConfig  `json:"container,omitempty" yaml:"container,omitempty"`
-}
-
-type InjectionSource struct {
-	Type   string         `json:"type" yaml:"type"`
-	Config map[string]any `json:"config" yaml:"config"`
-}
-
-type InjectionTrigger struct {
-	Type  string `json:"type" yaml:"type"`
-	Cron  string `json:"cron,omitempty" yaml:"cron,omitempty"`
-	Event string `json:"event,omitempty" yaml:"event,omitempty"`
-}
-
-type PipelineStep struct {
-	Step   string         `json:"step" yaml:"step"`
-	Model  string         `json:"model,omitempty" yaml:"model,omitempty"`
-	Target string         `json:"target,omitempty" yaml:"target,omitempty"`
-	Config map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
-}
-
-// Ingestion represents a simplified data ingestion job
+// Ingestion represents a data ingestion job
 // Just a container that runs on a trigger
 type Ingestion struct {
 	Container ContainerConfig   `json:"container" yaml:"container"`
@@ -166,6 +137,6 @@ type Ingestion struct {
 }
 
 type IngestionTrigger struct {
-	Type     string `json:"type" yaml:"type"`                         // "schedule" | "manual" | "startup"
+	Type     string `json:"type" yaml:"type"`                         // "schedule" | "manual" | "startup" | "webhook"
 	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"` // cron expression for schedule type
 }

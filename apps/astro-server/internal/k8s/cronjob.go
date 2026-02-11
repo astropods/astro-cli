@@ -1,11 +1,9 @@
 package k8s
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/packages/astro-spec"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -14,99 +12,66 @@ import (
 
 // CronJobConfig holds configuration for building a CronJob
 type CronJobConfig struct {
-	Name           string
-	Namespace      string
-	AgentName      string
-	Version        string
-	Component      string
-	Schedule       string
-	Image          string // Injection worker image
-	SecretName     string
-	ConfigMapName  string
-	Injection      spec.Injection
-	CollectionName string // Target collection name
-	VectorSize     int    // Vector dimensions
-	RegistryURL    string // Registry URL for default images
+	Name          string
+	Namespace     string
+	AgentName     string
+	Version       string
+	Component     string
+	Schedule      string
+	SecretName    string
+	ConfigMapName string
+	Ingestion     spec.Ingestion
 }
 
-// BuildCronJob creates a Kubernetes CronJob manifest for injections
-func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+// JobConfig holds configuration for building a one-shot Job
+type JobConfig struct {
+	Name          string
+	Namespace     string
+	AgentName     string
+	Version       string
+	Component     string
+	SecretName    string
+	ConfigMapName string
+	Ingestion     spec.Ingestion
+}
 
-	// Use a default injection worker image if not specified
-	image := cfg.Image
-	if image == "" {
-		if cfg.RegistryURL == "" {
-			// This should never happen as config validation should catch it
-			panic("REGISTRY_URL is required but not set")
-		}
-		image = fmt.Sprintf("%s/prod-astro-injection-worker:latest", cfg.RegistryURL)
+// buildIngestionContainer creates the container spec shared by CronJob and Job
+func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName string) corev1.Container {
+	var envVars []corev1.EnvVar
+	for key, val := range ingestion.Container.Environment {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  key,
+			Value: val,
+		})
 	}
 
-	// Serialize source config to JSON
-	sourceConfigJSON, _ := json.Marshal(cfg.Injection.Source.Config)
-
-	// Serialize pipeline to JSON
-	pipelineJSON, _ := json.Marshal(cfg.Injection.Pipeline)
-
-	// Build container for injection worker
 	container := corev1.Container{
-		Name:  "injection-worker",
-		Image: image,
-		Env: []corev1.EnvVar{
-			{
-				Name:  "INJECTION_SOURCE_TYPE",
-				Value: cfg.Injection.Source.Type,
-			},
-			{
-				Name:  "INJECTION_SOURCE_CONFIG",
-				Value: string(sourceConfigJSON),
-			},
-			{
-				Name:  "INJECTION_PIPELINE",
-				Value: string(pipelineJSON),
-			},
-			{
-				Name:  "INJECTION_COLLECTION_NAME",
-				Value: cfg.CollectionName,
-			},
-			{
-				Name:  "INJECTION_VECTOR_SIZE",
-				Value: fmt.Sprintf("%d", cfg.VectorSize),
-			},
-			{
-				Name:  "DRY_RUN",
-				Value: "false",
-			},
-		},
+		Name:            "ingestion-worker",
+		Image:           ingestion.Container.Image,
+		Env:             envVars,
 		ImagePullPolicy: corev1.PullAlways,
 	}
 
-	// Add ConfigMap and Secret env vars
-	if cfg.ConfigMapName != "" {
+	if configMapName != "" {
 		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
 			ConfigMapRef: &corev1.ConfigMapEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{
-					Name: cfg.ConfigMapName,
+					Name: configMapName,
 				},
 			},
 		})
 	}
 
-	if cfg.SecretName != "" {
+	if secretName != "" {
 		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{
-					Name: cfg.SecretName,
+					Name: secretName,
 				},
 			},
 		})
 	}
 
-	// Note: Persistent flag would be used when we implement actual storage
-
-	// Set resource limits for injection workers
 	container.Resources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("100m"),
@@ -118,7 +83,15 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 		},
 	}
 
-	// Create pod template
+	return container
+}
+
+// BuildCronJob creates a Kubernetes CronJob manifest for ingestion jobs
+func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
+
 	podTemplate := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: labels,
@@ -129,7 +102,6 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 		},
 	}
 
-	// Create job template
 	successfulJobsHistoryLimit := int32(3)
 	failedJobsHistoryLimit := int32(1)
 	concurrencyPolicy := batchv1.ForbidConcurrent
@@ -161,4 +133,87 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 	}
 
 	return cronJob
+}
+
+// BuildIngestionDeployment creates a long-running Deployment for webhook-triggered ingestion
+func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.PullPolicy) *appsv1.Deployment {
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
+
+	// Override container port for the webhook listener
+	container.Ports = []corev1.ContainerPort{
+		{
+			Name:          "http",
+			ContainerPort: port,
+			Protocol:      corev1.ProtocolTCP,
+		},
+	}
+
+	if imagePullPolicy != "" {
+		container.ImagePullPolicy = imagePullPolicy
+	}
+
+	replicas := int32(1)
+
+	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfg.Name,
+			Namespace: cfg.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: selector,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers:    []corev1.Container{container},
+					RestartPolicy: corev1.RestartPolicyAlways,
+				},
+			},
+		},
+	}
+}
+
+// BuildJob creates a one-shot Kubernetes Job manifest for ingestion (startup/manual triggers)
+func BuildJob(cfg JobConfig) *batchv1.Job {
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
+
+	backoffLimit := int32(3)
+
+	job := &batchv1.Job{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "batch/v1",
+			Kind:       "Job",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfg.Name,
+			Namespace: cfg.Namespace,
+			Labels:    labels,
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit: &backoffLimit,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers:    []corev1.Container{container},
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+				},
+			},
+		},
+	}
+
+	return job
 }

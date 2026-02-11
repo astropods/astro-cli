@@ -39,7 +39,8 @@ func (d *Deleter) Delete(ctx context.Context, agentName, version string) (*Delet
 	versionSanitized := deployment.SanitizeName(version)
 
 	// Delete resources in reverse order (opposite of creation)
-	// CronJobs first
+	// Jobs and CronJobs first
+	d.deleteJobs(ctx, agentName, result)
 	d.deleteCronJobs(ctx, agentName, result)
 
 	// Deployments and StatefulSets
@@ -90,6 +91,44 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *
 			result.Resources = append(result.Resources, deployment.ResourceStatus{
 				Kind:      "CronJob",
 				Name:      cronJob.Name,
+				Namespace: d.namespace,
+				Status:    "deleted",
+			})
+		}
+	}
+}
+
+// deleteJobs deletes all Jobs matching the agent
+func (d *Deleter) deleteJobs(ctx context.Context, agentName string, result *DeleteResult) {
+	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+
+	jobs, err := d.client.Clientset().BatchV1().Jobs(d.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: "Jobs",
+			Kind:     "Job",
+			Error:    fmt.Sprintf("failed to list: %v", err),
+		})
+		return
+	}
+
+	propagation := metav1.DeletePropagationForeground
+	for _, job := range jobs.Items {
+		err := d.client.Clientset().BatchV1().Jobs(d.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
+			PropagationPolicy: &propagation,
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: job.Name,
+				Kind:     "Job",
+				Error:    err.Error(),
+			})
+		} else {
+			result.Resources = append(result.Resources, deployment.ResourceStatus{
+				Kind:      "Job",
+				Name:      job.Name,
 				Namespace: d.namespace,
 				Status:    "deleted",
 			})

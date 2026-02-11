@@ -82,10 +82,14 @@ type DeploymentConfig struct {
 	K8sClientMode  string // K8S_CLIENT_MODE
 	KubeconfigPath string // KUBECONFIG path (local mode, defaults to ~/.kube/config)
 	KubeContext    string // KUBE_CONTEXT (local mode, defaults to current-context)
-	// Ingress configuration for external access
-	IngressDomain     string // Domain for agent ingress (e.g., agents.example.com)
+	// Ingress configuration for agent workloads (agents.astromode.ai)
+	IngressDomain     string // Domain for agent ingress (e.g., agents.astromode.ai)
 	ACMCertificateARN string // ACM certificate ARN for HTTPS
-	ALBGroupName      string // ALB group name to share ALB across ingresses
+	ALBGroupName      string // ALB group name for agent ALB
+	// Ingress configuration for ingestion workloads (ingestion.astromode.ai)
+	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astromode.ai)
+	IngestionACMCertARN    string // ACM certificate ARN for ingestion wildcard cert
+	IngestionALBGroupName  string // ALB group name for ingestion ALB (separate from agents)
 	// Observability (Galileo) — injected into every collector sidecar
 	GalileoAPIKey  string // GALILEO_API_KEY
 	GalileoProject string // GALILEO_PROJECT
@@ -121,9 +125,12 @@ func Load() (*Config, error) {
 			K8sClientMode:     getEnv("K8S_CLIENT_MODE", "eks"),
 			KubeconfigPath:    getEnv("KUBECONFIG", ""),
 			KubeContext:       getEnv("KUBE_CONTEXT", ""),
-			IngressDomain:     getEnv("INGRESS_DOMAIN", ""),
-			ACMCertificateARN: getEnv("ACM_CERTIFICATE_ARN", ""),
-			ALBGroupName:      getEnv("ALB_GROUP_NAME", "astro-agents"),
+			IngressDomain:          getEnv("INGRESS_DOMAIN", ""),
+			ACMCertificateARN:      getEnv("ACM_CERTIFICATE_ARN", ""),
+			ALBGroupName:           getEnv("ALB_GROUP_NAME", "astro-agents"),
+			IngestionIngressDomain: getEnv("INGESTION_INGRESS_DOMAIN", ""),
+			IngestionACMCertARN:    getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
+			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
 			GalileoAPIKey:     getEnv("GALILEO_API_KEY", ""),
 			GalileoProject:    getEnv("GALILEO_PROJECT", ""),
 		},

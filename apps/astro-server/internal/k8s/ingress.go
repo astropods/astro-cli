@@ -120,6 +120,65 @@ func GenerateIngressHost(agentName, namespace, domain string) string {
 	return fmt.Sprintf("%s.%s", label, domain)
 }
 
+// GenerateIngestionIngressHost generates a unique hostname for an ingestion webhook
+// Format: <agent>-<ingestion>-<hash>.domain
+// Each part gets a fair share of the 63-char DNS label limit so neither is lost.
+// The hash includes agent + namespace + ingestion name for uniqueness.
+func GenerateIngestionIngressHost(agentName, namespace, ingestionName, domain string) string {
+	const maxLabelLength = 63
+	const hashLength = 8 // 4 bytes = 8 hex chars — sufficient uniqueness within one agent
+	const separators = 2 // two hyphens: agent-ingestion-hash
+
+	sanitizedAgent := deployment.SanitizeName(agentName)
+	sanitizedNs := deployment.SanitizeName(namespace)
+	sanitizedIngestion := deployment.SanitizeName(ingestionName)
+
+	// Hash includes ingestion name for per-webhook uniqueness
+	combined := fmt.Sprintf("%s-%s-%s", sanitizedAgent, sanitizedNs, sanitizedIngestion)
+	hash := sha256.Sum256([]byte(combined))
+	hashSuffix := fmt.Sprintf("%x", hash[:4]) // 4 bytes = 8 hex chars
+
+	// Budget available for agent + ingestion names
+	budget := maxLabelLength - hashLength - separators // 63 - 8 - 2 = 53
+
+	agentPart := sanitizedAgent
+	ingestionPart := sanitizedIngestion
+
+	// If both fit, use as-is
+	totalLen := len(agentPart) + len(ingestionPart)
+	if totalLen > budget {
+		half := budget / 2 // 26 each
+
+		// If one part is short, give its unused space to the other
+		if len(agentPart) <= half {
+			ingestionPart = truncateLabel(ingestionPart, budget-len(agentPart))
+		} else if len(ingestionPart) <= half {
+			agentPart = truncateLabel(agentPart, budget-len(ingestionPart))
+		} else {
+			// Both are long — split evenly
+			agentPart = truncateLabel(agentPart, half)
+			ingestionPart = truncateLabel(ingestionPart, budget-len(agentPart))
+		}
+	}
+
+	label := fmt.Sprintf("%s-%s-%s", agentPart, ingestionPart, hashSuffix)
+	return fmt.Sprintf("%s.%s", label, domain)
+}
+
+// truncateLabel truncates s to max chars and trims trailing hyphens
+func truncateLabel(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return strings.TrimRight(s[:max], "-")
+}
+
+// GenerateIngestionExternalURL generates the full external URL for an ingestion webhook
+func GenerateIngestionExternalURL(agentName, namespace, ingestionName, domain string) string {
+	host := GenerateIngestionIngressHost(agentName, namespace, ingestionName, domain)
+	return fmt.Sprintf("https://%s", host)
+}
+
 // GenerateExternalURL generates the full external URL for an agent
 func GenerateExternalURL(agentName, namespace, domain string) string {
 	host := GenerateIngressHost(agentName, namespace, domain)
