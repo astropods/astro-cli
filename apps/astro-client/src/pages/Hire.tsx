@@ -28,8 +28,12 @@ const sortOptions = [
 
 type SortValue = (typeof sortOptions)[number]["value"];
 
+function getLatestVersion(agent: Agent) {
+  return agent.versions[0];
+}
+
 function getLatestSpec(agent: Agent) {
-  return agent.versions[0]?.spec;
+  return getLatestVersion(agent)?.spec;
 }
 
 function getAgentCategories(agent: Agent): string[] {
@@ -83,7 +87,13 @@ export function Hire() {
       return matchesSearch && matchesCategory;
     });
 
-    if (sortBy === "name-asc") {
+    if (sortBy === "recent") {
+      filtered.sort((a, b) => {
+        const aTime = getLatestVersion(a)?.published_at ?? "";
+        const bTime = getLatestVersion(b)?.published_at ?? "";
+        return bTime.localeCompare(aTime);
+      });
+    } else if (sortBy === "name-asc") {
       filtered.sort((a, b) => a.name.localeCompare(b.name));
     }
 
@@ -166,7 +176,7 @@ export function Hire() {
 
       {/* Loading state */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
+        <div role="status" aria-label="Loading agents" className="flex items-center justify-center py-12">
           <Loader2 size={32} className="animate-spin text-gray-500" />
         </div>
       ) : isError ? (
@@ -209,7 +219,7 @@ export function Hire() {
 
       {/* Wizard overlay — unchanged */}
       {isWizardOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div role="dialog" aria-label="Find agents wizard" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="relative flex max-h-[80vh] w-full max-w-[500px] flex-col overflow-hidden border border-gray-300 bg-white">
             <button
               className="absolute right-3 top-3 z-10 cursor-pointer border-none bg-transparent"
