@@ -1,0 +1,6 @@
+tasks:
+  build:
+    command: "make build"
+    options:
+      cache: false
+      runInCI: false

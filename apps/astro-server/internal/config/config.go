@@ -86,6 +86,9 @@ type DeploymentConfig struct {
 	IngressDomain     string // Domain for agent ingress (e.g., agents.example.com)
 	ACMCertificateARN string // ACM certificate ARN for HTTPS
 	ALBGroupName      string // ALB group name to share ALB across ingresses
+	// Observability (Galileo) — injected into every collector sidecar
+	GalileoAPIKey  string // GALILEO_API_KEY
+	GalileoProject string // GALILEO_PROJECT
 }
 
 // Load loads configuration from environment variables with defaults
@@ -121,6 +124,8 @@ func Load() (*Config, error) {
 			IngressDomain:     getEnv("INGRESS_DOMAIN", ""),
 			ACMCertificateARN: getEnv("ACM_CERTIFICATE_ARN", ""),
 			ALBGroupName:      getEnv("ALB_GROUP_NAME", "astro-agents"),
+			GalileoAPIKey:     getEnv("GALILEO_API_KEY", ""),
+			GalileoProject:    getEnv("GALILEO_PROJECT", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

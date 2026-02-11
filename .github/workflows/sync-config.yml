@@ -65,6 +65,11 @@ jobs:
       # Note: astro-registry secrets (WORKOS_CLIENT_ID) are sourced from
       # prod/astro-server/app via ExternalSecret, so no separate secret sync needed.
 
+      - name: Force ExternalSecret resync
+        run: |
+          kubectl annotate externalsecret astro-server-secrets -n astro-server "force-sync=$(date +%s)" --overwrite
+          echo "::notice::🔄 Triggered ExternalSecret resync for astro-server"
+
       - name: Deploy astro-registry ConfigMap
         run: |
           CONFIG_FILE="config/astro-registry/prod.env"

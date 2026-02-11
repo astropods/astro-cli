@@ -12,7 +12,13 @@ tasks:
       cache: false
       runInCI: false
 
+  "collector":
+    command: "cd .. && docker build -t astro-collector:latest -f deployment/Dockerfile.astro-collector ."
+    options:
+      cache: false
+      runInCI: false
+
   "clean":
-    command: "docker rmi astro-messaging:latest astro-server:latest astro-registry:latest astro-playground:latest ghcr.io/saswatds/astro-messaging:latest ghcr.io/saswatds/astro-server:latest ghcr.io/saswatds/astro-registry:latest ghcr.io/saswatds/astro-playground:latest 2>/dev/null || true"
+    command: "docker rmi astro-messaging:latest astro-server:latest astro-registry:latest astro-playground:latest astro-collector:latest ghcr.io/saswatds/astro-messaging:latest ghcr.io/saswatds/astro-server:latest ghcr.io/saswatds/astro-registry:latest ghcr.io/saswatds/astro-playground:latest ghcr.io/saswatds/astro-collector:latest 2>/dev/null || true"
     options:
       runInCI: false

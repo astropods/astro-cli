@@ -129,6 +129,18 @@ func (b *EnvBuilder) BuildConnectionStrings(astroSpec *spec.AstroSpec) map[strin
 		break // Only need one messaging service
 	}
 
+	// Add OTel collector endpoint for agent telemetry auto-export
+	collectorServiceName := GenerateAgentResourceName(astroSpec.Agent, "collector")
+	collectorHost := GenerateServiceDNS(collectorServiceName, b.k8sNamespace)
+	env["OTEL_EXPORTER_OTLP_ENDPOINT"] = fmt.Sprintf("http://%s:4318", collectorHost)
+
+	// Inject agent metadata for the collector sidecar.
+	// Collector defaults to prod mode (Galileo enabled); only ast dev overrides to dev.
+	env["ASTRO_AGENT_NAME"] = astroSpec.Agent
+	if astroSpec.Meta.Version != "" {
+		env["ASTRO_AGENT_VERSION"] = astroSpec.Meta.Version
+	}
+
 	return env
 }
 

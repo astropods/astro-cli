@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+
+# Multi-stage build for OTel Collector custom distribution
+# Supports multi-platform builds (linux/amd64, linux/arm64)
+
+# Stage 1: Build collector with ocb
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+# Install ocb (OpenTelemetry Collector Builder)
+RUN go install go.opentelemetry.io/collector/cmd/builder@v0.145.0
+
+WORKDIR /build
+
+# Allow Go to download required toolchain version
+ENV GOTOOLCHAIN=auto
+
+# Copy collector package
+COPY packages/astro-collector/ .
+
+# Build arguments for target platform
+ARG TARGETOS
+ARG TARGETARCH
+
+# Build the collector distribution using ocb
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    builder --config=builder-config.yaml
+
+# Stage 2: Runtime
+FROM alpine:3.21
+
+# Install CA certificates for HTTPS (needed for Galileo API calls)
+RUN apk add --no-cache ca-certificates
+
+# Create non-root user
+RUN adduser -D -u 1000 astro
+
+WORKDIR /app
+
+# Copy collector binary from builder
+COPY --from=builder /build/bin/astro-collector .
+
+# Copy configs for both modes
+COPY packages/astro-collector/config/collector-config.yaml /etc/astro-collector/config.yaml
+COPY packages/astro-collector/config/collector-config-dev.yaml /etc/astro-collector/config-dev.yaml
+
+# Set ownership and switch to non-root user
+RUN chown -R astro:astro /app
+USER astro
+
+# OTLP gRPC and HTTP receiver ports
+EXPOSE 4317 4318
+
+# ASTRO_COLLECTOR_MODE selects the config: "dev" uses config-dev.yaml, anything else uses config.yaml
+ENV ASTRO_COLLECTOR_MODE=prod
+ENTRYPOINT ["sh", "-c", "if [ \"$ASTRO_COLLECTOR_MODE\" = \"dev\" ]; then exec ./astro-collector --config=/etc/astro-collector/config-dev.yaml; else exec ./astro-collector --config=/etc/astro-collector/config.yaml; fi"]

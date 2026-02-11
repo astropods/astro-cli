@@ -23,6 +23,10 @@ on:
         description: 'Build astro-playground'
         type: boolean
         default: false
+      astro-collector:
+        description: 'Build astro-collector'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -73,6 +77,17 @@ jobs:
             --secret-string "$SECRET_JSON"
           echo "::notice::✅ astro-server secrets synced"
 
+      - name: Update kubeconfig
+        if: ${{ inputs.sync-secrets == true }}
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+
+      - name: Force ExternalSecret resync
+        if: ${{ inputs.sync-secrets == true }}
+        run: |
+          kubectl annotate externalsecret astro-server-secrets -n astro-server "force-sync=$(date +%s)" --overwrite
+          echo "::notice::🔄 Triggered ExternalSecret resync for astro-server"
+
   prepare:
     needs: [sync-secrets]
     runs-on: ubuntu-latest
@@ -118,6 +133,14 @@ jobs:
               {"service":"astro-playground","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":false,"push_ghcr":true}
             ]')
             merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-playground","platforms":"linux/amd64,linux/arm64","push_ecr":false,"push_ghcr":true}]')
+          fi
+
+          if [ "${{ inputs.astro-collector }}" == "true" ]; then
+            build_items=$(echo "$build_items" | jq -c '. + [
+              {"service":"astro-collector","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_ghcr":true},
+              {"service":"astro-collector","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_ghcr":true}
+            ]')
+            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-collector","platforms":"linux/amd64,linux/arm64","push_ecr":true,"push_ghcr":true}]')
           fi
 
           # Check if any services were selected

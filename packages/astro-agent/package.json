@@ -30,6 +30,8 @@
     "@mastra/core": "^1.0.4",
     "@mastra/libsql": "^1.0.0",
     "@mastra/memory": "^1.0.0",
+    "@mastra/observability": "^1.2.0",
+    "@mastra/otel-exporter": "^1.0.2",
     "@saswatds/astro-engine": "workspace:*",
     "@saswatds/astro-nodes": "workspace:*",
     "@saswatds/astro-types": "workspace:*"

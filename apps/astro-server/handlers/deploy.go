@@ -182,6 +182,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			IngressDomain:     cfg.Deployment.IngressDomain,
 			ACMCertificateARN: cfg.Deployment.ACMCertificateARN,
 			ALBGroupName:      cfg.Deployment.ALBGroupName,
+			GalileoAPIKey:     cfg.Deployment.GalileoAPIKey,
+			GalileoProject:    cfg.Deployment.GalileoProject,
 		})
 		applyResult, err := applier.Apply(
 			c.Request.Context(),

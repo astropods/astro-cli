@@ -1,0 +1,26 @@
+spec: astro/v1
+agent: obs-agent
+
+meta:
+  version: 0.1.0
+  description: An AI-powered agent
+
+container:
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      NPM_SCOPE: "@saswatds"
+      NPM_REGISTRY: "https://npm.pkg.github.com"
+    secrets:
+      - id: npm_token
+        env: GITHUB_PACKAGES_TOKEN
+
+interfaces:
+  web:
+    type: web
+
+integrations:
+  models:
+    - name: llm
+      provider: openai

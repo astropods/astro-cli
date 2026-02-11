@@ -13,11 +13,14 @@ moon run deployment:messaging
 # Playground (web UI for agents)
 moon run deployment:playground
 
-# Remove astro Docker images (messaging, server, registry, playground; local and ghcr.io/saswatds/*)
+# Collector (OpenTelemetry collector)
+moon run deployment:collector
+
+# Remove astro Docker images (messaging, server, registry, playground, collector; local and ghcr.io/saswatds/*)
 moon run deployment:clean
 ```
 
-Images are tagged `astro-messaging:latest` and `astro-playground:latest`. Use them with:
+Images are tagged `astro-messaging:latest`, `astro-playground:latest`, and `astro-collector:latest`. Use them with:
 
 ```bash
 ast dev --local
@@ -31,6 +34,7 @@ ast dev --local
 |------|--------|--------|
 | `Dockerfile.astro-messaging` | astro-messaging | packages/astro-messaging |
 | `Dockerfile.astro-playground` | astro-playground | packages/astro-playground-web |
+| `Dockerfile.astro-collector` | astro-collector | OTel Collector custom distribution |
 | `Dockerfile.astro-registry` | astro-registry | apps/astro-registry |
 | `Dockerfile.astro-server` | astro-server | apps/astro-server |
 

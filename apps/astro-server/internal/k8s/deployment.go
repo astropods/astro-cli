@@ -245,6 +245,126 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 	return container
 }
 
+// CollectorDeploymentConfig holds configuration for building a collector sidecar Deployment
+type CollectorDeploymentConfig struct {
+	Name            string
+	Namespace       string
+	AgentName       string
+	Version         string
+	Component       string
+	Image           string
+	ConfigMapName   string
+	ImagePullPolicy corev1.PullPolicy
+	// Galileo credentials (server-level config, injected directly)
+	GalileoAPIKey  string
+	GalileoProject string
+}
+
+// BuildCollectorDeployment creates a Kubernetes Deployment for the observability collector sidecar
+func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment {
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+
+	replicas := int32(1)
+
+	container := buildCollectorContainer(cfg)
+
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{container},
+	}
+
+	deploy := &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfg.Name,
+			Namespace: cfg.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: selector,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: podSpec,
+			},
+		},
+	}
+
+	return deploy
+}
+
+// buildCollectorContainer creates a container spec for the collector sidecar
+func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
+	pullPolicy := cfg.ImagePullPolicy
+	if pullPolicy == "" {
+		pullPolicy = corev1.PullAlways
+	}
+
+	container := corev1.Container{
+		Name:  "collector",
+		Image: cfg.Image,
+		Ports: []corev1.ContainerPort{
+			{
+				Name:          "otlp-grpc",
+				ContainerPort: 4317,
+				Protocol:      corev1.ProtocolTCP,
+			},
+			{
+				Name:          "otlp-http",
+				ContainerPort: 4318,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		},
+		ImagePullPolicy: pullPolicy,
+	}
+
+	// ConfigMap provides agent metadata (ASTRO_AGENT_NAME, etc.)
+	if cfg.ConfigMapName != "" {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: cfg.ConfigMapName,
+				},
+			},
+		})
+	}
+
+	// Galileo credentials are server-level config, injected directly as env vars
+	if cfg.GalileoAPIKey != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "GALILEO_API_KEY",
+			Value: cfg.GalileoAPIKey,
+		})
+	}
+	if cfg.GalileoProject != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "GALILEO_PROJECT",
+			Value: cfg.GalileoProject,
+		})
+	}
+
+	// Resource limits — collector is lightweight
+	container.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+
+	return container
+}
+
 // buildContainer creates a container spec
 func buildContainer(cfg DeploymentConfig) corev1.Container {
 	port := cfg.Port

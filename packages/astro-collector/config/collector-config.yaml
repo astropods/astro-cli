@@ -1,0 +1,55 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+  astro:
+    agent_name: ${env:ASTRO_AGENT_NAME:-unknown}
+    agent_version: ${env:ASTRO_AGENT_VERSION:-unknown}
+    deployment_id: ${env:ASTRO_DEPLOYMENT_ID:-unknown}
+    redact_prompts: ${env:ASTRO_REDACT_PROMPTS:-false}
+
+exporters:
+  otlp_http/galileo:
+    traces_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/traces}
+    metrics_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/metrics}
+    logs_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/logs}
+    headers:
+      Galileo-API-Key: ${env:GALILEO_API_KEY}
+      project: ${env:GALILEO_PROJECT}
+      logstream: ${env:GALILEO_LOG_STREAM:-default}
+    # Galileo returns a double-encoded JSON string in its 200 response body,
+    # which the collector cannot parse and treats as a failure. Disabling
+    # retry prevents a redundant second request that gets rejected as 422.
+    retry_on_failure:
+      enabled: false
+  debug:
+    verbosity: ${env:COLLECTOR_DEBUG_VERBOSITY:-basic}
+
+service:
+  telemetry:
+    logs:
+      level: ${env:COLLECTOR_LOG_LEVEL:-info}
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, astro]
+      exporters: [debug, otlp_http/galileo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/galileo]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/galileo]

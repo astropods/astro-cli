@@ -28,6 +28,9 @@ type ApplierConfig struct {
 	IngressDomain     string
 	ACMCertificateARN string
 	ALBGroupName      string
+	// Observability (Galileo) — injected into collector sidecar
+	GalileoAPIKey  string
+	GalileoProject string
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -41,6 +44,9 @@ type Applier struct {
 	ingressDomain     string
 	acmCertificateARN string
 	albGroupName      string
+	// Observability
+	galileoAPIKey  string
+	galileoProject string
 }
 
 // NewApplier creates a new applier
@@ -58,6 +64,8 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		ingressDomain:     cfg.IngressDomain,
 		acmCertificateARN: cfg.ACMCertificateARN,
 		albGroupName:      cfg.ALBGroupName,
+		galileoAPIKey:     cfg.GalileoAPIKey,
+		galileoProject:    cfg.GalileoProject,
 	}
 }
 
@@ -752,7 +760,64 @@ func (a *Applier) Apply(
 		}
 	}
 
-	// Phase 6: Create CronJobs for injections
+	// Phase 6: Create collector sidecar for observability
+	collectorResourceName := deployment.GenerateAgentResourceName(agentName, "collector")
+
+	// Collector service (OTLP gRPC on 4317, HTTP on 4318)
+	collectorServiceCfg := ServiceConfig{
+		Name:        collectorResourceName,
+		Namespace:   a.namespace,
+		AgentName:   agentName,
+		Version:     version,
+		Component:   "collector",
+		Port:        4317,
+		ServiceType: corev1.ServiceTypeClusterIP,
+	}
+	collectorService := BuildService(collectorServiceCfg)
+	// Rename default port to otlp-grpc and add otlp-http port
+	collectorService.Spec.Ports[0].Name = "otlp-grpc"
+	collectorService.Spec.Ports = append(collectorService.Spec.Ports, corev1.ServicePort{
+		Name:       "otlp-http",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       4318,
+		TargetPort: intstr.FromInt(4318),
+	})
+
+	status, err = a.applyService(ctx, collectorService)
+	result.Resources = append(result.Resources, status)
+	if err != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: collectorService.Name,
+			Kind:     "Service",
+			Error:    err.Error(),
+		})
+	}
+
+	// Collector deployment
+	collectorDeploymentCfg := CollectorDeploymentConfig{
+		Name:            collectorResourceName,
+		Namespace:       a.namespace,
+		AgentName:       agentName,
+		Version:         version,
+		Component:       "collector",
+		Image:           fmt.Sprintf("%s/prod-astro-collector:latest", a.registryURL),
+		ConfigMapName:   configMapName,
+		GalileoAPIKey:   a.galileoAPIKey,
+		GalileoProject:  a.galileoProject,
+		ImagePullPolicy: a.imagePullPolicy,
+	}
+	collectorDepl := BuildCollectorDeployment(collectorDeploymentCfg)
+	status, err = a.applyDeployment(ctx, collectorDepl)
+	result.Resources = append(result.Resources, status)
+	if err != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: collectorDepl.Name,
+			Kind:     "Deployment",
+			Error:    err.Error(),
+		})
+	}
+
+	// Phase 7: Create CronJobs for injections
 	for name, injection := range astroSpec.Injections {
 		if injection.Trigger.Type == "schedule" && injection.Trigger.Cron != "" {
 			resourceName := deployment.GenerateResourceName(agentName, "injection", name)

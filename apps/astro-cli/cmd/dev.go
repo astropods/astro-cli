@@ -539,6 +539,8 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 	if len(s.Interfaces) > 0 {
 		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
 	}
+	// Point at the collector container's published port for auto OTel
+	envMap["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
 	out := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		out = append(out, k+"="+v)
