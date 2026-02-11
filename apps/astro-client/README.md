@@ -89,9 +89,9 @@ This avoids `SameSite` cookie restrictions without compromising security.
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_API_URL` | Backend API URL | `http://localhost:8080` |
+| Variable       | Description     | Default                 |
+| -------------- | --------------- | ----------------------- |
+| `VITE_API_URL` | Backend API URL | `http://localhost:4321` |
 
 ## Project Structure
 
@@ -108,16 +108,16 @@ src/
 
 ## Scripts
 
-| Script | Description |
-|--------|-------------|
-| `bun dev` | Start development server |
-| `bun build` | Build for production |
-| `bun preview` | Preview production build |
-| `bun lint` | Run ESLint |
-| `bun run test` | Run tests once |
-| `bun run test:watch` | Run tests in watch mode |
-| `bun run test:coverage` | Run tests with coverage report |
-| `bun setup` | Set up local development environment (macOS) |
+| Script                  | Description                                  |
+| ----------------------- | -------------------------------------------- |
+| `bun dev`               | Start development server                     |
+| `bun build`             | Build for production                         |
+| `bun preview`           | Preview production build                     |
+| `bun lint`              | Run ESLint                                   |
+| `bun run test`          | Run tests once                               |
+| `bun run test:watch`    | Run tests in watch mode                      |
+| `bun run test:coverage` | Run tests with coverage report               |
+| `bun setup`             | Set up local development environment (macOS) |
 
 ## Testing
 
@@ -131,12 +131,12 @@ bun run test:coverage   # single run with coverage report
 
 Tests live next to the code they cover (e.g. `src/api/queries/agents.test.tsx`). Shared test infrastructure is in `src/test/`:
 
-| File | Purpose |
-|------|---------|
-| `test/setup.ts` | Global setup — starts MSW server, resets handlers between tests |
-| `test/test-utils.tsx` | `renderWithProviders` and `createHookWrapper` — wraps components/hooks with QueryClient and MemoryRouter |
-| `test/msw/handlers.ts` | Default MSW request handlers and fixture data |
-| `test/msw/server.ts` | MSW server instance |
+| File                   | Purpose                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `test/setup.ts`        | Global setup — starts MSW server, resets handlers between tests                                          |
+| `test/test-utils.tsx`  | `renderWithProviders` and `createHookWrapper` — wraps components/hooks with QueryClient and MemoryRouter |
+| `test/msw/handlers.ts` | Default MSW request handlers and fixture data                                                            |
+| `test/msw/server.ts`   | MSW server instance                                                                                      |
 
 To override a handler for a specific test, use `server.use()` inside the test — it resets automatically after each test via the setup file.
 

@@ -26,7 +26,7 @@ function getHttpsConfig() {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiTarget = env.VITE_API_URL || "http://localhost:8080";
+  const apiTarget = env.VITE_API_URL || "http://localhost:4321";
   const httpsConfig = getHttpsConfig();
 
   // Use local domain when HTTPS is configured (for same-site cookie sharing)

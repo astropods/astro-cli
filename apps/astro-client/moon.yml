@@ -17,3 +17,11 @@ tasks:
     inputs:
       - "src/**/*"
       - "vite.config.ts"
+
+  dev:
+    command: "bun run dev"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "tsconfig.app.json"
+      - "vite.config.ts"
