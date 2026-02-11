@@ -4,7 +4,7 @@ language: "go"
 tasks:
   build:
     # Optional: GITHUB_PACKAGES_TOKEN=ghp_xxx moon run astro-cli:build to inject at link time. Unset => empty (use .env at runtime).
-    command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN:-}" -o bin/ast .'
+    command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD) -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN:-}" -o bin/ast .'
     inputs:
       - "**/*.go"
       - "internal/scaffold/templates/**"
