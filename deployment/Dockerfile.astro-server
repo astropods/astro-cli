@@ -38,6 +38,7 @@ FROM golang:1.24-alpine AS cli-builder
 # Pass at build time: docker build --build-arg GITHUB_PACKAGES_TOKEN=ghp_xxx ...
 # So the CLI binary can pull from GHCR without requiring the env at runtime.
 ARG GITHUB_PACKAGES_TOKEN
+ARG COMMIT
 
 WORKDIR /app
 COPY apps/astro-cli/go.mod apps/astro-cli/go.sum ./apps/astro-cli/
@@ -50,11 +51,12 @@ COPY packages/astro-spec ./packages/astro-spec
 
 WORKDIR /app/apps/astro-cli
 RUN mkdir -p /out && \
+    AST_VERSION=$(cat VERSION) && \
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build \
-      -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_01K1VMRE186B7443H55D8KH3Y3" \
+      -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.version=${AST_VERSION} -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_01K1VMRE186B7443H55D8KH3Y3" \
       -o /out/ast-darwin-amd64 . && \
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build \
-      -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_01K1VMRE186B7443H55D8KH3Y3" \
+      -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.version=${AST_VERSION} -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_01K1VMRE186B7443H55D8KH3Y3" \
       -o /out/ast-darwin-arm64 .
 
 # =============================================================================
