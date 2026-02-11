@@ -10,9 +10,13 @@ export type BadgeVariant =
   | "error"
   | "info";
 
+export type BadgeSize = "default" | "lg";
+
 export interface BadgeProps {
   variant?: BadgeVariant;
+  size?: BadgeSize;
   showDot?: boolean;
+  icon?: ReactNode;
   children: ReactNode;
   className?: string;
 }
@@ -48,21 +52,38 @@ const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
   },
 };
 
-export function Badge({ variant = "default", showDot = false, children, className }: BadgeProps) {
-  const styles = variantStyles[variant];
+const sizeStyles: Record<BadgeSize, { badge: string; dot: string; icon: string }> = {
+  default: {
+    badge: "gap-1.5 rounded-full py-0.5 pr-2 text-xs",
+    dot: "size-3",
+    icon: "size-3.5",
+  },
+  lg: {
+    badge: "gap-2 rounded-lg py-1.5 pr-3 text-sm",
+    dot: "size-3",
+    icon: "size-4",
+  },
+};
+
+export function Badge({ variant = "default", size = "default", showDot = false, icon, children, className }: BadgeProps) {
+  const varStyles = variantStyles[variant];
+  const sz = sizeStyles[size];
+  const hasLeadingElement = showDot || icon;
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full py-0.5 pr-2 text-xs font-medium",
-        showDot ? "pl-1.5" : "pl-2",
-        styles.badge,
+        "inline-flex items-center font-medium",
+        sz.badge,
+        hasLeadingElement ? (size === "lg" ? "pl-2.5" : "pl-1.5") : (size === "lg" ? "pl-3" : "pl-2"),
+        varStyles.badge,
         className,
       )}
     >
       {showDot && (
-        <span className={cn("size-3 shrink-0 rounded-full", styles.dot)} />
+        <span className={cn("shrink-0 rounded-full", sz.dot, varStyles.dot)} />
       )}
+      {icon && <span className={cn("shrink-0 [&>svg]:size-full", sz.icon)}>{icon}</span>}
       {children}
     </span>
   );

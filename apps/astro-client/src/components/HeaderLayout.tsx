@@ -15,7 +15,7 @@ export function HeaderLayout() {
         onBack={() => navigate(-1)}
         onForward={() => navigate(1)}
       />
-      <div className="flex-1 p-6 md:p-8">
+      <div className="flex flex-1 flex-col min-h-0 p-6 md:p-8">
         <Outlet context={context} />
       </div>
     </>

@@ -20,9 +20,8 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
       if (segments.length === 1) {
         breadcrumbs.push({ label: "Hire Agents" });
       } else {
-        breadcrumbs.push({ label: "Hire Agents", to: "/hire" });
-        const slug = params.agentSlug ?? segments[1];
-        breadcrumbs.push({ label: decodeURIComponent(slug) });
+        breadcrumbs.push({ label: "Browse Agents", to: "/hire" });
+        breadcrumbs.push({ label: params.agentSlug ?? segments[1] });
       }
       break;
     case "agents":

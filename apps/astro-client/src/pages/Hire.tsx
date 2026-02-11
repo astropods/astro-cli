@@ -94,7 +94,7 @@ export function Hire() {
     sortOptions.find((o) => o.value === sortBy)?.label ?? "Sort";
 
   return (
-    <div className="@container w-full flex-1 px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6 max-w-[1500px] mx-auto">
+    <div className="@container w-full flex-1 overflow-y-auto px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6 max-w-[1500px] mx-auto">
       <PageTitle
         title="Available Agents"
         subtitle="Browse agents available within your organization"
