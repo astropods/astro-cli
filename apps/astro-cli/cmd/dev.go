@@ -61,6 +61,7 @@ func init() {
 	devCmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
 	devCmd.Flags().BoolVar(&localReset, "local-reset", false, "Remove local package (use after ast dev --local); run 'bun install' to restore deps")
 	_ = devCmd.Flags().MarkHidden("local")
+	_ = devCmd.Flags().MarkHidden("local-reset")
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
