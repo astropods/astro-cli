@@ -12,7 +12,7 @@ This is a bun monorepo. Always use `bun x <command>` instead of `npx`.
 
 # Data Fetching (astro-client)
 
-All server data integration uses TanStack Query. See [docs/tanstack-query.md](docs/tanstack-query.md) for architecture, conventions, and best practices. Key rules:
+All server data integration uses TanStack Query. See [docs/04-guides/tanstack-query.md](docs/04-guides/tanstack-query.md) for architecture, conventions, and best practices. Key rules:
 - Never call `api.*` directly in components for reads — use query hooks from `src/api/queries/`.
 - All query keys must come from the factories in `src/api/queries/keys.ts`.
 - Mutations invalidate affected queries in `onSuccess`.

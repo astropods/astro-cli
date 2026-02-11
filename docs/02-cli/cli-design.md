@@ -1,10 +1,74 @@
 # Astro CLI Design
 
-CLI tool for building, publishing, and developing AI agents.
+CLI tool for creating, building, publishing, and developing AI agents.
 
 ---
 
 ## Commands
+
+### astro create
+
+Scaffold a new agent project with interactive configuration.
+
+**Usage:**
+```bash
+astro create <agent-name>
+```
+
+**Options:**
+- `--yes, -y` - Skip interactive mode, use defaults
+
+**What it does:**
+1. Launches an interactive TUI to configure the agent (or uses defaults with `--yes`)
+2. Scaffolds a complete project directory with all necessary files
+
+**Interactive TUI screens:**
+
+| Screen | Options |
+|--------|---------|
+| Description | Free-text description for your agent |
+| Interface | HTTP API, Slack |
+| Model | Anthropic, OpenAI, None |
+| Knowledge | Vector store, Key-Value store, Both, None |
+| Tools | GitHub (multi-select) |
+| Ingestion | Scheduled, Manual, Startup, None |
+
+**Keyboard navigation:** `↑`/`↓` or `j`/`k` to move, `Space` to toggle (multi-select), `Enter` to confirm.
+
+**Generated project structure:**
+```
+<agent-name>/
+├── astro.yml              # Agent specification
+├── Dockerfile             # Agent container (Bun runtime)
+├── Dockerfile.ingestion   # Ingestion pipeline (if enabled)
+├── package.json           # Bun dependencies
+├── tsconfig.json          # TypeScript config
+├── .env.example           # Environment variables template
+├── .gitignore
+├── .dockerignore
+├── agent/
+│   └── index.ts           # Agent entry point (HTTP server)
+└── ingestion/
+    └── index.ts           # Data pipeline script
+```
+
+**Naming rules:**
+- Lowercase alphanumeric and hyphens only
+- Must start with a letter, end with a letter or number
+- Max 63 characters — pattern: `^[a-z][a-z0-9-]*[a-z0-9]$`
+- Reserved names: `astro`, `agent`, `model`, `tool`
+
+**Default configuration (with `--yes`):**
+
+| Option | Default |
+|--------|---------|
+| Interface | HTTP |
+| Model | Anthropic |
+| Knowledge | None |
+| Tools | None |
+| Ingestion | Startup |
+
+---
 
 ### astro build
 
@@ -124,13 +188,15 @@ All commands read from astro.yml in current directory by default.
 
 ## Workflow Examples
 
-**Basic development:**
+**Create and develop:**
 ```bash
+# Scaffold a new agent
+astro create my-agent
+cd my-agent
+cp .env.example .env
+
 # Start local development
 astro dev
-
-# Make changes to agent code, auto-reloads
-# Test with local components and real integrations
 ```
 
 **Build and publish:**
