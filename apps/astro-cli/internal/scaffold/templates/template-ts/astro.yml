@@ -28,7 +28,7 @@ interfaces:
 {{- end}}
 {{- end}}
 {{- end}}
-{{- if or (ne .Model "none") (gt (len .Tools) 0)}}
+{{- if or (ne .Model "none") (gt (len .Integrations) 0)}}
 
 integrations:
 {{- if ne .Model "none"}}
@@ -41,9 +41,9 @@ integrations:
       provider: openai
 {{- end}}
 {{- end}}
-{{- if gt (len .Tools) 0}}
+{{- if gt (len .Integrations) 0}}
   tools:
-{{- range .Tools}}
+{{- range .Integrations}}
 {{- if eq . "github"}}
     - name: github
       provider: github
@@ -56,18 +56,12 @@ integrations:
 knowledge:
 {{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
   docs:
-    type: vector
     provider: qdrant
-    container:
-      image: qdrant/qdrant:latest
-      persistent: true
+    persistent: true
 {{- end}}
 {{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
   cache:
-    type: kv
     provider: redis
-    container:
-      image: redis:7-alpine
 {{- end}}
 {{- end}}
 {{- if ne .Ingestion "none"}}

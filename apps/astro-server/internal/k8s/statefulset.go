@@ -34,9 +34,11 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 	replicas := int32(1)
 	serviceName := cfg.Name
 
+	prov := spec.GetProvider(cfg.Provider)
+
 	port := cfg.Port
 	if port == 0 {
-		port = 6333
+		port = int32(prov.DefaultPort)
 	}
 
 	storageSize := cfg.StorageSize
@@ -50,25 +52,24 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 		ssPullPolicy = corev1.PullAlways
 	}
 
+	// Build container ports from provider registry
+	containerPorts := []corev1.ContainerPort{
+		{Name: "app", ContainerPort: int32(prov.DefaultPort), Protocol: corev1.ProtocolTCP},
+	}
+	for _, ep := range prov.ExtraPorts {
+		containerPorts = append(containerPorts, corev1.ContainerPort{
+			Name: ep.Name, ContainerPort: int32(ep.Port), Protocol: corev1.ProtocolTCP,
+		})
+	}
+
 	container := corev1.Container{
 		Name:  "app",
 		Image: cfg.Container.Image,
-		Ports: []corev1.ContainerPort{
-			{
-				Name:          "rest",
-				ContainerPort: 6333,
-				Protocol:      corev1.ProtocolTCP,
-			},
-			{
-				Name:          "grpc",
-				ContainerPort: 6334,
-				Protocol:      corev1.ProtocolTCP,
-			},
-		},
+		Ports: containerPorts,
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      "data",
-				MountPath: "/qdrant/storage",
+				MountPath: prov.MountPath,
 			},
 		},
 		ImagePullPolicy: ssPullPolicy,

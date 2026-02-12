@@ -17,7 +17,6 @@ container:
 
 models:
   embedder:
-    provider: sentence-transformers
     model: all-MiniLM-L6-v2
     config:
       dimensions: 384
@@ -31,24 +30,18 @@ models:
 
 knowledge:
   docs:
-    type: vector
     provider: qdrant
+    persistent: true
     config:
       collection: engineering-docs
       dimensions: 384
       metric: cosine
     embedding: models.embedder
-    container:
-      image: qdrant/qdrant:latest
-      persistent: true
 
   cache:
-    type: kv
     provider: redis
     config:
       ttl: 3600
-    container:
-      image: redis:7-alpine
 
 tools:
   doc_search:

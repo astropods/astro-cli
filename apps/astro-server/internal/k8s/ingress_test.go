@@ -3,6 +3,8 @@ package k8s
 import (
 	"strings"
 	"testing"
+
+	networkingv1 "k8s.io/api/networking/v1"
 )
 
 func TestGenerateIngressHost(t *testing.T) {
@@ -159,6 +161,206 @@ func TestGenerateExternalURL(t *testing.T) {
 
 	if !strings.Contains(url, "example.com") {
 		t.Errorf("Expected URL to contain domain example.com, got: %s", url)
+	}
+}
+
+// TestBuildIngress verifies that BuildIngress produces an Ingress with ALB
+// annotations (scheme, target-type, listen-ports, ssl-redirect, external-dns
+// hostname), optional ACM certificate ARN, optional ALB group name, correct
+// IngressClassName "alb", host-based routing rule with path "/" and Prefix type,
+// and backend pointing to the specified service name and port.
+func TestBuildIngress(t *testing.T) {
+	t.Run("full config", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name:              "my-agent-ingress",
+			Namespace:         "prod-ns",
+			AgentName:         "my-agent",
+			Version:           "1.0",
+			Component:         "agent",
+			ServiceName:       "my-agent-agent",
+			ServicePort:       8080,
+			Host:              "my-agent-abc123.agents.example.com",
+			ACMCertificateARN: "arn:aws:acm:us-east-1:123456:certificate/abc",
+			ALBGroupName:      "shared-alb",
+		}
+
+		ing := BuildIngress(cfg)
+
+		if ing.Name != cfg.Name {
+			t.Errorf("name: expected %s, got %s", cfg.Name, ing.Name)
+		}
+		if ing.Namespace != cfg.Namespace {
+			t.Errorf("namespace: expected %s, got %s", cfg.Namespace, ing.Namespace)
+		}
+
+		// Labels should include astro.dev/agent
+		if ing.Labels["astro.dev/agent"] != cfg.AgentName {
+			t.Errorf("agent label: expected %s, got %s", cfg.AgentName, ing.Labels["astro.dev/agent"])
+		}
+
+		// ALB annotations
+		annotations := ing.Annotations
+		if annotations["alb.ingress.kubernetes.io/scheme"] != "internet-facing" {
+			t.Error("expected internet-facing scheme annotation")
+		}
+		if annotations["alb.ingress.kubernetes.io/target-type"] != "ip" {
+			t.Error("expected ip target-type annotation")
+		}
+		if annotations["alb.ingress.kubernetes.io/certificate-arn"] != cfg.ACMCertificateARN {
+			t.Errorf("expected certificate ARN %s", cfg.ACMCertificateARN)
+		}
+		if annotations["alb.ingress.kubernetes.io/group.name"] != cfg.ALBGroupName {
+			t.Errorf("expected group name %s", cfg.ALBGroupName)
+		}
+		if annotations["external-dns.alpha.kubernetes.io/hostname"] != cfg.Host {
+			t.Errorf("expected external-dns hostname %s", cfg.Host)
+		}
+
+		// IngressClassName
+		if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != "alb" {
+			t.Error("expected IngressClassName alb")
+		}
+
+		// Rules
+		if len(ing.Spec.Rules) != 1 {
+			t.Fatalf("expected 1 rule, got %d", len(ing.Spec.Rules))
+		}
+		rule := ing.Spec.Rules[0]
+		if rule.Host != cfg.Host {
+			t.Errorf("rule host: expected %s, got %s", cfg.Host, rule.Host)
+		}
+
+		paths := rule.HTTP.Paths
+		if len(paths) != 1 {
+			t.Fatalf("expected 1 path, got %d", len(paths))
+		}
+		if paths[0].Path != "/" {
+			t.Errorf("expected path /, got %s", paths[0].Path)
+		}
+		if *paths[0].PathType != networkingv1.PathTypePrefix {
+			t.Error("expected PathTypePrefix")
+		}
+		if paths[0].Backend.Service.Name != cfg.ServiceName {
+			t.Errorf("backend service: expected %s, got %s", cfg.ServiceName, paths[0].Backend.Service.Name)
+		}
+		if paths[0].Backend.Service.Port.Number != cfg.ServicePort {
+			t.Errorf("backend port: expected %d, got %d", cfg.ServicePort, paths[0].Backend.Service.Port.Number)
+		}
+	})
+
+	t.Run("without ACM and ALB group", func(t *testing.T) {
+		cfg := IngressConfig{
+			Name:        "basic-ingress",
+			Namespace:   "default",
+			AgentName:   "my-agent",
+			Version:     "1.0",
+			Component:   "agent",
+			ServiceName: "my-agent-agent",
+			ServicePort: 8080,
+			Host:        "my-agent.example.com",
+		}
+
+		ing := BuildIngress(cfg)
+
+		if _, ok := ing.Annotations["alb.ingress.kubernetes.io/certificate-arn"]; ok {
+			t.Error("should not have certificate-arn annotation when not provided")
+		}
+		if _, ok := ing.Annotations["alb.ingress.kubernetes.io/group.name"]; ok {
+			t.Error("should not have group.name annotation when not provided")
+		}
+	})
+}
+
+// TestGenerateIngestionIngressHost verifies that GenerateIngestionIngressHost
+// produces a hostname in the format {agent}-{ingestion}-{hash}.{domain}, with
+// the DNS label not exceeding 63 characters, deterministic hashing, and proper
+// truncation when names are long.
+func TestGenerateIngestionIngressHost(t *testing.T) {
+	t.Run("short names", func(t *testing.T) {
+		host := GenerateIngestionIngressHost("my-agent", "default", "sync", "example.com")
+
+		if !strings.HasSuffix(host, ".example.com") {
+			t.Errorf("expected domain suffix .example.com, got %s", host)
+		}
+
+		label := strings.Split(host, ".")[0]
+		if !strings.Contains(label, "my-agent") {
+			t.Errorf("expected label to contain agent name, got %s", label)
+		}
+		if !strings.Contains(label, "sync") {
+			t.Errorf("expected label to contain ingestion name, got %s", label)
+		}
+	})
+
+	t.Run("long names truncated within 63 chars", func(t *testing.T) {
+		longAgent := strings.Repeat("a", 40)
+		longIngestion := strings.Repeat("b", 40)
+
+		host := GenerateIngestionIngressHost(longAgent, "default", longIngestion, "example.com")
+		label := strings.Split(host, ".")[0]
+
+		if len(label) > 63 {
+			t.Errorf("label exceeds 63 characters: %d chars in %s", len(label), label)
+		}
+	})
+
+	t.Run("deterministic", func(t *testing.T) {
+		host1 := GenerateIngestionIngressHost("agent", "ns", "sync", "example.com")
+		host2 := GenerateIngestionIngressHost("agent", "ns", "sync", "example.com")
+		if host1 != host2 {
+			t.Errorf("same inputs should produce same host: %s != %s", host1, host2)
+		}
+	})
+
+	t.Run("different ingestion names produce different hosts", func(t *testing.T) {
+		host1 := GenerateIngestionIngressHost("agent", "ns", "sync", "example.com")
+		host2 := GenerateIngestionIngressHost("agent", "ns", "webhook", "example.com")
+		if host1 == host2 {
+			t.Errorf("different ingestion names should produce different hosts: %s == %s", host1, host2)
+		}
+	})
+}
+
+// TestGenerateIngestionExternalURL verifies that GenerateIngestionExternalURL
+// prepends https:// to the ingestion ingress host.
+func TestGenerateIngestionExternalURL(t *testing.T) {
+	url := GenerateIngestionExternalURL("my-agent", "default", "sync", "example.com")
+
+	if !strings.HasPrefix(url, "https://") {
+		t.Errorf("expected https:// prefix, got %s", url)
+	}
+
+	// The rest should match GenerateIngestionIngressHost
+	expectedHost := GenerateIngestionIngressHost("my-agent", "default", "sync", "example.com")
+	expectedURL := "https://" + expectedHost
+	if url != expectedURL {
+		t.Errorf("expected %s, got %s", expectedURL, url)
+	}
+}
+
+// TestTruncateLabel verifies that truncateLabel returns the string unchanged
+// when within limit, truncates to max when over, and trims trailing hyphens
+// after truncation.
+func TestTruncateLabel(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		max   int
+		want  string
+	}{
+		{"within limit", "hello", 10, "hello"},
+		{"exactly at limit", "hello", 5, "hello"},
+		{"over limit", "hello-world", 5, "hello"},
+		{"trailing hyphen after truncation", "abc-def", 4, "abc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateLabel(tt.input, tt.max)
+			if got != tt.want {
+				t.Errorf("truncateLabel(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
+			}
+		})
 	}
 }
 

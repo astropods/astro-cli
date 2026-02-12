@@ -3,7 +3,6 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
@@ -189,60 +188,41 @@ func (a *Applier) Apply(
 
 	// Services for knowledge stores
 	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.Container.Image != "" || knowledge.Container.Build != nil {
+		container := knowledge.ResolvedContainer()
+		if container.Image != "" || container.Build != nil {
 			resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
 
 			// Determine provider and default port
 			provider := knowledge.Provider
 			if provider == "" {
-				provider = knowledge.Type
+				provider = name
 			}
 
-			port := int32(knowledge.Container.Port)
+			prov := spec.GetProvider(provider)
+			port := int32(container.Port)
 			if port == 0 {
-				switch strings.ToLower(provider) {
-				case "qdrant":
-					port = 6333
-				case "redis":
-					port = 6379
-				case "postgres":
-					port = 5432
-				default:
-					port = 6333
-				}
+				port = int32(prov.DefaultPort)
 			}
 
 			labels := deployment.GenerateLabels(agentName, version, fmt.Sprintf("knowledge-%s", name))
 			selector := deployment.GenerateSelector(agentName, fmt.Sprintf("knowledge-%s", name))
 
-			// Build service ports based on provider
-			var servicePorts []corev1.ServicePort
-			if strings.ToLower(provider) == "qdrant" {
-				// Qdrant needs both REST (6333) and gRPC (6334) ports
-				servicePorts = []corev1.ServicePort{
-					{
-						Name:       "rest",
-						Protocol:   corev1.ProtocolTCP,
-						Port:       6333,
-						TargetPort: intstr.FromInt(6333),
-					},
-					{
-						Name:       "grpc",
-						Protocol:   corev1.ProtocolTCP,
-						Port:       6334,
-						TargetPort: intstr.FromInt(6334),
-					},
-				}
-			} else {
-				// Other providers use single port
-				servicePorts = []corev1.ServicePort{
-					{
-						Name:       "tcp",
-						Protocol:   corev1.ProtocolTCP,
-						Port:       port,
-						TargetPort: intstr.FromInt(int(port)),
-					},
-				}
+			// Build service ports from provider registry
+			servicePorts := []corev1.ServicePort{
+				{
+					Name:       "tcp",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       int32(prov.DefaultPort),
+					TargetPort: intstr.FromInt(prov.DefaultPort),
+				},
+			}
+			for _, ep := range prov.ExtraPorts {
+				servicePorts = append(servicePorts, corev1.ServicePort{
+					Name:       ep.Name,
+					Protocol:   corev1.ProtocolTCP,
+					Port:       int32(ep.Port),
+					TargetPort: intstr.FromInt(ep.Port),
+				})
 			}
 
 			service := &corev1.Service{
@@ -325,29 +305,20 @@ func (a *Applier) Apply(
 
 	// Phase 4: Create StatefulSets for persistent knowledge
 	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.Container.Persistent && (knowledge.Container.Image != "" || knowledge.Container.Build != nil) {
+		container := knowledge.ResolvedContainer()
+		if container.Persistent && (container.Image != "" || container.Build != nil) {
 			resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-			port := int32(knowledge.Container.Port)
+			provider := knowledge.Provider
+			if provider == "" {
+				provider = name
+			}
+			port := int32(container.Port)
 			if port == 0 {
-				// Set default port based on provider
-				provider := knowledge.Provider
-				if provider == "" {
-					provider = knowledge.Type
-				}
-				switch strings.ToLower(provider) {
-				case "qdrant":
-					port = 6333
-				case "redis":
-					port = 6379
-				case "postgres":
-					port = 5432
-				default:
-					port = 6333
-				}
+				port = int32(spec.GetProvider(provider).DefaultPort)
 			}
 
 			// Resolve image to ECR path
-			resolvedContainer, err := a.resolveContainerImage(knowledge.Container)
+			resolvedContainer, err := a.resolveContainerImage(container)
 			if err != nil {
 				result.Errors = append(result.Errors, deployment.DeploymentError{
 					Resource: resourceName,
@@ -368,7 +339,7 @@ func (a *Applier) Apply(
 				SecretName:      secretName,
 				ConfigMapName:   configMapName,
 				StorageSize:     "10Gi",
-				Healthcheck:     knowledge.Container.Healthcheck,
+				Healthcheck:     container.Healthcheck,
 				Provider:        knowledge.Provider,
 				ImagePullPolicy: a.imagePullPolicy,
 			}
@@ -417,7 +388,7 @@ func (a *Applier) Apply(
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
 				Healthcheck:     model.Container.Healthcheck,
-				Provider:        model.Provider,
+				Provider:        "",
 				ImagePullPolicy: a.imagePullPolicy,
 			}
 			depl := BuildDeployment(deploymentCfg)
@@ -435,29 +406,20 @@ func (a *Applier) Apply(
 
 	// Non-persistent knowledge
 	for name, knowledge := range astroSpec.Knowledge {
-		if !knowledge.Container.Persistent && (knowledge.Container.Image != "" || knowledge.Container.Build != nil) {
+		container := knowledge.ResolvedContainer()
+		if !container.Persistent && (container.Image != "" || container.Build != nil) {
 			resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-			port := int32(knowledge.Container.Port)
+			provider := knowledge.Provider
+			if provider == "" {
+				provider = name
+			}
+			port := int32(container.Port)
 			if port == 0 {
-				// Set default port based on provider
-				provider := knowledge.Provider
-				if provider == "" {
-					provider = knowledge.Type
-				}
-				switch strings.ToLower(provider) {
-				case "qdrant":
-					port = 6333
-				case "redis":
-					port = 6379
-				case "postgres":
-					port = 5432
-				default:
-					port = 6333
-				}
+				port = int32(spec.GetProvider(provider).DefaultPort)
 			}
 
 			// Resolve image to ECR path
-			resolvedContainer, err := a.resolveContainerImage(knowledge.Container)
+			resolvedContainer, err := a.resolveContainerImage(container)
 			if err != nil {
 				result.Errors = append(result.Errors, deployment.DeploymentError{
 					Resource: resourceName,
@@ -477,7 +439,7 @@ func (a *Applier) Apply(
 				Port:           port,
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
-				Healthcheck:     knowledge.Container.Healthcheck,
+				Healthcheck:     container.Healthcheck,
 				Provider:        knowledge.Provider,
 				ImagePullPolicy: a.imagePullPolicy,
 			}
@@ -525,7 +487,7 @@ func (a *Applier) Apply(
 				SecretName:     secretName,
 				ConfigMapName:  configMapName,
 				Healthcheck:     tool.Container.Healthcheck,
-				Provider:        tool.Type, // Use tool type as provider hint
+				Provider:        "",
 				ImagePullPolicy: a.imagePullPolicy,
 			}
 			depl := BuildDeployment(deploymentCfg)

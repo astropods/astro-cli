@@ -114,7 +114,7 @@ integrations:
 			},
 		},
 		{
-			name: "spec with knowledge stores",
+			name: "spec with knowledge stores - provider mode",
 			yaml: `
 spec: astro/v1
 agent: test-agent
@@ -124,18 +124,10 @@ container:
   image: test:latest
 knowledge:
   cache:
-    type: kv
     provider: redis
-    container:
-      image: redis:7-alpine
-      environment:
-        REDIS_PASSWORD: secret
   docs:
-    type: vector
     provider: qdrant
-    container:
-      image: qdrant/qdrant:latest
-      persistent: true
+    persistent: true
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
@@ -146,21 +138,66 @@ knowledge:
 				if !ok {
 					t.Fatal("Knowledge[cache] not found")
 				}
-				if cache.Type != "kv" {
-					t.Errorf("Knowledge[cache].Type = %q, want %q", cache.Type, "kv")
-				}
 				if cache.Provider != "redis" {
 					t.Errorf("Knowledge[cache].Provider = %q, want %q", cache.Provider, "redis")
 				}
-				if cache.Container.Environment["REDIS_PASSWORD"] != "secret" {
-					t.Errorf("Knowledge[cache].Container.Environment[REDIS_PASSWORD] = %q, want %q", cache.Container.Environment["REDIS_PASSWORD"], "secret")
+				// Provider mode: container should be nil
+				if cache.Container != nil {
+					t.Error("Knowledge[cache].Container should be nil in provider mode")
+				}
+				// ResolvedContainer should fill in image from registry
+				rc := cache.ResolvedContainer()
+				if rc.Image != "redis:7-alpine" {
+					t.Errorf("Knowledge[cache].ResolvedContainer().Image = %q, want %q", rc.Image, "redis:7-alpine")
 				}
 				docs, ok := s.Knowledge["docs"]
 				if !ok {
 					t.Fatal("Knowledge[docs] not found")
 				}
-				if !docs.Container.Persistent {
-					t.Error("Knowledge[docs].Container.Persistent = false, want true")
+				if !docs.Persistent {
+					t.Error("Knowledge[docs].Persistent = false, want true")
+				}
+				dc := docs.ResolvedContainer()
+				if !dc.Persistent {
+					t.Error("Knowledge[docs].ResolvedContainer().Persistent = false, want true")
+				}
+			},
+		},
+		{
+			name: "spec with knowledge stores - container mode",
+			yaml: `
+spec: astro/v1
+agent: test-agent
+meta:
+  version: 1.0.0
+container:
+  image: test:latest
+knowledge:
+  custom_store:
+    container:
+      image: my-store:latest
+      port: 5000
+      environment:
+        STORE_PASSWORD: secret
+`,
+			wantErr: false,
+			check: func(t *testing.T, s *AstroSpec) {
+				store, ok := s.Knowledge["custom_store"]
+				if !ok {
+					t.Fatal("Knowledge[custom_store] not found")
+				}
+				if store.Provider != "" {
+					t.Errorf("Knowledge[custom_store].Provider = %q, want empty", store.Provider)
+				}
+				if store.Container == nil {
+					t.Fatal("Knowledge[custom_store].Container is nil")
+				}
+				if store.Container.Image != "my-store:latest" {
+					t.Errorf("Container.Image = %q, want %q", store.Container.Image, "my-store:latest")
+				}
+				rc := store.ResolvedContainer()
+				if rc.Port != 5000 {
+					t.Errorf("ResolvedContainer().Port = %d, want 5000", rc.Port)
 				}
 			},
 		},
@@ -312,6 +349,37 @@ container:
   image: test:latest
 `,
 			wantErr: "",
+		},
+		{
+			name: "knowledge with both provider and container",
+			yaml: `
+spec: astro/v1
+agent: test-agent
+meta:
+  version: 1.0.0
+container:
+  image: test:latest
+knowledge:
+  docs:
+    provider: qdrant
+    container:
+      image: qdrant/qdrant:latest
+`,
+			wantErr: "provider and container are mutually exclusive",
+		},
+		{
+			name: "knowledge with neither provider nor container",
+			yaml: `
+spec: astro/v1
+agent: test-agent
+meta:
+  version: 1.0.0
+container:
+  image: test:latest
+knowledge:
+  docs: {}
+`,
+			wantErr: "either provider or container is required",
 		},
 	}
 

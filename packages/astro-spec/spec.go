@@ -20,7 +20,6 @@ type Meta struct {
 	Version     string   `json:"version" yaml:"version"`
 	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Owner       string   `json:"owner,omitempty" yaml:"owner,omitempty"`
 }
 
 type Container struct {
@@ -51,23 +50,39 @@ type Healthcheck struct {
 }
 
 type Model struct {
-	Provider  string          `json:"provider" yaml:"provider"`
-	Model     string          `json:"model,omitempty" yaml:"model,omitempty"`
-	Config    map[string]any  `json:"config,omitempty" yaml:"config,omitempty"`
 	Container ContainerConfig `json:"container" yaml:"container"`
 }
 
 type Knowledge struct {
-	Type      string          `json:"type" yaml:"type"`
-	Provider  string          `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Config    map[string]any  `json:"config,omitempty" yaml:"config,omitempty"`
-	Embedding string          `json:"embedding,omitempty" yaml:"embedding,omitempty"`
-	Container ContainerConfig `json:"container" yaml:"container"`
+	Provider   string           `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Container  *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
+	Persistent bool             `json:"persistent,omitempty" yaml:"persistent,omitempty"`
+}
+
+// IsProviderMode returns true when the knowledge entry uses a platform-managed provider.
+func (k Knowledge) IsProviderMode() bool {
+	return k.Provider != ""
+}
+
+// ResolvedContainer returns the effective ContainerConfig — either built from
+// the provider registry (provider mode) or passed through from the user's
+// container block (container mode). Knowledge.Persistent is merged into the result.
+func (k Knowledge) ResolvedContainer() ContainerConfig {
+	if k.Container != nil {
+		c := *k.Container
+		c.Persistent = c.Persistent || k.Persistent
+		return c
+	}
+	// Provider mode: build from registry
+	prov := GetProvider(k.Provider)
+	return ContainerConfig{
+		Image:      prov.Image,
+		Port:       prov.DefaultPort,
+		Persistent: k.Persistent,
+	}
 }
 
 type Tool struct {
-	Type      string           `json:"type" yaml:"type"`
-	Config    map[string]any   `json:"config,omitempty" yaml:"config,omitempty"`
 	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
 }
 

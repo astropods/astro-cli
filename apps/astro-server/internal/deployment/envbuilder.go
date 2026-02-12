@@ -47,48 +47,32 @@ func (b *EnvBuilder) BuildConnectionStrings(astroSpec *spec.AstroSpec) map[strin
 
 	// Build knowledge store connection strings
 	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.Container.Image != "" || knowledge.Container.Build != nil {
+		container := knowledge.ResolvedContainer()
+		if container.Image != "" || container.Build != nil {
 			serviceName := GenerateResourceName(astroSpec.Agent, "knowledge", name)
 			host := GenerateServiceDNS(serviceName, b.k8sNamespace)
-			// Determine provider first
+			// Determine provider
 			provider := knowledge.Provider
-			if provider == "" {
-				provider = knowledge.Type // fallback to Type if Provider is empty
-			}
+
+			prov := spec.GetProvider(provider)
 
 			// Set default port based on provider
-			port := knowledge.Container.Port
+			port := container.Port
 			if port == 0 {
-				switch strings.ToLower(provider) {
-				case "qdrant":
-					port = 6333 // default for Qdrant REST
-				case "redis":
-					port = 6379
-				case "postgres":
-					port = 5432
-				default:
-					port = 6333 // fallback default
-				}
+				port = prov.DefaultPort
 			}
 
 			// Provider-specific environment variables
-			switch strings.ToLower(provider) {
-			case "qdrant":
-				env["QDRANT_HOST"] = host
-				// Use REST port (6333) - injection worker auto-switches to gRPC (6334)
-				env["QDRANT_PORT"] = "6333"
-				env["QDRANT_URL"] = fmt.Sprintf("http://%s:6333", host)
-			case "redis":
-				env["REDIS_HOST"] = host
-				env["REDIS_PORT"] = fmt.Sprintf("%d", port)
-				env["REDIS_URL"] = fmt.Sprintf("redis://%s:%d", host, port)
-			case "postgres":
-				env["POSTGRES_HOST"] = host
-				env["POSTGRES_PORT"] = fmt.Sprintf("%d", port)
-			default:
-				envKey := fmt.Sprintf("%s_HOST", strings.ToUpper(knowledge.Type))
+			if prov.EnvPrefix != "" {
+				env[prov.EnvPrefix+"_HOST"] = host
+				env[prov.EnvPrefix+"_PORT"] = fmt.Sprintf("%d", port)
+				if prov.URLScheme != "" {
+					env[prov.EnvPrefix+"_URL"] = fmt.Sprintf("%s://%s:%d", prov.URLScheme, host, port)
+				}
+			} else {
+				envKey := fmt.Sprintf("KNOWLEDGE_%s_HOST", strings.ToUpper(SanitizeName(name)))
 				env[envKey] = host
-				envKey = fmt.Sprintf("%s_PORT", strings.ToUpper(knowledge.Type))
+				envKey = fmt.Sprintf("KNOWLEDGE_%s_PORT", strings.ToUpper(SanitizeName(name)))
 				env[envKey] = fmt.Sprintf("%d", port)
 			}
 		}
@@ -135,7 +119,7 @@ func (b *EnvBuilder) BuildConnectionStrings(astroSpec *spec.AstroSpec) map[strin
 	env["OTEL_EXPORTER_OTLP_ENDPOINT"] = fmt.Sprintf("http://%s:4318", collectorHost)
 
 	// Inject agent metadata for the collector sidecar.
-	// Collector defaults to prod mode (Galileo enabled); only ast dev overrides to dev.
+	// Collector prov to prod mode (Galileo enabled); only ast dev overrides to dev.
 	env["ASTRO_AGENT_NAME"] = astroSpec.Agent
 	if astroSpec.Meta.Version != "" {
 		env["ASTRO_AGENT_VERSION"] = astroSpec.Meta.Version

@@ -487,56 +487,40 @@ func buildProbe(healthcheck *spec.Healthcheck, provider string, port int32) *cor
 
 // buildProbeHandler generates a provider-specific probe handler
 func buildProbeHandler(provider string, port int32, path string) *corev1.ProbeHandler {
-	switch provider {
-	case "redis":
+	prov := spec.GetProvider(provider)
+
+	// Exec-based health check from provider registry
+	if len(prov.HealthCheck) > 0 {
 		return &corev1.ProbeHandler{
 			Exec: &corev1.ExecAction{
-				Command: []string{"redis-cli", "ping"},
+				Command: prov.HealthCheck,
 			},
 		}
+	}
 
-	case "postgres", "postgresql":
-		return &corev1.ProbeHandler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"pg_isready", "-U", "postgres"},
-			},
-		}
-
-	case "qdrant":
-		// Qdrant has a health endpoint at /healthz
+	// HTTP health check from provider registry
+	if prov.HealthPath != "" {
 		if port == 0 {
-			port = 6333
+			port = int32(prov.DefaultPort)
 		}
 		return &corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
-				Path: "/healthz",
+				Path: prov.HealthPath,
 				Port: intstr.FromInt(int(port)),
 			},
 		}
+	}
 
-	case "mongo", "mongodb":
-		return &corev1.ProbeHandler{
-			Exec: &corev1.ExecAction{
-				Command: []string{"mongosh", "--eval", "db.adminCommand('ping')"},
-			},
+	// Fallback: if a path is provided, use HTTP health check
+	if path != "" {
+		if port == 0 {
+			port = 8080
 		}
-
-	case "sqlite":
-		// SQLite doesn't need a health check (file-based)
-		return nil
-
-	default:
-		// Fallback: if a path is provided, use HTTP health check
-		if path != "" {
-			if port == 0 {
-				port = 8080
-			}
-			return &corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path: path,
-					Port: intstr.FromInt(int(port)),
-				},
-			}
+		return &corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: path,
+				Port: intstr.FromInt(int(port)),
+			},
 		}
 	}
 

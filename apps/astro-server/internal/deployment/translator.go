@@ -133,21 +133,22 @@ func (t *Translator) Translate(astroSpec *spec.AstroSpec) (*TranslationResult, e
 
 	// 4. Process knowledge stores
 	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.Container.Image != "" || knowledge.Container.Build != nil {
+		container := knowledge.ResolvedContainer()
+		if container.Image != "" || container.Build != nil {
 			resourceName := GenerateResourceName(t.agentName, "knowledge", name)
-			port := knowledge.Container.Port
+			port := container.Port
 			if port == 0 {
-				port = 6333 // default for vector DB
+				port = spec.GetProvider(knowledge.Provider).DefaultPort
 			}
 
-			if knowledge.Container.Persistent {
+			if container.Persistent {
 				// Create StatefulSet for persistent knowledge
 				statefulSet := Manifest{
 					Kind:      "StatefulSet",
 					Name:      resourceName,
 					Namespace: t.k8sNamespace,
 					Object: map[string]interface{}{
-						"container": knowledge.Container,
+						"container": container,
 						"component": fmt.Sprintf("knowledge-%s", name),
 						"port":      port,
 					},
@@ -160,7 +161,7 @@ func (t *Translator) Translate(astroSpec *spec.AstroSpec) (*TranslationResult, e
 					Name:      resourceName,
 					Namespace: t.k8sNamespace,
 					Object: map[string]interface{}{
-						"container": knowledge.Container,
+						"container": container,
 						"component": fmt.Sprintf("knowledge-%s", name),
 					},
 				}
@@ -256,7 +257,7 @@ func (t *Translator) Translate(astroSpec *spec.AstroSpec) (*TranslationResult, e
 	// 8. Process messaging interfaces (Slack, Discord, etc.)
 	for name, iface := range astroSpec.Interfaces {
 		interfaceType := iface.Type
-		if interfaceType == "slack" || interfaceType == "discord" || interfaceType == "teams" {
+		if interfaceType == "slack" {
 			resourceName := GenerateResourceName(t.agentName, "messaging", name)
 
 			// Create messaging sidecar Deployment

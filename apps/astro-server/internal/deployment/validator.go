@@ -182,14 +182,6 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []Credenti
 				Description: "Slack bot token for API access and messaging",
 				Optional:    false,
 			}
-		} else if ifaceType == "discord" || ifaceType == "messaging/discord" || strings.Contains(ifaceType, "discord") {
-			credMap["DISCORD_BOT_TOKEN"] = CredentialInfo{
-				Key:         "DISCORD_BOT_TOKEN",
-				Provider:    "discord",
-				Category:    "messaging",
-				Description: "Discord bot token for messaging interface",
-				Optional:    false,
-			}
 		}
 	}
 

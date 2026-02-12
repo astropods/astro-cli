@@ -55,5 +55,15 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		return nil, fmt.Errorf("container.build or container.image is required")
 	}
 
+	// Validate knowledge entries: provider and container are mutually exclusive
+	for name, k := range spec.Knowledge {
+		if k.Provider != "" && k.Container != nil {
+			return nil, fmt.Errorf("knowledge %q: provider and container are mutually exclusive", name)
+		}
+		if k.Provider == "" && k.Container == nil {
+			return nil, fmt.Errorf("knowledge %q: either provider or container is required", name)
+		}
+	}
+
 	return &spec, nil
 }

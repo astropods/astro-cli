@@ -33,7 +33,6 @@ func BuildService(cfg ServiceConfig) *corev1.Service {
 		serviceType = corev1.ServiceTypeClusterIP
 	}
 
-	// Build service ports - for Qdrant, expose both REST (6333) and gRPC (6334)
 	ports := []corev1.ServicePort{
 		{
 			Name:       "http",
@@ -41,16 +40,6 @@ func BuildService(cfg ServiceConfig) *corev1.Service {
 			Port:       port,
 			TargetPort: intstr.FromInt(int(port)),
 		},
-	}
-
-	// For Qdrant services (port 6333), also expose gRPC port 6334
-	if port == 6333 {
-		ports = append(ports, corev1.ServicePort{
-			Name:       "grpc",
-			Protocol:   corev1.ProtocolTCP,
-			Port:       6334,
-			TargetPort: intstr.FromInt(6334),
-		})
 	}
 
 	service := &corev1.Service{

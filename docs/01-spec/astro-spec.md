@@ -23,12 +23,11 @@ The astro spec includes the following information:
 - Container image details: The base image to use for the agent, any additional packages or dependencies to install etc.
 - Models: Local LLMs, embedding models, or rerankers that run in containers
 - Knowledge stores: Vector databases, Redis, Postgres, etc. that run in containers
-- Tools: Function implementations in your codebase, MCP servers, builtin tools requiring containers
+- Tools: Containerized tool services (e.g., MCP servers)
 
-**Integrations (platform manages user credentials and injects them):**
-- Model APIs: Cloud-hosted LLM/embedding APIs (Anthropic, OpenAI, Cohere, etc.)
-- Knowledge services: Managed services (Pinecone, MongoDB Atlas, AWS RDS, etc.)
-- Tool APIs: External API integrations (GitHub API, Slack API, web search, Jira, etc.)
+**Integrations (user provides credentials, platform injects them):**
+- Model APIs: Cloud-hosted LLM/embedding APIs (Anthropic, OpenAI, etc.)
+- Tool APIs: External API integrations (GitHub, etc.)
 
 **Agent configuration:**
 - Ingestion definitions: Cron or event-based data collection/ingestion pipelines
@@ -53,26 +52,24 @@ container:
   # How to build/run the agent
 
 models:
-  # Self-hosted models needing containers (Ollama, vLLM, etc.)
+  # Self-hosted models as containers
 
 knowledge:
   # Self-hosted stores in containers (Qdrant, Redis, Postgres)
 
 tools:
-  # Custom functions, MCP servers, builtin tools
+  # Containerized tool services
 
 integrations:
   models:
-    # Cloud model APIs requiring user credentials (Anthropic, OpenAI, etc.)
-  knowledge:
-    # Managed services requiring user credentials (Pinecone, MongoDB Atlas, etc.)
+    # Cloud model APIs (Anthropic, OpenAI, etc.)
   tools:
-    # External APIs requiring user credentials (GitHub, Slack, web search, etc.)
+    # External APIs (GitHub, etc.)
 
 interfaces:
   # User/system interaction points
 
-injections:
+ingestion:
   # Data pipelines to update knowledge
 ```
 
@@ -87,8 +84,6 @@ meta:
   version: 1.0.0
   description: Knowledge assistant for engineering docs
   tags: [support, internal, engineering]
-  owner: platform-team
-  repo: github.com/company/agent
 ```
 
 ### container
@@ -119,211 +114,113 @@ Self-hosted models that run as containers in the agent infrastructure.
 ```yaml
 models:
   embedder:
-    provider: sentence-transformers
-    model: all-MiniLM-L6-v2
-    config:
-      dimensions: 384
     container:
       image: huggingface/transformers:latest
       gpu: false
 
   local_llm:
-    provider: ollama
-    model: mistral:7b
-    config:
-      context_window: 8192
     container:
       image: ollama/ollama:latest
       gpu: true
 
   reranker:
-    provider: vllm
-    model: BAAI/bge-reranker-v2-m3
     container:
       image: vllm/vllm-openai:latest
       gpu: true
 ```
 
-**Supported providers:** ollama, vllm, sentence-transformers, huggingface
-
 ### knowledge
 
-Self-hosted knowledge stores that run as containers in the agent infrastructure.
+Knowledge stores provide memory and context to the agent. Use `provider` for platform-managed stores or `container` for custom stores — they are mutually exclusive.
 
 ```yaml
 knowledge:
+  # Provider mode: platform manages image, port, health checks
   docs:
-    type: vector
     provider: qdrant
-    config:
-      collection: engineering-docs
-      dimensions: 384
-      metric: cosine
-    embedding: models.embedder  # ref to self-hosted model
-    container:
-      image: qdrant/qdrant:latest
-      persistent: true
+    persistent: true
 
   cache:
-    type: kv
     provider: redis
-    config:
-      ttl: 3600
-    container:
-      image: redis:7-alpine
 
   local_db:
-    type: sql
     provider: postgres
-    config:
-      database: agent_data
+    persistent: true
+
+  # Container mode: user manages everything
+  custom_store:
     container:
-      image: postgres:15-alpine
-      persistent: true
+      image: my-store:latest
+      port: 5000
 ```
 
-**Supported types:** vector, kv, document, sql, graph
-**Supported providers:** qdrant, redis, postgres, sqlite, mongo
+**Supported providers:**
+
+| Provider | Image | Port | Mount Path | Health Check | Injected Env Vars |
+|----------|-------|------|------------|--------------|-------------------|
+| `qdrant` | `qdrant/qdrant:latest` | 6333 (+gRPC 6334) | `/qdrant/storage` | HTTP `/healthz` | `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_URL` |
+| `redis` | `redis:7-alpine` | 6379 | `/data` | `redis-cli ping` | `REDIS_HOST`, `REDIS_PORT`, `REDIS_URL` |
+| `postgres` | `postgres:15-alpine` | 5432 | `/var/lib/postgresql/data` | `pg_isready -U postgres` | `POSTGRES_HOST`, `POSTGRES_PORT` |
+
+Container-mode knowledge stores without a provider get generic env vars: `KNOWLEDGE_{NAME}_HOST`, `KNOWLEDGE_{NAME}_PORT`.
 
 ### tools
 
-Custom tools that are part of the agent codebase or require infrastructure deployment.
+Custom tools that run as containers in the agent infrastructure.
 
 ```yaml
 tools:
-  custom_calculator:
-    type: function
-    config:
-      runtime: node
-      handler: tools/calculator.js
-      functions:
-        - name: calculate_metrics
-          description: Calculate business metrics
-          parameters:
-            type: object
-            properties:
-              metric_type: {type: string}
-              date_range: {type: string}
-
-  data_processor:
-    type: function
-    config:
-      runtime: python
-      handler: tools/processor.py
-      functions:
-        - name: process_data
-          description: Process and transform data
-
-  mcp_server:
-    type: mcp
-    config:
-      name: internal-tools
-      container:
-        image: company/mcp-tools:latest
-        port: 8081
-      tools:
-        - database_query
-        - file_operations
-
-  code_sandbox:
-    type: builtin/code-interpreter
-    config:
-      runtime: python
-      timeout: 30s
-      sandbox: true
-    container:
-      image: astro/code-interpreter:latest
+  websearch:
+    provider: puppeteer
 ```
-
-**Supported types:** function (custom code), mcp (MCP servers), builtin/* (platform-provided tools)
 
 ### integrations
 
-Third-party services and APIs requiring user authentication. Declares what the agent needs to authenticate with and required permissions/scopes. Platform provides authentication UI for users to connect their accounts (OAuth, API keys, etc.), then injects credentials into the agent container at runtime.
+Third-party services and APIs requiring user authentication. Declares what the agent needs to authenticate with. User provides credentials at deploy time and the platform injects them into the agent container as environment variables.
 
 ```yaml
 integrations:
   models:
-    primary_llm:
+    - name: primary_llm
       provider: anthropic
-      # Platform prompts user to authenticate and injects ANTHROPIC_API_KEY
+      # Injects ANTHROPIC_API_KEY
 
-    fallback_llm:
+    - name: fallback_llm
       provider: openai
-      # Platform prompts user to authenticate and injects OPENAI_API_KEY
-
-  knowledge:
-    vector_store:
-      provider: pinecone
-      # Platform prompts user to authenticate and injects PINECONE_API_KEY
-
-    conversations:
-      provider: mongodb-atlas
-      # Platform prompts user to authenticate and injects MONGODB_URI
+      # Injects OPENAI_API_KEY
 
   tools:
-    github:
+    - name: github
       provider: github
-      scopes:
-        - repo:read
-        - issues:write
-        - issues:read
-      # Platform prompts user for OAuth with required scopes
-
-    slack:
-      provider: slack
-      scopes:
-        - chat:write
-        - channels:read
-      # Platform prompts user for OAuth with required scopes
-
-    web_search:
-      provider: tavily
-      # Platform prompts user to authenticate and injects TAVILY_API_KEY
+      # Injects GITHUB_TOKEN
 ```
 
-**Supported model providers:** anthropic, openai, mistral, cohere, google
-**Supported knowledge providers:** pinecone, weaviate, mongodb-atlas, dynamodb
-**Supported tool providers:** github, slack, jira, web-search (tavily, serper), etc.
+Credentials are passed through as environment variables. Any provider can be declared — the user supplies the credential key/value at deploy time and it is injected into all containers via a Kubernetes Secret.
 
 ### interfaces
 
 ```yaml
 interfaces:
   slack:
-    type: messaging/slack
+    type: slack
     config:
       bot_token: ${SLACK_BOT_TOKEN}
       app_token: ${SLACK_APP_TOKEN}
-      events: [message, app_mention, reaction_added]
-      auto_thread: true
 
-  api:
-    type: http
-    config:
-      port: 8080
-      auth:
-        type: api_key
-        header: X-API-Key
-        keys: ${API_KEYS}
-      cors:
-        origins: ["https://app.company.com"]
+  web:
+    type: web
 
-  discord:
-    type: messaging/discord
-    config:
-      bot_token: ${DISCORD_TOKEN}
-      guild_ids: [123456789]
-
-  webhook:
-    type: http/webhook
-    config:
-      path: /webhooks/incoming
-      secret: ${WEBHOOK_SECRET}
-      events: [push, pull_request]
+  custom_service:
+    type: custom
+    service:
+      name: my-adapter
+      image: company/my-adapter:latest
+      ports: ["9090:9090"]
+      environment:
+        API_KEY: ${API_KEY}
 ```
 
-**Types:** http, http/webhook, messaging/slack, messaging/discord, messaging/teams, grpc, websocket
+**Types:** slack, web, custom
 
 ### ingestion
 
@@ -397,7 +294,6 @@ meta:
   version: 2.0.0
   description: Engineering knowledge assistant with self-hosted and external components
   tags: [engineering, support, internal]
-  owner: platform-team
 
 container:
   build:
@@ -406,90 +302,48 @@ container:
 
 models:
   embedder:
-    provider: sentence-transformers
-    model: all-MiniLM-L6-v2
-    config:
-      dimensions: 384
     container:
       image: huggingface/transformers:latest
       gpu: false
 
 knowledge:
   docs:
-    type: vector
     provider: qdrant
-    config:
-      dimensions: 384
-      metric: cosine
-    embedding: models.embedder
-    container:
-      image: qdrant/qdrant:latest
-      persistent: true
+    persistent: true
 
   cache:
-    type: kv
     provider: redis
-    config:
-      ttl: 3600
-    container:
-      image: redis:7-alpine
-
-tools:
-  doc_search:
-    type: function
-    config:
-      runtime: python
-      handler: tools/search.py
-      functions:
-        - name: search_docs
-          description: Search internal documentation
 
 integrations:
   models:
-    primary_llm:
+    - name: primary_llm
       provider: anthropic
 
   tools:
-    github:
+    - name: github
       provider: github
-      scopes:
-        - repo:read
-        - issues:read
-
-    web_search:
-      provider: tavily
 
 interfaces:
   slack:
-    type: messaging/slack
+    type: slack
     config:
       bot_token: ${SLACK_BOT_TOKEN}
       app_token: ${SLACK_APP_TOKEN}
 
-  api:
-    type: http
-    config:
-      port: 8080
+  web:
+    type: web
 
-injections:
+ingestion:
   docs_sync:
-    source:
-      type: github
-      config:
-        repo: company/engineering-docs
-        branch: main
-        paths: ["**/*.md"]
-        token: ${GITHUB_TOKEN}
+    container:
+      image: my-docs-sync:latest
+      environment:
+        SOURCE_REPO: company/engineering-docs
+        SOURCE_BRANCH: main
+        TARGET_COLLECTION: docs
     trigger:
       type: schedule
-      cron: "0 */6 * * *"
-    pipeline:
-      - step: chunk
-        config: {strategy: semantic, max_size: 1000}
-      - step: embed
-        model: models.embedder
-      - step: upsert
-        target: knowledge.docs
+      schedule: "0 */6 * * *"
 ```
 
 ---

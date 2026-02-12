@@ -15,7 +15,7 @@ type ScaffoldConfig struct {
 	Model       string   // "anthropic" | "openai" | "none"
 	ModelApiKey string   // Optional API key for the selected model (written to .env)
 	Knowledge   string   // "vector" | "kv" | "both" | "none"
-	Tools       []string // ["github"]
+	Integrations []string // ["github"]
 	Ingestion   string   // "schedule" | "manual" | "none"
 }
 
@@ -27,7 +27,7 @@ func DefaultConfig(name string) ScaffoldConfig {
 		Interfaces:  []string{"web"},
 		Model:       "openai",
 		Knowledge:   "none",
-		Tools:       []string{},
+		Integrations: []string{},
 		Ingestion:   "none",
 	}
 }
