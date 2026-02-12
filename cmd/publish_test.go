@@ -52,7 +52,6 @@ agent: my-agent
 meta:
   version: "0.1.0"
   description: My agent
-  owner: myteam
 container:
   image: myimg:latest
 `,

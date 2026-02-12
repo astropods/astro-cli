@@ -180,10 +180,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	// Build custom knowledge store containers (those with build config)
 	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.Container.Build != nil {
+		container := knowledge.ResolvedContainer()
+		if container.Build != nil {
 			baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, name)
-			contextPath := filepath.Join(workingDir, knowledge.Container.Build.Context)
-			dockerfile := knowledge.Container.Build.Dockerfile
+			contextPath := filepath.Join(workingDir, container.Build.Context)
+			dockerfile := container.Build.Dockerfile
 			if dockerfile == "" {
 				dockerfile = "Dockerfile"
 			}
@@ -194,7 +195,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 					fmt.Printf("%s→%s Building %s[knowledge: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
 
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, knowledge.Container.Build.Args, knowledge.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, container.Build.Args, container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
 					if !quiet {
 						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 					}
@@ -206,8 +207,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				}
 				imagesBuilt++
 			}
-		} else if knowledge.Container.Image != "" && !quiet {
-			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, knowledge.Container.Image, colorReset)
+		} else if container.Image != "" && !quiet {
+			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, container.Image, colorReset)
 		}
 	}
 

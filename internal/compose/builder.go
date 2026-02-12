@@ -51,27 +51,19 @@ func buildHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port i
 		return types.HealthCheckTest(healthcheck.Test)
 	}
 
-	// Provider-specific health checks
-	switch provider {
-	case "redis":
-		return types.HealthCheckTest([]string{"CMD", "redis-cli", "ping"})
+	prov := spec.GetProvider(provider)
 
-	case "postgres":
-		return types.HealthCheckTest([]string{"CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"})
+	// Exec-based health check from provider registry
+	if len(prov.HealthCheck) > 0 {
+		return types.HealthCheckTest(append([]string{"CMD"}, prov.HealthCheck...))
+	}
 
-	case "qdrant":
-		// Qdrant has a health endpoint at /healthz
+	// HTTP health check from provider registry
+	if prov.HealthPath != "" {
 		if port == 0 {
-			port = 6333
+			port = prov.DefaultPort
 		}
-		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d/healthz || exit 1", port)})
-
-	case "mongo", "mongodb":
-		return types.HealthCheckTest([]string{"CMD", "mongosh", "--eval", "db.adminCommand('ping')"})
-
-	case "sqlite":
-		// SQLite doesn't need a health check (file-based)
-		return nil
+		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d%s || exit 1", port, prov.HealthPath)})
 	}
 
 	// Fallback: if a path is provided, use HTTP health check with curl
@@ -140,7 +132,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				timeout := types.Duration(5000000000)   // 5 seconds
 				retries := uint64(3)
 
-				test := buildHealthCheckTest(model.Container.Healthcheck, model.Provider, model.Container.Port)
+				test := buildHealthCheckTest(model.Container.Healthcheck, "", model.Container.Port)
 				if test != nil {
 					service.HealthCheck = &types.HealthCheckConfig{
 						Test:     test,
@@ -157,6 +149,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Add self-hosted knowledge stores
 	for name, knowledge := range s.Knowledge {
+		container := knowledge.ResolvedContainer()
 		serviceName := fmt.Sprintf("knowledge-%s", name)
 		service := types.ServiceConfig{
 			Name: serviceName,
@@ -166,47 +159,48 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 
 		// Build or image configuration
-		if knowledge.Container.Build != nil {
+		if container.Build != nil {
 			service.Build = &types.BuildConfig{
-				Context:    filepath.Join(workingDir, knowledge.Container.Build.Context),
-				Dockerfile: knowledge.Container.Build.Dockerfile,
-				Target:     knowledge.Container.Build.Target,
-				Args:       types.MappingWithEquals(convertArgs(knowledge.Container.Build.Args)),
-				Secrets:    buildSecretsConfig(knowledge.Container.Build.Secrets, project),
+				Context:    filepath.Join(workingDir, container.Build.Context),
+				Dockerfile: container.Build.Dockerfile,
+				Target:     container.Build.Target,
+				Args:       types.MappingWithEquals(convertArgs(container.Build.Args)),
+				Secrets:    buildSecretsConfig(container.Build.Secrets, project),
 			}
-		} else if knowledge.Container.Image != "" {
-			service.Image = knowledge.Container.Image
+		} else if container.Image != "" {
+			service.Image = container.Image
 		}
 
 		// Port mapping
-		if knowledge.Container.Port > 0 {
+		if container.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(knowledge.Container.Port),
-					Published: fmt.Sprintf("%d", knowledge.Container.Port),
+					Target:    uint32(container.Port),
+					Published: fmt.Sprintf("%d", container.Port),
 				},
 			}
 		} else if knowledge.Provider == "qdrant" {
-			// Expose Qdrant dashboard on default port 6333 in dev mode
+			// Expose Qdrant dashboard on default port in dev mode
+			qdrantPort := spec.GetProvider("qdrant").DefaultPort
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    6333,
-					Published: "6333",
+					Target:    uint32(qdrantPort),
+					Published: fmt.Sprintf("%d", qdrantPort),
 				},
 			}
 		}
 
 		// Add healthcheck only if defined in spec
-		if knowledge.Container.Healthcheck != nil {
+		if container.Healthcheck != nil {
 			interval := types.Duration(10000000000) // 10 seconds
 			timeout := types.Duration(5000000000)   // 5 seconds
 			retries := uint64(3)
-			port := knowledge.Container.Port
-			if port == 0 && knowledge.Provider == "qdrant" {
-				port = 6333 // default for Qdrant
+			port := container.Port
+			if port == 0 {
+				port = spec.GetProvider(knowledge.Provider).DefaultPort
 			}
 
-			test := buildHealthCheckTest(knowledge.Container.Healthcheck, knowledge.Provider, port)
+			test := buildHealthCheckTest(container.Healthcheck, knowledge.Provider, port)
 			if test != nil {
 				service.HealthCheck = &types.HealthCheckConfig{
 					Test:     test,
@@ -218,17 +212,13 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 
 		// Add persistent volume if needed
-		if knowledge.Container.Persistent {
+		if container.Persistent {
 			volumeName := fmt.Sprintf("%s-data", serviceName)
 			project.Volumes[volumeName] = types.VolumeConfig{
 				Name: volumeName,
 			}
 
-			// Use provider-specific mount path
-			mountPath := "/data"
-			if knowledge.Provider == "qdrant" {
-				mountPath = "/qdrant/storage"
-			}
+			mountPath := spec.GetProvider(knowledge.Provider).MountPath
 
 			service.Volumes = []types.ServiceVolumeConfig{
 				{
@@ -374,8 +364,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			// Auto-inject Redis connection info if Redis knowledge store exists
 			for name, knowledge := range s.Knowledge {
 				if knowledge.Provider == "redis" {
+					redisProv := spec.GetProvider("redis")
 					redisService := fmt.Sprintf("knowledge-%s", name)
-					redisURL := fmt.Sprintf("redis://%s:6379", redisService)
+					redisURL := fmt.Sprintf("%s://%s:%d", redisProv.URLScheme, redisService, redisProv.DefaultPort)
 					service.Environment["REDIS_URL"] = &redisURL
 				}
 			}
@@ -516,25 +507,12 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	for name, knowledge := range s.Knowledge {
 		serviceName := fmt.Sprintf("knowledge-%s", name)
 
-		// Common patterns for connection strings
-		switch knowledge.Provider {
-		case "qdrant":
-			hostKey := fmt.Sprintf("QDRANT_HOST")
-			portKey := fmt.Sprintf("QDRANT_PORT")
+		prov := spec.GetProvider(knowledge.Provider)
+		if prov.EnvPrefix != "" {
+			hostKey := prov.EnvPrefix + "_HOST"
+			portKey := prov.EnvPrefix + "_PORT"
 			env[hostKey] = &serviceName
-			port := "6333"
-			env[portKey] = &port
-		case "redis":
-			hostKey := fmt.Sprintf("REDIS_HOST")
-			portKey := fmt.Sprintf("REDIS_PORT")
-			env[hostKey] = &serviceName
-			port := "6379"
-			env[portKey] = &port
-		case "postgres":
-			hostKey := fmt.Sprintf("POSTGRES_HOST")
-			portKey := fmt.Sprintf("POSTGRES_PORT")
-			env[hostKey] = &serviceName
-			port := "5432"
+			port := fmt.Sprintf("%d", prov.DefaultPort)
 			env[portKey] = &port
 		}
 	}

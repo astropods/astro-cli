@@ -11,7 +11,7 @@
 {{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
  *   REDIS_URL - Redis key-value store connection URL
 {{- end}}
-{{- range .Tools}}
+{{- range .Integrations}}
 {{- if eq . "github"}}
  *   GITHUB_TOKEN - GitHub API token for fetching repository data
 {{- end}}

@@ -280,7 +280,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 		// 3. Publish custom-built knowledge store images
 		for knowledgeName, knowledge := range astroSpec.Knowledge {
-			if knowledge.Container.Build != nil {
+			container := knowledge.ResolvedContainer()
+			if container.Build != nil {
 				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, knowledgeName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
@@ -397,7 +398,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 		// Custom-built knowledge images
 		for knowledgeName, knowledge := range astroSpec.Knowledge {
-			if knowledge.Container.Build != nil {
+			container := knowledge.ResolvedContainer()
+			if container.Build != nil {
 				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, knowledgeName)
 				if err := retag(
 					platformImageTag(baseName, publishTag, platform),
@@ -765,9 +767,6 @@ func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, server
 	// Agent overview
 	fmt.Printf("%s%sAgent:%s %s\n", colorBold, colorGreen, colorReset, astroSpec.Agent)
 	fmt.Printf("This agent is at version %s%s%s", colorYellow, astroSpec.Meta.Version, colorReset)
-	if astroSpec.Meta.Owner != "" {
-		fmt.Printf(" and is owned by %s%s%s", colorCyan, astroSpec.Meta.Owner, colorReset)
-	}
 	fmt.Println(".")
 	if astroSpec.Meta.Description != "" {
 		fmt.Printf("%s%s%s\n", colorDim, astroSpec.Meta.Description, colorReset)
@@ -796,15 +795,10 @@ func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, server
 		fmt.Printf("%s%sModels%s\n", colorBold, colorBlue, colorReset)
 		fmt.Println("These are AI/ML model services that the agent can use for inference.")
 		for name, model := range astroSpec.Models {
-			fmt.Printf("\n  %s%s%s uses the %s%s%s provider", colorCyan, name, colorReset, colorYellow, model.Provider, colorReset)
-			if model.Model != "" {
-				fmt.Printf(" with model %s%s%s", colorYellow, model.Model, colorReset)
-			}
-			fmt.Println(".")
 			if model.Container.Build != nil {
-				fmt.Printf("  This model service will be built from %s%s%s and pushed to the registry.\n", colorYellow, model.Container.Build.Context, colorReset)
+				fmt.Printf("\n  %s%s%s will be built from %s%s%s and pushed to the registry.\n", colorCyan, name, colorReset, colorYellow, model.Container.Build.Context, colorReset)
 			} else if model.Container.Image != "" {
-				fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, model.Container.Image, colorReset)
+				fmt.Printf("\n  %s%s%s uses a pre-built image %s%s%s.\n", colorCyan, name, colorReset, colorDim, model.Container.Image, colorReset)
 			}
 		}
 		fmt.Println()
@@ -815,21 +809,19 @@ func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, server
 		fmt.Printf("%s%sKnowledge%s\n", colorBold, colorBlue, colorReset)
 		fmt.Println("These are data stores that provide memory and context to the agent.")
 		for name, k := range astroSpec.Knowledge {
-			fmt.Printf("\n  %s%s%s is a %s%s%s store", colorCyan, name, colorReset, colorYellow, k.Type, colorReset)
+			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
 			if k.Provider != "" {
 				fmt.Printf(" powered by %s%s%s", colorYellow, k.Provider, colorReset)
 			}
 			fmt.Println(".")
-			if k.Embedding != "" {
-				fmt.Printf("  It uses %s%s%s for generating embeddings.\n", colorYellow, k.Embedding, colorReset)
-			}
-			if k.Container.Persistent {
+			kc := k.ResolvedContainer()
+			if kc.Persistent {
 				fmt.Printf("  Data is %s%spersistent%s and will survive container restarts.\n", colorBold, colorGreen, colorReset)
 			}
-			if k.Container.Build != nil {
-				fmt.Printf("  This store will be built from %s%s%s and pushed to the registry.\n", colorYellow, k.Container.Build.Context, colorReset)
-			} else if k.Container.Image != "" {
-				fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, k.Container.Image, colorReset)
+			if kc.Build != nil {
+				fmt.Printf("  This store will be built from %s%s%s and pushed to the registry.\n", colorYellow, kc.Build.Context, colorReset)
+			} else if kc.Image != "" {
+				fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, kc.Image, colorReset)
 			}
 		}
 		fmt.Println()
@@ -840,7 +832,7 @@ func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, server
 		fmt.Printf("%s%sTools%s\n", colorBold, colorBlue, colorReset)
 		fmt.Println("These are capabilities that extend what the agent can do.")
 		for name, tool := range astroSpec.Tools {
-			fmt.Printf("\n  %s%s%s is a %s%s%s tool", colorCyan, name, colorReset, colorYellow, tool.Type, colorReset)
+			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
 			if tool.Container != nil {
 				if tool.Container.Build != nil {
 					fmt.Println(" that runs in its own container.")
@@ -930,7 +922,7 @@ func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, server
 			}
 		}
 		for name, k := range astroSpec.Knowledge {
-			if k.Container.Build != nil {
+			if kc := k.ResolvedContainer(); kc.Build != nil {
 				fmt.Printf("  • %s%s-knowledge-%s:%s%s\n", colorYellow, astroSpec.Agent, name, tag, colorReset)
 			}
 		}
@@ -973,7 +965,7 @@ func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, server
 		}
 	}
 	for name, k := range astroSpec.Knowledge {
-		if k.Container.Build != nil {
+		if kc := k.ResolvedContainer(); kc.Build != nil {
 			target := fmt.Sprintf("%s/%s/%s-knowledge-%s:%s", registryHost, namespace, astroSpec.Agent, name, tag)
 			pushTargets = append(pushTargets, target)
 			pushCount++

@@ -18,7 +18,7 @@ const (
 	screenModel
 	screenApiKey
 	screenKnowledge
-	screenTools
+	screenIntegrations
 	screenIngestion
 	screenConfirm
 )
@@ -41,7 +41,7 @@ type model struct {
 	// Select state
 	options  []option
 	cursor   int
-	selected map[int]bool // for multi-select (tools)
+	selected map[int]bool // for multi-select
 
 	// State
 	done     bool
@@ -62,7 +62,7 @@ func initialModel(name string) model {
 		config: scaffold.ScaffoldConfig{
 			Name:       name,
 			Interfaces: []string{},
-			Tools:      []string{},
+			Integrations: []string{},
 		},
 		selected: make(map[int]bool),
 		// apiKeyInput is initialized when entering screenApiKey
@@ -99,8 +99,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateApiKey(msg)
 	case screenKnowledge:
 		return m.updateKnowledge(msg)
-	case screenTools:
-		return m.updateTools(msg)
+	case screenIntegrations:
+		return m.updateIntegrations(msg)
 	case screenIngestion:
 		return m.updateIngestion(msg)
 	case screenConfirm:
@@ -257,7 +257,7 @@ func (m model) updateKnowledge(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			m.config.Knowledge = m.options[m.cursor].value
-			m.screen = screenTools
+			m.screen = screenIntegrations
 			m.cursor = 0
 			m.selected = make(map[int]bool)
 			return m, nil
@@ -267,7 +267,7 @@ func (m model) updateKnowledge(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m model) updateIntegrations(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.options = []option{
 		{"GitHub", "github"},
 	}
@@ -292,7 +292,7 @@ func (m model) updateTools(msg tea.Msg) (tea.Model, tea.Cmd) {
 					tools = append(tools, opt.value)
 				}
 			}
-			m.config.Tools = tools
+			m.config.Integrations = tools
 			m.screen = screenIngestion
 			m.cursor = 3 // Default to None
 			return m, nil
@@ -404,8 +404,8 @@ func (m model) View() string {
 		}))
 		b.WriteString("\n")
 		b.WriteString(dimStyle.Render("↑/↓ to navigate, Enter to select"))
-	case screenTools:
-		b.WriteString(promptStyle.Render("Tools (optional):"))
+	case screenIntegrations:
+		b.WriteString(promptStyle.Render("Integrations (optional):"))
 		b.WriteString("\n")
 		b.WriteString(m.renderMultiSelectOptions([]option{
 			{"GitHub", "github"},
@@ -481,10 +481,10 @@ func (m model) renderSummary() string {
 		}
 	}
 	b.WriteString(fmt.Sprintf("  Knowledge:   %s\n", m.config.Knowledge))
-	if len(m.config.Tools) > 0 {
-		b.WriteString(fmt.Sprintf("  Tools:       %s\n", strings.Join(m.config.Tools, ", ")))
+	if len(m.config.Integrations) > 0 {
+		b.WriteString(fmt.Sprintf("  Integrations: %s\n", strings.Join(m.config.Integrations, ", ")))
 	} else {
-		b.WriteString("  Tools:       none\n")
+		b.WriteString("  Integrations: none\n")
 	}
 	b.WriteString(fmt.Sprintf("  Ingestion:   %s\n", m.config.Ingestion))
 	return b.String()
