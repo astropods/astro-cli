@@ -169,6 +169,13 @@
         "typescript": "^5.3.0",
       },
     },
+    "packages/astro-identity-gen": {
+      "name": "@saswatds/astro-identity-gen",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5.3.0",
+      },
+    },
     "packages/astro-messaging": {
       "name": "@saswatds/astro-messaging",
       "version": "1.2.0",
@@ -836,6 +843,8 @@
     "@saswatds/astro-engine": ["@saswatds/astro-engine@workspace:packages/astro-engine"],
 
     "@saswatds/astro-graph": ["@saswatds/astro-graph@workspace:packages/astro-graph"],
+
+    "@saswatds/astro-identity-gen": ["@saswatds/astro-identity-gen@workspace:packages/astro-identity-gen"],
 
     "@saswatds/astro-messaging": ["@saswatds/astro-messaging@workspace:packages/astro-messaging"],
 

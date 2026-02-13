@@ -1,0 +1,33 @@
+{
+  "name": "@saswatds/astro-identity-gen",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "bun run dev.ts",
+    "export": "bun run export.ts",
+    "test": "bun test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postman-eng/astro.git",
+    "directory": "packages/astro-identity-gen"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}
