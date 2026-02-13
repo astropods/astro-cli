@@ -38,9 +38,9 @@ function getAgentCategories(agent: Agent): string[] {
 
 function AgentDetailSkeleton() {
   return (
-    <div className="flex flex-1 min-h-0 lg:-m-8 lg:p-0">
+    <div className="flex flex-1 min-h-0">
       <div className="flex-1 min-w-0 md:overflow-y-auto">
-        <div className="lg:p-8 max-w-4xl">
+        <div className="p-6 md:p-8 max-w-4xl">
           {/* Title */}
           <Skeleton className="h-7 w-64 mb-3" />
           {/* Description */}
@@ -178,10 +178,10 @@ export function AgentDetail() {
   );
 
   return (
-    <div className="flex flex-1 min-h-0 lg:-m-8 lg:p-0">
+    <div className="flex flex-1 min-h-0">
       {/* Left scroll area — fills remaining space so scrollbar is flush with sidebar */}
       <div className="flex-1 min-w-0 md:overflow-y-auto">
-        <div className="lg:p-8 max-w-4xl">
+        <div className="p-6 md:p-8 max-w-4xl">
           <h1 className="text-xl font-semibold mb-3">{agent.name}</h1>
 
           <p className="text-sm text-muted-foreground leading-relaxed mb-5">

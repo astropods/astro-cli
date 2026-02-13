@@ -21,11 +21,11 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       onClick={onClose}
     >
       <div
-        className="bg-white border border-gray-300 p-6 w-full max-w-[380px] relative"
+        className="bg-white border border-stone-300 p-6 w-full max-w-[380px] relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute top-3 right-3 bg-transparent border-none cursor-pointer p-1 hover:bg-gray-100 rounded"
+          className="absolute top-3 right-3 bg-transparent border-none cursor-pointer p-1 hover:bg-stone-100 rounded"
           onClick={onClose}
           aria-label="Close"
         >
@@ -33,11 +33,11 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         </button>
 
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-100 rounded-full mb-4">
-            <Sparkles size={24} className="text-gray-800" />
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-stone-100 rounded-full mb-4">
+            <Sparkles size={24} className="text-stone-800" />
           </div>
           <h2 className="text-xl font-semibold mb-2">Welcome to Astro</h2>
-          <p className="text-gray-600 text-sm">
+          <p className="text-stone-600 text-sm">
             Sign in to deploy and manage your AI agents
           </p>
         </div>
@@ -46,7 +46,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
           <button
             onClick={handleSignIn}
             disabled={isLoading}
-            className="w-full px-4 py-3 bg-gray-800 text-white border border-gray-800 text-sm cursor-pointer hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full px-4 py-3 bg-stone-800 text-white border border-stone-800 text-sm cursor-pointer hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isLoading ? (
               "Redirecting..."
@@ -59,18 +59,18 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
 
           <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-xs text-gray-500">Secure authentication</span>
-            <div className="flex-1 h-px bg-gray-200" />
+            <div className="flex-1 h-px bg-stone-200" />
+            <span className="text-xs text-stone-500">Secure authentication</span>
+            <div className="flex-1 h-px bg-stone-200" />
           </div>
 
-          <p className="text-center text-xs text-gray-500">
+          <p className="text-center text-xs text-stone-500">
             By signing in, you agree to our{" "}
-            <a href="/terms" className="text-gray-600 underline hover:text-gray-800">
+            <a href="/terms" className="text-stone-600 underline hover:text-stone-800">
               Terms of Service
             </a>{" "}
             and{" "}
-            <a href="/privacy" className="text-gray-600 underline hover:text-gray-800">
+            <a href="/privacy" className="text-stone-600 underline hover:text-stone-800">
               Privacy Policy
             </a>
             .

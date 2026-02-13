@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { Outlet, useSearchParams } from "react-router-dom";
-import { AppSidebar, SidebarInset } from "./AppSidebar";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { AuthModal } from "./AuthModal";
+import { AppHeader } from "./AppHeader";
 import { useAuth } from "../lib/auth";
 
 export function Layout() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, isLoading, isAuthenticated, login, logout, error } = useAuth();
+  const { error } = useAuth();
 
   // Handle error from auth callback
   useEffect(() => {
@@ -31,24 +30,16 @@ export function Layout() {
   const closeAuthModal = useCallback(() => setIsAuthModalOpen(false), []);
 
   return (
-    <SidebarProvider>
-      <AppSidebar
-        user={user}
-        isLoading={isLoading}
-        isAuthenticated={isAuthenticated}
-        onSignIn={login}
-        onSignOut={logout}
-      />
-      <SidebarInset>
-        {error && (
-          <div className="m-6 mb-0 md:m-8 md:mb-0 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">
-            {error}
-          </div>
-        )}
-        <Outlet context={{ openAuthModal }} />
-      </SidebarInset>
+    <>
+      <AppHeader />
+      {error && (
+        <div className="m-6 mb-0 md:m-8 md:mb-0 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">
+          {error}
+        </div>
+      )}
+      <Outlet context={{ openAuthModal }} />
       <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} />
-    </SidebarProvider>
+    </>
   );
 }
 

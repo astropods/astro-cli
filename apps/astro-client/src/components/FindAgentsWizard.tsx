@@ -108,10 +108,10 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
       <div className="flex flex-col gap-3">
         {/* Assistant intro */}
         <div className="flex gap-2.5 max-w-[90%] self-start">
-          <div className="w-7 h-7 border border-gray-300 flex items-center justify-center shrink-0">
+          <div className="w-7 h-7 border border-stone-300 flex items-center justify-center shrink-0">
             <Sparkles size={14} />
           </div>
-          <div className="border border-gray-300 p-3 text-sm">
+          <div className="border border-stone-300 p-3 text-sm">
             <p>
               Hi! I'm here to help you find the perfect agents for your needs.
               Let's start with a few questions.
@@ -121,10 +121,10 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
 
         {/* Business area question */}
         <div className="flex gap-2.5 max-w-[90%] self-start">
-          <div className="w-7 h-7 border border-gray-300 flex items-center justify-center shrink-0">
+          <div className="w-7 h-7 border border-stone-300 flex items-center justify-center shrink-0">
             <Sparkles size={14} />
           </div>
-          <div className="border border-gray-300 p-3 text-sm">
+          <div className="border border-stone-300 p-3 text-sm">
             <p className="mb-2.5">Which business area would you like to focus on?</p>
             <div className="flex flex-wrap gap-1.5">
               {businessAreas.map((area) => (
@@ -132,8 +132,8 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
                   key={area}
                   className={`px-3 py-1.5 border text-sm cursor-pointer ${
                     selectedArea === area
-                      ? "bg-gray-800 text-white border-gray-800"
-                      : "bg-white border-gray-300 hover:bg-gray-50"
+                      ? "bg-stone-800 text-white border-stone-800"
+                      : "bg-white border-stone-300 hover:bg-stone-50"
                   }`}
                   onClick={() => handleAreaSelect(area)}
                 >
@@ -147,7 +147,7 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
         {/* User selection */}
         {selectedArea && (
           <div className="flex gap-2.5 max-w-[90%] self-end flex-row-reverse">
-            <div className="border border-gray-300 p-3 text-sm bg-gray-100">
+            <div className="border border-stone-300 p-3 text-sm bg-stone-100">
               {selectedArea}
             </div>
           </div>
@@ -156,10 +156,10 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
         {/* Data sources question */}
         {step !== "area" && (
           <div className="flex gap-2.5 max-w-[90%] self-start">
-            <div className="w-7 h-7 border border-gray-300 flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 border border-stone-300 flex items-center justify-center shrink-0">
               <Sparkles size={14} />
             </div>
-            <div className="border border-gray-300 p-3 text-sm">
+            <div className="border border-stone-300 p-3 text-sm">
               <p className="mb-2.5">Great choice! Where does your data live?</p>
               <div className="flex flex-wrap gap-1.5">
                 {dataSourcesByArea[selectedArea]?.map((source) => (
@@ -167,8 +167,8 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
                     key={source}
                     className={`px-3 py-1.5 border text-sm cursor-pointer ${
                       selectedDataSources.includes(source)
-                        ? "bg-gray-800 text-white border-gray-800"
-                        : "bg-white border-gray-300 hover:bg-gray-50"
+                        ? "bg-stone-800 text-white border-stone-800"
+                        : "bg-white border-stone-300 hover:bg-stone-50"
                     }`}
                     onClick={() => handleDataSourceSelect(source)}
                   >
@@ -178,7 +178,7 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
               </div>
               {selectedDataSources.length > 0 && step === "data" && (
                 <button
-                  className="mt-3 px-4 py-2 bg-gray-800 text-white border border-gray-800 text-sm cursor-pointer"
+                  className="mt-3 px-4 py-2 bg-stone-800 text-white border border-stone-800 text-sm cursor-pointer"
                   onClick={handleContinue}
                 >
                   Continue
@@ -191,10 +191,10 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
         {/* Loading state */}
         {step === "loading" && (
           <div className="flex gap-2.5 max-w-[90%] self-start">
-            <div className="w-7 h-7 border border-gray-300 flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 border border-stone-300 flex items-center justify-center shrink-0">
               <Sparkles size={14} />
             </div>
-            <div className="border border-gray-300 p-3 text-sm flex items-center gap-2.5 text-gray-600">
+            <div className="border border-stone-300 p-3 text-sm flex items-center gap-2.5 text-stone-600">
               <Loader2 className="animate-spin" size={18} />
               <span>Gathering your recs...</span>
             </div>
@@ -204,29 +204,29 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
         {/* Results */}
         {step === "results" && (
           <div className="flex gap-2.5 max-w-[90%] self-start">
-            <div className="w-7 h-7 border border-gray-300 flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 border border-stone-300 flex items-center justify-center shrink-0">
               <Sparkles size={14} />
             </div>
-            <div className="border border-gray-300 p-3 text-sm">
+            <div className="border border-stone-300 p-3 text-sm">
               <p className="mb-2.5">Based on your answers, here are my recommendations:</p>
               <div className="flex flex-col gap-2.5 mt-2">
                 {recommendations.map((agent) => (
-                  <div key={agent.slug} className="border border-gray-300 p-3">
+                  <div key={agent.slug} className="border border-stone-300 p-3">
                     <h4 className="font-semibold text-sm mb-1.5">{agent.name}</h4>
                     <div className="flex gap-1 mb-1.5">
                       {agent.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="px-1.5 py-0.5 text-xs border border-gray-300 bg-gray-100"
+                          className="px-1.5 py-0.5 text-xs border border-stone-300 bg-stone-100"
                         >
                           {tag}
                         </span>
                       ))}
                     </div>
-                    <p className="text-gray-600 text-sm mb-2">{agent.description}</p>
+                    <p className="text-stone-600 text-sm mb-2">{agent.description}</p>
                     <Link
                       to={`/hire/${agent.slug}`}
-                      className="inline-block px-3 py-1.5 border border-gray-300 text-sm text-gray-700 no-underline hover:bg-gray-50"
+                      className="inline-block px-3 py-1.5 border border-stone-300 text-sm text-stone-700 no-underline hover:bg-stone-50"
                       onClick={onClose}
                     >
                       View details

@@ -23,7 +23,7 @@ export interface BadgeProps {
 
 const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
   default: {
-    dot: "bg-gray-600 border-[3px] border-gray-300",
+    dot: "bg-stone-600 border-[3px] border-stone-300",
     badge: "bg-white/10 text-foreground border border-border",
   },
   active: {
@@ -35,8 +35,8 @@ const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
     badge: "bg-amber-50 text-amber-700 border border-amber-700",
   },
   inactive: {
-    dot: "bg-gray-600 border-[3px] border-gray-300",
-    badge: "bg-gray-100 text-gray-600 border border-gray-600",
+    dot: "bg-stone-600 border-[3px] border-stone-300",
+    badge: "bg-stone-100 text-stone-600 border border-stone-600",
   },
   warning: {
     dot: "bg-yellow-700 border-[3px] border-yellow-200",

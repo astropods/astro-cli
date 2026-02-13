@@ -3,7 +3,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./lib/auth";
 import { queryClient } from "./lib/queryClient";
 import { Layout } from "./components/Layout";
-import { HeaderLayout } from "./components/HeaderLayout";
 import { Home } from "./pages/Home";
 import { Hire } from "./pages/Hire";
 import { AgentDetail } from "./pages/AgentDetail";
@@ -20,20 +19,15 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Layout />}>
-              {/* Pages without breadcrumb header */}
+              <Route index element={<Home />} />
               <Route path="hire" element={<Hire />} />
-
-              {/* Pages with breadcrumb header */}
-              <Route element={<HeaderLayout />}>
-                <Route index element={<Home />} />
-                <Route path="hire/:agentSlug" element={<AgentDetail />} />
-                <Route path="request-agent" element={<RequestAgent />} />
-                <Route path="agents" element={<YourAgents />} />
-                <Route path="operator" element={<Operator />} />
-                {/* /dev is public (no login required) — CLI download & quick start */}
-                <Route path="dev" element={<Dev />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
+              <Route path="hire/:agentSlug" element={<AgentDetail />} />
+              <Route path="request-agent" element={<RequestAgent />} />
+              <Route path="agents" element={<YourAgents />} />
+              <Route path="operator" element={<Operator />} />
+              {/* /dev is public (no login required) — CLI download & quick start */}
+              <Route path="dev" element={<Dev />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
         </BrowserRouter>

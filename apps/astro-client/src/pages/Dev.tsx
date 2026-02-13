@@ -13,7 +13,7 @@ export function Dev() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="max-w-2xl space-y-8 p-6 md:p-8">
       <div>
         <h1 className="text-2xl font-semibold mb-1">Developer</h1>
         <p className="text-muted-foreground">

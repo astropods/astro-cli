@@ -177,7 +177,7 @@ export function Hire() {
       {/* Loading state */}
       {isLoading ? (
         <div role="status" aria-label="Loading agents" className="flex items-center justify-center py-12">
-          <Loader2 size={32} className="animate-spin text-gray-500" />
+          <Loader2 size={32} className="animate-spin text-stone-500" />
         </div>
       ) : isError ? (
         <div className="p-4 bg-red-50 border border-red-200 text-red-700">
@@ -194,9 +194,9 @@ export function Hire() {
           </button>
         </div>
       ) : agents.length === 0 ? (
-        <div className="p-8 border border-gray-300 text-center">
+        <div className="p-8 border border-stone-300 text-center">
           <h3 className="text-lg font-medium mb-2">No agents available</h3>
-          <p className="text-gray-600 text-sm">
+          <p className="text-stone-600 text-sm">
             There are no agents in the registry yet.
           </p>
         </div>
@@ -220,7 +220,7 @@ export function Hire() {
       {/* Wizard overlay — unchanged */}
       {isWizardOpen && (
         <div role="dialog" aria-label="Find agents wizard" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="relative flex max-h-[80vh] w-full max-w-[500px] flex-col overflow-hidden border border-gray-300 bg-white">
+          <div className="relative flex max-h-[80vh] w-full max-w-[500px] flex-col overflow-hidden border border-stone-300 bg-white">
             <button
               className="absolute right-3 top-3 z-10 cursor-pointer border-none bg-transparent"
               onClick={closeWizard}

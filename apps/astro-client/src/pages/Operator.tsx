@@ -78,11 +78,11 @@ function DeployModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white border border-gray-300 w-full max-w-[500px] max-h-[80vh] relative overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-300">
+      <div className="bg-white border border-stone-300 w-full max-w-[500px] max-h-[80vh] relative overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-300">
           <div>
             <h2 className="text-lg font-semibold">Deploy {agent.name}</h2>
-            <p className="text-sm text-gray-600">Version: {version}</p>
+            <p className="text-sm text-stone-600">Version: {version}</p>
           </div>
           <button
             className="bg-transparent border-none cursor-pointer p-1"
@@ -95,8 +95,8 @@ function DeployModal({
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 size={24} className="animate-spin text-gray-500" />
-              <span className="ml-2 text-gray-600">Loading configuration...</span>
+              <Loader2 size={24} className="animate-spin text-stone-500" />
+              <span className="ml-2 text-stone-600">Loading configuration...</span>
             </div>
           ) : error ? (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -110,15 +110,15 @@ function DeployModal({
             <form onSubmit={handleSubmit} id="deploy-form">
               {requiredCredentials.length > 0 && (
                 <div className="mb-4">
-                  <h3 className="text-sm font-medium mb-2 text-gray-700">
+                  <h3 className="text-sm font-medium mb-2 text-stone-700">
                     Required Credentials
                   </h3>
                   <div className="space-y-3">
                     {requiredCredentials.map((cred) => (
                       <div key={cred.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-stone-700 mb-1">
                           {cred.key}
-                          <span className="ml-1 text-xs text-gray-500">
+                          <span className="ml-1 text-xs text-stone-500">
                             ({cred.provider})
                           </span>
                         </label>
@@ -132,9 +132,9 @@ function DeployModal({
                             }))
                           }
                           placeholder={cred.description}
-                          className="w-full py-2 px-3 border border-gray-300 text-sm focus:outline-2 focus:outline-gray-800 focus:-outline-offset-2"
+                          className="w-full py-2 px-3 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-stone-500 mt-1">
                           {cred.description}
                         </p>
                       </div>
@@ -145,15 +145,15 @@ function DeployModal({
 
               {optionalCredentials.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium mb-2 text-gray-700">
+                  <h3 className="text-sm font-medium mb-2 text-stone-700">
                     Optional Credentials
                   </h3>
                   <div className="space-y-3">
                     {optionalCredentials.map((cred) => (
                       <div key={cred.key}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-stone-700 mb-1">
                           {cred.key}
-                          <span className="ml-1 text-xs text-gray-500">
+                          <span className="ml-1 text-xs text-stone-500">
                             ({cred.provider})
                           </span>
                         </label>
@@ -167,9 +167,9 @@ function DeployModal({
                             }))
                           }
                           placeholder={cred.description}
-                          className="w-full py-2 px-3 border border-gray-300 text-sm focus:outline-2 focus:outline-gray-800 focus:-outline-offset-2"
+                          className="w-full py-2 px-3 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-stone-500 mt-1">
                           {cred.description}
                         </p>
                       </div>
@@ -181,11 +181,11 @@ function DeployModal({
           )}
         </div>
 
-        <div className="flex gap-2 p-4 border-t border-gray-300">
+        <div className="flex gap-2 p-4 border-t border-stone-300">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 border border-gray-300 text-sm bg-white hover:bg-gray-50 cursor-pointer"
+            className="flex-1 px-4 py-2 border border-stone-300 text-sm bg-white hover:bg-stone-50 cursor-pointer"
             disabled={isDeploying}
           >
             Cancel
@@ -194,7 +194,7 @@ function DeployModal({
             type="submit"
             form="deploy-form"
             disabled={!canDeploy || isDeploying}
-            className="flex-1 px-4 py-2 border border-gray-800 text-sm bg-gray-800 text-white hover:bg-gray-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 px-4 py-2 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isDeploying ? (
               <>
@@ -225,8 +225,8 @@ function DeployResultModal({ result, onClose }: DeployResultModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white border border-gray-300 w-full max-w-[500px] max-h-[80vh] relative overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-300">
+      <div className="bg-white border border-stone-300 w-full max-w-[500px] max-h-[80vh] relative overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-300">
           <div className="flex items-center gap-2">
             {isSuccess ? (
               <CheckCircle size={20} className="text-green-600" />
@@ -254,13 +254,13 @@ function DeployResultModal({ result, onClose }: DeployResultModalProps) {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-4">
             <div>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-stone-600">
                 <strong>Agent:</strong> {result.name}
               </p>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-stone-600">
                 <strong>Version:</strong> {result.version}
               </p>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-stone-600">
                 <strong>Namespace:</strong> {result.k8s_namespace}
               </p>
             </div>
@@ -268,7 +268,7 @@ function DeployResultModal({ result, onClose }: DeployResultModalProps) {
             {result.resources && result.resources.length > 0 && (
               <div>
                 <h3 className="text-sm font-medium mb-2">Deployed Resources</h3>
-                <div className="bg-gray-50 p-2 border border-gray-200 text-xs font-mono max-h-32 overflow-y-auto">
+                <div className="bg-stone-50 p-2 border border-stone-200 text-xs font-mono max-h-32 overflow-y-auto">
                   {result.resources.map((r, i) => (
                     <div key={i}>{r.kind}/{r.name}: {r.status}</div>
                   ))}
@@ -280,7 +280,7 @@ function DeployResultModal({ result, onClose }: DeployResultModalProps) {
               result.service_endpoints.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">Service Endpoints</h3>
-                  <div className="bg-gray-50 p-2 border border-gray-200 text-xs font-mono">
+                  <div className="bg-stone-50 p-2 border border-stone-200 text-xs font-mono">
                     {result.service_endpoints.map((endpoint) => (
                       <div key={endpoint.name}>
                         {endpoint.name} ({endpoint.type}): {endpoint.url}
@@ -303,10 +303,10 @@ function DeployResultModal({ result, onClose }: DeployResultModalProps) {
           </div>
         </div>
 
-        <div className="p-4 border-t border-gray-300">
+        <div className="p-4 border-t border-stone-300">
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 border border-gray-800 text-sm bg-gray-800 text-white hover:bg-gray-700 cursor-pointer"
+            className="w-full px-4 py-2 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer"
           >
             Close
           </button>
@@ -343,11 +343,11 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white border border-gray-300 w-full max-w-[800px] max-h-[85vh] relative overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-300">
+      <div className="bg-white border border-stone-300 w-full max-w-[800px] max-h-[85vh] relative overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-300">
           <div>
             <h2 className="text-lg font-semibold">Pod Logs</h2>
-            <p className="text-sm text-gray-600 font-mono">{pod.name}</p>
+            <p className="text-sm text-stone-600 font-mono">{pod.name}</p>
           </div>
           <button
             className="bg-transparent border-none cursor-pointer p-1"
@@ -357,14 +357,14 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
           </button>
         </div>
 
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-stone-200 bg-stone-50">
           {pod.containers.length > 1 && (
             <label className="flex items-center gap-1 text-sm">
               Container:
               <select
                 value={selectedContainer}
                 onChange={(e) => setSelectedContainer(e.target.value)}
-                className="border border-gray-300 text-sm px-2 py-1"
+                className="border border-stone-300 text-sm px-2 py-1"
               >
                 {pod.containers.map((c) => (
                   <option key={c.name} value={c.name}>
@@ -379,7 +379,7 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
             <select
               value={tailLines}
               onChange={(e) => setTailLines(Number(e.target.value))}
-              className="border border-gray-300 text-sm px-2 py-1"
+              className="border border-stone-300 text-sm px-2 py-1"
             >
               {[50, 100, 200, 500].map((n) => (
                 <option key={n} value={n}>
@@ -391,7 +391,7 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
           <button
             onClick={() => refetch()}
             disabled={loading}
-            className="flex items-center gap-1 px-2 py-1 text-sm border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1 px-2 py-1 text-sm border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             Refresh
@@ -401,8 +401,8 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
         <div className="flex-1 min-h-0 p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="animate-spin text-gray-500" />
-              <span className="ml-2 text-gray-600">Loading logs...</span>
+              <Loader2 size={24} className="animate-spin text-stone-500" />
+              <span className="ml-2 text-stone-600">Loading logs...</span>
             </div>
           ) : error ? (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -411,17 +411,17 @@ function LogModal({ deployment, pod, onClose }: LogModalProps) {
           ) : (
             <pre
               ref={logRef}
-              className="bg-gray-900 text-gray-100 text-xs font-mono p-3 overflow-y-scroll h-full whitespace-pre-wrap break-all"
+              className="bg-stone-900 text-stone-100 text-xs font-mono p-3 overflow-y-scroll h-full whitespace-pre-wrap break-all"
             >
               {logs ?? "(no logs available)"}
             </pre>
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-300">
+        <div className="p-4 border-t border-stone-300">
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 border border-gray-800 text-sm bg-gray-800 text-white hover:bg-gray-700 cursor-pointer"
+            className="w-full px-4 py-2 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer"
           >
             Close
           </button>
@@ -440,7 +440,7 @@ function containerStateColor(state: string): string {
     case "Terminated":
       return "text-red-600";
     default:
-      return "text-gray-500";
+      return "text-stone-500";
   }
 }
 
@@ -455,7 +455,7 @@ function phaseColor(phase: string): string {
     case "Succeeded":
       return "text-blue-600";
     default:
-      return "text-gray-500";
+      return "text-stone-500";
   }
 }
 
@@ -479,14 +479,14 @@ function DeploymentCard({
       ? "text-green-600"
       : deployment.status === "Pending"
         ? "text-yellow-600"
-        : "text-gray-500";
+        : "text-stone-500";
 
   const statusBg =
     deployment.status === "Running"
       ? "bg-green-50 border-green-200"
       : deployment.status === "Pending"
         ? "bg-yellow-50 border-yellow-200"
-        : "bg-gray-50 border-gray-200";
+        : "bg-stone-50 border-stone-200";
 
   const handleCopyEndpoint = async () => {
     if (deployment.external_url) {
@@ -499,16 +499,16 @@ function DeploymentCard({
   const pods = deployment.pods || [];
 
   return (
-    <div className="border border-gray-300 bg-white">
+    <div className="border border-stone-300 bg-white">
       <div
-        className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
+        className="flex items-center justify-between p-4 cursor-pointer hover:bg-stone-50"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3">
           <Activity size={20} className={statusColor} />
           <div>
             <h3 className="font-semibold">{deployment.name}</h3>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-stone-500">
               Version: {deployment.version}
             </p>
           </div>
@@ -519,7 +519,7 @@ function DeploymentCard({
           >
             {deployment.status}
           </span>
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-stone-500">
             {deployment.ready}/{deployment.replicas} ready
           </span>
           <button
@@ -548,7 +548,7 @@ function DeploymentCard({
             {deployment.components.map((c) => (
               <span
                 key={c}
-                className="px-2 py-0.5 text-xs bg-gray-100 border border-gray-200"
+                className="px-2 py-0.5 text-xs bg-stone-100 border border-stone-200"
               >
                 {c}
               </span>
@@ -572,7 +572,7 @@ function DeploymentCard({
                 e.stopPropagation();
                 handleCopyEndpoint();
               }}
-              className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer flex items-center gap-1"
+              className="px-2 py-1 text-xs border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer flex items-center gap-1"
               title="Copy endpoint URL"
             >
               <Copy size={12} />
@@ -580,19 +580,19 @@ function DeploymentCard({
             </button>
           </div>
         )}
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-stone-400">
           Deployed: {new Date(deployment.created_at).toLocaleString()}
         </p>
       </div>
 
       {/* Expanded pod details */}
       {expanded && (
-        <div className="border-t border-gray-300 p-4 bg-gray-50">
+        <div className="border-t border-stone-300 p-4 bg-stone-50">
           <h4 className="text-sm font-medium mb-3">
             Pods ({pods.length})
           </h4>
           {pods.length === 0 ? (
-            <p className="text-sm text-gray-500">No pods found</p>
+            <p className="text-sm text-stone-500">No pods found</p>
           ) : (
             <div className="space-y-2">
               {pods.map((pod) => {
@@ -606,7 +606,7 @@ function DeploymentCard({
                 return (
                   <div
                     key={pod.name}
-                    className="bg-white border border-gray-200 p-3"
+                    className="bg-white border border-stone-200 p-3"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -618,7 +618,7 @@ function DeploymentCard({
                         </span>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-stone-500">
                           {readyContainers}/{totalContainers} ready
                         </span>
                         {totalRestarts > 0 && (
@@ -626,13 +626,13 @@ function DeploymentCard({
                             {totalRestarts} restart{totalRestarts !== 1 ? "s" : ""}
                           </span>
                         )}
-                        <span className="text-xs text-gray-400">{pod.age}</span>
+                        <span className="text-xs text-stone-400">{pod.age}</span>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             setLogPod(pod);
                           }}
-                          className="px-2 py-1 text-xs border border-gray-300 bg-white hover:bg-gray-50 cursor-pointer flex items-center gap-1"
+                          className="px-2 py-1 text-xs border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer flex items-center gap-1"
                         >
                           <FileText size={12} />
                           View Logs
@@ -646,20 +646,20 @@ function DeploymentCard({
                         {pod.containers.map((container) => (
                           <div
                             key={container.name}
-                            className="flex items-center gap-3 text-xs py-1 border-t border-gray-100 first:border-t-0"
+                            className="flex items-center gap-3 text-xs py-1 border-t border-stone-100 first:border-t-0"
                           >
-                            <span className="font-mono text-gray-700 w-32 truncate">
+                            <span className="font-mono text-stone-700 w-32 truncate">
                               {container.name}
                             </span>
                             <span className={`font-medium ${containerStateColor(container.state)}`}>
                               {container.state}
                             </span>
                             {container.reason && (
-                              <span className="text-gray-500" title={container.message || ""}>
+                              <span className="text-stone-500" title={container.message || ""}>
                                 ({container.reason})
                               </span>
                             )}
-                            <span className={container.ready ? "text-green-600" : "text-gray-400"}>
+                            <span className={container.ready ? "text-green-600" : "text-stone-400"}>
                               {container.ready ? "Ready" : "Not Ready"}
                             </span>
                             {container.restart_count > 0 && (
@@ -700,16 +700,16 @@ function AgentCard({ agent, onDeploy }: AgentCardProps) {
   const latestVersion = agent.versions[0];
 
   return (
-    <div className="border border-gray-300 bg-white">
+    <div className="border border-stone-300 bg-white">
       <div
-        className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
+        className="flex items-center justify-between p-4 cursor-pointer hover:bg-stone-50"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3">
-          <Server size={20} className="text-gray-500" />
+          <Server size={20} className="text-stone-500" />
           <div>
             <h3 className="font-semibold">{agent.name}</h3>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-stone-500">
               {agent.versions.length} version(s) • Latest: {latestVersion?.version || "N/A"}
             </p>
           </div>
@@ -723,7 +723,7 @@ function AgentCard({ agent, onDeploy }: AgentCardProps) {
               }
             }}
             disabled={!latestVersion}
-            className="px-3 py-1.5 border border-gray-800 text-sm bg-gray-800 text-white hover:bg-gray-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            className="px-3 py-1.5 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
             <Rocket size={14} />
             Deploy
@@ -733,23 +733,23 @@ function AgentCard({ agent, onDeploy }: AgentCardProps) {
       </div>
 
       {expanded && (
-        <div className="border-t border-gray-300 p-4 bg-gray-50">
+        <div className="border-t border-stone-300 p-4 bg-stone-50">
           <h4 className="text-sm font-medium mb-2">Available Versions</h4>
           <div className="space-y-2">
             {agent.versions.map((v) => (
               <div
                 key={v.version}
-                className="flex items-center justify-between p-2 bg-white border border-gray-200"
+                className="flex items-center justify-between p-2 bg-white border border-stone-200"
               >
                 <div>
                   <span className="font-mono text-sm">{v.version}</span>
-                  <span className="text-xs text-gray-500 ml-2">
+                  <span className="text-xs text-stone-500 ml-2">
                     Published: {new Date(v.published_at).toLocaleDateString()}
                   </span>
                 </div>
                 <button
                   onClick={() => onDeploy(agent, v.version)}
-                  className="px-2 py-1 border border-gray-300 text-xs bg-white hover:bg-gray-50 cursor-pointer"
+                  className="px-2 py-1 border border-stone-300 text-xs bg-white hover:bg-stone-50 cursor-pointer"
                 >
                   Deploy this version
                 </button>
@@ -864,11 +864,11 @@ export function Operator() {
   };
 
   return (
-    <div className="max-w-[1000px]">
+    <div className="max-w-[1000px] p-6 md:p-8">
       <div className="flex justify-between items-start mb-6">
         <div>
           <h1 className="text-2xl font-semibold mb-1">Operator</h1>
-          <p className="text-gray-600 text-sm">
+          <p className="text-stone-600 text-sm">
             Manage and deploy agents from the registry
           </p>
         </div>
@@ -878,7 +878,7 @@ export function Operator() {
             if (isAuthenticated) refetchDeployments();
           }}
           disabled={loading || (isAuthenticated && deploymentsLoading)}
-          className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 border border-stone-300 bg-white text-sm text-stone-700 hover:bg-stone-50 cursor-pointer disabled:opacity-50"
         >
           <RefreshCw size={16} className={loading || (isAuthenticated && deploymentsLoading) ? "animate-spin" : ""} />
           Refresh
@@ -904,14 +904,14 @@ export function Operator() {
           <h2 className="text-lg font-semibold mb-4">Current Deployments</h2>
 
           {deploymentsLoading ? (
-            <div className="flex items-center justify-center py-8 border border-gray-300 bg-gray-50">
-              <Loader2 size={24} className="animate-spin text-gray-500" />
+            <div className="flex items-center justify-center py-8 border border-stone-300 bg-stone-50">
+              <Loader2 size={24} className="animate-spin text-stone-500" />
             </div>
           ) : deployments.length === 0 ? (
-            <div className="p-6 border border-gray-300 bg-gray-50 text-center">
-              <Activity size={32} className="mx-auto text-gray-400 mb-2" />
-              <p className="text-gray-600 text-sm">No active deployments</p>
-              <p className="text-gray-500 text-xs mt-1">
+            <div className="p-6 border border-stone-300 bg-stone-50 text-center">
+              <Activity size={32} className="mx-auto text-stone-400 mb-2" />
+              <p className="text-stone-600 text-sm">No active deployments</p>
+              <p className="text-stone-500 text-xs mt-1">
                 Deploy an agent from the registry below
               </p>
             </div>
@@ -934,7 +934,7 @@ export function Operator() {
       {isAuthenticated && (
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-1">Private Agent Registry</h2>
-          <p className="text-gray-600 text-sm">
+          <p className="text-stone-600 text-sm">
             Available agents to deploy
           </p>
         </div>
@@ -942,7 +942,7 @@ export function Operator() {
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 size={32} className="animate-spin text-gray-500" />
+          <Loader2 size={32} className="animate-spin text-stone-500" />
         </div>
       ) : error ? (
         <div className="p-4 bg-red-50 border border-red-200 text-red-700">
@@ -956,10 +956,10 @@ export function Operator() {
           </button>
         </div>
       ) : agents.length === 0 ? (
-        <div className="p-8 border border-gray-300 text-center">
-          <Server size={48} className="mx-auto text-gray-400 mb-4" />
+        <div className="p-8 border border-stone-300 text-center">
+          <Server size={48} className="mx-auto text-stone-400 mb-4" />
           <h3 className="text-lg font-medium mb-2">No agents available</h3>
-          <p className="text-gray-600 text-sm">
+          <p className="text-stone-600 text-sm">
             There are no agents in the registry yet.
           </p>
         </div>
