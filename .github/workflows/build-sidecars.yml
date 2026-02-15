@@ -225,12 +225,28 @@ jobs:
         if: matrix.push_ecr
         working-directory: ${{ runner.temp }}/digests/ecr/${{ matrix.service }}
         run: |
-          IMAGE="${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }}"
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          PROD_IMAGE="$REGISTRY/prod-${{ matrix.service }}"
           docker buildx imagetools create \
-            -t "$IMAGE:${{ github.sha }}" \
-            -t "$IMAGE:latest" \
-            $(printf "$IMAGE@sha256:%s " *)
-          echo "::notice::ECR: $IMAGE:${{ github.sha }}"
+            -t "$PROD_IMAGE:${{ github.sha }}" \
+            -t "$PROD_IMAGE:latest" \
+            $(printf "$PROD_IMAGE@sha256:%s " *)
+          echo "::notice::ECR: $PROD_IMAGE:${{ github.sha }}"
+
+      - name: Copy to preview ECR
+        if: matrix.push_ecr
+        run: |
+          PROD_REPO="prod-${{ matrix.service }}"
+          PREVIEW_REPO="preview-${{ matrix.service }}"
+          TAG="${{ github.sha }}"
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name "$PROD_REPO" \
+            --image-ids imageTag="$TAG" \
+            --query 'images[0].imageManifest' \
+            --output text)
+          aws ecr put-image --repository-name "$PREVIEW_REPO" --image-tag "$TAG" --image-manifest "$MANIFEST" || true
+          aws ecr put-image --repository-name "$PREVIEW_REPO" --image-tag "latest" --image-manifest "$MANIFEST" || true
+          echo "::notice::ECR: preview-${{ matrix.service }}:$TAG"
 
       - name: Create GHCR manifest and push
         if: matrix.push_ghcr

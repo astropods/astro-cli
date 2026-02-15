@@ -5,12 +5,10 @@ on:
     branches:
       - main
     paths:
-      - "apps/astro-server/**"
-      - "apps/astro-registry/**"
+      - "apps/**"
       - "packages/**"
-      - "deployment/Dockerfile.astro-server"
-      - "deployment/Dockerfile.astro-registry"
       - "config/**"
+      - "deployment/**"
 
   workflow_dispatch:
     inputs:
