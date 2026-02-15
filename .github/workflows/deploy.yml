@@ -22,10 +22,6 @@ on:
         description: "Build astro-registry"
         type: boolean
         default: false
-      sync-secrets:
-        description: "Sync secrets from 1Password first"
-        type: boolean
-        default: false
       environment:
         description: "Target environment"
         type: choice
@@ -218,51 +214,6 @@ jobs:
           else
             echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
           fi
-
-  # ---------------------------------------------------------------------------
-  # Sync secrets (optional, only on workflow_dispatch)
-  # ---------------------------------------------------------------------------
-  sync-secrets:
-    if: inputs.sync-secrets == true
-    needs: [deploy-preview]
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Install 1Password CLI
-        uses: 1password/install-cli-action@v1
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Sync astro-server secrets
-        env:
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
-          OP_VAULT: Astro
-        run: |
-          SECRET_JSON=$(op item get "${{ vars.OP_ITEM_NAME }}" --vault "$OP_VAULT" --format json | \
-            jq '[.fields[] | select(.label != null and .value != null and (.label | test("^[A-Z0-9_]+$"))) | {(.label): .value}] | add')
-          KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
-          echo "::notice::Syncing secrets: $KEYS"
-          aws secretsmanager put-secret-value \
-            --secret-id ${{ vars.SECRETS_MANAGER_PREFIX }}/astro-server/app \
-            --secret-string "$SECRET_JSON"
-          echo "::notice::astro-server secrets synced"
-
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
-
-      - name: Force ExternalSecret resync
-        run: |
-          kubectl annotate externalsecret astro-server-secrets -n astro-server "force-sync=$(date +%s)" --overwrite
-          echo "::notice::Triggered ExternalSecret resync"
 
   # ---------------------------------------------------------------------------
   # Deploy to prod: copy images from preview ECR, deploy ConfigMap
