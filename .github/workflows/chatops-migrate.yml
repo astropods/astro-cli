@@ -22,7 +22,6 @@ jobs:
     outputs:
       environment: ${{ steps.parse.outputs.environment }}
       valid-command: ${{ steps.parse.outputs.valid-command }}
-      valid-envs: ${{ steps.parse.outputs.valid-envs }}
       stage: ${{ steps.parse.outputs.stage }}
       targets: ${{ steps.parse.outputs.targets }}
     steps:
@@ -31,12 +30,10 @@ jobs:
         run: |
           COMMENT="${{ github.event.comment.body }}"
 
-          # Extract environment from "/migrate <environment>"
           if [[ $COMMENT =~ ^/migrate[[:space:]]+([a-zA-Z-]+) ]]; then
             ENVIRONMENT="${BASH_REMATCH[1]}"
           else
             echo "valid-command=false" >> $GITHUB_OUTPUT
-            echo "valid-envs=preview, prod" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -55,27 +52,28 @@ jobs:
               ;;
             *)
               echo "valid-command=false" >> $GITHUB_OUTPUT
-              echo "valid-envs=preview, prod" >> $GITHUB_OUTPUT
               ;;
           esac
 
-      - name: Add reaction to comment
+      - name: React to valid command
         if: steps.parse.outputs.valid-command == 'true'
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          comment-id: ${{ github.event.comment.id }}
-          reactions: rocket
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content=rocket
 
       - name: Comment on invalid command
         if: steps.parse.outputs.valid-command == 'false'
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          issue-number: ${{ github.event.issue.number }}
-          body: |
-            Invalid migrate command.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "Invalid migrate command.
 
-            **Usage:** `/migrate <environment>`
-            **Valid environments:** `${{ steps.parse.outputs.valid-envs }}`
+          **Usage:** \`/migrate <environment>\`
+          **Valid environments:** \`preview\`, \`prod\`"
 
   deploy:
     needs: parse-command
@@ -92,16 +90,21 @@ jobs:
 
       - name: Comment deployment started
         id: deployment-comment
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          issue-number: ${{ github.event.issue.number }}
-          body: |
-            **Migration deployment starting**
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY="**Migration deployment starting**
 
-            **Environment:** `${{ needs.parse-command.outputs.environment }}`
-            **Triggered by:** @${{ github.event.comment.user.login }}
+          **Environment:** \`${{ needs.parse-command.outputs.environment }}\`
+          **Triggered by:** @${{ github.event.comment.user.login }}
 
-            [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+          COMMENT_URL=$(gh pr comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "$BODY" 2>&1 | grep -o 'https://.*')
+          COMMENT_ID=$(echo "$COMMENT_URL" | grep -o '[0-9]*$')
+          echo "comment-id=$COMMENT_ID" >> $GITHUB_OUTPUT
 
       - name: Create rollout plan
         id: create-rollout
@@ -141,31 +144,31 @@ jobs:
 
       - name: Comment success
         if: success()
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          comment-id: ${{ steps.deployment-comment.outputs.comment-id }}
-          edit-mode: replace
-          body: |
-            **Migration deployed to `${{ needs.parse-command.outputs.environment }}`**
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ steps.deployment-comment.outputs.comment-id }} \
+            -X PATCH \
+            -f body="**Migration deployed to \`${{ needs.parse-command.outputs.environment }}\`**
 
-            **Triggered by:** @${{ github.event.comment.user.login }}
+          **Triggered by:** @${{ github.event.comment.user.login }}
 
-            | Resource | Link |
-            |----------|------|
-            | Release | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.release }} |
-            | Plan | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.plan }} |
-            | Rollout | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.rollout }} |
+          | Resource | Link |
+          |----------|------|
+          | Release | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.release }} |
+          | Plan | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.plan }} |
+          | Rollout | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.rollout }} |"
 
       - name: Comment failure
         if: failure()
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          comment-id: ${{ steps.deployment-comment.outputs.comment-id }}
-          edit-mode: replace
-          body: |
-            **Migration deployment failed**
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ steps.deployment-comment.outputs.comment-id }} \
+            -X PATCH \
+            -f body="**Migration deployment failed**
 
-            **Environment:** `${{ needs.parse-command.outputs.environment }}`
-            **Triggered by:** @${{ github.event.comment.user.login }}
+          **Environment:** \`${{ needs.parse-command.outputs.environment }}\`
+          **Triggered by:** @${{ github.event.comment.user.login }}
 
-            Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
