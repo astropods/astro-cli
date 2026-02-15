@@ -2,17 +2,23 @@ name: Sync Config
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options:
+          - preview
+          - prod
 
 env:
   AWS_REGION: us-east-1
   OP_VAULT: Astro
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-  EKS_CLUSTER: prod-primary-eks
 
 jobs:
   sync-config:
     name: Sync secrets and ConfigMaps
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     permissions:
       id-token: write
       contents: read
@@ -27,58 +33,58 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Update kubeconfig
         run: |
-          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
+          aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
 
       # astro-server
       - name: Sync astro-server secrets
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
         run: |
-          SECRET_JSON=$(op item get "astro-server-secrets" --vault "${{ env.OP_VAULT }}" --format json | \
+          SECRET_JSON=$(op item get "${{ vars.OP_ITEM_NAME }}" --vault "${{ env.OP_VAULT }}" --format json | \
             jq '[.fields[] | select(.label != null and .value != null and (.label | test("^[A-Z0-9_]+$"))) | {(.label): .value}] | add')
           KEYS=$(echo "$SECRET_JSON" | jq -r 'keys | join(", ")')
-          echo "::notice::🔐 Syncing astro-server secrets: $KEYS"
+          echo "::notice::Syncing astro-server secrets: $KEYS"
           aws secretsmanager put-secret-value \
-            --secret-id prod/astro-server/app \
+            --secret-id ${{ vars.SECRETS_MANAGER_PREFIX }}/astro-server/app \
             --secret-string "$SECRET_JSON"
-          echo "::notice::✅ astro-server secrets synced"
+          echo "::notice::astro-server secrets synced"
 
       - name: Deploy astro-server ConfigMap
         run: |
-          CONFIG_FILE="config/astro-server/prod.env"
+          CONFIG_FILE="config/astro-server/${{ vars.ENV_NAME }}.env"
           if [ -f "$CONFIG_FILE" ]; then
             kubectl create configmap astro-server-config \
               --from-env-file="$CONFIG_FILE" \
               --namespace=astro-server \
               --dry-run=client -o yaml | kubectl apply -f -
-            echo "::notice::⚙️ astro-server ConfigMap updated"
+            echo "::notice::astro-server ConfigMap updated"
           else
             echo "::warning::No $CONFIG_FILE found"
           fi
 
       # astro-registry
       # Note: astro-registry secrets (WORKOS_CLIENT_ID) are sourced from
-      # prod/astro-server/app via ExternalSecret, so no separate secret sync needed.
+      # the astro-server secret via ExternalSecret, so no separate secret sync needed.
 
       - name: Force ExternalSecret resync
         run: |
           kubectl annotate externalsecret astro-server-secrets -n astro-server "force-sync=$(date +%s)" --overwrite
-          echo "::notice::🔄 Triggered ExternalSecret resync for astro-server"
+          echo "::notice::Triggered ExternalSecret resync for astro-server"
 
       - name: Deploy astro-registry ConfigMap
         run: |
-          CONFIG_FILE="config/astro-registry/prod.env"
+          CONFIG_FILE="config/astro-registry/${{ vars.ENV_NAME }}.env"
           if [ -f "$CONFIG_FILE" ]; then
             kubectl create configmap astro-registry-config \
               --from-env-file="$CONFIG_FILE" \
               --namespace=astro-registry \
               --dry-run=client -o yaml | kubectl apply -f -
-            echo "::notice::⚙️ astro-registry ConfigMap updated"
+            echo "::notice::astro-registry ConfigMap updated"
           else
             echo "::warning::No $CONFIG_FILE found"
           fi

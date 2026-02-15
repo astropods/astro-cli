@@ -29,7 +29,7 @@ jobs:
       - name: Create rollout plan
         id: rollout
         env:
-          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
+          BYTEBASE_TARGETS: "instances/preview/databases/astro,instances/prod-postgresql/databases/astro"
           FILE_PATTERN: "apps/astro-server/migrations/*.sql"
           BYTEBASE_OUTPUT: ${{ runner.temp }}/bytebase-metadata.json
         run: |
@@ -37,8 +37,21 @@ jobs:
           PLAN=$(jq -r .plan ${{ env.BYTEBASE_OUTPUT }})
           echo "plan=$PLAN" >> $GITHUB_OUTPUT
 
-  deploy-to-prod:
+  deploy-to-preview:
     needs: create-rollout
+    runs-on: ubuntu-latest
+    environment: preview
+    container:
+      image: docker://bytebase/bytebase-action:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Deploy to preview
+        run: |
+          bytebase-action rollout --url=${{ env.BYTEBASE_URL }} --project=${{ env.BYTEBASE_PROJECT }} --target-stage=environments/preview --plan=${{ needs.create-rollout.outputs.plan }}
+
+  deploy-to-prod:
+    needs: [create-rollout, deploy-to-preview]
     runs-on: ubuntu-latest
     environment: prod
     container:

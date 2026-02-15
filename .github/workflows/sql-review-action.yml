@@ -25,7 +25,7 @@ jobs:
       - name: Review against test and prod
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
+          BYTEBASE_TARGETS: "instances/preview/databases/astro,instances/prod-postgresql/databases/astro"
           FILE_PATTERN: "apps/astro-server/migrations/*.sql"
         run: |
           bytebase-action check --url=${{ env.BYTEBASE_URL }} --project=${{ env.BYTEBASE_PROJECT }} --targets=${{ env.BYTEBASE_TARGETS }} --file-pattern=${{ env.FILE_PATTERN }}
