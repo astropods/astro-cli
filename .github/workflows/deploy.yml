@@ -292,22 +292,23 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/preview-github-actions-ecr-push
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to preview ECR
-        id: login-preview-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Install crane
-        uses: imjasonh/setup-crane@v0.4
-
       - name: Copy image from preview to prod ECR
         run: |
-          PREVIEW_IMAGE="${{ steps.login-preview-ecr.outputs.registry }}/preview-${{ matrix.service }}:${{ github.sha }}"
-          PROD_IMAGE="${{ steps.login-preview-ecr.outputs.registry }}/prod-${{ matrix.service }}:${{ github.sha }}"
-          PROD_IMAGE_LATEST="${{ steps.login-preview-ecr.outputs.registry }}/prod-${{ matrix.service }}:latest"
+          PREVIEW_REPO="preview-${{ matrix.service }}"
+          PROD_REPO="prod-${{ matrix.service }}"
+          TAG="${{ github.sha }}"
 
-          crane copy "$PREVIEW_IMAGE" "$PROD_IMAGE"
-          crane copy "$PREVIEW_IMAGE" "$PROD_IMAGE_LATEST"
-          echo "::notice::Copied $PREVIEW_IMAGE -> prod-${{ matrix.service }}:${{ github.sha }} + latest"
+          # Get the manifest from preview
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name "$PREVIEW_REPO" \
+            --image-ids imageTag="$TAG" \
+            --query 'images[0].imageManifest' \
+            --output text)
+
+          # Put manifest into prod repo with sha and latest tags
+          aws ecr put-image --repository-name "$PROD_REPO" --image-tag "$TAG" --image-manifest "$MANIFEST" || true
+          aws ecr put-image --repository-name "$PROD_REPO" --image-tag "latest" --image-manifest "$MANIFEST" || true
+          echo "::notice::Copied $PREVIEW_REPO:$TAG -> $PROD_REPO:$TAG + latest"
 
       - name: Configure AWS credentials (prod)
         uses: aws-actions/configure-aws-credentials@v4
