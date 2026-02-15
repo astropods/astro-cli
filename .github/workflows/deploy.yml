@@ -1,15 +1,6 @@
 name: Deploy
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/**"
-      - "packages/**"
-      - "config/**"
-      - "deployment/**"
-
   workflow_dispatch:
     inputs:
       astro-server:
@@ -48,17 +39,11 @@ jobs:
         run: |
           services='[]'
 
-          if [ "${{ github.event_name }}" == "push" ]; then
-            # On push to main, build both services
-            services='["astro-server","astro-registry"]'
-          else
-            # On workflow_dispatch, build selected services
-            if [ "${{ inputs.astro-server }}" == "true" ]; then
-              services=$(echo "$services" | jq -c '. + ["astro-server"]')
-            fi
-            if [ "${{ inputs.astro-registry }}" == "true" ]; then
-              services=$(echo "$services" | jq -c '. + ["astro-registry"]')
-            fi
+          if [ "${{ inputs.astro-server }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["astro-server"]')
+          fi
+          if [ "${{ inputs.astro-registry }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["astro-registry"]')
           fi
 
           count=$(echo "$services" | jq length)
@@ -217,7 +202,7 @@ jobs:
   # Deploy to prod: copy images from preview ECR, deploy ConfigMap
   # ---------------------------------------------------------------------------
   deploy-prod:
-    if: github.event_name == 'push' || inputs.environment == 'prod'
+    if: inputs.environment == 'prod'
     needs: [prepare, deploy-preview]
     runs-on: ubuntu-latest
     timeout-minutes: 10
