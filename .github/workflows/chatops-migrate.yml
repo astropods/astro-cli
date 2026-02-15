@@ -83,19 +83,19 @@ jobs:
     container:
       image: bytebase/bytebase-action:latest
     outputs:
-      release: ${{ steps.metadata.outputs.release }}
-      plan: ${{ steps.metadata.outputs.plan }}
-      rollout: ${{ steps.metadata.outputs.rollout }}
+      release: ${{ steps.rollout.outputs.release }}
+      plan: ${{ steps.rollout.outputs.plan }}
+      rollout: ${{ steps.rollout.outputs.rollout }}
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
         with:
           ref: refs/pull/${{ github.event.issue.number }}/merge
 
-      - name: Create rollout plan
-        id: create-rollout
+      - name: Create and execute rollout
+        id: rollout
         env:
-          BYTEBASE_TARGETS: ${{ needs.parse-command.outputs.targets }}
+          BYTEBASE_TARGETS: "instances/preview/databases/astro,instances/prod-postgresql/databases/astro"
           BYTEBASE_OUTPUT: ${{ runner.temp }}/bytebase-metadata.json
         run: |
           bytebase-action rollout \
@@ -106,24 +106,17 @@ jobs:
             --output=${{ env.BYTEBASE_OUTPUT }}
 
           PLAN=$(jq -r .plan ${{ env.BYTEBASE_OUTPUT }})
-          echo "plan=$PLAN" >> $GITHUB_OUTPUT
 
-      - name: Extract rollout metadata
-        id: metadata
-        run: |
-          METADATA="${{ runner.temp }}/bytebase-metadata.json"
-
-          echo "release=$(jq -r .release "$METADATA")" >> $GITHUB_OUTPUT
-          echo "plan=$(jq -r .plan "$METADATA")" >> $GITHUB_OUTPUT
-          echo "rollout=$(jq -r .rollout "$METADATA")" >> $GITHUB_OUTPUT
-
-      - name: Execute rollout
-        run: |
           bytebase-action rollout \
             --url=${{ env.BYTEBASE_URL }} \
             --project=${{ env.BYTEBASE_PROJECT }} \
             --target-stage=${{ needs.parse-command.outputs.stage }} \
-            --plan=${{ steps.create-rollout.outputs.plan }}
+            --plan=$PLAN
+
+          METADATA="${{ env.BYTEBASE_OUTPUT }}"
+          echo "release=$(jq -r .release "$METADATA")" >> $GITHUB_OUTPUT
+          echo "plan=$(jq -r .plan "$METADATA")" >> $GITHUB_OUTPUT
+          echo "rollout=$(jq -r .rollout "$METADATA")" >> $GITHUB_OUTPUT
 
   notify:
     needs: [parse-command, deploy]
