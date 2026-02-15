@@ -4,6 +4,10 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 env:
   BYTEBASE_URL: https://bytebase.astroids.ai/
   BYTEBASE_SERVICE_ACCOUNT: github-bot@service.bytebase.com
@@ -18,48 +22,42 @@ jobs:
     outputs:
       environment: ${{ steps.parse.outputs.environment }}
       valid-command: ${{ steps.parse.outputs.valid-command }}
+      valid-envs: ${{ steps.parse.outputs.valid-envs }}
       stage: ${{ steps.parse.outputs.stage }}
       targets: ${{ steps.parse.outputs.targets }}
     steps:
-      - name: Write command config
-        run: |
-          cat <<EOF > ${{ runner.temp }}/bytebase-action-config.yaml
-          preview:
-            stage: environments/preview
-            targets:
-              - instances/preview/databases/astro
-          prod:
-            stage: environments/prod
-            targets:
-              - instances/prod-postgresql/databases/astro
-          EOF
-
       - name: Parse migrate command
         id: parse
         run: |
           COMMENT="${{ github.event.comment.body }}"
-          CONFIG_FILE="${{ runner.temp }}/bytebase-action-config.yaml"
 
-          VALID_ENVS=$(yq eval 'keys | join(", ")' "$CONFIG_FILE")
-          echo "valid-envs=$VALID_ENVS" >> $GITHUB_OUTPUT
-
-          if [[ $COMMENT =~ ^/migrate[[:space:]]+([a-zA-Z]+) ]]; then
+          # Extract environment from "/migrate <environment>"
+          if [[ $COMMENT =~ ^/migrate[[:space:]]+([a-zA-Z-]+) ]]; then
             ENVIRONMENT="${BASH_REMATCH[1]}"
-
-            if yq eval "has(\"$ENVIRONMENT\")" "$CONFIG_FILE" | grep -q true; then
-              STAGE=$(yq eval ".$ENVIRONMENT.stage" "$CONFIG_FILE")
-              TARGETS=$(yq eval ".$ENVIRONMENT.targets | join(\",\")" "$CONFIG_FILE")
-
-              echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
-              echo "valid-command=true" >> $GITHUB_OUTPUT
-              echo "stage=$STAGE" >> $GITHUB_OUTPUT
-              echo "targets=$TARGETS" >> $GITHUB_OUTPUT
-            else
-              echo "valid-command=false" >> $GITHUB_OUTPUT
-            fi
           else
             echo "valid-command=false" >> $GITHUB_OUTPUT
+            echo "valid-envs=preview, prod" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          case "$ENVIRONMENT" in
+            preview)
+              echo "environment=preview" >> $GITHUB_OUTPUT
+              echo "stage=environments/preview" >> $GITHUB_OUTPUT
+              echo "targets=instances/preview/databases/astro" >> $GITHUB_OUTPUT
+              echo "valid-command=true" >> $GITHUB_OUTPUT
+              ;;
+            prod)
+              echo "environment=prod" >> $GITHUB_OUTPUT
+              echo "stage=environments/prod" >> $GITHUB_OUTPUT
+              echo "targets=instances/prod-postgresql/databases/astro" >> $GITHUB_OUTPUT
+              echo "valid-command=true" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "valid-command=false" >> $GITHUB_OUTPUT
+              echo "valid-envs=preview, prod" >> $GITHUB_OUTPUT
+              ;;
+          esac
 
       - name: Add reaction to comment
         if: steps.parse.outputs.valid-command == 'true'
@@ -84,9 +82,6 @@ jobs:
     if: needs.parse-command.outputs.valid-command == 'true'
     runs-on: ubuntu-latest
     environment: ${{ needs.parse-command.outputs.environment }}
-    permissions:
-      contents: read
-      pull-requests: write
     container:
       image: bytebase/bytebase-action:latest
     steps:
