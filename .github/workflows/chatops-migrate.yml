@@ -91,19 +91,19 @@ jobs:
       - name: Comment deployment started
         id: deployment-comment
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          BODY="**Migration deployment starting**
+          COMMENT_ID=$(curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            -d "$(jq -n --arg body "**Migration deployment starting**
 
           **Environment:** \`${{ needs.parse-command.outputs.environment }}\`
           **Triggered by:** @${{ github.event.comment.user.login }}
 
-          [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-
-          COMMENT_URL=$(gh pr comment ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --body "$BODY" 2>&1 | grep -o 'https://.*')
-          COMMENT_ID=$(echo "$COMMENT_URL" | grep -o '[0-9]*$')
+          [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+            '{body: $body}')" | jq -r .id)
           echo "comment-id=$COMMENT_ID" >> $GITHUB_OUTPUT
 
       - name: Create rollout plan
@@ -145,11 +145,13 @@ jobs:
       - name: Comment success
         if: success()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          gh api repos/${{ github.repository }}/issues/comments/${{ steps.deployment-comment.outputs.comment-id }} \
-            -X PATCH \
-            -f body="**Migration deployed to \`${{ needs.parse-command.outputs.environment }}\`**
+          curl -s -X PATCH \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/comments/${{ steps.deployment-comment.outputs.comment-id }}" \
+            -d "$(jq -n --arg body "**Migration deployed to \`${{ needs.parse-command.outputs.environment }}\`**
 
           **Triggered by:** @${{ github.event.comment.user.login }}
 
@@ -157,18 +159,22 @@ jobs:
           |----------|------|
           | Release | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.release }} |
           | Plan | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.plan }} |
-          | Rollout | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.rollout }} |"
+          | Rollout | ${{ steps.metadata.outputs.base-url }}/${{ steps.metadata.outputs.rollout }} |" \
+            '{body: $body}')"
 
       - name: Comment failure
         if: failure()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          gh api repos/${{ github.repository }}/issues/comments/${{ steps.deployment-comment.outputs.comment-id }} \
-            -X PATCH \
-            -f body="**Migration deployment failed**
+          curl -s -X PATCH \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/comments/${{ steps.deployment-comment.outputs.comment-id }}" \
+            -d "$(jq -n --arg body "**Migration deployment failed**
 
           **Environment:** \`${{ needs.parse-command.outputs.environment }}\`
           **Triggered by:** @${{ github.event.comment.user.login }}
 
-          Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details." \
+            '{body: $body}')"
