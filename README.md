@@ -55,7 +55,7 @@ Verbose:
 go test -v ./cmd/...
 ```
 
-Tests include publish version/auto logic, `baseVersion`, `updateSpecVersion`, and `defaultPublishTag` (with temporary git repos for git-clean/git-dirty cases).
+Tests include push version/auto logic, `baseVersion`, `updateSpecVersion`, and `defaultPushTag` (with temporary git repos for git-clean/git-dirty cases).
 
 ## Dependencies
 
@@ -76,8 +76,8 @@ apps/astro-cli/
 │   ├── root.go             # Root command, global flags
 │   ├── dev.go              # ast dev — local development, compose, hot reload
 │   ├── build.go             # ast build — container builds (BuildKit)
-│   ├── publish.go           # ast publish — version logic, registry push, register
-│   ├── publish_streaming.go # Push progress, multi-platform
+│   ├── push.go              # ast push — version logic, registry push, register
+│   ├── push_streaming.go    # Push progress, multi-platform
 │   ├── login.go / logout.go # Auth
 │   ├── playground.go       # ast playground
 │   ├── create.go            # ast create — scaffold new agent
@@ -101,11 +101,11 @@ Spec types and parsing live in `packages/astro-spec` (shared with server).
 1. **Spec** — `astro.yml` is parsed by `packages/astro-spec` into structured types.
 2. **Dev** — `compose` builder turns the spec into a Docker Compose project; `dev` runs it and optionally runs the agent process locally with a watcher.
 3. **Build** — For each component with `container.build`, the CLI invokes Docker/BuildKit with the right context, Dockerfile, secrets (e.g. npm token from env or injected), and platform.
-4. **Publish** — Each publish generates a random 8-character build ID used as the image tag. Images are tagged and pushed (single or multi-platform); spec is pushed as OCI artifact and optionally sent to Astro server for registration.
+4. **Push** — Each push generates a random 8-character build ID used as the image tag. Images are tagged and pushed (single or multi-platform); spec is pushed as OCI artifact and optionally sent to Astro server for registration.
 
-### Local publish (`--local`)
+### Local push (`--local`)
 
-`ast publish --local` builds images and registers the spec with a locally running astro-server (`http://localhost:8080`) instead of the remote platform. The remote registry push is skipped.
+`ast push --local` builds images and registers the spec with a locally running astro-server (`http://localhost:8080`) instead of the remote platform. The remote registry push is skipped.
 
 | Aspect | Normal | `--local` |
 |--------|--------|-----------|
@@ -123,8 +123,8 @@ Usage:
 # Start local astro-server
 cd apps/astro-server && moon run astro-server:dev
 
-# Publish to local server
-ast publish --local
+# Push to local server
+ast push --local
 ```
 
 Design principles:

@@ -189,7 +189,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	if len(profile.Accounts) == 0 {
 		fmt.Println()
-		yellow.Println("  Note: No account found. Visit the dashboard to choose your username before publishing.")
+		yellow.Println("  Note: No account found. Visit the dashboard to choose your username before pushing.")
 	}
 
 	return nil

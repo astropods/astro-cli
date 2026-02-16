@@ -39,10 +39,10 @@ func getOptimizedTransport() *http.Transport {
 	}
 }
 
-var publishCmd = &cobra.Command{
-	Use:   "publish",
-	Short: "Publish agent images and spec to astro platform",
-	Long: `Publish container images to astro-registry and spec to astro-server.
+var pushCmd = &cobra.Command{
+	Use:   "push",
+	Short: "Push agent images and spec to astro platform",
+	Long: `Push container images to astro-registry and spec to astro-server.
 
 This will:
 1. Generate a build ID
@@ -54,41 +54,41 @@ Images are pushed through the astro-registry service which proxies to ECR.
 The spec is registered with astro-server which validates and stores it.
 
 Example:
-  ast publish
-  ast publish --build
+  ast push
+  ast push --build
 
 Requirements:
   - Must be authenticated (run 'ast login' first)
   - Server and registry URLs come from your login profile (set via 'ast login')`,
-	RunE: runPublish,
+	RunE: runPush,
 }
 
 var (
-	publishTag      string // random build ID generated at publish time
-	skipBuild       bool
-	skipPush        bool
-	serverURL       string
-	registryURL     string
-	skipRegister    bool
-	noAuth          bool
-	publishPlatform string
-	publishLocal    bool
+	pushTag      string // random build ID generated at push time
+	skipBuild    bool
+	skipPush     bool
+	serverURL    string
+	registryURL  string
+	skipRegister bool
+	noAuth       bool
+	pushPlatform string
+	pushLocal    bool
 )
 
 func init() {
-	rootCmd.AddCommand(publishCmd)
-	publishCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before publishing")
-	publishCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
-	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides profile/default)")
-	publishCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (default: registry.<server-host>)")
-	publishCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
-	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
-	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64", "Target platform(s) for publish (comma-separated)")
-	publishCmd.Flags().BoolVar(&publishLocal, "local", false, "Build and register with locally running astro-server (skip registry push)")
-	_ = publishCmd.Flags().MarkHidden("local")
+	rootCmd.AddCommand(pushCmd)
+	pushCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before pushing")
+	pushCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
+	pushCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides profile/default)")
+	pushCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (default: registry.<server-host>)")
+	pushCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
+	pushCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
+	pushCmd.Flags().StringVar(&pushPlatform, "platform", "linux/amd64", "Target platform(s) for push (comma-separated)")
+	pushCmd.Flags().BoolVar(&pushLocal, "local", false, "Build and register with locally running astro-server (skip registry push)")
+	_ = pushCmd.Flags().MarkHidden("local")
 }
 
-func runPublish(cmd *cobra.Command, args []string) error {
+func runPush(cmd *cobra.Command, args []string) error {
 	// Get spec file path
 	specFile, _ := cmd.Flags().GetString("file")
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -100,10 +100,10 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	// Local mode: skip push, default to native platform
-	if publishLocal {
+	if pushLocal {
 		skipPush = true
 		if !cmd.Flags().Changed("platform") {
-			publishPlatform = nativePlatform()
+			pushPlatform = nativePlatform()
 		}
 	}
 
@@ -141,7 +141,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate random build ID (8-char hex)
-	publishTag = generateBuildID()
+	pushTag = generateBuildID()
 
 	// Build registry host from URL
 	registryHost, err := getRegistryHost(effectiveRegistryURL)
@@ -158,7 +158,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print header
-	fmt.Printf("%s→%s Publishing %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset, publishTag)
+	fmt.Printf("%s→%s Pushing %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset, pushTag)
 
 	// Step 1: Get namespace from profile
 	printStep("Reading account from profile...")
@@ -171,13 +171,13 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 	// Build images first if requested
 	imagesPushed := 0
-	platforms := parsePlatforms(publishPlatform)
+	platforms := parsePlatforms(pushPlatform)
 	multiPlatform := len(platforms) > 1
 
 	if !skipBuild {
 		// Use the same tag for build so built images match what we push
-		buildTag = publishTag
-		buildPlatform = publishPlatform
+		buildTag = pushTag
+		buildPlatform = pushPlatform
 		printStep("Building images")
 		fmt.Println()
 		if err := runBuild(cmd, args); err != nil {
@@ -187,13 +187,13 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 	// Push images
 	if !skipPush {
-		// 1. Publish agent container image
+		// 1. Push agent container image
 		if multiPlatform {
 			baseName := astroSpec.Name
-			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
+			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 			printPushStart("agent", baseName)
-			size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
+			size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
 			if err != nil {
 				printPushComplete(false, 0)
 				return fmt.Errorf("failed to push agent image: %w", err)
@@ -202,8 +202,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			imagesPushed++
 		} else {
 			// Single platform: push the platform-specific image we built (not the convenience tag)
-			localImageName := platformImageTag(astroSpec.Name, publishTag, platforms[0])
-			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, publishTag)
+			localImageName := platformImageTag(astroSpec.Name, pushTag, platforms[0])
+			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, pushTag)
 
 			printPushStart("agent", astroSpec.Name)
 			size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
@@ -215,22 +215,22 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			imagesPushed++
 		}
 
-		// 2. Publish custom-built model images
+		// 2. Push custom-built model images
 		for modelName, model := range astroSpec.Models {
 			if model.Container != nil && model.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, modelName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("model", modelName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push model %s: %w", modelName, err)
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := platformImageTag(baseName, publishTag, platforms[0])
+					localImageName := platformImageTag(baseName, pushTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -242,23 +242,23 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// 3. Publish custom-built knowledge store images
+		// 3. Push custom-built knowledge store images
 		for knowledgeName, knowledge := range astroSpec.Knowledge {
 			container := knowledge.ResolvedContainer()
 			if container.Build != nil {
 				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, knowledgeName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("knowledge", knowledgeName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := platformImageTag(baseName, publishTag, platforms[0])
+					localImageName := platformImageTag(baseName, pushTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -270,22 +270,22 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// 4. Publish custom-built tool images
+		// 4. Push custom-built tool images
 		for toolName, tool := range astroSpec.Tools {
 			if tool.Container != nil && tool.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, toolName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("tool", toolName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := platformImageTag(baseName, publishTag, platforms[0])
+					localImageName := platformImageTag(baseName, pushTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -297,22 +297,22 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// 5. Publish custom-built ingestion images
+		// 5. Push custom-built ingestion images
 		for ingestionName, ingestion := range astroSpec.Ingestion {
 			if ingestion.Container.Build != nil {
 				baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, ingestionName)
-				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
+				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("ingestion", ingestionName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
 					}
 					printPushComplete(true, size)
 				} else {
-					localImageName := platformImageTag(baseName, publishTag, platforms[0])
+					localImageName := platformImageTag(baseName, pushTag, platforms[0])
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
@@ -328,7 +328,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
 
 		// Retag locally-built platform images to registry paths so the local server can resolve them
-		if publishLocal {
+		if pushLocal {
 			retag := func(local, remote string) error {
 				cmd := exec.Command("docker", "tag", local, remote)
 				if out, err := cmd.CombinedOutput(); err != nil {
@@ -342,8 +342,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 			// Agent image
 			if err := retag(
-				platformImageTag(astroSpec.Name, publishTag, platform),
-				fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, publishTag),
+				platformImageTag(astroSpec.Name, pushTag, platform),
+				fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, pushTag),
 			); err != nil {
 				return err
 			}
@@ -353,8 +353,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 				if model.Container != nil && model.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, modelName)
 					if err := retag(
-						platformImageTag(baseName, publishTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+						platformImageTag(baseName, pushTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
 					); err != nil {
 						return err
 					}
@@ -367,8 +367,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 				if container.Build != nil {
 					baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, knowledgeName)
 					if err := retag(
-						platformImageTag(baseName, publishTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+						platformImageTag(baseName, pushTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
 					); err != nil {
 						return err
 					}
@@ -380,8 +380,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 				if tool.Container != nil && tool.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, toolName)
 					if err := retag(
-						platformImageTag(baseName, publishTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+						platformImageTag(baseName, pushTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
 					); err != nil {
 						return err
 					}
@@ -393,8 +393,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 				if ingestion.Container.Build != nil {
 					baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, ingestionName)
 					if err := retag(
-						platformImageTag(baseName, publishTag, platform),
-						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+						platformImageTag(baseName, pushTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
 					); err != nil {
 						return err
 					}
@@ -418,7 +418,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 		// Build the full registry path for the transformed spec
 		registryPath := fmt.Sprintf("%s/%s", registryHost, namespace)
-		if err := registerAgent(effectiveServerURL, astroSpec.Name, publishTag, registryPath, specPath, publishTag, readmeContent, verbose, noAuth); err != nil {
+		if err := registerAgent(effectiveServerURL, astroSpec.Name, pushTag, registryPath, specPath, pushTag, readmeContent, verbose, noAuth); err != nil {
 			printStepFail()
 			return fmt.Errorf("registration failed: %w", err)
 		} else {
@@ -430,8 +430,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	// Final summary
-	fmt.Printf("\n%s%s✓ Published successfully!%s\n", colorBold, colorGreen, colorReset)
-	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, astroSpec.Name, colorReset, colorDim, publishTag, colorReset)
+	fmt.Printf("\n%s%s✓ Pushed successfully!%s\n", colorBold, colorGreen, colorReset)
+	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, astroSpec.Name, colorReset, colorDim, pushTag, colorReset)
 
 	return nil
 }
@@ -513,7 +513,7 @@ func getRegistryHost(registryURL string) (string, error) {
 }
 
 // registerAgent registers the agent spec with the astro-server
-func registerAgent(serverURL, agentName, buildID, registry, specPath, publishTag, readme string, verbose bool, skipAuth bool) error {
+func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme string, verbose bool, skipAuth bool) error {
 	// Read and parse spec file
 	specData, err := os.ReadFile(specPath)
 	if err != nil {
@@ -527,7 +527,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, publishTag
 	}
 
 	// Transform spec: replace build sections with actual image references
-	specObj = transformSpecForRegistry(specObj, registry, agentName, publishTag)
+	specObj = transformSpecForRegistry(specObj, registry, agentName, pushTag)
 
 	// Marshal back to YAML
 	transformedSpecData, err := yaml.Marshal(specObj)

@@ -1,13 +1,13 @@
 # Astro CLI
 
-A command-line interface for developing, building, and publishing AI agents on the Astro platform. Define your agent infrastructure declaratively in `astro.yml` and deploy with a single command.
+A command-line interface for developing, building, and pushing AI agents on the Astro platform. Define your agent infrastructure declaratively in `astro.yml` and deploy with a single command.
 
 ## Features
 
 - **Spec-driven development** — Declarative YAML configuration for agents, models, knowledge bases, tools, and integrations
 - **Local development mode** — Run agents locally with hot reload for rapid iteration
 - **Container orchestration** — Automatic Docker Compose generation for self-hosted components
-- **OCI-native publishing** — Push agents and specs to any OCI-compatible registry
+- **OCI-native push** — Push agents and specs to any OCI-compatible registry
 - **Multi-component builds** — Build agent containers plus custom models, knowledge stores, and tools
 - **Message interface support** — Built-in Slack sidecar
 - **Ingestion pipelines** — Schedule data ingestion from external sources with cron triggers
@@ -50,7 +50,7 @@ Everything the CLI needs to build and run the agent is driven by `astro.yml`; th
 
 `astro.yml` is the single source of truth for your agent. It declares:
 
-- **meta** — Version, description, tags, owner; used for publishing and display.
+- **meta** — Version, description, tags, owner; used for push and display.
 - **container** — Agent runtime: build (e.g. `context: .`, `dockerfile: Dockerfile`) or a pre-built `image`.
 - **models** (optional) — Self-hosted models.
 - **knowledge** (optional) — Vector stores, KV stores, graph DBs; pre-built images (e.g. Qdrant, Redis) or custom builds.
@@ -60,7 +60,7 @@ Everything the CLI needs to build and run the agent is driven by `astro.yml`; th
 - **ingestion** (optional) — Data pipelines with cron, manual, or startup triggers.
 
 
-The CLI reads `astro.yml` to generate Docker Compose for `ast dev`, to build images for `ast build`, and to publish images and the spec for `ast publish`. Edit this file to add/remove integrations, interfaces, or knowledge, and ensure `.env` has the matching keys.
+The CLI reads `astro.yml` to generate Docker Compose for `ast dev`, to build images for `ast build`, and to push images and the spec for `ast push`. Edit this file to add/remove integrations, interfaces, or knowledge, and ensure `.env` has the matching keys.
 
 ## Commands
 
@@ -96,22 +96,22 @@ ast dev
 - Loads `.env`, builds and starts self-hosted components, runs the agent with live reload, and sets up messaging interfaces.
 - **Flags:** `--env`, `--no-reload`, `--file, -f`
 
-### `publish` — Build, package, and register with Astro
+### `push` — Build, package, and register with Astro
 
-`ast publish` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **registers the agent with the Astro platform**. If images aren’t already built, a build is run automatically unless you pass `--skip-build`.
+`ast push` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **registers the agent with the Astro platform**. If images aren't already built, a build is run automatically unless you pass `--skip-build`.
 
 ```bash
-ast publish
-ast publish --server http://localhost:8080 --local
+ast push
+ast push --server http://localhost:8080 --local
 ```
 
-After publishing, **navigate to the Astro platform** to see your agent and deploy it. As an agent builder/operator, you'll see it in your **Astro Operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack, open in the Astro playground, or call as an API.
+After pushing, **navigate to the Astro platform** to see your agent and deploy it. As an agent builder/operator, you'll see it in your **Astro Operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack, open in the Astro playground, or call as an API.
 
 - **Flags:** `--server`, `--registry`, `--build`, `--platform`, `--file, -f`, `--skip-build`, `--skip-push`, `--skip-register`, `--local`
 
 ### `build` — Build containers (optional)
 
-Build agent and custom component containers from the spec. This step is optional: when you run `ast publish`, a build is done automatically if needed. Use `ast build` when you only want to build images (e.g. for local testing) without publishing.
+Build agent and custom component containers from the spec. This step is optional: when you run `ast push`, a build is done automatically if needed. Use `ast build` when you only want to build images (e.g. for local testing) without pushing.
 
 ```bash
 ast build
