@@ -17,6 +17,7 @@
 --   ALTER TABLE agents ADD PRIMARY KEY (name);
 --   DROP INDEX IF EXISTS idx_account_members_user;
 --   DROP TABLE IF EXISTS account_members;
+--   DELETE FROM accounts WHERE id = '00000000-0000-0000-0000-000000000000';
 --   DROP TABLE IF EXISTS accounts;
 
 -- 1. Create accounts and account_members
@@ -38,17 +39,21 @@ CREATE TABLE IF NOT EXISTS account_members (
 
 CREATE INDEX IF NOT EXISTS idx_account_members_user ON account_members(user_id);
 
--- 2. Drop agent_versions FK before changing agents PK (IF EXISTS for idempotency)
+-- 2. Insert a migration placeholder account so existing rows satisfy the FK
+INSERT INTO accounts (id, name, type) VALUES ('00000000-0000-0000-0000-000000000000', '_migration', 'system')
+ON CONFLICT (id) DO NOTHING;
+
+-- 3. Drop agent_versions FK before changing agents PK (IF EXISTS for idempotency)
 ALTER TABLE agent_versions DROP CONSTRAINT IF EXISTS agent_versions_name_fkey;
 
--- 3. Add account_id to agents and migrate PK
+-- 4. Add account_id to agents and migrate PK
 ALTER TABLE agents ADD COLUMN account_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE agents ALTER COLUMN account_id DROP DEFAULT;
 ALTER TABLE agents ADD CONSTRAINT agents_account_id_fkey FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE;
 ALTER TABLE agents DROP CONSTRAINT agents_pkey;
 ALTER TABLE agents ADD PRIMARY KEY (account_id, name);
 
--- 4. Add account_id to agent_versions and migrate PK
+-- 5. Add account_id to agent_versions and migrate PK
 ALTER TABLE agent_versions ADD COLUMN account_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE agent_versions ALTER COLUMN account_id DROP DEFAULT;
 ALTER TABLE agent_versions DROP CONSTRAINT agent_versions_pkey;
@@ -56,13 +61,13 @@ ALTER TABLE agent_versions ADD PRIMARY KEY (account_id, name, version);
 ALTER TABLE agent_versions ADD CONSTRAINT agent_versions_account_id_name_fkey
     FOREIGN KEY (account_id, name) REFERENCES agents(account_id, name) ON DELETE CASCADE;
 
--- 5. Rebuild index on composite key
+-- 6. Rebuild index on composite key
 DROP INDEX IF EXISTS idx_versions_agent;
 CREATE INDEX idx_versions_agent ON agent_versions(account_id, name);
 
--- 6. Rename version -> build_id
+-- 7. Rename version -> build_id
 ALTER TABLE agent_versions RENAME COLUMN version TO build_id;
 
--- 7. Add readme and validation_warnings columns
+-- 8. Add readme and validation_warnings columns
 ALTER TABLE agent_versions ADD COLUMN IF NOT EXISTS readme TEXT NOT NULL DEFAULT '';
 ALTER TABLE agent_versions ADD COLUMN validation_warnings TEXT NOT NULL DEFAULT '';
