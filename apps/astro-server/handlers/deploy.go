@@ -2,18 +2,21 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
+	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
@@ -22,48 +25,54 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// sanitizeNamespace converts a user ID to a valid Kubernetes namespace name
-// Kubernetes namespace names must:
-// - contain only lowercase alphanumeric characters or '-'
-// - start and end with an alphanumeric character
-// - be at most 63 characters long
-func sanitizeNamespace(userID string) string {
-	// Convert to lowercase
-	ns := strings.ToLower(userID)
+// deploymentNamespace derives a deterministic K8s namespace from a deployment's
+// identity. The namespace is stable across builds so that persistent data
+// (volumes, secrets, configmaps) survives redeploys of the same agent.
+func deploymentNamespace(accountID, sourceAccount, agentName string) string {
+	h := sha256.Sum256([]byte(accountID + ":" + sourceAccount + ":" + agentName))
+	return "astro-" + hex.EncodeToString(h[:])[:20]
+}
 
-	// Replace any non-alphanumeric characters (except hyphens) with hyphens
-	var sanitized strings.Builder
-	for _, ch := range ns {
-		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
-			sanitized.WriteRune(ch)
-		} else {
-			sanitized.WriteRune('-')
+// resolveDeploymentNamespace finds the K8s namespace for a deployment by
+// first checking the DB record, then falling back to K8s label lookup.
+func resolveDeploymentNamespace(ctx context.Context, deployStore *deploymentstore.Store, k8sClient k8s.ClusterClient, accountID, agentName string) (string, error) {
+	// Try DB first
+	if deployStore != nil {
+		dep, err := deployStore.GetActiveDeployment(accountID, agentName)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up deployment: %w", err)
+		}
+		if dep != nil {
+			return dep.Namespace, nil
 		}
 	}
 
-	result := sanitized.String()
-
-	// Trim leading/trailing hyphens
-	result = strings.Trim(result, "-")
-
-	// Ensure it starts with alphanumeric if it doesn't
-	if len(result) == 0 || result[0] == '-' {
-		result = "user-" + result
+	// Fallback: find namespace from K8s labels
+	if k8sClient != nil {
+		selector := fmt.Sprintf("astro.dev/account-id=%s,astro.dev/agent=%s,app.kubernetes.io/managed-by=astro-server", accountID, agentName)
+		nsList, err := k8sClient.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err == nil && len(nsList.Items) > 0 {
+			return nsList.Items[0].Name, nil
+		}
 	}
 
-	// Truncate to 63 characters if needed
-	if len(result) > 63 {
-		result = result[:63]
+	return "", fmt.Errorf("no active deployment found for agent %q", agentName)
+}
+
+// verifyNamespaceOwnership checks that a K8s namespace belongs to the given account.
+func verifyNamespaceOwnership(ctx context.Context, k8sClient k8s.ClusterClient, namespace, accountID string) error {
+	ns, err := k8sClient.Clientset().CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("namespace not found: %w", err)
 	}
-
-	// Ensure it ends with alphanumeric
-	result = strings.TrimRight(result, "-")
-
-	return result
+	if ns.Labels["astro.dev/account-id"] != accountID {
+		return fmt.Errorf("namespace %s does not belong to account %s", namespace, accountID)
+	}
+	return nil
 }
 
 // DeployAgent returns a handler for deploying agents to Kubernetes
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.DeployRequest
 
@@ -87,26 +96,71 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			return
 		}
 
-		// Derive namespace from user ID (use user ID as namespace, with sanitization)
-		k8sNamespace := sanitizeNamespace(user.ID)
+		// Resolve account
+		if req.Account == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(req.Account)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		// Verify user is a member
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
 
 		log.Info("Received deploy request",
 			"name", req.Name,
-			"version", req.Version,
-			"k8s_namespace", k8sNamespace,
+			"account", req.Account,
+			"source_account", req.SourceAccount,
 			"user_id", user.ID,
 		)
 
-		// Fetch agent spec from index
-		agentVersion, err := agentIndex.GetVersion(req.Name, req.Version)
-		if err != nil {
-			log.Error("Agent version not found", "error", err)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "agent version not found",
-				"details": fmt.Sprintf("%s:%s not found in index", req.Name, req.Version),
-			})
-			return
+		// Resolve latest build — own account uses latest build, cross-account uses latest published
+		isCrossAccount := req.SourceAccount != "" && req.SourceAccount != req.Account
+		var agentVersion *agentindex.AgentVersion
+
+		if isCrossAccount {
+			sourceAcct, err := accountStore.GetByName(req.SourceAccount)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "source account not found"})
+				return
+			}
+
+			agentVersion, err = agentIndex.GetLatestPublishedVersion(sourceAcct.ID, req.Name)
+			if err != nil {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": "no published version available; cross-account deploys require a published version",
+				})
+				return
+			}
+		} else {
+			agentVersion, err = agentIndex.GetLatestVersion(acct.ID, req.Name)
+			if err != nil {
+				log.Error("Agent not found", "error", err)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error":   "agent not found",
+					"details": fmt.Sprintf("no builds found for %s", req.Name),
+				})
+				return
+			}
 		}
+
+		buildID := agentVersion.BuildID
+
+		sourceAccount := req.Account
+		if req.SourceAccount != "" {
+			sourceAccount = req.SourceAccount
+		}
+
+		// Derive per-deployment namespace (stable across builds)
+		k8sNamespace := deploymentNamespace(acct.ID, sourceAccount, req.Name)
 
 		// Parse spec from JSON
 		var astroSpec spec.AstroSpec
@@ -129,16 +183,71 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			return
 		}
 
-		// Validate spec and credentials
-		validator := deployment.NewValidator()
-		validationResult := validator.ValidateSpec(&astroSpec, req.UserCredentials)
+		// Generate deployment spec from astro spec
+		deploySpec, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
+			Spec:              &astroSpec,
+			Account:           req.Account,
+			BuildID:           buildID,
+			RegistryURL:       cfg.Deployment.RegistryURL,
+			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
+			Environment:       cfg.Deployment.Environment,
+		})
+		if err != nil {
+			log.Error("Failed to generate deployment spec", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to generate deployment spec",
+				"details": err.Error(),
+			})
+			return
+		}
 
-		if !validationResult.Valid {
-			log.Error("Spec validation failed", "errors", validationResult.Errors)
+		// Fill in user-provided credentials
+		for key, value := range req.UserCredentials {
+			if cred, ok := deploySpec.Credentials[key]; ok {
+				cred.Value = value
+				deploySpec.Credentials[key] = cred
+			} else {
+				// Add credential not in template (e.g. user-supplied extras)
+				deploySpec.Credentials[key] = spec.DeploymentCredential{Value: value}
+			}
+		}
+
+		// Fill in interfaces from deploy request
+		if len(req.Interfaces) > 0 && deploySpec.Interfaces != nil {
+			deploySpec.Interfaces.Adapters = req.Interfaces
+		} else if len(req.Interfaces) > 0 {
+			deploySpec.Interfaces = &spec.DeploymentInterfaces{
+				Adapters: req.Interfaces,
+			}
+		}
+
+		// Fill in schedules from deploy request
+		for name, schedule := range req.Schedules {
+			if ing, ok := deploySpec.Ingestion[name]; ok {
+				ing.Trigger.Schedule = schedule
+				deploySpec.Ingestion[name] = ing
+			}
+		}
+
+		// Set target namespace
+		deploySpec.Target.Namespace = k8sNamespace
+
+		// Validate and resolve the filled-in deployment spec
+		resolveResult, err := deployment.ValidateAndResolve(deploySpec)
+		if err != nil {
+			log.Error("Deployment spec resolution failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to resolve deployment spec",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		if len(resolveResult.Errors) > 0 {
+			log.Error("Deployment spec validation failed", "errors", resolveResult.Errors)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":               "spec validation failed",
-				"validation_errors":   validationResult.Errors,
-				"missing_credentials": validationResult.MissingCredentials,
+				"error":             "deployment spec validation failed",
+				"validation_errors": resolveResult.Errors,
 			})
 			return
 		}
@@ -147,25 +256,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			"k8s_namespace", k8sNamespace,
 		)
 
-		// Translate spec to K8s manifests
-		translator := deployment.NewTranslator(
-			req.Name,
-			req.Version,
-			k8sNamespace,
-			cfg.Deployment.RegistryURL,
-			req.UserCredentials,
-		)
-
-		translationResult, err := translator.Translate(&astroSpec)
-		if err != nil {
-			log.Error("Failed to translate spec", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to translate spec to Kubernetes manifests",
-				"details": err.Error(),
-			})
-			return
-		}
-
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": "kubernetes client not configured",
@@ -173,11 +263,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			return
 		}
 
-		// Apply manifests to cluster
+		// Apply deployment spec to cluster
 		applier := k8s.NewApplier(k8sClient, k8s.ApplierConfig{
 			Namespace:              k8sNamespace,
 			RegistryURL:            cfg.Deployment.RegistryURL,
 			ProxyRegistryHost:      cfg.Deployment.ProxyRegistryHost,
+			Environment:            cfg.Deployment.Environment,
 			ImagePullPolicy:        imagePullPolicyForMode(cfg.Deployment.K8sClientMode),
 			IngressDomain:          cfg.Deployment.IngressDomain,
 			ACMCertificateARN:      cfg.Deployment.ACMCertificateARN,
@@ -187,14 +278,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 			IngestionALBGroupName:  cfg.Deployment.IngestionALBGroupName,
 			GalileoAPIKey:          cfg.Deployment.GalileoAPIKey,
 			GalileoProject:         cfg.Deployment.GalileoProject,
+			NamespaceLabels: map[string]string{
+				"astro.dev/account-id":      acct.ID,
+				"astro.dev/account":         req.Account,
+				"astro.dev/agent":           req.Name,
+				"astro.dev/build":           buildID,
+				"astro.dev/source-account": sourceAccount,
+			},
 		})
-		applyResult, err := applier.Apply(
+		applyResult, err := applier.ApplyDeploymentSpec(
 			c.Request.Context(),
-			&astroSpec,
-			translationResult,
-			req.Name,
-			req.Version,
-			req.UserCredentials,
+			resolveResult.Spec,
 		)
 
 		if err != nil {
@@ -204,6 +298,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Persist resolved spec (credentials stripped)
+		if deployStore != nil {
+			stripped := spec.StripCredentialValues(resolveResult.Spec)
+			specJSON, marshalErr := json.Marshal(stripped)
+			if marshalErr != nil {
+				log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
+			} else if _, storeErr := deployStore.SaveDeployment(acct.ID, req.Name, buildID, k8sNamespace, string(specJSON)); storeErr != nil {
+				log.Error("Failed to save deployment record", "error", storeErr)
+			}
 		}
 
 		// Check if there were any errors during deployment
@@ -219,7 +324,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 		response := deployment.DeployResponse{
 			Status:           status,
 			Name:             req.Name,
-			Version:          req.Version,
+			BuildID:          buildID,
 			K8sNamespace:     k8sNamespace,
 			DeployedAt:       time.Now().UTC(),
 			Resources:        applyResult.Resources,
@@ -237,8 +342,156 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.C
 	}
 }
 
+// ValidateDeployment returns a handler that validates a deployment without applying it.
+// POST /api/v1/deploy/validate
+func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req deployment.DeployRequest
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		if req.Account == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(req.Account)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
+
+		log.Info("Validating deployment",
+			"name", req.Name,
+			"account", req.Account,
+			"user_id", user.ID,
+		)
+
+		// Resolve latest build
+		isCrossAccount := req.SourceAccount != "" && req.SourceAccount != req.Account
+		var agentVersion *agentindex.AgentVersion
+
+		if isCrossAccount {
+			sourceAcct, err := accountStore.GetByName(req.SourceAccount)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "source account not found"})
+				return
+			}
+			agentVersion, err = agentIndex.GetLatestPublishedVersion(sourceAcct.ID, req.Name)
+			if err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": "no published version available"})
+				return
+			}
+		} else {
+			agentVersion, err = agentIndex.GetLatestVersion(acct.ID, req.Name)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "agent not found", "details": fmt.Sprintf("no builds found for %s", req.Name)})
+				return
+			}
+		}
+
+		// Derive per-deployment namespace
+		sourceAccount := req.Account
+		if req.SourceAccount != "" {
+			sourceAccount = req.SourceAccount
+		}
+		k8sNamespace := deploymentNamespace(acct.ID, sourceAccount, req.Name)
+
+		// Parse spec
+		var astroSpec spec.AstroSpec
+		specBytes, err := json.Marshal(agentVersion.Spec)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
+			return
+		}
+		if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec"})
+			return
+		}
+
+		// Generate deployment spec
+		deploySpec, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
+			Spec:              &astroSpec,
+			Account:           req.Account,
+			BuildID:           agentVersion.BuildID,
+			RegistryURL:       cfg.Deployment.RegistryURL,
+			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
+			Environment:       cfg.Deployment.Environment,
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate deployment spec", "details": err.Error()})
+			return
+		}
+
+		// Fill in user-provided credentials
+		for key, value := range req.UserCredentials {
+			if cred, ok := deploySpec.Credentials[key]; ok {
+				cred.Value = value
+				deploySpec.Credentials[key] = cred
+			} else {
+				deploySpec.Credentials[key] = spec.DeploymentCredential{Value: value}
+			}
+		}
+
+		// Fill in interfaces
+		if len(req.Interfaces) > 0 && deploySpec.Interfaces != nil {
+			deploySpec.Interfaces.Adapters = req.Interfaces
+		} else if len(req.Interfaces) > 0 {
+			deploySpec.Interfaces = &spec.DeploymentInterfaces{
+				Adapters: req.Interfaces,
+			}
+		}
+
+		// Fill in schedules
+		for name, schedule := range req.Schedules {
+			if ing, ok := deploySpec.Ingestion[name]; ok {
+				ing.Trigger.Schedule = schedule
+				deploySpec.Ingestion[name] = ing
+			}
+		}
+
+		deploySpec.Target.Namespace = k8sNamespace
+
+		// Validate and resolve
+		resolveResult, err := deployment.ValidateAndResolve(deploySpec)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve deployment spec", "details": err.Error()})
+			return
+		}
+
+		if len(resolveResult.Errors) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"valid":             false,
+				"validation_errors": resolveResult.Errors,
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"valid":    true,
+			"build_id": agentVersion.BuildID,
+			"name":     req.Name,
+		})
+	}
+}
+
 // UndeployAgent returns a handler for undeploying agents from Kubernetes
-func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.UndeployRequest
 
@@ -262,18 +515,29 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			return
 		}
 
-		// Derive namespace from user ID (use user ID as namespace, with sanitization)
-		k8sNamespace := sanitizeNamespace(user.ID)
+		// Resolve account
+		if req.Account == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(req.Account)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		// Verify user is a member
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
 
 		log.Info("Received undeploy request",
 			"name", req.Name,
-			"version", req.Version,
-			"k8s_namespace", k8sNamespace,
+			"account", req.Account,
 			"user_id", user.ID,
-		)
-
-		log.Info("Undeploying from Kubernetes",
-			"k8s_namespace", k8sNamespace,
 		)
 
 		if k8sClient == nil {
@@ -283,16 +547,34 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			return
 		}
 
-		// Delete resources from cluster
-		deleter := k8s.NewDeleter(k8sClient, k8sNamespace)
-		deleteResult, err := deleter.Delete(
-			c.Request.Context(),
-			req.Name,
-			req.Version,
-		)
+		// Look up active deployment — try DB first, then K8s fallback
+		var k8sNamespace, buildID string
+		if deployStore != nil {
+			dep, dbErr := deployStore.GetActiveDeployment(acct.ID, req.Name)
+			if dbErr != nil {
+				log.Warn("Failed to look up deployment from DB", "error", dbErr)
+			}
+			if dep != nil {
+				k8sNamespace = dep.Namespace
+				buildID = dep.BuildID
+			}
+		}
 
+		if k8sNamespace == "" {
+			ns, nsErr := resolveDeploymentNamespace(c.Request.Context(), nil, k8sClient, acct.ID, req.Name)
+			if nsErr != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "no active deployment found for this agent"})
+				return
+			}
+			k8sNamespace = ns
+		}
+
+		// Delete the entire namespace — cascades to all resources
+		err = k8sClient.Clientset().CoreV1().Namespaces().Delete(
+			c.Request.Context(), k8sNamespace, metav1.DeleteOptions{},
+		)
 		if err != nil {
-			log.Error("Undeploy failed", "error", err)
+			log.Error("Failed to delete namespace", "error", err, "namespace", k8sNamespace)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "undeploy failed",
 				"details": err.Error(),
@@ -300,33 +582,25 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 			return
 		}
 
-		// Check if there were any errors during undeploy
-		status := "success"
-		statusCode := http.StatusOK
-		if len(deleteResult.Errors) > 0 {
-			status = "partial"
-			statusCode = http.StatusMultiStatus
-			log.Warn("Undeploy completed with errors", "error_count", len(deleteResult.Errors))
+		// Mark deployment record as undeployed
+		if err := deployStore.MarkUndeployed(acct.ID, req.Name); err != nil {
+			log.Warn("Failed to mark deployment as undeployed", "error", err)
 		}
 
-		// Build response
 		response := deployment.UndeployResponse{
-			Status:       status,
+			Status:       "success",
 			Name:         req.Name,
-			Version:      req.Version,
+			BuildID:      buildID,
 			K8sNamespace: k8sNamespace,
 			UndeployedAt: time.Now().UTC(),
-			Resources:    deleteResult.Resources,
-			Errors:       deleteResult.Errors,
 		}
 
 		log.Info("Undeploy completed",
-			"status", status,
-			"resources", len(deleteResult.Resources),
-			"errors", len(deleteResult.Errors),
+			"status", "success",
+			"namespace", k8sNamespace,
 		)
 
-		c.JSON(statusCode, response)
+		c.JSON(http.StatusOK, response)
 	}
 }
 
@@ -334,16 +608,25 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, cfg *config
 type ServiceEndpointInfo struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	Type string `json:"type,omitempty"`
+}
+
+// EnvVar represents a single environment variable in a container
+type EnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+	From  string `json:"from,omitempty"` // e.g. "secret:my-secret/key" or "configmap:cm/key"
 }
 
 // ContainerStatus represents the status of a single container in a pod
 type ContainerStatus struct {
-	Name         string `json:"name"`
-	State        string `json:"state"`
-	Ready        bool   `json:"ready"`
-	RestartCount int32  `json:"restart_count"`
-	Reason       string `json:"reason,omitempty"`
-	Message      string `json:"message,omitempty"`
+	Name         string   `json:"name"`
+	State        string   `json:"state"`
+	Ready        bool     `json:"ready"`
+	RestartCount int32    `json:"restart_count"`
+	Reason       string   `json:"reason,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	Env          []EnvVar `json:"env,omitempty"`
 }
 
 // PodDetail represents details about a single pod
@@ -357,20 +640,20 @@ type PodDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	Name            string               `json:"name"`
-	Version         string               `json:"version"`
-	Status          string               `json:"status"`
-	Replicas        int32                `json:"replicas"`
-	Ready           int32                `json:"ready"`
-	CreatedAt       string               `json:"created_at"`
-	Components      []string             `json:"components"`
-	ServiceEndpoint *ServiceEndpointInfo `json:"service_endpoint,omitempty"`
-	ExternalURL     string               `json:"external_url,omitempty"`
-	Pods            []PodDetail          `json:"pods,omitempty"`
+	Name         string               `json:"name"`
+	BuildID      string               `json:"build_id"`
+	Namespace    string               `json:"namespace"`
+	Status       string               `json:"status"`
+	Replicas     int32                `json:"replicas"`
+	Ready        int32                `json:"ready"`
+	CreatedAt    string               `json:"created_at"`
+	Components   []string             `json:"components"`
+	ExternalURLs []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	Pods         []PodDetail          `json:"pods,omitempty"`
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -382,11 +665,28 @@ func ListDeployments(log *logger.Logger, cfg *config.Config, k8sClient k8s.Clust
 			return
 		}
 
-		// Derive namespace from user ID
-		k8sNamespace := sanitizeNamespace(user.ID)
+		// Resolve account from query param
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		// Verify user is a member
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
 
 		log.Info("Listing deployments",
-			"k8s_namespace", k8sNamespace,
+			"account", accountName,
 			"user_id", user.ID,
 		)
 
@@ -397,10 +697,13 @@ func ListDeployments(log *logger.Logger, cfg *config.Config, k8sClient k8s.Clust
 			return
 		}
 
-		// List deployments with astro label
-		deployments, err := listAstroDeployments(c.Request.Context(), k8sClient, k8sNamespace)
+		// List namespaces belonging to this account
+		nsSelector := fmt.Sprintf("astro.dev/account-id=%s,app.kubernetes.io/managed-by=astro-server", acct.ID)
+		nsList, err := k8sClient.Clientset().CoreV1().Namespaces().List(
+			c.Request.Context(), metav1.ListOptions{LabelSelector: nsSelector},
+		)
 		if err != nil {
-			log.Error("Failed to list deployments", "error", err)
+			log.Error("Failed to list namespaces", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "failed to list deployments",
 				"details": err.Error(),
@@ -408,10 +711,20 @@ func ListDeployments(log *logger.Logger, cfg *config.Config, k8sClient k8s.Clust
 			return
 		}
 
+		// Aggregate deployments across all per-deployment namespaces
+		var allDeployments []AgentDeployment
+		for _, ns := range nsList.Items {
+			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name)
+			if err != nil {
+				log.Warn("Failed to list deployments in namespace", "namespace", ns.Name, "error", err)
+				continue
+			}
+			allDeployments = append(allDeployments, deps...)
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"deployments": deployments,
-			"count":       len(deployments),
-			"namespace":   k8sNamespace,
+			"deployments": allDeployments,
+			"count":       len(allDeployments),
 		})
 	}
 }
@@ -427,14 +740,6 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list deployments: %w", err)
-	}
-
-	// List services for the namespace to get endpoints
-	serviceList, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list services: %w", err)
 	}
 
 	// List ingresses for the namespace to get external URLs
@@ -454,40 +759,23 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	// Build a map of agent services (only agent component services)
-	agentServices := make(map[string]string) // key: "agentName:version" -> URL
-	for _, svc := range serviceList.Items {
-		agentName := svc.Labels["astro.dev/agent"]
-		version := svc.Labels["app.kubernetes.io/version"]
-		component := svc.Labels["app.kubernetes.io/component"]
-
-		// Only include the main agent service endpoint
-		if agentName != "" && component == "agent" {
-			key := agentName + ":" + version
-			// Build the cluster DNS URL
-			port := int32(8080)
-			for _, p := range svc.Spec.Ports {
-				if p.Name == "http" || p.Port == 8080 {
-					port = p.Port
-					break
-				}
-			}
-			agentServices[key] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", svc.Name, namespace, port)
-		}
-	}
-
 	// Build a map of external URLs from ingresses
-	agentExternalURLs := make(map[string]string) // key: "agentName:version" -> external URL
+	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agentName:version" -> endpoints
 	if ingressList != nil {
 		for _, ing := range ingressList.Items {
 			agentName := ing.Labels["astro.dev/agent"]
 			version := ing.Labels["app.kubernetes.io/version"]
+			component := ing.Labels["app.kubernetes.io/component"]
 
 			if agentName != "" && len(ing.Spec.Rules) > 0 {
 				key := agentName + ":" + version
 				host := ing.Spec.Rules[0].Host
 				if host != "" {
-					agentExternalURLs[key] = fmt.Sprintf("https://%s", host)
+					agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
+						Name: component,
+						URL:  fmt.Sprintf("https://%s", host),
+						Type: component,
+					})
 				}
 			}
 		}
@@ -518,7 +806,8 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 			info = &AgentDeployment{
 				Name:       agentName,
-				Version:    version,
+				BuildID:    version,
+				Namespace:  namespace,
 				Status:     status,
 				Replicas:   dep.Status.Replicas,
 				Ready:      dep.Status.ReadyReplicas,
@@ -526,17 +815,9 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				Components: []string{},
 			}
 
-			// Add service endpoint if available
-			if url, ok := agentServices[key]; ok {
-				info.ServiceEndpoint = &ServiceEndpointInfo{
-					Name: "agent",
-					URL:  url,
-				}
-			}
-
-			// Add external URL if available
-			if url, ok := agentExternalURLs[key]; ok {
-				info.ExternalURL = url
+			// Add external URLs if available
+			if urls, ok := agentExternalURLs[key]; ok {
+				info.ExternalURLs = urls
 			}
 
 			agentDeployments[key] = info
@@ -575,11 +856,55 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			Containers: []ContainerStatus{},
 		}
 
+		// Build a map of spec containers for env var lookup
+		specContainers := map[string][]EnvVar{}
+		for _, sc := range pod.Spec.Containers {
+			var envVars []EnvVar
+
+			// Collect envFrom sources (ConfigMap/Secret whole-mounts)
+			for _, ef := range sc.EnvFrom {
+				if ef.ConfigMapRef != nil {
+					envVars = append(envVars, EnvVar{
+						Name: ef.Prefix + "*",
+						From: "configmap:" + ef.ConfigMapRef.Name,
+					})
+				}
+				if ef.SecretRef != nil {
+					envVars = append(envVars, EnvVar{
+						Name: ef.Prefix + "*",
+						From: "secret:" + ef.SecretRef.Name,
+					})
+				}
+			}
+
+			// Collect individual env entries
+			for _, e := range sc.Env {
+				ev := EnvVar{Name: e.Name}
+				if e.ValueFrom != nil {
+					switch {
+					case e.ValueFrom.SecretKeyRef != nil:
+						ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
+					case e.ValueFrom.ConfigMapKeyRef != nil:
+						ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key
+					case e.ValueFrom.FieldRef != nil:
+						ev.From = "field:" + e.ValueFrom.FieldRef.FieldPath
+					default:
+						ev.From = "ref"
+					}
+				} else {
+					ev.Value = e.Value
+				}
+				envVars = append(envVars, ev)
+			}
+			specContainers[sc.Name] = envVars
+		}
+
 		for _, cs := range pod.Status.ContainerStatuses {
 			container := ContainerStatus{
 				Name:         cs.Name,
 				Ready:        cs.Ready,
 				RestartCount: cs.RestartCount,
+				Env:          specContainers[cs.Name],
 			}
 			switch {
 			case cs.State.Running != nil:
@@ -625,17 +950,95 @@ func formatAge(t time.Time) string {
 	}
 }
 
-// GetDeploymentLogs returns a handler for fetching pod logs
-func GetDeploymentLogs(log *logger.Logger, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+// RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.
+// POST /api/v1/deployments/:namespace/pods/:pod/restart
+func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
 
-		k8sNamespace := sanitizeNamespace(user.ID)
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		k8sNamespace := c.Param("namespace")
+		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+			return
+		}
+
+		podName := c.Param("pod")
+		err = k8sClient.Clientset().CoreV1().Pods(k8sNamespace).Delete(c.Request.Context(), podName, metav1.DeleteOptions{})
+		if err != nil {
+			log.Error("Failed to delete pod", "error", err, "pod", podName, "namespace", k8sNamespace)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to restart pod", "details": err.Error()})
+			return
+		}
+
+		log.Info("Pod restarted (deleted)", "pod", podName, "namespace", k8sNamespace, "user", user.ID)
+		c.JSON(http.StatusOK, gin.H{"status": "restarting", "pod": podName})
+	}
+}
+
+func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		k8sNamespace := c.Param("namespace")
+		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+			return
+		}
+
 		podName := c.Query("pod")
 		containerName := c.Query("container")
 
@@ -649,11 +1052,6 @@ func GetDeploymentLogs(log *logger.Logger, cfg *config.Config, k8sClient k8s.Clu
 			if parsed, err := strconv.ParseInt(tl, 10, 64); err == nil && parsed > 0 {
 				tailLines = parsed
 			}
-		}
-
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
-			return
 		}
 
 		logOpts := &corev1.PodLogOptions{
@@ -683,6 +1081,335 @@ func GetDeploymentLogs(log *logger.Logger, cfg *config.Config, k8sClient k8s.Clu
 		}
 
 		c.Data(http.StatusOK, "text/plain; charset=utf-8", logBytes)
+	}
+}
+
+// GetDeploymentTemplate returns a handler for generating deployment spec templates.
+// GET /api/v1/agents/:account/:name/deployment-template
+// Optional query: ?build=<build_id>
+func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+		name := c.Param("name")
+
+		log.Info("Generating deployment template",
+			"account", accountName,
+			"name", name,
+		)
+
+		var accountID string
+		if accountStore != nil && accountName != "" {
+			acct, err := accountStore.GetByName(accountName)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+				return
+			}
+			accountID = acct.ID
+		}
+
+		// Resolve build — specific build_id or latest
+		var agentVersion *agentindex.AgentVersion
+		var err error
+		if buildParam := c.Query("build"); buildParam != "" {
+			agentVersion, err = agentIndex.GetVersion(accountID, name, buildParam)
+		} else {
+			agentVersion, err = agentIndex.GetLatestVersion(accountID, name)
+		}
+		if err != nil {
+			log.Error("Failed to get agent build", "error", err)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "no builds found for agent",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Parse spec from stored map
+		specBytes, err := json.Marshal(agentVersion.Spec)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
+			return
+		}
+		var astroSpec spec.AstroSpec
+		if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec"})
+			return
+		}
+
+		// Generate deployment template
+		template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
+			Spec:              &astroSpec,
+			Account:           accountName,
+			BuildID:           agentVersion.BuildID,
+			RegistryURL:       cfg.Deployment.RegistryURL,
+			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
+			Environment:       cfg.Deployment.Environment,
+		})
+		if err != nil {
+			log.Error("Failed to generate deployment template", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to generate deployment template",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		// Set target namespace so the template preview shows it
+		template.Target.Namespace = deploymentNamespace(accountID, accountName, name)
+
+		// Return JSON or YAML based on format query param
+		if c.Query("format") == "json" {
+			c.JSON(http.StatusOK, template)
+			return
+		}
+
+		// Default: serialize to YAML
+		yamlBytes, err := spec.SerializeDeploymentSpec(template)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize template"})
+			return
+		}
+
+		c.Data(http.StatusOK, "application/yaml", yamlBytes)
+	}
+}
+
+// GetActiveDeploymentSpec returns the stored deployment spec for the currently active deployment.
+// GET /api/v1/agents/:account/:name/deployment
+func GetActiveDeploymentSpec(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+		agentName := c.Param("name")
+
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
+
+		d, err := deployStore.GetActiveDeployment(acct.ID, agentName)
+		if err != nil {
+			log.Error("Failed to get active deployment", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment"})
+			return
+		}
+		if d == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no active deployment found"})
+			return
+		}
+
+		var specObj json.RawMessage
+		if err := json.Unmarshal([]byte(d.DeploymentSpecJSON), &specObj); err != nil {
+			log.Error("Failed to parse stored deployment spec", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse stored spec"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"id":          d.ID,
+			"agent_name":  d.AgentName,
+			"build_id":    d.BuildID,
+			"namespace":   d.Namespace,
+			"status":      d.Status,
+			"deployed_at": d.DeployedAt,
+			"spec":        specObj,
+		})
+	}
+}
+
+// GetDeploymentHistory returns all deployment records for an agent.
+// GET /api/v1/agents/:account/:name/deployment/history
+func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+		agentName := c.Param("name")
+
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
+
+		history, err := deployStore.GetDeploymentHistory(acct.ID, agentName)
+		if err != nil {
+			log.Error("Failed to get deployment history", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment history"})
+			return
+		}
+
+		type deploymentRecord struct {
+			ID           string          `json:"id"`
+			AgentName    string          `json:"agent_name"`
+			BuildID      string          `json:"build_id"`
+			Namespace    string          `json:"namespace"`
+			Status       string          `json:"status"`
+			DeployedAt   time.Time       `json:"deployed_at"`
+			UndeployedAt *time.Time      `json:"undeployed_at,omitempty"`
+			Spec         json.RawMessage `json:"spec"`
+		}
+
+		records := make([]deploymentRecord, 0, len(history))
+		for _, d := range history {
+			var specObj json.RawMessage
+			if err := json.Unmarshal([]byte(d.DeploymentSpecJSON), &specObj); err != nil {
+				log.Warn("Failed to parse stored spec, skipping", "deployment_id", d.ID, "error", err)
+				specObj = json.RawMessage(`{}`)
+			}
+			records = append(records, deploymentRecord{
+				ID:           d.ID,
+				AgentName:    d.AgentName,
+				BuildID:      d.BuildID,
+				Namespace:    d.Namespace,
+				Status:       d.Status,
+				DeployedAt:   d.DeployedAt,
+				UndeployedAt: d.UndeployedAt,
+				Spec:         specObj,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"deployments": records,
+			"count":       len(records),
+		})
+	}
+}
+
+// GetConfigMapData returns the key-value data of a ConfigMap in a deployment's namespace.
+// GET /api/v1/deployments/:namespace/configmap/:cmname
+func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		k8sNamespace := c.Param("namespace")
+		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+			return
+		}
+
+		cmName := c.Param("cmname")
+		cm, err := k8sClient.Clientset().CoreV1().ConfigMaps(k8sNamespace).Get(c.Request.Context(), cmName, metav1.GetOptions{})
+		if err != nil {
+			log.Error("Failed to get configmap", "error", err, "configmap", cmName, "namespace", k8sNamespace)
+			c.JSON(http.StatusNotFound, gin.H{"error": "configmap not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"name":      cm.Name,
+			"namespace": cm.Namespace,
+			"data":      cm.Data,
+		})
+	}
+}
+
+// GetSecretKeys returns the key names (but NOT values) of a Secret in a deployment's namespace.
+// GET /api/v1/deployments/:name/:build_id/secret/:secretname/keys
+func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		k8sNamespace := c.Param("namespace")
+		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+			return
+		}
+
+		secretName := c.Param("secretname")
+		secret, err := k8sClient.Clientset().CoreV1().Secrets(k8sNamespace).Get(c.Request.Context(), secretName, metav1.GetOptions{})
+		if err != nil {
+			log.Error("Failed to get secret", "error", err, "secret", secretName, "namespace", k8sNamespace)
+			c.JSON(http.StatusNotFound, gin.H{"error": "secret not found"})
+			return
+		}
+
+		keys := make([]string, 0, len(secret.Data))
+		for k := range secret.Data {
+			keys = append(keys, k)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"name":      secret.Name,
+			"namespace": secret.Namespace,
+			"keys":      keys,
+		})
 	}
 }
 

@@ -1,13 +1,12 @@
 spec: astro/v1
-agent: engineering-assistant
+name: engineering-assistant
 
 meta:
   version: 1.0.0
   description: Engineering knowledge assistant with self-hosted embeddings and vector store
   tags: [engineering, support, internal, example]
-  owner: platform-team
 
-container:
+agent:
   build:
     context: ../..
     dockerfile: astro-agents/engineering-assistant/Dockerfile
@@ -17,9 +16,6 @@ container:
 
 models:
   embedder:
-    model: all-MiniLM-L6-v2
-    config:
-      dimensions: 384
     container:
       build:
         context: ./embedder
@@ -32,42 +28,25 @@ knowledge:
   docs:
     provider: qdrant
     persistent: true
-    config:
-      collection: engineering-docs
-      dimensions: 384
-      metric: cosine
-    embedding: models.embedder
 
   cache:
     provider: redis
-    config:
-      ttl: 3600
-
-tools:
-  doc_search:
-    type: function
-    config:
-      runtime: python
-      handler: tools/search.py
-      functions:
-        - name: search_docs
-          description: Search internal documentation
 
 integrations:
-  models:
-    - name: primary_llm
-      provider: anthropic
+  anthropic:
+    provider: anthropic
+    type: model
 
-  tools:
-    - name: github
-      provider: github
-      config:
-        scopes:
-          - repo:read
-          - issues:read
+  github:
+    provider: github
+    type: tool
+    config:
+      scopes:
+        - repo:read
+        - issues:read
 
 interfaces:
   slack:
-    type: slack
+    enabled: true
   web:
-    type: web
+    enabled: true

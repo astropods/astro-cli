@@ -20,8 +20,9 @@ func NewValidator() *Validator {
 	}
 }
 
-// ValidateSpec validates the agent spec and credentials
-func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[string]string) ValidationResult {
+// ValidateSpec validates the agent spec and credentials.
+// interfaces and schedules are deployment-time values (not in spec).
+func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[string]string, interfaces []string, schedules map[string]string) ValidationResult {
 	result := ValidationResult{
 		Valid:              true,
 		Errors:             []ValidationError{},
@@ -29,7 +30,7 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 	}
 
 	// Validate basic spec fields
-	if astroSpec.Agent == "" {
+	if astroSpec.Name == "" {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "agent",
@@ -37,16 +38,8 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		})
 	}
 
-	if astroSpec.Meta.Version == "" {
-		result.Valid = false
-		result.Errors = append(result.Errors, ValidationError{
-			Field:   "meta.version",
-			Message: "version is required",
-		})
-	}
-
 	// Validate container
-	if astroSpec.Container.Image == "" && astroSpec.Container.Build == nil {
+	if astroSpec.Agent.Image == "" && astroSpec.Agent.Build == nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:   "container",
@@ -68,14 +61,15 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		}
 
 		if triggerType == "schedule" {
-			if ingestion.Trigger.Schedule == "" {
+			schedule := schedules[name]
+			if schedule == "" {
 				result.Valid = false
 				result.Errors = append(result.Errors, ValidationError{
 					Field:   fmt.Sprintf("ingestion.%s.trigger.schedule", name),
 					Message: "schedule expression is required for schedule trigger",
 				})
 			} else {
-				if _, err := v.cronParser.Parse(ingestion.Trigger.Schedule); err != nil {
+				if _, err := v.cronParser.Parse(schedule); err != nil {
 					result.Valid = false
 					result.Errors = append(result.Errors, ValidationError{
 						Field:   fmt.Sprintf("ingestion.%s.trigger.schedule", name),
@@ -86,8 +80,11 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		}
 	}
 
+	// Validate integration providers
+	v.validateIntegrationProviders(astroSpec, &result)
+
 	// Collect required credentials
-	requiredCreds := v.collectRequiredCredentials(astroSpec)
+	requiredCreds := v.collectRequiredCredentials(astroSpec, interfaces)
 
 	// Check for missing credentials
 	for _, credKey := range requiredCreds {
@@ -106,8 +103,8 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 
 // collectRequiredCredentials identifies all required (non-optional) credentials from the spec.
 // It derives from GetRequiredCredentials to ensure consistency between validation and config endpoint.
-func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec) []string {
-	allCreds := v.GetRequiredCredentials(astroSpec)
+func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec, interfaces []string) []string {
+	allCreds := v.GetRequiredCredentials(astroSpec, interfaces)
 
 	var required []string
 	for _, cred := range allCreds {
@@ -128,46 +125,107 @@ type CredentialInfo struct {
 	Optional    bool   `json:"optional"`
 }
 
-// GetRequiredCredentials returns detailed information about required credentials
-func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []CredentialInfo {
+// CredentialSuffix describes one credential a provider requires
+type CredentialSuffix struct {
+	Suffix      string
+	Description string
+	Optional    bool
+}
+
+// supportedProviders maps each supported provider to its credential suffixes.
+var supportedProviders = map[string][]CredentialSuffix{
+	"anthropic": {{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
+	"openai":    {{Suffix: "API_KEY", Description: "OpenAI API key for GPT models"}},
+	"google":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
+	"gemini":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
+	"cohere":    {{Suffix: "API_KEY", Description: "Cohere API key for language models"}},
+	"pinecone":  {{Suffix: "API_KEY", Description: "Pinecone API key for vector database"}},
+	"github":    {{Suffix: "TOKEN", Description: "GitHub token for API access"}},
+	"gitlab":    {{Suffix: "TOKEN", Description: "GitLab token for API access"}},
+	"slack": {
+		{Suffix: "BOT_TOKEN", Description: "Slack bot token for API access"},
+		{Suffix: "APP_TOKEN", Description: "Slack app-level token for socket mode"},
+	},
+}
+
+// getProviderCredentialSuffixes returns the credential suffixes for a provider.
+// Returns nil and false if the provider is not supported.
+func (v *Validator) getProviderCredentialSuffixes(provider string) ([]CredentialSuffix, bool) {
+	suffixes, ok := supportedProviders[strings.ToLower(provider)]
+	return suffixes, ok
+}
+
+// validateIntegrationProviders checks that all integration providers are supported.
+func (v *Validator) validateIntegrationProviders(astroSpec *spec.AstroSpec, result *ValidationResult) {
+	for name, integration := range astroSpec.Integrations {
+		if strings.ToLower(integration.Provider) == "custom" {
+			if len(integration.Credentials) == 0 {
+				result.Valid = false
+				result.Errors = append(result.Errors, ValidationError{
+					Field:   fmt.Sprintf("integrations.%s.credentials", name),
+					Message: "custom provider requires at least one credential suffix",
+				})
+			}
+			continue
+		}
+		if _, ok := v.getProviderCredentialSuffixes(integration.Provider); !ok {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("integrations.%s.provider", name),
+				Message: fmt.Sprintf("unsupported provider %q", integration.Provider),
+			})
+		}
+	}
+}
+
+// GetRequiredCredentials returns detailed information about required credentials.
+// interfaces is the deployment-time list of enabled interfaces (e.g. ["slack","web"]).
+func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces []string) []CredentialInfo {
 	credMap := make(map[string]CredentialInfo)
 
-	// Check integration models (cloud providers)
-	for _, model := range astroSpec.Integrations.Models {
-		if info := v.getCredentialInfo(model.Provider, "model"); info.Key != "" {
-			if model.Env != nil && model.Env.Prefix != "" {
-				info.Key = model.Env.Prefix + info.Key
+	addCreds := func(name, provider, category string, customCreds []spec.CustomCredential) {
+		if strings.ToLower(provider) == "custom" {
+			for _, cc := range customCreds {
+				key := strings.ToUpper(name) + "_" + cc.Suffix
+				credMap[key] = CredentialInfo{
+					Key:         key,
+					Provider:    "custom",
+					Category:    category,
+					Description: cc.Description,
+					Optional:    cc.Optional,
+				}
 			}
-			credMap[info.Key] = info
+			return
+		}
+		suffixes, ok := v.getProviderCredentialSuffixes(provider)
+		if !ok {
+			return
+		}
+		for _, cs := range suffixes {
+			key := strings.ToUpper(name) + "_" + cs.Suffix
+			credMap[key] = CredentialInfo{
+				Key:         key,
+				Provider:    strings.ToLower(provider),
+				Category:    category,
+				Description: cs.Description,
+				Optional:    cs.Optional,
+			}
 		}
 	}
 
-	// Check integration knowledge stores (cloud providers)
-	for _, knowledge := range astroSpec.Integrations.Knowledge {
-		if info := v.getCredentialInfo(knowledge.Provider, "knowledge"); info.Key != "" {
-			if knowledge.Env != nil && knowledge.Env.Prefix != "" {
-				info.Key = knowledge.Env.Prefix + info.Key
-			}
-			credMap[info.Key] = info
+	for name, integration := range astroSpec.Integrations {
+		category := integration.Type
+		if category == "" {
+			category = "integration"
 		}
+		addCreds(name, integration.Provider, category, integration.Credentials)
 	}
 
-	// Check integration tools
-	for _, tool := range astroSpec.Integrations.Tools {
-		if info := v.getCredentialInfo(tool.Provider, "tool"); info.Key != "" {
-			if tool.Env != nil && tool.Env.Prefix != "" {
-				info.Key = tool.Env.Prefix + info.Key
-			}
-			credMap[info.Key] = info
-		}
-	}
-
-	// Check messaging interfaces
-	for _, iface := range astroSpec.Interfaces {
-		ifaceType := strings.ToLower(iface.Type)
+	// Check messaging interfaces (deployment-time values)
+	for _, name := range interfaces {
+		ifaceType := strings.ToLower(name)
 
 		if ifaceType == "slack" || ifaceType == "messaging/slack" || strings.Contains(ifaceType, "slack") {
-			// Slack requires both app token and bot token
 			credMap["SLACK_APP_TOKEN"] = CredentialInfo{
 				Key:         "SLACK_APP_TOKEN",
 				Provider:    "slack",
@@ -192,82 +250,5 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec) []Credenti
 	}
 
 	return creds
-}
-
-// getCredentialInfo returns credential information for a given provider and category
-func (v *Validator) getCredentialInfo(provider, category string) CredentialInfo {
-	providerLower := strings.ToLower(provider)
-
-	switch providerLower {
-	case "anthropic":
-		return CredentialInfo{
-			Key:         "ANTHROPIC_API_KEY",
-			Provider:    "anthropic",
-			Category:    category,
-			Description: "Anthropic API key for Claude models",
-			Optional:    false,
-		}
-	case "openai":
-		return CredentialInfo{
-			Key:         "OPENAI_API_KEY",
-			Provider:    "openai",
-			Category:    category,
-			Description: "OpenAI API key for GPT models",
-			Optional:    false,
-		}
-	case "google", "gemini":
-		return CredentialInfo{
-			Key:         "GOOGLE_API_KEY",
-			Provider:    "google",
-			Category:    category,
-			Description: "Google API key for Gemini models",
-			Optional:    false,
-		}
-	case "cohere":
-		return CredentialInfo{
-			Key:         "COHERE_API_KEY",
-			Provider:    "cohere",
-			Category:    category,
-			Description: "Cohere API key for language models",
-			Optional:    false,
-		}
-	case "pinecone":
-		return CredentialInfo{
-			Key:         "PINECONE_API_KEY",
-			Provider:    "pinecone",
-			Category:    category,
-			Description: "Pinecone API key for vector database",
-			Optional:    false,
-		}
-	case "github":
-		return CredentialInfo{
-			Key:         "GITHUB_TOKEN",
-			Provider:    "github",
-			Category:    category,
-			Description: "GitHub token for API access",
-			Optional:    false,
-		}
-	case "gitlab":
-		return CredentialInfo{
-			Key:         "GITLAB_TOKEN",
-			Provider:    "gitlab",
-			Category:    category,
-			Description: "GitLab token for API access",
-			Optional:    false,
-		}
-	default:
-		// For unknown providers, generate a generic key
-		if providerLower != "" && providerLower != "self-hosted" {
-			key := fmt.Sprintf("%s_API_KEY", strings.ToUpper(provider))
-			return CredentialInfo{
-				Key:         key,
-				Provider:    providerLower,
-				Category:    category,
-				Description: fmt.Sprintf("API key for %s", provider),
-				Optional:    false,
-			}
-		}
-		return CredentialInfo{}
-	}
 }
 

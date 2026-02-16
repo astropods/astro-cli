@@ -13,11 +13,11 @@ import (
 func BuildSecret(
 	namespace string,
 	agentName string,
-	version string,
+	buildID string,
 	userCredentials map[string]string,
 ) *corev1.Secret {
-	secretName := deployment.GenerateCredentialSecretName(agentName, version)
-	labels := deployment.GenerateLabels(agentName, version, "credentials")
+	secretName := deployment.GenerateCredentialSecretName(agentName, buildID)
+	labels := deployment.GenerateLabels(agentName, buildID, "credentials")
 
 	// Encode credentials - convert keys to uppercase
 	data := make(map[string][]byte)

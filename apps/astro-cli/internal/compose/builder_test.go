@@ -1,0 +1,295 @@
+package compose
+
+import (
+	"testing"
+
+	spec "github.com/postman/astro/packages/astro-spec"
+)
+
+// helper to dereference a *string from env maps, returning "" if nil.
+func envVal(env map[string]*string, key string) string {
+	if v, ok := env[key]; ok && v != nil {
+		return *v
+	}
+	return ""
+}
+
+func TestBuildProject_MinimalSpec(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	if project.Name != "my-agent" {
+		t.Errorf("Name = %q, want %q", project.Name, "my-agent")
+	}
+
+	// Should have agent + collector = 2 services
+	if _, ok := project.Services["agent"]; !ok {
+		t.Error("missing agent service")
+	}
+	if _, ok := project.Services["astro-collector"]; !ok {
+		t.Error("missing astro-collector service")
+	}
+
+	agent := project.Services["agent"]
+	if agent.Image != "agent:latest" {
+		t.Errorf("agent.Image = %q, want %q", agent.Image, "agent:latest")
+	}
+}
+
+func TestBuildProject_SlackInterface(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: []string{"slack"},
+		},
+	}
+
+	envVars := map[string]string{
+		"SLACK_BOT_TOKEN": "xoxb-test",
+		"SLACK_APP_TOKEN": "xapp-test",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	// Should create messaging sidecar
+	messaging, ok := project.Services["astro-messaging"]
+	if !ok {
+		t.Fatal("missing astro-messaging service")
+	}
+
+	// Messaging env should have slack tokens
+	if envVal(messaging.Environment, "SLACK_BOT_TOKEN") != "xoxb-test" {
+		t.Errorf("SLACK_BOT_TOKEN = %q, want %q", envVal(messaging.Environment, "SLACK_BOT_TOKEN"), "xoxb-test")
+	}
+	if envVal(messaging.Environment, "SLACK_ENABLED") != "true" {
+		t.Error("SLACK_ENABLED should be true")
+	}
+
+	// Should NOT have playground (only slack, no web)
+	if _, ok := project.Services["playground"]; ok {
+		t.Error("playground should not exist for slack-only interface")
+	}
+
+	// Agent should have GRPC_SERVER_ADDR
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "GRPC_SERVER_ADDR") != "astro-messaging:9090" {
+		t.Error("agent should have GRPC_SERVER_ADDR")
+	}
+}
+
+func TestBuildProject_WebInterface(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: []string{"web"},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	// Should create messaging sidecar and playground
+	if _, ok := project.Services["astro-messaging"]; !ok {
+		t.Error("missing astro-messaging service")
+	}
+	if _, ok := project.Services["playground"]; !ok {
+		t.Error("missing playground service for web interface")
+	}
+
+	// Messaging should have WEB_ENABLED
+	messaging := project.Services["astro-messaging"]
+	if envVal(messaging.Environment, "WEB_ENABLED") != "true" {
+		t.Error("WEB_ENABLED should be true")
+	}
+
+	// Messaging should expose both gRPC (9090) and HTTP (3100) ports
+	if len(messaging.Ports) != 2 {
+		t.Errorf("messaging ports = %d, want 2 (grpc + http)", len(messaging.Ports))
+	}
+}
+
+func TestBuildProject_IntegrationCredentials(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Integrations: map[string]spec.Integration{
+			"anthropic": {Provider: "anthropic", Type: "model"},
+			"github":    {Provider: "github", Type: "tool"},
+		},
+	}
+
+	envVars := map[string]string{
+		"ANTHROPIC_API_KEY": "sk-test",
+		"GITHUB_TOKEN":      "ghp-test",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "ANTHROPIC_API_KEY") != "sk-test" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want %q", envVal(agent.Environment, "ANTHROPIC_API_KEY"), "sk-test")
+	}
+	if envVal(agent.Environment, "GITHUB_TOKEN") != "ghp-test" {
+		t.Errorf("GITHUB_TOKEN = %q, want %q", envVal(agent.Environment, "GITHUB_TOKEN"), "ghp-test")
+	}
+}
+
+func TestBuildProject_CustomProviderCredentials(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Integrations: map[string]spec.Integration{
+			"my-service": {
+				Provider: "custom",
+				Type:     "tool",
+				Credentials: []spec.CustomCredential{
+					{Suffix: "API_KEY", Description: "API key"},
+					{Suffix: "SECRET", Description: "Shared secret"},
+				},
+			},
+		},
+	}
+
+	envVars := map[string]string{
+		"MY-SERVICE_API_KEY": "key1",
+		"MY-SERVICE_SECRET":  "s3cret",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "MY-SERVICE_API_KEY") != "key1" {
+		t.Errorf("MY-SERVICE_API_KEY = %q, want %q", envVal(agent.Environment, "MY-SERVICE_API_KEY"), "key1")
+	}
+	if envVal(agent.Environment, "MY-SERVICE_SECRET") != "s3cret" {
+		t.Errorf("MY-SERVICE_SECRET = %q, want %q", envVal(agent.Environment, "MY-SERVICE_SECRET"), "s3cret")
+	}
+}
+
+func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Integrations: map[string]spec.Integration{
+			"my-service": {
+				Provider: "custom",
+				Type:     "tool",
+				Credentials: []spec.CustomCredential{
+					{Suffix: "API_KEY"},
+					{Suffix: "SECRET"},
+				},
+			},
+		},
+	}
+
+	// Only provide one of two credentials
+	envVars := map[string]string{
+		"MY-SERVICE_API_KEY": "key1",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "MY-SERVICE_API_KEY") != "key1" {
+		t.Error("present env var should be injected")
+	}
+	if _, ok := agent.Environment["MY-SERVICE_SECRET"]; ok {
+		t.Error("absent env var should not be injected")
+	}
+}
+
+func TestBuildProject_KnowledgeStore(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"docs": {Provider: "qdrant", Persistent: true},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc, ok := project.Services["knowledge-docs"]
+	if !ok {
+		t.Fatal("missing knowledge-docs service")
+	}
+	if svc.Image != "qdrant/qdrant:latest" {
+		t.Errorf("Image = %q, want %q", svc.Image, "qdrant/qdrant:latest")
+	}
+
+	// Should have persistent volume
+	if len(svc.Volumes) == 0 {
+		t.Error("persistent knowledge store should have volumes")
+	}
+	if _, ok := project.Volumes["knowledge-docs-data"]; !ok {
+		t.Error("missing volume knowledge-docs-data")
+	}
+
+	// Agent should get QDRANT_HOST and QDRANT_PORT
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "QDRANT_HOST") != "knowledge-docs" {
+		t.Errorf("QDRANT_HOST = %q, want %q", envVal(agent.Environment, "QDRANT_HOST"), "knowledge-docs")
+	}
+}
+
+func TestBuildProject_NameDerivedCredentials(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:     "my-agent",
+		Meta:      spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Integrations: map[string]spec.Integration{
+			"fallback": {Provider: "anthropic", Type: "model"},
+		},
+	}
+
+	envVars := map[string]string{
+		"FALLBACK_API_KEY": "sk-fallback",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "FALLBACK_API_KEY") != "sk-fallback" {
+		t.Errorf("FALLBACK_API_KEY = %q, want %q", envVal(agent.Environment, "FALLBACK_API_KEY"), "sk-fallback")
+	}
+	// Should NOT have ANTHROPIC_API_KEY — the name "fallback" drives the key
+	if _, ok := agent.Environment["ANTHROPIC_API_KEY"]; ok {
+		t.Error("should not have ANTHROPIC_API_KEY when integration name is 'fallback'")
+	}
+}

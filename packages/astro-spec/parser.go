@@ -48,11 +48,11 @@ func ParseSpec(path string) (*AstroSpec, error) {
 	if spec.Spec == "" {
 		return nil, fmt.Errorf("spec version is required")
 	}
-	if spec.Agent == "" {
+	if spec.Name == "" {
 		return nil, fmt.Errorf("agent name is required")
 	}
-	if spec.Container.Build == nil && spec.Container.Image == "" {
-		return nil, fmt.Errorf("container.build or container.image is required")
+	if spec.Agent.Build == nil && spec.Agent.Image == "" {
+		return nil, fmt.Errorf("agent.build or agent.image is required")
 	}
 
 	// Validate knowledge entries: provider and container are mutually exclusive
@@ -62,6 +62,16 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		}
 		if k.Provider == "" && k.Container == nil {
 			return nil, fmt.Errorf("knowledge %q: either provider or container is required", name)
+		}
+	}
+
+	// Validate model entries: provider and container are mutually exclusive
+	for name, m := range spec.Models {
+		if m.Provider != "" && m.Container != nil {
+			return nil, fmt.Errorf("model %q: provider and container are mutually exclusive", name)
+		}
+		if m.Provider == "" && m.Container == nil {
+			return nil, fmt.Errorf("model %q: either provider or container is required", name)
 		}
 	}
 

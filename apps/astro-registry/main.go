@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,7 +12,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	"github.com/postman/astro/apps/astro-registry/handlers"
+	"github.com/postman/astro/apps/astro-registry/internal/account"
 	"github.com/postman/astro/apps/astro-registry/internal/config"
 	"github.com/postman/astro/apps/astro-registry/internal/logger"
 	"github.com/postman/astro/apps/astro-registry/internal/middleware"
@@ -55,24 +58,36 @@ func main() {
 		}
 	}
 
+	// Initialize database connection
+	db, err := sql.Open("postgres", cfg.Database.URL)
+	if err != nil {
+		log.Error("Failed to open database connection", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	log.Info("Database connected")
+
+	// Initialize membership checker
+	mc := account.NewMembershipChecker(db)
+
 	// Initialize ECR auth provider
 	ecrAuth := registry.NewECRAuthProvider(cfg.Registry.AWSRegion)
 	log.Info("ECR auth provider initialized", "region", cfg.Registry.AWSRegion)
 
 	// Setup authentication middleware
-	var authMw *middleware.AuthMiddleware
-	if cfg.Auth.Enabled {
-		authMw = middleware.NewAuthMiddleware(log, cfg)
-		log.Info("Authentication enabled", "jwks_endpoint", cfg.Auth.JWKSEndpoint)
-	} else {
-		log.Warn("Authentication is disabled - registry is open to all requests")
-	}
+	authMw := middleware.NewAuthMiddleware(log, cfg)
+	log.Info("Authentication enabled", "jwks_endpoint", cfg.Auth.JWKSEndpoint)
 
 	// Initialize probe handler for K8s health checks
 	probeHandler := handlers.NewProbeHandler(log, ecrAuth)
 
 	// Register routes
-	setupRoutes(router, log, cfg, authMw, ecrAuth, probeHandler)
+	setupRoutes(router, log, cfg, authMw, ecrAuth, probeHandler, mc)
 
 	// Create HTTP server with timeouts
 	srv := &http.Server{
@@ -116,7 +131,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, authMw *middleware.AuthMiddleware, ecrAuth *registry.ECRAuthProvider, probeHandler *handlers.ProbeHandler) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, authMw *middleware.AuthMiddleware, ecrAuth *registry.ECRAuthProvider, probeHandler *handlers.ProbeHandler, mc *account.MembershipChecker) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -124,29 +139,19 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, cfg *config.Config, aut
 
 	// Registry proxy configuration
 	proxyCfg := handlers.RegistryProxyConfig{
-		RegistryURL:  cfg.Registry.URL,
-		AuthProvider: ecrAuth,
-		Logger:       log,
+		RegistryURL:       cfg.Registry.URL,
+		Environment:       cfg.Registry.Environment,
+		AuthProvider:      ecrAuth,
+		Logger:            log,
+		MembershipChecker: mc,
 	}
 
 	// Docker Registry V2 API routes
 	v2 := router.Group("/v2")
-	if authMw != nil {
-		v2.Use(authMw.RequireAuth())
-	}
+	v2.Use(authMw.RequireAuth())
 	{
 		// All registry operations (including version check at root)
 		v2.Any("/*path", handlers.RegistryProxy(proxyCfg))
-	}
-
-	// API routes for CLI
-	api := router.Group("/api")
-	if authMw != nil {
-		api.Use(authMw.RequireAuth())
-	}
-	{
-		// Get user's namespace for pushing images
-		api.GET("/namespace", handlers.GetUserNamespace(log))
 	}
 
 	log.Info("Registry proxy enabled", "registry", cfg.Registry.URL)

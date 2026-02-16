@@ -4,6 +4,7 @@ import type { LayoutContext } from "@/components/Layout";
 
 export interface RecommendedAgent {
   slug: string;
+  account: string;
   name: string;
   description: string;
   integrations: string[];
@@ -27,6 +28,7 @@ export function RecommendedAgents({ agents }: RecommendedAgentsProps) {
           <AgentCard
             key={agent.slug}
             slug={agent.slug}
+            account={agent.account}
             name={agent.name}
             description={agent.description}
             integrations={agent.integrations}

@@ -44,7 +44,6 @@ type AuthConfig struct {
 	CookieMaxAge   time.Duration
 	SessionMaxAge  time.Duration
 	JWTIssuer      string
-	Enabled        bool
 }
 
 // ServerConfig holds server-specific configuration
@@ -75,6 +74,7 @@ type SecurityConfig struct {
 type DeploymentConfig struct {
 	RegistryURL       string // ECR registry URL (required for eks mode, defaults to "docker.io/library" for local)
 	ProxyRegistryHost string // Proxy registry host (e.g., registry.example.com)
+	Environment       string // Environment prefix for ECR tenant repos (e.g. "prod", "preview")
 	EKSClusterName    string // EKS cluster name (required for eks mode)
 	K8sMasterURL      string // K8s API server endpoint (required for eks mode)
 	AWSRegion         string // AWS region (optional, auto-detected from IRSA)
@@ -119,6 +119,7 @@ func Load() (*Config, error) {
 		Deployment: DeploymentConfig{
 			RegistryURL:       getEnv("REGISTRY_URL", ""),
 			ProxyRegistryHost: getEnv("PROXY_REGISTRY_HOST", ""),
+			Environment:       getEnv("ENVIRONMENT", ""),
 			EKSClusterName:    getEnv("EKS_CLUSTER_NAME", ""),
 			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
 			AWSRegion:         getEnv("AWS_REGION", ""),
@@ -147,7 +148,6 @@ func Load() (*Config, error) {
 			CookieMaxAge:   getEnvDuration("AUTH_COOKIE_MAX_AGE", 7*24*time.Hour),
 			SessionMaxAge:  getEnvDuration("AUTH_SESSION_MAX_AGE", 24*time.Hour),
 			JWTIssuer:      getEnv("AUTH_JWT_ISSUER", "https://api.workos.com"),
-			Enabled:        getEnv("AUTH_ENABLED", "true") == "true",
 		},
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", ""),
@@ -190,27 +190,29 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.Deployment.Environment == "" {
+		return fmt.Errorf("ENVIRONMENT environment variable is required")
+	}
+
 	if c.Database.URL == "" {
 		return fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 
-	// Validate auth configuration when enabled
-	if c.Auth.Enabled {
-		if c.Auth.WorkOSAPIKey == "" {
-			return fmt.Errorf("WORKOS_API_KEY environment variable is required when auth is enabled")
-		}
-		if c.Auth.WorkOSClientID == "" {
-			return fmt.Errorf("WORKOS_CLIENT_ID environment variable is required when auth is enabled")
-		}
-		if c.Auth.RedirectURI == "" {
-			return fmt.Errorf("WORKOS_REDIRECT_URI environment variable is required when auth is enabled")
-		}
-		if c.Auth.CookiePassword == "" {
-			return fmt.Errorf("AUTH_COOKIE_PASSWORD environment variable is required when auth is enabled (must be at least 32 characters)")
-		}
-		if len(c.Auth.CookiePassword) < 32 {
-			return fmt.Errorf("AUTH_COOKIE_PASSWORD must be at least 32 characters for secure encryption")
-		}
+	// Validate auth configuration
+	if c.Auth.WorkOSAPIKey == "" {
+		return fmt.Errorf("WORKOS_API_KEY environment variable is required")
+	}
+	if c.Auth.WorkOSClientID == "" {
+		return fmt.Errorf("WORKOS_CLIENT_ID environment variable is required")
+	}
+	if c.Auth.RedirectURI == "" {
+		return fmt.Errorf("WORKOS_REDIRECT_URI environment variable is required")
+	}
+	if c.Auth.CookiePassword == "" {
+		return fmt.Errorf("AUTH_COOKIE_PASSWORD environment variable is required (must be at least 32 characters)")
+	}
+	if len(c.Auth.CookiePassword) < 32 {
+		return fmt.Errorf("AUTH_COOKIE_PASSWORD must be at least 32 characters for secure encryption")
 	}
 
 	// Validate admin configuration when enabled

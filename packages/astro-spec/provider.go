@@ -10,14 +10,15 @@ type PortDef struct {
 
 // Provider holds provider-specific configuration.
 type Provider struct {
-	Image       string    // default container image (e.g., "qdrant/qdrant:latest")
-	DefaultPort int       // primary port (6333 for qdrant, 6379 for redis, etc.)
-	ExtraPorts  []PortDef // additional named ports (e.g., gRPC 6334 for qdrant)
-	MountPath   string    // volume mount path for persistent data
-	EnvPrefix   string    // env var prefix ("QDRANT", "REDIS", etc.)
-	URLScheme   string    // connection URL scheme ("http", "redis")
-	HealthCheck []string  // exec health check command; nil → use HealthPath instead
-	HealthPath  string    // HTTP health check path (e.g., "/healthz")
+	Image       string            // default container image (e.g., "qdrant/qdrant:latest")
+	DefaultPort int               // primary port (6333 for qdrant, 6379 for redis, etc.)
+	ExtraPorts  []PortDef         // additional named ports (e.g., gRPC 6334 for qdrant)
+	MountPath   string            // volume mount path for persistent data
+	EnvPrefix   string            // env var prefix ("QDRANT", "REDIS", etc.)
+	URLScheme   string            // connection URL scheme ("http", "redis")
+	HealthCheck []string          // exec health check command; nil → use HealthPath instead
+	HealthPath  string            // HTTP health check path (e.g., "/healthz")
+	DefaultEnv  map[string]string // default environment variables for the container
 }
 
 var providerRegistry = map[string]Provider{
@@ -45,6 +46,16 @@ var providerRegistry = map[string]Provider{
 		EnvPrefix:   "POSTGRES",
 		HealthCheck: []string{"pg_isready", "-U", "postgres"},
 	},
+	"neo4j": {
+		Image:       "neo4j:5-community",
+		DefaultPort: 7474,
+		ExtraPorts:  []PortDef{{Name: "bolt", Port: 7687}},
+		MountPath:   "/data",
+		EnvPrefix:   "NEO4J",
+		URLScheme:   "bolt",
+		HealthPath:  "/",
+		DefaultEnv:  map[string]string{"NEO4J_AUTH": "none"},
+	},
 }
 
 var defaultProvider = Provider{
@@ -52,11 +63,33 @@ var defaultProvider = Provider{
 	MountPath:   "/data",
 }
 
-// GetProvider returns configuration for a given provider name.
+// GetProvider returns configuration for a given knowledge provider name.
 // Unknown providers get a sensible fallback.
 func GetProvider(provider string) Provider {
 	if p, ok := providerRegistry[strings.ToLower(provider)]; ok {
 		return p
 	}
 	return defaultProvider
+}
+
+// Model provider registry (separate from knowledge providers).
+var modelProviderRegistry = map[string]Provider{
+	"ollama": {
+		Image:       "ollama/ollama:latest",
+		DefaultPort: 11434,
+		HealthPath:  "/api/tags",
+	},
+}
+
+var defaultModelProvider = Provider{
+	DefaultPort: 8080,
+}
+
+// GetModelProvider returns configuration for a given model provider name.
+// Unknown providers get a sensible fallback.
+func GetModelProvider(provider string) Provider {
+	if p, ok := modelProviderRegistry[strings.ToLower(provider)]; ok {
+		return p
+	}
+	return defaultModelProvider
 }

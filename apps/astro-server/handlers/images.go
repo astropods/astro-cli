@@ -26,12 +26,14 @@ type ListImagesResponse struct {
 }
 
 // ListImages handles GET /api/v1/images
-// Lists all container images in ECR with tenant-* prefix
-func ListImages(log *logger.Logger, region string) gin.HandlerFunc {
+// Lists all container images in ECR with {env}-tenant-* prefix
+func ListImages(log *logger.Logger, region, environment string) gin.HandlerFunc {
+	tenantPrefix := environment + "-tenant-"
+
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 
-		log.Info("Listing ECR images with tenant-* prefix")
+		log.Info("Listing ECR images", "prefix", tenantPrefix)
 
 		// Load AWS config
 		opts := []func(*config.LoadOptions) error{}
@@ -52,8 +54,8 @@ func ListImages(log *logger.Logger, region string) gin.HandlerFunc {
 		// Create ECR client
 		client := ecr.NewFromConfig(cfg)
 
-		// List repositories with tenant- prefix
-		images, err := listTenantRepositories(ctx, client, log)
+		// List repositories with {env}-tenant- prefix
+		images, err := listTenantRepositories(ctx, client, log, tenantPrefix)
 		if err != nil {
 			log.Error("Failed to list ECR repositories", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -70,8 +72,8 @@ func ListImages(log *logger.Logger, region string) gin.HandlerFunc {
 	}
 }
 
-// listTenantRepositories lists all ECR repositories with tenant-* prefix
-func listTenantRepositories(ctx context.Context, client *ecr.Client, log *logger.Logger) ([]ImageInfo, error) {
+// listTenantRepositories lists all ECR repositories with the given tenant prefix
+func listTenantRepositories(ctx context.Context, client *ecr.Client, log *logger.Logger, tenantPrefix string) ([]ImageInfo, error) {
 	var images []ImageInfo
 	var nextToken *string
 
@@ -89,14 +91,14 @@ func listTenantRepositories(ctx context.Context, client *ecr.Client, log *logger
 		for _, repo := range output.Repositories {
 			repoName := *repo.RepositoryName
 
-			// Filter for tenant-* repositories
-			if !strings.HasPrefix(repoName, "tenant-") {
+			// Filter for {env}-tenant-* repositories
+			if !strings.HasPrefix(repoName, tenantPrefix) {
 				continue
 			}
 
 			// Parse namespace and image name from repository name
-			// Format: tenant-{namespace}/{image} or tenant-{namespace}
-			namespace, imageName := parseRepositoryName(repoName)
+			// Format: {env}-tenant-{namespace}/{image} or {env}-tenant-{namespace}
+			namespace, imageName := parseRepositoryName(repoName, tenantPrefix)
 
 			// Get tags for this repository
 			tags, err := getRepositoryTags(ctx, client, repoName)
@@ -127,11 +129,11 @@ func listTenantRepositories(ctx context.Context, client *ecr.Client, log *logger
 }
 
 // parseRepositoryName parses a repository name into namespace and image name
-// Input: tenant-user123/myapp -> namespace: user123, name: myapp
-// Input: tenant-user123 -> namespace: user123, name: (empty)
-func parseRepositoryName(repoName string) (namespace, imageName string) {
-	// Strip tenant- prefix
-	withoutPrefix := strings.TrimPrefix(repoName, "tenant-")
+// Input: prod-tenant-user123/myapp -> namespace: user123, name: myapp
+// Input: prod-tenant-user123 -> namespace: user123, name: (empty)
+func parseRepositoryName(repoName string, tenantPrefix string) (namespace, imageName string) {
+	// Strip {env}-tenant- prefix
+	withoutPrefix := strings.TrimPrefix(repoName, tenantPrefix)
 
 	// Split by /
 	parts := strings.SplitN(withoutPrefix, "/", 2)

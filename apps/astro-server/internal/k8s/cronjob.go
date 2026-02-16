@@ -15,7 +15,7 @@ type CronJobConfig struct {
 	Name          string
 	Namespace     string
 	AgentName     string
-	Version       string
+	BuildID       string
 	Component     string
 	Schedule      string
 	SecretName    string
@@ -28,7 +28,7 @@ type JobConfig struct {
 	Name          string
 	Namespace     string
 	AgentName     string
-	Version       string
+	BuildID       string
 	Component     string
 	SecretName    string
 	ConfigMapName string
@@ -88,7 +88,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 
 // BuildCronJob creates a Kubernetes CronJob manifest for ingestion jobs
 func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
@@ -137,7 +137,7 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 
 // BuildIngestionDeployment creates a long-running Deployment for webhook-triggered ingestion
 func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.PullPolicy) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
@@ -186,7 +186,7 @@ func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.
 
 // BuildJob creates a one-shot Kubernetes Job manifest for ingestion (startup/manual triggers)
 func BuildJob(cfg JobConfig) *batchv1.Job {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
 	backoffLimit := int32(3)

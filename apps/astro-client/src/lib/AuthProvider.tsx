@@ -16,6 +16,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [state, setState] = useState<AuthState>(initialAuthState);
 
   const updateFromResponse = useCallback((response: AuthResponse) => {
+    const accounts = response.accounts || [];
+
     setState({
       user: response.user,
       sessionId: response.session_id,
@@ -25,6 +27,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isLoading: false,
       isAuthenticated: true,
       error: null,
+      accounts,
+      needsOnboarding: accounts.length === 0,
     });
   }, []);
 
@@ -91,20 +95,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         setState((prev) => ({ ...prev, isLoading: true, error: null }));
         const response = await api.getCurrentUser();
-        if (mounted) {
-          setState({
-            user: response.user,
-            sessionId: response.session_id,
-            organizationId: response.organization_id || null,
-            role: response.role || null,
-            expiresAt: response.expires_at
-              ? new Date(response.expires_at)
-              : null,
-            isLoading: false,
-            isAuthenticated: true,
-            error: null,
-          });
-        }
+        if (!mounted) return;
+        updateFromResponse(response);
       } catch (err) {
         if (!mounted) return;
         const error = err as ApiError;

@@ -29,14 +29,14 @@ type DeleteResult struct {
 }
 
 // Delete deletes all resources for an agent deployment
-func (d *Deleter) Delete(ctx context.Context, agentName, version string) (*DeleteResult, error) {
+func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*DeleteResult, error) {
 	result := &DeleteResult{
 		Resources: []deployment.ResourceStatus{},
 		Errors:    []deployment.DeploymentError{},
 	}
 
-	// Sanitize version for resource names (replace dots with hyphens)
-	versionSanitized := deployment.SanitizeName(version)
+	// Sanitize buildID for resource names (replace dots with hyphens)
+	buildIDSanitized := deployment.SanitizeName(buildID)
 
 	// Delete resources in reverse order (opposite of creation)
 	// Jobs and CronJobs first
@@ -51,8 +51,8 @@ func (d *Deleter) Delete(ctx context.Context, agentName, version string) (*Delet
 	d.deleteServices(ctx, agentName, result)
 
 	// ConfigMaps and Secrets
-	d.deleteConfigMap(ctx, agentName, versionSanitized, result)
-	d.deleteSecret(ctx, agentName, versionSanitized, result)
+	d.deleteConfigMap(ctx, agentName, buildIDSanitized, result)
+	d.deleteSecret(ctx, agentName, buildIDSanitized, result)
 
 	// PersistentVolumeClaims (created by StatefulSets)
 	d.deletePVCs(ctx, agentName, result)
@@ -242,8 +242,8 @@ func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *
 }
 
 // deleteConfigMap deletes the ConfigMap for the agent
-func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, versionSanitized string, result *DeleteResult) {
-	configMapName := deployment.GenerateConfigMapName(agentName, versionSanitized)
+func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, buildIDSanitized string, result *DeleteResult) {
+	configMapName := deployment.GenerateConfigMapName(agentName, buildIDSanitized)
 
 	err := d.client.Clientset().CoreV1().ConfigMaps(d.namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
 	if err != nil {
@@ -263,8 +263,8 @@ func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, versionSanitiz
 }
 
 // deleteSecret deletes the Secret for the agent
-func (d *Deleter) deleteSecret(ctx context.Context, agentName, versionSanitized string, result *DeleteResult) {
-	secretName := deployment.GenerateCredentialSecretName(agentName, versionSanitized)
+func (d *Deleter) deleteSecret(ctx context.Context, agentName, buildIDSanitized string, result *DeleteResult) {
+	secretName := deployment.GenerateCredentialSecretName(agentName, buildIDSanitized)
 
 	err := d.client.Clientset().CoreV1().Secrets(d.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
 	if err != nil {

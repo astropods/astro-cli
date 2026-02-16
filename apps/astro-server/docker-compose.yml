@@ -26,8 +26,8 @@ services:
     command:
       - |
         for f in /migrations/*.sql; do
-          echo "Applying $f..."
-          PGPASSWORD=postgres psql -h postgres -U postgres -d astro -f "$f"
+          echo "Applying $$f..."
+          PGPASSWORD=postgres psql -h postgres -U postgres -d astro -f "$$f"
         done
 
 volumes:

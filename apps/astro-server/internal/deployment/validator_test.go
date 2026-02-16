@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/postman/astro/packages/astro-spec"
@@ -15,6 +16,8 @@ func TestValidateSpec(t *testing.T) {
 		name           string
 		spec           *spec.AstroSpec
 		creds          map[string]string
+		interfaces     []string
+		schedules      map[string]string
 		wantValid      bool
 		wantErrorField string // if not empty, expect an error with this field
 		wantMissing    int    // expected count of missing credentials
@@ -22,9 +25,9 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "valid minimal spec",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
 			},
 			creds:     map[string]string{},
 			wantValid: true,
@@ -32,28 +35,27 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "missing agent name",
 			spec: &spec.AstroSpec{
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
 			},
 			creds:          map[string]string{},
 			wantValid:      false,
 			wantErrorField: "agent",
 		},
 		{
-			name: "missing version",
+			name: "no version field is valid",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Container: spec.Container{Image: "agent:latest"},
+				Name:  "my-agent",
+				Agent: spec.Container{Image: "agent:latest"},
 			},
-			creds:          map[string]string{},
-			wantValid:      false,
-			wantErrorField: "meta.version",
+			creds:     map[string]string{},
+			wantValid: true,
 		},
 		{
 			name: "missing container image and build",
 			spec: &spec.AstroSpec{
-				Agent: "my-agent",
-				Meta:  spec.Meta{Version: "1.0"},
+				Name: "my-agent",
+				Meta: spec.Meta{},
 			},
 			creds:          map[string]string{},
 			wantValid:      false,
@@ -62,9 +64,9 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "container with build config is valid",
 			spec: &spec.AstroSpec{
-				Agent: "my-agent",
-				Meta:  spec.Meta{Version: "1.0"},
-				Container: spec.Container{
+				Name: "my-agent",
+				Meta: spec.Meta{},
+				Agent: spec.Container{
 					Build: &spec.BuildConfig{Context: ".", Dockerfile: "Dockerfile"},
 				},
 			},
@@ -74,9 +76,9 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "invalid trigger type",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"bad-trigger": {
 						Container: spec.ContainerConfig{Image: "worker:latest"},
@@ -91,9 +93,9 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "schedule trigger without schedule expression",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"sync": {
 						Container: spec.ContainerConfig{Image: "worker:latest"},
@@ -108,46 +110,46 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "invalid cron expression",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"sync": {
 						Container: spec.ContainerConfig{Image: "worker:latest"},
-						Trigger:   spec.IngestionTrigger{Type: "schedule", Schedule: "not-a-cron"},
+						Trigger:   spec.IngestionTrigger{Type: "schedule"},
 					},
 				},
 			},
 			creds:          map[string]string{},
+			schedules:      map[string]string{"sync": "not-a-cron"},
 			wantValid:      false,
 			wantErrorField: "ingestion.sync.trigger.schedule",
 		},
 		{
 			name: "valid cron expression",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"sync": {
 						Container: spec.ContainerConfig{Image: "worker:latest"},
-						Trigger:   spec.IngestionTrigger{Type: "schedule", Schedule: "0 * * * *"},
+						Trigger:   spec.IngestionTrigger{Type: "schedule"},
 					},
 				},
 			},
 			creds:     map[string]string{},
+			schedules: map[string]string{"sync": "0 * * * *"},
 			wantValid: true,
 		},
 		{
 			name: "missing credentials for anthropic model",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
-				Integrations: spec.Integrations{
-					Models: []spec.IntegrationModel{
-						{Name: "claude", Provider: "anthropic"},
-					},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{
+					"anthropic": {Provider: "anthropic", Type: "model"},
 				},
 			},
 			creds:       map[string]string{},
@@ -157,31 +159,116 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "credentials provided for anthropic model",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
-				Integrations: spec.Integrations{
-					Models: []spec.IntegrationModel{
-						{Name: "claude", Provider: "anthropic"},
-					},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{
+					"anthropic": {Provider: "anthropic", Type: "model"},
 				},
 			},
 			creds:     map[string]string{"ANTHROPIC_API_KEY": "sk-test"},
 			wantValid: true,
 		},
 		{
-			name: "slack interface requires tokens",
+			name: "custom provider with credentials provided",
 			spec: &spec.AstroSpec{
-				Agent:     "my-agent",
-				Meta:      spec.Meta{Version: "1.0"},
-				Container: spec.Container{Image: "agent:latest"},
-				Interfaces: map[string]spec.Interface{
-					"slack": {Type: "slack"},
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{
+					"my-service": {
+						Provider: "custom",
+						Type:     "tool",
+						Credentials: []spec.CustomCredential{
+							{Suffix: "API_KEY", Description: "API key"},
+							{Suffix: "SECRET", Description: "Shared secret"},
+						},
+					},
+				},
+			},
+			creds:     map[string]string{"MY-SERVICE_API_KEY": "key1", "MY-SERVICE_SECRET": "s3cret"},
+			wantValid: true,
+		},
+		{
+			name: "custom provider with missing credentials",
+			spec: &spec.AstroSpec{
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{
+					"my-service": {
+						Provider: "custom",
+						Type:     "tool",
+						Credentials: []spec.CustomCredential{
+							{Suffix: "API_KEY", Description: "API key"},
+							{Suffix: "SECRET", Description: "Shared secret"},
+						},
+					},
 				},
 			},
 			creds:       map[string]string{},
 			wantValid:   false,
+			wantMissing: 2,
+		},
+		{
+			name: "custom provider without credentials array",
+			spec: &spec.AstroSpec{
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{
+					"my-service": {
+						Provider: "custom",
+						Type:     "tool",
+					},
+				},
+			},
+			creds:          map[string]string{},
+			wantValid:      false,
+			wantErrorField: "integrations.my-service.credentials",
+		},
+		{
+			name: "custom provider optional credential not required",
+			spec: &spec.AstroSpec{
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+				Integrations: map[string]spec.Integration{
+					"my-service": {
+						Provider: "custom",
+						Type:     "tool",
+						Credentials: []spec.CustomCredential{
+							{Suffix: "API_KEY", Description: "API key"},
+							{Suffix: "SECRET", Description: "Optional secret", Optional: true},
+						},
+					},
+				},
+			},
+			creds:       map[string]string{"MY-SERVICE_API_KEY": "key1"},
+			wantValid:   true,
+			wantMissing: 0,
+		},
+		{
+			name: "slack interface requires tokens",
+			spec: &spec.AstroSpec{
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+			},
+			interfaces:  []string{"slack"},
+			creds:       map[string]string{},
+			wantValid:   false,
 			wantMissing: 2, // SLACK_APP_TOKEN + SLACK_BOT_TOKEN
+		},
+		{
+			name: "no interfaces means no interface creds",
+			spec: &spec.AstroSpec{
+				Name:      "my-agent",
+				Meta:      spec.Meta{},
+				Agent: spec.Container{Image: "agent:latest"},
+			},
+			creds:     map[string]string{},
+			wantValid: true,
 		},
 	}
 
@@ -189,7 +276,7 @@ func TestValidateSpec(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := v.ValidateSpec(tt.spec, tt.creds)
+			result := v.ValidateSpec(tt.spec, tt.creds, tt.interfaces, tt.schedules)
 
 			if result.Valid != tt.wantValid {
 				t.Errorf("Valid: expected %v, got %v (errors: %v)", tt.wantValid, result.Valid, result.Errors)
@@ -225,27 +312,21 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("known providers", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Integrations: spec.Integrations{
-				Models: []spec.IntegrationModel{
-					{Name: "claude", Provider: "anthropic"},
-					{Name: "gpt", Provider: "openai"},
-					{Name: "gemini", Provider: "google"},
-					{Name: "cohere", Provider: "cohere"},
-				},
-				Knowledge: []spec.IntegrationKnowledge{
-					{Name: "pinecone-store", Provider: "pinecone"},
-				},
-				Tools: []spec.IntegrationTool{
-					{Name: "gh", Provider: "github"},
-					{Name: "gl", Provider: "gitlab"},
-				},
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
+			Integrations: map[string]spec.Integration{
+				"anthropic": {Provider: "anthropic", Type: "model"},
+				"openai":    {Provider: "openai", Type: "model"},
+				"google":    {Provider: "google", Type: "model"},
+				"cohere":    {Provider: "cohere", Type: "model"},
+				"pinecone":  {Provider: "pinecone", Type: "knowledge"},
+				"github":    {Provider: "github", Type: "tool"},
+				"gitlab":    {Provider: "gitlab", Type: "tool"},
 			},
 		}
 
-		creds := v.GetRequiredCredentials(s)
+		creds := v.GetRequiredCredentials(s, nil)
 		credKeys := make(map[string]bool)
 		for _, c := range creds {
 			credKeys[c.Key] = true
@@ -264,91 +345,69 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("gemini alias", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Integrations: spec.Integrations{
-				Models: []spec.IntegrationModel{
-					{Name: "gem", Provider: "gemini"},
-				},
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
+			Integrations: map[string]spec.Integration{
+				"gemini": {Provider: "gemini", Type: "model"},
 			},
 		}
 
-		creds := v.GetRequiredCredentials(s)
-		if len(creds) != 1 || creds[0].Key != "GOOGLE_API_KEY" {
-			t.Errorf("gemini should map to GOOGLE_API_KEY, got %v", creds)
+		creds := v.GetRequiredCredentials(s, nil)
+		if len(creds) != 1 || creds[0].Key != "GEMINI_API_KEY" {
+			t.Errorf("gemini provider with name 'gemini' should produce GEMINI_API_KEY, got %v", creds)
 		}
 	})
 
-	t.Run("self-hosted produces no credential", func(t *testing.T) {
+	t.Run("unsupported provider rejected", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Integrations: spec.Integrations{
-				Models: []spec.IntegrationModel{
-					{Name: "local-model", Provider: "self-hosted"},
-				},
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
+			Integrations: map[string]spec.Integration{
+				"mistral": {Provider: "mistral", Type: "model"},
 			},
 		}
 
-		creds := v.GetRequiredCredentials(s)
-		if len(creds) != 0 {
-			t.Errorf("self-hosted should not require credentials, got %v", creds)
+		result := v.ValidateSpec(s, map[string]string{}, nil, nil)
+		if result.Valid {
+			t.Error("expected validation to fail for unsupported provider")
+		}
+		found := false
+		for _, e := range result.Errors {
+			if e.Field == "integrations.mistral.provider" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected error on integrations.mistral.provider, got %v", result.Errors)
 		}
 	})
 
-	t.Run("unknown provider generates generic key", func(t *testing.T) {
+	t.Run("name-derived env vars", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Integrations: spec.Integrations{
-				Models: []spec.IntegrationModel{
-					{Name: "custom", Provider: "mistral"},
-				},
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
+			Integrations: map[string]spec.Integration{
+				"fallback": {Provider: "anthropic", Type: "model"},
 			},
 		}
 
-		creds := v.GetRequiredCredentials(s)
-		if len(creds) != 1 || creds[0].Key != "MISTRAL_API_KEY" {
-			t.Errorf("unknown provider should generate {PROVIDER}_API_KEY, got %v", creds)
-		}
-	})
-
-	t.Run("env prefix overrides key", func(t *testing.T) {
-		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Integrations: spec.Integrations{
-				Models: []spec.IntegrationModel{
-					{
-						Name:     "claude",
-						Provider: "anthropic",
-						Env:      &spec.IntegrationEnv{Prefix: "MY_"},
-					},
-				},
-			},
-		}
-
-		creds := v.GetRequiredCredentials(s)
-		if len(creds) != 1 || creds[0].Key != "MY_ANTHROPIC_API_KEY" {
-			t.Errorf("expected MY_ANTHROPIC_API_KEY with prefix, got %v", creds)
+		creds := v.GetRequiredCredentials(s, nil)
+		if len(creds) != 1 || creds[0].Key != "FALLBACK_API_KEY" {
+			t.Errorf("expected FALLBACK_API_KEY from name 'fallback', got %v", creds)
 		}
 	})
 
 	t.Run("slack interface credentials", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Interfaces: map[string]spec.Interface{
-				"slack": {Type: "slack"},
-			},
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
 		}
 
-		creds := v.GetRequiredCredentials(s)
+		creds := v.GetRequiredCredentials(s, []string{"slack"})
 		credKeys := make(map[string]bool)
 		for _, c := range creds {
 			credKeys[c.Key] = true
@@ -359,22 +418,168 @@ func TestGetRequiredCredentials(t *testing.T) {
 		}
 	})
 
-	t.Run("deduplicates same provider", func(t *testing.T) {
+	t.Run("different names same provider produce different keys", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Agent:     "my-agent",
-			Meta:      spec.Meta{Version: "1.0"},
-			Container: spec.Container{Image: "agent:latest"},
-			Integrations: spec.Integrations{
-				Models: []spec.IntegrationModel{
-					{Name: "claude-3", Provider: "anthropic"},
-					{Name: "claude-4", Provider: "anthropic"},
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
+			Integrations: map[string]spec.Integration{
+				"primary":  {Provider: "anthropic", Type: "model"},
+				"fallback": {Provider: "anthropic", Type: "model"},
+			},
+		}
+
+		creds := v.GetRequiredCredentials(s, nil)
+		credKeys := make(map[string]bool)
+		for _, c := range creds {
+			credKeys[c.Key] = true
+		}
+		if len(creds) != 2 {
+			t.Errorf("different names should produce different keys, got %d credentials: %v", len(creds), credKeys)
+		}
+		if !credKeys["PRIMARY_API_KEY"] || !credKeys["FALLBACK_API_KEY"] {
+			t.Errorf("expected PRIMARY_API_KEY and FALLBACK_API_KEY, got %v", credKeys)
+		}
+	})
+
+	t.Run("custom provider credentials", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name:      "my-agent",
+			Meta:      spec.Meta{},
+			Agent: spec.Container{Image: "agent:latest"},
+			Integrations: map[string]spec.Integration{
+				"my-service": {
+					Provider: "custom",
+					Type:     "tool",
+					Credentials: []spec.CustomCredential{
+						{Suffix: "API_KEY", Description: "API key for my-service"},
+						{Suffix: "SECRET", Description: "Shared secret", Optional: true},
+					},
 				},
 			},
 		}
 
-		creds := v.GetRequiredCredentials(s)
-		if len(creds) != 1 {
-			t.Errorf("duplicate providers should be deduplicated, got %d credentials", len(creds))
+		creds := v.GetRequiredCredentials(s, nil)
+		credKeys := make(map[string]CredentialInfo)
+		for _, c := range creds {
+			credKeys[c.Key] = c
+		}
+
+		if len(creds) != 2 {
+			t.Fatalf("expected 2 credentials, got %d: %v", len(creds), credKeys)
+		}
+		if _, ok := credKeys["MY-SERVICE_API_KEY"]; !ok {
+			t.Errorf("expected MY-SERVICE_API_KEY, got %v", credKeys)
+		}
+		if _, ok := credKeys["MY-SERVICE_SECRET"]; !ok {
+			t.Errorf("expected MY-SERVICE_SECRET, got %v", credKeys)
+		}
+		if !credKeys["MY-SERVICE_SECRET"].Optional {
+			t.Error("expected MY-SERVICE_SECRET to be optional")
+		}
+		if credKeys["MY-SERVICE_API_KEY"].Provider != "custom" {
+			t.Errorf("expected provider 'custom', got %q", credKeys["MY-SERVICE_API_KEY"].Provider)
+		}
+	})
+
+	t.Run("custom provider JSON round-trip", func(t *testing.T) {
+		rawSpec := map[string]interface{}{
+			"spec": "astro/v1",
+			"name": "my-agent",
+			"meta": map[string]interface{}{"version": "1.0"},
+			"agent": map[string]interface{}{
+				"image": "agent:latest",
+			},
+			"integrations": map[string]interface{}{
+				"my-service": map[string]interface{}{
+					"provider": "custom",
+					"type":     "tool",
+					"credentials": []interface{}{
+						map[string]interface{}{"suffix": "API_KEY", "description": "API key"},
+						map[string]interface{}{"suffix": "SECRET", "description": "Shared secret"},
+					},
+				},
+			},
+		}
+
+		specJSON, err := json.Marshal(rawSpec)
+		if err != nil {
+			t.Fatalf("failed to marshal raw spec: %v", err)
+		}
+
+		var astroSpec spec.AstroSpec
+		if err := json.Unmarshal(specJSON, &astroSpec); err != nil {
+			t.Fatalf("failed to unmarshal into AstroSpec: %v", err)
+		}
+
+		integration, ok := astroSpec.Integrations["my-service"]
+		if !ok {
+			t.Fatal("expected my-service integration after round-trip")
+		}
+		if len(integration.Credentials) != 2 {
+			t.Fatalf("expected 2 credentials after round-trip, got %d", len(integration.Credentials))
+		}
+
+		creds := v.GetRequiredCredentials(&astroSpec, nil)
+		credKeys := make(map[string]bool)
+		for _, c := range creds {
+			credKeys[c.Key] = true
+		}
+		if !credKeys["MY-SERVICE_API_KEY"] || !credKeys["MY-SERVICE_SECRET"] {
+			t.Errorf("expected MY-SERVICE_API_KEY and MY-SERVICE_SECRET, got %v", credKeys)
+		}
+	})
+
+	t.Run("JSON round-trip preserves flat integrations", func(t *testing.T) {
+		// Simulate the /config handler path: spec stored as map[string]interface{}
+		// then JSON marshaled and unmarshaled into spec.AstroSpec.
+		rawSpec := map[string]interface{}{
+			"spec": "astro/v1",
+			"name": "my-agent",
+			"meta": map[string]interface{}{"version": "1.0"},
+			"agent": map[string]interface{}{
+				"image": "agent:latest",
+			},
+			"integrations": map[string]interface{}{
+				"anthropic": map[string]interface{}{
+					"provider": "anthropic",
+					"type":     "model",
+				},
+				"github": map[string]interface{}{
+					"provider": "github",
+					"type":     "tool",
+				},
+			},
+		}
+
+		specJSON, err := json.Marshal(rawSpec)
+		if err != nil {
+			t.Fatalf("failed to marshal raw spec: %v", err)
+		}
+
+		var astroSpec spec.AstroSpec
+		if err := json.Unmarshal(specJSON, &astroSpec); err != nil {
+			t.Fatalf("failed to unmarshal into AstroSpec: %v", err)
+		}
+
+		if len(astroSpec.Integrations) != 2 {
+			t.Fatalf("expected 2 integrations after round-trip, got %d", len(astroSpec.Integrations))
+		}
+
+		creds := v.GetRequiredCredentials(&astroSpec, nil)
+		credKeys := make(map[string]bool)
+		for _, c := range creds {
+			credKeys[c.Key] = true
+		}
+
+		if !credKeys["ANTHROPIC_API_KEY"] {
+			t.Errorf("expected ANTHROPIC_API_KEY, got %v", credKeys)
+		}
+		if !credKeys["GITHUB_TOKEN"] {
+			t.Errorf("expected GITHUB_TOKEN, got %v", credKeys)
+		}
+		if len(creds) != 2 {
+			t.Errorf("expected 2 credentials, got %d: %v", len(creds), credKeys)
 		}
 	})
 }

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-registry/internal/auth"
+	"github.com/postman/astro/apps/astro-registry/internal/account"
 	"github.com/postman/astro/apps/astro-registry/internal/logger"
 	"github.com/postman/astro/apps/astro-registry/internal/middleware"
 	"github.com/postman/astro/apps/astro-registry/internal/registry"
@@ -16,9 +16,11 @@ import (
 
 // RegistryProxyConfig holds configuration for the registry proxy.
 type RegistryProxyConfig struct {
-	RegistryURL  string
-	AuthProvider *registry.ECRAuthProvider
-	Logger       *logger.Logger
+	RegistryURL       string
+	Environment       string // Environment prefix for ECR repos (e.g. "prod", "preview")
+	AuthProvider      *registry.ECRAuthProvider
+	Logger            *logger.Logger
+	MembershipChecker *account.MembershipChecker
 }
 
 // RegistryVersionCheck handles the /v2/ endpoint for Docker Registry V2 API version check.
@@ -49,17 +51,16 @@ func RegistryProxy(cfg RegistryProxyConfig) gin.HandlerFunc {
 		}
 
 		// Validate namespace for write operations
-		if !validateNamespaceAccess(c, path, cfg.Logger) {
+		if !validateNamespaceAccess(c, path, cfg.Logger, cfg.MembershipChecker) {
 			return
 		}
 
 		// For write operations, ensure the repository exists before proxying
 		if isWriteOperation(c.Request.Method) {
-			repoName := extractRepositoryName(path)
+			repoName := extractRepositoryName(path, cfg.Environment)
 			if repoName != "" {
 				if err := cfg.AuthProvider.CreateRepository(c.Request.Context(), repoName); err != nil {
 					cfg.Logger.Error("Failed to ensure repository exists", "repository", repoName, "error", err)
-					// Continue anyway - the repo might already exist or we'll get a clearer error from ECR
 				} else {
 					cfg.Logger.Debug("Ensured repository exists", "repository", repoName)
 				}
@@ -67,7 +68,7 @@ func RegistryProxy(cfg RegistryProxyConfig) gin.HandlerFunc {
 		}
 
 		// Build target URL
-		targetURL, err := buildTargetURL(cfg.RegistryURL, path, c.Request.URL.RawQuery)
+		targetURL, err := buildTargetURL(cfg.RegistryURL, path, c.Request.URL.RawQuery, cfg.Environment)
 		if err != nil {
 			cfg.Logger.Error("Failed to build target URL", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"errors": []gin.H{{"code": "SERVER_ERROR", "message": "Failed to build target URL"}}})
@@ -116,11 +117,12 @@ func RegistryProxy(cfg RegistryProxyConfig) gin.HandlerFunc {
 		defer resp.Body.Close()
 
 		// Copy response headers to client
+		namespace := extractNamespace(path)
 		for key, values := range resp.Header {
 			for _, value := range values {
 				// Rewrite Location headers to point back to our proxy
 				if strings.EqualFold(key, "Location") {
-					value = rewriteLocationHeader(value, cfg.RegistryURL, c.Request.Host)
+					value = rewriteLocationHeader(value, cfg.RegistryURL, c.Request.Host, namespace)
 				}
 				c.Writer.Header().Add(key, value)
 			}
@@ -139,26 +141,30 @@ func isWriteOperation(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch
 }
 
-// extractRepositoryName extracts the ECR repository name from a registry path.
-// Path format: /{namespace}/{image}/manifests/{ref} or /{namespace}/{image}/blobs/{digest}
-// Returns: tenant-{namespace}/{image}
-func extractRepositoryName(path string) string {
+// extractNamespace extracts the first path segment (account name) from a registry path.
+func extractNamespace(path string) string {
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[0]
+}
+
+// extractRepositoryName returns the ECR repository name for a registry path.
+// ECR path becomes {env}-tenant-{account_name}/{image}.
+func extractRepositoryName(path string, env string) string {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 {
 		return ""
 	}
-	return "tenant-" + parts[0] + "/" + parts[1]
+	return env + "-tenant-" + parts[0] + "/" + parts[1]
 }
 
 // validateNamespaceAccess validates that the user has access to the requested namespace.
-// For write operations (PUT, POST, PATCH, DELETE), the namespace must match the user's ID or org ID.
-// For read operations (GET, HEAD), any authenticated user can access.
-func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger) bool {
-	// Extract namespace from path (first segment after /v2/)
-	// Path format: /{namespace}/{name}/manifests/{ref} or /{namespace}/{name}/blobs/{digest}
+// For writes, user must be a member of the account.
+func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc *account.MembershipChecker) bool {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 {
-		// No namespace in path, allow (probably a version check or similar)
 		return true
 	}
 
@@ -176,22 +182,28 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger) bo
 		return false
 	}
 
-	// Get session for organization ID
-	session, _ := middleware.GetSession(c)
-
-	// Check if namespace matches user ID or organization ID (case-insensitive)
-	if strings.EqualFold(namespace, user.ID) {
-		return true
-	}
-
-	if session != nil && session.OrganizationID != "" && strings.EqualFold(namespace, session.OrganizationID) {
-		return true
+	// Check if user is a member of the account
+	if mc != nil {
+		isMember, err := mc.IsMember(namespace, user.ID)
+		if err == nil && isMember {
+			return true
+		}
+		if log != nil && err != nil {
+			log.Warn("Membership check failed",
+				"namespace", namespace,
+				"user_id", user.ID,
+				"error", err,
+			)
+		}
 	}
 
 	if log != nil {
 		log.Warn("Namespace access denied",
 			"user_id", user.ID,
-			"requested_namespace", namespace,
+			"namespace", namespace,
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"user_agent", c.Request.UserAgent(),
 		)
 	}
 
@@ -205,8 +217,7 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger) bo
 }
 
 // buildTargetURL builds the full URL to the backend ECR registry.
-// It adds the "tenant-" prefix to the namespace to comply with ECR IAM policy.
-func buildTargetURL(registryURL, path, query string) (string, error) {
+func buildTargetURL(registryURL, path, query, env string) (string, error) {
 	base, err := url.Parse(registryURL)
 	if err != nil {
 		return "", err
@@ -218,9 +229,8 @@ func buildTargetURL(registryURL, path, query string) (string, error) {
 		basePath = basePath + "/v2"
 	}
 
-	// Add "tenant-" prefix to the namespace in the path
-	// Path format: /{namespace}/{image}/... -> /tenant-{namespace}/{image}/...
-	ecrPath := addTenantPrefix(path)
+	// Add tenant prefix to path for ECR
+	ecrPath := addTenantPrefix(path, env)
 
 	// Build full path
 	fullPath := basePath + ecrPath
@@ -235,11 +245,8 @@ func buildTargetURL(registryURL, path, query string) (string, error) {
 	return target.String(), nil
 }
 
-// addTenantPrefix adds "tenant-" prefix to the namespace in a registry path.
-// Input:  /{namespace}/{image}/manifests/{ref}
-// Output: /tenant-{namespace}/{image}/manifests/{ref}
-func addTenantPrefix(path string) string {
-	// Remove leading slash for splitting
+// addTenantPrefix replaces the namespace with {env}-tenant-{namespace} for ECR.
+func addTenantPrefix(path string, env string) string {
 	trimmed := strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(trimmed, "/", 2)
 
@@ -247,17 +254,12 @@ func addTenantPrefix(path string) string {
 		return path
 	}
 
-	// Add tenant- prefix to namespace
-	parts[0] = "tenant-" + parts[0]
-
+	parts[0] = env + "-tenant-" + parts[0]
 	return "/" + strings.Join(parts, "/")
 }
 
-// stripTenantPrefix removes "tenant-" prefix from the namespace in a registry path.
-// Input:  /tenant-{namespace}/{image}/manifests/{ref}
-// Output: /{namespace}/{image}/manifests/{ref}
+// stripTenantPrefix removes the "{env}-tenant-" prefix from the namespace in a registry path.
 func stripTenantPrefix(path string) string {
-	// Remove leading slash for splitting
 	trimmed := strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(trimmed, "/", 2)
 
@@ -265,39 +267,39 @@ func stripTenantPrefix(path string) string {
 		return path
 	}
 
-	// Strip tenant- prefix from namespace if present
-	if strings.HasPrefix(parts[0], "tenant-") {
-		parts[0] = strings.TrimPrefix(parts[0], "tenant-")
+	if idx := strings.Index(parts[0], "tenant-"); idx >= 0 {
+		parts[0] = parts[0][idx+len("tenant-"):]
 	}
 
 	return "/" + strings.Join(parts, "/")
 }
 
 // rewriteLocationHeader rewrites Location headers from the backend ECR to point to our proxy.
-// It also strips the "tenant-" prefix from the namespace.
-func rewriteLocationHeader(location, registryURL, proxyHost string) string {
-	// Parse the location URL
+// It restores the original account name the client used.
+func rewriteLocationHeader(location, registryURL, proxyHost, originalNamespace string) string {
 	locURL, err := url.Parse(location)
 	if err != nil {
 		return location
 	}
 
-	// Parse the registry URL
 	regURL, err := url.Parse(registryURL)
 	if err != nil {
 		return location
 	}
 
-	// If the location points to the registry, rewrite it to point to our proxy
 	if locURL.Host == regURL.Host {
-		// Extract the path after /v2
 		path := locURL.Path
 		if idx := strings.Index(path, "/v2"); idx >= 0 {
-			path = path[idx+3:] // Get path after "/v2"
+			path = path[idx+3:]
 		}
 
-		// Strip tenant- prefix from the path
-		path = stripTenantPrefix(path)
+		// Replace the tenant-prefixed namespace with the original account name
+		trimmed := strings.TrimPrefix(path, "/")
+		parts := strings.SplitN(trimmed, "/", 2)
+		if len(parts) > 0 && parts[0] != "" {
+			parts[0] = originalNamespace
+			path = "/" + strings.Join(parts, "/")
+		}
 
 		locURL.Scheme = "https"
 		locURL.Host = proxyHost
@@ -307,42 +309,6 @@ func rewriteLocationHeader(location, registryURL, proxyHost string) string {
 	}
 
 	return location
-}
-
-// GetUserNamespace returns the user's namespace (user ID and org ID).
-// This endpoint is called by the CLI to determine where to push images.
-func GetUserNamespace(log *logger.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		user, ok := c.Get(string(auth.UserContextKey))
-		if !ok {
-			c.JSON(http.StatusUnauthorized, auth.ErrorResponse{
-				Error:       "unauthorized",
-				Description: "Authentication required",
-			})
-			return
-		}
-
-		u, ok := user.(*auth.User)
-		if !ok {
-			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{
-				Error:       "server_error",
-				Description: "Invalid user data",
-			})
-			return
-		}
-
-		// Also get organization ID if available
-		session, _ := middleware.GetSession(c)
-		var orgID string
-		if session != nil {
-			orgID = session.OrganizationID
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"user_id":         u.ID,
-			"organization_id": orgID,
-		})
-	}
 }
 
 // HealthCheck returns a simple health check handler

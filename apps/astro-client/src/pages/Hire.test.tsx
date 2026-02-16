@@ -266,7 +266,7 @@ describe('Hire page', () => {
       // data-analyst (March) is more recent than code-reviewer (Feb)
       const headings = screen.getAllByRole('heading', { level: 3 });
       const names = headings.map((h) => h.textContent);
-      expect(names).toEqual(['data-analyst', 'code-reviewer']);
+      expect(names).toEqual(['testuser/data-analyst', 'testuser/code-reviewer']);
     });
 
     it('sorts alphabetically by name when "Name A-Z" is selected', async () => {
@@ -276,7 +276,7 @@ describe('Hire page', () => {
 
       // Default is most-recent-first: data-analyst before code-reviewer
       const headingsBefore = screen.getAllByRole('heading', { level: 3 });
-      expect(headingsBefore.map((h) => h.textContent)).toEqual(['data-analyst', 'code-reviewer']);
+      expect(headingsBefore.map((h) => h.textContent)).toEqual(['testuser/data-analyst', 'testuser/code-reviewer']);
 
       await user.click(screen.getByRole('button', { name: /most recent/i }));
       await waitFor(() => {
@@ -286,7 +286,7 @@ describe('Hire page', () => {
 
       // A-Z flips the order
       const headingsAfter = screen.getAllByRole('heading', { level: 3 });
-      expect(headingsAfter.map((h) => h.textContent)).toEqual(['code-reviewer', 'data-analyst']);
+      expect(headingsAfter.map((h) => h.textContent)).toEqual(['testuser/code-reviewer', 'testuser/data-analyst']);
     });
   });
 
@@ -299,7 +299,7 @@ describe('Hire page', () => {
 
       const links = screen.getAllByRole('link', { name: /view details/i });
       // Default sort is most-recent-first, so data-analyst appears first
-      expect(links[0]).toHaveAttribute('href', '/hire/data-analyst');
+      expect(links[0]).toHaveAttribute('href', '/hire/testuser/data-analyst');
     });
 
     it('"Install Agent" triggers the auth modal callback', async () => {

@@ -18,7 +18,7 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 			proxyRegistryHost: "registry.example.com",
 			ecrRegistryURL:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
 			inputImage:        "registry.example.com/user_01kggdgfrw46qcsnxeqbr1hr1z/engineering-assistant:latest",
-			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_01kggdgfrw46qcsnxeqbr1hr1z/engineering-assistant:latest",
+			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-user_01kggdgfrw46qcsnxeqbr1hr1z/engineering-assistant:latest",
 			expectError:       false,
 		},
 		{
@@ -26,7 +26,7 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 			proxyRegistryHost: "registry.example.com",
 			ecrRegistryURL:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
 			inputImage:        "registry.example.com/user_abc123/myagent:v1.0.0",
-			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_abc123/myagent:v1.0.0",
+			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-user_abc123/myagent:v1.0.0",
 			expectError:       false,
 		},
 		{
@@ -58,7 +58,7 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 			proxyRegistryHost: "registry.example.com",
 			ecrRegistryURL:    "https://123456789.dkr.ecr.us-east-1.amazonaws.com",
 			inputImage:        "registry.example.com/user_123/image@sha256:abcdef123456",
-			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_123/image@sha256:abcdef123456",
+			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-user_123/image@sha256:abcdef123456",
 			expectError:       false,
 		},
 		{
@@ -66,7 +66,7 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 			proxyRegistryHost: "registry.example.com",
 			ecrRegistryURL:    "123456789.dkr.ecr.us-east-1.amazonaws.com",
 			inputImage:        "registry.example.com/user_123/image:latest",
-			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/tenant-user_123/image:latest",
+			expectedImage:     "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-user_123/image:latest",
 			expectError:       false,
 		},
 		{
@@ -81,7 +81,7 @@ func TestImageResolver_ResolveImage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolver := NewImageResolver(tt.proxyRegistryHost, tt.ecrRegistryURL)
+			resolver := NewImageResolver(tt.proxyRegistryHost, tt.ecrRegistryURL, "prod")
 			result, err := resolver.ResolveImage(tt.inputImage)
 
 			if tt.expectError {

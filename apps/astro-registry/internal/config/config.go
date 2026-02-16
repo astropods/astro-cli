@@ -14,6 +14,7 @@ type Config struct {
 	Security SecurityConfig
 	Registry RegistryConfig
 	Auth     AuthConfig
+	Database DatabaseConfig
 }
 
 // ServerConfig holds server-specific configuration
@@ -40,13 +41,18 @@ type SecurityConfig struct {
 
 // RegistryConfig holds registry-related configuration
 type RegistryConfig struct {
-	URL       string // Backend registry URL (ECR)
-	AWSRegion string // AWS region for ECR
+	URL         string // Backend registry URL (ECR)
+	AWSRegion   string // AWS region for ECR
+	Environment string // Environment prefix for ECR repos (e.g. "prod", "preview")
+}
+
+// DatabaseConfig holds database configuration
+type DatabaseConfig struct {
+	URL string // PostgreSQL connection URL
 }
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	Enabled        bool
 	JWKSEndpoint   string // WorkOS JWKS endpoint for JWT validation
 	JWTIssuer      string // Expected JWT issuer
 	WorkOSClientID string // WorkOS client ID (JWT audience)
@@ -72,19 +78,22 @@ func Load() (*Config, error) {
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Registry: RegistryConfig{
-			URL:       normalizeRegistryURL(getEnv("REGISTRY_URL", "")),
-			AWSRegion: getEnv("AWS_REGION", ""),
+			URL:         normalizeRegistryURL(getEnv("REGISTRY_URL", "")),
+			AWSRegion:   getEnv("AWS_REGION", ""),
+			Environment: getEnv("ENVIRONMENT", ""),
 		},
 		Auth: AuthConfig{
-			Enabled:        getEnv("AUTH_ENABLED", "true") == "true",
 			JWKSEndpoint:   getEnv("JWKS_ENDPOINT", "https://api.workos.com/sso/jwks"),
 			JWTIssuer:      getEnv("JWT_ISSUER", ""), // Will be auto-constructed if empty
 			WorkOSClientID: getEnv("WORKOS_CLIENT_ID", ""),
 		},
+		Database: DatabaseConfig{
+			URL: getEnv("DATABASE_URL", ""),
+		},
 	}
 
 	// Auto-construct JWT issuer and JWKS endpoint from WorkOS client ID if not explicitly set
-	if cfg.Auth.Enabled && cfg.Auth.WorkOSClientID != "" {
+	if cfg.Auth.WorkOSClientID != "" {
 		if cfg.Auth.JWTIssuer == "" {
 			cfg.Auth.JWTIssuer = fmt.Sprintf("https://api.workos.com/user_management/%s", cfg.Auth.WorkOSClientID)
 		}
@@ -120,8 +129,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("REGISTRY_URL environment variable is required")
 	}
 
-	if c.Auth.Enabled && c.Auth.WorkOSClientID == "" {
-		return fmt.Errorf("WORKOS_CLIENT_ID environment variable is required when auth is enabled")
+	if c.Registry.Environment == "" {
+		return fmt.Errorf("ENVIRONMENT environment variable is required")
+	}
+
+	if c.Auth.WorkOSClientID == "" {
+		return fmt.Errorf("WORKOS_CLIENT_ID environment variable is required")
+	}
+
+	if c.Database.URL == "" {
+		return fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 
 	return nil

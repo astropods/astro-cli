@@ -17,10 +17,10 @@ func TestParse(t *testing.T) {
 			name: "minimal valid spec",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 `,
 			wantErr: false,
@@ -28,14 +28,11 @@ container:
 				if s.Spec != "astro/v1" {
 					t.Errorf("Spec = %q, want %q", s.Spec, "astro/v1")
 				}
-				if s.Agent != "test-agent" {
-					t.Errorf("Agent = %q, want %q", s.Agent, "test-agent")
+				if s.Name != "test-agent" {
+					t.Errorf("Name = %q, want %q", s.Name, "test-agent")
 				}
-				if s.Meta.Version != "1.0.0" {
-					t.Errorf("Meta.Version = %q, want %q", s.Meta.Version, "1.0.0")
-				}
-				if s.Container.Image != "test:latest" {
-					t.Errorf("Container.Image = %q, want %q", s.Container.Image, "test:latest")
+				if s.Agent.Image != "test:latest" {
+					t.Errorf("Agent.Image = %q, want %q", s.Agent.Image, "test:latest")
 				}
 			},
 		},
@@ -43,73 +40,75 @@ container:
 			name: "spec with build config",
 			yaml: `
 spec: astro/v1
-agent: my-agent
+name: my-agent
 meta:
   version: 0.1.0
-container:
+agent:
   build:
     context: .
     dockerfile: Dockerfile
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if s.Container.Build == nil {
-					t.Fatal("Container.Build is nil")
+				if s.Agent.Build == nil {
+					t.Fatal("Agent.Build is nil")
 				}
-				if s.Container.Build.Context != "." {
-					t.Errorf("Container.Build.Context = %q, want %q", s.Container.Build.Context, ".")
+				if s.Agent.Build.Context != "." {
+					t.Errorf("Agent.Build.Context = %q, want %q", s.Agent.Build.Context, ".")
 				}
-				if s.Container.Build.Dockerfile != "Dockerfile" {
-					t.Errorf("Container.Build.Dockerfile = %q, want %q", s.Container.Build.Dockerfile, "Dockerfile")
+				if s.Agent.Build.Dockerfile != "Dockerfile" {
+					t.Errorf("Agent.Build.Dockerfile = %q, want %q", s.Agent.Build.Dockerfile, "Dockerfile")
 				}
 			},
 		},
 		{
-			name: "spec with integrations array format",
+			name: "spec with integrations flat map",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 integrations:
-  models:
-    - name: primary
-      provider: anthropic
-    - name: backup
-      provider: openai
-      env:
-        prefix: BACKUP_
-  tools:
-    - name: github
-      provider: github
+  primary:
+    provider: anthropic
+    type: model
+  backup:
+    provider: openai
+    type: model
+  github:
+    provider: github
+    type: tool
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if len(s.Integrations.Models) != 2 {
-					t.Fatalf("len(Integrations.Models) = %d, want 2", len(s.Integrations.Models))
+				if len(s.Integrations) != 3 {
+					t.Fatalf("len(Integrations) = %d, want 3", len(s.Integrations))
 				}
-				if s.Integrations.Models[0].Name != "primary" {
-					t.Errorf("Integrations.Models[0].Name = %q, want %q", s.Integrations.Models[0].Name, "primary")
+				primary, ok := s.Integrations["primary"]
+				if !ok {
+					t.Fatal("Integrations[primary] not found")
 				}
-				if s.Integrations.Models[0].Provider != "anthropic" {
-					t.Errorf("Integrations.Models[0].Provider = %q, want %q", s.Integrations.Models[0].Provider, "anthropic")
+				if primary.Provider != "anthropic" {
+					t.Errorf("Integrations[primary].Provider = %q, want %q", primary.Provider, "anthropic")
 				}
-				if s.Integrations.Models[1].Name != "backup" {
-					t.Errorf("Integrations.Models[1].Name = %q, want %q", s.Integrations.Models[1].Name, "backup")
+				if primary.Type != "model" {
+					t.Errorf("Integrations[primary].Type = %q, want %q", primary.Type, "model")
 				}
-				if s.Integrations.Models[1].Env == nil {
-					t.Fatal("Integrations.Models[1].Env is nil")
+				backup, ok := s.Integrations["backup"]
+				if !ok {
+					t.Fatal("Integrations[backup] not found")
 				}
-				if s.Integrations.Models[1].Env.Prefix != "BACKUP_" {
-					t.Errorf("Integrations.Models[1].Env.Prefix = %q, want %q", s.Integrations.Models[1].Env.Prefix, "BACKUP_")
+				if backup.Provider != "openai" {
+					t.Errorf("Integrations[backup].Provider = %q, want %q", backup.Provider, "openai")
 				}
-				if len(s.Integrations.Tools) != 1 {
-					t.Fatalf("len(Integrations.Tools) = %d, want 1", len(s.Integrations.Tools))
+				gh, ok := s.Integrations["github"]
+				if !ok {
+					t.Fatal("Integrations[github] not found")
 				}
-				if s.Integrations.Tools[0].Name != "github" {
-					t.Errorf("Integrations.Tools[0].Name = %q, want %q", s.Integrations.Tools[0].Name, "github")
+				if gh.Provider != "github" {
+					t.Errorf("Integrations[github].Provider = %q, want %q", gh.Provider, "github")
 				}
 			},
 		},
@@ -117,10 +116,10 @@ integrations:
 			name: "spec with knowledge stores - provider mode",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 knowledge:
   cache:
@@ -167,10 +166,10 @@ knowledge:
 			name: "spec with knowledge stores - container mode",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 knowledge:
   custom_store:
@@ -202,38 +201,87 @@ knowledge:
 			},
 		},
 		{
-			name: "spec with interfaces",
+			name: "spec with models - provider mode",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
-interfaces:
-  api:
-    type: http
-  messaging:
-    type: slack
+models:
+  local_llm:
+    provider: ollama
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if len(s.Interfaces) != 2 {
-					t.Fatalf("len(Interfaces) = %d, want 2", len(s.Interfaces))
+				if len(s.Models) != 1 {
+					t.Fatalf("len(Models) = %d, want 1", len(s.Models))
 				}
-				api, ok := s.Interfaces["api"]
+				llm, ok := s.Models["local_llm"]
 				if !ok {
-					t.Fatal("Interfaces[api] not found")
+					t.Fatal("Models[local_llm] not found")
 				}
-				if api.Type != "http" {
-					t.Errorf("Interfaces[api].Type = %q, want %q", api.Type, "http")
+				if llm.Provider != "ollama" {
+					t.Errorf("Models[local_llm].Provider = %q, want %q", llm.Provider, "ollama")
 				}
-				messaging, ok := s.Interfaces["messaging"]
+				if llm.Container != nil {
+					t.Error("Models[local_llm].Container should be nil in provider mode")
+				}
+				rc := llm.ResolvedContainer()
+				if rc.Image != "ollama/ollama:latest" {
+					t.Errorf("ResolvedContainer().Image = %q, want %q", rc.Image, "ollama/ollama:latest")
+				}
+				if rc.Port != 11434 {
+					t.Errorf("ResolvedContainer().Port = %d, want 11434", rc.Port)
+				}
+			},
+		},
+		{
+			name: "spec with models - container mode",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  embedder:
+    container:
+      image: my-model:latest
+      port: 8000
+      gpu:
+        vram: 24Gi
+        runtime: cuda
+`,
+			wantErr: false,
+			check: func(t *testing.T, s *AstroSpec) {
+				model, ok := s.Models["embedder"]
 				if !ok {
-					t.Fatal("Interfaces[messaging] not found")
+					t.Fatal("Models[embedder] not found")
 				}
-				if messaging.Type != "slack" {
-					t.Errorf("Interfaces[messaging].Type = %q, want %q", messaging.Type, "slack")
+				if model.Provider != "" {
+					t.Errorf("Models[embedder].Provider = %q, want empty", model.Provider)
+				}
+				if model.Container == nil {
+					t.Fatal("Models[embedder].Container is nil")
+				}
+				if model.Container.Image != "my-model:latest" {
+					t.Errorf("Container.Image = %q, want %q", model.Container.Image, "my-model:latest")
+				}
+				rc := model.ResolvedContainer()
+				if rc.Port != 8000 {
+					t.Errorf("ResolvedContainer().Port = %d, want 8000", rc.Port)
+				}
+				if rc.GPU == nil {
+					t.Fatal("ResolvedContainer().GPU is nil, want non-nil")
+				}
+				if rc.GPU.VRAM != "24Gi" {
+					t.Errorf("ResolvedContainer().GPU.VRAM = %q, want %q", rc.GPU.VRAM, "24Gi")
+				}
+				if rc.GPU.Runtime != "cuda" {
+					t.Errorf("ResolvedContainer().GPU.Runtime = %q, want %q", rc.GPU.Runtime, "cuda")
 				}
 			},
 		},
@@ -241,10 +289,10 @@ interfaces:
 			name: "spec with ingestion",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 ingestion:
   docs-sync:
@@ -254,7 +302,6 @@ ingestion:
         SOURCE_REPO: owner/repo
     trigger:
       type: schedule
-      schedule: "0 0 * * *"
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
@@ -274,8 +321,93 @@ ingestion:
 				if ing.Trigger.Type != "schedule" {
 					t.Errorf("Ingestion[docs-sync].Trigger.Type = %q, want %q", ing.Trigger.Type, "schedule")
 				}
-				if ing.Trigger.Schedule != "0 0 * * *" {
-					t.Errorf("Ingestion[docs-sync].Trigger.Schedule = %q, want %q", ing.Trigger.Schedule, "0 0 * * *")
+			},
+		},
+		{
+			name: "spec with dev section",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+dev:
+  interfaces: [slack, web]
+  schedules:
+    docs-sync: "0 */4 * * *"
+`,
+			wantErr: false,
+			check: func(t *testing.T, s *AstroSpec) {
+				if s.Dev == nil {
+					t.Fatal("Dev is nil")
+				}
+				if len(s.Dev.Interfaces) != 2 {
+					t.Fatalf("len(Dev.Interfaces) = %d, want 2", len(s.Dev.Interfaces))
+				}
+				if s.Dev.Interfaces[0] != "slack" {
+					t.Errorf("Dev.Interfaces[0] = %q, want %q", s.Dev.Interfaces[0], "slack")
+				}
+				if s.Dev.Interfaces[1] != "web" {
+					t.Errorf("Dev.Interfaces[1] = %q, want %q", s.Dev.Interfaces[1], "web")
+				}
+				if len(s.Dev.Schedules) != 1 {
+					t.Fatalf("len(Dev.Schedules) = %d, want 1", len(s.Dev.Schedules))
+				}
+				if s.Dev.Schedules["docs-sync"] != "0 */4 * * *" {
+					t.Errorf("Dev.Schedules[docs-sync] = %q, want %q", s.Dev.Schedules["docs-sync"], "0 */4 * * *")
+				}
+			},
+		},
+		{
+			name: "spec with custom integration provider",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+integrations:
+  my-service:
+    provider: custom
+    type: tool
+    credentials:
+      - suffix: API_KEY
+        description: API key for my-service
+      - suffix: SECRET
+        description: Shared secret
+        optional: true
+`,
+			wantErr: false,
+			check: func(t *testing.T, s *AstroSpec) {
+				if len(s.Integrations) != 1 {
+					t.Fatalf("len(Integrations) = %d, want 1", len(s.Integrations))
+				}
+				svc, ok := s.Integrations["my-service"]
+				if !ok {
+					t.Fatal("Integrations[my-service] not found")
+				}
+				if svc.Provider != "custom" {
+					t.Errorf("Provider = %q, want %q", svc.Provider, "custom")
+				}
+				if svc.Type != "tool" {
+					t.Errorf("Type = %q, want %q", svc.Type, "tool")
+				}
+				if len(svc.Credentials) != 2 {
+					t.Fatalf("len(Credentials) = %d, want 2", len(svc.Credentials))
+				}
+				if svc.Credentials[0].Suffix != "API_KEY" {
+					t.Errorf("Credentials[0].Suffix = %q, want %q", svc.Credentials[0].Suffix, "API_KEY")
+				}
+				if svc.Credentials[0].Description != "API key for my-service" {
+					t.Errorf("Credentials[0].Description = %q, want %q", svc.Credentials[0].Description, "API key for my-service")
+				}
+				if svc.Credentials[1].Suffix != "SECRET" {
+					t.Errorf("Credentials[1].Suffix = %q, want %q", svc.Credentials[1].Suffix, "SECRET")
+				}
+				if !svc.Credentials[1].Optional {
+					t.Error("Credentials[1].Optional = false, want true")
 				}
 			},
 		},
@@ -309,10 +441,10 @@ func TestParseSpec_Validation(t *testing.T) {
 		{
 			name: "missing spec version",
 			yaml: `
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 `,
 			wantErr: "spec version is required",
@@ -323,7 +455,7 @@ container:
 spec: astro/v1
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 `,
 			wantErr: "agent name is required",
@@ -332,20 +464,20 @@ container:
 			name: "missing container config",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
 `,
-			wantErr: "container.build or container.image is required",
+			wantErr: "agent.build or agent.image is required",
 		},
 		{
 			name: "valid spec passes validation",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 `,
 			wantErr: "",
@@ -354,10 +486,10 @@ container:
 			name: "knowledge with both provider and container",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 knowledge:
   docs:
@@ -371,15 +503,61 @@ knowledge:
 			name: "knowledge with neither provider nor container",
 			yaml: `
 spec: astro/v1
-agent: test-agent
+name: test-agent
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 knowledge:
   docs: {}
 `,
 			wantErr: "either provider or container is required",
+		},
+		{
+			name: "model with both provider and container",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  llm:
+    provider: ollama
+    container:
+      image: ollama/ollama:latest
+`,
+			wantErr: "provider and container are mutually exclusive",
+		},
+		{
+			name: "model with neither provider nor container",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  llm: {}
+`,
+			wantErr: "either provider or container is required",
+		},
+		{
+			name: "valid model with provider",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  llm:
+    provider: ollama
+`,
+			wantErr: "",
 		},
 	}
 
@@ -411,10 +589,10 @@ knowledge:
 func TestParseFile(t *testing.T) {
 	yaml := `
 spec: astro/v1
-agent: file-test
+name: file-test
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 `
 	tmpDir := t.TempDir()
@@ -427,8 +605,8 @@ container:
 	if err != nil {
 		t.Fatalf("ParseFile() error = %v", err)
 	}
-	if spec.Agent != "file-test" {
-		t.Errorf("Agent = %q, want %q", spec.Agent, "file-test")
+	if spec.Name != "file-test" {
+		t.Errorf("Name = %q, want %q", spec.Name, "file-test")
 	}
 }
 
@@ -442,18 +620,18 @@ func TestParseFile_NotFound(t *testing.T) {
 func TestParseString(t *testing.T) {
 	yaml := `
 spec: astro/v1
-agent: string-test
+name: string-test
 meta:
   version: 1.0.0
-container:
+agent:
   image: test:latest
 `
 	spec, err := ParseString(yaml)
 	if err != nil {
 		t.Fatalf("ParseString() error = %v", err)
 	}
-	if spec.Agent != "string-test" {
-		t.Errorf("Agent = %q, want %q", spec.Agent, "string-test")
+	if spec.Name != "string-test" {
+		t.Errorf("Name = %q, want %q", spec.Name, "string-test")
 	}
 }
 

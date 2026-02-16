@@ -9,6 +9,9 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# Default ENVIRONMENT to "local" for dev
+export ENVIRONMENT="${ENVIRONMENT:-local}"
+
 # Ensure air is installed
 if ! command -v air &>/dev/null; then
   echo "==> Installing air (hot reload)..."

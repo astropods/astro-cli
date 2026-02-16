@@ -1,0 +1,423 @@
+package deployment
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/postman/astro/packages/astro-spec"
+)
+
+func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123"},
+		Target: spec.DeploymentTarget{Namespace: "prod"},
+		Agent: spec.DeploymentAgent{
+			Image: "agent:latest", Port: 8080,
+			Environment: map[string]string{
+				"LLM_URL":  "${models.llm.url}",
+				"LLM_HOST": "${models.llm.host}",
+				"LLM_PORT": "${models.llm.port}",
+			},
+		},
+		Models: map[string]spec.DeploymentModel{
+			"llm": {Image: "ollama:latest", Port: 11434},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "prod", AgentName: "my-agent", BuildID: "abc123"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// LLM_HOST should be the service DNS name
+	llmHost := result.ConfigMapData["LLM_HOST"]
+	if !strings.Contains(llmHost, "my-agent-model-llm") {
+		t.Errorf("LLM_HOST: expected service DNS containing 'my-agent-model-llm', got %s", llmHost)
+	}
+	if !strings.HasSuffix(llmHost, ".prod.svc.cluster.local") {
+		t.Errorf("LLM_HOST: expected .prod.svc.cluster.local suffix, got %s", llmHost)
+	}
+
+	// LLM_PORT should be 11434
+	if result.ConfigMapData["LLM_PORT"] != "11434" {
+		t.Errorf("LLM_PORT: expected 11434, got %s", result.ConfigMapData["LLM_PORT"])
+	}
+
+	// LLM_URL should be http://host:port
+	llmURL := result.ConfigMapData["LLM_URL"]
+	if !strings.HasPrefix(llmURL, "http://") {
+		t.Errorf("LLM_URL: expected http:// prefix, got %s", llmURL)
+	}
+	if !strings.Contains(llmURL, ":11434") {
+		t.Errorf("LLM_URL: expected :11434, got %s", llmURL)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_KnowledgeReferences(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image: "x", Port: 8080,
+			Environment: map[string]string{
+				"QDRANT_HOST": "${knowledge.docs.host}",
+				"QDRANT_PORT": "${knowledge.docs.port}",
+			},
+		},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"docs": {Image: "qdrant:latest", Port: 6333},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	host := result.ConfigMapData["QDRANT_HOST"]
+	if !strings.Contains(host, "agent-knowledge-docs") {
+		t.Errorf("QDRANT_HOST: expected agent-knowledge-docs, got %s", host)
+	}
+	if result.ConfigMapData["QDRANT_PORT"] != "6333" {
+		t.Errorf("QDRANT_PORT: expected 6333, got %s", result.ConfigMapData["QDRANT_PORT"])
+	}
+}
+
+func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image: "x", Port: 8080,
+			Environment: map[string]string{
+				"SEARCH_URL": "${tools.search.url}",
+			},
+		},
+		Tools: map[string]spec.DeploymentTool{
+			"search": {Image: "search:latest", Port: 3000},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	url := result.ConfigMapData["SEARCH_URL"]
+	if !strings.Contains(url, "agent-tool-search") {
+		t.Errorf("SEARCH_URL: expected agent-tool-search, got %s", url)
+	}
+	if !strings.Contains(url, ":3000") {
+		t.Errorf("SEARCH_URL: expected :3000, got %s", url)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_CredentialReferences(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image: "x", Port: 8080,
+			Environment: map[string]string{
+				"API_KEY": "${credentials.ANTHROPIC_API_KEY}",
+			},
+		},
+		Credentials: map[string]spec.DeploymentCredential{
+			"ANTHROPIC_API_KEY": {Value: "sk-secret-123", Description: "API key"},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Credential ref in env should resolve to the actual value
+	if result.ConfigMapData["API_KEY"] != "sk-secret-123" {
+		t.Errorf("API_KEY: expected sk-secret-123, got %s", result.ConfigMapData["API_KEY"])
+	}
+
+	// Credential should also be in SecretData
+	if result.SecretData["ANTHROPIC_API_KEY"] != "sk-secret-123" {
+		t.Errorf("SecretData: expected sk-secret-123, got %s", result.SecretData["ANTHROPIC_API_KEY"])
+	}
+}
+
+func TestResolveDeploymentSpecEnv_SourceReferences(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123", Account: "acme"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image: "x", Port: 8080,
+			Environment: map[string]string{
+				"AGENT_NAME":  "${source.name}",
+				"BUILD_ID":    "${source.build}",
+				"ACCOUNT":     "${source.account}",
+			},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "my-agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	if result.ConfigMapData["AGENT_NAME"] != "my-agent" {
+		t.Errorf("AGENT_NAME: expected my-agent, got %s", result.ConfigMapData["AGENT_NAME"])
+	}
+	if result.ConfigMapData["BUILD_ID"] != "abc123" {
+		t.Errorf("BUILD_ID: expected abc123, got %s", result.ConfigMapData["BUILD_ID"])
+	}
+	if result.ConfigMapData["ACCOUNT"] != "acme" {
+		t.Errorf("ACCOUNT: expected acme, got %s", result.ConfigMapData["ACCOUNT"])
+	}
+}
+
+func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image: "x", Port: 8080,
+			Environment: map[string]string{
+				"COMBINED": "http://${models.llm.host}:${models.llm.port}/v1",
+			},
+		},
+		Models: map[string]spec.DeploymentModel{
+			"llm": {Image: "ollama:latest", Port: 11434},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	combined := result.ConfigMapData["COMBINED"]
+	if !strings.HasPrefix(combined, "http://") {
+		t.Errorf("COMBINED: expected http:// prefix, got %s", combined)
+	}
+	if !strings.Contains(combined, ":11434/v1") {
+		t.Errorf("COMBINED: expected :11434/v1, got %s", combined)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_PlainValues(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image: "x", Port: 8080,
+			Environment: map[string]string{
+				"LOG_LEVEL": "debug",
+				"MAX_RETRY": "3",
+			},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	if result.ConfigMapData["LOG_LEVEL"] != "debug" {
+		t.Errorf("LOG_LEVEL: expected debug, got %s", result.ConfigMapData["LOG_LEVEL"])
+	}
+	if result.ConfigMapData["MAX_RETRY"] != "3" {
+		t.Errorf("MAX_RETRY: expected 3, got %s", result.ConfigMapData["MAX_RETRY"])
+	}
+}
+
+func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123"},
+		Target: spec.DeploymentTarget{Namespace: "prod"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+	}
+
+	rctx := ResolveContext{Namespace: "prod", AgentName: "my-agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	if result.ConfigMapData["ASTRO_AGENT_NAME"] != "my-agent" {
+		t.Errorf("ASTRO_AGENT_NAME: expected my-agent, got %s", result.ConfigMapData["ASTRO_AGENT_NAME"])
+	}
+	if result.ConfigMapData["ASTRO_AGENT_BUILD"] != "abc123" {
+		t.Errorf("ASTRO_AGENT_BUILD: expected abc123, got %s", result.ConfigMapData["ASTRO_AGENT_BUILD"])
+	}
+
+	// Should have AGENT_URL
+	if !strings.HasPrefix(result.ConfigMapData["AGENT_URL"], "http://") {
+		t.Error("AGENT_URL: expected http:// prefix")
+	}
+
+	// Should have OTEL endpoint
+	if !strings.Contains(result.ConfigMapData["OTEL_EXPORTER_OTLP_ENDPOINT"], "4318") {
+		t.Error("OTEL_EXPORTER_OTLP_ENDPOINT: expected port 4318")
+	}
+}
+
+func TestResolveDeploymentSpecEnv_OTELCustomPort(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Observability: spec.DeploymentObservability{
+			Enabled: true,
+			Port:    5318,
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	otelEndpoint := result.ConfigMapData["OTEL_EXPORTER_OTLP_ENDPOINT"]
+	if !strings.Contains(otelEndpoint, ":5318") {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT: expected :5318, got %s", otelEndpoint)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_OTELDefaultPort(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Observability: spec.DeploymentObservability{
+			Enabled: true,
+			// Port: 0 — should default to 4318
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	otelEndpoint := result.ConfigMapData["OTEL_EXPORTER_OTLP_ENDPOINT"]
+	if !strings.Contains(otelEndpoint, ":4318") {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT: expected default :4318, got %s", otelEndpoint)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_ObservabilityEnv(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Observability: spec.DeploymentObservability{
+			Enabled: true,
+			Environment: map[string]string{
+				"CUSTOM_COLLECTOR_VAR": "some-value",
+			},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	if result.ConfigMapData["CUSTOM_COLLECTOR_VAR"] != "some-value" {
+		t.Errorf("CUSTOM_COLLECTOR_VAR: expected some-value, got %s", result.ConfigMapData["CUSTOM_COLLECTOR_VAR"])
+	}
+}
+
+func TestResolveDeploymentSpecEnv_InterfacesGRPCAddr(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"slack", "web"},
+			Image:    "messaging:latest",
+			Port:     9090,
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	grpcAddr := result.ConfigMapData["GRPC_SERVER_ADDR"]
+	if !strings.Contains(grpcAddr, ":9090") {
+		t.Errorf("GRPC_SERVER_ADDR: expected :9090, got %s", grpcAddr)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_InterfacesCustomPort(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"slack"},
+			Image:    "messaging:latest",
+			Port:     7070,
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	grpcAddr := result.ConfigMapData["GRPC_SERVER_ADDR"]
+	if !strings.Contains(grpcAddr, ":7070") {
+		t.Errorf("GRPC_SERVER_ADDR: expected :7070, got %s", grpcAddr)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_InterfacesDefaultPort(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"slack"},
+			Image:    "messaging:latest",
+			// Port: 0 — should default to 9090
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	grpcAddr := result.ConfigMapData["GRPC_SERVER_ADDR"]
+	if !strings.Contains(grpcAddr, ":9090") {
+		t.Errorf("GRPC_SERVER_ADDR: expected default :9090, got %s", grpcAddr)
+	}
+}
+
+func TestResolveDeploymentSpecEnv_InterfaceEnvCredentialRefs(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Interfaces: &spec.DeploymentInterfaces{
+			Adapters: []string{"slack"},
+			Image:    "messaging:latest",
+			Port:     9090,
+			Environment: map[string]string{
+				"SLACK_BOT_TOKEN": "${credentials.SLACK_BOT_TOKEN}",
+				"SLACK_APP_TOKEN": "${credentials.SLACK_APP_TOKEN}",
+			},
+		},
+		Credentials: map[string]spec.DeploymentCredential{
+			"SLACK_BOT_TOKEN": {Value: "xoxb-test-token"},
+			"SLACK_APP_TOKEN": {Value: "xapp-test-token"},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Interface env credential refs should be resolved in ConfigMapData
+	if result.ConfigMapData["SLACK_BOT_TOKEN"] != "xoxb-test-token" {
+		t.Errorf("SLACK_BOT_TOKEN: expected xoxb-test-token, got %s", result.ConfigMapData["SLACK_BOT_TOKEN"])
+	}
+	if result.ConfigMapData["SLACK_APP_TOKEN"] != "xapp-test-token" {
+		t.Errorf("SLACK_APP_TOKEN: expected xapp-test-token, got %s", result.ConfigMapData["SLACK_APP_TOKEN"])
+	}
+
+	// Credential values should also be in SecretData
+	if result.SecretData["SLACK_BOT_TOKEN"] != "xoxb-test-token" {
+		t.Errorf("SecretData SLACK_BOT_TOKEN: expected xoxb-test-token, got %s", result.SecretData["SLACK_BOT_TOKEN"])
+	}
+}
+
+func TestResolveDeploymentSpecEnv_EmptyCredentials(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent:  spec.DeploymentAgent{Image: "x", Port: 8080},
+		Credentials: map[string]spec.DeploymentCredential{
+			"EMPTY_KEY": {Value: "", Description: "empty"},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Empty credentials should NOT be in secret data
+	if _, ok := result.SecretData["EMPTY_KEY"]; ok {
+		t.Error("empty credential should not be in SecretData")
+	}
+}

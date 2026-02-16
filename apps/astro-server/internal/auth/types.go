@@ -38,13 +38,22 @@ type SessionData struct {
 	User    *User    `json:"user"`
 }
 
+// AuthAccountResponse represents an account in the auth response
+type AuthAccountResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Role string `json:"role"`
+}
+
 // AuthResponse is returned to the client after successful authentication
 type AuthResponse struct {
-	User         *User  `json:"user"`
-	SessionID    string `json:"session_id"`
-	Organization string `json:"organization_id,omitempty"`
-	Role         string `json:"role,omitempty"`
-	ExpiresAt    string `json:"expires_at"`
+	User         *User                 `json:"user"`
+	SessionID    string                `json:"session_id"`
+	Organization string                `json:"organization_id,omitempty"`
+	Role         string                `json:"role,omitempty"`
+	ExpiresAt    string                `json:"expires_at"`
+	Accounts     []AuthAccountResponse `json:"accounts"`
 }
 
 // ErrorResponse represents an authentication error
@@ -77,4 +86,6 @@ const (
 	UserContextKey ContextKey = "user"
 	// SessionContextKey is the context key for the session
 	SessionContextKey ContextKey = "session"
+	// AccountContextKey is the context key for the resolved account
+	AccountContextKey ContextKey = "account"
 )

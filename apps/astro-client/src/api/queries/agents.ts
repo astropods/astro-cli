@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { agentKeys, deploymentKeys } from './keys';
+import { agentKeys, deploymentKeys, accountKeys } from './keys';
 
 export function useAgents() {
   return useQuery({
@@ -9,38 +9,48 @@ export function useAgents() {
   });
 }
 
-export function useAgent(name: string) {
+export function useAgent(account: string, name: string) {
   return useQuery({
-    queryKey: agentKeys.detail(name),
-    queryFn: () => api.getAgent(name),
-    enabled: !!name,
+    queryKey: agentKeys.detail(account, name),
+    queryFn: () => api.getAgent(account, name),
+    enabled: !!account && !!name,
   });
 }
 
-export function useAgentVersion(name: string, version: string) {
+export function useDeploymentTemplate(account: string, name: string) {
   return useQuery({
-    queryKey: agentKeys.version(name, version),
-    queryFn: () => api.getAgentVersion(name, version),
-    enabled: !!name && !!version,
+    queryKey: agentKeys.template(account, name),
+    queryFn: () => api.getDeploymentTemplate(account, name),
+    enabled: !!account && !!name,
   });
 }
 
-export function useAgentConfig(name: string, version: string) {
-  return useQuery({
-    queryKey: agentKeys.config(name, version),
-    queryFn: () => api.getAgentConfig(name, version),
-    enabled: !!name && !!version,
-  });
-}
-
-export function useDeployAgent() {
+export function useDeployAgent(account: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: api.deployAgent.bind(api),
     onSuccess: () => {
-      // Deploying changes the user's deployment list, not the agent registry
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
+export function useValidateDeployment() {
+  return useMutation({
+    mutationFn: api.validateDeployment.bind(api),
+  });
+}
+
+export function usePublishAgent(account: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { name: string; build_id: string; version: string }) =>
+      api.publishAgent(account, data.name, { build_id: data.build_id, version: data.version }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: accountKeys.profile });
     },
   });
 }

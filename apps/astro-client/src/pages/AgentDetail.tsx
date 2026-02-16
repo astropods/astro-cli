@@ -1,4 +1,6 @@
 import { useParams, useOutletContext, Link } from "react-router-dom";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,9 +25,9 @@ function getAgentDescription(agent: Agent): string {
 }
 
 function getAgentIntegrations(agent: Agent): string[] {
-  const tools = getLatestSpec(agent)?.integrations?.tools;
-  if (!tools) return [];
-  return [...new Set(tools.map((t) => t.provider))];
+  const integrations = getLatestSpec(agent)?.integrations;
+  if (!integrations) return [];
+  return [...new Set(Object.values(integrations).map((i) => i.provider))];
 }
 
 function getAgentCategories(agent: Agent): string[] {
@@ -106,10 +108,11 @@ function AgentDetailSkeleton() {
 // ---------------------------------------------------------------------------
 
 export function AgentDetail() {
-  const { agentSlug } = useParams<{ agentSlug: string }>();
+  const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
   const { openAuthModal } = useOutletContext<LayoutContext>();
 
-  const { data: agent, isLoading, isError, error } = useAgent(agentSlug ?? "");
+  // Support both /:account/:agentSlug and legacy /:agentSlug routes
+  const { data: agent, isLoading, isError, error } = useAgent(account ?? '', agentSlug ?? "");
   const { data: agentsData } = useAgents();
 
   const recommendedAgents = (() => {
@@ -129,7 +132,8 @@ export function AgentDetail() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 2)
       .map(({ agent: a, integrations, categories }) => ({
-        slug: a.name,
+        slug: `${a.account}/${a.name}`,
+        account: a.account,
         name: a.name,
         description: getAgentDescription(a),
         integrations,
@@ -172,9 +176,12 @@ export function AgentDetail() {
   const description = getAgentDescription(agent);
   const integrations = getAgentIntegrations(agent);
   const spec = getLatestSpec(agent);
-  const credentials = spec?.integrations?.tools ?? [];
+  const readme = agent.versions[0]?.readme;
+  const credentials = spec?.integrations
+    ? Object.values(spec.integrations)
+    : [];
   const safetyPermissions = credentials.map(
-    (t) => `Access to ${t.provider}`,
+    (i) => `Access to ${i.provider}`,
   );
 
   return (
@@ -182,7 +189,7 @@ export function AgentDetail() {
       {/* Left scroll area — fills remaining space so scrollbar is flush with sidebar */}
       <div className="flex-1 min-w-0 md:overflow-y-auto">
         <div className="p-6 md:p-8 max-w-4xl">
-          <h1 className="text-xl font-semibold mb-3">{agent.name}</h1>
+          <h1 className="text-xl font-semibold mb-3"><span className="font-normal text-muted-foreground">{agent.account}/</span>{agent.name}</h1>
 
           <p className="text-sm text-muted-foreground leading-relaxed mb-5">
             {description}
@@ -225,6 +232,20 @@ export function AgentDetail() {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {/* README */}
+          {readme && (
+            <section className="mb-8">
+              <h2 className="text-xs font-medium text-muted-foreground mb-3">
+                README
+              </h2>
+              <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-muted/30 p-4">
+                <div className="prose prose-sm prose-stone dark:prose-invert max-w-none">
+                  <Markdown remarkPlugins={[remarkGfm]}>{readme}</Markdown>
+                </div>
+              </div>
             </section>
           )}
 

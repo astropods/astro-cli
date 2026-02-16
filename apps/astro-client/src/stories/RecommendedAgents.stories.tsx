@@ -44,6 +44,7 @@ type Story = StoryObj<typeof meta>;
 const sampleAgents = [
   {
     slug: "ticket-scanner",
+    account: "astro",
     name: "Ticket Scanner",
     description:
       "Surfaces actionable feedback from support tickets, reviews, and user conversations to guide product decisions.",
@@ -52,6 +53,7 @@ const sampleAgents = [
   },
   {
     slug: "sentiment-analyzer",
+    account: "astro",
     name: "Sentiment Analyzer",
     description:
       "Monitors customer sentiment across channels and flags critical shifts in real time.",

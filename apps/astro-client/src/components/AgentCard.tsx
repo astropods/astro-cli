@@ -6,6 +6,7 @@ import { getIntegrationItems } from "@/lib/integrationIcons";
 
 export interface AgentCardProps {
   slug: string;
+  account: string;
   name: string;
   description: string;
   integrations: string[];
@@ -15,6 +16,7 @@ export interface AgentCardProps {
 
 export function AgentCard({
   slug,
+  account,
   name,
   description,
   integrations,
@@ -34,7 +36,7 @@ export function AgentCard({
       </div>
 
       {/* Name */}
-      <h3 className="text-lg font-semibold">{name}</h3>
+      <h3 className="text-lg font-semibold"><span className="font-normal text-muted-foreground">{account}/</span>{name}</h3>
 
       {/* Description */}
       <p className="text-sm text-muted-foreground line-clamp-3">

@@ -91,7 +91,7 @@ This avoids `SameSite` cookie restrictions without compromising security.
 
 | Variable       | Description     | Default                 |
 | -------------- | --------------- | ----------------------- |
-| `VITE_API_URL` | Backend API URL | `http://localhost:4321` |
+| `VITE_API_URL` | Backend API URL | `http://localhost:8080` |
 
 ## Project Structure
 

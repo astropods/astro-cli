@@ -40,6 +40,7 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			m.log.Warn("Auth failed: no Authorization header", "method", c.Request.Method, "path", c.Request.URL.Path)
 			c.Header("WWW-Authenticate", `Bearer realm="astro-registry"`)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, auth.ErrorResponse{
 				Error:       "unauthorized",
@@ -49,6 +50,7 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 		}
 
 		if !strings.HasPrefix(authHeader, "Bearer ") {
+			m.log.Warn("Auth failed: not a Bearer token", "method", c.Request.Method, "path", c.Request.URL.Path)
 			c.Header("WWW-Authenticate", `Bearer realm="astro-registry"`)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, auth.ErrorResponse{
 				Error:       "unauthorized",
@@ -75,7 +77,7 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) bool {
 	claims, err := m.jwtValidator.ValidateToken(c.Request.Context(), token)
 	if err != nil {
-		m.log.Debug("Token validation failed", "error", err)
+		m.log.Warn("Auth failed: token validation failed", "error", err, "method", c.Request.Method, "path", c.Request.URL.Path)
 		return false
 	}
 

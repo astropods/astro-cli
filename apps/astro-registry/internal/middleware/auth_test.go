@@ -70,7 +70,6 @@ func setupTestMiddleware(jwksURL string) (*gin.Engine, *AuthMiddleware) {
 
 	cfg := &config.Config{
 		Auth: config.AuthConfig{
-			Enabled:        true,
 			JWKSEndpoint:   jwksURL,
 			JWTIssuer:      "https://test-issuer.com",
 			WorkOSClientID: "test-client-id",

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,9 +14,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	"github.com/postman/astro/apps/astro-server/handlers"
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
+	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
@@ -59,13 +63,25 @@ func main() {
 		}
 	}
 
-	// Initialize agent index for tracking published agents
-	agentIndex, err := agentindex.NewIndex(cfg.Database.URL)
+	// Open shared database connection
+	db, err := sql.Open("postgres", cfg.Database.URL)
 	if err != nil {
-		log.Error("Failed to create agent index", "error", err)
+		log.Error("Failed to open database", "error", err)
 		os.Exit(1)
 	}
-	log.Info("Agent index initialized")
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	log.Info("Database connection established")
+
+	// Initialize stores with shared DB
+	agentIndex := agentindex.NewIndexWithDB(db)
+	accountStore := account.NewAccountStore(db)
+	deploymentStore := deploymentstore.NewStore(db)
+	log.Info("Agent index and account store initialized")
 
 	// Initialize Kubernetes client (EKS for production, local for development)
 	var k8sClient k8s.ClusterClient
@@ -109,7 +125,7 @@ func main() {
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, cfg, probeHandler, k8sClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, cfg, probeHandler, k8sClient)
 
 	// Create HTTP server with timeouts
 	srv := &http.Server{
@@ -153,15 +169,19 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
 	router.GET("/healthz", probeHandler.Healthz())
 
-	// CLI binary download (how-to lives on SPA /dev)
+	// CLI install script (no files needed — just returns a shell script)
+	router.GET("/install", handlers.CLIInstallScript(cfg))
+
+	// CLI binary download (HEAD for version check, GET for download)
 	if cfg.Server.CLIDir != "" {
 		router.GET("/download/:name", handlers.CLIDownload(cfg))
+		router.HEAD("/download/:name", handlers.CLIDownload(cfg))
 	}
 
 	// Serve static frontend assets if configured
@@ -169,31 +189,27 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		setupStaticFiles(router, log, cfg.Server.StaticDir)
 	}
 
-	// Setup authentication if enabled
-	var authMw *middleware.AuthMiddleware
-	if cfg.Auth.Enabled {
-		authHandler := handlers.NewAuthHandler(log, cfg)
+	// Setup authentication
+	authHandler := handlers.NewAuthHandler(log, cfg, accountStore)
 
-		// Auth routes (no auth required)
-		auth := router.Group("/auth")
-		{
-			auth.GET("/login", authHandler.Login())
-			auth.GET("/callback", authHandler.Callback())
-			auth.GET("/logout", authHandler.Logout())
-			auth.GET("/me", authHandler.Me())
-			auth.POST("/refresh", authHandler.Refresh())
-		}
-
-		// Create auth middleware
-		authMw = middleware.NewAuthMiddleware(
-			log,
-			cfg,
-			authHandler.GetSessionManager(),
-			authHandler.GetJWTValidator(),
-		)
-
-		log.Info("Authentication enabled", "provider", "WorkOS")
+	// Auth routes (no auth required)
+	auth := router.Group("/auth")
+	{
+		auth.GET("/login", authHandler.Login())
+		auth.GET("/callback", authHandler.Callback())
+		auth.GET("/logout", authHandler.Logout())
+		auth.GET("/me", authHandler.Me())
+		auth.POST("/refresh", authHandler.Refresh())
 	}
+
+	// Create auth middleware
+	authMw := middleware.NewAuthMiddleware(
+		log,
+		cfg,
+		authHandler.GetSessionManager(),
+		authHandler.GetJWTValidator(),
+	)
+	log.Info("Authentication enabled", "provider", "WorkOS")
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -204,24 +220,59 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		// Readiness check endpoint (public)
 		v1.GET("/ready", handlers.ReadinessCheck(log))
 
-		// Agent registry endpoints (public read, protected write)
-		v1.GET("/agents", handlers.ListAgents(log, agentIndex))
-		v1.GET("/agents/:name", handlers.GetAgent(log, agentIndex))
-		v1.GET("/agents/:name/:version", handlers.GetAgentVersion(log, agentIndex))
-
-		// Protected endpoints (require authentication when enabled)
-		protected := v1.Group("")
-		if authMw != nil {
-			protected.Use(authMw.RequireAuth())
-		}
+		// Agent registry endpoints (public read, with optional auth for visibility)
+		v1.GET("/agents", handlers.ListAgents(log, agentIndex, accountStore))
+		agentDetail := v1.Group("")
+		agentDetail.Use(authMw.OptionalAuth())
 		{
-			protected.GET("/agents/:name/:version/config", handlers.GetAgentConfig(log, agentIndex))
-			protected.POST("/agents/register", handlers.RegisterAgent(log, agentIndex))
-			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, cfg, k8sClient))
-			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, cfg, k8sClient))
-			protected.GET("/deployments", handlers.ListDeployments(log, cfg, k8sClient))
-			protected.GET("/deployments/:name/:version/logs", handlers.GetDeploymentLogs(log, cfg, k8sClient))
-			protected.POST("/deployments/:name/:version/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, k8sClient))
+			agentDetail.GET("/agents/:account/:name", handlers.GetAgent(log, agentIndex, accountStore))
+		}
+		// Account endpoints (public read)
+		v1.GET("/accounts/:account", handlers.GetAccount(log, accountStore))
+		v1.GET("/accounts/check/:name", handlers.CheckAccountName(log, accountStore))
+
+		// Protected endpoints (require authentication)
+		protected := v1.Group("")
+		protected.Use(authMw.RequireAuth())
+		{
+			// Profile
+			protected.GET("/me", handlers.GetProfile(log, accountStore, agentIndex))
+
+			// Account management
+			protected.POST("/accounts", handlers.CreateAccount(log, accountStore))
+
+			// Account-scoped routes with role check
+			accountRoutes := protected.Group("/accounts/:account")
+			accountRoutes.Use(middleware.ResolveAccount(accountStore))
+			accountRoutes.Use(middleware.RequireAccountRole(accountStore, "owner"))
+			{
+				accountRoutes.PUT("", handlers.RenameAccount(log, accountStore))
+			}
+
+			// Agent config (protected read, resolves latest build)
+			protected.GET("/agents/:account/:name/config", handlers.GetAgentConfig(log, agentIndex, accountStore))
+
+			// Deployment template generation
+			protected.GET("/agents/:account/:name/deployment-template", handlers.GetDeploymentTemplate(log, agentIndex, accountStore, cfg))
+
+			// Agent registration and publishing (account-scoped, requires write access)
+			protected.POST("/agents/:account/:name/register", handlers.RegisterAgent(log, agentIndex, accountStore))
+			protected.POST("/agents/:account/:name/publish", handlers.PublishAgent(log, agentIndex, accountStore))
+
+			// Deploy/undeploy
+			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))
+			protected.POST("/deploy/validate", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg))
+			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))
+
+			// Deployment spec retrieval
+			protected.GET("/agents/:account/:name/deployment", handlers.GetActiveDeploymentSpec(log, accountStore, deploymentStore))
+			protected.GET("/agents/:account/:name/deployment/history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore))
+			protected.GET("/deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient))
+			protected.GET("/deployments/:namespace/logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient))
+			protected.POST("/deployments/:namespace/pods/:pod/restart", handlers.RestartPod(log, accountStore, cfg, k8sClient))
+			protected.GET("/deployments/:namespace/configmap/:cmname", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient))
+			protected.GET("/deployments/:namespace/secret/:secretname/keys", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient))
+			protected.POST("/deployments/:namespace/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient))
 		}
 
 		// Admin endpoints (require basic auth)
@@ -236,7 +287,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		}
 		{
 			admin.GET("/cluster/status", handlers.ClusterStatus(log, k8sClient))
-			admin.GET("/images", handlers.ListImages(log, cfg.Deployment.AWSRegion))
+			admin.GET("/images", handlers.ListImages(log, cfg.Deployment.AWSRegion, cfg.Deployment.Environment))
 		}
 	}
 }

@@ -23,9 +23,9 @@ type TokenManager struct {
 }
 
 // NewTokenManager creates a new token manager
-func NewTokenManager() *TokenManager {
+func NewTokenManager(binaryName string) *TokenManager {
 	return &TokenManager{
-		storage: NewStorage(),
+		storage: NewStorage(binaryName),
 		client:  NewClient(),
 	}
 }
@@ -158,36 +158,9 @@ func (m *TokenManager) RequireAuth() error {
 	return nil
 }
 
-// AuthenticatedClient returns an HTTP client that adds auth headers
-type AuthenticatedClient struct {
-	tokenManager *TokenManager
-	httpClient   *http.Client
-}
-
-// NewAuthenticatedClient creates a new authenticated HTTP client
-func NewAuthenticatedClient() *AuthenticatedClient {
-	return &AuthenticatedClient{
-		tokenManager: NewTokenManager(),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-	}
-}
-
-// Do executes an HTTP request with authentication
-func (c *AuthenticatedClient) Do(req *http.Request) (*http.Response, error) {
-	token, err := c.tokenManager.GetValidAccessToken(req.Context())
-	if err != nil {
-		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	return c.httpClient.Do(req)
-}
-
 // AddAuthHeader adds the authorization header to an existing request
-func AddAuthHeader(ctx context.Context, req *http.Request) error {
-	manager := NewTokenManager()
+func AddAuthHeader(ctx context.Context, req *http.Request, binaryName string) error {
+	manager := NewTokenManager(binaryName)
 	token, err := manager.GetValidAccessToken(ctx)
 	if err != nil {
 		return err
@@ -195,17 +168,6 @@ func AddAuthHeader(ctx context.Context, req *http.Request) error {
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	return nil
-}
-
-// GetAuthHeader returns the authorization header value
-func GetAuthHeader(ctx context.Context) (string, error) {
-	manager := NewTokenManager()
-	token, err := manager.GetValidAccessToken(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("Bearer %s", token), nil
 }
 
 // parseJWTExpiry extracts the expiry time from a JWT token

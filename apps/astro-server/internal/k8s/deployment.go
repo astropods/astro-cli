@@ -19,7 +19,7 @@ type DeploymentConfig struct {
 	Name            string
 	Namespace       string
 	AgentName       string
-	Version         string
+	BuildID         string
 	Component       string
 	Container       spec.ContainerConfig
 	Port            int32
@@ -28,6 +28,12 @@ type DeploymentConfig struct {
 	Healthcheck     *spec.Healthcheck
 	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
+	// Deployment-spec driven fields (optional — zero values preserve existing behavior)
+	Replicas       int32                          // 0 means use default (1)
+	Resources      *corev1.ResourceRequirements   // nil means derive from Container.GPU
+	Strategy       *appsv1.DeploymentStrategy     // nil means k8s default
+	NodeSelector   map[string]string              // nil means no node selector (unless Container has GPU)
+	ExtraEnv       []corev1.EnvVar                // Additional env vars to inject
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -35,23 +41,30 @@ type MessagingDeploymentConfig struct {
 	Name            string
 	Namespace       string
 	AgentName       string
-	Version         string
+	BuildID         string
 	Component       string
 	Image           string
 	Port            int32
 	SecretName      string
+	ConfigMapName   string                         // ConfigMap with resolved env from interfaces.environment
 	AgentURL        string
 	InterfaceType   string
-	WebEnabled      bool              // Whether web adapter is enabled (exposes HTTP endpoint)
-	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
+	WebEnabled      bool                           // Whether web adapter is enabled (exposes HTTP endpoint)
+	WebPort         int32                          // HTTP port for web adapter (default 8080)
+	ImagePullPolicy corev1.PullPolicy              // Defaults to PullAlways if empty
+	Resources       *corev1.ResourceRequirements   // From interfaces.resources; nil means hardcoded defaults
+	Environment     map[string]string              // Resolved env from interfaces.environment
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest
 func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 
-	replicas := int32(1)
+	replicas := cfg.Replicas
+	if replicas == 0 {
+		replicas = 1
+	}
 
 	// Build container spec
 	container := buildContainer(cfg)
@@ -61,14 +74,23 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		Containers: []corev1.Container{container},
 	}
 
-	// Add GPU node selector if needed
-	if cfg.Container.GPU {
-		podSpec.NodeSelector = map[string]string{
-			"accelerator": "nvidia-gpu",
+	// Add node selector: explicit config takes precedence over GPU auto-detection
+	if cfg.NodeSelector != nil {
+		podSpec.NodeSelector = cfg.NodeSelector
+	} else if cfg.Container.HasGPU() {
+		runtime := cfg.Container.GPU.Runtime
+		if runtime == "" || runtime == "cuda" {
+			podSpec.NodeSelector = map[string]string{
+				"accelerator": "nvidia-gpu",
+			}
+		} else if runtime == "rocm" {
+			podSpec.NodeSelector = map[string]string{
+				"accelerator": "amd-gpu",
+			}
 		}
 	}
 
-	deployment := &appsv1.Deployment{
+	depl := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
@@ -92,12 +114,17 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		},
 	}
 
-	return deployment
+	// Apply update strategy if provided
+	if cfg.Strategy != nil {
+		depl.Spec.Strategy = *cfg.Strategy
+	}
+
+	return depl
 }
 
 // BuildMessagingDeployment creates a Kubernetes Deployment for messaging sidecars
 func BuildMessagingDeployment(cfg MessagingDeploymentConfig) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 
 	replicas := int32(1)
@@ -144,6 +171,11 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		port = 9090
 	}
 
+	webPort := cfg.WebPort
+	if webPort == 0 {
+		webPort = 8080
+	}
+
 	msgPullPolicy := cfg.ImagePullPolicy
 	if msgPullPolicy == "" {
 		msgPullPolicy = corev1.PullAlways
@@ -164,83 +196,69 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 
 	// Add messaging-specific environment variables
 	container.Env = []corev1.EnvVar{
-		{
-			Name:  "GRPC_ENABLED",
-			Value: "true",
-		},
-		{
-			Name:  "GRPC_LISTEN_ADDR",
-			Value: ":9090",
-		},
-		{
-			Name:  "STORAGE_TYPE",
-			Value: "memory",
-		},
-		{
-			Name:  "DEPLOYMENT_MODE",
-			Value: "all",
-		},
+		{Name: "GRPC_ENABLED", Value: "true"},
+		{Name: "GRPC_LISTEN_ADDR", Value: fmt.Sprintf(":%d", port)},
+		{Name: "STORAGE_TYPE", Value: "memory"},
+		{Name: "DEPLOYMENT_MODE", Value: "all"},
 	}
 
 	// Enable adapters based on interface type
 	if cfg.InterfaceType == "slack" {
 		container.Env = append(container.Env,
-			corev1.EnvVar{
-				Name:  "SLACK_ENABLED",
-				Value: "true",
-			},
-			corev1.EnvVar{
-				Name:  "SLACK_SOCKET_MODE",
-				Value: "true",
-			},
+			corev1.EnvVar{Name: "SLACK_ENABLED", Value: "true"},
+			corev1.EnvVar{Name: "SLACK_SOCKET_MODE", Value: "true"},
 		)
 	}
 
 	// Enable web adapter if configured
 	if cfg.WebEnabled {
 		container.Env = append(container.Env,
-			corev1.EnvVar{
-				Name:  "WEB_ENABLED",
-				Value: "true",
-			},
-			corev1.EnvVar{
-				Name:  "WEB_LISTEN_ADDR",
-				Value: ":8080",
-			},
+			corev1.EnvVar{Name: "WEB_ENABLED", Value: "true"},
+			corev1.EnvVar{Name: "WEB_LISTEN_ADDR", Value: fmt.Sprintf(":%d", webPort)},
 		)
-		// Add web port
 		container.Ports = append(container.Ports, corev1.ContainerPort{
-			Name:          "http",
-			ContainerPort: 8080,
-			Protocol:      corev1.ProtocolTCP,
+			Name: "http", ContainerPort: webPort, Protocol: corev1.ProtocolTCP,
+		})
+	}
+
+	// Add resolved environment from interfaces.environment (credential refs, etc.)
+	for key, value := range cfg.Environment {
+		container.Env = append(container.Env, corev1.EnvVar{Name: key, Value: value})
+	}
+
+	// Add ConfigMap envFrom for resolved env vars
+	if cfg.ConfigMapName != "" {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cfg.ConfigMapName},
+			},
 		})
 	}
 
 	// Add Secret as envFrom for credentials
 	if cfg.SecretName != "" {
-		container.EnvFrom = []corev1.EnvFromSource{
-			{
-				SecretRef: &corev1.SecretEnvSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: cfg.SecretName,
-					},
-				},
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cfg.SecretName},
+			},
+		})
+	}
+
+	// Set resource requests and limits from deployment spec, or fall back to defaults
+	if cfg.Resources != nil {
+		container.Resources = *cfg.Resources
+	} else {
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
 			},
 		}
 	}
-
-	// Set resource requests and limits
-	resources := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("100m"),
-			corev1.ResourceMemory: resource.MustParse("128Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("500m"),
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-		},
-	}
-	container.Resources = resources
 
 	return container
 }
@@ -250,11 +268,15 @@ type CollectorDeploymentConfig struct {
 	Name            string
 	Namespace       string
 	AgentName       string
-	Version         string
+	BuildID         string
 	Component       string
 	Image           string
+	Port            int32                          // OTLP HTTP port (default 4318)
 	ConfigMapName   string
+	SecretName      string                         // Secret with credentials
 	ImagePullPolicy corev1.PullPolicy
+	Resources       *corev1.ResourceRequirements   // From observability.resources; nil means hardcoded defaults
+	Environment     map[string]string              // Resolved env from observability.environment
 	// Galileo credentials (server-level config, injected directly)
 	GalileoAPIKey  string
 	GalileoProject string
@@ -262,7 +284,7 @@ type CollectorDeploymentConfig struct {
 
 // BuildCollectorDeployment creates a Kubernetes Deployment for the observability collector sidecar
 func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 
 	replicas := int32(1)
@@ -307,59 +329,80 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 		pullPolicy = corev1.PullAlways
 	}
 
+	otlpHTTPPort := cfg.Port
+	if otlpHTTPPort == 0 {
+		otlpHTTPPort = 4318
+	}
+	// gRPC port is conventionally one below the HTTP port
+	otlpGRPCPort := otlpHTTPPort - 1
+
 	container := corev1.Container{
 		Name:  "collector",
 		Image: cfg.Image,
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "otlp-grpc",
-				ContainerPort: 4317,
+				ContainerPort: otlpGRPCPort,
 				Protocol:      corev1.ProtocolTCP,
 			},
 			{
 				Name:          "otlp-http",
-				ContainerPort: 4318,
+				ContainerPort: otlpHTTPPort,
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
 		ImagePullPolicy: pullPolicy,
 	}
 
-	// ConfigMap provides agent metadata (ASTRO_AGENT_NAME, etc.)
-	if cfg.ConfigMapName != "" {
-		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
-			ConfigMapRef: &corev1.ConfigMapEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: cfg.ConfigMapName,
-				},
-			},
-		})
-	}
-
 	// Galileo credentials are server-level config, injected directly as env vars
 	if cfg.GalileoAPIKey != "" {
 		container.Env = append(container.Env, corev1.EnvVar{
-			Name:  "GALILEO_API_KEY",
-			Value: cfg.GalileoAPIKey,
+			Name: "GALILEO_API_KEY", Value: cfg.GalileoAPIKey,
 		})
 	}
 	if cfg.GalileoProject != "" {
 		container.Env = append(container.Env, corev1.EnvVar{
-			Name:  "GALILEO_PROJECT",
-			Value: cfg.GalileoProject,
+			Name: "GALILEO_PROJECT", Value: cfg.GalileoProject,
 		})
 	}
 
-	// Resource limits — collector is lightweight
-	container.Resources = corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("50m"),
-			corev1.ResourceMemory: resource.MustParse("128Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("250m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
-		},
+	// Add resolved environment from observability.environment
+	for key, value := range cfg.Environment {
+		container.Env = append(container.Env, corev1.EnvVar{Name: key, Value: value})
+	}
+
+	// ConfigMap provides agent metadata (ASTRO_AGENT_NAME, etc.)
+	if cfg.ConfigMapName != "" {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cfg.ConfigMapName},
+			},
+		})
+	}
+
+	// Secret for credentials
+	if cfg.SecretName != "" {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: cfg.SecretName},
+			},
+		})
+	}
+
+	// Set resource requests and limits from deployment spec, or fall back to defaults
+	if cfg.Resources != nil {
+		container.Resources = *cfg.Resources
+	} else {
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("250m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		}
 	}
 
 	return container
@@ -431,9 +474,15 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 		}
 	}
 
-	// Set resource requests and limits
-	resources := buildResourceRequirements(cfg.Container.GPU)
-	container.Resources = resources
+	// Set resource requests and limits: explicit config takes precedence
+	if cfg.Resources != nil {
+		container.Resources = *cfg.Resources
+	} else {
+		container.Resources = buildResourceRequirements(cfg.Container.GPU)
+	}
+
+	// Add extra env vars (from deployment spec resolution)
+	container.Env = append(container.Env, cfg.ExtraEnv...)
 
 	return container
 }
@@ -528,10 +577,12 @@ func buildProbeHandler(provider string, port int32, path string) *corev1.ProbeHa
 	return nil
 }
 
-// buildResourceRequirements creates resource requirements based on GPU needs
-func buildResourceRequirements(gpu bool) corev1.ResourceRequirements {
-	if gpu {
-		// GPU resources
+// buildResourceRequirements creates resource requirements based on GPU hints.
+// When gpu is non-nil the spec is treated as a scheduling hint: Count (default
+// 1) sets the nvidia.com/gpu resource request and fixed CPU/memory defaults are
+// applied. The server uses these hints on a best-effort basis.
+func buildResourceRequirements(gpu *spec.GPUConfig) corev1.ResourceRequirements {
+	if gpu != nil {
 		return corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("2"),

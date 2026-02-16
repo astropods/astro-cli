@@ -36,6 +36,8 @@ func New(level, format string) *Logger {
 
 	if strings.ToLower(format) == "json" {
 		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else if isTerminal(os.Stdout) {
+		handler = newColorHandler(os.Stdout, opts)
 	} else {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	}

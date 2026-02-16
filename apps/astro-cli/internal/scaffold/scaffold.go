@@ -9,26 +9,57 @@ import (
 
 // ScaffoldConfig holds the configuration for generating a new agent project.
 type ScaffoldConfig struct {
-	Name        string   // Agent name (required)
-	Description string   // Agent description
-	Interfaces  []string // ["web", "slack"]
-	Model       string   // "anthropic" | "openai" | "none"
-	ModelApiKey string   // Optional API key for the selected model (written to .env)
-	Knowledge   string   // "vector" | "kv" | "both" | "none"
-	Integrations []string // ["github"]
-	Ingestion   string   // "schedule" | "manual" | "none"
+	Name         string   // Agent name (required)
+	Description  string   // Agent description
+	Interfaces   []string // ["web", "slack"]
+	ModelProvider string  // "ollama" | "huggingface" | "" for none
+	Model         string  // Model name (e.g. "llama3", "mistral")
+	Knowledge    []string // ["qdrant", "redis", "neo4j"]
+	Integrations    []string          // ["anthropic", "openai", "github"]
+	IntegrationKeys map[string]string // integration name -> API key (optional, user-provided)
+	Ingestion       string            // "schedule" | "webhook" | "manual" | "startup" | "none"
+}
+
+// HasKnowledge returns true if the given knowledge type is selected.
+func (c ScaffoldConfig) HasKnowledge(k string) bool {
+	for _, v := range c.Knowledge {
+		if v == k {
+			return true
+		}
+	}
+	return false
+}
+
+// HasIntegration returns true if the given integration is selected.
+func (c ScaffoldConfig) HasIntegration(i string) bool {
+	for _, v := range c.Integrations {
+		if v == i {
+			return true
+		}
+	}
+	return false
+}
+
+// IntegrationKey returns the user-provided API key for an integration, or empty string.
+func (c ScaffoldConfig) IntegrationKey(name string) string {
+	if c.IntegrationKeys == nil {
+		return ""
+	}
+	return c.IntegrationKeys[name]
 }
 
 // DefaultConfig returns a ScaffoldConfig with default values.
 func DefaultConfig(name string) ScaffoldConfig {
 	return ScaffoldConfig{
-		Name:        name,
-		Description: "An AI-powered agent",
-		Interfaces:  []string{"web"},
-		Model:       "openai",
-		Knowledge:   "none",
-		Integrations: []string{},
-		Ingestion:   "none",
+		Name:         name,
+		Description:  "An AI-powered agent",
+		Interfaces:   []string{"web"},
+		ModelProvider: "",
+		Model:         "",
+		Knowledge:    []string{},
+		Integrations:    []string{},
+		IntegrationKeys: map[string]string{},
+		Ingestion:       "none",
 	}
 }
 
@@ -67,17 +98,26 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		{filepath.Join(targetDir, ".gitignore"), paths.Gitignore},
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
 		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
-		{filepath.Join(targetDir, "ingestion", "index.ts"), paths.IngestionIndex},
 		{filepath.Join(targetDir, "CLAUDE.md"), paths.LlmMd},
 		{filepath.Join(targetDir, "AGENTS.md"), paths.LlmMd},
+		{filepath.Join(targetDir, "README.md"), paths.Readme},
 	}
 
-	// Add Dockerfile.ingestion if ingestion is enabled
+	// Add ingestion files if ingestion is enabled
 	if config.Ingestion != "none" {
 		files = append(files, struct {
 			path         string
 			templatePath string
 		}{filepath.Join(targetDir, "Dockerfile.ingestion"), paths.DockerfileIngestion})
+
+		ingestionTemplate := paths.IngestionIndex
+		if config.Ingestion == "webhook" {
+			ingestionTemplate = paths.IngestionWebhookIndex
+		}
+		files = append(files, struct {
+			path         string
+			templatePath string
+		}{filepath.Join(targetDir, "ingestion", "index.ts"), ingestionTemplate})
 	}
 
 	for _, f := range files {

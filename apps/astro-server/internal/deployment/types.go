@@ -4,16 +4,19 @@ import "time"
 
 // DeployRequest represents a deployment request
 type DeployRequest struct {
+	Account         string            `json:"account" binding:"required"`
 	Name            string            `json:"name" binding:"required"`
-	Version         string            `json:"version" binding:"required"`
+	SourceAccount   string            `json:"source_account,omitempty"`
 	UserCredentials map[string]string `json:"user_credentials,omitempty"`
+	Interfaces      []string          `json:"interfaces,omitempty"`
+	Schedules       map[string]string `json:"schedules,omitempty"`
 }
 
 // DeployResponse represents a deployment response
 type DeployResponse struct {
 	Status           string             `json:"status"`
 	Name             string             `json:"name"`
-	Version          string             `json:"version"`
+	BuildID          string             `json:"build_id"`
 	K8sNamespace     string             `json:"k8s_namespace"`
 	DeployedAt       time.Time          `json:"deployed_at"`
 	Resources        []ResourceStatus   `json:"resources"`
@@ -60,15 +63,15 @@ type ValidationResult struct {
 
 // UndeployRequest represents an undeploy request
 type UndeployRequest struct {
+	Account string `json:"account" binding:"required"`
 	Name    string `json:"name" binding:"required"`
-	Version string `json:"version" binding:"required"`
 }
 
 // UndeployResponse represents an undeploy response
 type UndeployResponse struct {
 	Status       string            `json:"status"`
 	Name         string            `json:"name"`
-	Version      string            `json:"version"`
+	BuildID      string            `json:"build_id"`
 	K8sNamespace string            `json:"k8s_namespace"`
 	UndeployedAt time.Time         `json:"undeployed_at"`
 	Resources    []ResourceStatus  `json:"resources"`

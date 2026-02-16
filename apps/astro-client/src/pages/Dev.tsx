@@ -1,16 +1,24 @@
-const DOWNLOADS = [
-  { name: "ast-darwin-amd64", label: "macOS (Intel)" },
-  { name: "ast-darwin-arm64", label: "macOS (Apple Silicon)" },
-] as const;
-
-const CURL_INSTALLS = [
-  { label: "macOS (Intel)", name: "ast-darwin-amd64" },
-  { label: "macOS (Apple Silicon)", name: "ast-darwin-arm64" },
-] as const;
+function getCLIPrefix(): string {
+  if (typeof window !== "undefined" && window.location.hostname.includes("astropod.ai")) {
+    return "ast-preview";
+  }
+  return "ast";
+}
 
 export function Dev() {
   // Domain the page is hosted on (e.g. https://astro.example.com) so curl uses the same host
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const prefix = getCLIPrefix();
+
+  const DOWNLOADS = [
+    { name: `${prefix}-darwin-amd64`, label: "macOS (Intel)" },
+    { name: `${prefix}-darwin-arm64`, label: "macOS (Apple Silicon)" },
+  ];
+
+  const CURL_INSTALLS = [
+    { label: "macOS (Intel)", name: `${prefix}-darwin-amd64` },
+    { label: "macOS (Apple Silicon)", name: `${prefix}-darwin-arm64` },
+  ];
 
   return (
     <div className="max-w-2xl space-y-8 p-6 md:p-8">
@@ -24,7 +32,7 @@ export function Dev() {
       <section>
         <h2 className="text-lg font-medium mb-2">Download</h2>
         <p className="text-sm text-muted-foreground mb-3">
-          Get the Astro CLI <code className="bg-muted px-1 rounded">ast</code> for your platform (served from this host):
+          Get the Astro CLI <code className="bg-muted px-1 rounded">{prefix}</code> for your platform (served from this host):
         </p>
         <ul className="list-disc list-inside space-y-1 text-sm">
           {DOWNLOADS.map(({ name, label }) => (
@@ -45,14 +53,14 @@ export function Dev() {
       <section>
         <h2 className="text-lg font-medium mb-2">Install</h2>
         <p className="text-sm text-muted-foreground mb-3">
-          Run one of these to download and install <code className="bg-muted px-1 rounded">ast</code> into <code className="bg-muted px-1 rounded">/usr/local/bin</code>:
+          Run one of these to download and install <code className="bg-muted px-1 rounded">{prefix}</code> into <code className="bg-muted px-1 rounded">/usr/local/bin</code>:
         </p>
         <div className="space-y-4">
           {CURL_INSTALLS.map(({ label, name }) => (
             <div key={name}>
               <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>
               <pre className="bg-muted p-3 rounded-md text-sm overflow-x-auto">
-                <code>{`curl -fsSL ${origin}/download/${name} -o ast && chmod +x ast`}</code>
+                <code>{`curl -fsSL ${origin}/download/${name} -o ${prefix} && chmod +x ${prefix}`}</code>
               </pre>
             </div>
           ))}

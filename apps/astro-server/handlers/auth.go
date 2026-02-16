@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
@@ -21,10 +22,11 @@ type AuthHandler struct {
 	sessionManager *auth.SessionManager
 	jwtValidator   *auth.JWTValidator
 	allowedOrigins map[string]bool
+	accountStore   *account.AccountStore
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(log *logger.Logger, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(log *logger.Logger, cfg *config.Config, accountStore *account.AccountStore) *AuthHandler {
 	workos := auth.NewWorkOSClient(
 		cfg.Auth.WorkOSAPIKey,
 		cfg.Auth.WorkOSClientID,
@@ -61,6 +63,7 @@ func NewAuthHandler(log *logger.Logger, cfg *config.Config) *AuthHandler {
 		sessionManager: sessionManager,
 		jwtValidator:   jwtValidator,
 		allowedOrigins: allowedOrigins,
+		accountStore:   accountStore,
 	}
 }
 
@@ -355,13 +358,14 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 			sessionData = refreshed
 		}
 
-		// Return user info
+		// Return user info with accounts
 		c.JSON(http.StatusOK, auth.AuthResponse{
 			User:         sessionData.User,
 			SessionID:    sessionData.Session.ID,
 			Organization: sessionData.Session.OrganizationID,
 			Role:         sessionData.Session.Role,
 			ExpiresAt:    sessionData.Session.ExpiresAt.Format(time.RFC3339),
+			Accounts:     h.fetchAccounts(sessionData.User.ID),
 		})
 	}
 }
@@ -406,8 +410,30 @@ func (h *AuthHandler) Refresh() gin.HandlerFunc {
 			Organization: refreshed.Session.OrganizationID,
 			Role:         refreshed.Session.Role,
 			ExpiresAt:    refreshed.Session.ExpiresAt.Format(time.RFC3339),
+			Accounts:     h.fetchAccounts(refreshed.User.ID),
 		})
 	}
+}
+
+// fetchAccounts returns the accounts for a user, always returning a non-nil slice
+func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
+	accounts := make([]auth.AuthAccountResponse, 0)
+	if h.accountStore != nil {
+		userAccounts, err := h.accountStore.GetAccountsForUser(userID)
+		if err != nil {
+			h.log.Warn("Failed to fetch accounts for user", "error", err, "user_id", userID)
+		} else {
+			for _, a := range userAccounts {
+				accounts = append(accounts, auth.AuthAccountResponse{
+					ID:   a.ID,
+					Name: a.Name,
+					Type: a.Type,
+					Role: a.Role,
+				})
+			}
+		}
+	}
+	return accounts
 }
 
 // refreshSession refreshes the session using the refresh token

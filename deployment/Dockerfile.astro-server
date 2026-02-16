@@ -40,6 +40,10 @@ FROM golang:1.24-alpine AS cli-builder
 ARG GITHUB_PACKAGES_TOKEN
 ARG COMMIT
 ARG WORKOS_CLIENT_ID
+ARG PROD_SERVER_URL=https://astromode.ai
+ARG PREVIEW_SERVER_URL=https://astropod.ai
+
+RUN if [ -z "$WORKOS_CLIENT_ID" ]; then echo "ERROR: WORKOS_CLIENT_ID build arg is required" && exit 1; fi
 
 WORKDIR /app
 COPY apps/astro-cli/go.mod apps/astro-cli/go.sum ./apps/astro-cli/
@@ -53,12 +57,21 @@ COPY packages/astro-spec ./packages/astro-spec
 WORKDIR /app/apps/astro-cli
 RUN mkdir -p /out && \
     AST_VERSION=$(cat VERSION) && \
+    COMMON_FLAGS="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.version=${AST_VERSION} -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID}" && \
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build \
-      -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.version=${AST_VERSION} -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID}" \
+      -ldflags="${COMMON_FLAGS} -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${PROD_SERVER_URL} -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=ast" \
       -o /out/ast-darwin-amd64 . && \
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build \
-      -ldflags="-s -w -X github.com/postman/astro/apps/astro-cli/cmd.version=${AST_VERSION} -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} -X github.com/postman/astro/apps/astro-cli/cmd.githubPackagesToken=${GITHUB_PACKAGES_TOKEN} -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID}" \
-      -o /out/ast-darwin-arm64 .
+      -ldflags="${COMMON_FLAGS} -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${PROD_SERVER_URL} -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=ast" \
+      -o /out/ast-darwin-arm64 . && \
+    GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build \
+      -ldflags="${COMMON_FLAGS} -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${PREVIEW_SERVER_URL} -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=ast-preview" \
+      -o /out/ast-preview-darwin-amd64 . && \
+    GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build \
+      -ldflags="${COMMON_FLAGS} -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${PREVIEW_SERVER_URL} -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=ast-preview" \
+      -o /out/ast-preview-darwin-arm64 . && \
+    cp VERSION /out/VERSION && \
+    cd /out && sha256sum ast-darwin-amd64 ast-darwin-arm64 ast-preview-darwin-amd64 ast-preview-darwin-arm64 > checksums.txt
 
 # =============================================================================
 # Stage 3: Build the Go backend

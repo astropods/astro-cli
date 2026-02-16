@@ -12,7 +12,7 @@ type ServiceConfig struct {
 	Name           string
 	Namespace      string
 	AgentName      string
-	Version        string
+	BuildID        string
 	Component      string
 	Port           int32
 	ServiceType    corev1.ServiceType // ClusterIP or LoadBalancer
@@ -20,7 +20,7 @@ type ServiceConfig struct {
 
 // BuildService creates a Kubernetes Service manifest
 func BuildService(cfg ServiceConfig) *corev1.Service {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.Version, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 
 	port := cfg.Port

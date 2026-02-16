@@ -11,10 +11,11 @@ import type {
 export const mockAgents: Agent[] = [
   {
     name: 'code-reviewer',
+    account: 'testuser',
     registry: 'registry.example.com',
     versions: [
       {
-        version: '1.1.0',
+        build_id: 'a1b2c3d4e5f6',
         spec: {
           model: 'gpt-4o',
           meta: {
@@ -22,13 +23,14 @@ export const mockAgents: Agent[] = [
             tags: ['Developer Tools', 'Security'],
           },
           integrations: {
-            tools: [{ provider: 'GitHub' }, { provider: 'Slack' }],
+            github: { provider: 'GitHub', type: 'tool' },
+            slack: { provider: 'Slack', type: 'tool' },
           },
         },
         published_at: '2025-02-01T00:00:00Z',
       },
       {
-        version: '1.0.0',
+        build_id: 'b2c3d4e5f6a7',
         spec: {
           model: 'gpt-4',
           meta: {
@@ -42,10 +44,11 @@ export const mockAgents: Agent[] = [
   },
   {
     name: 'data-analyst',
+    account: 'testuser',
     registry: 'registry.example.com',
     versions: [
       {
-        version: '0.9.0',
+        build_id: 'c3d4e5f6a7b8',
         spec: {
           model: 'claude-3',
           meta: {
@@ -53,7 +56,9 @@ export const mockAgents: Agent[] = [
             tags: ['Analytics'],
           },
           integrations: {
-            tools: [{ provider: 'Snowflake' }, { provider: 'Slack' }, { provider: 'Google Sheets' }],
+            snowflake: { provider: 'Snowflake', type: 'tool' },
+            slack: { provider: 'Slack', type: 'tool' },
+            gsheets: { provider: 'Google Sheets', type: 'tool' },
           },
         },
         published_at: '2025-03-01T00:00:00Z',
@@ -66,7 +71,8 @@ export const mockDeployments: DeploymentsListResponse = {
   deployments: [
     {
       name: 'code-reviewer',
-      version: '1.0.0',
+      build_id: 'b2c3d4e5f6a7',
+      namespace: 'astro-abc123def456',
       status: 'Running',
       replicas: 1,
       ready: 1,
@@ -75,7 +81,6 @@ export const mockDeployments: DeploymentsListResponse = {
     },
   ],
   count: 1,
-  namespace: 'user-abc123',
 };
 
 export const handlers = [
@@ -87,23 +92,13 @@ export const handlers = [
     });
   }),
 
-  // GET /api/v1/agents/:name
-  http.get('/api/v1/agents/:name', ({ params }) => {
-    const agent = mockAgents.find((a) => a.name === params.name);
+  // GET /api/v1/agents/:account/:name
+  http.get('/api/v1/agents/:account/:name', ({ params }) => {
+    const agent = mockAgents.find((a) => a.account === params.account && a.name === params.name);
     if (!agent) {
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
     return HttpResponse.json(agent);
-  }),
-
-  // GET /api/v1/agents/:name/:version
-  http.get('/api/v1/agents/:name/:version', ({ params }) => {
-    const agent = mockAgents.find((a) => a.name === params.name);
-    const version = agent?.versions.find((v) => v.version === params.version);
-    if (!version) {
-      return HttpResponse.json({ error: 'not_found' }, { status: 404 });
-    }
-    return HttpResponse.json(version);
   }),
 
   // GET /api/v1/deployments
@@ -113,11 +108,11 @@ export const handlers = [
 
   // POST /api/v1/deploy
   http.post('/api/v1/deploy', async ({ request }) => {
-    const body = (await request.json()) as { name: string; version: string };
+    const body = (await request.json()) as { name: string; build_id: string };
     return HttpResponse.json<DeployResponse>({
       status: 'deployed',
       name: body.name,
-      version: body.version,
+      build_id: body.build_id || 'a1b2c3d4e5f6',
       k8s_namespace: 'user-abc123',
       deployed_at: new Date().toISOString(),
       resources: [{ kind: 'Deployment', name: body.name, status: 'created' }],
@@ -126,11 +121,11 @@ export const handlers = [
 
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
-    const body = (await request.json()) as { name: string; version: string };
+    const body = (await request.json()) as { name: string };
     return HttpResponse.json<UndeployResponse>({
       status: 'undeployed',
       name: body.name,
-      version: body.version,
+      build_id: 'a1b2c3d4e5f6',
       k8s_namespace: 'user-abc123',
       undeployed_at: new Date().toISOString(),
       resources: [{ kind: 'Deployment', name: body.name, status: 'deleted' }],

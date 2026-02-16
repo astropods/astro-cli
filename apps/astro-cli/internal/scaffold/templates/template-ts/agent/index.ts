@@ -6,18 +6,23 @@
  *
  * Environment variables (automatically injected by 'astro dev'):
  *   GRPC_SERVER_ADDR - Messaging service address (default: localhost:9090)
-{{- if eq .Model "anthropic"}}
+{{- if .HasIntegration "anthropic"}}
  *   ANTHROPIC_API_KEY - Anthropic API key for Claude models
-{{- else if eq .Model "openai"}}
+{{- end}}
+{{- if .HasIntegration "openai"}}
  *   OPENAI_API_KEY - OpenAI API key for GPT models
 {{- end}}
-{{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "qdrant"}}
  *   QDRANT_HOST - Qdrant vector database host
  *   QDRANT_PORT - Qdrant vector database port
 {{- end}}
-{{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "redis"}}
  *   REDIS_HOST - Redis host
  *   REDIS_PORT - Redis port
+{{- end}}
+{{- if .HasKnowledge "neo4j"}}
+ *   NEO4J_HOST - Neo4j graph database host
+ *   NEO4J_PORT - Neo4j graph database port
 {{- end}}
  */
 
@@ -34,10 +39,8 @@ const GRPC_SERVER_ADDR = process.env.GRPC_SERVER_ADDR || 'localhost:9090';
 
 // Configure the agent
 const agent = new AstroAgent()
-{{- if eq .Model "anthropic"}}
-  .model('anthropic/claude-sonnet-4-20250514')
-{{- else if eq .Model "openai"}}
-  .model('openai/gpt-4o')
+{{- if and (ne .ModelProvider "") (ne .Model "")}}
+  .model('{{.ModelProvider}}/{{.Model}}')
 {{- end}}
   .meta({ title: '{{.Name}}', description: '{{.Description}}' })
   .instructions('You are {{.Name}}, a helpful AI assistant. {{.Description}}');

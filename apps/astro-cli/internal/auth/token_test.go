@@ -42,7 +42,7 @@ func setupTokenTestDir(t *testing.T) (string, func()) {
 // writeTokenTestCredentials writes credentials for token tests
 func writeTokenTestCredentials(t *testing.T, creds *Credentials) {
 	t.Helper()
-	path, err := CredentialsPath()
+	path, err := CredentialsPath("ast")
 	if err != nil {
 		t.Fatalf("failed to get credentials path: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGetValidAccessToken_EnvVarOverride(t *testing.T) {
 	// Set env var
 	os.Setenv(EnvAccessToken, "env_access_token_123")
 
-	manager := NewTokenManager()
+	manager := NewTokenManager("ast")
 	token, err := manager.GetValidAccessToken(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -255,7 +255,7 @@ func TestIsAuthenticated_EnvVar(t *testing.T) {
 
 	os.Setenv(EnvAccessToken, "env_token")
 
-	manager := NewTokenManager()
+	manager := NewTokenManager("ast")
 	if !manager.IsAuthenticated() {
 		t.Error("expected IsAuthenticated to return true when env var is set")
 	}
@@ -344,7 +344,7 @@ func TestRequireAuth_Authenticated(t *testing.T) {
 
 	os.Setenv(EnvAccessToken, "valid_token")
 
-	manager := NewTokenManager()
+	manager := NewTokenManager("ast")
 	err := manager.RequireAuth()
 	if err != nil {
 		t.Errorf("expected no error from RequireAuth when authenticated, got %v", err)

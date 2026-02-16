@@ -21,7 +21,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    slug: "customer-insight-engine",
+    slug: "acme/customer-insight-engine",
+    account: "acme",
     name: "Customer Insight Engine",
     description:
       "Analyzes customer feedback to surface actionable insights and trends.",
@@ -33,7 +34,8 @@ export const Default: Story = {
 
 export const LongDescription: Story = {
   args: {
-    slug: "personalized-support-responses",
+    slug: "acme/personalized-support-responses",
+    account: "acme",
     name: "Personalized Support Responses",
     description:
       "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history, previous interactions, and the specific context of their issue. Agents can review and send with a single click.",
@@ -45,7 +47,8 @@ export const LongDescription: Story = {
 
 export const FewIntegrations: Story = {
   args: {
-    slug: "security-monitor",
+    slug: "acme/security-monitor",
+    account: "acme",
     name: "Security Monitor",
     description:
       "Continuously scans for vulnerabilities and alerts your security team.",
@@ -57,7 +60,8 @@ export const FewIntegrations: Story = {
 
 export const ManyIntegrations: Story = {
   args: {
-    slug: "product-research-intel",
+    slug: "acme/product-research-intel",
+    account: "acme",
     name: "Product Research Intel",
     description:
       "Aggregates product research and competitive intelligence from multiple sources.",

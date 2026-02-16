@@ -1,11 +1,11 @@
 spec: astro/v1
-agent: obs-agent
+name: obs-agent
 
 meta:
   version: 0.1.0
   description: An AI-powered agent
 
-container:
+agent:
   build:
     context: .
     dockerfile: Dockerfile
@@ -21,6 +21,6 @@ interfaces:
     type: web
 
 integrations:
-  models:
-    - name: llm
-      provider: openai
+  openai:
+    provider: openai
+    type: model

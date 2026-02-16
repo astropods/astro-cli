@@ -2,7 +2,7 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  bin = "./tmp/astro-server"
+  entrypoint = "./tmp/astro-server"
   cmd = "go build -o ./tmp/astro-server ."
   delay = 500
   exclude_dir = ["tmp", "vendor", "migrations", "bin", "scripts"]

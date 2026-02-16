@@ -30,32 +30,42 @@ type Credentials struct {
 
 // Profile represents a single authentication profile
 type Profile struct {
-	ServerURL    string      `json:"server_url,omitempty"`
-	RegistryURL  string      `json:"registry_url,omitempty"`
-	AccessToken  string      `json:"access_token,omitempty"`
-	RefreshToken string      `json:"refresh_token,omitempty"`
-	ExpiresAt    time.Time   `json:"expires_at,omitempty"`
-	User         *StoredUser `json:"user,omitempty"`
+	AccessToken  string           `json:"access_token,omitempty"`
+	RefreshToken string           `json:"refresh_token,omitempty"`
+	ExpiresAt    time.Time        `json:"expires_at,omitempty"`
+	User         *StoredUser      `json:"user,omitempty"`
+	Accounts     []StoredAccount  `json:"accounts,omitempty"`
 }
 
 // StoredUser represents user info stored with credentials
 type StoredUser struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	FirstName string `json:"first_name,omitempty"`
-	LastName  string `json:"last_name,omitempty"`
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	FirstName   string `json:"first_name,omitempty"`
+	LastName    string `json:"last_name,omitempty"`
+	AccountName string `json:"account_name,omitempty"`
+	AccountID   string `json:"account_id,omitempty"`
+}
+
+// StoredAccount represents an account stored with the profile
+type StoredAccount struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Role string `json:"role,omitempty"`
 }
 
 // Storage handles secure credential storage
 type Storage struct {
+	binaryName string
 	useKeyring bool
 }
 
-// NewStorage creates a new storage instance
-func NewStorage() *Storage {
-	// Test if keyring is available
+// NewStorage creates a new storage instance.
+// binaryName controls the config directory (e.g. "ast" → ~/.astro, "ast-preview" → ~/.astro-preview).
+func NewStorage(binaryName string) *Storage {
 	useKeyring := isKeyringAvailable()
-	return &Storage{useKeyring: useKeyring}
+	return &Storage{binaryName: binaryName, useKeyring: useKeyring}
 }
 
 // isKeyringAvailable tests if the system keyring is accessible
@@ -75,7 +85,7 @@ func isKeyringAvailable() bool {
 
 // LoadCredentials loads credentials from storage
 func (s *Storage) LoadCredentials() (*Credentials, error) {
-	path, err := CredentialsPath()
+	path, err := CredentialsPath(s.binaryName)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +130,7 @@ func (s *Storage) LoadCredentials() (*Credentials, error) {
 
 // SaveCredentials saves credentials to storage
 func (s *Storage) SaveCredentials(creds *Credentials) error {
-	path, err := CredentialsPath()
+	path, err := CredentialsPath(s.binaryName)
 	if err != nil {
 		return err
 	}
@@ -226,7 +236,7 @@ func (s *Storage) DeleteAllProfiles() error {
 	creds.Profiles = make(map[string]*Profile)
 
 	// Also delete the credentials file
-	path, err := CredentialsPath()
+	path, err := CredentialsPath(s.binaryName)
 	if err != nil {
 		return err
 	}

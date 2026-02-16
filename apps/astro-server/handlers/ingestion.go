@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
@@ -17,10 +18,9 @@ import (
 )
 
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
-func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		agentName := c.Param("name")
-		version := c.Param("version")
+		k8sNamespace := c.Param("namespace")
 		ingestionName := c.Param("ingestion")
 
 		// Get authenticated user from context
@@ -30,15 +30,56 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, k8sClien
 			return
 		}
 
-		k8sNamespace := sanitizeNamespace(user.ID)
+		// Resolve account from query param
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		// Verify membership
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		// Verify namespace ownership and get agent metadata from labels
+		ns, err := k8sClient.Clientset().CoreV1().Namespaces().Get(c.Request.Context(), k8sNamespace, metav1.GetOptions{})
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "namespace not found"})
+			return
+		}
+		if ns.Labels["astro.dev/account-id"] != acct.ID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+			return
+		}
+
+		agentName := ns.Labels["astro.dev/agent"]
+		buildID := ns.Labels["astro.dev/build"]
+		if agentName == "" || buildID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "namespace missing agent or build labels"})
+			return
+		}
 
 		// Fetch agent spec from index
-		agentVersion, err := agentIndex.GetVersion(agentName, version)
+		agentVersion, err := agentIndex.GetVersion(acct.ID, agentName, buildID)
 		if err != nil {
 			log.Error("Agent version not found", "error", err)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   "agent version not found",
-				"details": fmt.Sprintf("%s:%s not found in index", agentName, version),
+				"details": fmt.Sprintf("%s:%s not found in index", agentName, buildID),
 			})
 			return
 		}
@@ -73,23 +114,18 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, k8sClien
 			return
 		}
 
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
-			return
-		}
-
 		// Generate unique job name with timestamp
 		resourceName := deployment.GenerateResourceName(agentName, "ingestion", ingestionName)
 		jobName := fmt.Sprintf("%s-%d", resourceName, time.Now().Unix())
 
-		secretName := deployment.GenerateCredentialSecretName(agentName, version)
-		configMapName := deployment.GenerateConfigMapName(agentName, version)
+		secretName := deployment.GenerateCredentialSecretName(agentName, buildID)
+		configMapName := deployment.GenerateConfigMapName(agentName, buildID)
 
 		jobCfg := k8s.JobConfig{
 			Name:          jobName,
 			Namespace:     k8sNamespace,
 			AgentName:     agentName,
-			Version:       version,
+			BuildID:       buildID,
 			Component:     fmt.Sprintf("ingestion-%s", ingestionName),
 			SecretName:    secretName,
 			ConfigMapName: configMapName,
@@ -111,10 +147,11 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, k8sClien
 
 		log.Info("Manual ingestion triggered",
 			"agent", agentName,
-			"version", version,
+			"build_id", buildID,
 			"ingestion", ingestionName,
 			"job", jobName,
 			"namespace", k8sNamespace,
+			"user", user.ID,
 		)
 
 		c.JSON(http.StatusOK, gin.H{

@@ -5,6 +5,8 @@ import (
 )
 
 func TestParseRepositoryName(t *testing.T) {
+	tenantPrefix := "prod-tenant-"
+
 	tests := []struct {
 		name              string
 		repoName          string
@@ -13,25 +15,25 @@ func TestParseRepositoryName(t *testing.T) {
 	}{
 		{
 			name:              "with image name",
-			repoName:          "tenant-user123/myapp",
+			repoName:          "prod-tenant-user123/myapp",
 			expectedNamespace: "user123",
 			expectedImage:     "myapp",
 		},
 		{
 			name:              "with nested image name",
-			repoName:          "tenant-user123/myapp-model-gpt4",
+			repoName:          "prod-tenant-user123/myapp-model-gpt4",
 			expectedNamespace: "user123",
 			expectedImage:     "myapp-model-gpt4",
 		},
 		{
 			name:              "namespace only",
-			repoName:          "tenant-user123",
+			repoName:          "prod-tenant-user123",
 			expectedNamespace: "user123",
 			expectedImage:     "",
 		},
 		{
 			name:              "org namespace with image",
-			repoName:          "tenant-org456/chatbot",
+			repoName:          "prod-tenant-org456/chatbot",
 			expectedNamespace: "org456",
 			expectedImage:     "chatbot",
 		},
@@ -39,7 +41,7 @@ func TestParseRepositoryName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			namespace, imageName := parseRepositoryName(tt.repoName)
+			namespace, imageName := parseRepositoryName(tt.repoName, tenantPrefix)
 
 			if namespace != tt.expectedNamespace {
 				t.Errorf("expected namespace %q, got %q", tt.expectedNamespace, namespace)

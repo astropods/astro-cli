@@ -28,7 +28,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "test-deploy",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "agent",
 				Container: spec.ContainerConfig{
 					Image: "my-agent:latest",
@@ -41,11 +41,11 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "gpu-deploy",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "model",
 				Container: spec.ContainerConfig{
 					Image: "model:latest",
-					GPU:   true,
+					GPU:   &spec.GPUConfig{VRAM: "24Gi", Runtime: "cuda"},
 				},
 			},
 		},
@@ -55,7 +55,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:          "ref-deploy",
 				Namespace:     "default",
 				AgentName:     "my-agent",
-				Version:       "1.0",
+				BuildID:       "1.0",
 				Component:     "agent",
 				Container:     spec.ContainerConfig{Image: "agent:latest"},
 				ConfigMapName: "my-agent-1-0-config",
@@ -68,7 +68,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "env-deploy",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "agent",
 				Container: spec.ContainerConfig{
 					Image: "agent:latest",
@@ -85,7 +85,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "hc-exec",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "agent",
 				Container: spec.ContainerConfig{Image: "agent:latest"},
 				Healthcheck: &spec.Healthcheck{
@@ -99,7 +99,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "hc-http",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "agent",
 				Container: spec.ContainerConfig{Image: "agent:latest"},
 				Healthcheck: &spec.Healthcheck{
@@ -113,7 +113,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "hc-redis",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "knowledge-cache",
 				Container: spec.ContainerConfig{Image: "redis:latest"},
 				Provider:  "redis",
@@ -126,7 +126,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "hc-qdrant",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "knowledge-vectors",
 				Container: spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
 				Provider:  "qdrant",
@@ -140,7 +140,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "hc-custom-timing",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "agent",
 				Container: spec.ContainerConfig{Image: "agent:latest"},
 				Healthcheck: &spec.Healthcheck{
@@ -157,7 +157,7 @@ func TestBuildDeployment(t *testing.T) {
 				Name:      "custom-port",
 				Namespace: "default",
 				AgentName: "my-agent",
-				Version:   "1.0",
+				BuildID:   "1.0",
 				Component: "agent",
 				Container: spec.ContainerConfig{Image: "agent:latest"},
 				Port:      3000,
@@ -250,10 +250,10 @@ func TestBuildDeployment(t *testing.T) {
 			t.Errorf("expected GPU memory limit 16Gi, got %s", memLim.String())
 		}
 
-		// GPU node selector
+		// GPU node selector derived from runtime
 		ns := d.Spec.Template.Spec.NodeSelector
 		if ns == nil || ns["accelerator"] != "nvidia-gpu" {
-			t.Errorf("expected GPU node selector, got %v", ns)
+			t.Errorf("expected GPU node selector nvidia-gpu, got %v", ns)
 		}
 	})
 
@@ -406,7 +406,7 @@ func TestBuildMessagingDeployment(t *testing.T) {
 				Name:          "msg-slack",
 				Namespace:     "default",
 				AgentName:     "my-agent",
-				Version:       "1.0",
+				BuildID:       "1.0",
 				Component:     "messaging-slack",
 				Image:         "messaging:latest",
 				InterfaceType: "slack",
@@ -419,7 +419,7 @@ func TestBuildMessagingDeployment(t *testing.T) {
 				Name:          "msg-web",
 				Namespace:     "default",
 				AgentName:     "my-agent",
-				Version:       "1.0",
+				BuildID:       "1.0",
 				Component:     "messaging-web",
 				Image:         "messaging:latest",
 				InterfaceType: "slack",
@@ -432,7 +432,7 @@ func TestBuildMessagingDeployment(t *testing.T) {
 				Name:          "msg-nosecret",
 				Namespace:     "default",
 				AgentName:     "my-agent",
-				Version:       "1.0",
+				BuildID:       "1.0",
 				Component:     "messaging",
 				Image:         "messaging:latest",
 				InterfaceType: "slack",
@@ -532,7 +532,7 @@ func TestBuildCollectorDeployment(t *testing.T) {
 			Name:            "my-agent-collector",
 			Namespace:       "default",
 			AgentName:       "my-agent",
-			Version:         "1.0",
+			BuildID:         "1.0",
 			Component:       "collector",
 			Image:           "collector:latest",
 			ConfigMapName:   "my-agent-1-0-config",
@@ -617,7 +617,7 @@ func TestBuildCollectorDeployment(t *testing.T) {
 			Name:      "collector-minimal",
 			Namespace: "default",
 			AgentName: "my-agent",
-			Version:   "1.0",
+			BuildID:   "1.0",
 			Component: "collector",
 			Image:     "collector:latest",
 		}
@@ -641,7 +641,7 @@ func TestBuildCollectorDeployment(t *testing.T) {
 			Name:            "collector-ifnotpresent",
 			Namespace:       "default",
 			AgentName:       "my-agent",
-			Version:         "1.0",
+			BuildID:         "1.0",
 			Component:       "collector",
 			Image:           "collector:v1.2.3",
 			ImagePullPolicy: corev1.PullIfNotPresent,

@@ -8,10 +8,14 @@ import (
 func TestLoad_Defaults(t *testing.T) {
 	// Set required env vars
 	os.Setenv("REGISTRY_URL", "https://123456789.dkr.ecr.us-east-1.amazonaws.com")
-	os.Setenv("AUTH_ENABLED", "false")
+	os.Setenv("ENVIRONMENT", "test")
+	os.Setenv("WORKOS_CLIENT_ID", "client_test")
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	defer func() {
 		os.Unsetenv("REGISTRY_URL")
-		os.Unsetenv("AUTH_ENABLED")
+		os.Unsetenv("ENVIRONMENT")
+		os.Unsetenv("WORKOS_CLIENT_ID")
+		os.Unsetenv("DATABASE_URL")
 	}()
 
 	cfg, err := Load()
@@ -39,7 +43,9 @@ func TestLoad_CustomValues(t *testing.T) {
 	os.Setenv("LOG_LEVEL", "debug")
 	os.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
 	os.Setenv("AWS_REGION", "us-west-2")
-	os.Setenv("AUTH_ENABLED", "false")
+	os.Setenv("ENVIRONMENT", "staging")
+	os.Setenv("WORKOS_CLIENT_ID", "client_test")
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 
 	defer func() {
 		os.Unsetenv("PORT")
@@ -47,7 +53,9 @@ func TestLoad_CustomValues(t *testing.T) {
 		os.Unsetenv("LOG_LEVEL")
 		os.Unsetenv("REGISTRY_URL")
 		os.Unsetenv("AWS_REGION")
-		os.Unsetenv("AUTH_ENABLED")
+		os.Unsetenv("ENVIRONMENT")
+		os.Unsetenv("WORKOS_CLIENT_ID")
+		os.Unsetenv("DATABASE_URL")
 	}()
 
 	cfg, err := Load()
@@ -74,6 +82,14 @@ func TestLoad_CustomValues(t *testing.T) {
 
 func TestLoad_MissingRegistryURL(t *testing.T) {
 	os.Unsetenv("REGISTRY_URL")
+	os.Setenv("ENVIRONMENT", "test")
+	os.Setenv("WORKOS_CLIENT_ID", "client_test")
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	defer func() {
+		os.Unsetenv("ENVIRONMENT")
+		os.Unsetenv("WORKOS_CLIENT_ID")
+		os.Unsetenv("DATABASE_URL")
+	}()
 
 	_, err := Load()
 	if err == nil {
@@ -81,19 +97,21 @@ func TestLoad_MissingRegistryURL(t *testing.T) {
 	}
 }
 
-func TestLoad_AuthEnabledMissingClientID(t *testing.T) {
+func TestLoad_MissingClientID(t *testing.T) {
 	os.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
-	os.Setenv("AUTH_ENABLED", "true")
+	os.Setenv("ENVIRONMENT", "test")
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	os.Unsetenv("WORKOS_CLIENT_ID")
 
 	defer func() {
 		os.Unsetenv("REGISTRY_URL")
-		os.Unsetenv("AUTH_ENABLED")
+		os.Unsetenv("ENVIRONMENT")
+		os.Unsetenv("DATABASE_URL")
 	}()
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("expected error for missing WORKOS_CLIENT_ID when auth is enabled")
+		t.Fatal("expected error for missing WORKOS_CLIENT_ID")
 	}
 }
 

@@ -10,13 +10,15 @@ import (
 type ImageResolver struct {
 	proxyRegistryHost string // e.g., "registry.example.com"
 	ecrRegistryURL    string // e.g., "123456789.dkr.ecr.us-east-1.amazonaws.com" (scheme optional)
+	environment       string // e.g., "prod", "preview"
 }
 
 // NewImageResolver creates a new image resolver
-func NewImageResolver(proxyRegistryHost, ecrRegistryURL string) *ImageResolver {
+func NewImageResolver(proxyRegistryHost, ecrRegistryURL, environment string) *ImageResolver {
 	return &ImageResolver{
 		proxyRegistryHost: proxyRegistryHost,
 		ecrRegistryURL:    ecrRegistryURL,
+		environment:       environment,
 	}
 }
 
@@ -47,8 +49,8 @@ func (r *ImageResolver) ResolveImage(image string) (string, error) {
 	namespace := parts[0]
 	imageAndTag := parts[1]
 
-	// Add tenant- prefix to namespace (matching registry proxy behavior)
-	tenantNamespace := "tenant-" + namespace
+	// Add {env}-tenant- prefix to namespace (matching registry proxy behavior)
+	tenantNamespace := r.environment + "-tenant-" + namespace
 
 	// Get the registry host from the ECR URL
 	// The URL may or may not include a scheme - handle both cases

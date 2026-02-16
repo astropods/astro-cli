@@ -54,7 +54,7 @@ export function AppHeader() {
   }, [location.pathname]);
 
   const mobileNavItems = isAuthenticated
-    ? [publicNav[0], { label: "Operator", to: "/operator" }, ...publicNav.slice(1)]
+    ? [publicNav[0], { label: "Home", to: "/operator" }, ...publicNav.slice(1)]
     : publicNav;
 
   if (isMobile) {
@@ -117,7 +117,7 @@ export function AppHeader() {
   }
 
   const navItems = isAuthenticated
-    ? [publicNav[0], { label: "Operator", to: "/operator" }, ...publicNav.slice(1)]
+    ? [publicNav[0], { label: "Home", to: "/operator" }, ...publicNav.slice(1)]
     : publicNav;
 
   return (

@@ -45,9 +45,9 @@ function getAgentDescription(agent: Agent): string {
 }
 
 function getAgentIntegrations(agent: Agent): string[] {
-  const tools = getLatestSpec(agent)?.integrations?.tools;
-  if (!tools) return [];
-  return [...new Set(tools.map((t) => t.provider))];
+  const integrations = getLatestSpec(agent)?.integrations;
+  if (!integrations) return [];
+  return [...new Set(Object.values(integrations).map((i) => i.provider))];
 }
 
 export function Hire() {
@@ -205,8 +205,9 @@ export function Hire() {
         <div className="grid grid-cols-1 gap-6 @[540px]:grid-cols-2 @[820px]:grid-cols-3 @[1100px]:grid-cols-4">
           {filteredAgents.map((agent) => (
             <AgentCard
-              key={agent.name}
-              slug={agent.name}
+              key={`${agent.account}/${agent.name}`}
+              slug={`${agent.account}/${agent.name}`}
+              account={agent.account}
               name={agent.name}
               description={getAgentDescription(agent)}
               integrations={getAgentIntegrations(agent)}

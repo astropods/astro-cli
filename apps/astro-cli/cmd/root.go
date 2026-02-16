@@ -7,21 +7,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version and commit are set at build time via ldflags.
+// version, commit, and binaryName are set at build time via ldflags.
 var (
-	version = "dev"
-	commit  = ""
+	version    = "dev"
+	commit     = ""
+	binaryName = "ast"
 )
 
 func fullVersion() string {
 	if commit != "" {
-		return "ast/" + version + " (" + commit + ")"
+		return binaryName + "/" + version + " (" + commit + ")"
 	}
-	return "ast/" + version
+	return binaryName + "/" + version
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "ast",
+	Use:   binaryName,
 	Short: "Astro CLI - Build, publish, and develop AI agents",
 	Long: `Astro CLI is a tool for building, publishing, and developing AI agents.
 

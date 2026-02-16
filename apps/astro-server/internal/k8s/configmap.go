@@ -10,11 +10,11 @@ import (
 func BuildConfigMap(
 	namespace string,
 	agentName string,
-	version string,
+	buildID string,
 	data map[string]string,
 ) *corev1.ConfigMap {
-	configMapName := deployment.GenerateConfigMapName(agentName, version)
-	labels := deployment.GenerateLabels(agentName, version, "config")
+	configMapName := deployment.GenerateConfigMapName(agentName, buildID)
+	labels := deployment.GenerateLabels(agentName, buildID, "config")
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{

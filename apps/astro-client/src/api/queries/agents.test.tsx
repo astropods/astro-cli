@@ -7,6 +7,8 @@ import { createHookWrapper } from '@/test/test-utils';
 import { mockAgents } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
 
+const testAccount = 'testuser';
+
 describe('useAgents', () => {
   it('fetches the agent list', async () => {
     const { wrapper } = createHookWrapper();
@@ -35,9 +37,9 @@ describe('useAgents', () => {
 });
 
 describe('useAgent', () => {
-  it('fetches a single agent by name', async () => {
+  it('fetches a single agent by account and name', async () => {
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useAgent('code-reviewer'), { wrapper });
+    const { result } = renderHook(() => useAgent(testAccount, 'code-reviewer'), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -47,14 +49,21 @@ describe('useAgent', () => {
 
   it('does not fetch when name is empty', () => {
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useAgent(''), { wrapper });
+    const { result } = renderHook(() => useAgent(testAccount, ''), { wrapper });
+
+    expect(result.current.fetchStatus).toBe('idle');
+  });
+
+  it('does not fetch when account is empty', () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useAgent('', 'code-reviewer'), { wrapper });
 
     expect(result.current.fetchStatus).toBe('idle');
   });
 
   it('returns an error for a non-existent agent', async () => {
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useAgent('no-such-agent'), { wrapper });
+    const { result } = renderHook(() => useAgent(testAccount, 'no-such-agent'), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -67,11 +76,11 @@ describe('useDeployAgent', () => {
     const { wrapper, queryClient } = createHookWrapper();
 
     // Prime the deployments cache so we can verify invalidation
-    queryClient.setQueryData(deploymentKeys.all, { deployments: [], count: 0, namespace: 'test' });
+    queryClient.setQueryData(deploymentKeys.all(testAccount), { deployments: [], count: 0, namespace: 'test' });
 
-    const { result } = renderHook(() => useDeployAgent(), { wrapper });
+    const { result } = renderHook(() => useDeployAgent(testAccount), { wrapper });
 
-    result.current.mutate({ name: 'code-reviewer', version: '1.0.0' });
+    result.current.mutate({ account: testAccount, name: 'code-reviewer' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -79,7 +88,7 @@ describe('useDeployAgent', () => {
     expect(result.current.data?.name).toBe('code-reviewer');
 
     // Deployments cache should have been invalidated
-    const deploymentsState = queryClient.getQueryState(deploymentKeys.all);
+    const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
     expect(deploymentsState?.isInvalidated).toBe(true);
   });
 });

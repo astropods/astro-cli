@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { User } from './api';
+import type { User, Account } from './api';
 
 export interface AuthState {
   user: User | null;
@@ -10,6 +10,8 @@ export interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   error: string | null;
+  accounts: Account[];
+  needsOnboarding: boolean;
 }
 
 export interface AuthContextType extends AuthState {
@@ -28,6 +30,8 @@ export const initialAuthState: AuthState = {
   isLoading: true,
   isAuthenticated: false,
   error: null,
+  accounts: [],
+  needsOnboarding: false,
 };
 
 export const AuthContext = createContext<AuthContextType | null>(null);

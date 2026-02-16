@@ -16,9 +16,10 @@ const (
 	screenDescription screen = iota
 	screenInterface
 	screenModel
-	screenApiKey
+	screenModelName
 	screenKnowledge
 	screenIntegrations
+	screenIntegrationKey
 	screenIngestion
 	screenConfirm
 )
@@ -35,13 +36,19 @@ type model struct {
 
 	// Text input for description
 	descInput textinput.Model
-	// Masked input for API key (used on screenApiKey)
-	apiKeyInput textinput.Model
+	// Text input for ollama model name
+	modelInput textinput.Model
+	// Masked input for integration API keys
+	keyInput textinput.Model
 
 	// Select state
 	options  []option
 	cursor   int
 	selected map[int]bool // for multi-select
+
+	// Integration key collection state
+	pendingKeys []string // integrations that need keys
+	keyIndex    int      // current index into pendingKeys
 
 	// State
 	done     bool
@@ -60,12 +67,12 @@ func initialModel(name string) model {
 		screen:    screenDescription,
 		descInput: ti,
 		config: scaffold.ScaffoldConfig{
-			Name:       name,
-			Interfaces: []string{},
-			Integrations: []string{},
+			Name:            name,
+			Interfaces:      []string{},
+			Integrations:    []string{},
+			IntegrationKeys: map[string]string{},
 		},
 		selected: make(map[int]bool),
-		// apiKeyInput is initialized when entering screenApiKey
 	}
 }
 
@@ -95,12 +102,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateInterface(msg)
 	case screenModel:
 		return m.updateModel(msg)
-	case screenApiKey:
-		return m.updateApiKey(msg)
+	case screenModelName:
+		return m.updateModelName(msg)
 	case screenKnowledge:
 		return m.updateKnowledge(msg)
 	case screenIntegrations:
 		return m.updateIntegrations(msg)
+	case screenIntegrationKey:
+		return m.updateIntegrationKey(msg)
 	case screenIngestion:
 		return m.updateIngestion(msg)
 	case screenConfirm:
@@ -169,7 +178,7 @@ func (m model) updateInterface(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.config.Interfaces = interfaces
 			m.screen = screenModel
-			m.cursor = 1 // Default to OpenAI
+			m.cursor = 0
 			return m, nil
 		}
 	}
@@ -179,8 +188,8 @@ func (m model) updateInterface(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.options = []option{
-		{"Anthropic (Claude)", "anthropic"},
-		{"OpenAI (GPT)", "openai"},
+		{"Ollama", "ollama"},
+		{"Hugging Face", "huggingface"},
 		{"None", "none"},
 	}
 
@@ -196,52 +205,50 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case "enter":
-			m.config.Model = m.options[m.cursor].value
-			if m.config.Model == "none" {
+			provider := m.options[m.cursor].value
+			if provider == "none" {
+				m.config.ModelProvider = ""
+				m.config.Model = ""
 				m.screen = screenKnowledge
 				m.cursor = 0
+				m.selected = make(map[int]bool)
 				return m, nil
 			}
-			// Show API key step for OpenAI or Anthropic
+			m.config.ModelProvider = provider
 			ti := textinput.New()
-			ti.EchoMode = textinput.EchoPassword
-			ti.EchoCharacter = '*'
-			ti.Placeholder = ""
+			ti.Placeholder = "e.g. llama3, mistral"
 			ti.Width = 60
-			m.apiKeyInput = ti
-			m.screen = screenApiKey
-			return m, m.apiKeyInput.Focus()
+			m.modelInput = ti
+			m.screen = screenModelName
+			return m, m.modelInput.Focus()
 		}
 	}
 
 	return m, nil
 }
 
-func (m model) updateApiKey(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m model) updateModelName(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "enter" {
-			key := strings.TrimSpace(m.apiKeyInput.Value())
-			if key != "" && strings.ToLower(key) != "n" {
-				m.config.ModelApiKey = key
-			}
+			m.config.Model = strings.TrimSpace(m.modelInput.Value())
 			m.screen = screenKnowledge
 			m.cursor = 0
+			m.selected = make(map[int]bool)
 			return m, nil
 		}
 	}
 
 	var cmd tea.Cmd
-	m.apiKeyInput, cmd = m.apiKeyInput.Update(msg)
+	m.modelInput, cmd = m.modelInput.Update(msg)
 	return m, cmd
 }
 
 func (m model) updateKnowledge(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.options = []option{
-		{"Vector Store", "vector"},
-		{"Key-Value Store", "kv"},
-		{"Both", "both"},
-		{"None", "none"},
+		{"Qdrant (vector store)", "qdrant"},
+		{"Redis (key-value store)", "redis"},
+		{"Neo4j (graph database)", "neo4j"},
 	}
 
 	switch msg := msg.(type) {
@@ -255,8 +262,16 @@ func (m model) updateKnowledge(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.options)-1 {
 				m.cursor++
 			}
+		case " ":
+			m.selected[m.cursor] = !m.selected[m.cursor]
 		case "enter":
-			m.config.Knowledge = m.options[m.cursor].value
+			knowledge := []string{}
+			for i, opt := range m.options {
+				if m.selected[i] {
+					knowledge = append(knowledge, opt.value)
+				}
+			}
+			m.config.Knowledge = knowledge
 			m.screen = screenIntegrations
 			m.cursor = 0
 			m.selected = make(map[int]bool)
@@ -269,6 +284,8 @@ func (m model) updateKnowledge(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateIntegrations(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.options = []option{
+		{"Anthropic", "anthropic"},
+		{"OpenAI", "openai"},
 		{"GitHub", "github"},
 	}
 
@@ -286,15 +303,35 @@ func (m model) updateIntegrations(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case " ":
 			m.selected[m.cursor] = !m.selected[m.cursor]
 		case "enter":
-			tools := []string{}
+			integrations := []string{}
 			for i, opt := range m.options {
 				if m.selected[i] {
-					tools = append(tools, opt.value)
+					integrations = append(integrations, opt.value)
 				}
 			}
-			m.config.Integrations = tools
+			m.config.Integrations = integrations
+			// Collect keys for integrations and interfaces that need them
+			m.pendingKeys = nil
+			// Slack interface tokens
+			for _, iface := range m.config.Interfaces {
+				if iface == "slack" {
+					m.pendingKeys = append(m.pendingKeys, "slack_bot_token", "slack_app_token")
+				}
+			}
+			// Integration API keys
+			for _, name := range integrations {
+				if _, ok := integrationKeyEnvVar[name]; ok {
+					m.pendingKeys = append(m.pendingKeys, name)
+				}
+			}
+			if len(m.pendingKeys) > 0 {
+				m.keyIndex = 0
+				m.keyInput = newKeyInput()
+				m.screen = screenIntegrationKey
+				return m, m.keyInput.Focus()
+			}
 			m.screen = screenIngestion
-			m.cursor = 3 // Default to None
+			m.cursor = 4 // Default to None
 			return m, nil
 		}
 	}
@@ -302,9 +339,63 @@ func (m model) updateIntegrations(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// integrationKeyEnvVar maps key names to their environment variable names.
+var integrationKeyEnvVar = map[string]string{
+	"anthropic":       "ANTHROPIC_API_KEY",
+	"openai":          "OPENAI_API_KEY",
+	"github":          "GITHUB_TOKEN",
+	"slack_bot_token": "SLACK_BOT_TOKEN",
+	"slack_app_token": "SLACK_APP_TOKEN",
+}
+
+// integrationKeyLabel maps key names to display labels.
+var integrationKeyLabel = map[string]string{
+	"anthropic":       "Anthropic",
+	"openai":          "OpenAI",
+	"github":          "GitHub",
+	"slack_bot_token": "Slack Bot Token",
+	"slack_app_token": "Slack App Token",
+}
+
+func newKeyInput() textinput.Model {
+	ti := textinput.New()
+	ti.EchoMode = textinput.EchoPassword
+	ti.EchoCharacter = '*'
+	ti.Placeholder = ""
+	ti.Width = 60
+	return ti
+}
+
+func (m model) updateIntegrationKey(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "enter" {
+			key := strings.TrimSpace(m.keyInput.Value())
+			if key != "" {
+				name := m.pendingKeys[m.keyIndex]
+				m.config.IntegrationKeys[name] = key
+			}
+			m.keyIndex++
+			if m.keyIndex < len(m.pendingKeys) {
+				m.keyInput = newKeyInput()
+				m.screen = screenIntegrationKey
+				return m, m.keyInput.Focus()
+			}
+			m.screen = screenIngestion
+			m.cursor = 4 // Default to None
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.keyInput, cmd = m.keyInput.Update(msg)
+	return m, cmd
+}
+
 func (m model) updateIngestion(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.options = []option{
 		{"Scheduled (cron)", "schedule"},
+		{"Webhook", "webhook"},
 		{"Manual trigger", "manual"},
 		{"On startup", "startup"},
 		{"None", "none"},
@@ -354,139 +445,226 @@ func (m model) View() string {
 
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Creating agent: %s", m.name)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf("  Creating agent: %s", m.name)))
+	b.WriteString("\n\n")
+
+	// Step indicator
+	steps := []string{"Description", "Interfaces", "Model", "Knowledge", "Integrations", "Ingestion", "Confirm"}
+	stepIndex := m.screenStep()
+	for i, s := range steps {
+		if i == stepIndex {
+			b.WriteString(selectedStyle.Render("● " + s))
+		} else if i < stepIndex {
+			b.WriteString(dimStyle.Render("✓ " + s))
+		} else {
+			b.WriteString(dimStyle.Render("○ " + s))
+		}
+		if i < len(steps)-1 {
+			b.WriteString(dimStyle.Render(" → "))
+		}
+	}
 	b.WriteString("\n\n")
 
 	switch m.screen {
 	case screenDescription:
-		b.WriteString(promptStyle.Render("Description:"))
+		b.WriteString(promptStyle.Render("  Description"))
 		b.WriteString("\n")
-		b.WriteString(m.descInput.View())
+		b.WriteString(hintStyle.Render("  A short summary of what your agent does."))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("Press Enter to continue"))
+		b.WriteString("  " + m.descInput.View())
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("  enter confirm"))
+
 	case screenInterface:
-		b.WriteString(promptStyle.Render("Interface type (select one or more):"))
+		b.WriteString(promptStyle.Render("  Interfaces"))
 		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  How users interact with your agent."))
+		b.WriteString("\n\n")
 		b.WriteString(m.renderMultiSelectOptions([]option{
 			{"Web (HTTP/SSE)", "web"},
 			{"Slack", "slack"},
 		}))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("↑/↓ to navigate, Space to toggle, Enter to continue"))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
+
 	case screenModel:
-		b.WriteString(promptStyle.Render("Model provider:"))
+		b.WriteString(promptStyle.Render("  Self-hosted model"))
 		b.WriteString("\n")
-		b.WriteString(m.renderOptions([]option{
-			{"Anthropic (Claude)", "anthropic"},
-			{"OpenAI (GPT)", "openai"},
-			{"None", "none"},
-		}))
+		b.WriteString(hintStyle.Render("  Run a model locally alongside your agent."))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("↑/↓ to navigate, Enter to select"))
-	case screenApiKey:
-		modelLabel := "OpenAI"
-		if m.config.Model == "anthropic" {
-			modelLabel = "Anthropic"
-		}
-		b.WriteString(promptStyle.Render(fmt.Sprintf("Add your %s API key now?", modelLabel)))
-		b.WriteString("\n")
-		b.WriteString(m.apiKeyInput.View())
+		b.WriteString(hintStyle.Render("  For cloud APIs (Anthropic, OpenAI), skip this and add them as integrations."))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("Paste key (masked) or press Enter to skip"))
-	case screenKnowledge:
-		b.WriteString(promptStyle.Render("Knowledge store:"))
-		b.WriteString("\n")
 		b.WriteString(m.renderOptions([]option{
-			{"Vector Store", "vector"},
-			{"Key-Value Store", "kv"},
-			{"Both", "both"},
+			{"Ollama", "ollama"},
+			{"Hugging Face", "huggingface"},
 			{"None", "none"},
 		}))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter select"))
+
+	case screenModelName:
+		b.WriteString(promptStyle.Render(fmt.Sprintf("  Model name (%s)", m.config.ModelProvider)))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("↑/↓ to navigate, Enter to select"))
-	case screenIntegrations:
-		b.WriteString(promptStyle.Render("Integrations (optional):"))
+		b.WriteString(hintStyle.Render("  e.g. llama3, mistral, codellama"))
+		b.WriteString("\n\n")
+		b.WriteString("  " + m.modelInput.View())
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("  enter confirm · leave empty to skip"))
+
+	case screenKnowledge:
+		b.WriteString(promptStyle.Render("  Knowledge stores"))
 		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  Persistent data stores for memory and context."))
+		b.WriteString("\n\n")
 		b.WriteString(m.renderMultiSelectOptions([]option{
+			{"Qdrant (vector store)", "qdrant"},
+			{"Redis (key-value store)", "redis"},
+			{"Neo4j (graph database)", "neo4j"},
+		}))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
+
+	case screenIntegrations:
+		b.WriteString(promptStyle.Render("  Integrations"))
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  External services — model APIs for LLM access, tools for extended capabilities."))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderMultiSelectOptions([]option{
+			{"Anthropic", "anthropic"},
+			{"OpenAI", "openai"},
 			{"GitHub", "github"},
 		}))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
+
+	case screenIntegrationKey:
+		name := m.pendingKeys[m.keyIndex]
+		envVar := integrationKeyEnvVar[name]
+		label := integrationKeyLabel[name]
+		b.WriteString(promptStyle.Render(fmt.Sprintf("  %s API key", label)))
 		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("↑/↓ to navigate, Space to toggle, Enter to continue"))
+		b.WriteString(hintStyle.Render(fmt.Sprintf("  Will be saved as %s in .env — you can also set it later.", envVar)))
+		b.WriteString("\n\n")
+		b.WriteString("  " + m.keyInput.View())
+		b.WriteString("\n\n")
+		b.WriteString(dimStyle.Render("  enter confirm · leave empty to skip"))
+
 	case screenIngestion:
-		b.WriteString(promptStyle.Render("Data ingestion trigger:"))
+		b.WriteString(promptStyle.Render("  Data ingestion"))
 		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  How to trigger your data pipeline that populates knowledge stores."))
+		b.WriteString("\n\n")
 		b.WriteString(m.renderOptions([]option{
 			{"Scheduled (cron)", "schedule"},
+			{"Webhook", "webhook"},
 			{"Manual trigger", "manual"},
 			{"On startup", "startup"},
 			{"None", "none"},
 		}))
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("↑/↓ to navigate, Enter to select"))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter select"))
+
 	case screenConfirm:
 		b.WriteString(m.renderSummary())
 		b.WriteString("\n")
-		b.WriteString(promptStyle.Render("Create this agent? (Y/n)"))
+		b.WriteString(promptStyle.Render("  Create this agent? "))
+		b.WriteString(dimStyle.Render("(Y/n)"))
 	}
 
+	b.WriteString("\n")
 	return b.String()
+}
+
+// screenStep maps the current screen to the step index for the progress indicator.
+func (m model) screenStep() int {
+	switch m.screen {
+	case screenDescription:
+		return 0
+	case screenInterface:
+		return 1
+	case screenModel, screenModelName:
+		return 2
+	case screenKnowledge:
+		return 3
+	case screenIntegrations, screenIntegrationKey:
+		return 4
+	case screenIngestion:
+		return 5
+	case screenConfirm:
+		return 6
+	}
+	return 0
 }
 
 func (m model) renderOptions(opts []option) string {
 	var b strings.Builder
 	for i, opt := range opts {
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render("❯ " + opt.label))
+			b.WriteString(selectedStyle.Render("  ❯ " + opt.label))
 		} else {
-			b.WriteString("  " + opt.label)
+			b.WriteString("    " + opt.label)
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString("\n")
 	return b.String()
 }
 
 func (m model) renderMultiSelectOptions(opts []option) string {
 	var b strings.Builder
 	for i, opt := range opts {
-		prefix := "  "
+		cursor := "  "
 		if i == m.cursor {
-			prefix = selectedStyle.Render("❯ ")
+			cursor = selectedStyle.Render("❯ ")
 		}
-		checkbox := "[ ]"
+		checkbox := "○"
 		if m.selected[i] {
-			checkbox = selectedStyle.Render("[✓]")
+			checkbox = selectedStyle.Render("●")
 		}
-		b.WriteString(prefix + checkbox + " " + opt.label + "\n")
+		b.WriteString("  " + cursor + checkbox + " " + opt.label + "\n")
 	}
+	b.WriteString("\n")
 	return b.String()
 }
 
 func (m model) renderSummary() string {
 	var b strings.Builder
-	b.WriteString(promptStyle.Render("Summary:"))
-	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  Name:        %s\n", m.config.Name))
-	b.WriteString(fmt.Sprintf("  Description: %s\n", m.config.Description))
+	b.WriteString(promptStyle.Render("  Summary"))
+	b.WriteString("\n\n")
+
+	row := func(label, value string) {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  %-14s", label)))
+		b.WriteString(value + "\n")
+	}
+
+	row("Name", m.config.Name)
+	row("Description", m.config.Description)
+
 	if len(m.config.Interfaces) > 0 {
-		b.WriteString(fmt.Sprintf("  Interfaces:  %s\n", strings.Join(m.config.Interfaces, ", ")))
+		row("Interfaces", strings.Join(m.config.Interfaces, ", "))
 	} else {
-		b.WriteString("  Interfaces:  web\n")
+		row("Interfaces", "web")
 	}
-	b.WriteString(fmt.Sprintf("  Model:       %s\n", m.config.Model))
-	if m.config.Model == "openai" || m.config.Model == "anthropic" {
-		if m.config.ModelApiKey != "" {
-			b.WriteString("  API key:     (set)\n")
-		} else {
-			b.WriteString("  API key:     (not set)\n")
+
+	if m.config.ModelProvider != "" {
+		modelDisplay := m.config.ModelProvider
+		if m.config.Model != "" {
+			modelDisplay += "/" + m.config.Model
 		}
-	}
-	b.WriteString(fmt.Sprintf("  Knowledge:   %s\n", m.config.Knowledge))
-	if len(m.config.Integrations) > 0 {
-		b.WriteString(fmt.Sprintf("  Integrations: %s\n", strings.Join(m.config.Integrations, ", ")))
+		row("Model", modelDisplay)
 	} else {
-		b.WriteString("  Integrations: none\n")
+		row("Model", dimStyle.Render("none"))
 	}
-	b.WriteString(fmt.Sprintf("  Ingestion:   %s\n", m.config.Ingestion))
+
+	if len(m.config.Knowledge) > 0 {
+		row("Knowledge", strings.Join(m.config.Knowledge, ", "))
+	} else {
+		row("Knowledge", dimStyle.Render("none"))
+	}
+
+	if len(m.config.Integrations) > 0 {
+		row("Integrations", strings.Join(m.config.Integrations, ", "))
+	} else {
+		row("Integrations", dimStyle.Render("none"))
+	}
+
+	row("Ingestion", m.config.Ingestion)
+
 	return b.String()
 }
 

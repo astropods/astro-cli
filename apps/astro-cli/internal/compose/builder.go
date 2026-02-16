@@ -2,7 +2,6 @@ package compose
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -81,7 +80,7 @@ func buildHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port i
 // BuildProject converts an AstroSpec to a Docker Compose project
 func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
 	project := &types.Project{
-		Name:       s.Agent,
+		Name:       s.Name,
 		WorkingDir: workingDir,
 		Services:   make(types.Services),
 		Networks:   make(types.Networks),
@@ -90,12 +89,13 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Create default network
 	project.Networks["astro-dev"] = types.NetworkConfig{
-		Name:   fmt.Sprintf("%s-network", s.Agent),
+		Name:   fmt.Sprintf("%s-network", s.Name),
 		Driver: "bridge",
 	}
 
 	// Add self-hosted models
 	for name, model := range s.Models {
+		resolved := model.ResolvedContainer()
 		serviceName := fmt.Sprintf("model-%s", name)
 		service := types.ServiceConfig{
 			Name: serviceName,
@@ -105,7 +105,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 
 		// Build or image configuration
-		if model.Container.Build != nil {
+		if model.Container != nil && model.Container.Build != nil {
 			service.Build = &types.BuildConfig{
 				Context:    filepath.Join(workingDir, model.Container.Build.Context),
 				Dockerfile: model.Container.Build.Dockerfile,
@@ -113,26 +113,26 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				Args:       types.MappingWithEquals(convertArgs(model.Container.Build.Args)),
 				Secrets:    buildSecretsConfig(model.Container.Build.Secrets, project),
 			}
-		} else if model.Container.Image != "" {
-			service.Image = model.Container.Image
+		} else if resolved.Image != "" {
+			service.Image = resolved.Image
 		}
 
 		// Port mapping
-		if model.Container.Port > 0 {
+		if resolved.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(model.Container.Port),
-					Published: fmt.Sprintf("%d", model.Container.Port),
+					Target:    uint32(resolved.Port),
+					Published: fmt.Sprintf("%d", resolved.Port),
 				},
 			}
 
 			// Add healthcheck only if defined in spec
-			if model.Container.Healthcheck != nil {
+			if resolved.Healthcheck != nil {
 				interval := types.Duration(10000000000) // 10 seconds
 				timeout := types.Duration(5000000000)   // 5 seconds
 				retries := uint64(3)
 
-				test := buildHealthCheckTest(model.Container.Healthcheck, "", model.Container.Port)
+				test := buildHealthCheckTest(resolved.Healthcheck, model.Provider, resolved.Port)
 				if test != nil {
 					service.HealthCheck = &types.HealthCheckConfig{
 						Test:     test,
@@ -229,6 +229,17 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
+		// Apply provider default environment variables
+		if prov := spec.GetProvider(knowledge.Provider); len(prov.DefaultEnv) > 0 {
+			if service.Environment == nil {
+				service.Environment = make(types.MappingWithEquals)
+			}
+			for k, v := range prov.DefaultEnv {
+				val := v
+				service.Environment[k] = &val
+			}
+		}
+
 		project.Services[serviceName] = service
 	}
 
@@ -258,120 +269,52 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Add interface services (messaging sidecar, grpc services, etc.)
-	for _, iface := range s.Interfaces {
-		// Check for messaging interfaces
-		if iface.Type == "slack" || iface.Type == "web" {
-			messagingService := types.ServiceConfig{
-				Name:       "astro-messaging",
-				Image:      "ghcr.io/saswatds/astro-messaging:latest",
-				PullPolicy: types.PullPolicyAlways,
-				Networks: map[string]*types.ServiceNetworkConfig{
-					"astro-dev": nil,
-				},
-				Environment: buildMessagingEnvironment(s, envVars),
-				Ports:       buildMessagingPorts(s),
-			}
-			project.Services["astro-messaging"] = messagingService
-		}
-
-		// Add playground for web interface
-		if iface.Type == "web" {
-			// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
-			apiURL := ""
-			playgroundService := types.ServiceConfig{
-				Name:       "playground",
-				Image:      "ghcr.io/saswatds/astro-playground:latest",
-				PullPolicy: types.PullPolicyAlways,
-				Networks: map[string]*types.ServiceNetworkConfig{
-					"astro-dev": nil,
-				},
-				Environment: types.MappingWithEquals{
-					"API_URL": &apiURL,
-				},
-				Ports: []types.ServicePortConfig{
-					{
-						Target:    80,
-						Published: "3000",
+	if s.Dev != nil {
+		for _, name := range s.Dev.Interfaces {
+			// Check for messaging interfaces
+			if name == "slack" || name == "web" {
+				messagingService := types.ServiceConfig{
+					Name:       "astro-messaging",
+					Image:      "ghcr.io/saswatds/astro-messaging:latest",
+					PullPolicy: types.PullPolicyAlways,
+					Networks: map[string]*types.ServiceNetworkConfig{
+						"astro-dev": nil,
 					},
-				},
-				DependsOn: types.DependsOnConfig{
-					"astro-messaging": types.ServiceDependency{
-						Condition: types.ServiceConditionStarted,
-						Required:  true,
+					Environment: buildMessagingEnvironment(s, envVars),
+					Ports:       buildMessagingPorts(s),
+				}
+				project.Services["astro-messaging"] = messagingService
+			}
+
+			// Add playground for web interface
+			if name == "web" {
+				// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
+				apiURL := ""
+				playgroundService := types.ServiceConfig{
+					Name:       "playground",
+					Image:      "ghcr.io/saswatds/astro-playground:latest",
+					PullPolicy: types.PullPolicyAlways,
+					Networks: map[string]*types.ServiceNetworkConfig{
+						"astro-dev": nil,
 					},
-				},
-			}
-			project.Services["playground"] = playgroundService
-		}
-
-		// Check for custom interfaces with explicit service configuration
-		if iface.Type == "custom" && iface.Service != nil {
-			service := types.ServiceConfig{
-				Name: iface.Service.Name,
-				Networks: map[string]*types.ServiceNetworkConfig{
-					"astro-dev": nil,
-				},
-			}
-
-			// Build or image configuration
-			if iface.Service.Build != nil {
-				service.Build = &types.BuildConfig{
-					Context:    filepath.Join(workingDir, iface.Service.Build.Context),
-					Dockerfile: iface.Service.Build.Dockerfile,
-					Target:     iface.Service.Build.Target,
-					Args:       types.MappingWithEquals(convertArgs(iface.Service.Build.Args)),
-					Secrets:    buildSecretsConfig(iface.Service.Build.Secrets, project),
+					Environment: types.MappingWithEquals{
+						"API_URL": &apiURL,
+					},
+					Ports: []types.ServicePortConfig{
+						{
+							Target:    80,
+							Published: "3000",
+						},
+					},
+					DependsOn: types.DependsOnConfig{
+						"astro-messaging": types.ServiceDependency{
+							Condition: types.ServiceConditionStarted,
+							Required:  true,
+						},
+					},
 				}
-			} else if iface.Service.Image != "" {
-				service.Image = iface.Service.Image
+				project.Services["playground"] = playgroundService
 			}
-
-			// Port mappings
-			if len(iface.Service.Ports) > 0 {
-				for _, portMapping := range iface.Service.Ports {
-					var portConfig types.ServicePortConfig
-					fmt.Sscanf(portMapping, "%d:%d", &portConfig.Published, &portConfig.Target)
-					if portConfig.Target == 0 {
-						// Single port format "8080"
-						var port uint32
-						fmt.Sscanf(portMapping, "%d", &port)
-						portConfig.Target = port
-						portConfig.Published = fmt.Sprintf("%d", port)
-					}
-					service.Ports = append(service.Ports, portConfig)
-				}
-			}
-
-			// Environment variables from service config
-			if service.Environment == nil {
-				service.Environment = make(types.MappingWithEquals)
-			}
-
-			// Add service-specific environment variables
-			if len(iface.Service.Environment) > 0 {
-				for key, val := range iface.Service.Environment {
-					// Expand environment variables
-					expandedVal := os.ExpandEnv(val)
-					// If the value references an env var from .env, use that
-					if envVal, ok := envVars[key]; ok {
-						service.Environment[key] = &envVal
-					} else {
-						service.Environment[key] = &expandedVal
-					}
-				}
-			}
-
-			// Auto-inject Redis connection info if Redis knowledge store exists
-			for name, knowledge := range s.Knowledge {
-				if knowledge.Provider == "redis" {
-					redisProv := spec.GetProvider("redis")
-					redisService := fmt.Sprintf("knowledge-%s", name)
-					redisURL := fmt.Sprintf("%s://%s:%d", redisProv.URLScheme, redisService, redisProv.DefaultPort)
-					service.Environment["REDIS_URL"] = &redisURL
-				}
-			}
-
-			project.Services[iface.Service.Name] = service
 		}
 	}
 
@@ -438,20 +381,20 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Build configuration
-	if s.Container.Build != nil {
+	if s.Agent.Build != nil {
 		agentService.Build = &types.BuildConfig{
-			Context:    filepath.Join(workingDir, s.Container.Build.Context),
-			Dockerfile: s.Container.Build.Dockerfile,
-			Target:     s.Container.Build.Target,
-			Args:       types.MappingWithEquals(convertArgs(s.Container.Build.Args)),
-			Secrets:    buildSecretsConfig(s.Container.Build.Secrets, project),
+			Context:    filepath.Join(workingDir, s.Agent.Build.Context),
+			Dockerfile: s.Agent.Build.Dockerfile,
+			Target:     s.Agent.Build.Target,
+			Args:       types.MappingWithEquals(convertArgs(s.Agent.Build.Args)),
+			Secrets:    buildSecretsConfig(s.Agent.Build.Secrets, project),
 		}
-	} else if s.Container.Image != "" {
-		agentService.Image = s.Container.Image
+	} else if s.Agent.Image != "" {
+		agentService.Image = s.Agent.Image
 	}
 
 	// Volume mount for hot reload
-	if s.Container.Build != nil {
+	if s.Agent.Build != nil {
 		agentService.Volumes = []types.ServiceVolumeConfig{
 			{
 				Type:   types.VolumeTypeBind,
@@ -473,19 +416,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 	agentService.DependsOn = dependsOn
 
-	// Ports for interfaces
-	for _, iface := range s.Interfaces {
-		if iface.Type == "http" {
-			if port, ok := iface.Config["port"].(int); ok {
-				agentService.Ports = []types.ServicePortConfig{
-					{
-						Target:    uint32(port),
-						Published: fmt.Sprintf("%d", port),
-					},
-				}
-			}
-		}
-	}
+	// Ports for interfaces — no longer configured via spec; agent exposes 8080 by default
 
 	// Add agent service last
 	project.Services["agent"] = agentService
@@ -517,65 +448,34 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		}
 	}
 
-	// Inject integration credentials from .env
-	for _, model := range s.Integrations.Models {
-		// Determine env var prefix
-		prefix := ""
-		if model.Env != nil && model.Env.Prefix != "" {
-			prefix = model.Env.Prefix
-		}
-
-		switch model.Provider {
-		case "anthropic":
-			key := prefix + "ANTHROPIC_API_KEY"
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
+	// Inject integration credentials from .env using name-derived keys
+	injectCreds := func(name string, integration spec.Integration) {
+		if strings.ToLower(integration.Provider) == "custom" {
+			for _, cc := range integration.Credentials {
+				key := strings.ToUpper(name) + "_" + cc.Suffix
+				if val, ok := envVars[key]; ok {
+					env[key] = &val
+				}
 			}
-		case "openai":
-			key := prefix + "OPENAI_API_KEY"
+			return
+		}
+		for _, suffix := range getProviderCredentialSuffixes(integration.Provider) {
+			key := strings.ToUpper(name) + "_" + suffix
 			if val, ok := envVars[key]; ok {
 				env[key] = &val
 			}
 		}
 	}
 
-	for _, tool := range s.Integrations.Tools {
-		// Determine env var prefix
-		prefix := ""
-		if tool.Env != nil && tool.Env.Prefix != "" {
-			prefix = tool.Env.Prefix
-		}
-
-		switch tool.Provider {
-		case "github":
-			key := prefix + "GITHUB_TOKEN"
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
-			}
-		case "slack":
-			key := prefix + "SLACK_BOT_TOKEN"
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
-			}
-		case "tavily":
-			key := prefix + "TAVILY_API_KEY"
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
-			}
-		default:
-			// Generic pattern: PROVIDER_API_KEY
-			key := prefix + fmt.Sprintf("%s_API_KEY", strings.ToUpper(tool.Provider))
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
-			}
-		}
+	for name, integration := range s.Integrations {
+		injectCreds(name, integration)
 	}
 
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
 
 	// Add GRPC_SERVER_ADDR if any interface is configured
-	if len(s.Interfaces) > 0 {
+	if s.Dev != nil && len(s.Dev.Interfaces) > 0 {
 		grpcAddr := "astro-messaging:9090"
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
@@ -597,13 +497,15 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 	}
 
 	// Add HTTP port if web adapter is enabled
-	for _, iface := range s.Interfaces {
-		if iface.Type == "web" {
-			ports = append(ports, types.ServicePortConfig{
-				Target:    8080,
-				Published: "8080",
-			})
-			break
+	if s.Dev != nil {
+		for _, name := range s.Dev.Interfaces {
+			if name == "web" {
+				ports = append(ports, types.ServicePortConfig{
+					Target:    8080,
+					Published: "3100",
+				})
+				break
+			}
 		}
 	}
 
@@ -629,32 +531,48 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	env["LOG_LEVEL"] = &logLevel
 
 	// Configure adapters based on interfaces
-	for _, iface := range s.Interfaces {
-		switch iface.Type {
-		case "slack":
-			// Enable Slack adapter
-			enabled := "true"
-			env["SLACK_ENABLED"] = &enabled
-			env["SLACK_SOCKET_MODE"] = &enabled
+	if s.Dev != nil {
+		for _, name := range s.Dev.Interfaces {
+			switch name {
+			case "slack":
+				// Enable Slack adapter
+				enabled := "true"
+				env["SLACK_ENABLED"] = &enabled
+				env["SLACK_SOCKET_MODE"] = &enabled
 
-			// Slack credentials from .env
-			if val, ok := envVars["SLACK_BOT_TOKEN"]; ok {
-				env["SLACK_BOT_TOKEN"] = &val
-			}
-			if val, ok := envVars["SLACK_APP_TOKEN"]; ok {
-				env["SLACK_APP_TOKEN"] = &val
-			}
+				// Slack credentials from .env
+				if val, ok := envVars["SLACK_BOT_TOKEN"]; ok {
+					env["SLACK_BOT_TOKEN"] = &val
+				}
+				if val, ok := envVars["SLACK_APP_TOKEN"]; ok {
+					env["SLACK_APP_TOKEN"] = &val
+				}
 
-		case "web":
-			// Enable Web adapter for HTTP/SSE access
-			enabled := "true"
-			env["WEB_ENABLED"] = &enabled
-			listenAddr := ":8080"
-			env["WEB_LISTEN_ADDR"] = &listenAddr
+			case "web":
+				// Enable Web adapter for HTTP/SSE access
+				enabled := "true"
+				env["WEB_ENABLED"] = &enabled
+				listenAddr := ":8080"
+				env["WEB_LISTEN_ADDR"] = &listenAddr
+			}
 		}
 	}
 
 	return env
+}
+
+// getProviderCredentialSuffixes returns the env var suffixes for a supported provider.
+func getProviderCredentialSuffixes(provider string) []string {
+	switch strings.ToLower(provider) {
+	case "anthropic", "openai", "google", "gemini", "cohere", "pinecone":
+		return []string{"API_KEY"}
+	case "github", "gitlab":
+		return []string{"TOKEN"}
+	case "slack":
+		return []string{"BOT_TOKEN", "APP_TOKEN"}
+	default:
+		return nil
+	}
 }
 
 // buildCollectorEnvironment creates environment variables for the astro-collector sidecar.
@@ -665,13 +583,8 @@ func buildCollectorEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	mode := "dev"
 	env["ASTRO_COLLECTOR_MODE"] = &mode
 
-	agentName := s.Agent
+	agentName := s.Name
 	env["ASTRO_AGENT_NAME"] = &agentName
-
-	if s.Meta.Version != "" {
-		version := s.Meta.Version
-		env["ASTRO_AGENT_VERSION"] = &version
-	}
 
 	// Optional collector tuning from .env
 	if val, ok := envVars["COLLECTOR_LOG_LEVEL"]; ok {

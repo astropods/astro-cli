@@ -20,8 +20,10 @@ type TemplatePaths struct {
 	Dockerignore        string
 	AgentIndex          string
 	IngestionIndex      string
-	LlmMd               string
-	PostmanCollection   string
+	LlmMd                  string
+	Readme                 string
+	PostmanCollection      string
+	IngestionWebhookIndex  string
 }
 
 // GetTemplatePaths returns the template paths for the specified language
@@ -40,7 +42,9 @@ func GetTemplatePaths(lang string) (*TemplatePaths, error) {
 			AgentIndex:          "templates/template-ts/agent/index.ts",
 			IngestionIndex:      "templates/template-ts/ingestion/index.ts",
 			LlmMd:               "templates/template-ts/agents.md.tmpl",
-			PostmanCollection:   "templates/template-ts/.postman/collections/Astro-API.postman_collection.json",
+			Readme:              "templates/template-ts/README.md.tmpl",
+			PostmanCollection:      "templates/template-ts/.postman/collections/Astro-API.postman_collection.json",
+			IngestionWebhookIndex: "templates/template-ts/ingestion/webhook.ts",
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", lang)
