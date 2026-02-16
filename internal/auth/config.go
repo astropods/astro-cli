@@ -1,11 +1,9 @@
 package auth
 
 import (
-	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -24,96 +22,31 @@ var (
 
 // Environment variable names
 const (
-	EnvServerURL    = "ASTRO_SERVER_URL"
-	EnvRegistryURL  = "ASTRO_REGISTRY_URL"
 	EnvAccessToken  = "ASTRO_ACCESS_TOKEN"
 	EnvRefreshToken = "ASTRO_REFRESH_TOKEN"
 )
 
-// ConfigDir returns the path to the astro config directory (~/.astro)
-func ConfigDir() (string, error) {
+// ConfigDir returns the path to the astro config directory.
+// Returns ~/.astro-preview when binaryName is "ast-preview", otherwise ~/.astro.
+func ConfigDir(binaryName string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".astro"), nil
+	dir := ".astro"
+	if binaryName == "ast-preview" {
+		dir = ".astro-preview"
+	}
+	return filepath.Join(home, dir), nil
 }
 
 // CredentialsPath returns the path to the credentials file
-func CredentialsPath() (string, error) {
-	dir, err := ConfigDir()
+func CredentialsPath(binaryName string) (string, error) {
+	dir, err := ConfigDir(binaryName)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "credentials.json"), nil
-}
-
-// getCurrentProfileURLs returns server_url and registry_url from the current profile in credentials.json.
-// Used for URL resolution only; does not load tokens from keyring.
-func getCurrentProfileURLs() (serverURL, registryURL string) {
-	path, err := CredentialsPath()
-	if err != nil {
-		return "", ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", ""
-	}
-	var creds Credentials
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return "", ""
-	}
-	if creds.Profiles == nil {
-		return "", ""
-	}
-	profile, ok := creds.Profiles[creds.CurrentProfile]
-	if !ok || profile == nil {
-		return "", ""
-	}
-	return profile.ServerURL, profile.RegistryURL
-}
-
-// GetServerURL returns the server URL.
-// Priority: ASTRO_SERVER_URL env var > current profile server_url > default (example.com)
-func GetServerURL() string {
-	if url := os.Getenv(EnvServerURL); url != "" {
-		return url
-	}
-	if serverURL, _ := getCurrentProfileURLs(); serverURL != "" {
-		return serverURL
-	}
-	return DefaultServerURL
-}
-
-// GetRegistryURL returns the registry URL.
-// Priority: ASTRO_REGISTRY_URL env var > current profile registry_url > default (registry.example.com)
-func GetRegistryURL() string {
-	if url := os.Getenv(EnvRegistryURL); url != "" {
-		return url
-	}
-	if _, registryURL := getCurrentProfileURLs(); registryURL != "" {
-		return registryURL
-	}
-	return RegistryURLFromServerURL(GetServerURL())
-}
-
-// NormalizeServerURL normalizes a host or URL to a full server URL (adds https if no scheme).
-func NormalizeServerURL(host string) string {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return DefaultServerURL
-	}
-	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
-		host = "https://" + host
-	}
-	u, err := url.Parse(host)
-	if err != nil {
-		return host
-	}
-	if u.Scheme == "" {
-		u.Scheme = "https"
-	}
-	return strings.TrimSuffix(u.String(), "/")
 }
 
 // RegistryURLFromServerURL derives the registry URL from a server URL.

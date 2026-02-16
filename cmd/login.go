@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,13 +38,10 @@ Example:
 }
 
 var noBrowser bool
-var loginHost string
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
 	loginCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't automatically open browser")
-	loginCmd.Flags().StringVar(&loginHost, "host", auth.DefaultServerURL, "Astro server host")
-	loginCmd.Flags().MarkHidden("host")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
@@ -67,10 +66,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		cancel()
 		os.Exit(1)
 	}()
-
-	// Normalize host and derive registry URL (registry.<hostname>)
-	serverURL := auth.NormalizeServerURL(loginHost)
-	registryURL := auth.RegistryURLFromServerURL(serverURL)
 
 	// Create auth client
 	client := auth.NewClient()
@@ -144,11 +139,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Store credentials
-	storage := auth.NewStorage()
+	storage := auth.NewStorage(binaryName)
 
 	profile := &auth.Profile{
-		ServerURL:    serverURL,
-		RegistryURL:  registryURL,
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
@@ -161,6 +154,15 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			FirstName: tokenResp.User.FirstName,
 			LastName:  tokenResp.User.LastName,
 		}
+	}
+
+	// Fetch user accounts from the server
+	serverURL := auth.DefaultServerURL
+	accounts, err := fetchUserAccounts(serverURL, profile.AccessToken)
+	if err == nil && len(accounts) > 0 {
+		profile.Accounts = accounts
+		profile.User.AccountName = accounts[0].Name
+		profile.User.AccountID = accounts[0].ID
 	}
 
 	if err := storage.SaveProfile("default", profile); err != nil {
@@ -180,11 +182,58 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("  Logged in as: %s\n", profile.User.Email)
 		}
+		if profile.User.AccountName != "" {
+			fmt.Printf("  Account: %s\n", profile.User.AccountName)
+		}
 	}
-	if serverURL != "" {
-		fmt.Print("  Server: ")
-		dim.Println(serverURL)
+
+	if len(profile.Accounts) == 0 {
+		fmt.Println()
+		yellow.Println("  Note: No account found. Visit the dashboard to choose your username before publishing.")
 	}
 
 	return nil
+}
+
+// fetchUserAccounts calls GET /api/v1/me on the server to get the user's accounts.
+func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, error) {
+	reqURL := fmt.Sprintf("%s/api/v1/me", serverURL)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Accounts []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			Type string `json:"type"`
+			Role string `json:"role"`
+		} `json:"accounts"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var accounts []auth.StoredAccount
+	for _, a := range result.Accounts {
+		accounts = append(accounts, auth.StoredAccount{
+			ID:   a.ID,
+			Name: a.Name,
+			Type: a.Type,
+			Role: a.Role,
+		})
+	}
+	return accounts, nil
 }

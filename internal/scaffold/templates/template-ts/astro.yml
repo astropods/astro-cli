@@ -1,11 +1,11 @@
 spec: astro/v1
-agent: {{.Name}}
+name: {{.Name}}
 
 meta:
   version: 0.1.0
   description: {{.Description}}
 
-container:
+agent:
   build:
     context: .
     dockerfile: Dockerfile
@@ -15,53 +15,49 @@ container:
     secrets:
       - id: npm_token
         env: GITHUB_PACKAGES_TOKEN
-{{- if gt (len .Interfaces) 0}}
+{{- if ne .ModelProvider ""}}
 
-interfaces:
-{{- range .Interfaces}}
-{{- if eq . "web"}}
-  web:
-    type: web
-{{- else if eq . "slack"}}
-  slack:
-    type: slack
-{{- end}}
-{{- end}}
-{{- end}}
-{{- if or (ne .Model "none") (gt (len .Integrations) 0)}}
-
-integrations:
-{{- if ne .Model "none"}}
-  models:
-{{- if eq .Model "anthropic"}}
-    - name: llm
-      provider: anthropic
-{{- else if eq .Model "openai"}}
-    - name: llm
-      provider: openai
+models:
+  default:
+    provider: {{.ModelProvider}}
+{{- if ne .Model ""}}
+    model: {{.Model}}
 {{- end}}
 {{- end}}
 {{- if gt (len .Integrations) 0}}
-  tools:
+
+integrations:
 {{- range .Integrations}}
-{{- if eq . "github"}}
-    - name: github
-      provider: github
+{{- if eq . "anthropic"}}
+  anthropic:
+    provider: anthropic
+    type: model
+{{- else if eq . "openai"}}
+  openai:
+    provider: openai
+    type: model
+{{- else if eq . "github"}}
+  github:
+    provider: github
+    type: tool
 {{- end}}
 {{- end}}
 {{- end}}
-{{- end}}
-{{- if or (eq .Knowledge "vector") (eq .Knowledge "both") (eq .Knowledge "kv")}}
+{{- if gt (len .Knowledge) 0}}
 
 knowledge:
-{{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "qdrant"}}
   docs:
     provider: qdrant
     persistent: true
 {{- end}}
-{{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "redis"}}
   cache:
     provider: redis
+{{- end}}
+{{- if .HasKnowledge "neo4j"}}
+  graph:
+    provider: neo4j
 {{- end}}
 {{- end}}
 {{- if ne .Ingestion "none"}}
@@ -78,13 +74,28 @@ ingestion:
         secrets:
           - id: npm_token
             env: GITHUB_PACKAGES_TOKEN
+{{- if eq .Ingestion "webhook"}}
+      port: 3001
+{{- end}}
     trigger:
 {{- if eq .Ingestion "schedule"}}
       type: schedule
-      schedule: "0 * * * *"  # every hour
+{{- else if eq .Ingestion "webhook"}}
+      type: webhook
 {{- else if eq .Ingestion "manual"}}
       type: manual
 {{- else if eq .Ingestion "startup"}}
       type: startup
+{{- end}}
+{{- end}}
+{{- if or (gt (len .Interfaces) 0) (eq .Ingestion "schedule")}}
+
+dev:
+{{- if gt (len .Interfaces) 0}}
+  interfaces: [{{- range $i, $v := .Interfaces}}{{if $i}}, {{end}}{{$v}}{{- end}}]
+{{- end}}
+{{- if eq .Ingestion "schedule"}}
+  schedules:
+    data: "0 * * * *"  # every hour
 {{- end}}
 {{- end}}

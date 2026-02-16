@@ -8,7 +8,12 @@ var (
 			Foreground(lipgloss.Color("212"))
 
 	promptStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
+			Bold(true).
+			Foreground(lipgloss.Color("255"))
+
+	hintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")).
+			Italic(true)
 
 	selectedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("212")).
@@ -16,10 +21,4 @@ var (
 
 	dimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("82"))
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196"))
 )

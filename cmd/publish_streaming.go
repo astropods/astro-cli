@@ -28,7 +28,7 @@ const maxPushRetries = 3
 // getDockerRegistryAuth returns a base64-encoded registry auth string
 // for use with the Docker Engine API.
 func getDockerRegistryAuth() (string, error) {
-	tokenManager := auth.NewTokenManager()
+	tokenManager := auth.NewTokenManager(binaryName)
 	token, err := tokenManager.GetValidAccessToken(context.Background())
 	if err != nil {
 		return "", fmt.Errorf("failed to get access token: %w", err)
@@ -204,7 +204,7 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 
 		var opts []remote.Option
 		if !skipAuth {
-			opts = append(opts, remote.WithAuth(auth.GetCraneAuth()))
+			opts = append(opts, remote.WithAuth(auth.GetCraneAuth(binaryName)))
 		}
 		opts = append(opts, remote.WithTransport(getOptimizedTransport()))
 
@@ -241,7 +241,7 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 
 	var opts []remote.Option
 	if !skipAuth {
-		opts = append(opts, remote.WithAuth(auth.GetCraneAuth()))
+		opts = append(opts, remote.WithAuth(auth.GetCraneAuth(binaryName)))
 	}
 	opts = append(opts, remote.WithTransport(getOptimizedTransport()))
 

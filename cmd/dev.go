@@ -100,7 +100,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	log.Printf("✅ Loaded spec for agent: %s (v%s)", astroSpec.Agent, astroSpec.Meta.Version)
+	log.Printf("✅ Loaded spec for agent: %s", astroSpec.Name)
 
 	// Load .env file
 	envVars, err := utils.LoadEnvFile(workingDir, envFile)
@@ -291,18 +291,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 		log.Printf("🤖 Agent running as local process (bun run start)")
 	}
 
-	// Check if messaging interface is configured
+	// Check if messaging interface is configured (from dev section)
 	hasMessagingInterface := false
 	hasWebInterface := false
-	for _, iface := range astroSpec.Interfaces {
-		if iface.Type == "messaging/slack" || iface.Type == "messaging/discord" || iface.Type == "messaging/teams" {
-			hasMessagingInterface = true
-		}
-		if iface.Type == "slack" || iface.Type == "web" {
-			hasMessagingInterface = true
-		}
-		if iface.Type == "web" {
-			hasWebInterface = true
+	if astroSpec.Dev != nil {
+		for _, name := range astroSpec.Dev.Interfaces {
+			if name == "slack" || name == "web" {
+				hasMessagingInterface = true
+			}
+			if name == "web" {
+				hasWebInterface = true
+			}
 		}
 	}
 
@@ -312,7 +311,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	if hasWebInterface {
 		log.Printf("🌐 Playground running at http://localhost:3000")
-		log.Printf("   Web API available at http://localhost:8080")
+		log.Printf("   Web API available at http://localhost:3100")
 
 		// Open playground in browser
 		go func() {
@@ -328,8 +327,12 @@ func runDev(cmd *cobra.Command, args []string) error {
 		cronScheduler = cron.New()
 
 		for name, ingestion := range astroSpec.Ingestion {
-			if ingestion.Trigger.Type == "schedule" && ingestion.Trigger.Schedule != "" {
-				cronPattern := ingestion.Trigger.Schedule
+			devSchedule := ""
+			if astroSpec.Dev != nil {
+				devSchedule = astroSpec.Dev.Schedules[name]
+			}
+			if ingestion.Trigger.Type == "schedule" && devSchedule != "" {
+				cronPattern := devSchedule
 				ingestionName := name
 
 				log.Printf("⏰ Scheduling ingestion '%s' with pattern: %s", ingestionName, cronPattern)
@@ -432,6 +435,21 @@ func runDev(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Tail agent container logs (only in container mode, not --local)
+	var logsCancel context.CancelFunc
+	if !local {
+		var logsCtx context.Context
+		logsCtx, logsCancel = context.WithCancel(context.Background())
+		logsCmd := exec.CommandContext(logsCtx, "docker", "compose", "-f", composePath, "logs", "-f", "agent")
+		logsCmd.Stdout = os.Stdout
+		logsCmd.Stderr = os.Stderr
+		go func() {
+			if err := logsCmd.Run(); err != nil && logsCtx.Err() == nil {
+				log.Printf("⚠️  Agent logs stream ended: %v", err)
+			}
+		}()
+	}
+
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -441,6 +459,10 @@ func runDev(cmd *cobra.Command, args []string) error {
 	log.Printf("")
 
 	<-sigChan
+
+	if logsCancel != nil {
+		logsCancel()
+	}
 
 	log.Printf("")
 	log.Printf("🛑 Shutting down...")
@@ -537,7 +559,7 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 	for k, v := range envVars {
 		envMap[k] = v
 	}
-	if len(s.Interfaces) > 0 {
+	if s.Dev != nil && len(s.Dev.Interfaces) > 0 {
 		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
 	}
 	// Point at the collector container's published port for auto OTel

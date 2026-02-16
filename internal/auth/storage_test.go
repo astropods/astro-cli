@@ -35,13 +35,13 @@ func setupTestDir(t *testing.T) (string, func()) {
 
 // createTestStorage creates a Storage that doesn't use keyring
 func createTestStorage() *Storage {
-	return &Storage{useKeyring: false}
+	return &Storage{binaryName: "ast", useKeyring: false}
 }
 
 // writeTestCredentials writes credentials JSON to the test credentials path
 func writeTestCredentials(t *testing.T, creds *Credentials) string {
 	t.Helper()
-	path, err := CredentialsPath()
+	path, err := CredentialsPath("ast")
 	if err != nil {
 		t.Fatalf("failed to get credentials path: %v", err)
 	}
@@ -62,7 +62,6 @@ func writeTestCredentials(t *testing.T, creds *Credentials) string {
 // createTestProfile creates a profile with specified parameters
 func createTestProfile(accessToken, refreshToken string, expiresAt time.Time) *Profile {
 	return &Profile{
-		ServerURL:    "https://api.astro.dev",
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresAt:    expiresAt,
@@ -100,7 +99,6 @@ func TestLoadCredentials_ValidFile(t *testing.T) {
 		CurrentProfile: "production",
 		Profiles: map[string]*Profile{
 			"production": {
-				ServerURL:    "https://api.astro.dev",
 				AccessToken:  "access_123",
 				RefreshToken: "refresh_456",
 				ExpiresAt:    time.Now().Add(1 * time.Hour),
@@ -142,7 +140,7 @@ func TestLoadCredentials_CorruptedFile(t *testing.T) {
 	_, cleanup := setupTestDir(t)
 	defer cleanup()
 
-	path, err := CredentialsPath()
+	path, err := CredentialsPath("ast")
 	if err != nil {
 		t.Fatalf("failed to get credentials path: %v", err)
 	}
@@ -185,7 +183,7 @@ func TestSaveCredentials_CreatesDirectory(t *testing.T) {
 	}
 
 	// Verify the file was created
-	path, _ := CredentialsPath()
+	path, _ := CredentialsPath("ast")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("expected credentials file to be created")
 	}
@@ -215,7 +213,7 @@ func TestSaveCredentials_FilePermissions(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	path, _ := CredentialsPath()
+	path, _ := CredentialsPath("ast")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("failed to stat file: %v", err)
@@ -433,7 +431,6 @@ func TestHasValidCredentials_NoToken(t *testing.T) {
 		CurrentProfile: "default",
 		Profiles: map[string]*Profile{
 			"default": {
-				ServerURL:   "https://api.astro.dev",
 				AccessToken: "", // Empty token
 				ExpiresAt:   time.Now().Add(1 * time.Hour),
 			},

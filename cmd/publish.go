@@ -3,7 +3,9 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +16,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -44,18 +45,17 @@ var publishCmd = &cobra.Command{
 	Long: `Publish container images to astro-registry and spec to astro-server.
 
 This will:
-1. Tag and push the agent container image to astro-registry
-2. Tag and push custom-built component images (models, knowledge, tools)
-3. Register the agent spec with astro-server
+1. Generate a build ID
+2. Tag and push the agent container image to astro-registry
+3. Tag and push custom-built component images (models, knowledge, tools)
+4. Register the agent spec with astro-server
 
 Images are pushed through the astro-registry service which proxies to ECR.
 The spec is registered with astro-server which validates and stores it.
 
 Example:
   ast publish
-  ast publish --version 0.2
-  ast publish --version auto
-  ast publish --build --version 0.2
+  ast publish --build
 
 Requirements:
   - Must be authenticated (run 'ast login' first)
@@ -64,29 +64,25 @@ Requirements:
 }
 
 var (
-	publishTag      string // set from spec meta.version after optional --version update
-	publishVersion  string // --version: set spec version; "auto" = current + "-auto-gen-tag"
+	publishTag      string // random build ID generated at publish time
 	skipBuild       bool
 	skipPush        bool
 	serverURL       string
 	registryURL     string
 	skipRegister    bool
 	noAuth          bool
-	dryRun          bool
 	publishPlatform string
 	publishLocal    bool
 )
 
 func init() {
 	rootCmd.AddCommand(publishCmd)
-	publishCmd.Flags().StringVar(&publishVersion, "version", "", "Set meta.version in spec (use 'auto' for current version + git hash + date or date only)")
 	publishCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip building before publishing")
 	publishCmd.Flags().BoolVar(&skipPush, "skip-push", false, "Skip pushing images to registry")
-	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides ASTRO_SERVER_URL)")
-	publishCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (overrides ASTRO_REGISTRY_URL)")
+	publishCmd.Flags().StringVar(&serverURL, "server", "", "Astro server URL (overrides profile/default)")
+	publishCmd.Flags().StringVar(&registryURL, "registry", "", "Astro registry URL (default: registry.<server-host>)")
 	publishCmd.Flags().BoolVar(&skipRegister, "skip-register", false, "Skip registering agent spec with server")
 	publishCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Skip authentication (not recommended)")
-	publishCmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be published without actually doing it")
 	publishCmd.Flags().StringVar(&publishPlatform, "platform", "linux/amd64", "Target platform(s) for publish (comma-separated)")
 	publishCmd.Flags().BoolVar(&publishLocal, "local", false, "Build and register with locally running astro-server (skip registry push)")
 	_ = publishCmd.Flags().MarkHidden("local")
@@ -97,25 +93,24 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	specFile, _ := cmd.Flags().GetString("file")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	// Get server URL
+	// Get server URL: --server flag > build-time default
 	effectiveServerURL := serverURL
 	if effectiveServerURL == "" {
-		effectiveServerURL = auth.GetServerURL()
+		effectiveServerURL = auth.DefaultServerURL
 	}
 
-	// Get registry URL
-	effectiveRegistryURL := registryURL
-	if effectiveRegistryURL == "" {
-		effectiveRegistryURL = auth.GetRegistryURL()
-	}
-
+	// Local mode: skip push, default to native platform
 	if publishLocal {
-		effectiveServerURL = "http://localhost:4321"
 		skipPush = true
 		if !cmd.Flags().Changed("platform") {
 			publishPlatform = nativePlatform()
 		}
-		fmt.Printf("%s→%s Local mode: registering with %shttp://localhost:4321%s (skipping push, platform %s)\n", colorCyan, colorReset, colorBold, colorReset, publishPlatform)
+	}
+
+	// Get registry URL: --registry flag > derived from server URL
+	effectiveRegistryURL := registryURL
+	if effectiveRegistryURL == "" {
+		effectiveRegistryURL = auth.RegistryURLFromServerURL(effectiveServerURL)
 	}
 
 	if verbose {
@@ -124,11 +119,11 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	}
 
 	if effectiveRegistryURL == "" {
-		return fmt.Errorf("registry URL required: run 'ast login', set ASTRO_REGISTRY_URL environment variable, or use --registry")
+		return fmt.Errorf("registry URL required: run 'ast login' or use --registry")
 	}
 
-	if effectiveServerURL == "" && !skipRegister && !dryRun {
-		return fmt.Errorf("server URL required for registration: run 'ast login', set ASTRO_SERVER_URL environment variable, use --server, or use --skip-register")
+	if effectiveServerURL == "" && !skipRegister {
+		return fmt.Errorf("server URL required for registration: run 'ast login', use --server, or use --skip-register")
 	}
 
 	// Parse astro.yml
@@ -145,21 +140,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	if publishVersion != "" {
-		effectiveVersion := publishVersion
-		if publishVersion == "auto" {
-			effectiveVersion = baseVersion(astroSpec.Meta.Version) + astVersionAutoPrefix + defaultPublishTag(workingDir)
-		}
-		if err := updateSpecVersion(specPath, effectiveVersion); err != nil {
-			return fmt.Errorf("failed to update spec version: %w", err)
-		}
-		astroSpec, err = spec.ParseSpec(specPath)
-		if err != nil {
-			return fmt.Errorf("failed to re-parse spec: %w", err)
-		}
-	}
-
-	publishTag = astroSpec.Meta.Version
+	// Generate random build ID (8-char hex)
+	publishTag = generateBuildID()
 
 	// Build registry host from URL
 	registryHost, err := getRegistryHost(effectiveRegistryURL)
@@ -167,43 +149,25 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
-	// Dry run mode - show what would be published and exit
-	if dryRun {
-		// Try to get namespace if authenticated, fall back to placeholder
-		namespace := "<namespace>"
-		if ns, err := getUserNamespace(effectiveRegistryURL, noAuth, verbose); err == nil {
-			namespace = ns
-		}
-		return printDryRun(astroSpec, registryHost, namespace, publishTag, effectiveServerURL, skipRegister, !skipBuild)
-	}
-
-	// Check authentication (only for actual publish, skip for local)
-	if !noAuth && !publishLocal {
-		tokenManager := auth.NewTokenManager()
+	// Check authentication
+	if !noAuth {
+		tokenManager := auth.NewTokenManager(binaryName)
 		if !tokenManager.IsAuthenticated() {
 			return fmt.Errorf("not authenticated. Run 'ast login' to authenticate")
 		}
 	}
 
 	// Print header
-	fmt.Printf("%s→%s Publishing %s%s%s v%s\n\n", colorCyan, colorReset, colorBold, astroSpec.Agent, colorReset, astroSpec.Meta.Version)
+	fmt.Printf("%s→%s Publishing %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset, publishTag)
 
-	// Step 1: Get namespace
-	var namespace string
-	if publishLocal {
-		namespace = "local"
-		printStep("Using local namespace")
-		printStepDone(fmt.Sprintf("namespace: %s", namespace))
-	} else {
-		printStep("Authenticating with registry...")
-		var nsErr error
-		namespace, nsErr = getUserNamespace(effectiveRegistryURL, noAuth, verbose)
-		if nsErr != nil {
-			printStepFail()
-			return fmt.Errorf("failed to get user namespace: %w", nsErr)
-		}
-		printStepDone(fmt.Sprintf("namespace: %s", namespace))
+	// Step 1: Get namespace from profile
+	printStep("Reading account from profile...")
+	namespace, nsErr := getUserNamespace(verbose)
+	if nsErr != nil {
+		printStepFail()
+		return fmt.Errorf("failed to get user namespace: %w", nsErr)
 	}
+	printStepDone(fmt.Sprintf("namespace: %s", namespace))
 
 	// Build images first if requested
 	imagesPushed := 0
@@ -225,7 +189,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	if !skipPush {
 		// 1. Publish agent container image
 		if multiPlatform {
-			baseName := astroSpec.Agent
+			baseName := astroSpec.Name
 			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
 			printPushStart("agent", baseName)
@@ -238,10 +202,10 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			imagesPushed++
 		} else {
 			// Single platform: push the platform-specific image we built (not the convenience tag)
-			localImageName := platformImageTag(astroSpec.Agent, publishTag, platforms[0])
-			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag)
+			localImageName := platformImageTag(astroSpec.Name, publishTag, platforms[0])
+			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, publishTag)
 
-			printPushStart("agent", astroSpec.Agent)
+			printPushStart("agent", astroSpec.Name)
 			size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 			if err != nil {
 				printPushComplete(false, 0)
@@ -253,8 +217,8 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 		// 2. Publish custom-built model images
 		for modelName, model := range astroSpec.Models {
-			if model.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Agent, modelName)
+			if model.Container != nil && model.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, modelName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
 				printPushStart("model", modelName)
@@ -282,7 +246,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		for knowledgeName, knowledge := range astroSpec.Knowledge {
 			container := knowledge.ResolvedContainer()
 			if container.Build != nil {
-				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, knowledgeName)
+				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, knowledgeName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
 				printPushStart("knowledge", knowledgeName)
@@ -309,7 +273,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		// 4. Publish custom-built tool images
 		for toolName, tool := range astroSpec.Tools {
 			if tool.Container != nil && tool.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Agent, toolName)
+				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, toolName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
 				printPushStart("tool", toolName)
@@ -333,18 +297,18 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// 5. Publish custom-built interface service images
-		for ifaceName, iface := range astroSpec.Interfaces {
-			if iface.Service != nil && iface.Service.Build != nil {
-				baseName := fmt.Sprintf("%s-interface-%s", astroSpec.Agent, ifaceName)
+		// 5. Publish custom-built ingestion images
+		for ingestionName, ingestion := range astroSpec.Ingestion {
+			if ingestion.Container.Build != nil {
+				baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, ingestionName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag)
 
-				printPushStart("interface", ifaceName)
+				printPushStart("ingestion", ingestionName)
 				if multiPlatform {
 					size, err := pushMultiPlatformToRegistryStreaming(baseName, publishTag, remoteImageName, platforms, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
+						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
 					}
 					printPushComplete(true, size)
 				} else {
@@ -352,91 +316,91 @@ func runPublish(cmd *cobra.Command, args []string) error {
 					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
 					if err != nil {
 						printPushComplete(false, 0)
-						return fmt.Errorf("failed to push interface %s: %w", ifaceName, err)
+						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
 					}
 					printPushComplete(true, size)
 				}
 				imagesPushed++
 			}
 		}
-	} else if publishLocal {
-		// Retag locally-built images so the spec's registry-path references resolve in local Docker
-		printStep("Retagging images for local use")
-		fmt.Println()
 
-		retag := func(local, remote string) error {
-			cmd := exec.Command("docker", "tag", local, remote)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return fmt.Errorf("failed to retag %s → %s: %s", local, remote, strings.TrimSpace(string(out)))
-			}
-			fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
-			return nil
-		}
-
-		platform := platforms[0]
-
-		// Agent image
-		if err := retag(
-			platformImageTag(astroSpec.Agent, publishTag, platform),
-			fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, publishTag),
-		); err != nil {
-			return err
-		}
-
-		// Custom-built model images
-		for modelName, model := range astroSpec.Models {
-			if model.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Agent, modelName)
-				if err := retag(
-					platformImageTag(baseName, publishTag, platform),
-					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
-				); err != nil {
-					return err
-				}
-			}
-		}
-
-		// Custom-built knowledge images
-		for knowledgeName, knowledge := range astroSpec.Knowledge {
-			container := knowledge.ResolvedContainer()
-			if container.Build != nil {
-				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, knowledgeName)
-				if err := retag(
-					platformImageTag(baseName, publishTag, platform),
-					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
-				); err != nil {
-					return err
-				}
-			}
-		}
-
-		// Custom-built tool images
-		for toolName, tool := range astroSpec.Tools {
-			if tool.Container != nil && tool.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Agent, toolName)
-				if err := retag(
-					platformImageTag(baseName, publishTag, platform),
-					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
-				); err != nil {
-					return err
-				}
-			}
-		}
-
-		// Custom-built interface images
-		for ifaceName, iface := range astroSpec.Interfaces {
-			if iface.Service != nil && iface.Service.Build != nil {
-				baseName := fmt.Sprintf("%s-interface-%s", astroSpec.Agent, ifaceName)
-				if err := retag(
-					platformImageTag(baseName, publishTag, platform),
-					fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
-				); err != nil {
-					return err
-				}
-			}
-		}
 	} else {
 		fmt.Printf("%s→%s Skipping image push %s(--skip-push)%s\n", colorCyan, colorReset, colorDim, colorReset)
+
+		// Retag locally-built platform images to registry paths so the local server can resolve them
+		if publishLocal {
+			retag := func(local, remote string) error {
+				cmd := exec.Command("docker", "tag", local, remote)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					return fmt.Errorf("failed to retag %s → %s: %s", local, remote, strings.TrimSpace(string(out)))
+				}
+				fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
+				return nil
+			}
+
+			platform := platforms[0]
+
+			// Agent image
+			if err := retag(
+				platformImageTag(astroSpec.Name, publishTag, platform),
+				fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, publishTag),
+			); err != nil {
+				return err
+			}
+
+			// Custom-built model images
+			for modelName, model := range astroSpec.Models {
+				if model.Container != nil && model.Container.Build != nil {
+					baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, modelName)
+					if err := retag(
+						platformImageTag(baseName, publishTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+					); err != nil {
+						return err
+					}
+				}
+			}
+
+			// Custom-built knowledge images
+			for knowledgeName, knowledge := range astroSpec.Knowledge {
+				container := knowledge.ResolvedContainer()
+				if container.Build != nil {
+					baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, knowledgeName)
+					if err := retag(
+						platformImageTag(baseName, publishTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+					); err != nil {
+						return err
+					}
+				}
+			}
+
+			// Custom-built tool images
+			for toolName, tool := range astroSpec.Tools {
+				if tool.Container != nil && tool.Container.Build != nil {
+					baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, toolName)
+					if err := retag(
+						platformImageTag(baseName, publishTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+					); err != nil {
+						return err
+					}
+				}
+			}
+
+			// Custom-built ingestion images
+			for ingestionName, ingestion := range astroSpec.Ingestion {
+				if ingestion.Container.Build != nil {
+					baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, ingestionName)
+					if err := retag(
+						platformImageTag(baseName, publishTag, platform),
+						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, publishTag),
+					); err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 
 	fmt.Println()
@@ -445,12 +409,18 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	if !skipRegister && effectiveServerURL != "" {
 		printStep("Registering agent with server...")
 
+		// Read README.md if it exists
+		readmeContent := ""
+		readmePath := filepath.Join(workingDir, "README.md")
+		if readmeData, err := os.ReadFile(readmePath); err == nil {
+			readmeContent = string(readmeData)
+		}
+
 		// Build the full registry path for the transformed spec
 		registryPath := fmt.Sprintf("%s/%s", registryHost, namespace)
-		if err := registerAgent(effectiveServerURL, astroSpec.Agent, astroSpec.Meta.Version, registryPath, specPath, publishTag, verbose, noAuth || publishLocal); err != nil {
+		if err := registerAgent(effectiveServerURL, astroSpec.Name, publishTag, registryPath, specPath, publishTag, readmeContent, verbose, noAuth); err != nil {
 			printStepFail()
-			fmt.Printf("  %s%sWarning: Agent images were published, but registration failed%s\n", colorYellow, colorDim, colorReset)
-			fmt.Printf("  %s%s%v%s\n", colorDim, colorReset, err, colorReset)
+			return fmt.Errorf("registration failed: %w", err)
 		} else {
 			printStepDone("")
 		}
@@ -461,7 +431,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 
 	// Final summary
 	fmt.Printf("\n%s%s✓ Published successfully!%s\n", colorBold, colorGreen, colorReset)
-	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, astroSpec.Agent, colorReset, colorDim, publishTag, colorReset)
+	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, astroSpec.Name, colorReset, colorDim, publishTag, colorReset)
 
 	return nil
 }
@@ -495,95 +465,42 @@ func printPushComplete(success bool, _ int64) {
 	}
 }
 
-// getUserNamespace fetches the user's namespace (user ID) from the registry service.
-func getUserNamespace(registryURL string, skipAuth bool, verbose bool) (string, error) {
-	reqURL := fmt.Sprintf("%s/api/namespace", strings.TrimSuffix(registryURL, "/"))
-	req, err := http.NewRequestWithContext(context.Background(), "GET", reqURL, nil)
+// getUserNamespace reads the user's namespace (account name) from the stored profile.
+func getUserNamespace(verbose bool) (string, error) {
+	storage := auth.NewStorage(binaryName)
+	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("not logged in. Run 'ast login' to authenticate")
 	}
 
-	if !skipAuth {
-		if err := auth.AddAuthHeader(context.Background(), req); err != nil {
-			return "", fmt.Errorf("failed to add authentication: %w", err)
-		}
+	// Try stored account name
+	name := profile.User.AccountName
+	if name == "" && len(profile.Accounts) > 0 {
+		name = profile.Accounts[0].Name
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		// Read response body for more details
-		body, _ := io.ReadAll(resp.Body)
-		if verbose {
-			fmt.Fprintf(os.Stderr, "  %sRegistry auth failed: %s%s\n", colorDim, string(body), colorReset)
-		}
-		return "", fmt.Errorf("authentication required. Run 'ast login' to authenticate")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("registry returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result struct {
-		UserID         string `json:"user_id"`
-		OrganizationID string `json:"organization_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if result.UserID == "" {
-		return "", fmt.Errorf("registry returned empty user ID")
+	if name == "" {
+		return "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run 'ast login' again")
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "  %sUser ID: %s%s\n", colorDim, result.UserID, colorReset)
-		if result.OrganizationID != "" {
-			fmt.Fprintf(os.Stderr, "  %sOrganization ID: %s%s\n", colorDim, result.OrganizationID, colorReset)
+		accountID := profile.User.AccountID
+		if accountID == "" && len(profile.Accounts) > 0 {
+			accountID = profile.Accounts[0].ID
 		}
+		fmt.Fprintf(os.Stderr, "  %sAccount: %s (ID: %s)%s\n", colorDim, name, accountID, colorReset)
 	}
 
-	// Docker/OCI registry names must be lowercase
-	return strings.ToLower(result.UserID), nil
+	return strings.ToLower(name), nil
 }
 
-// astVersionAutoPrefix is the prefix for the auto-generated version suffix. Strip or replace "-ast_..." to get base.
-const astVersionAutoPrefix = "-ast_"
-
-// baseVersion returns the version without the trailing -ast_<auto> suffix so --version auto does not grow the string.
-func baseVersion(version string) string {
-	if i := strings.Index(version, astVersionAutoPrefix); i >= 0 {
-		return version[:i]
+// generateBuildID returns a random 8-character hex string (4 bytes).
+func generateBuildID() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("failed to generate build ID: %v", err))
 	}
-	return version
-}
-
-// defaultPublishTag returns an auto tag for publish --version auto. Uses "." to separate parts (no ambiguity with "-" in base).
-// In a git repo: shortHash.date[.dirty]. Otherwise: date only. Date format: yymmdd.hhmmss.
-func defaultPublishTag(workingDir string) string {
-	date := time.Now().Format("060102.150405")
-	shortHash := runGit(workingDir, "rev-parse", "--short", "HEAD")
-	if shortHash == "" {
-		return date
-	}
-	tag := shortHash + "." + date
-	if runGit(workingDir, "status", "--porcelain", "-uno") != "" {
-		tag += ".dirty"
-	}
-	return tag
-}
-
-func runGit(dir, name string, args ...string) string {
-	cmd := exec.Command("git", append([]string{name}, args...)...)
-	cmd.Dir = dir
-	out, _ := cmd.Output()
-	return strings.TrimSpace(string(out))
+	return hex.EncodeToString(b)
 }
 
 // getRegistryHost extracts the host from the registry URL for use as registry address.
@@ -595,36 +512,8 @@ func getRegistryHost(registryURL string) (string, error) {
 	return u.Host, nil
 }
 
-// updateSpecVersion sets meta.version in the spec file and writes it back.
-func updateSpecVersion(specPath, version string) error {
-	specData, err := os.ReadFile(specPath)
-	if err != nil {
-		return err
-	}
-	var specObj map[string]interface{}
-	if err := yaml.Unmarshal(specData, &specObj); err != nil {
-		return err
-	}
-	meta, _ := specObj["meta"].(map[string]interface{})
-	if meta == nil {
-		metaAny, _ := specObj["meta"].(map[interface{}]interface{})
-		if metaAny != nil {
-			metaAny["version"] = version
-		} else {
-			specObj["meta"] = map[string]interface{}{"version": version}
-		}
-	} else {
-		meta["version"] = version
-	}
-	out, err := yaml.Marshal(specObj)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(specPath, out, 0644)
-}
-
 // registerAgent registers the agent spec with the astro-server
-func registerAgent(serverURL, agentName, version, registry, specPath, publishTag string, verbose bool, skipAuth bool) error {
+func registerAgent(serverURL, agentName, buildID, registry, specPath, publishTag, readme string, verbose bool, skipAuth bool) error {
 	// Read and parse spec file
 	specData, err := os.ReadFile(specPath)
 	if err != nil {
@@ -646,12 +535,19 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 		return fmt.Errorf("failed to marshal transformed spec: %w", err)
 	}
 
-	// Prepare request payload
+	// Extract account name from registry path (registryHost/accountName)
+	accountName := ""
+	registryParts := strings.Split(registry, "/")
+	if len(registryParts) >= 2 {
+		accountName = registryParts[len(registryParts)-1]
+	}
+
+	// Prepare request payload (name comes from URL now, not body)
 	payload := map[string]string{
-		"name":         agentName,
-		"version":      version,
+		"build_id":     buildID,
 		"registry":     registry,
 		"spec_content": string(transformedSpecData),
+		"readme":       readme,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -659,8 +555,12 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Send POST request to server
-	reqURL := fmt.Sprintf("%s/api/v1/agents/register", strings.TrimSuffix(serverURL, "/"))
+	// Send POST request to account-scoped registration endpoint
+	reqURL := fmt.Sprintf("%s/api/v1/agents/%s/%s/register",
+		strings.TrimSuffix(serverURL, "/"),
+		url.PathEscape(accountName),
+		url.PathEscape(agentName),
+	)
 	req, err := http.NewRequestWithContext(context.Background(), "POST", reqURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -670,7 +570,7 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 
 	// Add authentication header if not skipped
 	if !skipAuth {
-		if err := auth.AddAuthHeader(context.Background(), req); err != nil {
+		if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
 			return fmt.Errorf("failed to add authentication: %w. Run 'astro login' to re-authenticate", err)
 		}
 		if verbose {
@@ -749,284 +649,23 @@ func registerAgent(serverURL, agentName, version, registry, specPath, publishTag
 
 // ANSI color codes
 const (
-	colorReset   = "\033[0m"
-	colorBold    = "\033[1m"
-	colorDim     = "\033[2m"
-	colorRed     = "\033[31m"
-	colorGreen   = "\033[32m"
-	colorYellow  = "\033[33m"
-	colorBlue    = "\033[34m"
-	colorMagenta = "\033[35m"
-	colorCyan    = "\033[36m"
+	colorReset  = "\033[0m"
+	colorBold   = "\033[1m"
+	colorDim    = "\033[2m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorBlue   = "\033[34m"
+	colorCyan   = "\033[36m"
 )
-
-// printDryRun explains the spec and shows what would be published
-func printDryRun(astroSpec *spec.AstroSpec, registryHost, namespace, tag, serverURL string, skipRegister, buildFirst bool) error {
-	fmt.Printf("\n%s%s=== Spec Explanation ===%s\n\n", colorBold, colorCyan, colorReset)
-
-	// Agent overview
-	fmt.Printf("%s%sAgent:%s %s\n", colorBold, colorGreen, colorReset, astroSpec.Agent)
-	fmt.Printf("This agent is at version %s%s%s", colorYellow, astroSpec.Meta.Version, colorReset)
-	fmt.Println(".")
-	if astroSpec.Meta.Description != "" {
-		fmt.Printf("%s%s%s\n", colorDim, astroSpec.Meta.Description, colorReset)
-	}
-	if len(astroSpec.Meta.Tags) > 0 {
-		fmt.Printf("Tagged as: %s%v%s\n", colorDim, astroSpec.Meta.Tags, colorReset)
-	}
-	fmt.Println()
-
-	// Container
-	fmt.Printf("%s%sContainer%s\n", colorBold, colorBlue, colorReset)
-	if astroSpec.Container.Build != nil {
-		fmt.Printf("The main agent runtime will be built from %s%s%s", colorYellow, astroSpec.Container.Build.Context, colorReset)
-		if astroSpec.Container.Build.Dockerfile != "" {
-			fmt.Printf(" using %s%s%s", colorYellow, astroSpec.Container.Build.Dockerfile, colorReset)
-		}
-		fmt.Println(".")
-		fmt.Printf("It will be pushed to %s%s/%s/%s:%s%s\n", colorGreen, registryHost, namespace, astroSpec.Agent, tag, colorReset)
-	} else if astroSpec.Container.Image != "" {
-		fmt.Printf("The agent uses a pre-built image %s%s%s, so no push is needed.\n", colorYellow, astroSpec.Container.Image, colorReset)
-	}
-	fmt.Println()
-
-	// Models
-	if len(astroSpec.Models) > 0 {
-		fmt.Printf("%s%sModels%s\n", colorBold, colorBlue, colorReset)
-		fmt.Println("These are AI/ML model services that the agent can use for inference.")
-		for name, model := range astroSpec.Models {
-			if model.Container.Build != nil {
-				fmt.Printf("\n  %s%s%s will be built from %s%s%s and pushed to the registry.\n", colorCyan, name, colorReset, colorYellow, model.Container.Build.Context, colorReset)
-			} else if model.Container.Image != "" {
-				fmt.Printf("\n  %s%s%s uses a pre-built image %s%s%s.\n", colorCyan, name, colorReset, colorDim, model.Container.Image, colorReset)
-			}
-		}
-		fmt.Println()
-	}
-
-	// Knowledge
-	if len(astroSpec.Knowledge) > 0 {
-		fmt.Printf("%s%sKnowledge%s\n", colorBold, colorBlue, colorReset)
-		fmt.Println("These are data stores that provide memory and context to the agent.")
-		for name, k := range astroSpec.Knowledge {
-			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
-			if k.Provider != "" {
-				fmt.Printf(" powered by %s%s%s", colorYellow, k.Provider, colorReset)
-			}
-			fmt.Println(".")
-			kc := k.ResolvedContainer()
-			if kc.Persistent {
-				fmt.Printf("  Data is %s%spersistent%s and will survive container restarts.\n", colorBold, colorGreen, colorReset)
-			}
-			if kc.Build != nil {
-				fmt.Printf("  This store will be built from %s%s%s and pushed to the registry.\n", colorYellow, kc.Build.Context, colorReset)
-			} else if kc.Image != "" {
-				fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, kc.Image, colorReset)
-			}
-		}
-		fmt.Println()
-	}
-
-	// Tools
-	if len(astroSpec.Tools) > 0 {
-		fmt.Printf("%s%sTools%s\n", colorBold, colorBlue, colorReset)
-		fmt.Println("These are capabilities that extend what the agent can do.")
-		for name, tool := range astroSpec.Tools {
-			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
-			if tool.Container != nil {
-				if tool.Container.Build != nil {
-					fmt.Println(" that runs in its own container.")
-					fmt.Printf("  It will be built from %s%s%s and pushed to the registry.\n", colorYellow, tool.Container.Build.Context, colorReset)
-				} else if tool.Container.Image != "" {
-					fmt.Println(" that runs in its own container.")
-					fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, tool.Container.Image, colorReset)
-				}
-			} else {
-				fmt.Println(" that runs inside the main agent container.")
-			}
-		}
-		fmt.Println()
-	}
-
-	// Integrations
-	if len(astroSpec.Integrations.Models) > 0 || len(astroSpec.Integrations.Tools) > 0 || len(astroSpec.Integrations.Knowledge) > 0 {
-		fmt.Printf("%s%sIntegrations%s\n", colorBold, colorBlue, colorReset)
-		fmt.Println("These are external services that the agent connects to. No containers are needed.")
-		for _, m := range astroSpec.Integrations.Models {
-			fmt.Printf("\n  %s%s%s connects to %s%s%s", colorCyan, m.Name, colorReset, colorYellow, m.Provider, colorReset)
-			if m.Model != "" {
-				fmt.Printf(" using the %s%s%s model", colorYellow, m.Model, colorReset)
-			}
-			fmt.Println(" for inference.")
-		}
-		for _, t := range astroSpec.Integrations.Tools {
-			fmt.Printf("\n  %s%s%s integrates with %s%s%s for external tooling.\n", colorCyan, t.Name, colorReset, colorYellow, t.Provider, colorReset)
-		}
-		for _, k := range astroSpec.Integrations.Knowledge {
-			fmt.Printf("\n  %s%s%s connects to %s%s%s for external data.\n", colorCyan, k.Name, colorReset, colorYellow, k.Provider, colorReset)
-		}
-		fmt.Println()
-	}
-
-	// Interfaces
-	if len(astroSpec.Interfaces) > 0 {
-		fmt.Printf("%s%sInterfaces%s\n", colorBold, colorBlue, colorReset)
-		fmt.Println("These define how users and systems interact with the agent.")
-		for name, iface := range astroSpec.Interfaces {
-			fmt.Printf("\n  %s%s%s provides a %s%s%s interface", colorCyan, name, colorReset, colorYellow, iface.Type, colorReset)
-			if iface.Service != nil {
-				if iface.Service.Build != nil {
-					fmt.Println(" with a custom service.")
-					fmt.Printf("  It will be built from %s%s%s and pushed to the registry.\n", colorYellow, iface.Service.Build.Context, colorReset)
-				} else if iface.Service.Image != "" {
-					fmt.Println(" with a custom service.")
-					fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, iface.Service.Image, colorReset)
-				}
-			} else {
-				fmt.Println(".")
-			}
-		}
-		fmt.Println()
-	}
-
-	// Ingestion
-	if len(astroSpec.Ingestion) > 0 {
-		fmt.Printf("%s%sIngestion%s\n", colorBold, colorBlue, colorReset)
-		fmt.Println("These are background jobs that sync data into the agent's knowledge stores.")
-		for name, ing := range astroSpec.Ingestion {
-			fmt.Printf("\n  %s%s%s runs on a %s%s%s trigger", colorCyan, name, colorReset, colorYellow, ing.Trigger.Type, colorReset)
-			if ing.Trigger.Schedule != "" {
-				fmt.Printf(" with schedule %s%s%s", colorYellow, ing.Trigger.Schedule, colorReset)
-			}
-			fmt.Println(".")
-			if ing.Container.Build != nil {
-				fmt.Printf("  It will be built from %s%s%s and pushed to the registry.\n", colorYellow, ing.Container.Build.Context, colorReset)
-			} else if ing.Container.Image != "" {
-				fmt.Printf("  It uses a pre-built image %s%s%s.\n", colorDim, ing.Container.Image, colorReset)
-			}
-		}
-		fmt.Println()
-	}
-
-	// Summary of actions
-	fmt.Printf("%s%s=== Publish Actions ===%s\n\n", colorBold, colorCyan, colorReset)
-
-	stepNum := 1
-	if buildFirst {
-		fmt.Printf("%s%sStep %d: Build Images%s\n", colorBold, colorMagenta, stepNum, colorReset)
-		fmt.Println("The following images will be built locally:")
-		fmt.Printf("  • %s%s:%s%s\n", colorYellow, astroSpec.Agent, tag, colorReset)
-		for name, model := range astroSpec.Models {
-			if model.Container.Build != nil {
-				fmt.Printf("  • %s%s-model-%s:%s%s\n", colorYellow, astroSpec.Agent, name, tag, colorReset)
-			}
-		}
-		for name, k := range astroSpec.Knowledge {
-			if kc := k.ResolvedContainer(); kc.Build != nil {
-				fmt.Printf("  • %s%s-knowledge-%s:%s%s\n", colorYellow, astroSpec.Agent, name, tag, colorReset)
-			}
-		}
-		for name, tool := range astroSpec.Tools {
-			if tool.Container != nil && tool.Container.Build != nil {
-				fmt.Printf("  • %s%s-tool-%s:%s%s\n", colorYellow, astroSpec.Agent, name, tag, colorReset)
-			}
-		}
-		for name, iface := range astroSpec.Interfaces {
-			if iface.Service != nil && iface.Service.Build != nil {
-				fmt.Printf("  • %s%s-interface-%s:%s%s\n", colorYellow, astroSpec.Agent, name, tag, colorReset)
-			}
-		}
-		for name, ing := range astroSpec.Ingestion {
-			if ing.Container.Build != nil {
-				fmt.Printf("  • %s%s-ingestion-%s:%s%s\n", colorYellow, astroSpec.Agent, name, tag, colorReset)
-			}
-		}
-		fmt.Println()
-		stepNum++
-	}
-
-	fmt.Printf("%s%sStep %d: Push to Registry%s\n", colorBold, colorMagenta, stepNum, colorReset)
-	if !buildFirst {
-		fmt.Printf("%sNote: Images must already exist locally.%s\n", colorDim, colorReset)
-	}
-
-	pushCount := 0
-	var pushTargets []string
-	if astroSpec.Container.Build != nil {
-		target := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Agent, tag)
-		pushTargets = append(pushTargets, target)
-		pushCount++
-	}
-	for name, model := range astroSpec.Models {
-		if model.Container.Build != nil {
-			target := fmt.Sprintf("%s/%s/%s-model-%s:%s", registryHost, namespace, astroSpec.Agent, name, tag)
-			pushTargets = append(pushTargets, target)
-			pushCount++
-		}
-	}
-	for name, k := range astroSpec.Knowledge {
-		if kc := k.ResolvedContainer(); kc.Build != nil {
-			target := fmt.Sprintf("%s/%s/%s-knowledge-%s:%s", registryHost, namespace, astroSpec.Agent, name, tag)
-			pushTargets = append(pushTargets, target)
-			pushCount++
-		}
-	}
-	for name, tool := range astroSpec.Tools {
-		if tool.Container != nil && tool.Container.Build != nil {
-			target := fmt.Sprintf("%s/%s/%s-tool-%s:%s", registryHost, namespace, astroSpec.Agent, name, tag)
-			pushTargets = append(pushTargets, target)
-			pushCount++
-		}
-	}
-	for name, iface := range astroSpec.Interfaces {
-		if iface.Service != nil && iface.Service.Build != nil {
-			target := fmt.Sprintf("%s/%s/%s-interface-%s:%s", registryHost, namespace, astroSpec.Agent, name, tag)
-			pushTargets = append(pushTargets, target)
-			pushCount++
-		}
-	}
-	for name, ing := range astroSpec.Ingestion {
-		if ing.Container.Build != nil {
-			target := fmt.Sprintf("%s/%s/%s-ingestion-%s:%s", registryHost, namespace, astroSpec.Agent, name, tag)
-			pushTargets = append(pushTargets, target)
-			pushCount++
-		}
-	}
-
-	if pushCount == 0 {
-		fmt.Printf("%sNo custom images to push. All components use pre-built images.%s\n", colorDim, colorReset)
-	} else {
-		fmt.Println("The following images will be pushed to the registry:")
-		for _, target := range pushTargets {
-			fmt.Printf("  • %s%s%s\n", colorGreen, target, colorReset)
-		}
-	}
-	fmt.Println()
-
-	stepNum++
-	fmt.Printf("%s%sStep %d: Register Agent%s\n", colorBold, colorMagenta, stepNum, colorReset)
-	if skipRegister {
-		fmt.Printf("%sSkipped because --skip-register flag was set.%s\n", colorDim, colorReset)
-	} else if serverURL == "" {
-		fmt.Printf("%sSkipped because no server URL is configured.%s\n", colorDim, colorReset)
-	} else {
-		fmt.Printf("The agent spec will be registered with the server at %s%s%s.\n", colorYellow, serverURL, colorReset)
-		fmt.Printf("Build references will be transformed to point to the pushed images.\n")
-	}
-
-	fmt.Printf("\n%s%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n", colorDim, colorCyan, colorReset)
-	fmt.Printf("Total images to push: %s%d%s\n", colorBold, pushCount, colorReset)
-	fmt.Printf("%s%sThis is a dry run. No changes were made.%s\n\n", colorBold, colorYellow, colorReset)
-	return nil
-}
 
 // transformSpecForRegistry replaces build sections with actual image references
 func transformSpecForRegistry(specObj map[string]interface{}, registry, agentName, tag string) map[string]interface{} {
-	// Replace container.build with container.image
-	if container, ok := specObj["container"].(map[string]interface{}); ok {
-		if _, hasBuild := container["build"]; hasBuild {
-			delete(container, "build")
-			container["image"] = fmt.Sprintf("%s/%s:%s", registry, agentName, tag)
+	// Replace agent.build with agent.image
+	if agent, ok := specObj["agent"].(map[string]interface{}); ok {
+		if _, hasBuild := agent["build"]; hasBuild {
+			delete(agent, "build")
+			agent["image"] = fmt.Sprintf("%s/%s:%s", registry, agentName, tag)
 		}
 	}
 
@@ -1066,6 +705,20 @@ func transformSpecForRegistry(specObj map[string]interface{}, registry, agentNam
 					if _, hasBuild := container["build"]; hasBuild {
 						delete(container, "build")
 						container["image"] = fmt.Sprintf("%s/%s-tool-%s:%s", registry, agentName, toolName, tag)
+					}
+				}
+			}
+		}
+	}
+
+	// Replace ingestion.*.container.build with ingestion.*.container.image
+	if ingestion, ok := specObj["ingestion"].(map[string]interface{}); ok {
+		for ingestionName, ingestionData := range ingestion {
+			if ingestionItem, ok := ingestionData.(map[string]interface{}); ok {
+				if container, ok := ingestionItem["container"].(map[string]interface{}); ok {
+					if _, hasBuild := container["build"]; hasBuild {
+						delete(container, "build")
+						container["image"] = fmt.Sprintf("%s/%s-ingestion-%s:%s", registry, agentName, ingestionName, tag)
 					}
 				}
 			}

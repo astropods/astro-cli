@@ -101,12 +101,13 @@ ast dev
 `ast publish` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **registers the agent with the Astro platform**. If images aren’t already built, a build is run automatically unless you pass `--skip-build`.
 
 ```bash
-ast publish --registry ghcr.io/myorg
+ast publish
+ast publish --server http://localhost:8080 --local
 ```
 
-After publishing, **navigate to the Astro platform** to see your agent and deploy it. As an agent builder/operator, you’ll see it in your **Astro Operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack, open in the Astro playground, or call as an API.
+After publishing, **navigate to the Astro platform** to see your agent and deploy it. As an agent builder/operator, you'll see it in your **Astro Operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack, open in the Astro playground, or call as an API.
 
-- **Flags:** `--registry`, `--version` (set `meta.version` in spec; use `auto` for base + auto suffix), `--build`, `--platform`, `--file, -f`, `--skip-build`, `--skip-push`, `--skip-register`, `--dry-run`
+- **Flags:** `--server`, `--registry`, `--build`, `--platform`, `--file, -f`, `--skip-build`, `--skip-push`, `--skip-register`, `--local`
 
 ### `build` — Build containers (optional)
 
@@ -122,10 +123,10 @@ ast build
 
 The **Astro playground** is a local web UI to chat with your agent and try prompts. You can point it at a local agent (e.g. while running `ast dev`) or at a deployed agent’s hostname.
 
-**Against a local agent** (messaging API on port 8080):
+**Against a local agent** (messaging API on port 3100):
 
 ```bash
-ast playground http://localhost:8080
+ast playground http://localhost:3100
 ```
 
 This pulls the playground image (if needed), runs it, and opens the UI in your browser. You can override the local port with `--port` (default 3737) or use `--no-open` to avoid opening the browser.

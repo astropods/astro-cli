@@ -40,7 +40,7 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	storage := auth.NewStorage()
+	storage := auth.NewStorage(binaryName)
 
 	// Load current profile
 	profile, err := storage.GetCurrentProfile()
@@ -53,7 +53,7 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate token is still valid (this will refresh if needed)
-	tokenManager := auth.NewTokenManager()
+	tokenManager := auth.NewTokenManager(binaryName)
 	_, err = tokenManager.GetValidAccessToken(context.Background())
 	if err != nil {
 		return fmt.Errorf("session expired or invalid. Run 'ast login' to re-authenticate")
@@ -72,16 +72,19 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 
 	if profile.User != nil {
 		if profile.User.FirstName != "" || profile.User.LastName != "" {
-			fmt.Printf("  Name:   %s %s\n", profile.User.FirstName, profile.User.LastName)
+			fmt.Printf("  Name:    %s %s\n", profile.User.FirstName, profile.User.LastName)
 		}
-		fmt.Printf("  Email:  %s\n", profile.User.Email)
-		fmt.Print("  ID:     ")
+		fmt.Printf("  Email:   %s\n", profile.User.Email)
+		if profile.User.AccountName != "" {
+			fmt.Printf("  Account: %s\n", profile.User.AccountName)
+		} else if len(profile.Accounts) > 0 {
+			fmt.Printf("  Account: %s\n", profile.Accounts[0].Name)
+		} else {
+			yellow := color.New(color.FgYellow)
+			yellow.Println("  Account: (none — visit the dashboard to choose your username)")
+		}
+		fmt.Print("  ID:      ")
 		dim.Println(profile.User.ID)
-	}
-
-	if profile.ServerURL != "" {
-		fmt.Print("  Server: ")
-		dim.Println(profile.ServerURL)
 	}
 
 	if !profile.ExpiresAt.IsZero() {

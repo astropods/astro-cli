@@ -84,7 +84,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	if !quiet {
-		fmt.Printf("%s→%s Agent: %s%s%s (v%s)\n", colorCyan, colorReset, colorBold, astroSpec.Agent, colorReset, astroSpec.Meta.Version)
+		fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 	}
 
 	// Load .env file for secrets
@@ -111,14 +111,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	platforms := parsePlatforms(buildPlatform)
 
 	// Build agent container
-	if astroSpec.Container.Build == nil && astroSpec.Container.Image == "" {
-		return fmt.Errorf("container.build or container.image must be specified in spec")
+	if astroSpec.Agent.Build == nil && astroSpec.Agent.Image == "" {
+		return fmt.Errorf("agent.build or agent.image must be specified in spec")
 	}
 
-	if astroSpec.Container.Build != nil {
-		baseName := astroSpec.Agent
-		contextPath := filepath.Join(workingDir, astroSpec.Container.Build.Context)
-		dockerfile := astroSpec.Container.Build.Dockerfile
+	if astroSpec.Agent.Build != nil {
+		baseName := astroSpec.Name
+		contextPath := filepath.Join(workingDir, astroSpec.Agent.Build.Context)
+		dockerfile := astroSpec.Agent.Build.Dockerfile
 		if dockerfile == "" {
 			dockerfile = "Dockerfile"
 		}
@@ -129,7 +129,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				fmt.Printf("%s→%s Building %s[agent %s]%s %s%s%s", colorCyan, colorReset, colorDim, plat, colorReset, colorBold, platTag, colorReset)
 			}
 
-			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, astroSpec.Container.Build.Args, astroSpec.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+			if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, astroSpec.Agent.Build.Args, astroSpec.Agent.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -141,14 +141,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 			imagesBuilt++
 		}
-	} else if astroSpec.Container.Image != "" && !quiet {
-		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Container.Image, colorReset)
+	} else if astroSpec.Agent.Image != "" && !quiet {
+		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, colorReset, colorDim, astroSpec.Agent.Image, colorReset)
 	}
 
 	// Build custom model containers (those with build config)
 	for name, model := range astroSpec.Models {
-		if model.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-model-%s", astroSpec.Agent, name)
+		if model.Container != nil && model.Container.Build != nil {
+			baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, name)
 			contextPath := filepath.Join(workingDir, model.Container.Build.Context)
 			dockerfile := model.Container.Build.Dockerfile
 			if dockerfile == "" {
@@ -173,8 +173,11 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				}
 				imagesBuilt++
 			}
-		} else if model.Container.Image != "" && !quiet {
-			fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, model.Container.Image, colorReset)
+		} else {
+			resolved := model.ResolvedContainer()
+			if resolved.Image != "" && !quiet {
+				fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, resolved.Image, colorReset)
+			}
 		}
 	}
 
@@ -182,7 +185,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	for name, knowledge := range astroSpec.Knowledge {
 		container := knowledge.ResolvedContainer()
 		if container.Build != nil {
-			baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Agent, name)
+			baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, name)
 			contextPath := filepath.Join(workingDir, container.Build.Context)
 			dockerfile := container.Build.Dockerfile
 			if dockerfile == "" {
@@ -215,7 +218,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom tool containers (those with build config)
 	for name, tool := range astroSpec.Tools {
 		if tool.Container != nil && tool.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Agent, name)
+			baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, name)
 			contextPath := filepath.Join(workingDir, tool.Container.Build.Context)
 			dockerfile := tool.Container.Build.Dockerfile
 			if dockerfile == "" {
@@ -245,12 +248,12 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build custom interface service containers (those with build config)
-	for name, iface := range astroSpec.Interfaces {
-		if iface.Service != nil && iface.Service.Build != nil {
-			baseName := fmt.Sprintf("%s-interface-%s", astroSpec.Agent, name)
-			contextPath := filepath.Join(workingDir, iface.Service.Build.Context)
-			dockerfile := iface.Service.Build.Dockerfile
+	// Build custom ingestion containers (those with build config)
+	for name, ingestion := range astroSpec.Ingestion {
+		if ingestion.Container.Build != nil {
+			baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, name)
+			contextPath := filepath.Join(workingDir, ingestion.Container.Build.Context)
+			dockerfile := ingestion.Container.Build.Dockerfile
 			if dockerfile == "" {
 				dockerfile = "Dockerfile"
 			}
@@ -258,14 +261,14 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			for _, plat := range platforms {
 				platTag := platformImageTag(baseName, buildTag, plat)
 				if !quiet {
-					fmt.Printf("%s→%s Building %s[interface: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
+					fmt.Printf("%s→%s Building %s[ingestion: %s %s]%s %s%s%s", colorCyan, colorReset, colorDim, name, plat, colorReset, colorBold, platTag, colorReset)
 				}
 
-				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, iface.Service.Build.Args, iface.Service.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
+				if err := buildImageSDK(ctx, cli, contextPath, dockerfile, platTag, ingestion.Container.Build.Args, ingestion.Container.Build.Secrets, envVars, buildNoCache, verbose, quiet, plat); err != nil {
 					if !quiet {
 						fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 					}
-					return fmt.Errorf("failed to build interface %s for %s: %w", name, plat, err)
+					return fmt.Errorf("failed to build ingestion %s for %s: %w", name, plat, err)
 				}
 
 				if !quiet {
@@ -273,8 +276,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				}
 				imagesBuilt++
 			}
-		} else if iface.Service != nil && iface.Service.Image != "" && !quiet {
-			fmt.Printf("%s→%s Skipping %s[interface: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, iface.Service.Image, colorReset)
+		} else if ingestion.Container.Image != "" && !quiet {
+			fmt.Printf("%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n", colorCyan, colorReset, colorDim, name, colorReset, colorDim, ingestion.Container.Image, colorReset)
 		}
 	}
 

@@ -34,7 +34,7 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
 	dim := color.New(color.Faint)
 
-	storage := auth.NewStorage()
+	storage := auth.NewStorage(binaryName)
 
 	if logoutAll {
 		if err := storage.DeleteAllProfiles(); err != nil {

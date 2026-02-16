@@ -26,11 +26,11 @@ The URL should be the base URL of the astro-messaging HTTP API
 (the endpoint that serves /health and /api/*).
 
 Example:
-  ast playground http://localhost:8080
+  ast playground http://localhost:3100
   ast playground https://my-agent.example.com
-  ast playground http://localhost:8080 --port 4000
-  ast playground http://localhost:8080 --local
-  ast playground http://localhost:8080 --no-pull`,
+  ast playground http://localhost:3100 --port 4000
+  ast playground http://localhost:3100 --local
+  ast playground http://localhost:3100 --no-pull`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPlayground,
 }

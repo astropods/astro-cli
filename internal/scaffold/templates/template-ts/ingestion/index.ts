@@ -5,11 +5,14 @@
  * Run with: bun run ingest
  *
  * Environment variables available:
-{{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "qdrant"}}
  *   QDRANT_URL - Qdrant vector database connection URL
 {{- end}}
-{{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "redis"}}
  *   REDIS_URL - Redis key-value store connection URL
+{{- end}}
+{{- if .HasKnowledge "neo4j"}}
+ *   NEO4J_URL - Neo4j graph database connection URL
 {{- end}}
 {{- range .Integrations}}
 {{- if eq . "github"}}
@@ -31,7 +34,7 @@ async function main() {
   // 3. Generate embeddings using your model
   // 4. Store in your knowledge base (vector store, key-value store)
   //
-{{- if or (eq .Knowledge "vector") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "qdrant"}}
 
   // Example: Ingest documents into Qdrant
   // const qdrantUrl = process.env.QDRANT_URL;
@@ -45,12 +48,19 @@ async function main() {
   //   // 2. Upsert into Qdrant collection
   // }
 {{- end}}
-{{- if or (eq .Knowledge "kv") (eq .Knowledge "both")}}
+{{- if .HasKnowledge "redis"}}
 
   // Example: Cache data in Redis
   // const redisUrl = process.env.REDIS_URL;
   //
   // Store frequently accessed data or pre-computed results
+{{- end}}
+{{- if .HasKnowledge "neo4j"}}
+
+  // Example: Store data in Neo4j
+  // const neo4jUrl = process.env.NEO4J_URL;
+  //
+  // Store relationships and graph-structured data
 {{- end}}
 
   console.log("Ingestion complete!");
