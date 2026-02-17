@@ -269,45 +269,38 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
 
   // Empty state: no deployments with messaging-web
   if (deploymentsWithUrl.length === 0) {
-    return (
-      <div className="p-8 border border-stone-300 bg-stone-50 text-center">
-        <MessageSquare size={32} className="mx-auto text-stone-400 mb-2" />
-        <p className="text-stone-600 text-sm">No messaging-web endpoint available</p>
-        <p className="text-stone-500 text-xs mt-1">
-          Deploy with web adapter enabled to use the playground
-        </p>
-      </div>
-    );
+    return null;
   }
 
   const selected = deploymentsWithUrl[selectedIndex];
 
   return (
-    <div className="border border-stone-300 bg-white flex flex-col" style={{ height: "min(500px, calc(100vh - 280px))" }}>
+    <aside className="hidden lg:flex w-[400px] shrink-0 flex-col border-l border-border bg-muted/50 h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-300 bg-stone-50 shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
+          <MessageSquare className="size-4 text-muted-foreground" />
           {deploymentsWithUrl.length > 1 ? (
             <div className="relative">
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-border bg-background hover:bg-accent cursor-pointer rounded-md"
               >
                 <span className="font-mono text-xs">{selected.deployment.build_id.slice(0, 8)}</span>
                 <ChevronDown size={14} />
               </button>
               {dropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-stone-300 shadow-lg z-10 min-w-[200px]">
+                <div className="absolute top-full left-0 mt-1 bg-background border border-border shadow-lg z-10 min-w-[200px] rounded-md">
                   {deploymentsWithUrl.map((d, i) => (
                     <button
                       key={d.deployment.build_id}
                       onClick={() => handleSelectDeployment(i)}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-stone-50 cursor-pointer border-none bg-transparent ${
-                        i === selectedIndex ? "bg-stone-100 font-medium" : ""
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-accent cursor-pointer border-none bg-transparent ${
+                        i === selectedIndex ? "bg-accent font-medium" : ""
                       }`}
                     >
                       <span className="font-mono text-xs">{d.deployment.build_id.slice(0, 8)}</span>
-                      <span className="text-stone-500 ml-2">
+                      <span className="text-muted-foreground ml-2">
                         {d.deployment.status === "running" ? "Running" : d.deployment.status}
                       </span>
                     </button>
@@ -316,15 +309,18 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
               )}
             </div>
           ) : (
-            <span className="text-sm text-stone-600">
-              Build <span className="font-mono text-xs">{selected.deployment.build_id.slice(0, 8)}</span>
-            </span>
+            <div>
+              <p className="text-sm font-medium leading-tight">Test Agent</p>
+              <p className="text-xs text-muted-foreground">
+                Build {selected.deployment.build_id.slice(0, 8)}
+              </p>
+            </div>
           )}
         </div>
         {messages.length > 0 && (
           <button
             onClick={resetConversation}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-stone-500 hover:text-stone-700 border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground border border-border bg-background hover:bg-accent cursor-pointer rounded-md"
           >
             <RotateCcw size={12} />
             New chat
@@ -335,8 +331,14 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-stone-400 text-sm">
-            Send a message to start testing your agent
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <div className="flex size-14 items-center justify-center rounded-xl bg-primary/10">
+              <MessageSquare className="size-7 text-primary" />
+            </div>
+            <p className="text-sm font-semibold">Send a message to start testing</p>
+            <p className="text-xs text-muted-foreground text-center">
+              Messages are sent to your deployed agent in real time
+            </p>
           </div>
         )}
         {messages.map((msg) => (
@@ -347,14 +349,14 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
             <div
               className={`max-w-[80%] px-3.5 py-2.5 text-sm ${
                 msg.role === "user"
-                  ? "bg-stone-800 text-white rounded-lg rounded-br-sm"
-                  : "bg-stone-100 text-stone-900 rounded-lg rounded-bl-sm"
+                  ? "bg-primary text-primary-foreground rounded-lg rounded-br-sm"
+                  : "bg-muted text-foreground rounded-lg rounded-bl-sm"
               }`}
             >
               {msg.role === "assistant" ? (
                 <>
                   {msg.reasoning && (
-                    <div className="text-xs text-stone-500 italic mb-2 pb-2 border-b border-stone-200">
+                    <div className="text-xs text-muted-foreground italic mb-2 pb-2 border-b border-border">
                       {msg.reasoning}
                     </div>
                   )}
@@ -363,7 +365,7 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
                       {msg.steps.map((step) => (
                         <div
                           key={step.id}
-                          className="flex items-center gap-1.5 text-xs text-stone-500"
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground"
                         >
                           {step.status === "running" ? (
                             <Loader2 size={10} className="animate-spin" />
@@ -377,11 +379,11 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
                     </div>
                   )}
                   {msg.content ? (
-                    <div className="prose prose-sm prose-stone max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                    <div className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                       <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
                     </div>
                   ) : msg.isStreaming ? (
-                    <span className="inline-block w-2 h-4 bg-stone-400 animate-pulse" />
+                    <span className="inline-block w-2 h-4 bg-muted-foreground animate-pulse" />
                   ) : null}
                 </>
               ) : (
@@ -394,28 +396,32 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
       </div>
 
       {/* Input */}
-      <div className="border-t border-stone-300 p-3 shrink-0">
-        <div className="flex items-end gap-2">
+      <div className="border-t border-border p-3 shrink-0">
+        <div className="w-full rounded-lg bg-background border border-border">
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Send a message..."
-            rows={1}
-            className="flex-1 resize-none border border-stone-300 px-3 py-2 text-sm bg-white focus:outline-none focus:border-stone-500 placeholder:text-stone-400"
+            rows={2}
+            className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm outline-none placeholder:text-muted-foreground"
             style={{ maxHeight: "120px" }}
             disabled={isLoading}
           />
-          <button
-            onClick={sendMessage}
-            disabled={isLoading || !input.trim()}
-            className="px-3 py-2 bg-stone-800 text-white border-none cursor-pointer hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center"
-          >
-            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          </button>
+          <div className="flex items-center px-3 pb-3">
+            <div className="ml-auto">
+              <button
+                onClick={sendMessage}
+                disabled={isLoading || !input.trim()}
+                className="size-7 rounded-full bg-primary text-primary-foreground border-none cursor-pointer hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+              >
+                {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }

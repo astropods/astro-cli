@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -13,7 +13,6 @@ import {
   AlertCircle,
   Package,
   BookOpen,
-  MessageSquare,
 } from "lucide-react";
 import type { DeployResponse } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -25,7 +24,7 @@ import { DeployResultModal } from "../components/operator/DeployResultModal";
 import { PublishModal } from "../components/operator/PublishModal";
 import { PlaygroundChat } from "../components/operator/PlaygroundChat";
 
-type Tab = "overview" | "builds" | "deployments" | "test";
+type Tab = "overview" | "builds" | "deployments";
 
 export function AgentPage() {
   const { account, agent: agentName } = useParams<{ account: string; agent: string }>();
@@ -33,6 +32,18 @@ export function AgentPage() {
   const location = useLocation();
   const { isAuthenticated, login, accounts } = useAuth();
   const userAccount = accounts[0]?.name ?? "";
+
+  // Measure offset from top of viewport to pin the page height
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [topOffset, setTopOffset] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setTopOffset(el.getBoundingClientRect().top);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   // Fetch full agent data for readme/description
   const { data: agentData, isLoading: agentLoading } = useAgent(account ?? "", agentName ?? "");
@@ -110,55 +121,58 @@ export function AgentPage() {
     { id: "overview", label: "Overview", icon: <BookOpen size={16} /> },
     { id: "builds", label: "Builds", icon: <Package size={16} /> },
     { id: "deployments", label: "Deployments", icon: <Activity size={16} />, count: deployments.length },
-    { id: "test", label: "Test", icon: <MessageSquare size={16} /> },
   ];
 
   return (
-    <div className="p-6 md:p-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <Link
-            to="/operator"
-            className="flex items-center gap-1 text-sm text-stone-500 hover:text-stone-800 no-underline mb-2"
+    <div
+      ref={containerRef}
+      className="flex overflow-hidden"
+      style={{ height: topOffset ? `calc(100dvh - ${topOffset}px)` : '100dvh' }}
+    >
+    <div className="flex-1 min-w-0 flex flex-col">
+      {/* Header — fixed */}
+      <div className="px-6 md:px-8 pt-6 md:pt-8 shrink-0">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <Link
+              to="/operator"
+              className="flex items-center gap-1 text-sm text-stone-500 hover:text-stone-800 no-underline mb-2"
+            >
+              <ArrowLeft size={16} />
+              Back to Home
+            </Link>
+            <h1 className="text-2xl font-semibold">
+              <span className="font-normal text-stone-500">{account}/</span>
+              {agentName}
+            </h1>
+            {description && (
+              <p className="text-sm text-stone-500 mt-1">{description}</p>
+            )}
+          </div>
+          <button
+            onClick={() => navigate(`/operator/deploy/${account}/${agentName}`)}
+            className="px-4 py-2 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer flex items-center gap-2"
           >
-            <ArrowLeft size={16} />
-            Back to Home
-          </Link>
-          <h1 className="text-2xl font-semibold">
-            <span className="font-normal text-stone-500">{account}/</span>
-            {agentName}
-          </h1>
-          {description && (
-            <p className="text-sm text-stone-500 mt-1">{description}</p>
-          )}
+            <Rocket size={16} />
+            Deploy
+          </button>
         </div>
-        <button
-          onClick={() => navigate(`/operator/deploy/${account}/${agentName}`)}
-          className="px-4 py-2 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer flex items-center gap-2"
-        >
-          <Rocket size={16} />
-          Deploy
-        </button>
-      </div>
 
-      {!isAuthenticated && (
-        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm flex items-center gap-2">
-          <AlertCircle size={16} />
-          <span>
-            You need to{" "}
-            <button onClick={login} className="underline font-medium bg-transparent border-none cursor-pointer text-yellow-800">
-              sign in
-            </button>{" "}
-            to manage agents.
-          </span>
-        </div>
-      )}
+        {!isAuthenticated && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm flex items-center gap-2">
+            <AlertCircle size={16} />
+            <span>
+              You need to{" "}
+              <button onClick={login} className="underline font-medium bg-transparent border-none cursor-pointer text-yellow-800">
+                sign in
+              </button>{" "}
+              to manage agents.
+            </span>
+          </div>
+        )}
 
-      {isAuthenticated && (
-        <>
-          {/* Tab bar */}
-          <div className="flex items-center gap-0 border-b border-stone-300 mb-6">
+        {isAuthenticated && (
+          <div className="flex items-center gap-0 border-b border-stone-300">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -179,8 +193,12 @@ export function AgentPage() {
               </button>
             ))}
           </div>
+        )}
+      </div>
 
-          {/* Tab content */}
+      {/* Tab content — scrollable */}
+      {isAuthenticated && (
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 md:px-8 py-6">
           {activeTab === "overview" && (
             <div className="max-w-3xl">
               {agentLoading ? (
@@ -251,14 +269,10 @@ export function AgentPage() {
               )}
             </>
           )}
-
-          <div style={{ display: activeTab === "test" ? "block" : "none" }}>
-            <PlaygroundChat deployments={deployments} />
-          </div>
-        </>
+        </div>
       )}
 
-      {/* Deploy result modal */}
+      {/* Modals — fixed position, outside scroll context */}
       {deployResult && (
         <DeployResultModal
           result={deployResult}
@@ -266,7 +280,6 @@ export function AgentPage() {
         />
       )}
 
-      {/* Publish modal */}
       {publishTarget && (
         <PublishModal
           accountName={account}
@@ -278,7 +291,6 @@ export function AgentPage() {
         />
       )}
 
-      {/* Undeploy confirmation modal */}
       {undeployConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white border border-stone-300 w-full max-w-[400px] flex flex-col">
@@ -331,6 +343,8 @@ export function AgentPage() {
           </div>
         </div>
       )}
+    </div>
+    {isAuthenticated && <PlaygroundChat deployments={deployments} />}
     </div>
   );
 }
