@@ -32,6 +32,7 @@
     "@mastra/memory": "^1.0.0",
     "@mastra/observability": "^1.2.0",
     "@mastra/otel-exporter": "^1.0.2",
+    "ollama-ai-provider-v2": "^1.0.0",
     "@saswatds/astro-engine": "workspace:*",
     "@saswatds/astro-nodes": "workspace:*",
     "@saswatds/astro-types": "workspace:*"

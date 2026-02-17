@@ -9,6 +9,7 @@ import { Memory } from "@mastra/memory";
 import { LibSQLStore } from "@mastra/libsql";
 import { Observability, SamplingStrategyType } from "@mastra/observability";
 import { OtelExporter } from "@mastra/otel-exporter";
+import { createOllama } from "ollama-ai-provider-v2";
 
 type AgentMeta = {
   title: string;
@@ -183,11 +184,22 @@ export class AstroAgent {
     });
   }
 
+  private resolveModel(): Agent["model"] {
+    if (typeof this._model === "string" && this._model.startsWith("ollama/")) {
+      const modelName = this._model.slice("ollama/".length);
+      const baseURL =
+        process.env.OLLAMA_BASE_URL || "http://localhost:11434/api";
+      const ollama = createOllama({ baseURL });
+      return ollama(modelName);
+    }
+    return this._model;
+  }
+
   private createAgent(): Agent {
     const agentId = this._meta.title || "astro-agent";
     const agent = new Agent({
       id: agentId,
-      model: this._model,
+      model: this.resolveModel(),
       name: this._meta.title,
       description: this._meta.description,
       instructions: this._instructions,
