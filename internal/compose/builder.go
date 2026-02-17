@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/types"
@@ -41,6 +42,35 @@ func convertArgs(args map[string]string) map[string]*string {
 		result[k] = &val
 	}
 	return result
+}
+
+// buildModelHealthCheckTest generates the health check command for model providers.
+func buildModelHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port int) types.HealthCheckTest {
+	if len(healthcheck.Test) > 0 {
+		return types.HealthCheckTest(healthcheck.Test)
+	}
+
+	prov := spec.GetModelProvider(provider)
+
+	if len(prov.HealthCheck) > 0 {
+		return types.HealthCheckTest(append([]string{"CMD"}, prov.HealthCheck...))
+	}
+
+	if prov.HealthPath != "" {
+		if port == 0 {
+			port = prov.DefaultPort
+		}
+		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d%s || exit 1", port, prov.HealthPath)})
+	}
+
+	if healthcheck.Path != "" {
+		if port == 0 {
+			port = 8080
+		}
+		return types.HealthCheckTest([]string{"CMD-SHELL", fmt.Sprintf("curl -f http://localhost:%d%s || exit 1", port, healthcheck.Path)})
+	}
+
+	return nil
 }
 
 // buildHealthCheckTest generates the appropriate health check command
@@ -117,6 +147,15 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			service.Image = resolved.Image
 		}
 
+		// Inject environment variables from resolved container
+		if len(resolved.Environment) > 0 {
+			service.Environment = make(types.MappingWithEquals)
+			for k, v := range resolved.Environment {
+				val := v
+				service.Environment[k] = &val
+			}
+		}
+
 		// Port mapping
 		if resolved.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
@@ -126,20 +165,89 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				},
 			}
 
-			// Add healthcheck only if defined in spec
-			if resolved.Healthcheck != nil {
-				interval := types.Duration(10000000000) // 10 seconds
+			// Add healthcheck: model-aware when model name is set
+			if model.Model != "" {
+				interval := types.Duration(15000000000) // 15 seconds
 				timeout := types.Duration(5000000000)   // 5 seconds
-				retries := uint64(3)
-
-				test := buildHealthCheckTest(resolved.Healthcheck, model.Provider, resolved.Port)
-				if test != nil {
-					service.HealthCheck = &types.HealthCheckConfig{
-						Test:     test,
-						Interval: &interval,
-						Timeout:  &timeout,
-						Retries:  &retries,
+				retries := uint64(40)                   // ~10 min for large model pulls
+				test := types.HealthCheckTest([]string{
+					"CMD-SHELL",
+					fmt.Sprintf("ollama list | grep -q '%s'", model.Model),
+				})
+				service.HealthCheck = &types.HealthCheckConfig{
+					Test:     test,
+					Interval: &interval,
+					Timeout:  &timeout,
+					Retries:  &retries,
+				}
+			} else {
+				healthcheck := resolved.Healthcheck
+				if healthcheck == nil && model.IsProviderMode() {
+					prov := spec.GetModelProvider(model.Provider)
+					if prov.HealthPath != "" {
+						healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
+					} else if len(prov.HealthCheck) > 0 {
+						healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
 					}
+				}
+				if healthcheck != nil {
+					interval := types.Duration(10000000000) // 10 seconds
+					timeout := types.Duration(5000000000)   // 5 seconds
+					retries := uint64(3)
+					test := buildModelHealthCheckTest(healthcheck, model.Provider, resolved.Port)
+					if test != nil {
+						service.HealthCheck = &types.HealthCheckConfig{
+							Test:     test,
+							Interval: &interval,
+							Timeout:  &timeout,
+							Retries:  &retries,
+						}
+					}
+				}
+			}
+		}
+
+		// Provider-specific dev enhancements
+		if model.IsProviderMode() {
+			prov := spec.GetModelProvider(model.Provider)
+
+			// Persistent volume for model storage
+			if prov.MountPath != "" {
+				volumeName := fmt.Sprintf("%s-data", serviceName)
+				project.Volumes[volumeName] = types.VolumeConfig{
+					Name: volumeName,
+				}
+				service.Volumes = []types.ServiceVolumeConfig{
+					{
+						Type:   types.VolumeTypeVolume,
+						Source: volumeName,
+						Target: prov.MountPath,
+					},
+				}
+			}
+
+			// GPU passthrough for providers that require it (skip on macOS — no nvidia support)
+			if prov.GPU && runtime.GOOS != "darwin" {
+				service.Deploy = &types.DeployConfig{
+					Resources: types.Resources{
+						Reservations: &types.Resource{
+							Devices: []types.DeviceRequest{
+								{
+									Driver:       "nvidia",
+									Count:        types.DeviceCount(1),
+									Capabilities: []string{"gpu"},
+								},
+							},
+						},
+					},
+				}
+			}
+
+			// Auto-pull model after server starts (ollama-specific)
+			if model.Model != "" && model.Provider == "ollama" {
+				service.Entrypoint = types.ShellCommand{
+					"/bin/sh", "-c",
+					fmt.Sprintf("ollama serve & until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull %s; wait", model.Model),
 				}
 			}
 		}
@@ -404,6 +512,11 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 	}
 
+	// Override container command from dev.command
+	if s.Dev != nil && s.Dev.Command != "" {
+		agentService.Command = types.ShellCommand{"sh", "-c", s.Dev.Command}
+	}
+
 	// Environment variables
 	agentService.Environment = buildEnvironment(s, envVars)
 
@@ -429,10 +542,37 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	env := make(types.MappingWithEquals)
 
 	// Auto-inject connection strings for self-hosted components
-	for name := range s.Models {
+	for name, model := range s.Models {
 		serviceName := fmt.Sprintf("model-%s", name)
-		envKey := strings.ToUpper(fmt.Sprintf("%s_HOST", name))
-		env[envKey] = &serviceName
+		resolved := model.ResolvedContainer()
+		port := fmt.Sprintf("%d", resolved.Port)
+		if resolved.Port == 0 {
+			port = "8080"
+		}
+
+		if model.IsProviderMode() {
+			// Provider-specific env vars (e.g., OLLAMA_HOST, OLLAMA_BASE_URL, OLLAMA_MODEL)
+			prov := spec.GetModelProvider(model.Provider)
+			if prov.EnvPrefix != "" {
+				env[prov.EnvPrefix+"_HOST"] = &serviceName
+				env[prov.EnvPrefix+"_PORT"] = &port
+				modelURL := fmt.Sprintf("http://%s:%s", serviceName, port)
+				env[prov.EnvPrefix+"_URL"] = &modelURL
+				baseURL := fmt.Sprintf("http://%s:%s/api", serviceName, port)
+				env[prov.EnvPrefix+"_BASE_URL"] = &baseURL
+			}
+			if model.Model != "" && prov.EnvPrefix != "" {
+				m := model.Model
+				env[prov.EnvPrefix+"_MODEL"] = &m
+			}
+		} else {
+			// Generic env vars for container-mode models
+			envPrefix := "MODEL_" + strings.ToUpper(name)
+			env[envPrefix+"_HOST"] = &serviceName
+			env[envPrefix+"_PORT"] = &port
+			modelURL := fmt.Sprintf("http://%s:%s", serviceName, port)
+			env[envPrefix+"_URL"] = &modelURL
+		}
 	}
 
 	for name, knowledge := range s.Knowledge {
