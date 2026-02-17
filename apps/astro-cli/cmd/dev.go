@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -20,33 +19,55 @@ import (
 
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
 	"github.com/postman/astro/apps/astro-cli/internal/utils"
-	"github.com/postman/astro/apps/astro-cli/internal/watcher"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 var devCmd = &cobra.Command{
 	Use:   "dev",
-	Short: "Run agent locally with hot reload for development",
-	Long: `Run the agent locally with self-hosted components in Docker containers.
+	Short: "Manage local development environment",
+	Long: `Manage the local development environment for your agent.
 
-The dev command:
-1. Spins up self-hosted components (models, knowledge stores, tools)
-2. Builds and runs the agent container
-3. Watches for file changes and hot-reloads the agent
-4. Injects credentials from .env file
-5. Auto-configures component connection strings
+Subcommands:
+  start   Start dev containers (default when no subcommand given)
+  logs    Tail container logs
+  stop    Stop dev containers
+
+Running 'ast dev' without a subcommand is equivalent to 'ast dev start'.
 
 Example:
-  ast dev
-  ast dev --file custom-astro.yml
-  ast dev --env .env.local`,
-	RunE: runDev,
+  ast dev                  # start containers and exit
+  ast dev start --rebuild  # force rebuild containers
+  ast dev logs             # tail logs
+  ast dev stop             # stop containers
+  ast dev --local          # run agent as local process (blocking)`,
+	RunE: runDevStart,
+}
+
+var devStartCmd = &cobra.Command{
+	Use:   "start",
+	Short: "Start dev containers",
+	Long:  `Start the local development environment with Docker containers. In non-local mode, containers start in background and the command exits. Use 'ast dev logs' to tail logs and 'ast dev stop' to stop.`,
+	RunE:  runDevStart,
+}
+
+var devLogsCmd = &cobra.Command{
+	Use:   "logs [service]",
+	Short: "Tail container logs",
+	Long:  `Tail logs from the running dev containers. Optionally specify a service name to filter logs.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runDevLogs,
+}
+
+var devStopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Stop dev containers",
+	Long:  `Stop and remove the running dev containers.`,
+	RunE:  runDevStop,
 }
 
 var (
-	envFile    string
-	noReload   bool
-	rebuild    bool
+	envFile string
+	rebuild bool
 	noPull     bool
 	local      bool
 	localReset bool
@@ -54,17 +75,32 @@ var (
 
 func init() {
 	rootCmd.AddCommand(devCmd)
-	devCmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
-	devCmd.Flags().BoolVar(&noReload, "no-reload", false, "Disable hot reload")
-	devCmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
-	devCmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
-	devCmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
-	devCmd.Flags().BoolVar(&localReset, "local-reset", false, "Remove local package (use after ast dev --local); run 'bun install' to restore deps")
-	_ = devCmd.Flags().MarkHidden("local")
-	_ = devCmd.Flags().MarkHidden("local-reset")
+	devCmd.AddCommand(devStartCmd)
+	devCmd.AddCommand(devLogsCmd)
+	devCmd.AddCommand(devStopCmd)
+
+	// Flags on both devCmd and devStartCmd so they work with `ast dev` and `ast dev start`
+	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
+		cmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
+		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
+		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
+		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
+		cmd.Flags().BoolVar(&localReset, "local-reset", false, "Remove local package (use after ast dev --local); run 'bun install' to restore deps")
+		_ = cmd.Flags().MarkHidden("local")
+		_ = cmd.Flags().MarkHidden("local-reset")
+	}
 }
 
-func runDev(cmd *cobra.Command, args []string) error {
+// composePath returns the path to the docker-compose.yml for the current working directory.
+func composePath() (string, error) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+	return filepath.Join(workingDir, ".astro", "docker-compose.yml"), nil
+}
+
+func runDevStart(cmd *cobra.Command, args []string) error {
 	// Get spec file path
 	specFile, _ := cmd.Flags().GetString("file")
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -162,8 +198,8 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write docker-compose.yml file
-	composePath := filepath.Join(workingDir, ".astro", "docker-compose.yml")
-	if err := os.MkdirAll(filepath.Dir(composePath), 0755); err != nil {
+	cPath := filepath.Join(workingDir, ".astro", "docker-compose.yml")
+	if err := os.MkdirAll(filepath.Dir(cPath), 0755); err != nil {
 		return fmt.Errorf("failed to create .astro directory: %w", err)
 	}
 
@@ -172,12 +208,12 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to marshal compose project: %w", err)
 	}
 
-	if err := os.WriteFile(composePath, composeData, 0644); err != nil {
+	if err := os.WriteFile(cPath, composeData, 0644); err != nil {
 		return fmt.Errorf("failed to write compose file: %w", err)
 	}
 
 	if verbose {
-		log.Printf("   Wrote compose file to: %s", composePath)
+		log.Printf("   Wrote compose file to: %s", cPath)
 	}
 
 	// Check for GITHUB_PACKAGES_TOKEN before building (unless skipping pull)
@@ -202,7 +238,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 	// Build with or without cache based on rebuild flag
 	if rebuild {
 		log.Printf("   Using --no-cache for clean rebuild...")
-		buildCmd := exec.Command("docker", "compose", "-f", composePath, "build", "--no-cache")
+		buildCmd := exec.Command("docker", "compose", "-f", cPath, "build", "--no-cache")
 		buildCmd.Stdout = os.Stdout
 		buildCmd.Stderr = os.Stderr
 		if err := buildCmd.Run(); err != nil {
@@ -210,7 +246,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	upArgs := []string{"compose", "-f", composePath, "up", "-d", "--build"}
+	upArgs := []string{"compose", "-f", cPath, "up", "-d", "--build"}
 	if noPull {
 		upArgs = append(upArgs, "--pull=never")
 	}
@@ -222,74 +258,6 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Printf("✅ All services running!")
-
-	// Run agent as local process when --local
-	var (
-		agentCmd       *exec.Cmd
-		agentCmdMu     sync.Mutex
-		agentRestartCh chan struct{}
-		agentCtx       context.Context
-		agentCancel    context.CancelFunc
-	)
-	if local {
-		agentCtx, agentCancel = context.WithCancel(context.Background())
-		agentRestartCh = make(chan struct{}, 1)
-		agentEnv := buildLocalAgentEnv(astroSpec, envVars)
-		workingDirForAgent := workingDir
-
-		// Use local @saswatds/* packages from ASTRO_ROOT
-		astroRoot, err := resolveAstroSourceRoot()
-		if err != nil {
-			agentCancel()
-			return err
-		}
-		if err := linkLocalPackages(workingDir, astroRoot); err != nil {
-			agentCancel()
-			return fmt.Errorf("link local packages: %w", err)
-		}
-		log.Printf("📦 Using local packages from %s", astroRoot)
-
-		runAgent := func() {
-			cmd := exec.CommandContext(agentCtx, "bun", "run", "start")
-			cmd.Dir = workingDirForAgent
-			cmd.Env = agentEnv
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			agentCmdMu.Lock()
-			agentCmd = cmd
-			agentCmdMu.Unlock()
-			if err := cmd.Start(); err != nil {
-				log.Printf("❌ Failed to start agent: %v (is bun installed? run from project root with package.json)", err)
-				return
-			}
-			done := make(chan error, 1)
-			go func() { done <- cmd.Wait() }()
-			select {
-			case <-agentCtx.Done():
-				_ = cmd.Process.Kill()
-				<-done
-			case <-agentRestartCh:
-				_ = cmd.Process.Kill()
-				<-done
-			case <-done:
-				// process exited (e.g. crash)
-			}
-		}
-
-		go func() {
-			for {
-				runAgent()
-				if agentCtx.Err() != nil {
-					return
-				}
-				log.Printf("🔄 Restarting agent...")
-			}
-		}()
-
-		// Give the agent a moment to start so we don't spam restart on first run
-		time.Sleep(500 * time.Millisecond)
-		log.Printf("🤖 Agent running as local process (bun run start)")
-	}
 
 	// Check if messaging interface is configured (from dev section)
 	hasMessagingInterface := false
@@ -312,10 +280,61 @@ func runDev(cmd *cobra.Command, args []string) error {
 	if hasWebInterface {
 		log.Printf("🌐 Playground running at http://localhost:3000")
 		log.Printf("   Web API available at http://localhost:3100")
+	}
 
+	// --local: run agent as local process and block
+	if local {
+		return runLocalAgent(cmd, astroSpec, workingDir, cPath, envVars, hasWebInterface)
+	}
+
+	// Non-local mode: print hints and exit
+	log.Printf("")
+	log.Printf("💡 Containers running in background. Use:")
+	log.Printf("   ast dev logs    — tail container logs")
+	log.Printf("   ast dev stop    — stop containers")
+	log.Printf("")
+
+	return nil
+}
+
+// runLocalAgent runs the agent as a local bun process and blocks until Ctrl+C.
+func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPath string, envVars map[string]string, hasWebInterface bool) error {
+	agentCtx, agentCancel := context.WithCancel(context.Background())
+	agentEnv := buildLocalAgentEnv(astroSpec, envVars)
+
+	// Use local @saswatds/* packages from ASTRO_ROOT
+	astroRoot, err := resolveAstroSourceRoot()
+	if err != nil {
+		agentCancel()
+		return err
+	}
+	if err := linkLocalPackages(workingDir, astroRoot); err != nil {
+		agentCancel()
+		return fmt.Errorf("link local packages: %w", err)
+	}
+	log.Printf("📦 Using local packages from %s", astroRoot)
+
+	// Resolve start command from spec (default: "bun --watch run start")
+	startCommand := "bun --watch run start"
+	if astroSpec.Dev != nil && astroSpec.Dev.Command != "" {
+		startCommand = astroSpec.Dev.Command
+	}
+
+	// Run via shell so the command string is interpreted correctly
+	agentCmd := exec.CommandContext(agentCtx, "sh", "-c", startCommand)
+	agentCmd.Dir = workingDir
+	agentCmd.Env = agentEnv
+	agentCmd.Stdout = os.Stdout
+	agentCmd.Stderr = os.Stderr
+	if err := agentCmd.Start(); err != nil {
+		agentCancel()
+		return fmt.Errorf("failed to start agent: %w", err)
+	}
+	log.Printf("🤖 Agent running as local process (%s)", startCommand)
+
+	if hasWebInterface {
 		// Open playground in browser
 		go func() {
-			// Small delay to ensure services are ready
 			time.Sleep(2 * time.Second)
 			openBrowser("http://localhost:3000")
 		}()
@@ -337,13 +356,11 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 				log.Printf("⏰ Scheduling ingestion '%s' with pattern: %s", ingestionName, cronPattern)
 
-				// Add cron job
 				_, err := cronScheduler.AddFunc(cronPattern, func() {
 					log.Printf("🔄 Running ingestion: %s", ingestionName)
 
-					// Run the ingestion container
 					serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
-					runCmd := exec.Command("docker", "compose", "-f", composePath, "run", "--rm", serviceName)
+					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName)
 					runCmd.Stdout = os.Stdout
 					runCmd.Stderr = os.Stderr
 
@@ -358,13 +375,12 @@ func runDev(cmd *cobra.Command, args []string) error {
 					log.Printf("⚠️  Failed to schedule ingestion '%s': %v", ingestionName, err)
 				}
 			} else if ingestion.Trigger.Type == "startup" {
-				// Run immediately on startup
 				ingestionName := name
 				log.Printf("🚀 Running startup ingestion: %s", ingestionName)
 
 				serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
 				go func() {
-					runCmd := exec.Command("docker", "compose", "-f", composePath, "run", "--rm", serviceName)
+					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName)
 					runCmd.Stdout = os.Stdout
 					runCmd.Stderr = os.Stderr
 					if err := runCmd.Run(); err != nil {
@@ -383,73 +399,6 @@ func runDev(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Set up file watcher for hot reload
-	if !noReload {
-		log.Printf("👀 Watching for file changes in ./agent...")
-
-		agentDir := filepath.Join(workingDir, "agent")
-		if _, err := os.Stat(agentDir); err == nil {
-			fw, err := watcher.New(agentDir, func(path string) {
-				log.Printf("📝 File changed: %s", path)
-				if local && agentRestartCh != nil {
-					select {
-					case agentRestartCh <- struct{}{}:
-					default:
-					}
-					log.Printf("✅ Agent reloaded!")
-					return
-				}
-				log.Printf("🔄 Rebuilding agent...")
-
-				// Rebuild and restart only the agent service
-				buildCmd := exec.Command("docker", "compose", "-f", composePath, "build", "agent")
-				buildCmd.Stdout = os.Stdout
-				buildCmd.Stderr = os.Stderr
-				if err := buildCmd.Run(); err != nil {
-					log.Printf("❌ Build failed: %v", err)
-					return
-				}
-
-				log.Printf("♻️  Restarting agent...")
-				restartCmd := exec.Command("docker", "compose", "-f", composePath, "restart", "agent")
-				restartCmd.Stdout = os.Stdout
-				restartCmd.Stderr = os.Stderr
-				if err := restartCmd.Run(); err != nil {
-					log.Printf("❌ Restart failed: %v", err)
-					return
-				}
-
-				log.Printf("✅ Agent reloaded!")
-			})
-
-			if err != nil {
-				log.Printf("⚠️  Failed to create file watcher: %v (hot reload disabled)", err)
-			} else {
-				if err := fw.Start(); err != nil {
-					log.Printf("⚠️  Failed to start file watcher: %v (hot reload disabled)", err)
-				}
-				defer fw.Stop()
-			}
-		} else {
-			log.Printf("⚠️  ./agent directory not found (hot reload disabled)")
-		}
-	}
-
-	// Tail agent container logs (only in container mode, not --local)
-	var logsCancel context.CancelFunc
-	if !local {
-		var logsCtx context.Context
-		logsCtx, logsCancel = context.WithCancel(context.Background())
-		logsCmd := exec.CommandContext(logsCtx, "docker", "compose", "-f", composePath, "logs", "-f", "agent")
-		logsCmd.Stdout = os.Stdout
-		logsCmd.Stderr = os.Stderr
-		go func() {
-			if err := logsCmd.Run(); err != nil && logsCtx.Err() == nil {
-				log.Printf("⚠️  Agent logs stream ended: %v", err)
-			}
-		}()
-	}
-
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -460,24 +409,16 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	<-sigChan
 
-	if logsCancel != nil {
-		logsCancel()
-	}
-
 	log.Printf("")
 	log.Printf("🛑 Shutting down...")
 
-	if local && agentCancel != nil {
-		agentCancel()
-		agentCmdMu.Lock()
-		if agentCmd != nil && agentCmd.Process != nil {
-			_ = agentCmd.Process.Kill()
-		}
-		agentCmdMu.Unlock()
+	agentCancel()
+	if agentCmd.Process != nil {
+		_ = agentCmd.Process.Kill()
 	}
 
 	// Stop all services
-	downCmd := exec.Command("docker", "compose", "-f", composePath, "down")
+	downCmd := exec.Command("docker", "compose", "-f", cPath, "down")
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
 	if err := downCmd.Run(); err != nil {
@@ -485,10 +426,62 @@ func runDev(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Printf("✅ Cleanup complete")
-	if local {
-		log.Printf("💡 Tip: run 'ast dev --local-reset' to remove injected local dependencies")
+	log.Printf("💡 Tip: run 'ast dev --local-reset' to remove injected local dependencies")
+
+	return nil
+}
+
+func runDevLogs(cmd *cobra.Command, args []string) error {
+	cPath, err := composePath()
+	if err != nil {
+		return err
 	}
 
+	if _, err := os.Stat(cPath); os.IsNotExist(err) {
+		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
+	}
+
+	logsArgs := []string{"compose", "-f", cPath, "logs", "-f"}
+	if len(args) > 0 {
+		logsArgs = append(logsArgs, args[0])
+	}
+
+	logsCmd := exec.Command("docker", logsArgs...)
+	logsCmd.Stdout = os.Stdout
+	logsCmd.Stderr = os.Stderr
+
+	// Handle Ctrl+C gracefully
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		if logsCmd.Process != nil {
+			_ = logsCmd.Process.Signal(syscall.SIGTERM)
+		}
+	}()
+
+	return logsCmd.Run()
+}
+
+func runDevStop(cmd *cobra.Command, args []string) error {
+	cPath, err := composePath()
+	if err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(cPath); os.IsNotExist(err) {
+		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
+	}
+
+	log.Printf("🛑 Stopping dev containers...")
+	downCmd := exec.Command("docker", "compose", "-f", cPath, "down")
+	downCmd.Stdout = os.Stdout
+	downCmd.Stderr = os.Stderr
+	if err := downCmd.Run(); err != nil {
+		return fmt.Errorf("failed to stop services: %w", err)
+	}
+
+	log.Printf("✅ Containers stopped")
 	return nil
 }
 

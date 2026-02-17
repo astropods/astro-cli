@@ -210,10 +210,11 @@ func TestTemplate_ProviderModel(t *testing.T) {
 		t.Errorf("models.local_llm.replicas: expected 1, got %d", m.Replicas)
 	}
 
-	// Check agent environment references
-	assertEnvRef(t, ds.Agent.Environment, "MODEL_LOCAL-LLM_HOST", "${models.local_llm.host}")
-	assertEnvRef(t, ds.Agent.Environment, "MODEL_LOCAL-LLM_PORT", "${models.local_llm.port}")
-	assertEnvRef(t, ds.Agent.Environment, "MODEL_LOCAL-LLM_URL", "${models.local_llm.url}")
+	// Check agent environment references — provider-specific env vars
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_HOST", "${models.local_llm.host}")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_PORT", "${models.local_llm.port}")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_URL", "${models.local_llm.url}")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_BASE_URL", "${models.local_llm.url}/api")
 }
 
 func TestTemplate_ContainerModel(t *testing.T) {
@@ -807,7 +808,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 
 	// Agent environment — check all component refs exist
 	env := ds.Agent.Environment
-	assertEnvExists(t, env, "MODEL_LOCAL-LLM_HOST")
+	assertEnvExists(t, env, "OLLAMA_HOST")
 	assertEnvExists(t, env, "QDRANT_HOST")
 	assertEnvExists(t, env, "REDIS_HOST")
 	assertEnvExists(t, env, "TOOL_WEBSEARCH_HOST")
@@ -882,8 +883,8 @@ func TestTemplate_MultipleModels(t *testing.T) {
 		t.Errorf("custom port: expected 5000, got %d", ds.Models["custom"].Port)
 	}
 
-	// Both should have agent env refs
-	assertEnvExists(t, ds.Agent.Environment, "MODEL_OLLAMA_HOST")
+	// Provider model gets provider-specific env, container model gets generic
+	assertEnvExists(t, ds.Agent.Environment, "OLLAMA_HOST")
 	assertEnvExists(t, ds.Agent.Environment, "MODEL_CUSTOM_HOST")
 }
 

@@ -27,9 +27,12 @@ type StatefulSetConfig struct {
 	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 	// Deployment-spec driven fields (optional — zero values preserve existing behavior)
-	Replicas       int32                                // 0 means use default (1)
-	Resources      *corev1.ResourceRequirements         // nil means derive from Container.GPU
-	Strategy       *appsv1.StatefulSetUpdateStrategy    // nil means k8s default
+	Replicas         int32                                // 0 means use default (1)
+	Resources        *corev1.ResourceRequirements         // nil means derive from Container.GPU
+	Strategy         *appsv1.StatefulSetUpdateStrategy    // nil means k8s default
+	NodeSelector     map[string]string                    // nil means no node selector
+	Tolerations      []corev1.Toleration                  // Tolerations for tainted nodes
+	PostStartCommand []string                             // Lifecycle postStart exec command
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage
@@ -129,6 +132,17 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 		}
 	}
 
+	// Add lifecycle postStart hook (e.g., model pull command)
+	if len(cfg.PostStartCommand) > 0 {
+		container.Lifecycle = &corev1.Lifecycle{
+			PostStart: &corev1.LifecycleHandler{
+				Exec: &corev1.ExecAction{
+					Command: cfg.PostStartCommand,
+				},
+			},
+		}
+	}
+
 	// Create VolumeClaimTemplate
 	accessMode := cfg.AccessMode
 	if accessMode == "" {
@@ -176,7 +190,9 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{container},
+					Containers:   []corev1.Container{container},
+					NodeSelector: cfg.NodeSelector,
+					Tolerations:  cfg.Tolerations,
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{volumeClaimTemplate},

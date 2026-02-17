@@ -4,16 +4,16 @@ package spec
 
 // AstroSpec represents the complete astro.yml specification
 type AstroSpec struct {
-	Spec         string                 `json:"spec" yaml:"spec"`
-	Name         string                 `json:"name" yaml:"name"`
+	Spec         string                 `json:"spec" yaml:"spec" jsonschema:"description=Spec version (e.g. astro/v1)"`
+	Name         string                 `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`
 	Meta         Meta                   `json:"meta" yaml:"meta"`
-	Agent        Container              `json:"agent" yaml:"agent"`
-	Models       map[string]Model       `json:"models,omitempty" yaml:"models,omitempty"`
-	Knowledge    map[string]Knowledge   `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
-	Tools        map[string]Tool        `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Integrations map[string]Integration `json:"integrations,omitempty" yaml:"integrations,omitempty"`
-	Ingestion    map[string]Ingestion   `json:"ingestion,omitempty" yaml:"ingestion,omitempty"`
-	Dev          *Dev                   `json:"dev,omitempty" yaml:"dev,omitempty"`
+	Agent        Container              `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
+	Models       map[string]Model       `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
+	Knowledge    map[string]Knowledge   `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`
+	Tools        map[string]Tool        `json:"tools,omitempty" yaml:"tools,omitempty" jsonschema:"description=Tool sidecar containers"`
+	Integrations map[string]Integration `json:"integrations,omitempty" yaml:"integrations,omitempty" jsonschema:"description=Cloud integrations"`
+	Ingestion    map[string]Ingestion   `json:"ingestion,omitempty" yaml:"ingestion,omitempty" jsonschema:"description=Data ingestion pipelines"`
+	Dev          *Dev                   `json:"dev,omitempty" yaml:"dev,omitempty" jsonschema:"description=Local development overrides"`
 }
 
 type Meta struct {
@@ -49,8 +49,9 @@ type Healthcheck struct {
 }
 
 type Model struct {
-	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
+	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Platform-managed provider (e.g. ollama)"`
+	Model     string           `json:"model,omitempty" yaml:"model,omitempty" jsonschema:"description=Provider-specific model name (e.g. llama3.2)"`
+	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty" jsonschema:"description=Custom container config (alternative to provider)"`
 }
 
 // IsProviderMode returns true when the model entry uses a platform-managed provider.
@@ -66,10 +67,21 @@ func (m Model) ResolvedContainer() ContainerConfig {
 		return *m.Container
 	}
 	prov := GetModelProvider(m.Provider)
-	return ContainerConfig{
+	cc := ContainerConfig{
 		Image: prov.Image,
 		Port:  prov.DefaultPort,
 	}
+	// Inject model name and default env from provider
+	if m.Model != "" || len(prov.DefaultEnv) > 0 {
+		cc.Environment = make(map[string]string)
+		for k, v := range prov.DefaultEnv {
+			cc.Environment[k] = v
+		}
+		if m.Model != "" && prov.EnvPrefix != "" {
+			cc.Environment[prov.EnvPrefix+"_MODEL"] = m.Model
+		}
+	}
+	return cc
 }
 
 type Knowledge struct {
@@ -109,8 +121,8 @@ type Tool struct {
 // VRAM (e.g. "24Gi") tells the server how much GPU memory the workload needs.
 // Runtime is "cuda" (default) or "rocm".
 type GPUConfig struct {
-	VRAM    string `json:"vram,omitempty" yaml:"vram,omitempty"`
-	Runtime string `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	VRAM    string `json:"vram,omitempty" yaml:"vram,omitempty" jsonschema:"description=GPU memory required (e.g. 24Gi)"`
+	Runtime string `json:"runtime,omitempty" yaml:"runtime,omitempty" jsonschema:"description=GPU runtime,enum=cuda,enum=rocm"`
 }
 
 type ContainerConfig struct {
@@ -129,10 +141,10 @@ func (c ContainerConfig) HasGPU() bool {
 }
 
 type Integration struct {
-	Provider    string             `json:"provider" yaml:"provider"`
-	Type        string             `json:"type,omitempty" yaml:"type,omitempty"`
-	Config      map[string]any     `json:"config,omitempty" yaml:"config,omitempty"`
-	Credentials []CustomCredential `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Provider    string             `json:"provider" yaml:"provider" jsonschema:"description=Integration provider name"`
+	Type        string             `json:"type,omitempty" yaml:"type,omitempty" jsonschema:"description=Integration type"`
+	Config      map[string]any     `json:"config,omitempty" yaml:"config,omitempty" jsonschema:"description=Provider-specific configuration"`
+	Credentials []CustomCredential `json:"credentials,omitempty" yaml:"credentials,omitempty" jsonschema:"description=Custom credential requirements"`
 }
 
 type CustomCredential struct {
@@ -145,8 +157,9 @@ type CustomCredential struct {
 // Interfaces and schedules are deployment concerns; the dev section
 // supplies them for local runs so they don't live in the main spec.
 type Dev struct {
-	Interfaces []string          `json:"interfaces,omitempty" yaml:"interfaces,omitempty"`
-	Schedules  map[string]string `json:"schedules,omitempty" yaml:"schedules,omitempty"`
+	Interfaces []string          `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Messaging interfaces to enable locally (e.g. slack)"`
+	Schedules  map[string]string `json:"schedules,omitempty" yaml:"schedules,omitempty" jsonschema:"description=Cron schedules for ingestion jobs during dev"`
+	Command    string            `json:"command,omitempty" yaml:"command,omitempty" jsonschema:"description=Start command for the agent (default: bun --watch run start)"`
 }
 
 // Ingestion represents a data ingestion job
@@ -157,5 +170,5 @@ type Ingestion struct {
 }
 
 type IngestionTrigger struct {
-	Type string `json:"type" yaml:"type"` // "schedule" | "manual" | "startup" | "webhook"
+	Type string `json:"type" yaml:"type" jsonschema:"description=When the ingestion runs,enum=schedule,enum=manual,enum=startup,enum=webhook"`
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/astro/messaging/internal/adapter"
 )
@@ -55,8 +56,9 @@ type SlackConfig struct {
 
 // WebConfig holds web adapter configuration
 type WebConfig struct {
-	Enabled    bool
-	ListenAddr string
+	Enabled        bool
+	ListenAddr     string
+	AllowedOrigins []string
 }
 
 // StorageConfig holds storage configuration
@@ -119,8 +121,9 @@ func Load() (*Config, error) {
 
 	// Web configuration
 	cfg.Web = WebConfig{
-		Enabled:    getEnvBool("WEB_ENABLED", false),
-		ListenAddr: getEnv("WEB_LISTEN_ADDR", ":8080"),
+		Enabled:        getEnvBool("WEB_ENABLED", false),
+		ListenAddr:     getEnv("WEB_LISTEN_ADDR", ":8080"),
+		AllowedOrigins: getEnvList("WEB_ALLOWED_ORIGINS", []string{"*"}),
 	}
 
 	// Storage configuration
@@ -157,6 +160,22 @@ func getEnvInt(key string, defaultValue int) int {
 		i, err := strconv.Atoi(value)
 		if err == nil {
 			return i
+		}
+	}
+	return defaultValue
+}
+
+func getEnvList(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		if len(result) > 0 {
+			return result
 		}
 	}
 	return defaultValue

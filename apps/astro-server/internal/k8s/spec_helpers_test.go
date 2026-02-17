@@ -147,22 +147,22 @@ func TestBuildStatefulSetUpdateStrategy_Rolling(t *testing.T) {
 
 func TestBuildGPUNodeSelector_Cuda(t *testing.T) {
 	sel := BuildGPUNodeSelector(&spec.DeploymentGPU{Runtime: "cuda"})
-	if sel["accelerator"] != "nvidia-gpu" {
-		t.Errorf("expected nvidia-gpu, got %s", sel["accelerator"])
+	if sel["workload-type"] != "gpu" {
+		t.Errorf("expected workload-type=gpu, got %v", sel)
 	}
 }
 
 func TestBuildGPUNodeSelector_ROCM(t *testing.T) {
 	sel := BuildGPUNodeSelector(&spec.DeploymentGPU{Runtime: "rocm"})
-	if sel["accelerator"] != "amd-gpu" {
-		t.Errorf("expected amd-gpu, got %s", sel["accelerator"])
+	if sel["workload-type"] != "gpu" {
+		t.Errorf("expected workload-type=gpu, got %v", sel)
 	}
 }
 
 func TestBuildGPUNodeSelector_DefaultRuntime(t *testing.T) {
 	sel := BuildGPUNodeSelector(&spec.DeploymentGPU{})
-	if sel["accelerator"] != "nvidia-gpu" {
-		t.Errorf("expected nvidia-gpu for default runtime, got %s", sel["accelerator"])
+	if sel["workload-type"] != "gpu" {
+		t.Errorf("expected workload-type=gpu for default runtime, got %v", sel)
 	}
 }
 
@@ -170,6 +170,69 @@ func TestBuildGPUNodeSelector_Nil(t *testing.T) {
 	sel := BuildGPUNodeSelector(nil)
 	if sel != nil {
 		t.Error("expected nil for nil GPU")
+	}
+}
+
+func TestBuildGPUTolerations_Cuda(t *testing.T) {
+	tols := BuildGPUTolerations(&spec.DeploymentGPU{Runtime: "cuda"})
+	if len(tols) != 1 {
+		t.Fatalf("expected 1 toleration, got %d", len(tols))
+	}
+	if tols[0].Key != "nvidia.com/gpu" {
+		t.Errorf("expected key nvidia.com/gpu, got %s", tols[0].Key)
+	}
+	if tols[0].Operator != corev1.TolerationOpExists {
+		t.Errorf("expected operator Exists, got %s", tols[0].Operator)
+	}
+	if tols[0].Effect != corev1.TaintEffectNoSchedule {
+		t.Errorf("expected effect NoSchedule, got %s", tols[0].Effect)
+	}
+}
+
+func TestBuildGPUTolerations_Nil(t *testing.T) {
+	tols := BuildGPUTolerations(nil)
+	if tols != nil {
+		t.Error("expected nil tolerations for nil GPU")
+	}
+}
+
+func TestBuildDeployment_WithTolerations(t *testing.T) {
+	tolerations := []corev1.Toleration{
+		{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
+	}
+	cfg := DeploymentConfig{
+		Name: "gpu-deploy", Namespace: "ns", AgentName: "agent",
+		BuildID: "b1", Component: "model-llm",
+		Container:   spec.ContainerConfig{Image: "ollama/ollama:latest"},
+		Port:        11434,
+		Tolerations: tolerations,
+	}
+	depl := BuildDeployment(cfg)
+	podTols := depl.Spec.Template.Spec.Tolerations
+	if len(podTols) != 1 {
+		t.Fatalf("expected 1 toleration, got %d", len(podTols))
+	}
+	if podTols[0].Key != "nvidia.com/gpu" {
+		t.Errorf("expected toleration key nvidia.com/gpu, got %s", podTols[0].Key)
+	}
+}
+
+func TestBuildDeployment_WithPostStartCommand(t *testing.T) {
+	cfg := DeploymentConfig{
+		Name: "ollama-deploy", Namespace: "ns", AgentName: "agent",
+		BuildID: "b1", Component: "model-llm",
+		Container:        spec.ContainerConfig{Image: "ollama/ollama:latest"},
+		Port:             11434,
+		PostStartCommand: []string{"sh", "-c", "ollama pull llama3.2"},
+	}
+	depl := BuildDeployment(cfg)
+	container := depl.Spec.Template.Spec.Containers[0]
+	if container.Lifecycle == nil || container.Lifecycle.PostStart == nil {
+		t.Fatal("expected postStart lifecycle hook")
+	}
+	cmd := container.Lifecycle.PostStart.Exec.Command
+	if len(cmd) != 3 || cmd[2] != "ollama pull llama3.2" {
+		t.Errorf("expected postStart command 'ollama pull llama3.2', got %v", cmd)
 	}
 }
 
@@ -187,7 +250,7 @@ func TestBuildDeployment_WithSpecDrivenFields(t *testing.T) {
 		Container: spec.ContainerConfig{Image: "test:latest"},
 		Port: 8080, Replicas: 3, Resources: resources,
 		Strategy:     strategy,
-		NodeSelector: map[string]string{"accelerator": "nvidia-gpu"},
+		NodeSelector: map[string]string{"workload-type": "gpu"},
 	}
 
 	depl := BuildDeployment(cfg)
@@ -201,8 +264,8 @@ func TestBuildDeployment_WithSpecDrivenFields(t *testing.T) {
 	if container.Resources.Requests.Cpu().String() != "500m" {
 		t.Errorf("cpu request: expected 500m, got %s", container.Resources.Requests.Cpu().String())
 	}
-	if depl.Spec.Template.Spec.NodeSelector["accelerator"] != "nvidia-gpu" {
-		t.Error("expected nvidia-gpu node selector")
+	if depl.Spec.Template.Spec.NodeSelector["workload-type"] != "gpu" {
+		t.Error("expected workload-type=gpu node selector")
 	}
 }
 

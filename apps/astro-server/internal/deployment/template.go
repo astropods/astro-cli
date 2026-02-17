@@ -58,10 +58,25 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			ds.Models[name] = dm
 
 			// Wire references into agent environment
-			envPrefix := fmt.Sprintf("MODEL_%s", strings.ToUpper(SanitizeName(name)))
-			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
-			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.port}", name)
-			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.url}", name)
+			if model.IsProviderMode() {
+				// Provider-specific env vars (e.g., OLLAMA_BASE_URL, OLLAMA_MODEL)
+				prov := spec.GetModelProvider(model.Provider)
+				if prov.EnvPrefix != "" {
+					agentEnv[prov.EnvPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
+					agentEnv[prov.EnvPrefix+"_PORT"] = fmt.Sprintf("${models.%s.port}", name)
+					agentEnv[prov.EnvPrefix+"_URL"] = fmt.Sprintf("${models.%s.url}", name)
+					agentEnv[prov.EnvPrefix+"_BASE_URL"] = fmt.Sprintf("${models.%s.url}", name) + "/api"
+				}
+				if model.Model != "" && prov.EnvPrefix != "" {
+					agentEnv[prov.EnvPrefix+"_MODEL"] = model.Model
+				}
+			} else {
+				// Generic env vars for container-mode models
+				envPrefix := fmt.Sprintf("MODEL_%s", strings.ToUpper(SanitizeName(name)))
+				agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
+				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.port}", name)
+				agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.url}", name)
+			}
 		}
 	}
 
@@ -179,6 +194,48 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 	if dm.Port == 0 {
 		dm.Port = 8080
 	}
+
+	// Provider-mode auto-configuration
+	if model.IsProviderMode() {
+		prov := spec.GetModelProvider(model.Provider)
+		dm.Provider = model.Provider
+
+		// Auto-enable GPU for providers that require it
+		if prov.GPU {
+			dm.Resources = spec.GPUResources
+			dm.GPU = &spec.DeploymentGPU{
+				Runtime: "cuda",
+				Count:   1,
+			}
+			dm.Update = spec.UpdateStrategy{Strategy: "recreate"}
+		}
+
+		// Set model name for pull
+		if model.Model != "" {
+			dm.ModelName = model.Model
+			dm.Persistent = true
+		}
+
+		// Model-aware readiness: verify model is pulled, not just server up
+		if dm.Healthcheck == nil {
+			if model.Model != "" {
+				dm.Healthcheck = &spec.Healthcheck{
+					Test: []string{"sh", "-c",
+						fmt.Sprintf("ollama list | grep -q '%s'", model.Model),
+					},
+					Interval: "15s",
+					Timeout:  "5s",
+					Retries:  40,
+				}
+			} else if prov.HealthPath != "" {
+				dm.Healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
+			} else if len(prov.HealthCheck) > 0 {
+				dm.Healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
+			}
+		}
+	}
+
+	// Container-mode GPU (explicit gpu block in astro.yml)
 	if container.HasGPU() {
 		dm.Resources = spec.GPUResources
 		dm.GPU = &spec.DeploymentGPU{
@@ -189,9 +246,9 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 		if dm.GPU.Runtime == "" {
 			dm.GPU.Runtime = "cuda"
 		}
-		// GPU models default to recreate strategy
 		dm.Update = spec.UpdateStrategy{Strategy: "recreate"}
 	}
+
 	if len(container.Environment) > 0 {
 		dm.Environment = container.Environment
 	}

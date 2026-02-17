@@ -111,10 +111,24 @@ func BuildGPUNodeSelector(gpu *spec.DeploymentGPU) map[string]string {
 	}
 	runtime := gpu.Runtime
 	if runtime == "" || runtime == "cuda" {
-		return map[string]string{"accelerator": "nvidia-gpu"}
+		return map[string]string{"workload-type": "gpu"}
 	}
 	if runtime == "rocm" {
-		return map[string]string{"accelerator": "amd-gpu"}
+		return map[string]string{"workload-type": "gpu"}
 	}
 	return nil
+}
+
+// BuildGPUTolerations returns tolerations for GPU-tainted nodes.
+func BuildGPUTolerations(gpu *spec.DeploymentGPU) []corev1.Toleration {
+	if gpu == nil {
+		return nil
+	}
+	return []corev1.Toleration{
+		{
+			Key:      "nvidia.com/gpu",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+	}
 }

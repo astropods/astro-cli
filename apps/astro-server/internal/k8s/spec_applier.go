@@ -41,8 +41,16 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
-	secretName := deployment.GenerateCredentialSecretName(agentName, buildID)
-	configMapName := deployment.GenerateConfigMapName(agentName, buildID)
+	// Only generate resource names when there is data to back them;
+	// referencing a non-existent Secret/ConfigMap causes K8s errors.
+	secretName := ""
+	if len(resolved.SecretData) > 0 {
+		secretName = deployment.GenerateCredentialSecretName(agentName, buildID)
+	}
+	configMapName := ""
+	if len(resolved.ConfigMapData) > 0 {
+		configMapName = deployment.GenerateConfigMapName(agentName, buildID)
+	}
 
 	// Ensure namespace exists
 	if err := a.ensureNamespace(ctx); err != nil {
@@ -176,9 +184,86 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 
-	// Phase 5: Create Deployments
-	// Models
+	// Phase 4b: Create StatefulSets for persistent models (e.g., ollama with model pull)
 	for name, model := range ds.Models {
+		if !model.Persistent {
+			continue
+		}
+		resourceName := deployment.GenerateResourceName(agentName, "model", name)
+		port := int32(model.Port)
+		if port == 0 {
+			port = 8080
+		}
+
+		container := spec.ContainerConfig{Image: model.Image, Port: int(port), Environment: model.Environment}
+		resolvedContainer, err := a.resolveContainerImage(container)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: resourceName, Kind: "StatefulSet",
+				Error: fmt.Sprintf("failed to resolve image: %v", err),
+			})
+			continue
+		}
+
+		// Determine mount path and storage from provider
+		prov := spec.GetModelProvider(model.Provider)
+		mountPath := prov.MountPath
+		if mountPath == "" {
+			mountPath = "/data"
+		}
+		resolvedContainer.Persistent = true
+
+		// Override healthcheck with model-aware readiness when ModelName is set
+		healthcheck := model.Healthcheck
+		if model.ModelName != "" && healthcheck == nil {
+			healthcheck = &spec.Healthcheck{
+				Test: []string{"sh", "-c",
+					fmt.Sprintf("ollama list | grep -q '%s'", model.ModelName),
+				},
+				Interval: "15s",
+				Timeout:  "5s",
+				Retries:  40, // ~10 min for large model pulls
+			}
+		}
+
+		ssCfg := StatefulSetConfig{
+			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
+			Container: resolvedContainer, Port: port,
+			StorageSize: "50Gi", AccessMode: corev1.ReadWriteOnce,
+			Healthcheck: healthcheck, ImagePullPolicy: a.imagePullPolicy,
+			Replicas:     int32(model.Replicas),
+			Resources:    BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
+			Strategy:     BuildStatefulSetUpdateStrategy(model.Update),
+			NodeSelector: BuildGPUNodeSelector(model.GPU),
+			Tolerations:  BuildGPUTolerations(model.GPU),
+			Provider:     model.Provider,
+		}
+
+		// Add model pull postStart hook
+		if model.ModelName != "" {
+			ssCfg.PostStartCommand = []string{
+				"sh", "-c",
+				fmt.Sprintf("until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull %s", model.ModelName),
+			}
+		}
+
+		ss := BuildStatefulSet(ssCfg)
+		status, err := a.applyStatefulSet(ctx, ss)
+		result.Resources = append(result.Resources, status)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: ss.Name, Kind: "StatefulSet", Error: err.Error(),
+			})
+		}
+	}
+
+	// Phase 5: Create Deployments
+	// Models (non-persistent)
+	for name, model := range ds.Models {
+		if model.Persistent {
+			continue
+		}
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
 		port := int32(model.Port)
 		if port == 0 {
@@ -204,6 +289,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Resources:    BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
 			Strategy:     BuildDeploymentStrategy(model.Update),
 			NodeSelector: BuildGPUNodeSelector(model.GPU),
+			Tolerations:  BuildGPUTolerations(model.GPU),
 		}
 		depl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, depl)

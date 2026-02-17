@@ -217,12 +217,12 @@ func TestBuildDeployment(t *testing.T) {
 
 		// Standard resources
 		cpuReq := container.Resources.Requests[corev1.ResourceCPU]
-		if cpuReq.Cmp(resource.MustParse("100m")) != 0 {
-			t.Errorf("expected CPU request 100m, got %s", cpuReq.String())
+		if cpuReq.Cmp(resource.MustParse("50m")) != 0 {
+			t.Errorf("expected CPU request 50m, got %s", cpuReq.String())
 		}
 		memReq := container.Resources.Requests[corev1.ResourceMemory]
-		if memReq.Cmp(resource.MustParse("256Mi")) != 0 {
-			t.Errorf("expected memory request 256Mi, got %s", memReq.String())
+		if memReq.Cmp(resource.MustParse("128Mi")) != 0 {
+			t.Errorf("expected memory request 128Mi, got %s", memReq.String())
 		}
 
 		// No probes when no healthcheck
@@ -252,8 +252,8 @@ func TestBuildDeployment(t *testing.T) {
 
 		// GPU node selector derived from runtime
 		ns := d.Spec.Template.Spec.NodeSelector
-		if ns == nil || ns["accelerator"] != "nvidia-gpu" {
-			t.Errorf("expected GPU node selector nvidia-gpu, got %v", ns)
+		if ns == nil || ns["workload-type"] != "gpu" {
+			t.Errorf("expected GPU node selector workload-type=gpu, got %v", ns)
 		}
 	})
 
@@ -603,12 +603,12 @@ func TestBuildCollectorDeployment(t *testing.T) {
 
 		// Resources
 		cpuReq := container.Resources.Requests[corev1.ResourceCPU]
-		if cpuReq.Cmp(resource.MustParse("50m")) != 0 {
-			t.Errorf("expected CPU request 50m, got %s", cpuReq.String())
+		if cpuReq.Cmp(resource.MustParse("25m")) != 0 {
+			t.Errorf("expected CPU request 25m, got %s", cpuReq.String())
 		}
 		memLim := container.Resources.Limits[corev1.ResourceMemory]
-		if memLim.Cmp(resource.MustParse("256Mi")) != 0 {
-			t.Errorf("expected memory limit 256Mi, got %s", memLim.String())
+		if memLim.Cmp(resource.MustParse("128Mi")) != 0 {
+			t.Errorf("expected memory limit 128Mi, got %s", memLim.String())
 		}
 	})
 

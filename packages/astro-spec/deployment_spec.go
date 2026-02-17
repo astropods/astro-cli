@@ -54,6 +54,9 @@ type DeploymentModel struct {
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	Healthcheck *Healthcheck        `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Update      UpdateStrategy      `json:"update" yaml:"update"`
+	ModelName   string              `json:"model_name,omitempty" yaml:"model_name,omitempty"` // Provider-specific model to pull (e.g., "llama3.2")
+	Persistent  bool                `json:"persistent,omitempty" yaml:"persistent,omitempty"` // Whether model storage needs persistence (PVC)
+	Provider    string              `json:"provider,omitempty" yaml:"provider,omitempty"`     // Provider type (e.g., "ollama")
 }
 
 // DeploymentKnowledge describes a knowledge store container.

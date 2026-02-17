@@ -159,7 +159,10 @@ func initializeAdapters(ctx context.Context, cfg *config.Config, threadStore *st
 	// Initialize Web adapter if enabled
 	if cfg.Web.Enabled {
 		log.Println("Initializing Web adapter...")
-		webAdapter := web.New(web.WithListenAddr(cfg.Web.ListenAddr))
+		webAdapter := web.New(
+			web.WithListenAddr(cfg.Web.ListenAddr),
+			web.WithAllowedOrigins(cfg.Web.AllowedOrigins),
+		)
 		if err := webAdapter.Initialize(ctx, adapter.Config{}); err != nil {
 			log.Printf("Error initializing Web adapter: %v", err)
 		} else {

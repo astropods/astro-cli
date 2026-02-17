@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://astro.postman.com/schema/astro.json",
+  "properties": {
+    "spec": {
+      "type": "string",
+      "description": "Spec version (e.g. astro/v1)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique agent name"
+    },
+    "meta": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "agent": {
+      "properties": {
+        "image": {
+          "type": "string"
+        },
+        "build": {
+          "properties": {
+            "context": {
+              "type": "string"
+            },
+            "dockerfile": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "args": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "secrets": {
+              "items": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "env": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "id"
+                ]
+              },
+              "type": "array"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "context",
+            "dockerfile"
+          ]
+        },
+        "healthcheck": {
+          "properties": {
+            "test": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "path": {
+              "type": "string"
+            },
+            "interval": {
+              "type": "string"
+            },
+            "timeout": {
+              "type": "string"
+            },
+            "retries": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "Main agent container"
+    },
+    "models": {
+      "additionalProperties": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Platform-managed provider (e.g. ollama)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Provider-specific model name (e.g. llama3.2)"
+          },
+          "container": {
+            "properties": {
+              "image": {
+                "type": "string"
+              },
+              "build": {
+                "properties": {
+                  "context": {
+                    "type": "string"
+                  },
+                  "dockerfile": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "secrets": {
+                    "items": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "env": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "context",
+                  "dockerfile"
+                ]
+              },
+              "gpu": {
+                "properties": {
+                  "vram": {
+                    "type": "string",
+                    "description": "GPU memory required (e.g. 24Gi)"
+                  },
+                  "runtime": {
+                    "type": "string",
+                    "enum": [
+                      "cuda",
+                      "rocm"
+                    ],
+                    "description": "GPU runtime"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "persistent": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "environment": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "healthcheck": {
+                "properties": {
+                  "test": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "type": "string"
+                  },
+                  "retries": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "description": "Custom container config (alternative to provider)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type": "object",
+      "description": "Model sidecar containers"
+    },
+    "knowledge": {
+      "additionalProperties": {
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "container": {
+            "properties": {
+              "image": {
+                "type": "string"
+              },
+              "build": {
+                "properties": {
+                  "context": {
+                    "type": "string"
+                  },
+                  "dockerfile": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "secrets": {
+                    "items": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "env": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "context",
+                  "dockerfile"
+                ]
+              },
+              "gpu": {
+                "properties": {
+                  "vram": {
+                    "type": "string",
+                    "description": "GPU memory required (e.g. 24Gi)"
+                  },
+                  "runtime": {
+                    "type": "string",
+                    "enum": [
+                      "cuda",
+                      "rocm"
+                    ],
+                    "description": "GPU runtime"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "persistent": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "environment": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "healthcheck": {
+                "properties": {
+                  "test": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "type": "string"
+                  },
+                  "retries": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "persistent": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type": "object",
+      "description": "Knowledge store containers"
+    },
+    "tools": {
+      "additionalProperties": {
+        "properties": {
+          "container": {
+            "properties": {
+              "image": {
+                "type": "string"
+              },
+              "build": {
+                "properties": {
+                  "context": {
+                    "type": "string"
+                  },
+                  "dockerfile": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "secrets": {
+                    "items": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "env": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "context",
+                  "dockerfile"
+                ]
+              },
+              "gpu": {
+                "properties": {
+                  "vram": {
+                    "type": "string",
+                    "description": "GPU memory required (e.g. 24Gi)"
+                  },
+                  "runtime": {
+                    "type": "string",
+                    "enum": [
+                      "cuda",
+                      "rocm"
+                    ],
+                    "description": "GPU runtime"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "persistent": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "environment": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "healthcheck": {
+                "properties": {
+                  "test": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "type": "string"
+                  },
+                  "retries": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "type": "object",
+      "description": "Tool sidecar containers"
+    },
+    "integrations": {
+      "additionalProperties": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Integration provider name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Integration type"
+          },
+          "config": {
+            "type": "object",
+            "description": "Provider-specific configuration"
+          },
+          "credentials": {
+            "items": {
+              "properties": {
+                "suffix": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "suffix"
+              ]
+            },
+            "type": "array",
+            "description": "Custom credential requirements"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider"
+        ]
+      },
+      "type": "object",
+      "description": "Cloud integrations"
+    },
+    "ingestion": {
+      "additionalProperties": {
+        "properties": {
+          "container": {
+            "properties": {
+              "image": {
+                "type": "string"
+              },
+              "build": {
+                "properties": {
+                  "context": {
+                    "type": "string"
+                  },
+                  "dockerfile": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "secrets": {
+                    "items": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "env": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "context",
+                  "dockerfile"
+                ]
+              },
+              "gpu": {
+                "properties": {
+                  "vram": {
+                    "type": "string",
+                    "description": "GPU memory required (e.g. 24Gi)"
+                  },
+                  "runtime": {
+                    "type": "string",
+                    "enum": [
+                      "cuda",
+                      "rocm"
+                    ],
+                    "description": "GPU runtime"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              },
+              "persistent": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "environment": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "healthcheck": {
+                "properties": {
+                  "test": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "interval": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "type": "string"
+                  },
+                  "retries": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "trigger": {
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "schedule",
+                  "manual",
+                  "startup",
+                  "webhook"
+                ],
+                "description": "When the ingestion runs"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "container",
+          "trigger"
+        ]
+      },
+      "type": "object",
+      "description": "Data ingestion pipelines"
+    },
+    "dev": {
+      "properties": {
+        "interfaces": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Messaging interfaces to enable locally (e.g. slack)"
+        },
+        "schedules": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Cron schedules for ingestion jobs during dev"
+        },
+        "command": {
+          "type": "string",
+          "description": "Start command for the agent (default: bun --watch run start)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "description": "Local development overrides"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "spec",
+    "name",
+    "meta",
+    "agent"
+  ],
+  "title": "Astro Spec",
+  "description": "Schema for astro.yml agent specification"
+}

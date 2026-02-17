@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Package,
   BookOpen,
+  MessageSquare,
 } from "lucide-react";
 import type { DeployResponse } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -22,8 +23,9 @@ import { AgentBuildsSection } from "../components/operator/AgentBuildsSection";
 import { DeploymentCard } from "../components/operator/DeploymentCard";
 import { DeployResultModal } from "../components/operator/DeployResultModal";
 import { PublishModal } from "../components/operator/PublishModal";
+import { PlaygroundChat } from "../components/operator/PlaygroundChat";
 
-type Tab = "overview" | "builds" | "deployments";
+type Tab = "overview" | "builds" | "deployments" | "test";
 
 export function AgentPage() {
   const { account, agent: agentName } = useParams<{ account: string; agent: string }>();
@@ -108,6 +110,7 @@ export function AgentPage() {
     { id: "overview", label: "Overview", icon: <BookOpen size={16} /> },
     { id: "builds", label: "Builds", icon: <Package size={16} /> },
     { id: "deployments", label: "Deployments", icon: <Activity size={16} />, count: deployments.length },
+    { id: "test", label: "Test", icon: <MessageSquare size={16} /> },
   ];
 
   return (
@@ -248,6 +251,10 @@ export function AgentPage() {
               )}
             </>
           )}
+
+          <div style={{ display: activeTab === "test" ? "block" : "none" }}>
+            <PlaygroundChat deployments={deployments} />
+          </div>
         </>
       )}
 

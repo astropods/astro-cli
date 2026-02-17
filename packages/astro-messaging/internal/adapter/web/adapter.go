@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	pb "github.com/astro/messaging/pkg/gen/astro/messaging/v1"
@@ -27,6 +28,7 @@ type WebAdapter struct {
 	// Configuration
 	listenAddr        string
 	heartbeatInterval time.Duration
+	allowedOrigins    []string
 }
 
 // WebAdapterOption configures the WebAdapter
@@ -50,6 +52,13 @@ func WithSessionManager(sm SessionManager) WebAdapterOption {
 func WithHeartbeatInterval(d time.Duration) WebAdapterOption {
 	return func(a *WebAdapter) {
 		a.heartbeatInterval = d
+	}
+}
+
+// WithAllowedOrigins sets the allowed CORS origins
+func WithAllowedOrigins(origins []string) WebAdapterOption {
+	return func(a *WebAdapter) {
+		a.allowedOrigins = origins
 	}
 }
 
@@ -106,10 +115,13 @@ func (a *WebAdapter) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/agent/config", a.handlers.HandleAgentConfig)
 	mux.HandleFunc("GET /health", a.handlers.HandleHealth)
 
+	// Wrap with CORS middleware
+	handler := a.corsMiddleware(mux)
+
 	// Create server
 	a.server = &http.Server{
 		Addr:         a.listenAddr,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 0, // No timeout for SSE
 		IdleTimeout:  120 * time.Second,
@@ -321,6 +333,47 @@ func (a *WebAdapter) SendMessage(ctx context.Context, req *types.SendMessageRequ
 	return &types.SendMessageResult{
 		Success: true,
 	}, nil
+}
+
+// corsMiddleware wraps an http.Handler with CORS headers
+func (a *WebAdapter) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+
+		if origin != "" && a.isOriginAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Length")
+		}
+
+		// Handle preflight
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isOriginAllowed checks if the given origin is in the allowed list
+func (a *WebAdapter) isOriginAllowed(origin string) bool {
+	for _, allowed := range a.allowedOrigins {
+		if allowed == "*" || allowed == origin {
+			return true
+		}
+		// Support wildcard subdomains (e.g., "*.astropod.ai")
+		if strings.HasPrefix(allowed, "*.") {
+			domain := strings.TrimPrefix(allowed, "*")
+			if strings.HasSuffix(origin, domain) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // UpdateMessage updates an existing message (implements adapter.Adapter)

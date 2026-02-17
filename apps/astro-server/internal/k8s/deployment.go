@@ -29,11 +29,13 @@ type DeploymentConfig struct {
 	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 	// Deployment-spec driven fields (optional — zero values preserve existing behavior)
-	Replicas       int32                          // 0 means use default (1)
-	Resources      *corev1.ResourceRequirements   // nil means derive from Container.GPU
-	Strategy       *appsv1.DeploymentStrategy     // nil means k8s default
-	NodeSelector   map[string]string              // nil means no node selector (unless Container has GPU)
-	ExtraEnv       []corev1.EnvVar                // Additional env vars to inject
+	Replicas         int32                          // 0 means use default (1)
+	Resources        *corev1.ResourceRequirements   // nil means derive from Container.GPU
+	Strategy         *appsv1.DeploymentStrategy     // nil means k8s default
+	NodeSelector     map[string]string              // nil means no node selector (unless Container has GPU)
+	Tolerations      []corev1.Toleration            // Tolerations for tainted nodes (e.g., GPU)
+	ExtraEnv         []corev1.EnvVar                // Additional env vars to inject
+	PostStartCommand []string                       // Lifecycle postStart exec command (e.g., model pull)
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -78,16 +80,12 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	if cfg.NodeSelector != nil {
 		podSpec.NodeSelector = cfg.NodeSelector
 	} else if cfg.Container.HasGPU() {
-		runtime := cfg.Container.GPU.Runtime
-		if runtime == "" || runtime == "cuda" {
-			podSpec.NodeSelector = map[string]string{
-				"accelerator": "nvidia-gpu",
-			}
-		} else if runtime == "rocm" {
-			podSpec.NodeSelector = map[string]string{
-				"accelerator": "amd-gpu",
-			}
-		}
+		podSpec.NodeSelector = map[string]string{"workload-type": "gpu"}
+	}
+
+	// Add tolerations
+	if len(cfg.Tolerations) > 0 {
+		podSpec.Tolerations = cfg.Tolerations
 	}
 
 	depl := &appsv1.Deployment{
@@ -250,11 +248,11 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 	} else {
 		container.Resources = corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceCPU:    resource.MustParse("50m"),
 				corev1.ResourceMemory: resource.MustParse("128Mi"),
 			},
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceCPU:    resource.MustParse("250m"),
 				corev1.ResourceMemory: resource.MustParse("512Mi"),
 			},
 		}
@@ -395,12 +393,12 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 	} else {
 		container.Resources = corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("50m"),
-				corev1.ResourceMemory: resource.MustParse("128Mi"),
+				corev1.ResourceCPU:    resource.MustParse("25m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
 			},
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("250m"),
-				corev1.ResourceMemory: resource.MustParse("256Mi"),
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
 			},
 		}
 	}
@@ -483,6 +481,17 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 
 	// Add extra env vars (from deployment spec resolution)
 	container.Env = append(container.Env, cfg.ExtraEnv...)
+
+	// Add lifecycle postStart hook (e.g., model pull command)
+	if len(cfg.PostStartCommand) > 0 {
+		container.Lifecycle = &corev1.Lifecycle{
+			PostStart: &corev1.LifecycleHandler{
+				Exec: &corev1.ExecAction{
+					Command: cfg.PostStartCommand,
+				},
+			},
+		}
+	}
 
 	return container
 }
@@ -600,12 +609,12 @@ func buildResourceRequirements(gpu *spec.GPUConfig) corev1.ResourceRequirements 
 	// Standard resources
 	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("100m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
 		},
 		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("1"),
-			corev1.ResourceMemory: resource.MustParse("1Gi"),
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
 		},
 	}
 }

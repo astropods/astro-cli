@@ -10,15 +10,26 @@ type PortDef struct {
 
 // Provider holds provider-specific configuration.
 type Provider struct {
-	Image       string            // default container image (e.g., "qdrant/qdrant:latest")
-	DefaultPort int               // primary port (6333 for qdrant, 6379 for redis, etc.)
-	ExtraPorts  []PortDef         // additional named ports (e.g., gRPC 6334 for qdrant)
-	MountPath   string            // volume mount path for persistent data
-	EnvPrefix   string            // env var prefix ("QDRANT", "REDIS", etc.)
-	URLScheme   string            // connection URL scheme ("http", "redis")
-	HealthCheck []string          // exec health check command; nil → use HealthPath instead
-	HealthPath  string            // HTTP health check path (e.g., "/healthz")
-	DefaultEnv  map[string]string // default environment variables for the container
+	Image        string            // default container image (e.g., "qdrant/qdrant:latest")
+	DefaultPort  int               // primary port (6333 for qdrant, 6379 for redis, etc.)
+	ExtraPorts   []PortDef         // additional named ports (e.g., gRPC 6334 for qdrant)
+	MountPath    string            // volume mount path for persistent data
+	EnvPrefix    string            // env var prefix ("QDRANT", "REDIS", etc.)
+	URLScheme    string            // connection URL scheme ("http", "redis")
+	HealthCheck  []string          // exec health check command; nil → use HealthPath instead
+	HealthPath   string            // HTTP health check path (e.g., "/healthz")
+	DefaultEnv   map[string]string // default environment variables for the container
+	GPU          bool              // whether the provider requires GPU resources
+	NodeSelector map[string]string // node selector labels for scheduling
+	Tolerations  []Toleration      // tolerations for GPU/specialized node taints
+}
+
+// Toleration mirrors corev1.Toleration for use outside k8s packages.
+type Toleration struct {
+	Key      string
+	Operator string // "Exists" or "Equal"
+	Value    string
+	Effect   string // "NoSchedule", "NoExecute", "PreferNoSchedule"
 }
 
 var providerRegistry = map[string]Provider{
@@ -77,7 +88,15 @@ var modelProviderRegistry = map[string]Provider{
 	"ollama": {
 		Image:       "ollama/ollama:latest",
 		DefaultPort: 11434,
+		MountPath:   "/root/.ollama",
+		EnvPrefix:   "OLLAMA",
 		HealthPath:  "/api/tags",
+		DefaultEnv:  map[string]string{"OLLAMA_HOST": "0.0.0.0", "OLLAMA_KEEP_ALIVE": "-1"},
+		GPU:         true,
+		NodeSelector: map[string]string{"workload-type": "gpu"},
+		Tolerations: []Toleration{
+			{Key: "nvidia.com/gpu", Operator: "Exists", Effect: "NoSchedule"},
+		},
 	},
 }
 
