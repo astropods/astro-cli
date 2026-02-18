@@ -9,7 +9,7 @@ import (
 	spec "github.com/postman/astro/packages/astro-spec"
 )
 
-// renderAstroYml renders the astro.yml template with the given config and returns the YAML string.
+// renderAstroYml renders the astroai.yml template with the given config and returns the YAML string.
 func renderAstroYml(t *testing.T, config ScaffoldConfig) string {
 	t.Helper()
 	paths, err := GetTemplatePaths("ts")

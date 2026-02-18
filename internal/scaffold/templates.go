@@ -31,7 +31,7 @@ func GetTemplatePaths(lang string) (*TemplatePaths, error) {
 	switch lang {
 	case "ts":
 		return &TemplatePaths{
-			AstroYml:            "templates/template-ts/astro.yml",
+			AstroYml:            "templates/template-ts/astroai.yml",
 			Dockerfile:          "templates/template-ts/Dockerfile",
 			DockerfileIngestion: "templates/template-ts/Dockerfile.ingestion",
 			PackageJson:         "templates/template-ts/package.json",

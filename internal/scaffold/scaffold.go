@@ -90,7 +90,7 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		path         string
 		templatePath string
 	}{
-		{filepath.Join(targetDir, "astro.yml"), paths.AstroYml},
+		{filepath.Join(targetDir, "astroai.yml"), paths.AstroYml},
 		{filepath.Join(targetDir, "Dockerfile"), paths.Dockerfile},
 		{filepath.Join(targetDir, "package.json"), paths.PackageJson},
 		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},

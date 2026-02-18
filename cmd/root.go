@@ -26,7 +26,7 @@ var rootCmd = &cobra.Command{
 	Short: "Astro CLI - Build, push, and develop AI agents",
 	Long: `Astro CLI is a tool for building, pushing, and developing AI agents.
 
-It reads an astro.yml specification file that declares:
+It reads an astroai.yml specification file that declares:
 - Self-hosted components (models, knowledge stores, tools)
 - Cloud integrations (Anthropic, GitHub, etc.)
 - Interfaces (Slack, HTTP API)
@@ -46,7 +46,7 @@ func Execute() {
 func init() {
 	rootCmd.Version = fullVersion()
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
-	rootCmd.PersistentFlags().StringP("file", "f", "astro.yml", "Path to astro.yml spec file")
+	rootCmd.PersistentFlags().StringP("file", "f", "astroai.yml", "Path to astroai.yml spec file")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
 }

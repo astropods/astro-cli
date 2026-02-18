@@ -126,7 +126,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("server URL required for registration: run 'ast login', use --server, or use --skip-register")
 	}
 
-	// Parse astro.yml
+	// Parse astroai.yml
 	fmt.Printf("%s→%s Parsing %s\n", colorCyan, colorReset, specFile)
 
 	workingDir, err := os.Getwd()
