@@ -170,25 +170,12 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	if len(astroSpec.Integrations) > 0 {
 		fmt.Printf("%s%sIntegrations%s  %sThird-party APIs accessed via credentials at runtime%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
 		for name, integration := range astroSpec.Integrations {
-			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
-			if integration.Type != "" {
-				fmt.Printf(" %s(%s)%s", colorDim, integration.Type, colorReset)
-			}
-			fmt.Println()
-			fmt.Printf("    Provider: %s%s%s\n", colorYellow, integration.Provider, colorReset)
+			fmt.Printf("\n  %s%s%s\n", colorCyan, name, colorReset)
 
-			var suffixes []string
-			if strings.ToLower(integration.Provider) == "custom" {
-				for _, cc := range integration.Credentials {
-					suffixes = append(suffixes, cc.Suffix)
-				}
-			} else {
-				suffixes = getIntegrationSuffixes(integration.Provider)
-			}
-			if len(suffixes) > 0 {
+			if len(integration.Credentials) > 0 {
 				var keys []string
-				for _, s := range suffixes {
-					keys = append(keys, strings.ToUpper(name)+"_"+s)
+				for _, cc := range integration.Credentials {
+					keys = append(keys, strings.ToUpper(name)+"_"+cc.Suffix)
 				}
 				fmt.Printf("    Env: %s%s%s\n", colorDim, strings.Join(keys, ", "), colorReset)
 			}
@@ -292,18 +279,56 @@ func collectWarnings(s *spec.AstroSpec) []string {
 		}
 	}
 
-	// Integration credentials inject {NAME}_{SUFFIX}
-	for name, integration := range s.Integrations {
-		var suffixes []string
-		if strings.ToLower(integration.Provider) == "custom" {
-			for _, cc := range integration.Credentials {
-				suffixes = append(suffixes, cc.Suffix)
+	// Cloud provider credentials inject {NAME}_{SUFFIX}
+	// Scan models for cloud providers
+	for name, model := range s.Models {
+		if model.IsProviderMode() {
+			if suffixes := getIntegrationSuffixes(model.Provider); len(suffixes) > 0 {
+				for _, suffix := range suffixes {
+					key := strings.ToUpper(name) + "_" + suffix
+					if prev, ok := autoEnv[key]; ok {
+						warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and model %s%s%s.",
+							colorBold, key, colorReset, prev, colorCyan, name, colorReset))
+					}
+					autoEnv[key] = fmt.Sprintf("model %s%s%s", colorCyan, name, colorReset)
+				}
 			}
-		} else {
-			suffixes = getIntegrationSuffixes(integration.Provider)
 		}
-		for _, suffix := range suffixes {
-			key := strings.ToUpper(name) + "_" + suffix
+	}
+	// Scan knowledge for cloud providers
+	for name, knowledge := range s.Knowledge {
+		if knowledge.IsProviderMode() {
+			if suffixes := getIntegrationSuffixes(knowledge.Provider); len(suffixes) > 0 {
+				for _, suffix := range suffixes {
+					key := strings.ToUpper(name) + "_" + suffix
+					if prev, ok := autoEnv[key]; ok {
+						warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and knowledge %s%s%s.",
+							colorBold, key, colorReset, prev, colorCyan, name, colorReset))
+					}
+					autoEnv[key] = fmt.Sprintf("knowledge %s%s%s", colorCyan, name, colorReset)
+				}
+			}
+		}
+	}
+	// Scan tools for cloud providers
+	for name, tool := range s.Tools {
+		if tool.IsProviderMode() {
+			if suffixes := getIntegrationSuffixes(tool.Provider); len(suffixes) > 0 {
+				for _, suffix := range suffixes {
+					key := strings.ToUpper(name) + "_" + suffix
+					if prev, ok := autoEnv[key]; ok {
+						warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and tool %s%s%s.",
+							colorBold, key, colorReset, prev, colorCyan, name, colorReset))
+					}
+					autoEnv[key] = fmt.Sprintf("tool %s%s%s", colorCyan, name, colorReset)
+				}
+			}
+		}
+	}
+	// Integrations
+	for name, integration := range s.Integrations {
+		for _, cc := range integration.Credentials {
+			key := strings.ToUpper(name) + "_" + cc.Suffix
 			if prev, ok := autoEnv[key]; ok {
 				warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and integration %s%s%s.",
 					colorBold, key, colorReset, prev, colorCyan, name, colorReset))
