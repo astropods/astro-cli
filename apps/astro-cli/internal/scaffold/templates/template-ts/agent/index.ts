@@ -77,34 +77,31 @@ async function main() {
     const username = message.user?.username || message.user?.id || 'Anonymous User';
     console.log(`📨 ${username}: ${message.content}`);
 
-    try {
-      // Stream the message through the agent
-      const reply = await new Promise<string>((resolve, reject) => {
-        agent.stream({
-          prompt: message.content,
-          threadId: message.conversationId,
-          userId: message.user?.id ?? 'anonymous',
-          onFinish: (result: string) => resolve(result),
-          onError: (error: Error) => reject(error),
+    const agentUser = {
+      id: AGENT_NAME.toLowerCase().replace(/\s+/g, '-'),
+      username: AGENT_NAME,
+    };
+
+    agent.stream({
+      prompt: message.content,
+      threadId: message.conversationId,
+      userId: message.user?.id ?? 'anonymous',
+      onChunk: (chunk: string) => {
+        stream.sendMessage({
+          conversationId: message.conversationId,
+          platform: message.platform,
+          platformContext: message.platformContext,
+          content: chunk,
+          user: agentUser,
         });
-      });
-
-      // Send the reply back through the stream
-      stream.sendMessage({
-        conversationId: message.conversationId,
-        platform: message.platform,
-        platformContext: message.platformContext,
-        content: reply,
-        user: {
-          id: AGENT_NAME.toLowerCase().replace(/\s+/g, '-'),
-          username: AGENT_NAME,
-        },
-      });
-
-      console.log('📤 Response sent');
-    } catch (error) {
-      console.error('❌ Error handling message:', error);
-    }
+      },
+      onFinish: () => {
+        console.log('📤 Response complete');
+      },
+      onError: (error: Error) => {
+        console.error('❌ Error handling message:', error);
+      },
+    });
   });
 
   stream.on('error', (error: Error) => {
