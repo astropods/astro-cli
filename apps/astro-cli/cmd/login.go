@@ -29,7 +29,7 @@ This command initiates the OAuth device authorization flow:
 4. The CLI automatically receives your credentials
 
 Your Astro credentials and Astro server URL are stored in your system's keychain
-when available, otherwise in ~/.astro/credentials.json with restricted permissions.
+when available, otherwise in ~/.ast/credentials.json with restricted permissions.
 
 Example:
   ast login

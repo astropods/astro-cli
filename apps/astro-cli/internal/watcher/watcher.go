@@ -52,7 +52,7 @@ func (fw *FileWatcher) Start() error {
 		}
 		// Skip hidden directories and common ignore patterns
 		name := filepath.Base(path)
-		if name == ".git" || name == "node_modules" || name == "__pycache__" || name == ".astro" {
+		if name == ".git" || name == "node_modules" || name == "__pycache__" || name == ".ast" {
 			return filepath.SkipDir
 		}
 		return fw.watcher.Add(path)

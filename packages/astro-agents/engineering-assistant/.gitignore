@@ -1,5 +1,5 @@
 .env
 *.pyc
 __pycache__/
-.astro/
+.ast/
 *.log

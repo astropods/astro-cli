@@ -165,10 +165,10 @@ func TestSaveCredentials_CreatesDirectory(t *testing.T) {
 	tmpDir, cleanup := setupTestDir(t)
 	defer cleanup()
 
-	// Verify the .astro directory doesn't exist yet
-	astroDir := filepath.Join(tmpDir, ".astro")
+	// Verify the .ast directory doesn't exist yet
+	astroDir := filepath.Join(tmpDir, ".ast")
 	if _, err := os.Stat(astroDir); !os.IsNotExist(err) {
-		t.Fatal("expected .astro directory to not exist initially")
+		t.Fatal("expected .ast directory to not exist initially")
 	}
 
 	storage := createTestStorage()

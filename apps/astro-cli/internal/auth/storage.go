@@ -62,7 +62,7 @@ type Storage struct {
 }
 
 // NewStorage creates a new storage instance.
-// binaryName controls the config directory (e.g. "ast" → ~/.astro, "ast-preview" → ~/.astro-preview).
+// binaryName controls the config directory (e.g. "ast" → ~/.ast, "ast-preview" → ~/.ast-preview).
 func NewStorage(binaryName string) *Storage {
 	useKeyring := isKeyringAvailable()
 	return &Storage{binaryName: binaryName, useKeyring: useKeyring}

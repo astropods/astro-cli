@@ -77,7 +77,7 @@ case "$ARCH" in
 esac
 
 URL="${BASE}/download/${PREFIX}-${OS}-${ARCH}"
-INSTALL_DIR="${HOME}/.astro/bin"
+INSTALL_DIR="${HOME}/.ast/bin"
 HEADER_FILE="$(mktemp)"
 
 mkdir -p "$INSTALL_DIR"
@@ -138,7 +138,7 @@ case ":${PATH}:" in
   *)
     echo ""
     echo "Add this to your shell profile:"
-    echo "  export PATH=\"\$HOME/.astro/bin:\$PATH\""
+    echo "  export PATH=\"\$HOME/.ast/bin:\$PATH\""
     ;;
 esac
 `, base, prefix)
