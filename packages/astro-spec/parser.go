@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ParseFile reads and parses an astro.yml file from the given path
+// ParseFile reads and parses an astroai.yml file from the given path
 func ParseFile(path string) (*AstroSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -17,7 +17,7 @@ func ParseFile(path string) (*AstroSpec, error) {
 	return Parse(data)
 }
 
-// Parse parses astro.yml content from bytes
+// Parse parses astroai.yml content from bytes
 func Parse(data []byte) (*AstroSpec, error) {
 	var spec AstroSpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
@@ -27,12 +27,12 @@ func Parse(data []byte) (*AstroSpec, error) {
 	return &spec, nil
 }
 
-// ParseString parses astro.yml content from a string
+// ParseString parses astroai.yml content from a string
 func ParseString(content string) (*AstroSpec, error) {
 	return Parse([]byte(content))
 }
 
-// ParseSpec reads and parses an astro.yml file with validation
+// ParseSpec reads and parses an astroai.yml file with validation
 func ParseSpec(path string) (*AstroSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

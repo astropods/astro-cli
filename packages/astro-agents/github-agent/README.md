@@ -7,7 +7,7 @@ This is an example agent that can fetch and analyze GitHub repositories using th
 This agent demonstrates how to:
 - Create an HTTP-based agent (no messaging platform required)
 - Use astro-workflows for GitHub integration
-- Package and deploy an agent using `astro.yml`
+- Package and deploy an agent using `astroai.yml`
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ This agent demonstrates how to:
 
 ## Configuration
 
-The agent is configured via `astro.yml`:
+The agent is configured via `astroai.yml`:
 - **Runtime**: Builds from Dockerfile in this directory
 - **Interface**: Uses `http` for direct API access
 - **Inference**: Listens on port 8080
@@ -83,7 +83,7 @@ curl http://localhost:8080/health
 
 ```
 github-agent/
-├── astro.yml           # Agent configuration
+├── astroai.yml           # Agent configuration
 ├── Dockerfile          # Container image definition
 ├── README.md           # This file
 └── src/
@@ -102,5 +102,5 @@ github-agent/
 To customize this agent:
 1. Edit `src/index.ts` to change agent behavior
 2. Add more tools from astro-workflows
-3. Update `astro.yml` to modify configuration
+3. Update `astroai.yml` to modify configuration
 4. Rebuild with `astro build`

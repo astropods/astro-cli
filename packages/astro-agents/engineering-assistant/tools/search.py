@@ -1,7 +1,7 @@
 """
 Custom tool for searching internal documentation.
 
-This is referenced in astro.yml as:
+This is referenced in astroai.yml as:
   tools:
     doc_search:
       type: function

@@ -194,7 +194,7 @@ agent.stream({
 ```
 ├── agent/index.ts           # Main agent entry point
 ├── ingestion/index.ts       # Data ingestion pipeline (batch job)
-├── astro.yml                # Deployment configuration
+├── astroai.yml                # Deployment configuration
 ├── Dockerfile               # Agent container
 └── Dockerfile.ingestion     # Ingestion container (if enabled)
 ```
@@ -204,7 +204,7 @@ agent.stream({
 
 ---
 
-## Configuration (`astro.yml`)
+## Configuration (`astroai.yml`)
 
 Defines container build, interfaces (web/Slack), model providers, knowledge stores, and ingestion triggers.
 

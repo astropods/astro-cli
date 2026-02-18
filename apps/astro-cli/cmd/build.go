@@ -29,7 +29,7 @@ import (
 var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build agent and custom component containers from spec",
-	Long: `Build container images defined in astro.yml.
+	Long: `Build container images defined in astroai.yml.
 
 This command builds:
 - The agent container (container.build)
@@ -71,7 +71,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s Parsing spec: %s\n", colorCyan, colorReset, specFile)
 	}
 
-	// Parse astro.yml
+	// Parse astroai.yml
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)

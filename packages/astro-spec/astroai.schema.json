@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://astromode.ai/schema/astro.json",
+  "$id": "https://astromode.ai/schema/astroai.json",
   "properties": {
     "spec": {
       "type": "string",
@@ -685,6 +685,6 @@
     "meta",
     "agent"
   ],
-  "title": "Astro Spec",
-  "description": "Schema for astro.yml agent specification"
+  "title": "AstroAI Spec",
+  "description": "Schema for astroai.yml agent specification"
 }

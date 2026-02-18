@@ -340,7 +340,7 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 		}
 	}
 
-	// Container-mode GPU (explicit gpu block in astro.yml)
+	// Container-mode GPU (explicit gpu block in astroai.yml)
 	if container.HasGPU() {
 		dm.Resources = spec.GPUResources
 		dm.GPU = &spec.DeploymentGPU{

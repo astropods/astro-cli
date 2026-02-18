@@ -29,7 +29,7 @@ var createCmd = &cobra.Command{
 	Long: `Create a new Astro agent project with scaffolded files.
 
 The create command generates a new agent project with the specified language:
-- astro.yml specification file
+- astroai.yml specification file
 - Dockerfile for the runtime
 - agent source files for your agent logic
 - ingestion source files for data pipelines

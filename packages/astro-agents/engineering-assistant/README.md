@@ -102,7 +102,7 @@ A knowledge assistant agent that answers engineering questions using RAG (Retrie
 
 ## Configuration
 
-The agent is configured via `astro.yml` using the Astro spec format.
+The agent is configured via `astroai.yml` using the Astro spec format.
 
 ### Self-hosted Components
 
@@ -173,7 +173,7 @@ Health check endpoint.
 
 ```
 engineering-assistant/
-├── astro.yml           # Astro spec
+├── astroai.yml           # Astro spec
 ├── Dockerfile          # Agent container build
 ├── requirements.txt    # Python dependencies
 ├── .env.example       # Environment template
@@ -192,7 +192,7 @@ engineering-assistant/
        return {"result": "..."}
    ```
 
-2. Add to `astro.yml`:
+2. Add to `astroai.yml`:
    ```yaml
    tools:
      my_tool:

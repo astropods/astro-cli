@@ -43,7 +43,7 @@ This document describes the architecture and interactions between the three core
 
 **Responsibilities**:
 - Authenticate users via WorkOS device authorization flow
-- Build container images from `astro.yml` spec
+- Build container images from `astroai.yml` spec
 - Push images to astro-registry with bearer auth
 - Transform specs (replace `build:` with `image:` refs)
 - Register transformed specs with astro-server
@@ -126,7 +126,7 @@ Both components validate WorkOS JWTs using JWKS:
 ```
 Developer runs: astro publish --tag v1.0.0
 
-1. CLI: Load and parse astro.yml
+1. CLI: Load and parse astroai.yml
 2. CLI: GET /api/namespace → registry validates token, returns user_id
 3. CLI: Build images locally (docker build)
 4. CLI: Tag images with registry namespace

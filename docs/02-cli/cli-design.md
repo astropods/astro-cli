@@ -38,7 +38,7 @@ astro create <agent-name>
 **Generated project structure:**
 ```
 <agent-name>/
-├── astro.yml              # Agent specification
+├── astroai.yml              # Agent specification
 ├── Dockerfile             # Agent container (Bun runtime)
 ├── Dockerfile.ingestion   # Ingestion pipeline (if enabled)
 ├── package.json           # Bun dependencies
@@ -72,7 +72,7 @@ astro create <agent-name>
 
 ### astro build
 
-Builds agent container and self-hosted component images from astro.yml.
+Builds agent container and self-hosted component images from astroai.yml.
 
 **Usage:**
 ```bash
@@ -80,12 +80,12 @@ astro build [options]
 ```
 
 **Options:**
-- `-f, --file <path>` - Path to astro.yml (default: ./astro.yml)
+- `-f, --file <path>` - Path to astroai.yml (default: ./astroai.yml)
 - `--no-cache` - Build without using cache
 - `-t, --tag <tag>` - Tag for the agent image (default: latest)
 
 **What it does:**
-1. Validates astro.yml spec
+1. Validates astroai.yml spec
 2. Builds agent container (from `container.build` or `container.image`)
 3. Builds self-hosted component containers:
    - Models (from `models.*.container`)
@@ -109,7 +109,7 @@ astro publish [options]
 ```
 
 **Options:**
-- `-f, --file <path>` - Path to astro.yml (default: ./astro.yml)
+- `-f, --file <path>` - Path to astroai.yml (default: ./astroai.yml)
 - `-r, --registry <url>` - OCI registry URL (required)
 - `-t, --tag <tag>` - Tag to publish (default: latest)
 - `--build` - Build before publishing
@@ -117,7 +117,7 @@ astro publish [options]
 **What it does:**
 1. Pushes agent container to registry
 2. Pushes self-hosted component containers to registry
-3. Bundles astro.yml spec as OCI artifact
+3. Bundles astroai.yml spec as OCI artifact
 4. Pushes spec artifact to registry (tagged with agent version from `meta.version`)
 5. Creates manifest linking agent image + spec + components
 
@@ -137,12 +137,12 @@ astro dev [options]
 ```
 
 **Options:**
-- `-f, --file <path>` - Path to astro.yml (default: ./astro.yml)
+- `-f, --file <path>` - Path to astroai.yml (default: ./astroai.yml)
 - `--env <file>` - Environment file for integration credentials (default: .env)
 - `--no-reload` - Disable hot reload
 
 **What it does:**
-1. Validates astro.yml spec
+1. Validates astroai.yml spec
 2. Spins up self-hosted components locally:
    - Models (docker containers from `models.*.container`)
    - Knowledge stores (docker containers from `knowledge.*.container`)
@@ -177,7 +177,7 @@ astro dev [options]
 
 ## Configuration
 
-All commands read from astro.yml in current directory by default.
+All commands read from astroai.yml in current directory by default.
 
 **Global flags:**
 - `--verbose, -v` - Verbose output

@@ -1,4 +1,4 @@
-# Astro Spec (astro/v1)
+# AstroAI Spec (astro/v1)
 
 **Version:** 1.0
 **Date:** 2026-02-17
@@ -6,7 +6,7 @@
 
 ## Abstract
 
-The Astro Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, tool services, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns.
+The AstroAI Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, tool services, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns.
 
 ## Conventions
 
@@ -16,7 +16,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## 1. Introduction
 
-An Astro Spec file (`astro.yml`) is a YAML document that declares:
+An AstroAI Spec file (`astroai.yml`) is a YAML document that declares:
 
 - The agent's container image (pre-built or build-from-source).
 - Sidecar components the agent depends on — models, knowledge stores, and tools — each supplied by either a platform-managed provider or a user-managed container.
@@ -26,7 +26,7 @@ An Astro Spec file (`astro.yml`) is a YAML document that declares:
 
 The spec does **not** cover: resource limits (CPU/memory), guardrails, observability, rate limits, budgets, security policies, deployment region, or interface routing (Slack, web). These are deployment-time concerns configured separately.
 
-The document format is YAML. Implementations MUST accept files named `astro.yml` or `astro.yaml`.
+The document format is YAML. Implementations MUST accept files named `astroai.yml` or `astroai.yaml`.
 
 ---
 
@@ -382,9 +382,9 @@ When `model` is specified for a self-hosted provider, the platform sets `{ENV_PR
 
 ## Appendix B: JSON Schema
 
-A machine-readable JSON Schema for this specification is maintained at `astro.schema.json` in the `astro-spec` package. The schema is generated from the normative type definitions and MAY be used for editor autocompletion and pre-validation.
+A machine-readable JSON Schema for this specification is maintained at `astroai.schema.json` in the `astro-spec` package. The schema is generated from the normative type definitions and MAY be used for editor autocompletion and pre-validation.
 
-Schema ID: `https://astromode.ai/schema/astro.json`
+Schema ID: `https://astromode.ai/schema/astroai.json`
 
 ---
 

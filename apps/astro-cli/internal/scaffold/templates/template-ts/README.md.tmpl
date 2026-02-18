@@ -22,7 +22,7 @@ ast dev
 ├── ingestion/
 │   └── index.ts          # Data ingestion pipeline
 {{- end}}
-├── astro.yml             # Agent specification
+├── astroai.yml             # Agent specification
 ├── Dockerfile            # Agent container
 {{- if ne .Ingestion "none"}}
 ├── Dockerfile.ingestion  # Ingestion container
@@ -33,7 +33,7 @@ ast dev
 
 ## Configuration
 
-The agent is configured in `astro.yml`. Key sections:
+The agent is configured in `astroai.yml`. Key sections:
 {{- if ne .ModelProvider ""}}
 
 ### Model

@@ -7,7 +7,7 @@ Today, the deploy API performs an implicit, in-memory transformation: `AstroSpec
 ## Pipeline
 
 ```
-astro.yml (author-time, defines agent topology)
+astroai.yml (author-time, defines agent topology)
     │
     │  publish (build images, push, strip build blocks, register)
     ▼
@@ -157,12 +157,12 @@ resources:
 
 Defaults applied by the server when omitted:
 
-| Component | CPU request | Memory request | CPU limit | Memory limit |
-|---|---|---|---|---|
-| Standard (agent, tools, non-GPU models) | 100m | 256Mi | 1 | 1Gi |
-| GPU workloads (models with `gpu`) | 2 | 8Gi | 4 | 16Gi |
-| Messaging sidecars | 100m | 128Mi | 500m | 512Mi |
-| Collector | 50m | 128Mi | 250m | 256Mi |
+| Component                               | CPU request | Memory request | CPU limit | Memory limit |
+| --------------------------------------- | ----------- | -------------- | --------- | ------------ |
+| Standard (agent, tools, non-GPU models) | 100m        | 256Mi          | 1         | 1Gi          |
+| GPU workloads (models with `gpu`)       | 2           | 8Gi            | 4         | 16Gi         |
+| Messaging sidecars                      | 100m        | 128Mi          | 500m      | 512Mi        |
+| Collector                               | 50m         | 128Mi          | 250m      | 256Mi        |
 
 ### GPUConfig
 
@@ -240,20 +240,20 @@ Every model, knowledge store, and tool implicitly exposes three attributes: `.ho
 
 Available references:
 
-| Reference | Resolves to |
-|---|---|
-| `${models.<name>.host}` | Service DNS for the model |
-| `${models.<name>.port}` | Port number (string) |
-| `${models.<name>.url}` | `http://<host>:<port>` |
-| `${knowledge.<name>.host}` | Service DNS for the knowledge store |
-| `${knowledge.<name>.port}` | Port number (string) |
-| `${knowledge.<name>.url}` | `<scheme>://<host>:<port>` (scheme from provider: `http`, `redis`, etc.) |
-| `${tools.<name>.host}` | Service DNS for the tool |
-| `${tools.<name>.port}` | Port number (string) |
-| `${tools.<name>.url}` | `http://<host>:<port>` |
-| `${credentials.<KEY>}` | Credential value (resolved from Secret at runtime) |
-| `${source.name}` | Agent name |
-| `${source.version}` | Agent version |
+| Reference                  | Resolves to                                                              |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `${models.<name>.host}`    | Service DNS for the model                                                |
+| `${models.<name>.port}`    | Port number (string)                                                     |
+| `${models.<name>.url}`     | `http://<host>:<port>`                                                   |
+| `${knowledge.<name>.host}` | Service DNS for the knowledge store                                      |
+| `${knowledge.<name>.port}` | Port number (string)                                                     |
+| `${knowledge.<name>.url}`  | `<scheme>://<host>:<port>` (scheme from provider: `http`, `redis`, etc.) |
+| `${tools.<name>.host}`     | Service DNS for the tool                                                 |
+| `${tools.<name>.port}`     | Port number (string)                                                     |
+| `${tools.<name>.url}`      | `http://<host>:<port>`                                                   |
+| `${credentials.<KEY>}`     | Credential value (resolved from Secret at runtime)                       |
+| `${source.name}`           | Agent name                                                               |
+| `${source.version}`        | Agent version                                                            |
 
 **Example wiring in `agent.environment`:**
 
@@ -376,22 +376,22 @@ The astro-spec has no concept of replicas. The deployment spec adds `replicas` p
 
 ## Relationship to Existing Specs
 
-| Concern | AstroSpec | DeploymentSpec | K8s Manifest |
-|---|---|---|---|
-| Build instructions | `agent.build` | absent | absent |
-| Provider name | `models.x.provider: ollama` (self-hosted) or `models.x.provider: anthropic` (cloud) | absent (resolved to image or credential) | absent |
-| Model image | resolved at runtime via `ResolvedContainer()` | `models.x.image: ollama/ollama:latest` | `Deployment.containers[0].image` |
-| Connection env vars | implicit (EnvBuilder derives from names) | `agent.environment: {OLLAMA_URL: "${models.local_llm.url}"}` | `ConfigMap.data.OLLAMA_URL` |
-| Credentials | `models.x.provider: anthropic` (cloud) or `integrations.x.credentials` | `credentials.X_API_KEY.value: sk-...` | `Secret.data.X_API_KEY` |
-| Schedules | `ingestion.x.trigger.type: schedule` | `ingestion.x.trigger.schedule: "0 * * * *"` | `CronJob.spec.schedule` |
-| Interfaces | absent (in `dev` only) | `interfaces: {adapters: [slack], image: ..., port: 9090}` | messaging sidecar Deployment + Service |
-| Replicas | absent | `agent.replicas: 2` | `Deployment.spec.replicas: 2` |
-| Resources | absent (hardcoded defaults) | `agent.resources: {cpu: 100m, ...}` | `container.resources.requests/limits` |
-| Update strategy | absent (k8s default) | `agent.update: {strategy: rolling}` | `Deployment.spec.strategy` |
-| Namespace | absent | `target.namespace: user-123` | all resources in namespace |
-| Persistence | `knowledge.x.persistent: true` | `knowledge.x.persistent: true, storage: ...` | StatefulSet + PVC |
-| Expose/Ingress | absent | `agent.expose.domain: ...` | Ingress resource |
-| Observability | absent | `observability.enabled: true` | collector sidecar Deployment |
+| Concern             | AstroSpec                                                                           | DeploymentSpec                                               | K8s Manifest                           |
+| ------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------- |
+| Build instructions  | `agent.build`                                                                       | absent                                                       | absent                                 |
+| Provider name       | `models.x.provider: ollama` (self-hosted) or `models.x.provider: anthropic` (cloud) | absent (resolved to image or credential)                     | absent                                 |
+| Model image         | resolved at runtime via `ResolvedContainer()`                                       | `models.x.image: ollama/ollama:latest`                       | `Deployment.containers[0].image`       |
+| Connection env vars | implicit (EnvBuilder derives from names)                                            | `agent.environment: {OLLAMA_URL: "${models.local_llm.url}"}` | `ConfigMap.data.OLLAMA_URL`            |
+| Credentials         | `models.x.provider: anthropic` (cloud) or `integrations.x.credentials`              | `credentials.X_API_KEY.value: sk-...`                        | `Secret.data.X_API_KEY`                |
+| Schedules           | `ingestion.x.trigger.type: schedule`                                                | `ingestion.x.trigger.schedule: "0 * * * *"`                  | `CronJob.spec.schedule`                |
+| Interfaces          | absent (in `dev` only)                                                              | `interfaces: {adapters: [slack], image: ..., port: 9090}`    | messaging sidecar Deployment + Service |
+| Replicas            | absent                                                                              | `agent.replicas: 2`                                          | `Deployment.spec.replicas: 2`          |
+| Resources           | absent (hardcoded defaults)                                                         | `agent.resources: {cpu: 100m, ...}`                          | `container.resources.requests/limits`  |
+| Update strategy     | absent (k8s default)                                                                | `agent.update: {strategy: rolling}`                          | `Deployment.spec.strategy`             |
+| Namespace           | absent                                                                              | `target.namespace: user-123`                                 | all resources in namespace             |
+| Persistence         | `knowledge.x.persistent: true`                                                      | `knowledge.x.persistent: true, storage: ...`                 | StatefulSet + PVC                      |
+| Expose/Ingress      | absent                                                                              | `agent.expose.domain: ...`                                   | Ingress resource                       |
+| Observability       | absent                                                                              | `observability.enabled: true`                                | collector sidecar Deployment           |
 
 ## Template Generation API
 

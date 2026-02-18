@@ -129,7 +129,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	log.Printf("🚀 Starting Astro dev mode...")
 	log.Printf("📄 Loading spec from: %s", specFile)
 
-	// Parse astro.yml
+	// Parse astroai.yml
 	specPath := filepath.Join(workingDir, specFile)
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {

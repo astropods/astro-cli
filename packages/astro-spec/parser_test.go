@@ -627,7 +627,7 @@ tools:
 		t.Run(tt.name, func(t *testing.T) {
 			// Write yaml to temp file
 			tmpDir := t.TempDir()
-			tmpFile := filepath.Join(tmpDir, "astro.yml")
+			tmpFile := filepath.Join(tmpDir, "astroai.yml")
 			if err := os.WriteFile(tmpFile, []byte(tt.yaml), 0644); err != nil {
 				t.Fatalf("failed to write temp file: %v", err)
 			}
@@ -658,7 +658,7 @@ agent:
   image: test:latest
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "astro.yml")
+	tmpFile := filepath.Join(tmpDir, "astroai.yml")
 	if err := os.WriteFile(tmpFile, []byte(yaml), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -673,7 +673,7 @@ agent:
 }
 
 func TestParseFile_NotFound(t *testing.T) {
-	_, err := ParseFile("/nonexistent/path/astro.yml")
+	_, err := ParseFile("/nonexistent/path/astroai.yml")
 	if err == nil {
 		t.Error("ParseFile() expected error for nonexistent file, got nil")
 	}

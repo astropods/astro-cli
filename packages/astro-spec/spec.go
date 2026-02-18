@@ -1,8 +1,8 @@
-// Package spec provides shared type definitions for the Astro platform spec (astro.yml).
+// Package spec provides shared type definitions for the Astro platform spec (astroai.yml).
 // This package is used by both astro-cli and astro-server to ensure consistent parsing.
 package spec
 
-// AstroSpec represents the complete astro.yml specification
+// AstroSpec represents the complete astroai.yml specification
 type AstroSpec struct {
 	Spec         string                 `json:"spec" yaml:"spec" jsonschema:"description=Spec version (e.g. astro/v1)"`
 	Name         string                 `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`

@@ -14,7 +14,7 @@ import (
 var explainCmd = &cobra.Command{
 	Use:   "explain",
 	Short: "Explain the agent project based on its spec",
-	Long: `Parse the astro.yml spec and display a human-readable explanation
+	Long: `Parse the astroai.yml spec and display a human-readable explanation
 of the agent project: its components, how they connect, and what
 gets built vs. pre-built.
 

@@ -61,7 +61,7 @@ astro publish --tag v1.0.0 --no-auth --skip-register
 
 ## Minimal Test Agent
 
-Create `astro.yml`:
+Create `astroai.yml`:
 
 ```yaml
 name: test-agent
