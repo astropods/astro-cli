@@ -559,13 +559,16 @@ func (a *Applier) ApplyDeploymentSpec(
 		// Collector deployment
 		collectorCfg := CollectorDeploymentConfig{
 			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
-			BuildID: buildID, Component: "collector",
+			AgentVersion: ds.Source.Build,
+			BuildID:      buildID, Component: "collector",
+			DeploymentID:    buildID,
 			Image:           collectorImage,
 			Port:            otlpHTTPPort,
 			ConfigMapName:   "",
 			SecretName:      "",
 			GalileoAPIKey:   a.galileoAPIKey,
 			GalileoProject:  a.galileoProject,
+			GalileoLogStream: fmt.Sprintf("%s-%s", agentName, buildID),
 			ImagePullPolicy: a.imagePullPolicy,
 			Resources:       collectorResources,
 			Environment:     resolvedObsEnv,

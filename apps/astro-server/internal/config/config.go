@@ -91,8 +91,10 @@ type DeploymentConfig struct {
 	IngestionACMCertARN    string // ACM certificate ARN for ingestion wildcard cert
 	IngestionALBGroupName  string // ALB group name for ingestion ALB (separate from agents)
 	// Observability (Galileo) — injected into every collector sidecar
-	GalileoAPIKey  string // GALILEO_API_KEY
-	GalileoProject string // GALILEO_PROJECT
+	GalileoAPIKey      string // GALILEO_API_KEY
+	GalileoProject     string // GALILEO_PROJECT — name, injected into collector sidecars
+	GalileoProjectID   string // GALILEO_PROJECT_ID — UUID, used for REST API queries
+	GalileoAPIEndpoint string // GALILEO_API_ENDPOINT
 }
 
 // Load loads configuration from environment variables with defaults
@@ -132,8 +134,10 @@ func Load() (*Config, error) {
 			IngestionIngressDomain: getEnv("INGESTION_INGRESS_DOMAIN", ""),
 			IngestionACMCertARN:    getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
 			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
-			GalileoAPIKey:     getEnv("GALILEO_API_KEY", ""),
-			GalileoProject:    getEnv("GALILEO_PROJECT", ""),
+			GalileoAPIKey:      getEnv("GALILEO_API_KEY", ""),
+			GalileoProject:     getEnv("GALILEO_PROJECT", ""),
+			GalileoProjectID:   getEnv("GALILEO_PROJECT_ID", ""),
+			GalileoAPIEndpoint: getEnv("GALILEO_API_ENDPOINT", "https://api.galileo.ai"),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

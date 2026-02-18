@@ -266,7 +266,9 @@ type CollectorDeploymentConfig struct {
 	Name            string
 	Namespace       string
 	AgentName       string
+	AgentVersion    string
 	BuildID         string
+	DeploymentID    string
 	Component       string
 	Image           string
 	Port            int32                          // OTLP HTTP port (default 4318)
@@ -276,8 +278,9 @@ type CollectorDeploymentConfig struct {
 	Resources       *corev1.ResourceRequirements   // From observability.resources; nil means hardcoded defaults
 	Environment     map[string]string              // Resolved env from observability.environment
 	// Galileo credentials (server-level config, injected directly)
-	GalileoAPIKey  string
-	GalileoProject string
+	GalileoAPIKey    string
+	GalileoProject   string
+	GalileoLogStream string
 }
 
 // BuildCollectorDeployment creates a Kubernetes Deployment for the observability collector sidecar
@@ -361,6 +364,18 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 	if cfg.GalileoProject != "" {
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name: "GALILEO_PROJECT", Value: cfg.GalileoProject,
+		})
+	}
+
+	// Astro identity env vars — required by the astro processor
+	container.Env = append(container.Env,
+		corev1.EnvVar{Name: "ASTRO_AGENT_NAME", Value: cfg.AgentName},
+		corev1.EnvVar{Name: "ASTRO_AGENT_VERSION", Value: cfg.AgentVersion},
+		corev1.EnvVar{Name: "ASTRO_DEPLOYMENT_ID", Value: cfg.DeploymentID},
+	)
+	if cfg.GalileoLogStream != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name: "GALILEO_LOG_STREAM", Value: cfg.GalileoLogStream,
 		})
 	}
 

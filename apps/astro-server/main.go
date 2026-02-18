@@ -276,6 +276,11 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.GET("/deployments/:namespace/configmap/:cmname", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient))
 			protected.GET("/deployments/:namespace/secret/:secretname/keys", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient))
 			protected.POST("/deployments/:namespace/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient))
+
+			// Observability endpoints
+			protected.GET("/agents/:account/:name/observability/metrics", handlers.GetObservabilityMetrics(log, cfg, deploymentStore, accountStore))
+			protected.GET("/agents/:account/:name/observability/summary", handlers.GetObservabilitySummary(log, cfg, deploymentStore, accountStore))
+			protected.GET("/agents/:account/:name/observability/traces", handlers.GetObservabilityTraces(log, cfg, deploymentStore, accountStore))
 		}
 
 		// Admin endpoints (require basic auth)

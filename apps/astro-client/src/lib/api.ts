@@ -310,6 +310,40 @@ class ApiClient {
       method: 'POST',
     });
   }
+
+  // Observability endpoints
+  async getObservabilityMetrics(
+    account: string,
+    name: string,
+    params?: Record<string, string>,
+  ): Promise<ObservabilityMetricsResponse> {
+    const qs = params ? `?${new URLSearchParams(params)}` : '';
+    return this.request<ObservabilityMetricsResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/metrics${qs}`
+    );
+  }
+
+  async getObservabilitySummary(
+    account: string,
+    name: string,
+    params?: Record<string, string>,
+  ): Promise<ObservabilitySummaryResponse> {
+    const qs = params ? `?${new URLSearchParams(params)}` : '';
+    return this.request<ObservabilitySummaryResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/summary${qs}`
+    );
+  }
+
+  async getObservabilityTraces(
+    account: string,
+    name: string,
+    params?: Record<string, string>,
+  ): Promise<ObservabilityTracesResponse> {
+    const qs = params ? `?${new URLSearchParams(params)}` : '';
+    return this.request<ObservabilityTracesResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/traces${qs}`
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -494,6 +528,52 @@ export interface DeploymentHistoryRecord {
 export interface DeploymentHistoryResponse {
   deployments: DeploymentHistoryRecord[];
   count: number;
+}
+
+// Observability types
+export interface MetricsBucket {
+  timestamp: string;
+  trace_count: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  error_count: number;
+}
+
+export interface ObservabilityMetricsResponse {
+  buckets: MetricsBucket[];
+  time_range: { start: string; end: string };
+  interval_minutes: number;
+}
+
+export interface ObservabilitySummaryResponse {
+  total_traces: number;
+  time_range: { start: string; end: string };
+  metrics: {
+    avg_latency_ms: number;
+    p95_latency_ms: number;
+    total_tokens: number;
+    error_rate: number;
+    traces_per_hour: number;
+  };
+}
+
+export interface TraceEntry {
+  trace_id: string;
+  name: string;
+  status: string;
+  latency_ms: number;
+  input: string;
+  output: string;
+  timestamp: string;
+}
+
+export interface ObservabilityTracesResponse {
+  traces: TraceEntry[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 // Export singleton instance

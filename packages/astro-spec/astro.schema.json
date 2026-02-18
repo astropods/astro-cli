@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://astro.postman.com/schema/astro.json",
+  "$id": "https://astromode.ai/schema/astro.json",
   "properties": {
     "spec": {
       "type": "string",

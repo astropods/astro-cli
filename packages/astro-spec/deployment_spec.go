@@ -126,6 +126,7 @@ type DeploymentObservability struct {
 	Port        int                 `json:"port,omitempty" yaml:"port,omitempty"`
 	Resources   DeploymentResources `json:"resources,omitempty" yaml:"resources,omitempty"`
 	Environment map[string]string   `json:"environment,omitempty" yaml:"environment,omitempty"`
+	LogStream   string              `json:"log_stream,omitempty" yaml:"log_stream,omitempty"`
 }
 
 // DeploymentResources specifies CPU and memory requests/limits.

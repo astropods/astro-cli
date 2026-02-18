@@ -15,6 +15,15 @@ export const agentKeys = {
     ['agents', account, name, 'template'] as const,
 };
 
+export const observabilityKeys = {
+  metrics: (account: string, name: string, params?: Record<string, string>) =>
+    ['observability', 'metrics', account, name, params] as const,
+  summary: (account: string, name: string, params?: Record<string, string>) =>
+    ['observability', 'summary', account, name, params] as const,
+  traces: (account: string, name: string, params?: Record<string, string>) =>
+    ['observability', 'traces', account, name, params] as const,
+};
+
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
   logs: (account: string, namespace: string, pod: string, container: string, tailLines?: number) =>

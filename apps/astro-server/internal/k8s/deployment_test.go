@@ -630,9 +630,9 @@ func TestBuildCollectorDeployment(t *testing.T) {
 			t.Errorf("expected no envFrom, got %d", len(container.EnvFrom))
 		}
 
-		// No Galileo env vars
-		if len(container.Env) != 0 {
-			t.Errorf("expected no env vars, got %d", len(container.Env))
+		// ASTRO_* identity env vars are always injected (3 vars)
+		if len(container.Env) != 3 {
+			t.Errorf("expected 3 ASTRO env vars, got %d", len(container.Env))
 		}
 	})
 
@@ -652,6 +652,119 @@ func TestBuildCollectorDeployment(t *testing.T) {
 
 		if container.ImagePullPolicy != corev1.PullIfNotPresent {
 			t.Errorf("expected IfNotPresent, got %s", container.ImagePullPolicy)
+		}
+	})
+
+	t.Run("ASTRO identity env vars", func(t *testing.T) {
+		cfg := CollectorDeploymentConfig{
+			Name:         "collector-astro",
+			Namespace:    "default",
+			AgentName:    "test-agent",
+			AgentVersion: "v2.1.0",
+			BuildID:      "build-42",
+			DeploymentID: "dep-xyz",
+			Component:    "collector",
+			Image:        "collector:latest",
+		}
+
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		envMap := make(map[string]string)
+		for _, e := range container.Env {
+			envMap[e.Name] = e.Value
+		}
+
+		if envMap["ASTRO_AGENT_NAME"] != "test-agent" {
+			t.Errorf("ASTRO_AGENT_NAME: expected test-agent, got %s", envMap["ASTRO_AGENT_NAME"])
+		}
+		if envMap["ASTRO_AGENT_VERSION"] != "v2.1.0" {
+			t.Errorf("ASTRO_AGENT_VERSION: expected v2.1.0, got %s", envMap["ASTRO_AGENT_VERSION"])
+		}
+		if envMap["ASTRO_DEPLOYMENT_ID"] != "dep-xyz" {
+			t.Errorf("ASTRO_DEPLOYMENT_ID: expected dep-xyz, got %s", envMap["ASTRO_DEPLOYMENT_ID"])
+		}
+	})
+
+	t.Run("GALILEO_LOG_STREAM injected when set", func(t *testing.T) {
+		cfg := CollectorDeploymentConfig{
+			Name:             "collector-logstream",
+			Namespace:        "default",
+			AgentName:        "agent",
+			BuildID:          "1.0",
+			Component:        "collector",
+			Image:            "collector:latest",
+			GalileoLogStream: "agent-build-1",
+		}
+
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		envMap := make(map[string]string)
+		for _, e := range container.Env {
+			envMap[e.Name] = e.Value
+		}
+
+		if envMap["GALILEO_LOG_STREAM"] != "agent-build-1" {
+			t.Errorf("GALILEO_LOG_STREAM: expected agent-build-1, got %q", envMap["GALILEO_LOG_STREAM"])
+		}
+	})
+
+	t.Run("GALILEO_LOG_STREAM omitted when empty", func(t *testing.T) {
+		cfg := CollectorDeploymentConfig{
+			Name:      "collector-no-logstream",
+			Namespace: "default",
+			AgentName: "agent",
+			BuildID:   "1.0",
+			Component: "collector",
+			Image:     "collector:latest",
+		}
+
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		for _, e := range container.Env {
+			if e.Name == "GALILEO_LOG_STREAM" {
+				t.Errorf("GALILEO_LOG_STREAM should not be set when empty, got %q", e.Value)
+			}
+		}
+	})
+
+	t.Run("full config with all new fields", func(t *testing.T) {
+		cfg := CollectorDeploymentConfig{
+			Name:             "collector-full",
+			Namespace:        "astro-ns",
+			AgentName:        "full-agent",
+			AgentVersion:     "v3.0",
+			BuildID:          "build-99",
+			DeploymentID:     "dep-99",
+			Component:        "collector",
+			Image:            "collector:v3",
+			GalileoAPIKey:    "gal-key",
+			GalileoProject:   "gal-project",
+			GalileoLogStream: "full-agent-build-99",
+		}
+
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		envMap := make(map[string]string)
+		for _, e := range container.Env {
+			envMap[e.Name] = e.Value
+		}
+
+		expected := map[string]string{
+			"GALILEO_API_KEY":      "gal-key",
+			"GALILEO_PROJECT":      "gal-project",
+			"ASTRO_AGENT_NAME":     "full-agent",
+			"ASTRO_AGENT_VERSION":  "v3.0",
+			"ASTRO_DEPLOYMENT_ID":  "dep-99",
+			"GALILEO_LOG_STREAM":   "full-agent-build-99",
+		}
+		for key, want := range expected {
+			if envMap[key] != want {
+				t.Errorf("%s: expected %q, got %q", key, want, envMap[key])
+			}
 		}
 	})
 }

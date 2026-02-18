@@ -8,6 +8,7 @@ import {
   Loader2,
   Trash2,
   Activity,
+  BarChart3,
   AlertTriangle,
   X,
   AlertCircle,
@@ -23,8 +24,9 @@ import { DeploymentCard } from "../components/operator/DeploymentCard";
 import { DeployResultModal } from "../components/operator/DeployResultModal";
 import { PublishModal } from "../components/operator/PublishModal";
 import { PlaygroundChat } from "../components/operator/PlaygroundChat";
+import { ObservabilityTab } from "../components/operator/ObservabilityTab";
 
-type Tab = "overview" | "builds" | "deployments";
+type Tab = "overview" | "builds" | "deployments" | "observability";
 
 export function AgentPage() {
   const { account, agent: agentName } = useParams<{ account: string; agent: string }>();
@@ -121,6 +123,7 @@ export function AgentPage() {
     { id: "overview", label: "Overview", icon: <BookOpen size={16} /> },
     { id: "builds", label: "Builds", icon: <Package size={16} /> },
     { id: "deployments", label: "Deployments", icon: <Activity size={16} />, count: deployments.length },
+    { id: "observability", label: "Observability", icon: <BarChart3 size={16} /> },
   ];
 
   return (
@@ -237,6 +240,10 @@ export function AgentPage() {
               agentName={agentName}
               onPublish={(name, buildId) => setPublishTarget({ name, buildId })}
             />
+          )}
+
+          {activeTab === "observability" && (
+            <ObservabilityTab account={account} agentName={agentName} />
           )}
 
           {activeTab === "deployments" && (

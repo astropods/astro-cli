@@ -137,6 +137,7 @@ credentials:
 observability:
   enabled: bool                   # deploy collector sidecar (default true)
   provider: string                # "galileo" (extensible)
+  log_stream: string              # Galileo log stream name (default: "{source.name}-{deployment_id}")
 
 # template-only metadata (stripped during resolution)
 editable: [string]                  # field paths the user may modify — all other fields are server-owned
