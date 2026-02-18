@@ -2,10 +2,26 @@ package deployment
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/postman/astro/packages/astro-spec"
 )
+
+// providerEnvKey returns the env-var key for a provider entry.
+// When isDuplicate is false, it returns basePrefix+"_"+suffix (e.g. "QDRANT_HOST").
+// When isDuplicate is true, it returns basePrefix+"_"+NAME+"_"+suffix for all entries,
+// and additionally basePrefix+"_"+suffix for the first entry (alphabetically).
+func providerEnvKeys(basePrefix, name, suffix string, isDuplicate, isFirst bool) []string {
+	if !isDuplicate {
+		return []string{basePrefix + "_" + suffix}
+	}
+	keys := []string{basePrefix + "_" + strings.ToUpper(SanitizeName(name)) + "_" + suffix}
+	if isFirst {
+		keys = append(keys, basePrefix+"_"+suffix)
+	}
+	return keys
+}
 
 // TemplateInput holds the parameters needed to generate a deployment template.
 type TemplateInput struct {
@@ -52,8 +68,37 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 	// Process models
 	if len(astroSpec.Models) > 0 {
-		ds.Models = make(map[string]spec.DeploymentModel, len(astroSpec.Models))
-		for name, model := range astroSpec.Models {
+		// Count provider occurrences among self-hosted models
+		modelProviderCount := make(map[string]int)
+		for _, model := range astroSpec.Models {
+			if model.IsProviderMode() && !spec.IsCloudModelProvider(model.Provider) {
+				prov := spec.GetModelProvider(model.Provider)
+				if prov.EnvPrefix != "" {
+					modelProviderCount[prov.EnvPrefix]++
+				}
+			}
+		}
+
+		// Sort model names for deterministic iteration
+		modelNames := make([]string, 0, len(astroSpec.Models))
+		for name := range astroSpec.Models {
+			modelNames = append(modelNames, name)
+		}
+		sort.Strings(modelNames)
+
+		// Track which provider prefix we've seen first
+		modelProviderFirst := make(map[string]bool)
+
+		for _, name := range modelNames {
+			model := astroSpec.Models[name]
+			// Skip cloud providers — they produce credentials, not containers
+			if model.IsProviderMode() && spec.IsCloudModelProvider(model.Provider) {
+				continue
+			}
+
+			if ds.Models == nil {
+				ds.Models = make(map[string]spec.DeploymentModel)
+			}
 			dm := buildDeploymentModel(model, input)
 			ds.Models[name] = dm
 
@@ -62,13 +107,27 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 				// Provider-specific env vars (e.g., OLLAMA_BASE_URL, OLLAMA_MODEL)
 				prov := spec.GetModelProvider(model.Provider)
 				if prov.EnvPrefix != "" {
-					agentEnv[prov.EnvPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
-					agentEnv[prov.EnvPrefix+"_PORT"] = fmt.Sprintf("${models.%s.port}", name)
-					agentEnv[prov.EnvPrefix+"_URL"] = fmt.Sprintf("${models.%s.url}", name)
-					agentEnv[prov.EnvPrefix+"_BASE_URL"] = fmt.Sprintf("${models.%s.url}", name) + "/api"
-				}
-				if model.Model != "" && prov.EnvPrefix != "" {
-					agentEnv[prov.EnvPrefix+"_MODEL"] = model.Model
+					isDup := modelProviderCount[prov.EnvPrefix] > 1
+					isFirst := !modelProviderFirst[prov.EnvPrefix]
+					modelProviderFirst[prov.EnvPrefix] = true
+
+					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "HOST", isDup, isFirst) {
+						agentEnv[key] = fmt.Sprintf("${models.%s.host}", name)
+					}
+					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
+						agentEnv[key] = fmt.Sprintf("${models.%s.port}", name)
+					}
+					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
+						agentEnv[key] = fmt.Sprintf("${models.%s.url}", name)
+					}
+					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "BASE_URL", isDup, isFirst) {
+						agentEnv[key] = fmt.Sprintf("${models.%s.url}", name) + "/api"
+					}
+					if model.Model != "" {
+						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "MODEL", isDup, isFirst) {
+							agentEnv[key] = model.Model
+						}
+					}
 				}
 			} else {
 				// Generic env vars for container-mode models
@@ -82,8 +141,37 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 	// Process knowledge
 	if len(astroSpec.Knowledge) > 0 {
-		ds.Knowledge = make(map[string]spec.DeploymentKnowledge, len(astroSpec.Knowledge))
-		for name, knowledge := range astroSpec.Knowledge {
+		// Count provider occurrences among self-hosted knowledge stores
+		knowledgeProviderCount := make(map[string]int)
+		for _, knowledge := range astroSpec.Knowledge {
+			if knowledge.IsProviderMode() && !spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+				prov := spec.GetProvider(knowledge.Provider)
+				if prov.EnvPrefix != "" {
+					knowledgeProviderCount[prov.EnvPrefix]++
+				}
+			}
+		}
+
+		// Sort knowledge names for deterministic iteration
+		knowledgeNames := make([]string, 0, len(astroSpec.Knowledge))
+		for name := range astroSpec.Knowledge {
+			knowledgeNames = append(knowledgeNames, name)
+		}
+		sort.Strings(knowledgeNames)
+
+		// Track which provider prefix we've seen first
+		knowledgeProviderFirst := make(map[string]bool)
+
+		for _, name := range knowledgeNames {
+			knowledge := astroSpec.Knowledge[name]
+			// Skip cloud providers — they produce credentials, not containers
+			if knowledge.IsProviderMode() && spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+				continue
+			}
+
+			if ds.Knowledge == nil {
+				ds.Knowledge = make(map[string]spec.DeploymentKnowledge)
+			}
 			dk := buildDeploymentKnowledge(knowledge, input)
 			ds.Knowledge[name] = dk
 
@@ -91,10 +179,20 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			if knowledge.IsProviderMode() {
 				prov := spec.GetProvider(knowledge.Provider)
 				if prov.EnvPrefix != "" {
-					agentEnv[prov.EnvPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
-					agentEnv[prov.EnvPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.port}", name)
+					isDup := knowledgeProviderCount[prov.EnvPrefix] > 1
+					isFirst := !knowledgeProviderFirst[prov.EnvPrefix]
+					knowledgeProviderFirst[prov.EnvPrefix] = true
+
+					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "HOST", isDup, isFirst) {
+						agentEnv[key] = fmt.Sprintf("${knowledge.%s.host}", name)
+					}
+					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
+						agentEnv[key] = fmt.Sprintf("${knowledge.%s.port}", name)
+					}
 					if prov.URLScheme != "" {
-						agentEnv[prov.EnvPrefix+"_URL"] = fmt.Sprintf("${knowledge.%s.url}", name)
+						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
+							agentEnv[key] = fmt.Sprintf("${knowledge.%s.url}", name)
+						}
 					}
 				} else {
 					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", strings.ToUpper(SanitizeName(name)))
@@ -111,8 +209,15 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 	// Process tools
 	if len(astroSpec.Tools) > 0 {
-		ds.Tools = make(map[string]spec.DeploymentTool, len(astroSpec.Tools))
 		for name, tool := range astroSpec.Tools {
+			// Skip cloud providers — they produce credentials, not containers
+			if tool.IsProviderMode() && spec.IsCloudToolProvider(tool.Provider) {
+				continue
+			}
+
+			if ds.Tools == nil {
+				ds.Tools = make(map[string]spec.DeploymentTool)
+			}
 			dt := buildDeploymentTool(tool, input)
 			ds.Tools[name] = dt
 

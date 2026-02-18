@@ -114,7 +114,13 @@ func (k Knowledge) ResolvedContainer() ContainerConfig {
 }
 
 type Tool struct {
+	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Cloud provider (e.g. github)"`
 	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
+}
+
+// IsProviderMode returns true when the tool entry uses a cloud provider.
+func (t Tool) IsProviderMode() bool {
+	return t.Provider != ""
 }
 
 // GPUConfig is a scheduling hint declaring that a container needs GPU resources.
@@ -141,10 +147,8 @@ func (c ContainerConfig) HasGPU() bool {
 }
 
 type Integration struct {
-	Provider    string             `json:"provider" yaml:"provider" jsonschema:"description=Integration provider name"`
-	Type        string             `json:"type,omitempty" yaml:"type,omitempty" jsonschema:"description=Integration type"`
 	Config      map[string]any     `json:"config,omitempty" yaml:"config,omitempty" jsonschema:"description=Provider-specific configuration"`
-	Credentials []CustomCredential `json:"credentials,omitempty" yaml:"credentials,omitempty" jsonschema:"description=Custom credential requirements"`
+	Credentials []CustomCredential `json:"credentials,omitempty" yaml:"credentials,omitempty" jsonschema:"description=Credential requirements"`
 }
 
 type CustomCredential struct {

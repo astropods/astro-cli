@@ -15,31 +15,23 @@ agent:
     secrets:
       - id: npm_token
         env: GITHUB_PACKAGES_TOKEN
-{{- if ne .ModelProvider ""}}
+{{- if or (ne .ModelProvider "") (.HasIntegration "anthropic") (.HasIntegration "openai")}}
 
 models:
+{{- if ne .ModelProvider ""}}
   default:
     provider: {{.ModelProvider}}
 {{- if ne .Model ""}}
     model: {{.Model}}
 {{- end}}
 {{- end}}
-{{- if gt (len .Integrations) 0}}
-
-integrations:
 {{- range .Integrations}}
 {{- if eq . "anthropic"}}
   anthropic:
     provider: anthropic
-    type: model
 {{- else if eq . "openai"}}
   openai:
     provider: openai
-    type: model
-{{- else if eq . "github"}}
-  github:
-    provider: github
-    type: tool
 {{- end}}
 {{- end}}
 {{- end}}
@@ -59,6 +51,12 @@ knowledge:
   graph:
     provider: neo4j
 {{- end}}
+{{- end}}
+{{- if .HasIntegration "github"}}
+
+tools:
+  github:
+    provider: github
 {{- end}}
 {{- if ne .Ingestion "none"}}
 

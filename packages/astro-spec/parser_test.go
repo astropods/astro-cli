@@ -62,7 +62,7 @@ agent:
 			},
 		},
 		{
-			name: "spec with integrations flat map",
+			name: "spec with cloud providers in models and tools",
 			yaml: `
 spec: astro/v1
 name: test-agent
@@ -70,45 +70,40 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-integrations:
+models:
   primary:
     provider: anthropic
-    type: model
   backup:
     provider: openai
-    type: model
+tools:
   github:
     provider: github
-    type: tool
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if len(s.Integrations) != 3 {
-					t.Fatalf("len(Integrations) = %d, want 3", len(s.Integrations))
+				if len(s.Models) != 2 {
+					t.Fatalf("len(Models) = %d, want 2", len(s.Models))
 				}
-				primary, ok := s.Integrations["primary"]
+				primary, ok := s.Models["primary"]
 				if !ok {
-					t.Fatal("Integrations[primary] not found")
+					t.Fatal("Models[primary] not found")
 				}
 				if primary.Provider != "anthropic" {
-					t.Errorf("Integrations[primary].Provider = %q, want %q", primary.Provider, "anthropic")
+					t.Errorf("Models[primary].Provider = %q, want %q", primary.Provider, "anthropic")
 				}
-				if primary.Type != "model" {
-					t.Errorf("Integrations[primary].Type = %q, want %q", primary.Type, "model")
-				}
-				backup, ok := s.Integrations["backup"]
+				backup, ok := s.Models["backup"]
 				if !ok {
-					t.Fatal("Integrations[backup] not found")
+					t.Fatal("Models[backup] not found")
 				}
 				if backup.Provider != "openai" {
-					t.Errorf("Integrations[backup].Provider = %q, want %q", backup.Provider, "openai")
+					t.Errorf("Models[backup].Provider = %q, want %q", backup.Provider, "openai")
 				}
-				gh, ok := s.Integrations["github"]
+				gh, ok := s.Tools["github"]
 				if !ok {
-					t.Fatal("Integrations[github] not found")
+					t.Fatal("Tools[github] not found")
 				}
 				if gh.Provider != "github" {
-					t.Errorf("Integrations[github].Provider = %q, want %q", gh.Provider, "github")
+					t.Errorf("Tools[github].Provider = %q, want %q", gh.Provider, "github")
 				}
 			},
 		},
@@ -360,7 +355,7 @@ dev:
 			},
 		},
 		{
-			name: "spec with custom integration provider",
+			name: "spec with integration credentials",
 			yaml: `
 spec: astro/v1
 name: test-agent
@@ -370,8 +365,6 @@ agent:
   image: test:latest
 integrations:
   my-service:
-    provider: custom
-    type: tool
     credentials:
       - suffix: API_KEY
         description: API key for my-service
@@ -387,12 +380,6 @@ integrations:
 				svc, ok := s.Integrations["my-service"]
 				if !ok {
 					t.Fatal("Integrations[my-service] not found")
-				}
-				if svc.Provider != "custom" {
-					t.Errorf("Provider = %q, want %q", svc.Provider, "custom")
-				}
-				if svc.Type != "tool" {
-					t.Errorf("Type = %q, want %q", svc.Type, "tool")
 				}
 				if len(svc.Credentials) != 2 {
 					t.Fatalf("len(Credentials) = %d, want 2", len(svc.Credentials))
@@ -556,6 +543,81 @@ agent:
 models:
   llm:
     provider: ollama
+`,
+			wantErr: "",
+		},
+		{
+			name: "tool with both provider and container",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  gh:
+    provider: github
+    container:
+      image: tool:latest
+`,
+			wantErr: "provider and container are mutually exclusive",
+		},
+		{
+			name: "tool with neither provider nor container",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  empty: {}
+`,
+			wantErr: "either provider or container is required",
+		},
+		{
+			name: "integration without credentials rejected",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+integrations:
+  my-service: {}
+`,
+			wantErr: "at least one credential is required",
+		},
+		{
+			name: "valid cloud model provider",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  anthropic:
+    provider: anthropic
+`,
+			wantErr: "",
+		},
+		{
+			name: "valid cloud tool provider",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  github:
+    provider: github
 `,
 			wantErr: "",
 		},

@@ -29,7 +29,7 @@ k8s manifests (or other target runtime)
 
 Three phases:
 
-1. **Template generation (server API)** — Server reads registered spec, resolves providers to concrete images/ports, enumerates required credentials from the integration/provider registries, and returns a deployment spec template with placeholder values and descriptions.
+1. **Template generation (server API)** — Server reads registered spec, resolves self-hosted providers to concrete images/ports, enumerates required credentials from cloud providers and integrations, and returns a deployment spec template with placeholder values and descriptions.
 2. **Resolution** — User fills in the template. Server validates (credentials present, cron valid, images accessible), applies defaults, produces a fully resolved spec. This resolved spec is the deployment contract: same resolved spec always produces same manifests.
 3. **Translation** — Deterministic structural mapping from resolved spec to target infrastructure. No business logic, no provider lookups, no credential discovery.
 
@@ -70,7 +70,7 @@ agent:
     domain: string                # e.g. "my-agent.astro.example.com"
 
 models:
-  <name>:
+  <name>:                           # only self-hosted models appear here; cloud providers become credentials only
     image: string                 # concrete image (provider already resolved)
     port: int                     # concrete port (provider already resolved)
     replicas: int                 # default 1
@@ -312,35 +312,34 @@ Some env vars are injected by the translator regardless of `agent.environment`: 
 
 ### Credentials are extracted from the astro-spec and declared in the template
 
-Credential requirements are fully derivable from the astro-spec's `integrations` section and the deployment-time `interfaces` list. The template generation API extracts them so the user sees exactly which secrets are needed, why, and whether they're optional.
+Credential requirements are derived from cloud providers declared in `models`, `knowledge`, and `tools` sections, integrations in the `integrations` section, and the deployment-time `interfaces` list. The template generation API extracts them so the user sees exactly which secrets are needed, why, and whether they're optional.
 
 **Extraction sources:**
 
-1. **Integrations (from astro-spec).** Each entry in `integrations` declares a `provider`. The server maintains a provider-to-credential-suffix registry (`supportedProviders`). For a given integration, the credential env var key is `{UPPER(integration_name)}_{suffix}`.
+1. **Cloud providers (from astro-spec models/knowledge/tools).** The server's provider registry classifies each provider as `self-hosted` (has image/port) or `cloud` (has credential suffixes). When a cloud provider is encountered in any section, the credential env var key is `{UPPER(entry_name)}_{suffix}`.
 
-   Example: an integration named `anthropic` with `provider: anthropic` produces `ANTHROPIC_API_KEY` because the `anthropic` provider defines a single suffix `API_KEY`. An integration named `slack` with `provider: slack` produces two keys: `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`.
+   Example: a model named `primary` with `provider: anthropic` produces `PRIMARY_API_KEY` because the `anthropic` provider defines suffix `API_KEY`. A model named `anthropic` with `provider: anthropic` produces `ANTHROPIC_API_KEY`. A tool named `github` with `provider: github` produces `GITHUB_TOKEN`.
 
-   The integration map key determines the env var prefix, not the provider name. So an integration named `fallback` with `provider: anthropic` produces `FALLBACK_API_KEY`, not `ANTHROPIC_API_KEY`.
+   The entry's map key determines the env var prefix, not the provider name. So a model named `fallback` with `provider: openai` produces `FALLBACK_API_KEY`, not `OPENAI_API_KEY`.
 
-2. **Custom providers (from astro-spec).** When `provider: custom`, the integration must declare an explicit `credentials` array with suffixes, descriptions, and optional flags. These are passed through directly: `{UPPER(integration_name)}_{suffix}`.
+2. **Integrations (from astro-spec).** Entries in the `integrations` section declare an explicit `credentials` array with suffixes, descriptions, and optional flags. These are passed through directly: `{UPPER(name)}_{suffix}`.
 
 3. **Interfaces (deployment-time).** Messaging interfaces like `slack` require their own credentials (`SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`). Since adapters are a deployment-time choice (not in the astro-spec), the template generation API cannot know upfront which interface credentials to include. Instead, the template emits `interfaces.adapters: []` with an annotation listing available adapters. When the user fills in `interfaces.adapters: [slack]` and submits to the deploy endpoint, the server's validation step adds the adapter-derived credentials to the required set and checks them.
 
 **How extraction works during template generation:**
 
-The server calls `validator.GetRequiredCredentials(astroSpec, interfaces)`. Since `interfaces` is empty at template generation time (the user hasn't chosen yet), only integration-derived credentials are emitted. The function:
+The server calls `validator.GetRequiredCredentials(astroSpec, interfaces)`. Since `interfaces` is empty at template generation time (the user hasn't chosen yet), only spec-derived credentials are emitted. The function:
 
-- Iterates over `astroSpec.Integrations`.
-- For each integration, looks up the provider in `supportedProviders` to get its credential suffixes, descriptions, and optional flags.
-- For `provider: custom`, reads the `credentials` array directly from the integration.
+- Iterates over `astroSpec.Models`, `astroSpec.Knowledge`, `astroSpec.Tools` — for each entry with a cloud provider, looks up the provider in `supportedProviders` to get its credential suffixes, descriptions, and optional flags.
+- Iterates over `astroSpec.Integrations` — reads the `credentials` array directly.
 - Builds the env var key as `{UPPER(name)}_{suffix}`.
-- Returns a `[]CredentialInfo` with key, provider, category, description, and optional flag.
+- Returns a `[]CredentialInfo` with key, provider, section, description, and optional flag.
 
 Each `CredentialInfo` maps to one entry in the deployment spec template:
 
 ```yaml
 credentials:
-  ANTHROPIC_API_KEY:
+  PRIMARY_API_KEY:
     value: ""                   # user fills this in
     description: "Anthropic API key for Claude models"
     optional: false
@@ -348,11 +347,11 @@ credentials:
     value: ""
     description: "GitHub token for API access"
     optional: false
-  MY_SERVICE_API_KEY:           # from a custom provider integration
+  MY_SERVICE_API_KEY:           # from integrations
     value: ""
     description: "API key for my-service"
     optional: false
-  MY_SERVICE_SECRET:            # optional custom credential
+  MY_SERVICE_SECRET:            # optional integration credential
     value: ""
     description: "Shared secret for HMAC signing"
     optional: true
@@ -379,10 +378,10 @@ The astro-spec has no concept of replicas. The deployment spec adds `replicas` p
 | Concern | AstroSpec | DeploymentSpec | K8s Manifest |
 |---|---|---|---|
 | Build instructions | `agent.build` | absent | absent |
-| Provider name | `models.x.provider: ollama` | absent (resolved to image) | absent |
+| Provider name | `models.x.provider: ollama` (self-hosted) or `models.x.provider: anthropic` (cloud) | absent (resolved to image or credential) | absent |
 | Model image | resolved at runtime via `ResolvedContainer()` | `models.x.image: ollama/ollama:latest` | `Deployment.containers[0].image` |
 | Connection env vars | implicit (EnvBuilder derives from names) | `agent.environment: {OLLAMA_URL: "${models.local_llm.url}"}` | `ConfigMap.data.OLLAMA_URL` |
-| Credentials | `integrations.x.provider: anthropic` | `credentials.ANTHROPIC_API_KEY.value: sk-...` | `Secret.data.ANTHROPIC_API_KEY` |
+| Credentials | `models.x.provider: anthropic` (cloud) or `integrations.x.credentials` | `credentials.X_API_KEY.value: sk-...` | `Secret.data.X_API_KEY` |
 | Schedules | `ingestion.x.trigger.type: schedule` | `ingestion.x.trigger.schedule: "0 * * * *"` | `CronJob.spec.schedule` |
 | Interfaces | absent (in `dev` only) | `interfaces: {adapters: [slack], image: ..., port: 9090}` | messaging sidecar Deployment + Service |
 | Replicas | absent | `agent.replicas: 2` | `Deployment.spec.replicas: 2` |
@@ -404,12 +403,12 @@ Reads the registered spec from the agent index and returns a deployment spec tem
 **Steps:**
 
 1. Fetch registered astro-spec from agent index (images resolved, no build blocks).
-2. For each model: if provider mode, call `GetModelProvider()` to resolve image and default port. If container mode, copy image/port directly. Emit a model entry.
-3. Same for knowledge (`GetProvider()` for provider mode) and tools (copy container config).
-4. Populate `agent.environment` with `${}` references wiring all components, credentials, and platform vars using conventional env var names (see component references section).
-5. Extract credentials from integrations (see Credentials section above for the full extraction logic). Emit `credentials` entries with empty values, descriptions, and optional flags.
+2. For each model: if self-hosted provider, call `GetModelProvider()` to resolve image and default port — emit a model entry in the deployment spec. If cloud provider, skip container resolution — only extract credentials (step 5). If container mode, copy image/port directly.
+3. Same for knowledge (`GetProvider()` for self-hosted providers, credential extraction for cloud providers) and tools.
+4. Populate `agent.environment` with `${}` references wiring all self-hosted components, credentials, and platform vars using conventional env var names (see component references section).
+5. Extract credentials from cloud providers across all sections (models, knowledge, tools) and from integrations (see Credentials section above for the full extraction logic). Emit `credentials` entries with empty values, descriptions, and optional flags.
 6. For each ingestion with `trigger.type: schedule`: emit trigger with `schedule: ""` placeholder.
-7. Emit `interfaces` block with `adapters: []`, the platform messaging sidecar image, default port (9090), messaging resource defaults, and an `available_adapters` annotation listing adapters inferred from integrations (e.g. slack integration suggests `["slack"]`).
+7. Emit `interfaces` block with `adapters: []`, the platform messaging sidecar image, default port (9090), messaging resource defaults, and an `available_adapters` annotation listing available adapters.
 8. Apply defaults: `replicas: 1`, `observability.enabled: true`, `agent.expose.enabled: false`, `target.runtime: kubernetes`.
 9. Set `source.name`, `source.version`, `source.registry` from the registered spec metadata.
 10. Emit `editable` list enumerating all user-modifiable field paths (see Editable fields section).
@@ -500,23 +499,17 @@ models:
   local_llm:
     provider: ollama
 
+  anthropic:
+    provider: anthropic
+
 knowledge:
   docs:
     provider: qdrant
     persistent: true
 
-integrations:
-  anthropic:
-    provider: anthropic
-    type: model
-
+tools:
   github:
     provider: github
-    type: tool
-
-  slack:
-    provider: slack
-    type: messaging
 
 ingestion:
   docs_sync:
@@ -660,19 +653,19 @@ interfaces:
 
 credentials:
   ANTHROPIC_API_KEY:
-    value: ""                             # REQUIRED: Anthropic API key for Claude models
+    value: ""                             # REQUIRED: Anthropic API key for Claude models (from models.anthropic)
     description: Anthropic API key for Claude models
     optional: false
   GITHUB_TOKEN:
-    value: ""                             # REQUIRED: GitHub token for API access
+    value: ""                             # REQUIRED: GitHub token for API access (from tools.github)
     description: GitHub token for API access
     optional: false
   SLACK_BOT_TOKEN:
-    value: ""                             # REQUIRED: Slack bot token for messaging
+    value: ""                             # REQUIRED: Slack bot token for messaging (from interfaces: [slack])
     description: Slack bot token for messaging
     optional: false
   SLACK_APP_TOKEN:
-    value: ""                             # REQUIRED: Slack app token for socket mode
+    value: ""                             # REQUIRED: Slack app token for socket mode (from interfaces: [slack])
     description: Slack app token for socket mode
     optional: false
 

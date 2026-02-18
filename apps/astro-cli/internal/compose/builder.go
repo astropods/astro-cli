@@ -123,8 +123,11 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		Driver: "bridge",
 	}
 
-	// Add self-hosted models
+	// Add self-hosted models (skip cloud providers)
 	for name, model := range s.Models {
+		if model.IsProviderMode() && spec.IsCloudModelProvider(model.Provider) {
+			continue
+		}
 		resolved := model.ResolvedContainer()
 		serviceName := fmt.Sprintf("model-%s", name)
 		service := types.ServiceConfig{
@@ -255,8 +258,11 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		project.Services[serviceName] = service
 	}
 
-	// Add self-hosted knowledge stores
+	// Add self-hosted knowledge stores (skip cloud providers)
 	for name, knowledge := range s.Knowledge {
+		if knowledge.IsProviderMode() && spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+			continue
+		}
 		container := knowledge.ResolvedContainer()
 		serviceName := fmt.Sprintf("knowledge-%s", name)
 		service := types.ServiceConfig{
@@ -351,8 +357,11 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		project.Services[serviceName] = service
 	}
 
-	// Add self-hosted tools (with containers)
+	// Add self-hosted tools (skip cloud providers)
 	for name, tool := range s.Tools {
+		if tool.IsProviderMode() && spec.IsCloudToolProvider(tool.Provider) {
+			continue
+		}
 		if tool.Container != nil {
 			serviceName := fmt.Sprintf("tool-%s", name)
 			service := types.ServiceConfig{
@@ -543,6 +552,20 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	// Auto-inject connection strings for self-hosted components
 	for name, model := range s.Models {
+		// Skip cloud providers — no container to reference
+		if model.IsProviderMode() && spec.IsCloudModelProvider(model.Provider) {
+			// Inject cloud provider credentials from .env
+			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
+				for _, cs := range suffixes {
+					key := strings.ToUpper(name) + "_" + cs.Suffix
+					if val, ok := envVars[key]; ok {
+						env[key] = &val
+					}
+				}
+			}
+			continue
+		}
+
 		serviceName := fmt.Sprintf("model-%s", name)
 		resolved := model.ResolvedContainer()
 		port := fmt.Sprintf("%d", resolved.Port)
@@ -576,6 +599,19 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	}
 
 	for name, knowledge := range s.Knowledge {
+		// Skip cloud providers — no container to reference
+		if knowledge.IsProviderMode() && spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
+				for _, cs := range suffixes {
+					key := strings.ToUpper(name) + "_" + cs.Suffix
+					if val, ok := envVars[key]; ok {
+						env[key] = &val
+					}
+				}
+			}
+			continue
+		}
+
 		serviceName := fmt.Sprintf("knowledge-%s", name)
 
 		prov := spec.GetProvider(knowledge.Provider)
@@ -588,27 +624,28 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		}
 	}
 
-	// Inject integration credentials from .env using name-derived keys
-	injectCreds := func(name string, integration spec.Integration) {
-		if strings.ToLower(integration.Provider) == "custom" {
-			for _, cc := range integration.Credentials {
-				key := strings.ToUpper(name) + "_" + cc.Suffix
-				if val, ok := envVars[key]; ok {
-					env[key] = &val
+	// Inject cloud tool provider credentials from .env
+	for name, tool := range s.Tools {
+		if tool.IsProviderMode() && spec.IsCloudToolProvider(tool.Provider) {
+			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
+				for _, cs := range suffixes {
+					key := strings.ToUpper(name) + "_" + cs.Suffix
+					if val, ok := envVars[key]; ok {
+						env[key] = &val
+					}
 				}
-			}
-			return
-		}
-		for _, suffix := range getProviderCredentialSuffixes(integration.Provider) {
-			key := strings.ToUpper(name) + "_" + suffix
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
 			}
 		}
 	}
 
+	// Inject integration credentials from .env
 	for name, integration := range s.Integrations {
-		injectCreds(name, integration)
+		for _, cc := range integration.Credentials {
+			key := strings.ToUpper(name) + "_" + cc.Suffix
+			if val, ok := envVars[key]; ok {
+				env[key] = &val
+			}
+		}
 	}
 
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
@@ -699,20 +736,6 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	}
 
 	return env
-}
-
-// getProviderCredentialSuffixes returns the env var suffixes for a supported provider.
-func getProviderCredentialSuffixes(provider string) []string {
-	switch strings.ToLower(provider) {
-	case "anthropic", "openai", "google", "gemini", "cohere", "pinecone":
-		return []string{"API_KEY"}
-	case "github", "gitlab":
-		return []string{"TOKEN"}
-	case "slack":
-		return []string{"BOT_TOKEN", "APP_TOKEN"}
-	default:
-		return nil
-	}
 }
 
 // buildCollectorEnvironment creates environment variables for the astro-collector sidecar.

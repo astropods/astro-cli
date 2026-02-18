@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/postman/astro/packages/astro-spec"
@@ -80,8 +81,8 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		}
 	}
 
-	// Validate integration providers
-	v.validateIntegrationProviders(astroSpec, &result)
+	// Validate providers in models/knowledge/tools and integrations
+	v.validateProviders(astroSpec, &result)
 
 	// Collect required credentials
 	requiredCreds := v.collectRequiredCredentials(astroSpec, interfaces)
@@ -125,54 +126,66 @@ type CredentialInfo struct {
 	Optional    bool   `json:"optional"`
 }
 
-// CredentialSuffix describes one credential a provider requires
-type CredentialSuffix struct {
-	Suffix      string
-	Description string
-	Optional    bool
-}
+// validateProviders checks cloud providers in models/knowledge/tools and
+// validates that integrations have credentials.
+func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *ValidationResult) {
+	// Validate model providers: cloud providers must be recognized
+	for name, model := range astroSpec.Models {
+		if model.IsProviderMode() && model.Container == nil {
+			provider := model.Provider
+			// Skip self-hosted providers (they have container registries)
+			if _, ok := spec.GetCloudModelCredentials(provider); !ok {
+				// Check if it's a self-hosted provider (has an image in the registry)
+				p := spec.GetModelProvider(provider)
+				if p.Image == "" {
+					result.Valid = false
+					result.Errors = append(result.Errors, ValidationError{
+						Field:   fmt.Sprintf("models.%s.provider", name),
+						Message: fmt.Sprintf("unsupported provider %q", provider),
+					})
+				}
+			}
+		}
+	}
 
-// supportedProviders maps each supported provider to its credential suffixes.
-var supportedProviders = map[string][]CredentialSuffix{
-	"anthropic": {{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
-	"openai":    {{Suffix: "API_KEY", Description: "OpenAI API key for GPT models"}},
-	"google":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
-	"gemini":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
-	"cohere":    {{Suffix: "API_KEY", Description: "Cohere API key for language models"}},
-	"pinecone":  {{Suffix: "API_KEY", Description: "Pinecone API key for vector database"}},
-	"github":    {{Suffix: "TOKEN", Description: "GitHub token for API access"}},
-	"gitlab":    {{Suffix: "TOKEN", Description: "GitLab token for API access"}},
-	"slack": {
-		{Suffix: "BOT_TOKEN", Description: "Slack bot token for API access"},
-		{Suffix: "APP_TOKEN", Description: "Slack app-level token for socket mode"},
-	},
-}
+	// Validate knowledge providers
+	for name, knowledge := range astroSpec.Knowledge {
+		if knowledge.IsProviderMode() && knowledge.Container == nil {
+			provider := knowledge.Provider
+			if _, ok := spec.GetCloudKnowledgeCredentials(provider); !ok {
+				p := spec.GetProvider(provider)
+				if p.Image == "" {
+					result.Valid = false
+					result.Errors = append(result.Errors, ValidationError{
+						Field:   fmt.Sprintf("knowledge.%s.provider", name),
+						Message: fmt.Sprintf("unsupported provider %q", provider),
+					})
+				}
+			}
+		}
+	}
 
-// getProviderCredentialSuffixes returns the credential suffixes for a provider.
-// Returns nil and false if the provider is not supported.
-func (v *Validator) getProviderCredentialSuffixes(provider string) ([]CredentialSuffix, bool) {
-	suffixes, ok := supportedProviders[strings.ToLower(provider)]
-	return suffixes, ok
-}
-
-// validateIntegrationProviders checks that all integration providers are supported.
-func (v *Validator) validateIntegrationProviders(astroSpec *spec.AstroSpec, result *ValidationResult) {
-	for name, integration := range astroSpec.Integrations {
-		if strings.ToLower(integration.Provider) == "custom" {
-			if len(integration.Credentials) == 0 {
+	// Validate tool providers
+	for name, tool := range astroSpec.Tools {
+		if tool.IsProviderMode() && tool.Container == nil {
+			provider := tool.Provider
+			if _, ok := spec.GetCloudToolCredentials(provider); !ok {
 				result.Valid = false
 				result.Errors = append(result.Errors, ValidationError{
-					Field:   fmt.Sprintf("integrations.%s.credentials", name),
-					Message: "custom provider requires at least one credential suffix",
+					Field:   fmt.Sprintf("tools.%s.provider", name),
+					Message: fmt.Sprintf("unsupported provider %q", provider),
 				})
 			}
-			continue
 		}
-		if _, ok := v.getProviderCredentialSuffixes(integration.Provider); !ok {
+	}
+
+	// Validate integrations: must have credentials
+	for name, integration := range astroSpec.Integrations {
+		if len(integration.Credentials) == 0 {
 			result.Valid = false
 			result.Errors = append(result.Errors, ValidationError{
-				Field:   fmt.Sprintf("integrations.%s.provider", name),
-				Message: fmt.Sprintf("unsupported provider %q", integration.Provider),
+				Field:   fmt.Sprintf("integrations.%s.credentials", name),
+				Message: "integration requires at least one credential",
 			})
 		}
 	}
@@ -183,42 +196,116 @@ func (v *Validator) validateIntegrationProviders(astroSpec *spec.AstroSpec, resu
 func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces []string) []CredentialInfo {
 	credMap := make(map[string]CredentialInfo)
 
-	addCreds := func(name, provider, category string, customCreds []spec.CustomCredential) {
-		if strings.ToLower(provider) == "custom" {
-			for _, cc := range customCreds {
-				key := strings.ToUpper(name) + "_" + cc.Suffix
-				credMap[key] = CredentialInfo{
-					Key:         key,
-					Provider:    "custom",
-					Category:    category,
-					Description: cc.Description,
-					Optional:    cc.Optional,
-				}
-			}
-			return
-		}
-		suffixes, ok := v.getProviderCredentialSuffixes(provider)
-		if !ok {
-			return
-		}
-		for _, cs := range suffixes {
-			key := strings.ToUpper(name) + "_" + cs.Suffix
-			credMap[key] = CredentialInfo{
-				Key:         key,
-				Provider:    strings.ToLower(provider),
-				Category:    category,
-				Description: cs.Description,
-				Optional:    cs.Optional,
+	// --- Cloud credentials: two-pass approach ---
+
+	type cloudEntry struct {
+		name     string
+		provider string
+		category string
+		suffixes []spec.CredentialSuffix
+	}
+
+	providerGroups := make(map[string][]cloudEntry)
+
+	// Pass 1: Collect cloud entries grouped by provider
+	for name, model := range astroSpec.Models {
+		if model.IsProviderMode() {
+			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
+				provider := strings.ToLower(model.Provider)
+				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
+					name: name, provider: provider, category: "model", suffixes: suffixes,
+				})
 			}
 		}
 	}
 
-	for name, integration := range astroSpec.Integrations {
-		category := integration.Type
-		if category == "" {
-			category = "integration"
+	for name, knowledge := range astroSpec.Knowledge {
+		if knowledge.IsProviderMode() {
+			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
+				provider := strings.ToLower(knowledge.Provider)
+				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
+					name: name, provider: provider, category: "knowledge", suffixes: suffixes,
+				})
+			}
 		}
-		addCreds(name, integration.Provider, category, integration.Credentials)
+	}
+
+	for name, tool := range astroSpec.Tools {
+		if tool.IsProviderMode() {
+			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
+				provider := strings.ToLower(tool.Provider)
+				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
+					name: name, provider: provider, category: "tool", suffixes: suffixes,
+				})
+			}
+		}
+	}
+
+	// addCred is a shorthand to insert a credential into the map.
+	addCred := func(key string, entry cloudEntry, cs spec.CredentialSuffix) {
+		credMap[key] = CredentialInfo{
+			Key:         key,
+			Provider:    entry.provider,
+			Category:    entry.category,
+			Description: cs.Description,
+			Optional:    cs.Optional,
+		}
+	}
+
+	// Pass 2: Generate keys with duplicate handling
+	for _, entries := range providerGroups {
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].name < entries[j].name
+		})
+
+		isDuplicate := len(entries) > 1
+		basePrefix := strings.ToUpper(entries[0].provider)
+
+		// Find which entry owns the bare key.
+		// Prefer an entry whose name matches the provider (natural primary);
+		// otherwise fall back to first alphabetically.
+		bareOwnerIdx := 0
+		if isDuplicate {
+			for i, entry := range entries {
+				if strings.EqualFold(entry.name, entry.provider) {
+					bareOwnerIdx = i
+					break
+				}
+			}
+		}
+
+		for i, entry := range entries {
+			for _, cs := range entry.suffixes {
+				if !isDuplicate {
+					// Single entry: bare provider key (e.g., ANTHROPIC_API_KEY)
+					addCred(basePrefix+"_"+cs.Suffix, entry, cs)
+				} else {
+					// Name-qualified key for all entries, except when name == provider
+					// (e.g., skip redundant ANTHROPIC_ANTHROPIC_API_KEY)
+					if !strings.EqualFold(entry.name, entry.provider) {
+						addCred(basePrefix+"_"+strings.ToUpper(SanitizeName(entry.name))+"_"+cs.Suffix, entry, cs)
+					}
+					// Bare key for the primary entry
+					if i == bareOwnerIdx {
+						addCred(basePrefix+"_"+cs.Suffix, entry, cs)
+					}
+				}
+			}
+		}
+	}
+
+	// Scan integrations
+	for name, integration := range astroSpec.Integrations {
+		for _, cc := range integration.Credentials {
+			key := strings.ToUpper(name) + "_" + cc.Suffix
+			credMap[key] = CredentialInfo{
+				Key:         key,
+				Provider:    "integration",
+				Category:    "integration",
+				Description: cc.Description,
+				Optional:    cc.Optional,
+			}
+		}
 	}
 
 	// Check messaging interfaces (deployment-time values)
@@ -251,4 +338,3 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 
 	return creds
 }
-

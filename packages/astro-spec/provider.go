@@ -1,6 +1,71 @@
 package spec
 
-import "strings"
+import (
+	"strings"
+)
+
+// CredentialSuffix describes one credential a cloud provider requires.
+type CredentialSuffix struct {
+	Suffix      string
+	Description string
+	Optional    bool
+}
+
+// Cloud provider registries — these providers have no container, only credentials.
+
+var cloudModelProviders = map[string][]CredentialSuffix{
+	"anthropic": {{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
+	"openai":    {{Suffix: "API_KEY", Description: "OpenAI API key for GPT models"}},
+	"google":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
+	"gemini":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
+	"cohere":    {{Suffix: "API_KEY", Description: "Cohere API key for language models"}},
+}
+
+var cloudKnowledgeProviders = map[string][]CredentialSuffix{
+	"pinecone": {{Suffix: "API_KEY", Description: "Pinecone API key for vector database"}},
+}
+
+var cloudToolProviders = map[string][]CredentialSuffix{
+	"github": {{Suffix: "TOKEN", Description: "GitHub token for API access"}},
+	"gitlab": {{Suffix: "TOKEN", Description: "GitLab token for API access"}},
+}
+
+// IsCloudModelProvider returns true if the provider is a cloud model provider (no container).
+func IsCloudModelProvider(name string) bool {
+	_, ok := cloudModelProviders[strings.ToLower(name)]
+	return ok
+}
+
+// IsCloudKnowledgeProvider returns true if the provider is a cloud knowledge provider (no container).
+func IsCloudKnowledgeProvider(name string) bool {
+	_, ok := cloudKnowledgeProviders[strings.ToLower(name)]
+	return ok
+}
+
+// IsCloudToolProvider returns true if the provider is a cloud tool provider (no container).
+func IsCloudToolProvider(name string) bool {
+	_, ok := cloudToolProviders[strings.ToLower(name)]
+	return ok
+}
+
+// GetCloudModelCredentials returns credential suffixes for a cloud model provider.
+func GetCloudModelCredentials(name string) ([]CredentialSuffix, bool) {
+	cs, ok := cloudModelProviders[strings.ToLower(name)]
+	return cs, ok
+}
+
+// GetCloudKnowledgeCredentials returns credential suffixes for a cloud knowledge provider.
+func GetCloudKnowledgeCredentials(name string) ([]CredentialSuffix, bool) {
+	cs, ok := cloudKnowledgeProviders[strings.ToLower(name)]
+	return cs, ok
+}
+
+// GetCloudToolCredentials returns credential suffixes for a cloud tool provider.
+func GetCloudToolCredentials(name string) ([]CredentialSuffix, bool) {
+	cs, ok := cloudToolProviders[strings.ToLower(name)]
+	return cs, ok
+}
+
 
 // PortDef defines a named port.
 type PortDef struct {

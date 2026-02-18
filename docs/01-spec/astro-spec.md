@@ -1,6 +1,6 @@
 # Astro Spec
 
-The Astro Spec is a YAML-based declarative document that defines the topology of an agent. It specifies a container image that runs the agent, infrastructure resources it needs (self-hosted models, knowledge stores, tools), and third-party integrations requiring user credentials (cloud APIs). The agent container implements its own inference logic. The astro cli reads the spec to build the container image using docker and publishes it to an OCI registry along with the spec. The deployment server uses the spec to provision infrastructure and inject user-configured credentials for integrations.
+The Astro Spec is a YAML-based declarative document that defines the topology of an agent. It specifies a container image that runs the agent and the infrastructure resources it needs — both self-hosted components (containers) and cloud APIs (credential injection). The agent container implements its own inference logic. The astro cli reads the spec to build the container image using docker and publishes it to an OCI registry along with the spec. The deployment server uses the spec to provision infrastructure and inject user-configured credentials.
 
 ## Who writes the Astro Spec?
 The astro spec is written by the user who is building the agent. The astro plaform provides a bunch of pre-built components like LLMs, Vector Stores, Toolkits etc that can be used to build the agent. For example if a user want to build an agent which is personal assistant over slack which can answer questions from a knowledge base stored in a vector store and mistral 7b is used as the LLM, the user will write an astro spec which uses the slack adapter, a vector store component and mistral 7b component to build the agent.
@@ -19,15 +19,11 @@ The astro spec does not include any information about the deployment environment
 ## What is included in the Astro Spec?
 The astro spec includes the following information:
 
-**Self-hosted components (deployed as containers):**
+**Components (self-hosted or cloud, declared in their natural section):**
 - Container image details: The base image to use for the agent, any additional packages or dependencies to install etc.
-- Models: Local LLMs, embedding models, or rerankers that run in containers
-- Knowledge stores: Vector databases, Redis, Postgres, etc. that run in containers
-- Tools: Containerized tool services (e.g., MCP servers)
-
-**Integrations (user provides credentials, platform injects them):**
-- Model APIs: Cloud-hosted LLM/embedding APIs (Anthropic, OpenAI, etc.)
-- Tool APIs: External API integrations (GitHub, etc.)
+- Models: LLMs, embedding models, rerankers — self-hosted containers (ollama, vLLM) or cloud APIs (Anthropic, OpenAI)
+- Knowledge stores: Vector databases, caches, relational stores — self-hosted containers (Qdrant, Redis, Postgres) or cloud APIs (Pinecone)
+- Tools: Tool services — self-hosted containers (Puppeteer, MCP servers) or cloud APIs (GitHub, GitLab)
 
 **Agent configuration:**
 - Ingestion definitions: Event-based data collection/ingestion pipelines (trigger type declared; schedule provided at deploy time or in `dev` section)
@@ -51,16 +47,16 @@ agent:
   # How to build/run the agent
 
 models:
-  # Self-hosted models as containers
+  # LLMs, embedders, rerankers — self-hosted or cloud
 
 knowledge:
-  # Self-hosted stores in containers (Qdrant, Redis, Postgres)
+  # Data stores — self-hosted or cloud
 
 tools:
-  # Containerized tool services
+  # Tool services — self-hosted or cloud
 
 integrations:
-  # Third-party services (cloud model APIs, external tool APIs, etc.)
+  # Custom credential injection for external services
 
 ingestion:
   # Data pipelines to update knowledge
@@ -105,13 +101,27 @@ agent:
 
 ### models
 
-Models that run as containers in the agent infrastructure. Use `provider` for platform-managed models or `container` for custom models — they are mutually exclusive.
+Models the agent uses. Each entry uses one of three modes — they are mutually exclusive:
+- **Provider (self-hosted):** Platform deploys a container. Use for models that run locally (e.g. `ollama`).
+- **Provider (cloud):** Platform injects credentials. Use for cloud model APIs (e.g. `anthropic`, `openai`).
+- **Container:** User manages image, port, GPU config. Use for custom model containers.
+
+The platform's provider registry determines whether a provider is self-hosted (has image/port/healthcheck) or cloud (has credential suffixes). The spec author just writes `provider: <name>` — the platform handles the rest.
 
 ```yaml
 models:
-  # Provider mode: platform manages image, port, health checks
+  # Self-hosted provider: platform deploys container
   local_llm:
     provider: ollama
+
+  # Cloud provider: platform injects credentials
+  primary:
+    provider: anthropic
+    # → ANTHROPIC_API_KEY injected
+
+  fallback:
+    provider: openai
+    # → FALLBACK_API_KEY injected (key name from entry name, suffix from provider)
 
   # Container mode: user manages everything
   embedder:
@@ -127,19 +137,25 @@ models:
 
 **Supported model providers:**
 
-| Provider | Image | Port | Health Check |
-|----------|-------|------|--------------|
-| `ollama` | `ollama/ollama:latest` | 11434 | HTTP `/api/tags` |
+| Provider | Kind | Image | Port | Health Check | Credential Suffix |
+|----------|------|-------|------|--------------|-------------------|
+| `ollama` | self-hosted | `ollama/ollama:latest` | 11434 | HTTP `/api/tags` | — |
+| `anthropic` | cloud | — | — | — | `API_KEY` |
+| `openai` | cloud | — | — | — | `API_KEY` |
+| `google` / `gemini` | cloud | — | — | — | `API_KEY` |
+| `cohere` | cloud | — | — | — | `API_KEY` |
+
+Self-hosted providers deploy a container; env var `{UPPER(NAME)}_HOST` is injected. Cloud providers inject `{UPPER(NAME)}_{SUFFIX}` as a credential the user provides at deploy time.
 
 Container-mode models get generic env vars: `{UPPER(NAME)}_HOST`.
 
 ### knowledge
 
-Knowledge stores provide memory and context to the agent. Use `provider` for platform-managed stores or `container` for custom stores — they are mutually exclusive.
+Knowledge stores provide memory and context to the agent. Same three modes as models: provider (self-hosted), provider (cloud), or container.
 
 ```yaml
 knowledge:
-  # Provider mode: platform manages image, port, health checks
+  # Self-hosted providers: platform deploys containers
   docs:
     provider: qdrant
     persistent: true
@@ -151,6 +167,11 @@ knowledge:
     provider: postgres
     persistent: true
 
+  # Cloud provider: platform injects credentials
+  vectors:
+    provider: pinecone
+    # → VECTORS_API_KEY injected
+
   # Container mode: user manages everything
   custom_store:
     container:
@@ -158,75 +179,52 @@ knowledge:
       port: 5000
 ```
 
-**Supported providers:**
+**Supported knowledge providers:**
 
-| Provider | Image | Port | Mount Path | Health Check | Injected Env Vars |
-|----------|-------|------|------------|--------------|-------------------|
-| `qdrant` | `qdrant/qdrant:latest` | 6333 (+gRPC 6334) | `/qdrant/storage` | HTTP `/healthz` | `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_URL` |
-| `redis` | `redis:7-alpine` | 6379 | `/data` | `redis-cli ping` | `REDIS_HOST`, `REDIS_PORT`, `REDIS_URL` |
-| `postgres` | `postgres:15-alpine` | 5432 | `/var/lib/postgresql/data` | `pg_isready -U postgres` | `POSTGRES_HOST`, `POSTGRES_PORT` |
+| Provider | Kind | Image | Port | Mount Path | Health Check | Injected Env Vars |
+|----------|------|-------|------|------------|--------------|-------------------|
+| `qdrant` | self-hosted | `qdrant/qdrant:latest` | 6333 (+gRPC 6334) | `/qdrant/storage` | HTTP `/healthz` | `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_URL` |
+| `redis` | self-hosted | `redis:7-alpine` | 6379 | `/data` | `redis-cli ping` | `REDIS_HOST`, `REDIS_PORT`, `REDIS_URL` |
+| `postgres` | self-hosted | `postgres:15-alpine` | 5432 | `/var/lib/postgresql/data` | `pg_isready -U postgres` | `POSTGRES_HOST`, `POSTGRES_PORT` |
+| `pinecone` | cloud | — | — | — | — | `{NAME}_API_KEY` |
 
 Container-mode knowledge stores without a provider get generic env vars: `KNOWLEDGE_{NAME}_HOST`, `KNOWLEDGE_{NAME}_PORT`.
 
 ### tools
 
-Custom tools that run as containers in the agent infrastructure.
+Tool services the agent uses. Same three modes as models: provider (self-hosted), provider (cloud), or container.
 
 ```yaml
 tools:
+  # Self-hosted provider
   websearch:
     provider: puppeteer
+
+  # Cloud providers: platform injects credentials
+  github:
+    provider: github
+    # → GITHUB_TOKEN injected
+
+  gitlab:
+    provider: gitlab
+    # → GITLAB_TOKEN injected
 ```
+
+**Supported tool providers:**
+
+| Provider | Kind | Credential Suffix |
+|----------|------|-------------------|
+| `puppeteer` | self-hosted | — |
+| `github` | cloud | `TOKEN` |
+| `gitlab` | cloud | `TOKEN` |
 
 ### integrations
 
-Third-party services and APIs requiring user authentication. Declares what the agent needs to authenticate with. User provides credentials at deploy time and the platform injects them into the agent container as environment variables. Each entry is a flat key-value with `provider` (required) and optional `type` annotation.
-
-```yaml
-integrations:
-  anthropic:
-    provider: anthropic
-    type: model
-    # Injects ANTHROPIC_API_KEY
-
-  fallback:
-    provider: openai
-    type: model
-    # Injects FALLBACK_API_KEY
-
-  github:
-    provider: github
-    type: tool
-    # Injects GITHUB_TOKEN
-```
-
-Env vars are derived from the map key: `{UPPER(key)}_{provider_suffix}`. For example, naming an integration `fallback` with provider `anthropic` produces `FALLBACK_API_KEY`. The user supplies the credential key/value at deploy time and it is injected into all containers via a Kubernetes Secret.
-
-#### Supported providers
-
-Only the following providers are allowed. Unknown providers will be rejected during validation.
-
-| Provider | Credential suffix | Example env var |
-|---|---|---|
-| `anthropic` | `API_KEY` | `ANTHROPIC_API_KEY` |
-| `openai` | `API_KEY` | `OPENAI_API_KEY` |
-| `google` / `gemini` | `API_KEY` | `GOOGLE_API_KEY` |
-| `cohere` | `API_KEY` | `COHERE_API_KEY` |
-| `pinecone` | `API_KEY` | `PINECONE_API_KEY` |
-| `github` | `TOKEN` | `GITHUB_TOKEN` |
-| `gitlab` | `TOKEN` | `GITLAB_TOKEN` |
-| `slack` | `BOT_TOKEN`, `APP_TOKEN` | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` |
-| `custom` | User-defined suffixes | Depends on `credentials` array |
-
-#### Custom Provider
-
-For services not in the supported list, use `provider: custom` with an explicit `credentials` array. Each entry specifies a `suffix` that follows the same `{UPPER(name)}_{suffix}` convention as built-in providers.
+For external services that don't fit into models, knowledge, or tools. Each entry declares the credentials it needs via a `credentials` array.
 
 ```yaml
 integrations:
   my-service:
-    provider: custom
-    type: tool
     credentials:
       - suffix: API_KEY
         description: API key for my-service
@@ -235,7 +233,23 @@ integrations:
         optional: true
 ```
 
-This produces env vars `MY_SERVICE_API_KEY` (required) and `MY_SERVICE_SECRET` (optional). At least one credential entry is required.
+This produces env vars `MY_SERVICE_API_KEY` (required) and `MY_SERVICE_SECRET` (optional). At least one credential entry is required. Env var naming follows the same `{UPPER(name)}_{suffix}` convention.
+
+### Credential injection (how it works)
+
+Cloud providers and integrations require user-provided credentials. The platform handles this uniformly:
+
+1. **Spec declares provider** — the platform knows which credentials are needed from its provider registry.
+2. **Env var naming** — `{UPPER(entry_name)}_{provider_suffix}`. Entry name is the YAML map key, suffix comes from the provider registry.
+3. **Deploy-time collection** — user supplies credential values when deploying.
+4. **Injection** — platform injects credentials into all containers via Kubernetes Secrets.
+
+Examples:
+- `models.anthropic` with `provider: anthropic` → `ANTHROPIC_API_KEY`
+- `models.fallback` with `provider: openai` → `FALLBACK_API_KEY`
+- `tools.github` with `provider: github` → `GITHUB_TOKEN`
+- `knowledge.vectors` with `provider: pinecone` → `VECTORS_API_KEY`
+- `integrations.my-service` → defined by `credentials` array
 
 ### ingestion
 
@@ -320,7 +334,7 @@ name: engineering-assistant
 
 meta:
   version: 2.0.0
-  description: Engineering knowledge assistant with self-hosted and external components
+  description: Engineering knowledge assistant with self-hosted and cloud components
   tags: [engineering, support, internal]
 
 agent:
@@ -331,6 +345,9 @@ agent:
 models:
   local_llm:
     provider: ollama
+
+  primary:
+    provider: anthropic
 
   embedder:
     container:
@@ -344,14 +361,9 @@ knowledge:
   cache:
     provider: redis
 
-integrations:
-  primary_llm:
-    provider: anthropic
-    type: model
-
+tools:
   github:
     provider: github
-    type: tool
 
 ingestion:
   docs_sync:
@@ -374,16 +386,14 @@ dev:
 
 ## Design Principles
 
-1. **Build vs Deploy separation** - Spec defines agent topology; deployment server handles resources, guardrails, observability
-2. **Infrastructure not logic** - Spec declares what to deploy (containers) and what to connect to (APIs), not how the agent processes requests (inference logic lives in agent code)
-3. **Self-hosted vs Integrations** - Clear separation in spec structure:
-   - `models`, `knowledge`, `tools` sections: Self-hosted components (deployed as containers)
-   - `integrations` section: Third-party services requiring user credentials (platform manages and injects)
-4. **Credential management** - All third-party services declared in `integrations` so platform can provide configuration UI and inject user credentials
-5. **Named references** - Components defined once, referenced by name (e.g., `models.embedder`, `integrations.primary_llm`)
-6. **Flat structure** - Top-level sections for each concern, no deep nesting
-7. **Declarative** - Describe what, not how; platform handles orchestration
-8. **Defaults** - Sensible defaults; minimal config for simple agents
-9. **Extensible** - config maps allow new options without schema changes
-10. **Environment injection** - Platform auto-injects credentials as env vars; no explicit variable references needed in spec
-11. **Container-based ingestion** - Opaque containers for data processing
+1. **Build vs Deploy separation** — Spec defines agent topology; deployment server handles resources, guardrails, observability
+2. **Infrastructure not logic** — Spec declares what to deploy and what to connect to, not how the agent processes requests (inference logic lives in agent code)
+3. **Unified provider model** — Self-hosted and cloud providers live in the same section (`models`, `knowledge`, `tools`). The platform's provider registry determines whether a provider deploys a container or injects credentials. Spec authors don't need to reason about this distinction.
+4. **Credential management** — Cloud providers and integrations declared inline; platform enumerates required credentials, provides configuration UI, and injects values at deploy time
+5. **Named references** — Components defined once, referenced by name (e.g., `models.primary`, `tools.github`)
+6. **Flat structure** — Top-level sections for each concern, no deep nesting
+7. **Declarative** — Describe what, not how; platform handles orchestration
+8. **Defaults** — Sensible defaults; minimal config for simple agents
+9. **Extensible** — config maps allow new options without schema changes
+10. **Environment injection** — Platform auto-injects credentials and connection details as env vars; no explicit variable references needed in spec
+11. **Container-based ingestion** — Opaque containers for data processing

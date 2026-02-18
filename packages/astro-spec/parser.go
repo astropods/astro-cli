@@ -75,5 +75,22 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		}
 	}
 
+	// Validate tool entries: provider and container are mutually exclusive
+	for name, t := range spec.Tools {
+		if t.Provider != "" && t.Container != nil {
+			return nil, fmt.Errorf("tool %q: provider and container are mutually exclusive", name)
+		}
+		if t.Provider == "" && t.Container == nil {
+			return nil, fmt.Errorf("tool %q: either provider or container is required", name)
+		}
+	}
+
+	// Validate integrations: must have at least one credential
+	for name, integration := range spec.Integrations {
+		if len(integration.Credentials) == 0 {
+			return nil, fmt.Errorf("integration %q: at least one credential is required", name)
+		}
+	}
+
 	return &spec, nil
 }

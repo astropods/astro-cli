@@ -619,11 +619,13 @@ func TestTemplate_IngestionAllTypes(t *testing.T) {
 
 // ===== Phase 7: Credentials =====
 
-func TestTemplate_CredentialsFromIntegrations(t *testing.T) {
+func TestTemplate_CredentialsFromCloudProviders(t *testing.T) {
 	input := baseInput()
-	input.Spec.Integrations = map[string]spec.Integration{
-		"anthropic": {Provider: "anthropic", Type: "model"},
-		"github":    {Provider: "github", Type: "tool"},
+	input.Spec.Models = map[string]spec.Model{
+		"anthropic": {Provider: "anthropic"},
+	}
+	input.Spec.Tools = map[string]spec.Tool{
+		"github": {Provider: "github"},
 	}
 
 	ds := mustGenerate(t, input)
@@ -649,16 +651,24 @@ func TestTemplate_CredentialsFromIntegrations(t *testing.T) {
 		t.Fatal("credentials: GITHUB_TOKEN not found")
 	}
 
+	// Cloud models should NOT appear in ds.Models (no container)
+	if len(ds.Models) != 0 {
+		t.Errorf("cloud models should not be in deployment spec, got %d", len(ds.Models))
+	}
+	// Cloud tools should NOT appear in ds.Tools
+	if len(ds.Tools) != 0 {
+		t.Errorf("cloud tools should not be in deployment spec, got %d", len(ds.Tools))
+	}
+
 	// Check agent env references wired for credentials
 	assertEnvRef(t, ds.Agent.Environment, "ANTHROPIC_API_KEY", "${credentials.ANTHROPIC_API_KEY}")
 	assertEnvRef(t, ds.Agent.Environment, "GITHUB_TOKEN", "${credentials.GITHUB_TOKEN}")
 }
 
-func TestTemplate_CredentialsCustomProvider(t *testing.T) {
+func TestTemplate_CredentialsIntegration(t *testing.T) {
 	input := baseInput()
 	input.Spec.Integrations = map[string]spec.Integration{
 		"myapi": {
-			Provider: "custom",
 			Credentials: []spec.CustomCredential{
 				{Suffix: "API_KEY", Description: "main key"},
 				{Suffix: "SECRET", Description: "optional secret", Optional: true},
@@ -690,17 +700,17 @@ func TestTemplate_NoIntegrations_NoCredentials(t *testing.T) {
 
 func TestTemplate_NameDerivedCredentialKeys(t *testing.T) {
 	input := baseInput()
-	input.Spec.Integrations = map[string]spec.Integration{
-		"fallback": {Provider: "anthropic", Type: "model"},
+	input.Spec.Models = map[string]spec.Model{
+		"fallback": {Provider: "anthropic"},
 	}
 
 	ds := mustGenerate(t, input)
 
-	// Integration name "fallback" + anthropic suffix "API_KEY" = FALLBACK_API_KEY
-	if _, ok := ds.Credentials["FALLBACK_API_KEY"]; !ok {
-		t.Error("expected FALLBACK_API_KEY from name-derived key")
+	// Single entry uses provider-prefixed key: ANTHROPIC_API_KEY
+	if _, ok := ds.Credentials["ANTHROPIC_API_KEY"]; !ok {
+		t.Error("expected ANTHROPIC_API_KEY from provider-prefixed key")
 	}
-	assertEnvRef(t, ds.Agent.Environment, "FALLBACK_API_KEY", "${credentials.FALLBACK_API_KEY}")
+	assertEnvRef(t, ds.Agent.Environment, "ANTHROPIC_API_KEY", "${credentials.ANTHROPIC_API_KEY}")
 }
 
 // ===== Phase 8: Interfaces =====
@@ -737,6 +747,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 			Agent: spec.Container{Image: "registry.example.com/acme/engineering-assistant:build42"},
 			Models: map[string]spec.Model{
 				"local_llm": {Provider: "ollama"},
+				"anthropic": {Provider: "anthropic"},
 			},
 			Knowledge: map[string]spec.Knowledge{
 				"docs":  {Provider: "qdrant", Persistent: true},
@@ -744,10 +755,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 			},
 			Tools: map[string]spec.Tool{
 				"websearch": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
-			},
-			Integrations: map[string]spec.Integration{
-				"anthropic": {Provider: "anthropic", Type: "model"},
-				"github":    {Provider: "github", Type: "tool"},
+				"github":    {Provider: "github"},
 			},
 			Ingestion: map[string]spec.Ingestion{
 				"docs_sync": {
@@ -766,9 +774,9 @@ func TestTemplate_FullSpec(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	// Models
+	// Models — only self-hosted (ollama), not cloud (anthropic)
 	if len(ds.Models) != 1 {
-		t.Errorf("models: expected 1, got %d", len(ds.Models))
+		t.Errorf("models: expected 1 (ollama only), got %d", len(ds.Models))
 	}
 	if ds.Models["local_llm"].Image != "ollama/ollama:latest" {
 		t.Errorf("models.local_llm.image: got %s", ds.Models["local_llm"].Image)
@@ -785,9 +793,9 @@ func TestTemplate_FullSpec(t *testing.T) {
 		t.Error("knowledge.cache.persistent: expected false")
 	}
 
-	// Tools
+	// Tools — only self-hosted (websearch), not cloud (github)
 	if len(ds.Tools) != 1 {
-		t.Errorf("tools: expected 1, got %d", len(ds.Tools))
+		t.Errorf("tools: expected 1 (websearch only), got %d", len(ds.Tools))
 	}
 
 	// Ingestion
@@ -798,7 +806,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 		t.Error("ingestion environment not preserved")
 	}
 
-	// Credentials
+	// Credentials from cloud providers
 	if _, ok := ds.Credentials["ANTHROPIC_API_KEY"]; !ok {
 		t.Error("missing ANTHROPIC_API_KEY credential")
 	}
@@ -913,13 +921,11 @@ func TestTemplate_MultipleKnowledgeProviders(t *testing.T) {
 func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
-		"llm": {Provider: "ollama"},
+		"llm":       {Provider: "ollama"},
+		"anthropic": {Provider: "anthropic"},
 	}
 	input.Spec.Knowledge = map[string]spec.Knowledge{
 		"docs": {Provider: "qdrant", Persistent: true},
-	}
-	input.Spec.Integrations = map[string]spec.Integration{
-		"anthropic": {Provider: "anthropic"},
 	}
 
 	ds := mustGenerate(t, input)
@@ -1194,8 +1200,9 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 			Name:  "ref-test",
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
-				"llm":      {Provider: "ollama"},
-				"embedder": {Container: &spec.ContainerConfig{Image: "embed:latest", Port: 8000}},
+				"llm":       {Provider: "ollama"},
+				"embedder":  {Container: &spec.ContainerConfig{Image: "embed:latest", Port: 8000}},
+				"anthropic": {Provider: "anthropic"},
 			},
 			Knowledge: map[string]spec.Knowledge{
 				"vectors": {Provider: "qdrant", Persistent: true},
@@ -1204,12 +1211,10 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 			},
 			Tools: map[string]spec.Tool{
 				"search": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
+				"github": {Provider: "github"},
 			},
 			Integrations: map[string]spec.Integration{
-				"anthropic": {Provider: "anthropic"},
-				"github":    {Provider: "github"},
 				"myapi": {
-					Provider:    "custom",
 					Credentials: []spec.CustomCredential{{Suffix: "TOKEN", Description: "token"}},
 				},
 			},
@@ -1241,12 +1246,12 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 		Spec: &spec.AstroSpec{
 			Name:  "sasbot",
 			Agent: spec.Container{Image: "registry.example.com/sasbot:abc123"},
+			Models: map[string]spec.Model{
+				"anthropic": {Provider: "anthropic"},
+			},
 			Knowledge: map[string]spec.Knowledge{
 				"cache": {Provider: "redis"},
 				"graph": {Provider: "neo4j"},
-			},
-			Integrations: map[string]spec.Integration{
-				"anthropic": {Provider: "anthropic", Type: "model"},
 			},
 			Ingestion: map[string]spec.Ingestion{
 				"data": {

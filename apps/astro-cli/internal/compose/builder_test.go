@@ -125,14 +125,16 @@ func TestBuildProject_WebInterface(t *testing.T) {
 	}
 }
 
-func TestBuildProject_IntegrationCredentials(t *testing.T) {
+func TestBuildProject_CloudProviderCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:     "my-agent",
 		Meta:      spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
-		Integrations: map[string]spec.Integration{
-			"anthropic": {Provider: "anthropic", Type: "model"},
-			"github":    {Provider: "github", Type: "tool"},
+		Models: map[string]spec.Model{
+			"anthropic": {Provider: "anthropic"},
+		},
+		Tools: map[string]spec.Tool{
+			"github": {Provider: "github"},
 		},
 	}
 
@@ -153,17 +155,23 @@ func TestBuildProject_IntegrationCredentials(t *testing.T) {
 	if envVal(agent.Environment, "GITHUB_TOKEN") != "ghp-test" {
 		t.Errorf("GITHUB_TOKEN = %q, want %q", envVal(agent.Environment, "GITHUB_TOKEN"), "ghp-test")
 	}
+
+	// Cloud providers should NOT create services
+	if _, ok := project.Services["model-anthropic"]; ok {
+		t.Error("cloud model provider should not create a service")
+	}
+	if _, ok := project.Services["tool-github"]; ok {
+		t.Error("cloud tool provider should not create a service")
+	}
 }
 
-func TestBuildProject_CustomProviderCredentials(t *testing.T) {
+func TestBuildProject_IntegrationCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:     "my-agent",
 		Meta:      spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Integrations: map[string]spec.Integration{
 			"my-service": {
-				Provider: "custom",
-				Type:     "tool",
 				Credentials: []spec.CustomCredential{
 					{Suffix: "API_KEY", Description: "API key"},
 					{Suffix: "SECRET", Description: "Shared secret"},
@@ -191,15 +199,13 @@ func TestBuildProject_CustomProviderCredentials(t *testing.T) {
 	}
 }
 
-func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
+func TestBuildProject_IntegrationMissingEnvVar(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:     "my-agent",
 		Meta:      spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Integrations: map[string]spec.Integration{
 			"my-service": {
-				Provider: "custom",
-				Type:     "tool",
 				Credentials: []spec.CustomCredential{
 					{Suffix: "API_KEY"},
 					{Suffix: "SECRET"},
@@ -270,8 +276,8 @@ func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 		Name:     "my-agent",
 		Meta:      spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
-		Integrations: map[string]spec.Integration{
-			"fallback": {Provider: "anthropic", Type: "model"},
+		Models: map[string]spec.Model{
+			"fallback": {Provider: "anthropic"},
 		},
 	}
 
@@ -290,6 +296,6 @@ func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 	}
 	// Should NOT have ANTHROPIC_API_KEY — the name "fallback" drives the key
 	if _, ok := agent.Environment["ANTHROPIC_API_KEY"]; ok {
-		t.Error("should not have ANTHROPIC_API_KEY when integration name is 'fallback'")
+		t.Error("should not have ANTHROPIC_API_KEY when model name is 'fallback'")
 	}
 }
