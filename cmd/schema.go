@@ -16,11 +16,11 @@ var schemaCmd = &cobra.Command{
 
 Use this to enable IDE autocomplete and validation:
 
-  ast schema > .astro/schema.json
+  ast schema > .ast/schema.json
 
 Then in VS Code settings (settings.json):
 
-  { "yaml.schemas": { ".astro/schema.json": "astroai.yml" } }
+  { "yaml.schemas": { ".ast/schema.json": "astroai.yml" } }
 
 Or add a comment to the top of your astroai.yml:
 

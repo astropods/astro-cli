@@ -97,7 +97,7 @@ func composePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
-	return filepath.Join(workingDir, ".astro", "docker-compose.yml"), nil
+	return filepath.Join(workingDir, ".ast", "docker-compose.yml"), nil
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
@@ -198,9 +198,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write docker-compose.yml file
-	cPath := filepath.Join(workingDir, ".astro", "docker-compose.yml")
+	cPath := filepath.Join(workingDir, ".ast", "docker-compose.yml")
 	if err := os.MkdirAll(filepath.Dir(cPath), 0755); err != nil {
-		return fmt.Errorf("failed to create .astro directory: %w", err)
+		return fmt.Errorf("failed to create .ast directory: %w", err)
 	}
 
 	composeData, err := yaml.Marshal(project)

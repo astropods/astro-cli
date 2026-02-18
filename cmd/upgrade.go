@@ -61,7 +61,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve the install directory: use the directory of the current binary.
-	// This works whether installed via ~/.astro/bin or elsewhere.
+	// This works whether installed via ~/.ast/bin or elsewhere.
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to find executable path: %w", err)

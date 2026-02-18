@@ -27,15 +27,15 @@ const (
 )
 
 // ConfigDir returns the path to the astro config directory.
-// Returns ~/.astro-preview when binaryName is "ast-preview", otherwise ~/.astro.
+// Returns ~/.ast-preview when binaryName is "ast-preview", otherwise ~/.ast.
 func ConfigDir(binaryName string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	dir := ".astro"
+	dir := ".ast"
 	if binaryName == "ast-preview" {
-		dir = ".astro-preview"
+		dir = ".ast-preview"
 	}
 	return filepath.Join(home, dir), nil
 }
