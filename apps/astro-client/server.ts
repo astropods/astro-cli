@@ -20,7 +20,6 @@ Bun.serve({
     if (PROXY_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
       const target = new URL(url.pathname + url.search, API_URL);
       const headers = new Headers(request.headers);
-      headers.set("host", new URL(API_URL).host);
       return fetch(target, {
         method: request.method,
         headers,
