@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router";
+import type { Route } from "./+types/AgentPage";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -25,10 +26,33 @@ import { DeployResultModal } from "../components/operator/DeployResultModal";
 import { PublishModal } from "../components/operator/PublishModal";
 import { PlaygroundChat } from "../components/operator/PlaygroundChat";
 import { ObservabilityTab } from "../components/operator/ObservabilityTab";
+import { createServerApi } from "@/lib/api.server";
+
+export async function loader({ params, request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  const account = params.account ?? "";
+  const agent = params.agent ?? "";
+  const agentData = await api.getAgent(account, agent).catch(() => null);
+  return { agentData };
+}
+
+export const meta: Route.MetaFunction = ({ data }) => {
+  const agent = data?.agentData;
+  if (!agent) {
+    return [{ title: "Agent | Astro" }];
+  }
+  const description = agent.versions[0]?.spec?.meta?.description ?? "";
+  return [
+    { title: `${agent.account}/${agent.name} | Astro` },
+    { name: "description", content: description },
+    { property: "og:title", content: `${agent.account}/${agent.name} | Astro` },
+    { property: "og:description", content: description },
+  ];
+};
 
 type Tab = "overview" | "builds" | "deployments" | "observability";
 
-export function AgentPage() {
+export default function AgentPage({ loaderData }: Route.ComponentProps) {
   const { account, agent: agentName } = useParams<{ account: string; agent: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -48,7 +72,9 @@ export function AgentPage() {
   }, []);
 
   // Fetch full agent data for readme/description
-  const { data: agentData, isLoading: agentLoading } = useAgent(account ?? "", agentName ?? "");
+  const { data: agentData, isLoading: agentLoading } = useAgent(account ?? "", agentName ?? "", {
+    initialData: loaderData?.agentData ?? undefined,
+  });
 
   // Deploy result from navigation state (set by DeployPage after successful deploy)
   const [deployResult, setDeployResult] = useState<DeployResponse | null>(

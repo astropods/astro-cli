@@ -1,19 +1,23 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { api, type AgentsListResponse, type Agent } from '../../lib/api';
 import { agentKeys, deploymentKeys, accountKeys } from './keys';
 
-export function useAgents() {
+export function useAgents(opts?: { initialData?: AgentsListResponse }) {
   return useQuery({
     queryKey: agentKeys.all,
     queryFn: () => api.listAgents(),
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? Date.now() : undefined,
   });
 }
 
-export function useAgent(account: string, name: string) {
+export function useAgent(account: string, name: string, opts?: { initialData?: Agent }) {
   return useQuery({
     queryKey: agentKeys.detail(account, name),
     queryFn: () => api.getAgent(account, name),
     enabled: !!account && !!name,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? Date.now() : undefined,
   });
 }
 

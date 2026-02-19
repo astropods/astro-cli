@@ -1,37 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # =============================================================================
-# Stage 1: Build the frontend
-# =============================================================================
-FROM oven/bun:1 AS frontend-builder
-
-WORKDIR /app
-
-# Copy package files for dependency installation
-COPY package.json bun.lock ./
-COPY apps/astro-client/package.json ./apps/astro-client/
-COPY packages/astro-workflows/package.json ./packages/astro-workflows/
-COPY packages/astro-agent/package.json ./packages/astro-agent/
-COPY packages/astro-graph/package.json ./packages/astro-graph/
-COPY packages/astro-engine/package.json ./packages/astro-engine/
-COPY packages/astro-nodes/package.json ./packages/astro-nodes/
-COPY packages/astro-types/package.json ./packages/astro-types/
-COPY packages/astro-messaging/package.json ./packages/astro-messaging/
-
-# Install dependencies with cache mount
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install
-
-# Copy source files needed for astro-client build
-COPY apps/astro-client ./apps/astro-client
-COPY packages ./packages
-
-# Build the frontend
-WORKDIR /app/apps/astro-client
-RUN bun run build
-
-# =============================================================================
-# Stage 2: Build the CLI (Mac only) for download from server
+# Stage 1: Build the CLI (Mac only) for download from server
 # =============================================================================
 FROM golang:1.24-alpine AS cli-builder
 
@@ -121,7 +91,6 @@ RUN addgroup -g 1000 astro && \
 
 # Copy the built artifacts
 COPY --from=backend-builder /app/astro-server /app/astro-server
-COPY --from=frontend-builder /app/apps/astro-client/dist /app/static
 COPY --from=cli-builder /out /app/cli
 
 # Create directories for runtime data
@@ -134,7 +103,6 @@ USER astro
 ENV PORT=8080 \
     HOST=0.0.0.0 \
     GIN_MODE=release \
-    STATIC_DIR=/app/static \
     CLI_DIR=/app/cli \
     ARTIFACT_DIR=/app/data
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router";
 import {
   ArrowLeft,
   Rocket,
@@ -325,7 +325,7 @@ function CredentialForm({
 
 // --- Deploy Page ---
 
-export function DeployPage() {
+export default function DeployPage() {
   const { account, name } = useParams<{ account: string; name: string }>();
   const navigate = useNavigate();
   const { accounts, isAuthenticated, login } = useAuth();

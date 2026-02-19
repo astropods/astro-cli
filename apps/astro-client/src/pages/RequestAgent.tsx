@@ -1,7 +1,7 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ArrowLeft } from "lucide-react";
 
-export function RequestAgent() {
+export default function RequestAgent() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Form submission logic would go here

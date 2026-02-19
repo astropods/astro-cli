@@ -4,7 +4,7 @@ import {
   Routes,
   Route,
   Outlet,
-} from "react-router-dom";
+} from "react-router";
 
 import { RecommendedAgents } from "@/components/RecommendedAgents";
 import type { LayoutContext } from "@/components/Layout";

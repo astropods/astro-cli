@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { Link, useSearchParams, useOutletContext } from "react-router-dom";
+import { Link, useSearchParams, useOutletContext } from "react-router";
+import type { Route } from "./+types/Hire";
 import {
   PaperAirplaneIcon,
   ChevronDownIcon,
@@ -20,6 +21,19 @@ import { FindAgentsWizard } from "../components/FindAgentsWizard";
 import type { LayoutContext } from "@/components/Layout";
 import { useAgents } from "@/api/queries";
 import type { Agent } from "@/lib/api";
+import { createServerApi } from "@/lib/api.server";
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  return await api.listAgents().catch(() => ({ agents: [], count: 0 }));
+}
+
+export const meta: Route.MetaFunction = () => [
+  { title: "Available Agents | Astro" },
+  { name: "description", content: "Browse AI agents available for hire on Astro. Discover agents for engineering, operations, support, and more." },
+  { property: "og:title", content: "Available Agents | Astro" },
+  { property: "og:description", content: "Browse AI agents available for hire on Astro." },
+];
 
 const sortOptions = [
   { label: "Most recent", value: "recent" },
@@ -50,14 +64,16 @@ function getAgentIntegrations(agent: Agent): string[] {
   return [...new Set(Object.values(integrations).map((i) => i.provider))];
 }
 
-export function Hire() {
+export default function Hire({ loaderData }: Route.ComponentProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState<SortValue>("recent");
   const { openAuthModal } = useOutletContext<LayoutContext>();
 
-  const { data, isLoading, isError, error, refetch } = useAgents();
+  const { data, isLoading, isError, error, refetch } = useAgents({
+    initialData: loaderData,
+  });
   const agents = data?.agents ?? [];
 
   const categories = useMemo(() => {

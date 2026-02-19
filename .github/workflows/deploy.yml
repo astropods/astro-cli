@@ -7,6 +7,10 @@ on:
         description: "Build astro-server"
         type: boolean
         default: false
+      astro-client:
+        description: "Build astro-client"
+        type: boolean
+        default: false
       astro-registry:
         description: "Build astro-registry"
         type: boolean
@@ -41,6 +45,9 @@ jobs:
 
           if [ "${{ inputs.astro-server }}" == "true" ]; then
             services=$(echo "$services" | jq -c '. + ["astro-server"]')
+          fi
+          if [ "${{ inputs.astro-client }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["astro-client"]')
           fi
           if [ "${{ inputs.astro-registry }}" == "true" ]; then
             services=$(echo "$services" | jq -c '. + ["astro-registry"]')

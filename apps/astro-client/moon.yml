@@ -3,11 +3,12 @@ language: "typescript"
 
 tasks:
   typecheck:
-    command: "bun x tsc -p tsconfig.app.json"
+    command: "bun run typecheck"
     inputs:
       - "src/**/*"
       - "tsconfig.json"
       - "tsconfig.app.json"
+      - "react-router.config.ts"
     options:
       mergeArgs: "replace"
       mergeInputs: "replace"

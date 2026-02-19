@@ -1,4 +1,4 @@
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext } from "react-router";
 import { AgentCard } from "@/components/AgentCard";
 import type { LayoutContext } from "@/components/Layout";
 

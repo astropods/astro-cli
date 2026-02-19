@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import {
   RefreshCw,
   Server,
@@ -8,7 +8,7 @@ import {
 import { useAuth } from "../lib/auth";
 import { useProfile } from "../api/queries/accounts";
 
-export function OperatorOverview() {
+export default function OperatorOverview() {
   const { isAuthenticated, login } = useAuth();
   const { data: profileData, refetch: refetchProfile, isLoading } = useProfile();
   const currentAccount = profileData?.accounts?.[0];

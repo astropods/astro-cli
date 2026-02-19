@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+
+# =============================================================================
+# Stage 1: Build
+# =============================================================================
+FROM oven/bun:1 AS builder
+
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package.json bun.lock ./
+COPY apps/astro-client/package.json ./apps/astro-client/
+COPY packages/astro-workflows/package.json ./packages/astro-workflows/
+COPY packages/astro-agent/package.json ./packages/astro-agent/
+COPY packages/astro-graph/package.json ./packages/astro-graph/
+COPY packages/astro-engine/package.json ./packages/astro-engine/
+COPY packages/astro-nodes/package.json ./packages/astro-nodes/
+COPY packages/astro-types/package.json ./packages/astro-types/
+COPY packages/astro-messaging/package.json ./packages/astro-messaging/
+
+# Install dependencies with cache mount
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install
+
+# Copy source files needed for build
+COPY apps/astro-client ./apps/astro-client
+COPY packages ./packages
+
+# Build the SSR app
+WORKDIR /app/apps/astro-client
+RUN bun run build
+
+# =============================================================================
+# Stage 2: Production
+# =============================================================================
+FROM oven/bun:1-slim
+
+WORKDIR /app
+
+# Install production dependencies (standalone, outside workspace context)
+COPY --from=builder /app/apps/astro-client/package.json ./package.json
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun -e "const p = await Bun.file('package.json').json(); for (const [k,v] of Object.entries(p.dependencies||{})) { if (v.startsWith('workspace:')) delete p.dependencies[k]; } await Bun.write('package.json', JSON.stringify(p));" && \
+    bun install --production
+
+# Copy built artifacts
+COPY --from=builder /app/apps/astro-client/build ./build
+COPY --from=builder /app/apps/astro-client/server.ts ./server.ts
+
+# Create non-root user
+RUN echo "astro:x:1000:1000::/app:/bin/sh" >> /etc/passwd && \
+    echo "astro:x:1000:" >> /etc/group && \
+    chown -R 1000:1000 /app
+
+USER astro
+
+# Environment defaults
+ENV PORT=3000 \
+    NODE_ENV=production
+
+EXPOSE 3000
+
+# Health check — uses Bun instead of curl (not available in bun:1-slim)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD bun -e "const r = await fetch('http://localhost:3000/'); if (!r.ok) process.exit(1);"
+
+ENTRYPOINT ["bun", "run", "./server.ts"]

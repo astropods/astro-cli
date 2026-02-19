@@ -1,30 +1,36 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Routes, Route, Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockAgents } from '@/test/msw/handlers';
-import { renderWithProviders } from '@/test/test-utils';
-import { Hire } from './Hire';
+import { renderRoute } from '@/test/test-utils';
+import Hire from './Hire';
 
 // RTL auto-cleanup requires vitest globals — run it explicitly.
 afterEach(cleanup);
 
-// Hire calls useOutletContext(), so we render it inside a parent route
+// Hire calls useOutletContext(), so we render it inside a layout route
 // that provides the context via <Outlet context={...} />.
 function renderHire({
   initialEntries = ['/hire'],
   openAuthModal = vi.fn(),
 }: { initialEntries?: string[]; openAuthModal?: ReturnType<typeof vi.fn> } = {}) {
-  const ParentLayout = () => <Outlet context={{ openAuthModal }} />;
-
-  const result = renderWithProviders(
-    <Routes>
-      <Route element={<ParentLayout />}>
-        <Route path="/hire" element={<Hire />} />
-      </Route>
-    </Routes>,
+  const result = renderRoute(
+    [
+      {
+        path: '/',
+        Component: () => <Outlet context={{ openAuthModal }} />,
+        children: [
+          {
+            path: 'hire',
+            // @ts-expect-error: `matches` won't align between test code and app code
+            Component: Hire,
+          },
+        ],
+      },
+    ],
     { initialEntries },
   );
 

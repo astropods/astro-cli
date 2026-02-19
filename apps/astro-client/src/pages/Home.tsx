@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { Paperclip, Mic, Send } from "lucide-react";
 
 const quickActions = [
@@ -10,7 +10,7 @@ const quickActions = [
   "I'm not sure",
 ];
 
-export function Home() {
+export default function Home() {
   const navigate = useNavigate();
 
   const handleQuickAction = () => {

@@ -72,7 +72,7 @@ const STEPS = [
   },
 ];
 
-export function Docs() {
+export default function Docs() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const prefix = getCLIPrefix();
 

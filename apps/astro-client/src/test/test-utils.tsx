@@ -1,7 +1,8 @@
 import { type ReactNode } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
+import { createRoutesStub } from 'react-router';
 
 // Fresh QueryClient per test — no retries, no gc delay, instant stale
 function createTestQueryClient() {
@@ -51,4 +52,23 @@ export function renderWithProviders(
 export function createHookWrapper(options?: WrapperOptions) {
   const { Wrapper, queryClient } = createWrapper(options);
   return { wrapper: Wrapper, queryClient };
+}
+
+// Render a route using createRoutesStub (RR v7 test API)
+export function renderRoute(
+  routes: Parameters<typeof createRoutesStub>[0],
+  options?: { initialEntries?: string[] } & Omit<RenderOptions, 'wrapper'>,
+) {
+  const { initialEntries = ['/'], ...renderOptions } = options ?? {};
+  const queryClient = createTestQueryClient();
+  const Stub = createRoutesStub(routes);
+
+  const result = render(
+    <QueryClientProvider client={queryClient}>
+      <Stub initialEntries={initialEntries} />
+    </QueryClientProvider>,
+    renderOptions,
+  );
+
+  return { ...result, queryClient };
 }

@@ -1,6 +1,6 @@
 # astro-server
 
-Go backend for the Astro platform using the Gin framework. Handles agent registry, deployment to Kubernetes, authentication, and serves the frontend SPA.
+Go backend for the Astro platform using the Gin framework. Handles agent registry, deployment to Kubernetes, and authentication.
 
 ## Local Development
 

@@ -1,6 +1,10 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
-export function NotFound() {
+export function loader() {
+  throw new Response("Not Found", { status: 404 });
+}
+
+export function ErrorBoundary() {
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-48px)]">
       <div className="text-center">

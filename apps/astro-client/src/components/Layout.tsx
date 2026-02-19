@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Outlet, useSearchParams } from "react-router-dom";
+import { Outlet, useSearchParams } from "react-router";
 import { AuthModal } from "./AuthModal";
 import { AppHeader } from "./AppHeader";
 import { useAuth } from "../lib/auth";
 
-export function Layout() {
+export default function Layout() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { error } = useAuth();

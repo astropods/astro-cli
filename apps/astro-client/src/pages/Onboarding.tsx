@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useCreateAccount, useCheckAccountName } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
 
@@ -13,7 +13,7 @@ function validateName(name: string): string | null {
   return null;
 }
 
-export function Onboarding() {
+export default function Onboarding() {
   const [name, setName] = useState('');
   const [debouncedName, setDebouncedName] = useState('');
   const [error, setError] = useState<string | null>(null);

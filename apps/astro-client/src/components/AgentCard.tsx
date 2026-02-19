@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "./Badge";
 import { IntegrationIconStack } from "./IntegrationIconStack";

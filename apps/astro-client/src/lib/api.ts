@@ -58,10 +58,12 @@ export interface ApiError {
 class ApiClient {
   private baseUrl: string;
   private authUrl: string;
+  private defaultHeaders: Record<string, string>;
 
-  constructor(baseUrl: string = '', authUrl: string = '') {
+  constructor(baseUrl: string = '', authUrl: string = '', defaultHeaders: Record<string, string> = {}) {
     this.baseUrl = baseUrl;
     this.authUrl = authUrl;
+    this.defaultHeaders = defaultHeaders;
   }
 
   private async request<T>(
@@ -75,6 +77,7 @@ class ApiClient {
       credentials: 'include', // Include cookies for session auth
       headers: {
         'Content-Type': 'application/json',
+        ...this.defaultHeaders,
         ...options.headers,
       },
     });
@@ -101,7 +104,7 @@ class ApiClient {
     const url = `${this.authUrl}/auth/me`;
     const response = await fetch(url, {
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...this.defaultHeaders },
     });
     if (!response.ok) {
       const error: ApiError = await response.json().catch(() => ({
@@ -118,7 +121,7 @@ class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...this.defaultHeaders },
     });
     if (!response.ok) {
       const error: ApiError = await response.json().catch(() => ({
@@ -136,7 +139,8 @@ class ApiClient {
 
   getLogoutUrl(): string {
     // Pass current origin as redirect parameter for reliable post-logout redirect
-    const redirectUrl = encodeURIComponent(window.location.origin);
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const redirectUrl = encodeURIComponent(origin);
     return `${this.authUrl}/auth/logout?redirect=${redirectUrl}`;
   }
 
@@ -264,6 +268,7 @@ class ApiClient {
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(namespace)}/logs?${params}`;
     const response = await fetch(url, {
       credentials: 'include',
+      headers: { ...this.defaultHeaders },
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({
@@ -578,7 +583,9 @@ export interface ObservabilityTracesResponse {
 
 // Export singleton instance
 // Auth endpoints go directly to the backend (for cookies), API endpoints use proxy
-const authUrl = import.meta.env.VITE_API_URL || '';
+const authUrl = typeof import.meta !== 'undefined' && import.meta.env
+  ? (import.meta.env.VITE_API_URL || '')
+  : '';
 export const api = new ApiClient('', authUrl);
 
 // Export class for testing or custom instances

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Users, CheckCircle, Clock } from "lucide-react";
 import { useAuth, getUserDisplayName } from "../lib/auth";
 import { ProtectedRoute } from "../components/ProtectedRoute";
@@ -90,7 +90,7 @@ function YourAgentsContent() {
   );
 }
 
-export function YourAgents() {
+export default function YourAgents() {
   return (
     <ProtectedRoute>
       <YourAgentsContent />

@@ -1,4 +1,5 @@
-import { useParams, useOutletContext, Link } from "react-router-dom";
+import { useParams, useOutletContext, Link } from "react-router";
+import type { Route } from "./+types/AgentDetail";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArrowRight, ShieldCheck } from "lucide-react";
@@ -11,6 +12,34 @@ import { integrationIconMap } from "@/lib/integrationIcons";
 import { useAgent, useAgents } from "@/api/queries";
 import type { Agent } from "@/lib/api";
 import type { LayoutContext } from "@/components/Layout";
+import { createServerApi } from "@/lib/api.server";
+
+export async function loader({ params, request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  const account = params.account ?? "";
+  const agentSlug = params.agentSlug ?? "";
+
+  const [agent, agentsData] = await Promise.all([
+    account && agentSlug ? api.getAgent(account, agentSlug).catch(() => null) : null,
+    api.listAgents().catch(() => ({ agents: [], count: 0 })),
+  ]);
+
+  return { agent, agentsData };
+}
+
+export const meta: Route.MetaFunction = ({ data }) => {
+  const agent = data?.agent;
+  if (!agent) {
+    return [{ title: "Agent Details | Astro" }];
+  }
+  const description = agent.versions[0]?.spec?.meta?.description ?? "";
+  return [
+    { title: `${agent.account}/${agent.name} | Astro` },
+    { name: "description", content: description },
+    { property: "og:title", content: `${agent.account}/${agent.name} | Astro` },
+    { property: "og:description", content: description },
+  ];
+};
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors Hire page utilities)
@@ -107,13 +136,17 @@ function AgentDetailSkeleton() {
 // Page component
 // ---------------------------------------------------------------------------
 
-export function AgentDetail() {
+export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
   const { openAuthModal } = useOutletContext<LayoutContext>();
 
   // Support both /:account/:agentSlug and legacy /:agentSlug routes
-  const { data: agent, isLoading, isError, error } = useAgent(account ?? '', agentSlug ?? "");
-  const { data: agentsData } = useAgents();
+  const { data: agent, isLoading, isError, error } = useAgent(account ?? '', agentSlug ?? "", {
+    initialData: loaderData?.agent ?? undefined,
+  });
+  const { data: agentsData } = useAgents({
+    initialData: loaderData?.agentsData ?? undefined,
+  });
 
   const recommendedAgents = (() => {
     if (!agent || !agentsData) return [];
