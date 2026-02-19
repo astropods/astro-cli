@@ -50,7 +50,7 @@ type MessagingDeploymentConfig struct {
 	SecretName      string
 	ConfigMapName   string                         // ConfigMap with resolved env from interfaces.environment
 	AgentURL        string
-	InterfaceType   string
+	SlackEnabled    bool                           // Whether slack adapter is enabled
 	WebEnabled      bool                           // Whether web adapter is enabled (exposes HTTP endpoint)
 	WebPort         int32                          // HTTP port for web adapter (default 8080)
 	ImagePullPolicy corev1.PullPolicy              // Defaults to PullAlways if empty
@@ -200,8 +200,8 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		{Name: "DEPLOYMENT_MODE", Value: "all"},
 	}
 
-	// Enable adapters based on interface type
-	if cfg.InterfaceType == "slack" {
+	// Enable adapters based on configuration
+	if cfg.SlackEnabled {
 		container.Env = append(container.Env,
 			corev1.EnvVar{Name: "SLACK_ENABLED", Value: "true"},
 			corev1.EnvVar{Name: "SLACK_SOCKET_MODE", Value: "true"},

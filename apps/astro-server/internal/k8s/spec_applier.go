@@ -434,80 +434,86 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 		}
 
+		// Determine which adapters are enabled
+		slackEnabled := false
+		webEnabled := false
 		for _, adapter := range ds.Interfaces.Adapters {
-			if adapter != "slack" && adapter != "web" {
-				continue
+			switch adapter {
+			case "slack":
+				slackEnabled = true
+			case "web":
+				webEnabled = true
 			}
-			resourceName := deployment.GenerateResourceName(agentName, "messaging", adapter)
-			webEnabled := adapter == "web"
+		}
 
-			// Service
-			msgSvc := BuildService(ServiceConfig{
-				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
-				BuildID: buildID, Component: fmt.Sprintf("messaging-%s", adapter),
-				Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
+		resourceName := deployment.GenerateAgentResourceName(agentName, "messaging")
+
+		// Service
+		msgSvc := BuildService(ServiceConfig{
+			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			BuildID: buildID, Component: "messaging",
+			Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
+		})
+		msgSvc.Spec.Ports[0].Name = "grpc"
+		if webEnabled {
+			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, corev1.ServicePort{
+				Name: "http", Protocol: corev1.ProtocolTCP,
+				Port: webPort, TargetPort: intstr.FromInt(int(webPort)),
 			})
-			msgSvc.Spec.Ports[0].Name = "grpc"
-			if webEnabled {
-				msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, corev1.ServicePort{
-					Name: "http", Protocol: corev1.ProtocolTCP,
-					Port: webPort, TargetPort: intstr.FromInt(int(webPort)),
-				})
-			}
-			a.applyServiceAndRecord(ctx, msgSvc, result)
+		}
+		a.applyServiceAndRecord(ctx, msgSvc, result)
 
-			// Deployment
-			msgImage := ds.Interfaces.Image
-			if msgImage == "" {
-				msgImage = fmt.Sprintf("%s/prod-astro-messaging:latest", a.registryURL)
-			}
-			msgCfg := MessagingDeploymentConfig{
-				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
-				BuildID: buildID, Component: fmt.Sprintf("messaging-%s", adapter),
-				Image: msgImage, Port: grpcPort, SecretName: "",
-				ConfigMapName: "",
-				InterfaceType: adapter, WebEnabled: webEnabled,
-				WebPort:         webPort,
-				ImagePullPolicy: a.imagePullPolicy,
-				Resources:       msgResources,
-				Environment:     resolvedIfaceEnv,
-			}
-			msgDepl := BuildMessagingDeployment(msgCfg)
-			status, err := a.applyDeployment(ctx, msgDepl)
-			result.Resources = append(result.Resources, status)
-			if err != nil {
-				result.Errors = append(result.Errors, deployment.DeploymentError{
-					Resource: msgDepl.Name, Kind: "Deployment", Error: err.Error(),
-				})
-			}
+		// Deployment
+		msgImage := ds.Interfaces.Image
+		if msgImage == "" {
+			msgImage = fmt.Sprintf("%s/prod-astro-messaging:latest", a.registryURL)
+		}
+		msgCfg := MessagingDeploymentConfig{
+			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			BuildID: buildID, Component: "messaging",
+			Image: msgImage, Port: grpcPort, SecretName: secretName,
+			ConfigMapName: "",
+			SlackEnabled: slackEnabled, WebEnabled: webEnabled,
+			WebPort:         webPort,
+			ImagePullPolicy: a.imagePullPolicy,
+			Resources:       msgResources,
+			Environment:     resolvedIfaceEnv,
+		}
+		msgDepl := BuildMessagingDeployment(msgCfg)
+		status, err := a.applyDeployment(ctx, msgDepl)
+		result.Resources = append(result.Resources, status)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: msgDepl.Name, Kind: "Deployment", Error: err.Error(),
+			})
+		}
 
-			// Ingress — if an adapter is defined, it gets exposed
-			{
-				ingressName := deployment.GenerateResourceName(agentName, "ingress", adapter)
-				host := ds.Interfaces.Expose.Domain
-				if host == "" && a.ingressDomain != "" {
-					host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
-				}
-				if host != "" {
-					ingress := BuildIngress(IngressConfig{
-						Name: ingressName, Namespace: a.namespace, AgentName: agentName,
-						BuildID: buildID, Component: fmt.Sprintf("messaging-%s", adapter),
-						ServiceName: resourceName, ServicePort: webPort, Host: host,
-						ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
-					})
-					status, err = a.applyIngress(ctx, ingress)
-					result.Resources = append(result.Resources, status)
-					if err != nil {
-						result.Errors = append(result.Errors, deployment.DeploymentError{
-							Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
-						})
-					}
-					externalURL := fmt.Sprintf("https://%s", host)
-					result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
-						Name: fmt.Sprintf("messaging-%s", adapter), Type: adapter,
-						URL: externalURL, Port: 443,
+		// Ingress — expose web adapter if configured
+		if webEnabled {
+			ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-messaging")
+			host := ds.Interfaces.Expose.Domain
+			if host == "" && a.ingressDomain != "" {
+				host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
+			}
+			if host != "" {
+				ingress := BuildIngress(IngressConfig{
+					Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+					BuildID: buildID, Component: "messaging",
+					ServiceName: resourceName, ServicePort: webPort, Host: host,
+					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
+				})
+				status, err = a.applyIngress(ctx, ingress)
+				result.Resources = append(result.Resources, status)
+				if err != nil {
+					result.Errors = append(result.Errors, deployment.DeploymentError{
+						Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
 					})
 				}
+				externalURL := fmt.Sprintf("https://%s", host)
+				result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
+					Name: "messaging", Type: "web",
+					URL: externalURL, Port: 443,
+				})
 			}
 		}
 	}

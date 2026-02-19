@@ -32,7 +32,7 @@ interface PlaygroundChatProps {
 }
 
 function getMessagingWebUrl(deployment: AgentDeployment): string | null {
-  const ep = deployment.external_urls?.find((u) => u.name === "messaging-web");
+  const ep = deployment.external_urls?.find((u) => u.name === "messaging");
   return ep?.url ?? null;
 }
 
@@ -267,12 +267,8 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
     }
   };
 
-  // Empty state: no deployments with messaging-web
-  if (deploymentsWithUrl.length === 0) {
-    return null;
-  }
-
-  const selected = deploymentsWithUrl[selectedIndex];
+  const hasUrl = deploymentsWithUrl.length > 0;
+  const selected = hasUrl ? deploymentsWithUrl[selectedIndex] : null;
 
   return (
     <aside className="hidden lg:flex w-[400px] shrink-0 flex-col border-l border-border bg-muted/50 h-full">
@@ -280,13 +276,13 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <MessageSquare className="size-4 text-muted-foreground" />
-          {deploymentsWithUrl.length > 1 ? (
+          {hasUrl && deploymentsWithUrl.length > 1 ? (
             <div className="relative">
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-border bg-background hover:bg-accent cursor-pointer rounded-md"
               >
-                <span className="font-mono text-xs">{selected.deployment.build_id.slice(0, 8)}</span>
+                <span className="font-mono text-xs">{selected!.deployment.build_id.slice(0, 8)}</span>
                 <ChevronDown size={14} />
               </button>
               {dropdownOpen && (
@@ -308,16 +304,18 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
                 </div>
               )}
             </div>
-          ) : (
+          ) : hasUrl ? (
             <div>
               <p className="text-sm font-medium leading-tight">Test Agent</p>
               <p className="text-xs text-muted-foreground">
-                Build {selected.deployment.build_id.slice(0, 8)}
+                Build {selected!.deployment.build_id.slice(0, 8)}
               </p>
             </div>
+          ) : (
+            <p className="text-sm font-medium leading-tight">Test Agent</p>
           )}
         </div>
-        {messages.length > 0 && (
+        {hasUrl && messages.length > 0 && (
           <button
             onClick={resetConversation}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground border border-border bg-background hover:bg-accent cursor-pointer rounded-md"
@@ -330,7 +328,18 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
+        {!hasUrl && (
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <div className="flex size-14 items-center justify-center rounded-xl bg-muted">
+              <MessageSquare className="size-7 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-semibold text-muted-foreground">Chat unavailable</p>
+            <p className="text-xs text-muted-foreground text-center">
+              Add the <span className="font-mono">web</span> adapter to your interfaces to enable the test chat
+            </p>
+          </div>
+        )}
+        {hasUrl && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="flex size-14 items-center justify-center rounded-xl bg-primary/10">
               <MessageSquare className="size-7 text-primary" />
@@ -397,7 +406,7 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
 
       {/* Input */}
       <div className="border-t border-border p-3 shrink-0">
-        <div className="w-full rounded-lg bg-background border border-border">
+        <div className={`w-full rounded-lg bg-background border border-border ${!hasUrl ? "opacity-50" : ""}`}>
           <textarea
             ref={inputRef}
             value={input}
@@ -407,13 +416,13 @@ export function PlaygroundChat({ deployments }: PlaygroundChatProps) {
             rows={2}
             className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-sm outline-none placeholder:text-muted-foreground"
             style={{ maxHeight: "120px" }}
-            disabled={isLoading}
+            disabled={!hasUrl || isLoading}
           />
           <div className="flex items-center px-3 pb-3">
             <div className="ml-auto">
               <button
                 onClick={sendMessage}
-                disabled={isLoading || !input.trim()}
+                disabled={!hasUrl || isLoading || !input.trim()}
                 className="size-7 rounded-full bg-primary text-primary-foreground border-none cursor-pointer hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

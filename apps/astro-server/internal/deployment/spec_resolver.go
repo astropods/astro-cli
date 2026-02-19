@@ -89,12 +89,9 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 		if grpcPort == 0 {
 			grpcPort = 9090
 		}
-		for _, adapter := range ds.Interfaces.Adapters {
-			messagingServiceName := GenerateResourceName(ds.Source.Name, "messaging", adapter)
-			messagingHost := GenerateServiceDNS(messagingServiceName, rctx.Namespace)
-			result.ConfigMapData["GRPC_SERVER_ADDR"] = fmt.Sprintf("%s:%d", messagingHost, grpcPort)
-			break
-		}
+		messagingServiceName := GenerateAgentResourceName(ds.Source.Name, "messaging")
+		messagingHost := GenerateServiceDNS(messagingServiceName, rctx.Namespace)
+		result.ConfigMapData["GRPC_SERVER_ADDR"] = fmt.Sprintf("%s:%d", messagingHost, grpcPort)
 	}
 
 	return result

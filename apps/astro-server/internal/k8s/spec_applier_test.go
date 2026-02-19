@@ -644,18 +644,18 @@ func TestApplyDeploymentSpec_WithSlackInterface(t *testing.T) {
 	hasMsgService := false
 	hasMsgDeployment := false
 	for _, r := range result.Resources {
-		if r.Kind == "Service" && r.Name == "my-agent-messaging-slack" {
+		if r.Kind == "Service" && r.Name == "my-agent-messaging" {
 			hasMsgService = true
 		}
-		if r.Kind == "Deployment" && r.Name == "my-agent-messaging-slack" {
+		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
 			hasMsgDeployment = true
 		}
 	}
 	if !hasMsgService {
-		t.Error("expected messaging-slack service")
+		t.Error("expected messaging service")
 	}
 	if !hasMsgDeployment {
-		t.Error("expected messaging-slack deployment")
+		t.Error("expected messaging deployment")
 	}
 }
 
@@ -689,26 +689,26 @@ func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	hasIngress := false
 	hasEndpoint := false
 	for _, r := range result.Resources {
-		if r.Kind == "Service" && r.Name == "my-agent-messaging-web" {
+		if r.Kind == "Service" && r.Name == "my-agent-messaging" {
 			hasMsgService = true
 		}
-		if r.Kind == "Deployment" && r.Name == "my-agent-messaging-web" {
+		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
 			hasMsgDeployment = true
 		}
-		if r.Kind == "Ingress" && r.Name == "my-agent-ingress-web" {
+		if r.Kind == "Ingress" && r.Name == "my-agent-ingress-messaging" {
 			hasIngress = true
 		}
 	}
 	for _, ep := range result.ServiceEndpoints {
-		if ep.Name == "messaging-web" && ep.URL == "https://my-agent.custom.example.com" {
+		if ep.Name == "messaging" && ep.URL == "https://my-agent.custom.example.com" {
 			hasEndpoint = true
 		}
 	}
 	if !hasMsgService {
-		t.Error("expected messaging-web service")
+		t.Error("expected messaging service")
 	}
 	if !hasMsgDeployment {
-		t.Error("expected messaging-web deployment")
+		t.Error("expected messaging deployment")
 	}
 	if !hasIngress {
 		t.Error("expected ingress for web adapter")
@@ -766,7 +766,7 @@ func TestApplyDeploymentSpec_NoIngressWithoutDomain(t *testing.T) {
 	}
 }
 
-func TestApplyDeploymentSpec_SlackAdapterExposedWhenDefined(t *testing.T) {
+func TestApplyDeploymentSpec_SlackOnlyNoIngress(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"
 	ds := minimalDeploymentSpec()
@@ -781,14 +781,10 @@ func TestApplyDeploymentSpec_SlackAdapterExposedWhenDefined(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	hasIngress := false
 	for _, r := range result.Resources {
 		if r.Kind == "Ingress" {
-			hasIngress = true
+			t.Error("expected no ingress for slack-only adapter (uses socket mode)")
 		}
-	}
-	if !hasIngress {
-		t.Error("expected ingress for slack adapter when defined and ingressDomain is set")
 	}
 }
 
@@ -816,12 +812,12 @@ func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 	// Verify the deployment was created with the custom port
 	hasMsgDeployment := false
 	for _, r := range result.Resources {
-		if r.Kind == "Deployment" && r.Name == "my-agent-messaging-slack" {
+		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
 			hasMsgDeployment = true
 		}
 	}
 	if !hasMsgDeployment {
-		t.Error("expected messaging-slack deployment with custom port")
+		t.Error("expected messaging deployment with custom port")
 	}
 }
 
