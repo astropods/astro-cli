@@ -94,18 +94,93 @@ func serializeFromGo() {
 		Indent:          "  ",
 	}
 
+	// ConversationRequest with agentResponse containing ContentChunk
+	crWithContent := &pb.ConversationRequest{
+		Request: &pb.ConversationRequest_AgentResponse{
+			AgentResponse: &pb.AgentResponse{
+				ConversationId: "conv-go-001",
+				ResponseId:     "resp-go-001",
+				Payload: &pb.AgentResponse_Content{
+					Content: &pb.ContentChunk{
+						Type:              pb.ContentChunk_DELTA,
+						Content:           "Streaming from Go",
+						PlatformMessageId: "plat-go-001",
+					},
+				},
+			},
+		},
+	}
+
+	// ConversationRequest with agentResponse containing StatusUpdate
+	crWithStatus := &pb.ConversationRequest{
+		Request: &pb.ConversationRequest_AgentResponse{
+			AgentResponse: &pb.AgentResponse{
+				ConversationId: "conv-go-002",
+				ResponseId:     "resp-go-002",
+				Payload: &pb.AgentResponse_Status{
+					Status: &pb.StatusUpdate{
+						Status:        pb.StatusUpdate_THINKING,
+						CustomMessage: "Processing in Go...",
+					},
+				},
+			},
+		},
+	}
+
+	// AgentResponse with incomingMessage
+	arWithMessage := &pb.AgentResponse{
+		ConversationId: "conv-go-010",
+		ResponseId:     "resp-go-010",
+		Payload: &pb.AgentResponse_IncomingMessage{
+			IncomingMessage: &pb.Message{
+				Id:             "msg-go-incoming-001",
+				Platform:       "slack",
+				ConversationId: "conv-go-010",
+				Content:        "User message from Go",
+				PlatformContext: &pb.PlatformContext{
+					MessageId: "C999:go",
+					ChannelId: "C999",
+				},
+				User: &pb.User{
+					Id:       "U999",
+					Username: "gouser",
+				},
+			},
+		},
+	}
+
+	// AgentResponse with content
+	arWithContent := &pb.AgentResponse{
+		ConversationId: "conv-go-011",
+		ResponseId:     "resp-go-011",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "Final content from Go",
+			},
+		},
+	}
+
 	// Serialize each type
 	pcJSON, _ := marshaler.Marshal(pc)
 	userJSON, _ := marshaler.Marshal(user)
 	tmJSON, _ := marshaler.Marshal(tm)
 	msgJSON, _ := marshaler.Marshal(msg)
+	crContentJSON, _ := marshaler.Marshal(crWithContent)
+	crStatusJSON, _ := marshaler.Marshal(crWithStatus)
+	arMessageJSON, _ := marshaler.Marshal(arWithMessage)
+	arContentJSON, _ := marshaler.Marshal(arWithContent)
 
 	// Create output structure
 	output := map[string]json.RawMessage{
-		"platformContext": pcJSON,
-		"user":            userJSON,
-		"threadMessage":   tmJSON,
-		"message":         msgJSON,
+		"platformContext":                pcJSON,
+		"user":                           userJSON,
+		"threadMessage":                  tmJSON,
+		"message":                        msgJSON,
+		"conversationRequestWithContent": crContentJSON,
+		"conversationRequestWithStatus":  crStatusJSON,
+		"agentResponseWithMessage":       arMessageJSON,
+		"agentResponseWithContent":       arContentJSON,
 	}
 
 	// Write to file
@@ -221,6 +296,101 @@ func deserializeFromTS() {
 			fmt.Printf("  user.username: %s\n", msg.User.Username)
 		}
 		fmt.Println()
+	}
+
+	// Deserialize ConversationRequest with agentResponse.content
+	if crJSON, ok := input["conversationRequestWithContent"]; ok {
+		cr := &pb.ConversationRequest{}
+		if err := unmarshaler.Unmarshal(crJSON, cr); err != nil {
+			fmt.Printf("❌ Failed to deserialize ConversationRequest (content): %v\n", err)
+			os.Exit(1)
+		}
+		ar := cr.GetAgentResponse()
+		if ar == nil {
+			fmt.Println("❌ ERROR: ConversationRequest.agentResponse is nil (oneof not set!)")
+			os.Exit(1)
+		}
+		if ar.GetContent() == nil {
+			fmt.Println("❌ ERROR: AgentResponse.content is nil (payload oneof not set!)")
+			os.Exit(1)
+		}
+		fmt.Println("✓ Deserialized ConversationRequest with agentResponse.content from TypeScript:")
+		fmt.Printf("  conversationId: %s\n", ar.ConversationId)
+		fmt.Printf("  content.type: %v\n", ar.GetContent().Type)
+		fmt.Printf("  content.content: %s\n\n", ar.GetContent().Content)
+	}
+
+	// Deserialize ConversationRequest with agentResponse.status
+	if crJSON, ok := input["conversationRequestWithStatus"]; ok {
+		cr := &pb.ConversationRequest{}
+		if err := unmarshaler.Unmarshal(crJSON, cr); err != nil {
+			fmt.Printf("❌ Failed to deserialize ConversationRequest (status): %v\n", err)
+			os.Exit(1)
+		}
+		ar := cr.GetAgentResponse()
+		if ar == nil {
+			fmt.Println("❌ ERROR: ConversationRequest.agentResponse is nil!")
+			os.Exit(1)
+		}
+		if ar.GetStatus() == nil {
+			fmt.Println("❌ ERROR: AgentResponse.status is nil (payload oneof not set!)")
+			os.Exit(1)
+		}
+		fmt.Println("✓ Deserialized ConversationRequest with agentResponse.status from TypeScript:")
+		fmt.Printf("  status: %v\n\n", ar.GetStatus().Status)
+	}
+
+	// Deserialize ConversationRequest with agentResponse.error
+	if crJSON, ok := input["conversationRequestWithError"]; ok {
+		cr := &pb.ConversationRequest{}
+		if err := unmarshaler.Unmarshal(crJSON, cr); err != nil {
+			fmt.Printf("❌ Failed to deserialize ConversationRequest (error): %v\n", err)
+			os.Exit(1)
+		}
+		ar := cr.GetAgentResponse()
+		if ar == nil {
+			fmt.Println("❌ ERROR: ConversationRequest.agentResponse is nil!")
+			os.Exit(1)
+		}
+		if ar.GetError() == nil {
+			fmt.Println("❌ ERROR: AgentResponse.error is nil (payload oneof not set!)")
+			os.Exit(1)
+		}
+		fmt.Println("✓ Deserialized ConversationRequest with agentResponse.error from TypeScript:")
+		fmt.Printf("  error.code: %v\n", ar.GetError().Code)
+		fmt.Printf("  error.message: %s\n\n", ar.GetError().Message)
+	}
+
+	// Deserialize AgentResponse with incomingMessage
+	if arJSON, ok := input["agentResponseWithMessage"]; ok {
+		ar := &pb.AgentResponse{}
+		if err := unmarshaler.Unmarshal(arJSON, ar); err != nil {
+			fmt.Printf("❌ Failed to deserialize AgentResponse (incomingMessage): %v\n", err)
+			os.Exit(1)
+		}
+		if ar.GetIncomingMessage() == nil {
+			fmt.Println("❌ ERROR: AgentResponse.incomingMessage is nil!")
+			os.Exit(1)
+		}
+		fmt.Println("✓ Deserialized AgentResponse with incomingMessage from TypeScript:")
+		fmt.Printf("  message.id: %s\n", ar.GetIncomingMessage().Id)
+		fmt.Printf("  message.platform: %s\n\n", ar.GetIncomingMessage().Platform)
+	}
+
+	// Deserialize AgentResponse with content
+	if arJSON, ok := input["agentResponseWithContent"]; ok {
+		ar := &pb.AgentResponse{}
+		if err := unmarshaler.Unmarshal(arJSON, ar); err != nil {
+			fmt.Printf("❌ Failed to deserialize AgentResponse (content): %v\n", err)
+			os.Exit(1)
+		}
+		if ar.GetContent() == nil {
+			fmt.Println("❌ ERROR: AgentResponse.content is nil!")
+			os.Exit(1)
+		}
+		fmt.Println("✓ Deserialized AgentResponse with content from TypeScript:")
+		fmt.Printf("  content.type: %v\n", ar.GetContent().Type)
+		fmt.Printf("  content.content: %s\n\n", ar.GetContent().Content)
 	}
 
 	fmt.Println("✓ All TypeScript → Go deserialization successful!")

@@ -112,7 +112,7 @@ async function main() {
         stream.sendContentChunk(message.conversationId, { type: 'DELTA', content: chunk });
       },
       onFinish: (result: string) => {
-        stream.sendContentChunk(message.conversationId, { type: 'END', content: result });
+        stream.sendContentChunk(message.conversationId, { type: 'END', content: '' });
         console.log('📤 Response complete');
       },
       onError: (error: Error) => {

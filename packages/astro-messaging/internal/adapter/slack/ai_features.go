@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	pb "github.com/astro/messaging/pkg/gen/astro/messaging/v1"
 	"github.com/slack-go/slack"
@@ -100,39 +101,76 @@ func (a *SlackAdapter) setSlackPrompts(ctx context.Context, conversationID strin
 	return nil
 }
 
-// handleContentChunk sends content to Slack
+// handleContentChunk buffers DELTA chunks and sends a single message to Slack on END.
 func (a *SlackAdapter) handleContentChunk(ctx context.Context, conversationID string, content *pb.ContentChunk) error {
 	if content == nil {
 		return fmt.Errorf("nil content chunk")
 	}
-
-	// Parse conversationID to get channel and thread
-	channelID, threadTS, err := a.parseConversationID(conversationID)
-	if err != nil {
-		return fmt.Errorf("failed to parse conversation ID: %w", err)
+	if conversationID == "" {
+		return fmt.Errorf("empty conversation ID")
 	}
 
-	// Apply rate limiting
-	if err := a.rateLimiter.Wait(ctx); err != nil {
-		return fmt.Errorf("rate limit wait failed: %w", err)
-	}
+	switch content.Type {
+	case pb.ContentChunk_START:
+		// Reset buffer for this conversation
+		a.contentBuffers[conversationID] = ""
+		return nil
 
-	// For Slack, we don't support streaming (due to 3-second rate limit)
-	// We only send complete messages
-	// Only process END or REPLACE chunks, ignore START and DELTA
-	if content.Type != pb.ContentChunk_END && content.Type != pb.ContentChunk_REPLACE {
-		log.Printf("[Slack] Ignoring non-final content chunk (streaming not supported)")
+	case pb.ContentChunk_DELTA:
+		// Accumulate content
+		a.contentBuffers[conversationID] += content.Content
+		return nil
+
+	case pb.ContentChunk_END:
+		// Flush the buffered content as a single Slack message
+		fullContent := a.contentBuffers[conversationID]
+		delete(a.contentBuffers, conversationID)
+
+		if fullContent == "" {
+			log.Printf("[Slack] Skipping empty message for %s", conversationID)
+			return nil
+		}
+
+		channelID, threadTS, err := a.parseConversationID(conversationID)
+		if err != nil {
+			return fmt.Errorf("failed to parse conversation ID: %w", err)
+		}
+
+		if err := a.rateLimiter.Wait(ctx); err != nil {
+			return fmt.Errorf("rate limit wait failed: %w", err)
+		}
+
+		_, _, err = a.client.PostMessageContext(ctx, channelID, slack.MsgOptionText(fullContent, false), slack.MsgOptionTS(threadTS))
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+
+		log.Printf("[Slack] Sent content to %s (%d chars)", conversationID, len(fullContent))
+		return nil
+
+	case pb.ContentChunk_REPLACE:
+		// REPLACE sends content directly (used for editing messages)
+		channelID, threadTS, err := a.parseConversationID(conversationID)
+		if err != nil {
+			return fmt.Errorf("failed to parse conversation ID: %w", err)
+		}
+
+		if err := a.rateLimiter.Wait(ctx); err != nil {
+			return fmt.Errorf("rate limit wait failed: %w", err)
+		}
+
+		_, _, err = a.client.PostMessageContext(ctx, channelID, slack.MsgOptionText(content.Content, false), slack.MsgOptionTS(threadTS))
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+
+		log.Printf("[Slack] Sent replace content to %s (%d chars)", conversationID, len(content.Content))
+		return nil
+
+	default:
+		log.Printf("[Slack] Unknown content chunk type: %v", content.Type)
 		return nil
 	}
-
-	// Send message to Slack
-	_, _, err = a.client.PostMessageContext(ctx, channelID, slack.MsgOptionText(content.Content, false), slack.MsgOptionTS(threadTS))
-	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-
-	log.Printf("[Slack] Sent content to %s (%d chars)", conversationID, len(content.Content))
-	return nil
 }
 
 // handleThreadMetadata handles thread metadata updates
@@ -183,13 +221,25 @@ func (a *SlackAdapter) handleError(ctx context.Context, conversationID string, e
 
 // Helper functions
 
-// parseConversationID parses a conversation ID into channel ID and thread timestamp
+// parseConversationID parses a conversation ID into channel ID and thread timestamp.
+// Accepted formats:
+//   - "C0A8Y3S92BG"                      → channel only (no thread)
+//   - "C0A8Y3S92BG-1234567890.000001"    → channel + thread timestamp
 func (a *SlackAdapter) parseConversationID(conversationID string) (channelID string, threadTS string, err error) {
-	channelID, threadTS = ParseMessageID(conversationID)
-	if channelID == "" {
-		return "", "", fmt.Errorf("invalid conversation ID format: %s", conversationID)
+	if conversationID == "" {
+		return "", "", fmt.Errorf("empty conversation ID")
 	}
-	return channelID, threadTS, nil
+	// Thread timestamps contain a dot (e.g. "1234567890.000001").
+	// Split on the first "-" that is followed by a digit sequence with a dot
+	// to distinguish from channel IDs that may contain hyphens (unlikely but safe).
+	if idx := strings.LastIndex(conversationID, "-"); idx != -1 {
+		candidate := conversationID[idx+1:]
+		if strings.Contains(candidate, ".") {
+			return conversationID[:idx], candidate, nil
+		}
+	}
+	// No thread timestamp — bare channel ID
+	return conversationID, "", nil
 }
 
 // mapStatusToMessage converts proto status to human-readable message

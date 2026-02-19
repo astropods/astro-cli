@@ -32,12 +32,17 @@ type SlackAdapter struct {
 	grpcHandler adapter.GRPCMessageHandler // Handler for gRPC message forwarding
 	threadStore *store.ThreadHistoryStore
 	aiClient    *SlackAIClient // Client for Slack AI APIs
+
+	// contentBuffers accumulates DELTA chunks per conversation so the adapter
+	// can send a single complete message to Slack on END.
+	contentBuffers map[string]string
 }
 
 // New creates a new Slack adapter
 func New() *SlackAdapter {
 	return &SlackAdapter{
-		stopChan: make(chan struct{}),
+		stopChan:       make(chan struct{}),
+		contentBuffers: make(map[string]string),
 	}
 }
 

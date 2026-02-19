@@ -1,4 +1,66 @@
 {
+  "agentResponseWithContent": {
+    "conversationId": "conv-go-011",
+    "responseId": "resp-go-011",
+    "content": {
+      "type": "END",
+      "content": "Final content from Go",
+      "attachments": [],
+      "platformMessageId": "",
+      "options": null
+    }
+  },
+  "agentResponseWithMessage": {
+    "conversationId": "conv-go-010",
+    "responseId": "resp-go-010",
+    "incomingMessage": {
+      "id": "msg-go-incoming-001",
+      "timestamp": null,
+      "platform": "slack",
+      "platformContext": {
+        "messageId": "C999:go",
+        "channelId": "C999",
+        "threadId": "",
+        "channelName": "",
+        "workspaceId": "",
+        "platformData": {}
+      },
+      "user": {
+        "id": "U999",
+        "username": "gouser",
+        "avatarUrl": "",
+        "email": "",
+        "userData": {}
+      },
+      "content": "User message from Go",
+      "attachments": [],
+      "conversationId": "conv-go-010"
+    }
+  },
+  "conversationRequestWithContent": {
+    "agentResponse": {
+      "conversationId": "conv-go-001",
+      "responseId": "resp-go-001",
+      "content": {
+        "type": "DELTA",
+        "content": "Streaming from Go",
+        "attachments": [],
+        "platformMessageId": "plat-go-001",
+        "options": null
+      }
+    }
+  },
+  "conversationRequestWithStatus": {
+    "agentResponse": {
+      "conversationId": "conv-go-002",
+      "responseId": "resp-go-002",
+      "status": {
+        "status": "THINKING",
+        "customMessage": "Processing in Go...",
+        "emoji": ""
+      }
+    }
+  },
   "message": {
     "id": "msg-full-001",
     "timestamp": "2026-02-05T21:00:00Z",

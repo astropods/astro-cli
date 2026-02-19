@@ -74,10 +74,11 @@ func newTestSlackAdapter(t *testing.T) (*SlackAdapter, *[]slackCall, func()) {
 	}
 
 	a := &SlackAdapter{
-		client:      client,
-		aiClient:    aiClient,
-		rateLimiter: NewRateLimiter(100, 100), // high limits for tests
-		config:      adapter.Config{},
+		client:         client,
+		aiClient:       aiClient,
+		rateLimiter:    NewRateLimiter(100, 100), // high limits for tests
+		config:         adapter.Config{},
+		contentBuffers: make(map[string]string),
 	}
 
 	getCalls := func() []slackCall {
@@ -98,22 +99,20 @@ func TestSlackAdapter_HandleAgentResponse_ContentEnd_PostsMessage(t *testing.T) 
 	a, calls, cleanup := newTestSlackAdapter(t)
 	defer cleanup()
 
-	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
-		Payload: &pb.AgentResponse_Content{
-			Content: &pb.ContentChunk{
-				Type:    pb.ContentChunk_END,
-				Content: "Here is my answer",
-			},
-		},
+	convID := "C123-1234567890.000001"
+
+	// Send START → DELTA → END sequence; Slack adapter buffers DELTAs and posts on END
+	for _, resp := range []*pb.AgentResponse{
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_START}}},
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "Here is my answer"}}},
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_END}}},
+	} {
+		if err := a.HandleAgentResponse(t.Context(), resp); err != nil {
+			t.Fatalf("HandleAgentResponse failed: %v", err)
+		}
 	}
 
-	err := a.HandleAgentResponse(t.Context(), response)
-	if err != nil {
-		t.Fatalf("HandleAgentResponse failed: %v", err)
-	}
-
-	// Should have called chat.postMessage
+	// Should have called chat.postMessage once on END
 	found := false
 	for _, call := range *calls {
 		if call.Method == "/chat.postMessage" {
@@ -131,7 +130,7 @@ func TestSlackAdapter_HandleAgentResponse_DeltaIgnored(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Content{
 			Content: &pb.ContentChunk{
 				Type:    pb.ContentChunk_DELTA,
@@ -156,7 +155,7 @@ func TestSlackAdapter_HandleAgentResponse_StartIgnored(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Content{
 			Content: &pb.ContentChunk{
 				Type:    pb.ContentChunk_START,
@@ -180,7 +179,7 @@ func TestSlackAdapter_HandleAgentResponse_StatusThinking(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Status{
 			Status: &pb.StatusUpdate{
 				Status: pb.StatusUpdate_THINKING,
@@ -214,7 +213,7 @@ func TestSlackAdapter_HandleAgentResponse_StatusProcessingWithCustomMessage(t *t
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Status{
 			Status: &pb.StatusUpdate{
 				Status:        pb.StatusUpdate_PROCESSING,
@@ -250,7 +249,7 @@ func TestSlackAdapter_HandleAgentResponse_StatusAnalyzing(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Status{
 			Status: &pb.StatusUpdate{
 				Status:        pb.StatusUpdate_ANALYZING,
@@ -284,7 +283,7 @@ func TestSlackAdapter_HandleAgentResponse_ErrorPostsWarning(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Error{
 			Error: &pb.ErrorResponse{
 				Code:    pb.ErrorResponse_AGENT_ERROR,
@@ -326,7 +325,7 @@ func TestSlackAdapter_HandleAgentResponse_InvalidConversationID(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "invalid-no-colon-format",
+		ConversationId: "",
 		Payload: &pb.AgentResponse_Content{
 			Content: &pb.ContentChunk{
 				Type:    pb.ContentChunk_END,
@@ -337,7 +336,7 @@ func TestSlackAdapter_HandleAgentResponse_InvalidConversationID(t *testing.T) {
 
 	err := a.HandleAgentResponse(t.Context(), response)
 	if err == nil {
-		t.Error("expected error for invalid conversation ID format")
+		t.Error("expected error for empty conversation ID")
 	}
 }
 
@@ -345,7 +344,7 @@ func TestSlackAdapter_HandleAgentResponse_FullStreamingSequence(t *testing.T) {
 	a, calls, cleanup := newTestSlackAdapter(t)
 	defer cleanup()
 
-	convID := "C123:1234567890.000001"
+	convID := "C123-1234567890.000001"
 
 	// Simulate: THINKING → START → DELTA → DELTA → PROCESSING → ANALYZING → DELTA → END
 	responses := []*pb.AgentResponse{
@@ -400,7 +399,7 @@ func TestSlackAdapter_HandleAgentResponse_FullStreamingSequence(t *testing.T) {
 		{
 			ConversationId: convID,
 			Payload: &pb.AgentResponse_Content{
-				Content: &pb.ContentChunk{Type: pb.ContentChunk_END, Content: "Hello world!"},
+				Content: &pb.ContentChunk{Type: pb.ContentChunk_END, Content: ""},
 			},
 		},
 	}
@@ -439,7 +438,7 @@ func TestSlackAdapter_HandleAgentResponse_ReplaceChunkPostsMessage(t *testing.T)
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Content{
 			Content: &pb.ContentChunk{
 				Type:    pb.ContentChunk_REPLACE,
@@ -536,7 +535,7 @@ func TestSlackAdapter_HandleAgentResponse_NilStatus(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Status{
 			Status: nil,
 		},
@@ -556,7 +555,7 @@ func TestSlackAdapter_HandleAgentResponse_NilContent(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Content{
 			Content: nil,
 		},
@@ -576,7 +575,7 @@ func TestSlackAdapter_HandleAgentResponse_NilError(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Error{
 			Error: nil,
 		},
@@ -596,7 +595,7 @@ func TestSlackAdapter_HandleAgentResponse_NilPrompts(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Prompts{
 			Prompts: nil,
 		},
@@ -616,7 +615,7 @@ func TestSlackAdapter_HandleAgentResponse_NilThreadMetadata(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_ThreadMetadata{
 			ThreadMetadata: nil,
 		},
@@ -643,7 +642,7 @@ func TestParseConversationID_EmptyString(t *testing.T) {
 
 func TestParseConversationID_ValidFormat(t *testing.T) {
 	a := &SlackAdapter{}
-	channelID, threadTS, err := a.parseConversationID("C123:1234567890.000001")
+	channelID, threadTS, err := a.parseConversationID("C123-1234567890.000001")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -652,6 +651,20 @@ func TestParseConversationID_ValidFormat(t *testing.T) {
 	}
 	if threadTS != "1234567890.000001" {
 		t.Errorf("expected thread '1234567890.000001', got %q", threadTS)
+	}
+}
+
+func TestParseConversationID_ChannelOnly(t *testing.T) {
+	a := &SlackAdapter{}
+	channelID, threadTS, err := a.parseConversationID("C0A8Y3S92BG")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if channelID != "C0A8Y3S92BG" {
+		t.Errorf("expected channel 'C0A8Y3S92BG', got %q", channelID)
+	}
+	if threadTS != "" {
+		t.Errorf("expected empty thread, got %q", threadTS)
 	}
 }
 
@@ -682,7 +695,7 @@ func TestSlackAdapter_HandleAgentResponse_StatusAPIFailure(t *testing.T) {
 	}
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Status{
 			Status: &pb.StatusUpdate{Status: pb.StatusUpdate_THINKING},
 		},
@@ -702,7 +715,7 @@ func TestSlackAdapter_HandleAgentResponse_PromptsWithData(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Prompts{
 			Prompts: &pb.SuggestedPrompts{
 				Prompts: []*pb.SuggestedPrompts_Prompt{
@@ -735,7 +748,7 @@ func TestSlackAdapter_HandleAgentResponse_ThreadMetadata(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_ThreadMetadata{
 			ThreadMetadata: &pb.ThreadMetadata{
 				ThreadId: "thread-123",
@@ -756,7 +769,7 @@ func TestSlackAdapter_HandleAgentResponse_ErrorWithCodeAppended(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Error{
 			Error: &pb.ErrorResponse{
 				Code:    pb.ErrorResponse_AGENT_ERROR,
@@ -793,7 +806,7 @@ func TestSlackAdapter_HandleAgentResponse_ErrorUnspecifiedCode(t *testing.T) {
 	defer cleanup()
 
 	response := &pb.AgentResponse{
-		ConversationId: "C123:1234567890.000001",
+		ConversationId: "C123-1234567890.000001",
 		Payload: &pb.AgentResponse_Error{
 			Error: &pb.ErrorResponse{
 				Code:    pb.ErrorResponse_ERROR_CODE_UNSPECIFIED,

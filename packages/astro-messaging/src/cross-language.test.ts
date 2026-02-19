@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import type { Message, PlatformContext, User, ThreadMessage } from './messaging-client';
+import type { Message, PlatformContext, User, ThreadMessage, ConversationRequest, AgentResponse } from './messaging-client';
 
 /**
  * Cross-language serialization tests
@@ -72,12 +72,87 @@ describe('Cross-language serialization: Go ↔ TypeScript', () => {
         user,
       };
 
+      // ConversationRequest with agentResponse containing ContentChunk (the bug)
+      const conversationRequestWithContent: ConversationRequest = {
+        agentResponse: {
+          conversationId: 'conv-ts-001',
+          responseId: 'resp-ts-001',
+          content: {
+            type: 'DELTA',
+            content: 'Streaming from TypeScript',
+            platformMessageId: 'plat-ts-001',
+          },
+        },
+      };
+
+      // ConversationRequest with agentResponse containing StatusUpdate
+      const conversationRequestWithStatus: ConversationRequest = {
+        agentResponse: {
+          conversationId: 'conv-ts-002',
+          responseId: 'resp-ts-002',
+          status: {
+            status: 'THINKING',
+            customMessage: 'Processing...',
+          },
+        },
+      };
+
+      // ConversationRequest with agentResponse containing ErrorResponse
+      const conversationRequestWithError: ConversationRequest = {
+        agentResponse: {
+          conversationId: 'conv-ts-003',
+          responseId: 'resp-ts-003',
+          error: {
+            code: 'RATE_LIMIT',
+            message: 'Too many requests',
+            details: 'Retry after 30s',
+            retryable: true,
+          },
+        },
+      };
+
+      // AgentResponse with incomingMessage (server→agent)
+      const agentResponseWithMessage: AgentResponse = {
+        conversationId: 'conv-ts-010',
+        responseId: 'resp-ts-010',
+        incomingMessage: {
+          id: 'msg-ts-incoming-001',
+          platform: 'slack',
+          conversationId: 'conv-ts-010',
+          content: 'User message from TS',
+          platformContext: {
+            messageId: 'C789:ts',
+            channelId: 'C789',
+            threadId: '1111111111.000001',
+          },
+          user: {
+            id: 'U789',
+            username: 'tsuser',
+          },
+        },
+      };
+
+      // AgentResponse with content
+      const agentResponseWithContent: AgentResponse = {
+        conversationId: 'conv-ts-011',
+        responseId: 'resp-ts-011',
+        content: {
+          type: 'END',
+          content: 'Final content from TS',
+        },
+      };
+
       // Serialize to JSON (this is what gRPC will send over the wire)
       const output = {
         platformContext,
         user,
         threadMessage,
         message,
+        conversationRequestWithContent,
+        conversationRequestWithStatus,
+        conversationRequestWithError,
+        agentResponseWithMessage,
+        agentResponseWithContent,
       };
 
       // Write to file for Go to read
@@ -195,6 +270,50 @@ describe('Cross-language serialization: Go ↔ TypeScript', () => {
       });
 
       console.log('\n✅ All Go → TypeScript deserialization successful!');
+    });
+
+    it('should deserialize Go ConversationRequest with agentResponse oneof', () => {
+      const goSerializedPath = join(testDataDir, 'go-serialized.json');
+
+      if (!existsSync(goSerializedPath)) {
+        console.log('⚠️  Go serialized file not found.');
+        return;
+      }
+
+      const data = JSON.parse(readFileSync(goSerializedPath, 'utf-8'));
+
+      // ConversationRequest with agentResponse.content
+      const crContent = data.conversationRequestWithContent as ConversationRequest;
+      expect(crContent).toBeDefined();
+      expect(crContent.agentResponse).toBeDefined();
+      expect(crContent.agentResponse!.conversationId).toBe('conv-go-001');
+      expect(crContent.agentResponse!.content).toBeDefined();
+      expect(crContent.agentResponse!.content!.type).toBe('DELTA');
+      expect(crContent.agentResponse!.content!.content).toBe('Streaming from Go');
+
+      // ConversationRequest with agentResponse.status
+      const crStatus = data.conversationRequestWithStatus as ConversationRequest;
+      expect(crStatus).toBeDefined();
+      expect(crStatus.agentResponse).toBeDefined();
+      expect(crStatus.agentResponse!.status).toBeDefined();
+      expect(crStatus.agentResponse!.status!.status).toBe('THINKING');
+
+      // AgentResponse with content
+      const arContent = data.agentResponseWithContent as AgentResponse;
+      expect(arContent).toBeDefined();
+      expect(arContent.conversationId).toBe('conv-go-011');
+      expect(arContent.content).toBeDefined();
+      expect(arContent.content!.type).toBe('END');
+      expect(arContent.content!.content).toBe('Final content from Go');
+
+      // AgentResponse with incomingMessage
+      const arMsg = data.agentResponseWithMessage as AgentResponse;
+      expect(arMsg).toBeDefined();
+      expect(arMsg.incomingMessage).toBeDefined();
+      expect(arMsg.incomingMessage!.id).toBe('msg-go-incoming-001');
+      expect(arMsg.incomingMessage!.platform).toBe('slack');
+
+      console.log('✅ Go → TypeScript oneof deserialization successful!');
     });
   });
 
