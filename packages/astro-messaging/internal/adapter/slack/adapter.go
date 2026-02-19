@@ -24,13 +24,9 @@ type SlackAdapter struct {
 	client       *slack.Client
 	socketClient *socketmode.Client
 	config       adapter.Config
-	handler      adapter.MessageHandler  // Old HTTP handler
-	rateLimiter  *RateLimiter
-	stopChan     chan struct{}
-
-	// gRPC additions
-	grpcHandler adapter.GRPCMessageHandler // Handler for gRPC message forwarding
-	threadStore *store.ThreadHistoryStore
+	handler     adapter.MessageHandler
+	rateLimiter *RateLimiter
+	stopChan    chan struct{}
 	aiClient    *SlackAIClient // Client for Slack AI APIs
 
 	// contentBuffers accumulates DELTA chunks per conversation so the adapter
@@ -208,7 +204,6 @@ func (a *SlackAdapter) handleMessage(ctx context.Context, ev *slackevents.Messag
 		resp, err := a.handler(ctx, unifiedMsg)
 		if err != nil {
 			log.Printf("[Slack] Error handling message: %v", err)
-			// Send error message to user
 			a.sendErrorMessage(ctx, ev.Channel, ev.ThreadTimeStamp, err)
 			return
 		}
@@ -295,20 +290,12 @@ func (a *SlackAdapter) handleAppMention(ctx context.Context, ev *slackevents.App
 	// Translate to unified message
 	unifiedMsg := TranslateAppMentionEvent(ev)
 
-	log.Printf("[Slack] ✓ handleAppMention executing")
-
-	// Set loading state using Slack AI API
-	threadTS := ev.ThreadTimeStamp
-	if threadTS == "" {
-		threadTS = ev.TimeStamp // Use message timestamp if not in a thread
-	}
+	// threadID is always set by TranslateAppMentionEvent (falls back to ev.TimeStamp)
+	threadTS := unifiedMsg.ThreadID
 
 	log.Printf("[Slack] Setting loading state: channel=%s, threadTS=%s", ev.Channel, threadTS)
 	if err := a.aiClient.SetThreadStatus(ctx, ev.Channel, threadTS, "Assistant is thinking...", "thinking_face"); err != nil {
 		log.Printf("[Slack] ERROR: Failed to set loading state: %v", err)
-		// Continue anyway - this is not a critical error
-	} else {
-		log.Printf("[Slack] ✓ Loading state set successfully")
 	}
 
 	// Call handler if registered
@@ -500,20 +487,13 @@ func (a *SlackAdapter) Stop(ctx context.Context) error {
 // gRPC Adapter Implementation
 // ============================================================================
 
-// SetMessageHandler sets the handler for forwarding messages to gRPC
-func (a *SlackAdapter) SetMessageHandler(handler adapter.GRPCMessageHandler) {
-	a.grpcHandler = handler
-}
+// SetMessageHandler implements GRPCAdapter. Message handling is done via OnMessage.
+func (a *SlackAdapter) SetMessageHandler(_ adapter.GRPCMessageHandler) {}
 
 // Capabilities returns the adapter's capabilities
 func (a *SlackAdapter) Capabilities() adapter.AdapterCapabilities {
 	// Default to false for AI features (can be configured later)
 	return adapter.SlackCapabilities(false)
-}
-
-// SetThreadStore sets the thread history store
-func (a *SlackAdapter) SetThreadStore(store *store.ThreadHistoryStore) {
-	a.threadStore = store
 }
 
 // HydrateThread fetches thread history from Slack API
@@ -636,10 +616,14 @@ func TranslateMessageEvent(ev *slackevents.MessageEvent) *types.UnifiedMessage {
 }
 
 func TranslateAppMentionEvent(ev *slackevents.AppMentionEvent) *types.UnifiedMessage {
-	conversationID := ev.Channel
-	if ev.ThreadTimeStamp != "" {
-		conversationID = fmt.Sprintf("%s-%s", ev.Channel, ev.ThreadTimeStamp)
+	// Use ThreadTimeStamp if already in a thread, otherwise use the message's
+	// own TimeStamp so the response creates a new thread under the mention.
+	threadID := ev.ThreadTimeStamp
+	if threadID == "" {
+		threadID = ev.TimeStamp
 	}
+
+	conversationID := fmt.Sprintf("%s-%s", ev.Channel, threadID)
 
 	text := stripMentions(ev.Text)
 
@@ -650,7 +634,7 @@ func TranslateAppMentionEvent(ev *slackevents.AppMentionEvent) *types.UnifiedMes
 		Content:           text,
 		UserID:            ev.User,
 		ChannelID:         ev.Channel,
-		ThreadID:          ev.ThreadTimeStamp,
+		ThreadID:          threadID,
 		ConversationID:    conversationID,
 		Timestamp:         parseSlackTimestamp(ev.TimeStamp),
 		Metadata: map[string]interface{}{

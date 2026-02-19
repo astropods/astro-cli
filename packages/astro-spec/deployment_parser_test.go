@@ -388,6 +388,74 @@ func TestStripCredentialValues(t *testing.T) {
 	}
 }
 
+func TestParseDeploymentSpec_WebAdapterRequiresExposePort(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  port: 8080
+interfaces:
+  adapters: [slack, web]
+  image: messaging:latest
+  port: 9090
+`
+	_, err := ParseDeploymentSpec([]byte(yaml))
+	if err == nil {
+		t.Fatal("expected error for web adapter without expose.port")
+	}
+}
+
+func TestParseDeploymentSpec_WebAdapterWithExposePort(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  port: 8080
+interfaces:
+  adapters: [slack, web]
+  image: messaging:latest
+  port: 9090
+  expose:
+    port: 8080
+`
+	ds, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ds.Interfaces.Expose.Port != 8080 {
+		t.Errorf("expected expose.port 8080, got %d", ds.Interfaces.Expose.Port)
+	}
+}
+
+func TestParseDeploymentSpec_SlackOnlyAdapterNoExposePort(t *testing.T) {
+	yaml := `
+spec: deployment/v1
+source:
+  name: x
+  build: b1
+  registry: r
+agent:
+  image: x
+  port: 8080
+interfaces:
+  adapters: [slack]
+  image: messaging:latest
+  port: 9090
+`
+	_, err := ParseDeploymentSpec([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: slack-only adapter should not require expose.port: %v", err)
+	}
+}
+
 func TestParseDeploymentSpec_WebhookIngestionRequiresPort(t *testing.T) {
 	yaml := `
 spec: deployment/v1

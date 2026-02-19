@@ -412,10 +412,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			grpcPort = 9090
 		}
 
-		webPort := int32(8080)
-		if ds.Interfaces.Expose.Port > 0 {
-			webPort = int32(ds.Interfaces.Expose.Port)
-		}
+		webPort := int32(ds.Interfaces.Expose.Port)
 
 		// Resolve interface resources from deployment spec
 		var msgResources *corev1.ResourceRequirements

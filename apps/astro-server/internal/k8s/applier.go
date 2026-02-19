@@ -331,12 +331,29 @@ func (a *Applier) applyJob(ctx context.Context, job *batchv1.Job) (deployment.Re
 	return status, nil
 }
 
-// applyIngress creates or updates an Ingress
+// applyIngress creates or updates an Ingress.
+// It refuses to create an ingress whose backend service port is zero — doing so
+// would produce a target group with no healthy targets, causing ALB health checks
+// to fail and pod readiness gates to block the rollout indefinitely.
 func (a *Applier) applyIngress(ctx context.Context, ing *networkingv1.Ingress) (deployment.ResourceStatus, error) {
 	status := deployment.ResourceStatus{
 		Kind:      "Ingress",
 		Name:      ing.Name,
 		Namespace: a.namespace,
+	}
+
+	// Safety: reject ingress if any rule references a backend with port == 0.
+	for _, rule := range ing.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+		for _, path := range rule.HTTP.Paths {
+			if path.Backend.Service != nil && path.Backend.Service.Port.Number == 0 {
+				status.Status = "failed"
+				status.Message = "refusing to create ingress: backend service port is 0 (container port not exposed)"
+				return status, fmt.Errorf("%s", status.Message)
+			}
+		}
 	}
 
 	_, err := a.clientset.NetworkingV1().Ingresses(a.namespace).Create(ctx, ing, metav1.CreateOptions{})

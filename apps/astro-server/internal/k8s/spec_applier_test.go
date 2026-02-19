@@ -726,6 +726,7 @@ func TestApplyDeploymentSpec_AdapterExposedWhenDefined(t *testing.T) {
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
 		Port:     9090,
+		Expose:   spec.ExposeConfig{Port: 8080},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -752,6 +753,7 @@ func TestApplyDeploymentSpec_NoIngressWithoutDomain(t *testing.T) {
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
 		Port:     9090,
+		Expose:   spec.ExposeConfig{Port: 8080},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -818,6 +820,23 @@ func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 	}
 	if !hasMsgDeployment {
 		t.Error("expected messaging deployment with custom port")
+	}
+}
+
+func TestApplyIngress_RejectsZeroPort(t *testing.T) {
+	a := newTestApplier()
+	ingress := BuildIngress(IngressConfig{
+		Name: "test-ingress", Namespace: "default", AgentName: "agent",
+		BuildID: "b1", Component: "messaging",
+		ServiceName: "test-svc", ServicePort: 0, Host: "test.example.com",
+	})
+
+	status, err := a.applyIngress(context.Background(), ingress)
+	if err == nil {
+		t.Fatal("expected error when ingress has backend port 0")
+	}
+	if status.Status != "failed" {
+		t.Errorf("expected status 'failed', got %q", status.Status)
 	}
 }
 

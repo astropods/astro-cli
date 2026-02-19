@@ -82,6 +82,14 @@ func validateDeploymentSpec(ds *AstroDeploymentSpec) error {
 			return fmt.Errorf("tools.%s.port is required", name)
 		}
 	}
+	if ds.Interfaces != nil {
+		for _, adapter := range ds.Interfaces.Adapters {
+			if adapter == "web" && ds.Interfaces.Expose.Port == 0 {
+				return fmt.Errorf("interfaces.expose.port is required when the web adapter is enabled")
+			}
+		}
+	}
+
 	for name, ing := range ds.Ingestion {
 		if ing.Image == "" {
 			return fmt.Errorf("ingestion.%s.image is required", name)
