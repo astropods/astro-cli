@@ -12,22 +12,21 @@ import (
 	pb "github.com/astro/messaging/pkg/gen/astro/messaging/v1"
 	"github.com/astro/messaging/internal/adapter"
 	"github.com/astro/messaging/internal/store"
-	"github.com/astro/messaging/pkg/types"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// SlackAdapter implements both Adapter and GRPCAdapter interfaces for Slack
+// SlackAdapter implements the adapter.Adapter interface for Slack
 type SlackAdapter struct {
 	client       *slack.Client
 	socketClient *socketmode.Client
 	config       adapter.Config
-	handler     adapter.MessageHandler
-	rateLimiter *RateLimiter
-	stopChan    chan struct{}
-	aiClient    *SlackAIClient // Client for Slack AI APIs
+	msgHandler   adapter.MessageHandler
+	rateLimiter  *RateLimiter
+	stopChan     chan struct{}
+	aiClient     *SlackAIClient // Client for Slack AI APIs
 
 	// contentBuffers accumulates DELTA chunks per conversation so the adapter
 	// can send a single complete message to Slack on END.
@@ -151,7 +150,6 @@ func (a *SlackAdapter) handleSocketEvent(ctx context.Context, evt socketmode.Eve
 
 	case socketmode.EventTypeHello:
 		// Hello event is just a connection acknowledgment, no action needed
-		// Connection is already logged in EventTypeConnected
 
 	default:
 		// Only log truly unknown event types at debug level
@@ -196,21 +194,34 @@ func (a *SlackAdapter) handleMessage(ctx context.Context, ev *slackevents.Messag
 
 	log.Printf("[Slack] Message received: channel=%s, user=%s, text=%s", ev.Channel, ev.User, ev.Text)
 
-	// Translate to unified message
-	unifiedMsg := TranslateMessageEvent(ev)
+	// Build conversation ID
+	conversationID := ev.Channel
+	if ev.ThreadTimeStamp != "" {
+		conversationID = fmt.Sprintf("%s-%s", ev.Channel, ev.ThreadTimeStamp)
+	}
+
+	// Convert to pb.Message
+	msg := &pb.Message{
+		Id:             uuid.NewString(),
+		Timestamp:      timestamppb.New(parseSlackTimestamp(ev.TimeStamp)),
+		Platform:       "slack",
+		Content:        ev.Text,
+		ConversationId: conversationID,
+		PlatformContext: &pb.PlatformContext{
+			MessageId: ev.TimeStamp,
+			ChannelId: ev.Channel,
+			ThreadId:  ev.ThreadTimeStamp,
+		},
+		User: &pb.User{
+			Id: ev.User,
+		},
+	}
 
 	// Call handler if registered
-	if a.handler != nil {
-		resp, err := a.handler(ctx, unifiedMsg)
-		if err != nil {
+	if a.msgHandler != nil {
+		if err := a.msgHandler(ctx, msg); err != nil {
 			log.Printf("[Slack] Error handling message: %v", err)
 			a.sendErrorMessage(ctx, ev.Channel, ev.ThreadTimeStamp, err)
-			return
-		}
-
-		// Send response if provided
-		if resp != nil && resp.Content != "" {
-			a.sendResponse(ctx, unifiedMsg, resp)
 		}
 	}
 }
@@ -228,13 +239,6 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 			log.Printf("[Slack] Feedback received: %s from user %s on message %s",
 				feedbackType, callback.User.ID, callback.Message.Timestamp)
 
-			// Log feedback for observability
-			// In a real implementation, you might want to:
-			// 1. Store feedback in a database
-			// 2. Send to analytics service
-			// 3. Update model training data
-			// 4. Send notification to admin dashboard
-
 			// Use Slack emoji names (not emoji characters)
 			emojiName := "thumbsup"
 			if feedbackType == "negative_feedback" {
@@ -242,18 +246,14 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 			}
 
 			// Remove feedback buttons from the message first
-			// Extract the message text and keep only the section block (remove context_actions)
 			if len(callback.Message.Blocks.BlockSet) > 0 {
-				// Keep only the section blocks (remove feedback buttons)
 				updatedBlocks := []slack.Block{}
 				for _, block := range callback.Message.Blocks.BlockSet {
-					// Keep all blocks except context_actions (which contains feedback buttons)
 					if block.BlockType() != "context_actions" {
 						updatedBlocks = append(updatedBlocks, block)
 					}
 				}
 
-				// Update the message with blocks without feedback buttons
 				_, _, _, err := a.client.UpdateMessage(
 					callback.Channel.ID,
 					callback.Message.Timestamp,
@@ -264,11 +264,11 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 				if err != nil {
 					log.Printf("[Slack] Failed to remove feedback buttons: %v", err)
 				} else {
-					log.Printf("[Slack] ✓ Feedback buttons removed from message")
+					log.Printf("[Slack] Feedback buttons removed from message")
 				}
 			}
 
-			// Then acknowledge the feedback visually by adding a reaction
+			// Acknowledge the feedback visually by adding a reaction
 			err := a.client.AddReaction(emojiName, slack.ItemRef{
 				Channel:   callback.Channel.ID,
 				Timestamp: callback.Message.Timestamp,
@@ -277,7 +277,7 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 			if err != nil {
 				log.Printf("[Slack] Failed to add reaction: %v", err)
 			} else {
-				log.Printf("[Slack] ✓ Feedback acknowledged with :%s: reaction", emojiName)
+				log.Printf("[Slack] Feedback acknowledged with :%s: reaction", emojiName)
 			}
 		}
 	}
@@ -287,170 +287,64 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 func (a *SlackAdapter) handleAppMention(ctx context.Context, ev *slackevents.AppMentionEvent) {
 	log.Printf("[Slack] App mentioned: channel=%s, user=%s, text=%s", ev.Channel, ev.User, ev.Text)
 
-	// Translate to unified message
-	unifiedMsg := TranslateAppMentionEvent(ev)
+	// Use ThreadTimeStamp if already in a thread, otherwise use the message's
+	// own TimeStamp so the response creates a new thread under the mention.
+	threadID := ev.ThreadTimeStamp
+	if threadID == "" {
+		threadID = ev.TimeStamp
+	}
 
-	// threadID is always set by TranslateAppMentionEvent (falls back to ev.TimeStamp)
-	threadTS := unifiedMsg.ThreadID
+	conversationID := fmt.Sprintf("%s-%s", ev.Channel, threadID)
+	text := stripMentions(ev.Text)
 
-	log.Printf("[Slack] Setting loading state: channel=%s, threadTS=%s", ev.Channel, threadTS)
-	if err := a.aiClient.SetThreadStatus(ctx, ev.Channel, threadTS, "Assistant is thinking...", "thinking_face"); err != nil {
+	log.Printf("[Slack] Setting loading state: channel=%s, threadTS=%s", ev.Channel, threadID)
+	if err := a.aiClient.SetThreadStatus(ctx, ev.Channel, threadID, "Assistant is thinking...", "thinking_face"); err != nil {
 		log.Printf("[Slack] ERROR: Failed to set loading state: %v", err)
 	}
 
+	// Convert to pb.Message
+	msg := &pb.Message{
+		Id:             uuid.NewString(),
+		Timestamp:      timestamppb.New(parseSlackTimestamp(ev.TimeStamp)),
+		Platform:       "slack",
+		Content:        text,
+		ConversationId: conversationID,
+		PlatformContext: &pb.PlatformContext{
+			MessageId: ev.TimeStamp,
+			ChannelId: ev.Channel,
+			ThreadId:  threadID,
+		},
+		User: &pb.User{
+			Id: ev.User,
+		},
+	}
+
 	// Call handler if registered
-	if a.handler != nil {
-		resp, err := a.handler(ctx, unifiedMsg)
-		if err != nil {
+	if a.msgHandler != nil {
+		if err := a.msgHandler(ctx, msg); err != nil {
 			log.Printf("[Slack] Error handling mention: %v", err)
-			a.sendErrorMessage(ctx, ev.Channel, threadTS, err)
+			a.sendErrorMessage(ctx, ev.Channel, threadID, err)
 			// Clear loading state on error
-			a.aiClient.SetThreadStatus(ctx, ev.Channel, threadTS, "", "")
-			return
-		}
-
-		// Don't send the acknowledgment response - the agent will send the real response
-		// The loading state will be automatically cleared when the agent sends its response
-		if resp != nil && resp.Content != "" && resp.Content != "Message received and forwarded to agent" {
-			a.sendResponse(ctx, unifiedMsg, resp)
+			a.aiClient.SetThreadStatus(ctx, ev.Channel, threadID, "", "")
 		}
 	}
-}
-
-// sendResponse sends the agent's response back to Slack
-func (a *SlackAdapter) sendResponse(ctx context.Context, originalMsg *types.UnifiedMessage, resp *types.AgentResponse) {
-	req := &types.SendMessageRequest{
-		Platform:  "slack",
-		ChannelID: originalMsg.ChannelID,
-		ThreadID:  originalMsg.ThreadID,
-		Content:   resp.Content,
-	}
-
-	// Create thread if requested and not already in a thread
-	if resp.CreateThread && originalMsg.ThreadID == "" {
-		req.ThreadID = originalMsg.PlatformMessageID
-	}
-
-	result, err := a.SendMessage(ctx, req)
-	if err != nil {
-		log.Printf("[Slack] Error sending response: %v", err)
-		return
-	}
-
-	log.Printf("[Slack] Response sent: message_id=%s", result.MessageID)
 }
 
 // sendErrorMessage sends an error message to Slack
 func (a *SlackAdapter) sendErrorMessage(ctx context.Context, channelID, threadTS string, err error) {
-	req := &types.SendMessageRequest{
-		Platform:  "slack",
-		ChannelID: channelID,
-		ThreadID:  threadTS,
-		Content:   fmt.Sprintf("❌ Error: %s", err.Error()),
-	}
-
-	if _, sendErr := a.SendMessage(ctx, req); sendErr != nil {
-		log.Printf("[Slack] Error sending error message: %v", sendErr)
-	}
-}
-
-// SendMessage sends a message to Slack
-func (a *SlackAdapter) SendMessage(ctx context.Context, req *types.SendMessageRequest) (*types.SendMessageResult, error) {
-	// Wait for rate limiter
-	if err := a.rateLimiter.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("rate limiter context cancelled: %w", err)
-	}
-
-	log.Printf("[Slack] Sending message with feedback buttons: channel=%s, thread=%s", req.ChannelID, req.ThreadID)
-
-	// Send message with feedback buttons using raw API
-	timestamp, err := a.sendMessageWithFeedback(ctx, req.ChannelID, req.Content, req.ThreadID)
-
-	if err != nil {
-		log.Printf("[Slack] ERROR sending message with feedback: %v", err)
-		return &types.SendMessageResult{
-			Success: false,
-			Error:   err.Error(),
-		}, err
-	}
-
-	log.Printf("[Slack] ✓ Message with feedback sent successfully: timestamp=%s", timestamp)
-
-	// Clear loading state after successfully sending the message
-	// Use the thread timestamp if provided, otherwise use the message timestamp
-	threadTS := req.ThreadID
-	if threadTS == "" {
-		threadTS = timestamp
-	}
-	log.Printf("[Slack] Clearing loading state: channel=%s, threadTS=%s", req.ChannelID, threadTS)
-	if clearErr := a.aiClient.SetThreadStatus(ctx, req.ChannelID, threadTS, "", ""); clearErr != nil {
-		log.Printf("[Slack] ERROR: Failed to clear loading state: %v", clearErr)
-		// Don't fail the message send just because we couldn't clear the loading state
-	} else {
-		log.Printf("[Slack] ✓ Loading state cleared successfully")
-	}
-
-	return &types.SendMessageResult{
-		Success:   true,
-		MessageID: FormatMessageID(req.ChannelID, timestamp),
-		Timestamp: timestamp,
-	}, nil
-}
-
-// sendMessageWithFeedback sends a message with feedback buttons
-func (a *SlackAdapter) sendMessageWithFeedback(ctx context.Context, channelID, content, threadID string) (string, error) {
-	// Post message with feedback buttons using AI client
-	timestamp, err := a.aiClient.PostMessageWithFeedback(ctx, channelID, content, threadID)
-	if err != nil {
-		return "", err
-	}
-
-	// Clear loading state after successfully sending the message
-	threadTS := threadID
-	if threadTS == "" {
-		threadTS = timestamp
-	}
-	log.Printf("[Slack] Clearing loading state: channel=%s, threadTS=%s", channelID, threadTS)
-	if clearErr := a.aiClient.SetThreadStatus(ctx, channelID, threadTS, "", ""); clearErr != nil {
-		log.Printf("[Slack] ERROR: Failed to clear loading state: %v", clearErr)
-	} else {
-		log.Printf("[Slack] ✓ Loading state cleared successfully")
-	}
-
-	return timestamp, nil
-}
-
-// UpdateMessage updates an existing Slack message (for streaming)
-func (a *SlackAdapter) UpdateMessage(ctx context.Context, messageID string, content string) error {
-	// Wait for rate limiter
-	if err := a.rateLimiter.Wait(ctx); err != nil {
-		return fmt.Errorf("rate limiter context cancelled: %w", err)
-	}
-
-	// Parse message ID
-	channelID, timestamp := ParseMessageID(messageID)
-	if channelID == "" || timestamp == "" {
-		return fmt.Errorf("invalid message ID format: %s", messageID)
-	}
-
-	// Update message
-	_, _, _, err := a.client.UpdateMessageContext(
-		ctx,
-		channelID,
-		timestamp,
+	content := fmt.Sprintf(":x: Error: %s", err.Error())
+	_, _, postErr := a.client.PostMessageContext(ctx, channelID,
 		slack.MsgOptionText(content, false),
+		slack.MsgOptionTS(threadTS),
 	)
-
-	if err != nil {
-		return fmt.Errorf("failed to update message: %w", err)
+	if postErr != nil {
+		log.Printf("[Slack] Error sending error message: %v", postErr)
 	}
-
-	return nil
 }
 
-// OnMessage registers a handler for incoming messages
-func (a *SlackAdapter) OnMessage(handler adapter.MessageHandler) {
-	a.handler = handler
+// SetMessageHandler sets the handler for incoming messages from the platform
+func (a *SlackAdapter) SetMessageHandler(handler adapter.MessageHandler) {
+	a.msgHandler = handler
 }
 
 // GetPlatformName returns the platform identifier
@@ -476,23 +370,12 @@ func (a *SlackAdapter) Stop(ctx context.Context) error {
 	// Signal stop to event listener
 	close(a.stopChan)
 
-	// No explicit cleanup needed for socket mode
-	// The context cancellation will handle disconnection
-
 	log.Println("[Slack] Adapter stopped")
 	return nil
 }
 
-// ============================================================================
-// gRPC Adapter Implementation
-// ============================================================================
-
-// SetMessageHandler implements GRPCAdapter. Message handling is done via OnMessage.
-func (a *SlackAdapter) SetMessageHandler(_ adapter.GRPCMessageHandler) {}
-
 // Capabilities returns the adapter's capabilities
 func (a *SlackAdapter) Capabilities() adapter.AdapterCapabilities {
-	// Default to false for AI features (can be configured later)
 	return adapter.SlackCapabilities(false)
 }
 
@@ -565,7 +448,6 @@ func (a *SlackAdapter) HydrateThread(ctx context.Context, conversationID string,
 	return nil
 }
 
-// HandleAgentResponse processes responses from the agent (placeholder for now)
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -590,57 +472,6 @@ func ParseMessageID(messageID string) (string, string) {
 		return "", ""
 	}
 	return parts[0], parts[1]
-}
-
-func TranslateMessageEvent(ev *slackevents.MessageEvent) *types.UnifiedMessage {
-	conversationID := ev.Channel
-	if ev.ThreadTimeStamp != "" {
-		conversationID = fmt.Sprintf("%s-%s", ev.Channel, ev.ThreadTimeStamp)
-	}
-
-	return &types.UnifiedMessage{
-		ID:                uuid.NewString(),
-		PlatformMessageID: ev.TimeStamp,
-		Platform:          "slack",
-		Content:           ev.Text,
-		UserID:            ev.User,
-		ChannelID:         ev.Channel,
-		ThreadID:          ev.ThreadTimeStamp,
-		ConversationID:    conversationID,
-		Timestamp:         parseSlackTimestamp(ev.TimeStamp),
-		Metadata: map[string]interface{}{
-			"event_ts": ev.EventTimeStamp,
-			"subtype":  ev.SubType,
-		},
-	}
-}
-
-func TranslateAppMentionEvent(ev *slackevents.AppMentionEvent) *types.UnifiedMessage {
-	// Use ThreadTimeStamp if already in a thread, otherwise use the message's
-	// own TimeStamp so the response creates a new thread under the mention.
-	threadID := ev.ThreadTimeStamp
-	if threadID == "" {
-		threadID = ev.TimeStamp
-	}
-
-	conversationID := fmt.Sprintf("%s-%s", ev.Channel, threadID)
-
-	text := stripMentions(ev.Text)
-
-	return &types.UnifiedMessage{
-		ID:                uuid.NewString(),
-		PlatformMessageID: ev.TimeStamp,
-		Platform:          "slack",
-		Content:           text,
-		UserID:            ev.User,
-		ChannelID:         ev.Channel,
-		ThreadID:          threadID,
-		ConversationID:    conversationID,
-		Timestamp:         parseSlackTimestamp(ev.TimeStamp),
-		Metadata: map[string]interface{}{
-			"event_ts": ev.EventTimeStamp,
-		},
-	}
 }
 
 func stripMentions(text string) string {

@@ -2,71 +2,15 @@ package slack
 
 import (
 	"testing"
-
-	"github.com/slack-go/slack/slackevents"
 )
-
-func TestTranslateMessageEvent(t *testing.T) {
-	ev := &slackevents.MessageEvent{
-		Type:      "message",
-		User:      "U123456",
-		Text:      "Hello, how can you help me?",
-		Channel:   "C123456",
-		TimeStamp: "1234567890.123456",
-	}
-
-	msg := TranslateMessageEvent(ev)
-
-	if msg.Platform != "slack" {
-		t.Errorf("Expected platform 'slack', got '%s'", msg.Platform)
-	}
-
-	if msg.UserID != "U123456" {
-		t.Errorf("Expected user ID 'U123456', got '%s'", msg.UserID)
-	}
-
-	if msg.ChannelID != "C123456" {
-		t.Errorf("Expected channel ID 'C123456', got '%s'", msg.ChannelID)
-	}
-
-	if msg.ConversationID != "C123456" {
-		t.Errorf("Expected conversation ID 'C123456', got '%s'", msg.ConversationID)
-	}
-
-	if msg.Content != ev.Text {
-		t.Errorf("Expected content '%s', got '%s'", ev.Text, msg.Content)
-	}
-}
-
-func TestTranslateMessageEvent_WithThread(t *testing.T) {
-	ev := &slackevents.MessageEvent{
-		Type:            "message",
-		User:            "U123456",
-		Text:            "Thread reply",
-		Channel:         "C123456",
-		TimeStamp:       "1234567890.999999",
-		ThreadTimeStamp: "1234567890.123456",
-	}
-
-	msg := TranslateMessageEvent(ev)
-
-	expectedConversationID := "C123456-1234567890.123456"
-	if msg.ConversationID != expectedConversationID {
-		t.Errorf("Expected conversation ID '%s', got '%s'", expectedConversationID, msg.ConversationID)
-	}
-
-	if msg.ThreadID != "1234567890.123456" {
-		t.Errorf("Expected thread ID '1234567890.123456', got '%s'", msg.ThreadID)
-	}
-}
 
 func TestStripMentions(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
 	}{
-		{"<@U123456> Hello!", "Hello!"},            // Trims leading/trailing spaces
-		{"Hey <@U123456> how are you?", "Hey  how are you?"}, // Doesn't trim internal spaces
+		{"<@U123456> Hello!", "Hello!"},                          // Trims leading/trailing spaces
+		{"Hey <@U123456> how are you?", "Hey  how are you?"},     // Doesn't trim internal spaces
 		{"No mentions here", "No mentions here"},
 		{"<@U123> <@U456> Multiple mentions", "Multiple mentions"}, // Trims leading/trailing spaces
 	}

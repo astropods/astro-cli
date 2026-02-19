@@ -85,7 +85,7 @@ func main() {
 		// When messages arrive from platforms, route them to agent via gRPC
 		for name, adpt := range adapters {
 			log.Printf("Registering gRPC message handler for %s adapter...", name)
-			adpt.OnMessage(grpcServer.HandleIncomingMessageFromAdapter)
+			adpt.SetMessageHandler(grpcServer.HandleIncomingMessage)
 		}
 	}
 

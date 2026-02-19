@@ -11,13 +11,12 @@ import (
 	pb "github.com/astro/messaging/pkg/gen/astro/messaging/v1"
 	"github.com/astro/messaging/internal/adapter"
 	"github.com/astro/messaging/internal/store"
-	"github.com/astro/messaging/pkg/types"
 )
 
-// WebAdapter implements GRPCAdapter and StreamingAdapter for web browser clients
+// WebAdapter implements adapter.Adapter for web browser clients via HTTP + SSE
 type WebAdapter struct {
 	config           adapter.Config
-	grpcHandler      adapter.GRPCMessageHandler
+	msgHandler       adapter.MessageHandler
 	connManager      *ConnectionManager
 	sessionManager   SessionManager
 	threadStore      *store.ThreadHistoryStore
@@ -181,14 +180,10 @@ func (a *WebAdapter) IsHealthy(ctx context.Context) bool {
 }
 
 // SetMessageHandler sets the handler for incoming messages from the web client
-func (a *WebAdapter) SetMessageHandler(handler adapter.GRPCMessageHandler) {
-	a.grpcHandler = handler
-	// Note: handlers.grpcHandler is set during Initialize via NewHandlers
-	// This method is called after Initialize, so handlers is guaranteed to be non-nil
+func (a *WebAdapter) SetMessageHandler(handler adapter.MessageHandler) {
+	a.msgHandler = handler
 	if a.handlers != nil {
-		a.handlers.SetMessageHandler(func(ctx context.Context, msg *pb.Message) error {
-			return handler(ctx, msg)
-		})
+		a.handlers.SetMessageHandler(handler)
 	}
 }
 
@@ -240,7 +235,7 @@ func (a *WebAdapter) HandleAgentResponse(ctx context.Context, response *pb.Agent
 		a.connManager.Broadcast(conversationID, event)
 
 	case *pb.AgentResponse_ThreadMetadata:
-		// Thread metadata - could emit a custom event if needed
+		// Thread metadata
 		log.Printf("[Web] Thread metadata received: %+v", payload.ThreadMetadata)
 
 	default:
@@ -253,11 +248,10 @@ func (a *WebAdapter) HandleAgentResponse(ctx context.Context, response *pb.Agent
 // HydrateThread fetches thread history (web adapter maintains its own history)
 func (a *WebAdapter) HydrateThread(ctx context.Context, conversationID string, threadStore *store.ThreadHistoryStore) error {
 	// Web adapter doesn't need external hydration - history is maintained locally
-	// This is a no-op since we store messages as they're sent
 	return nil
 }
 
-// StreamContent implements StreamingAdapter for streaming content chunks
+// StreamContent streams content chunks to SSE clients
 func (a *WebAdapter) StreamContent(ctx context.Context, conversationID string, chunks []*pb.ContentChunk) error {
 	for _, chunk := range chunks {
 		event := NewChunkEvent(chunk, "")
@@ -286,53 +280,6 @@ func (a *WebAdapter) SetAgentConfigStore(s *store.AgentConfigStore) {
 	if a.handlers != nil {
 		a.handlers.agentConfigStore = s
 	}
-}
-
-// OnMessage registers a handler for incoming messages (implements adapter.Adapter)
-func (a *WebAdapter) OnMessage(handler adapter.MessageHandler) {
-	// Convert the unified MessageHandler to our internal GRPCMessageHandler
-	a.SetMessageHandler(func(ctx context.Context, msg *pb.Message) error {
-		unified := &types.UnifiedMessage{
-			ID:                msg.Id,
-			PlatformMessageID: msg.PlatformContext.GetMessageId(),
-			Platform:          "web",
-			Content:           msg.Content,
-			UserID:            msg.User.GetId(),
-			UserName:          msg.User.GetUsername(),
-			ChannelID:         msg.PlatformContext.GetChannelId(),
-			ThreadID:          msg.PlatformContext.GetThreadId(),
-			ConversationID:    msg.ConversationId,
-			Timestamp:         msg.Timestamp.AsTime(),
-		}
-		_, err := handler(ctx, unified)
-		return err
-	})
-}
-
-// SendMessage sends a message to the platform (implements adapter.Adapter)
-func (a *WebAdapter) SendMessage(ctx context.Context, req *types.SendMessageRequest) (*types.SendMessageResult, error) {
-	// For web adapter, messages are sent via SSE broadcast
-	// Use ChannelID as the conversation ID for broadcasting
-	if a.connManager == nil {
-		return &types.SendMessageResult{
-			Success: false,
-		}, fmt.Errorf("connection manager not initialized")
-	}
-
-	// Send chunk event
-	event := NewChunkEvent(&pb.ContentChunk{
-		Content: req.Content,
-		Type:    pb.ContentChunk_END,
-	}, "")
-	a.connManager.Broadcast(req.ChannelID, event)
-
-	// Send finish event to signal completion
-	finishEvent := NewFinishEvent("")
-	a.connManager.Broadcast(req.ChannelID, finishEvent)
-
-	return &types.SendMessageResult{
-		Success: true,
-	}, nil
 }
 
 // corsMiddleware wraps an http.Handler with CORS headers
@@ -374,12 +321,4 @@ func (a *WebAdapter) isOriginAllowed(origin string) bool {
 		}
 	}
 	return false
-}
-
-// UpdateMessage updates an existing message (implements adapter.Adapter)
-func (a *WebAdapter) UpdateMessage(ctx context.Context, messageID string, content string) error {
-	// Web adapter doesn't support message updates - SSE is append-only
-	// Just broadcast a new chunk with the updated content
-	log.Printf("[Web] UpdateMessage called but SSE is append-only, ignoring update for %s", messageID)
-	return nil
 }

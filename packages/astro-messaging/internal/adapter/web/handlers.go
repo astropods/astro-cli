@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	pb "github.com/astro/messaging/pkg/gen/astro/messaging/v1"
+	"github.com/astro/messaging/internal/adapter"
 	"github.com/astro/messaging/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -18,13 +18,10 @@ import (
 type Handlers struct {
 	connManager      *ConnectionManager
 	sessionManager   SessionManager
-	grpcHandler      GRPCMessageHandler
+	msgHandler       adapter.MessageHandler
 	threadStore      *store.ThreadHistoryStore
 	agentConfigStore *store.AgentConfigStore
 }
-
-// GRPCMessageHandler is called when a message is received from the web client
-type GRPCMessageHandler func(ctx context.Context, msg *pb.Message) error
 
 // NewHandlers creates a new Handlers instance
 func NewHandlers(connManager *ConnectionManager, sessionManager SessionManager, threadStore *store.ThreadHistoryStore, agentConfigStore *store.AgentConfigStore) *Handlers {
@@ -36,9 +33,9 @@ func NewHandlers(connManager *ConnectionManager, sessionManager SessionManager, 
 	}
 }
 
-// SetMessageHandler sets the gRPC message handler
-func (h *Handlers) SetMessageHandler(handler GRPCMessageHandler) {
-	h.grpcHandler = handler
+// SetMessageHandler sets the message handler
+func (h *Handlers) SetMessageHandler(handler adapter.MessageHandler) {
+	h.msgHandler = handler
 }
 
 // CreateConversationRequest represents a request to create a new conversation
@@ -157,12 +154,12 @@ func (h *Handlers) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward to gRPC handler
-	if h.grpcHandler == nil {
+	if h.msgHandler == nil {
 		log.Printf("[Web] No message handler registered")
 		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := h.grpcHandler(ctx, msg); err != nil {
+	if err := h.msgHandler(ctx, msg); err != nil {
 		log.Printf("[Web] Error forwarding message: %v", err)
 		h.sendErrorEvent(conversationID, "INTERNAL_ERROR", "Failed to process message")
 		http.Error(w, "Failed to process message", http.StatusInternalServerError)

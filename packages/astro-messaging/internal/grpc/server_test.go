@@ -17,434 +17,60 @@ import (
 
 // mockAdapter implements adapter.Adapter for testing
 type mockAdapter struct {
-	platform     string
-	sentMessages []*types.SendMessageRequest
-	mu           sync.Mutex
-	healthy      bool
-	sendErr      error
+	platform  string
+	mu        sync.Mutex
+	healthy   bool
+	responses []*pb.AgentResponse
+	respErr   error
+	handler   adapter.MessageHandler
 }
 
 func newMockAdapter(platform string) *mockAdapter {
 	return &mockAdapter{
-		platform:     platform,
-		sentMessages: make([]*types.SendMessageRequest, 0),
-		healthy:      true,
+		platform:  platform,
+		healthy:   true,
+		responses: make([]*pb.AgentResponse, 0),
 	}
 }
 
 func (m *mockAdapter) Initialize(ctx context.Context, config adapter.Config) error { return nil }
 func (m *mockAdapter) Start(ctx context.Context) error                            { return nil }
 func (m *mockAdapter) Stop(ctx context.Context) error                             { return nil }
-func (m *mockAdapter) OnMessage(handler adapter.MessageHandler)                   {}
-func (m *mockAdapter) UpdateMessage(ctx context.Context, messageID string, content string) error {
+func (m *mockAdapter) GetPlatformName() string                                    { return m.platform }
+func (m *mockAdapter) IsHealthy(ctx context.Context) bool                         { return m.healthy }
+func (m *mockAdapter) Capabilities() adapter.AdapterCapabilities {
+	return adapter.AdapterCapabilities{}
+}
+func (m *mockAdapter) SetMessageHandler(handler adapter.MessageHandler) {
+	m.handler = handler
+}
+func (m *mockAdapter) HydrateThread(ctx context.Context, conversationID string, s *store.ThreadHistoryStore) error {
 	return nil
 }
-func (m *mockAdapter) GetPlatformName() string        { return m.platform }
-func (m *mockAdapter) IsHealthy(ctx context.Context) bool { return m.healthy }
 
-func (m *mockAdapter) SendMessage(ctx context.Context, req *types.SendMessageRequest) (*types.SendMessageResult, error) {
+func (m *mockAdapter) HandleAgentResponse(ctx context.Context, response *pb.AgentResponse) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.sendErr != nil {
-		return nil, m.sendErr
+	if m.respErr != nil {
+		return m.respErr
 	}
-	m.sentMessages = append(m.sentMessages, req)
-	return &types.SendMessageResult{
-		Success:   true,
-		MessageID: "sent-msg-123",
-	}, nil
+	m.responses = append(m.responses, response)
+	return nil
 }
 
-func (m *mockAdapter) getLastSentMessage() *types.SendMessageRequest {
+func (m *mockAdapter) getLastResponse() *pb.AgentResponse {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.sentMessages) == 0 {
+	if len(m.responses) == 0 {
 		return nil
 	}
-	return m.sentMessages[len(m.sentMessages)-1]
+	return m.responses[len(m.responses)-1]
 }
 
-// --- Tests for HandleIncomingMessageFromAdapter ---
-
-func TestHandleIncomingMessageFromAdapter_PlatformContextPreserved(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	// Register a mock adapter
-	mock := newMockAdapter("web")
-	server.RegisterAdapter("web", mock)
-
-	// Create a mock stream to capture the forwarded message
-	var capturedResponse *pb.AgentResponse
-	var captureMu sync.Mutex
-
-	mockStream := &captureStream{
-		sendFunc: func(resp *pb.AgentResponse) error {
-			captureMu.Lock()
-			capturedResponse = resp
-			captureMu.Unlock()
-			return nil
-		},
-	}
-
-	// Register a fake agent stream
-	server.streamsMu.Lock()
-	server.streams["agent-stream"] = &conversationStream{
-		stream:         mockStream,
-		conversationID: "agent-stream",
-	}
-	server.streamsMu.Unlock()
-
-	// Simulate incoming message from web adapter
-	msg := &types.UnifiedMessage{
-		ID:                "msg-001",
-		PlatformMessageID: "plat-msg-001",
-		Platform:          "web",
-		Content:           "Hello agent",
-		UserID:            "user-123",
-		UserName:          "testuser",
-		ChannelID:         "conv-abc",
-		ThreadID:          "thread-xyz",
-		ConversationID:    "conv-abc",
-		Timestamp:         time.Now(),
-	}
-
-	_, err := server.HandleIncomingMessageFromAdapter(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("HandleIncomingMessageFromAdapter failed: %v", err)
-	}
-
-	captureMu.Lock()
-	resp := capturedResponse
-	captureMu.Unlock()
-
-	if resp == nil {
-		t.Fatal("expected response to be forwarded to agent stream")
-	}
-
-	// Verify the AgentResponse wraps the message correctly
-	incoming := resp.GetIncomingMessage()
-	if incoming == nil {
-		t.Fatal("expected IncomingMessage payload in AgentResponse")
-	}
-
-	// Verify PlatformContext was populated
-	pc := incoming.PlatformContext
-	if pc == nil {
-		t.Fatal("expected PlatformContext to be non-nil")
-	}
-
-	if pc.MessageId != "plat-msg-001" {
-		t.Errorf("PlatformContext.MessageId: expected 'plat-msg-001', got %q", pc.MessageId)
-	}
-	if pc.ChannelId != "conv-abc" {
-		t.Errorf("PlatformContext.ChannelId: expected 'conv-abc', got %q", pc.ChannelId)
-	}
-	if pc.ThreadId != "thread-xyz" {
-		t.Errorf("PlatformContext.ThreadId: expected 'thread-xyz', got %q", pc.ThreadId)
-	}
-}
-
-func TestHandleIncomingMessageFromAdapter_EmptyThreadID(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	var capturedResponse *pb.AgentResponse
-	mockStream := &captureStream{
-		sendFunc: func(resp *pb.AgentResponse) error {
-			capturedResponse = resp
-			return nil
-		},
-	}
-
-	server.streamsMu.Lock()
-	server.streams["agent-stream"] = &conversationStream{
-		stream:         mockStream,
-		conversationID: "agent-stream",
-	}
-	server.streamsMu.Unlock()
-
-	msg := &types.UnifiedMessage{
-		ID:                "msg-002",
-		PlatformMessageID: "plat-msg-002",
-		Platform:          "web",
-		Content:           "Hello",
-		ChannelID:         "conv-abc",
-		ThreadID:          "", // No thread
-		ConversationID:    "conv-abc",
-		Timestamp:         time.Now(),
-	}
-
-	_, err := server.HandleIncomingMessageFromAdapter(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	incoming := capturedResponse.GetIncomingMessage()
-	if incoming == nil {
-		t.Fatal("expected IncomingMessage payload")
-	}
-
-	pc := incoming.PlatformContext
-	if pc == nil {
-		t.Fatal("PlatformContext should be non-nil even without ThreadId")
-	}
-
-	if pc.ThreadId != "" {
-		t.Errorf("expected empty ThreadId, got %q", pc.ThreadId)
-	}
-	if pc.ChannelId != "conv-abc" {
-		t.Errorf("expected ChannelId 'conv-abc', got %q", pc.ChannelId)
-	}
-	if pc.MessageId != "plat-msg-002" {
-		t.Errorf("expected MessageId 'plat-msg-002', got %q", pc.MessageId)
-	}
-}
-
-func TestHandleIncomingMessageFromAdapter_UserFieldsPreserved(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	var capturedResponse *pb.AgentResponse
-	mockStream := &captureStream{
-		sendFunc: func(resp *pb.AgentResponse) error {
-			capturedResponse = resp
-			return nil
-		},
-	}
-
-	server.streamsMu.Lock()
-	server.streams["agent-stream"] = &conversationStream{
-		stream:         mockStream,
-		conversationID: "agent-stream",
-	}
-	server.streamsMu.Unlock()
-
-	msg := &types.UnifiedMessage{
-		ID:             "msg-003",
-		Platform:       "slack",
-		Content:        "Hello from Slack",
-		UserID:         "U12345",
-		UserName:       "slackuser",
-		ChannelID:      "C99999",
-		ConversationID: "C99999",
-		Timestamp:      time.Now(),
-	}
-
-	_, err := server.HandleIncomingMessageFromAdapter(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	incoming := capturedResponse.GetIncomingMessage()
-	if incoming.User == nil {
-		t.Fatal("expected User to be non-nil")
-	}
-	if incoming.User.Id != "U12345" {
-		t.Errorf("User.Id: expected 'U12345', got %q", incoming.User.Id)
-	}
-	if incoming.User.Username != "slackuser" {
-		t.Errorf("User.Username: expected 'slackuser', got %q", incoming.User.Username)
-	}
-}
-
-// --- Tests for routeAgentMessage ---
-
-func TestRouteAgentMessage_FullPlatformContext(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	mock := newMockAdapter("web")
-	server.RegisterAdapter("web", mock)
-
-	msg := &pb.Message{
-		Id:             "resp-001",
-		Platform:       "web",
-		ConversationId: "conv-abc",
-		Content:        "Agent response",
-		PlatformContext: &pb.PlatformContext{
-			MessageId: "msg-001",
-			ChannelId: "conv-abc",
-			ThreadId:  "thread-xyz",
-		},
-	}
-
-	err := server.routeAgentMessage(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("routeAgentMessage failed: %v", err)
-	}
-
-	sent := mock.getLastSentMessage()
-	if sent == nil {
-		t.Fatal("expected adapter to receive a message")
-	}
-
-	if sent.Platform != "web" {
-		t.Errorf("Platform: expected 'web', got %q", sent.Platform)
-	}
-	if sent.ChannelID != "conv-abc" {
-		t.Errorf("ChannelID: expected 'conv-abc', got %q", sent.ChannelID)
-	}
-	if sent.ThreadID != "thread-xyz" {
-		t.Errorf("ThreadID: expected 'thread-xyz', got %q", sent.ThreadID)
-	}
-	if sent.Content != "Agent response" {
-		t.Errorf("Content: expected 'Agent response', got %q", sent.Content)
-	}
-}
-
-func TestRouteAgentMessage_ThreadIdFallsBackToMessageId(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	mock := newMockAdapter("web")
-	server.RegisterAdapter("web", mock)
-
-	// ThreadId is empty, should fall back to MessageId
-	msg := &pb.Message{
-		Id:             "resp-002",
-		Platform:       "web",
-		ConversationId: "conv-abc",
-		Content:        "Response without thread",
-		PlatformContext: &pb.PlatformContext{
-			MessageId: "original-msg-id",
-			ChannelId: "conv-abc",
-			ThreadId:  "", // Empty
-		},
-	}
-
-	err := server.routeAgentMessage(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("routeAgentMessage failed: %v", err)
-	}
-
-	sent := mock.getLastSentMessage()
-	if sent == nil {
-		t.Fatal("expected adapter to receive a message")
-	}
-
-	// ThreadID should fall back to MessageId
-	if sent.ThreadID != "original-msg-id" {
-		t.Errorf("ThreadID: expected fallback to 'original-msg-id', got %q", sent.ThreadID)
-	}
-}
-
-func TestRouteAgentMessage_NilPlatformContext(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	mock := newMockAdapter("web")
-	server.RegisterAdapter("web", mock)
-
-	msg := &pb.Message{
-		Id:              "resp-003",
-		Platform:        "web",
-		ConversationId:  "conv-abc",
-		Content:         "No platform context",
-		PlatformContext: nil, // Nil
-	}
-
-	err := server.routeAgentMessage(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for nil PlatformContext")
-	}
-
-	if mock.getLastSentMessage() != nil {
-		t.Error("adapter should not receive message when PlatformContext is nil")
-	}
-}
-
-func TestRouteAgentMessage_EmptyPlatformContext(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	mock := newMockAdapter("web")
-	server.RegisterAdapter("web", mock)
-
-	// PlatformContext exists but has all empty fields
-	msg := &pb.Message{
-		Id:             "resp-004",
-		Platform:       "web",
-		ConversationId: "conv-abc",
-		Content:        "Empty context fields",
-		PlatformContext: &pb.PlatformContext{
-			MessageId: "",
-			ChannelId: "",
-			ThreadId:  "",
-		},
-	}
-
-	err := server.routeAgentMessage(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("routeAgentMessage should not error on empty PlatformContext fields: %v", err)
-	}
-
-	sent := mock.getLastSentMessage()
-	if sent == nil {
-		t.Fatal("expected adapter to receive message")
-	}
-
-	// Both should be empty since both ThreadId and MessageId are empty
-	if sent.ChannelID != "" {
-		t.Errorf("ChannelID: expected empty, got %q", sent.ChannelID)
-	}
-	if sent.ThreadID != "" {
-		t.Errorf("ThreadID: expected empty (both ThreadId and MessageId empty), got %q", sent.ThreadID)
-	}
-}
-
-func TestRouteAgentMessage_UnknownPlatform(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	// No adapter registered for "discord"
-	msg := &pb.Message{
-		Id:       "resp-005",
-		Platform: "discord",
-		Content:  "Hello",
-		PlatformContext: &pb.PlatformContext{
-			MessageId: "msg-1",
-			ChannelId: "ch-1",
-		},
-	}
-
-	err := server.routeAgentMessage(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for unknown platform")
-	}
-}
-
-func TestRouteAgentMessage_AdapterSendError(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	mock := newMockAdapter("web")
-	mock.sendErr = fmt.Errorf("platform API unavailable")
-	server.RegisterAdapter("web", mock)
-
-	msg := &pb.Message{
-		Id:       "resp-006",
-		Platform: "web",
-		Content:  "Test",
-		PlatformContext: &pb.PlatformContext{
-			MessageId: "msg-1",
-			ChannelId: "ch-1",
-		},
-	}
-
-	err := server.routeAgentMessage(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error when adapter fails to send")
-	}
+func (m *mockAdapter) getResponseCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.responses)
 }
 
 // --- Tests for HandleIncomingMessage ---
@@ -529,7 +155,6 @@ func TestHandleIncomingMessage_NoActiveStream(t *testing.T) {
 	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
-	// No streams registered
 
 	msg := &pb.Message{
 		Id:       "msg-101",
@@ -573,10 +198,127 @@ func TestHandleIncomingMessage_StreamSendError(t *testing.T) {
 	}
 }
 
+func TestHandleIncomingMessage_PlatformContextPreserved(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	mock := newMockAdapter("web")
+	server.RegisterAdapter("web", mock)
+
+	var capturedResponse *pb.AgentResponse
+	mockStream := &captureStream{
+		sendFunc: func(resp *pb.AgentResponse) error {
+			capturedResponse = resp
+			return nil
+		},
+	}
+
+	server.streamsMu.Lock()
+	server.streams["agent-stream"] = &conversationStream{
+		stream:         mockStream,
+		conversationID: "agent-stream",
+	}
+	server.streamsMu.Unlock()
+
+	msg := &pb.Message{
+		Id:             "msg-001",
+		Platform:       "web",
+		Content:        "Hello agent",
+		ConversationId: "conv-abc",
+		Timestamp:      timestamppb.Now(),
+		PlatformContext: &pb.PlatformContext{
+			MessageId: "plat-msg-001",
+			ChannelId: "conv-abc",
+			ThreadId:  "thread-xyz",
+		},
+		User: &pb.User{
+			Id:       "user-123",
+			Username: "testuser",
+		},
+	}
+
+	err := server.HandleIncomingMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleIncomingMessage failed: %v", err)
+	}
+
+	if capturedResponse == nil {
+		t.Fatal("expected response to be forwarded to agent stream")
+	}
+
+	incoming := capturedResponse.GetIncomingMessage()
+	if incoming == nil {
+		t.Fatal("expected IncomingMessage payload in AgentResponse")
+	}
+
+	pc := incoming.PlatformContext
+	if pc == nil {
+		t.Fatal("expected PlatformContext to be non-nil")
+	}
+
+	if pc.MessageId != "plat-msg-001" {
+		t.Errorf("PlatformContext.MessageId: expected 'plat-msg-001', got %q", pc.MessageId)
+	}
+	if pc.ChannelId != "conv-abc" {
+		t.Errorf("PlatformContext.ChannelId: expected 'conv-abc', got %q", pc.ChannelId)
+	}
+	if pc.ThreadId != "thread-xyz" {
+		t.Errorf("PlatformContext.ThreadId: expected 'thread-xyz', got %q", pc.ThreadId)
+	}
+}
+
+func TestHandleIncomingMessage_UserFieldsPreserved(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	var capturedResponse *pb.AgentResponse
+	mockStream := &captureStream{
+		sendFunc: func(resp *pb.AgentResponse) error {
+			capturedResponse = resp
+			return nil
+		},
+	}
+
+	server.streamsMu.Lock()
+	server.streams["agent-stream"] = &conversationStream{
+		stream:         mockStream,
+		conversationID: "agent-stream",
+	}
+	server.streamsMu.Unlock()
+
+	msg := &pb.Message{
+		Id:             "msg-003",
+		Platform:       "slack",
+		Content:        "Hello from Slack",
+		ConversationId: "C99999",
+		User: &pb.User{
+			Id:       "U12345",
+			Username: "slackuser",
+		},
+	}
+
+	_, err := context.Background(), server.HandleIncomingMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	incoming := capturedResponse.GetIncomingMessage()
+	if incoming.User == nil {
+		t.Fatal("expected User to be non-nil")
+	}
+	if incoming.User.Id != "U12345" {
+		t.Errorf("User.Id: expected 'U12345', got %q", incoming.User.Id)
+	}
+	if incoming.User.Username != "slackuser" {
+		t.Errorf("User.Username: expected 'slackuser', got %q", incoming.User.Username)
+	}
+}
+
 // --- Tests for PlatformContext roundtrip ---
 
 func TestPlatformContext_RoundtripWebMessage(t *testing.T) {
-	// Simulates the full path: web adapter creates message → forwarded to agent → agent responds → routed back
 	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
@@ -584,7 +326,7 @@ func TestPlatformContext_RoundtripWebMessage(t *testing.T) {
 	webAdapter := newMockAdapter("web")
 	server.RegisterAdapter("web", webAdapter)
 
-	// Step 1: Capture what gets sent to the agent
+	// Capture what gets sent to the agent
 	var agentReceived *pb.AgentResponse
 	mockStream := &captureStream{
 		sendFunc: func(resp *pb.AgentResponse) error {
@@ -600,26 +342,28 @@ func TestPlatformContext_RoundtripWebMessage(t *testing.T) {
 	}
 	server.streamsMu.Unlock()
 
-	// Step 2: Web adapter sends incoming message (simulating HandleSendMessage in web/handlers.go)
-	incomingMsg := &types.UnifiedMessage{
-		ID:                "msg-web-001",
-		PlatformMessageID: "msg-web-001",
-		Platform:          "web",
-		Content:           "What is an API?",
-		UserID:            "user-42",
-		UserName:          "webuser",
-		ChannelID:         "conv-web-123", // For web, channel = conversation ID
-		ThreadID:          "",             // Web messages typically have no thread
-		ConversationID:    "conv-web-123",
-		Timestamp:         time.Now(),
+	// Web adapter sends incoming message as pb.Message directly
+	incomingMsg := &pb.Message{
+		Id:             "msg-web-001",
+		Platform:       "web",
+		Content:        "What is an API?",
+		ConversationId: "conv-web-123",
+		Timestamp:      timestamppb.Now(),
+		PlatformContext: &pb.PlatformContext{
+			MessageId: "msg-web-001",
+			ChannelId: "conv-web-123",
+		},
+		User: &pb.User{
+			Id:       "user-42",
+			Username: "webuser",
+		},
 	}
 
-	_, err := server.HandleIncomingMessageFromAdapter(context.Background(), incomingMsg)
+	err := server.HandleIncomingMessage(context.Background(), incomingMsg)
 	if err != nil {
-		t.Fatalf("step 2 failed: %v", err)
+		t.Fatalf("HandleIncomingMessage failed: %v", err)
 	}
 
-	// Step 3: Extract what the agent received and verify PlatformContext
 	incoming := agentReceived.GetIncomingMessage()
 	if incoming == nil {
 		t.Fatal("agent did not receive IncomingMessage")
@@ -630,43 +374,38 @@ func TestPlatformContext_RoundtripWebMessage(t *testing.T) {
 		t.Fatal("agent received nil PlatformContext")
 	}
 
-	// Step 4: Agent echoes back the same PlatformContext (this is what the TS agent does)
-	agentResponse := &pb.Message{
-		Id:              "agent-resp-001",
-		Platform:        incoming.Platform,
-		ConversationId:  incoming.ConversationId,
-		Content:         "An API is an Application Programming Interface",
-		PlatformContext: receivedPC, // Agent forwards the same PlatformContext
-		User: &pb.User{
-			Id:       "engineering-assistant",
-			Username: "Engineering Assistant",
+	// Agent echoes back the same PlatformContext as an AgentResponse
+	agentResponse := &pb.AgentResponse{
+		ConversationId: incoming.ConversationId,
+		ResponseId:     "agent-resp-001",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "An API is an Application Programming Interface",
+			},
 		},
 	}
 
-	// Step 5: Route agent response back to platform
-	err = server.routeAgentMessage(context.Background(), agentResponse)
+	err = server.routeAgentResponse(context.Background(), agentResponse)
 	if err != nil {
-		t.Fatalf("step 5 (routeAgentMessage) failed: %v", err)
+		t.Fatalf("routeAgentResponse failed: %v", err)
 	}
 
-	// Step 6: Verify the adapter received correct routing
-	sent := webAdapter.getLastSentMessage()
-	if sent == nil {
+	// Verify the adapter received the response
+	resp := webAdapter.getLastResponse()
+	if resp == nil {
 		t.Fatal("web adapter did not receive the response")
 	}
 
-	if sent.Platform != "web" {
-		t.Errorf("Platform: expected 'web', got %q", sent.Platform)
+	if resp.ConversationId != "conv-web-123" {
+		t.Errorf("ConversationId: expected 'conv-web-123', got %q", resp.ConversationId)
 	}
-	if sent.ChannelID != "conv-web-123" {
-		t.Errorf("ChannelID: expected 'conv-web-123', got %q", sent.ChannelID)
+	endContent := resp.GetContent()
+	if endContent == nil {
+		t.Fatal("expected Content payload")
 	}
-	// ThreadID should fall back to MessageId since web messages have no thread
-	if sent.ThreadID != "msg-web-001" {
-		t.Errorf("ThreadID: expected fallback to 'msg-web-001', got %q", sent.ThreadID)
-	}
-	if sent.Content != "An API is an Application Programming Interface" {
-		t.Errorf("Content mismatch: got %q", sent.Content)
+	if endContent.Content != "An API is an Application Programming Interface" {
+		t.Errorf("Content mismatch: got %q", endContent.Content)
 	}
 }
 
@@ -693,52 +432,57 @@ func TestPlatformContext_RoundtripSlackThreadedMessage(t *testing.T) {
 	}
 	server.streamsMu.Unlock()
 
-	// Slack threaded message
-	incomingMsg := &types.UnifiedMessage{
-		ID:                "msg-slack-001",
-		PlatformMessageID: "C123:1234567890.999999",
-		Platform:          "slack",
-		Content:           "Thread reply",
-		UserID:            "U123456",
-		UserName:          "slackuser",
-		ChannelID:         "C123456",
-		ThreadID:          "1234567890.000001", // Thread timestamp
-		ConversationID:    "C123456-1234567890.000001",
-		Timestamp:         time.Now(),
+	// Slack threaded message as pb.Message directly
+	incomingMsg := &pb.Message{
+		Id:             "msg-slack-001",
+		Platform:       "slack",
+		Content:        "Thread reply",
+		ConversationId: "C123456-1234567890.000001",
+		Timestamp:      timestamppb.Now(),
+		PlatformContext: &pb.PlatformContext{
+			MessageId: "1234567890.999999",
+			ChannelId: "C123456",
+			ThreadId:  "1234567890.000001",
+		},
+		User: &pb.User{
+			Id:       "U123456",
+			Username: "slackuser",
+		},
 	}
 
-	_, err := server.HandleIncomingMessageFromAdapter(context.Background(), incomingMsg)
+	err := server.HandleIncomingMessage(context.Background(), incomingMsg)
 	if err != nil {
-		t.Fatalf("HandleIncomingMessageFromAdapter failed: %v", err)
+		t.Fatalf("HandleIncomingMessage failed: %v", err)
 	}
 
 	incoming := agentReceived.GetIncomingMessage()
-	receivedPC := incoming.PlatformContext
-
-	// Agent sends response with same PlatformContext
-	agentResponse := &pb.Message{
-		Platform:        incoming.Platform,
-		ConversationId:  incoming.ConversationId,
-		Content:         "Here's my answer",
-		PlatformContext: receivedPC,
+	if incoming == nil {
+		t.Fatal("agent did not receive IncomingMessage")
 	}
 
-	err = server.routeAgentMessage(context.Background(), agentResponse)
+	// Agent sends response
+	agentResponse := &pb.AgentResponse{
+		ConversationId: incoming.ConversationId,
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "Here's my answer",
+			},
+		},
+	}
+
+	err = server.routeAgentResponse(context.Background(), agentResponse)
 	if err != nil {
-		t.Fatalf("routeAgentMessage failed: %v", err)
+		t.Fatalf("routeAgentResponse failed: %v", err)
 	}
 
-	sent := slackAdapter.getLastSentMessage()
-	if sent == nil {
+	resp := slackAdapter.getLastResponse()
+	if resp == nil {
 		t.Fatal("slack adapter did not receive the response")
 	}
 
-	// Slack threaded messages should use the thread timestamp
-	if sent.ChannelID != "C123456" {
-		t.Errorf("ChannelID: expected 'C123456', got %q", sent.ChannelID)
-	}
-	if sent.ThreadID != "1234567890.000001" {
-		t.Errorf("ThreadID: expected '1234567890.000001', got %q", sent.ThreadID)
+	if resp.ConversationId != "C123456-1234567890.000001" {
+		t.Errorf("ConversationId: expected 'C123456-1234567890.000001', got %q", resp.ConversationId)
 	}
 }
 
@@ -762,7 +506,6 @@ func TestPlatformContext_PlatformDataPreserved(t *testing.T) {
 	}
 	server.streamsMu.Unlock()
 
-	// Message with platform_data map
 	msg := &pb.Message{
 		Id:             "msg-200",
 		Platform:       "slack",
@@ -773,9 +516,9 @@ func TestPlatformContext_PlatformDataPreserved(t *testing.T) {
 			ChannelId:   "C123456",
 			WorkspaceId: "T999",
 			PlatformData: map[string]string{
-				"team_id":     "T999",
-				"bot_id":      "B123",
-				"app_id":      "A456",
+				"team_id":      "T999",
+				"bot_id":       "B123",
+				"app_id":       "A456",
 				"custom_field": "custom_value",
 			},
 		},
@@ -921,25 +664,24 @@ func TestProtobufMessage_AttachmentsPreserved(t *testing.T) {
 	}
 	server.streamsMu.Unlock()
 
-	incomingMsg := &types.UnifiedMessage{
-		ID:             "msg-400",
+	msg := &pb.Message{
+		Id:             "msg-400",
 		Platform:       "slack",
 		Content:        "Check this file",
-		ChannelID:      "C123",
-		ConversationID: "C123",
-		Timestamp:      time.Now(),
-		Attachments: []types.Attachment{
+		ConversationId: "C123",
+		Timestamp:      timestamppb.Now(),
+		Attachments: []*pb.Attachment{
 			{
-				Type:     "IMAGE",
-				URL:      "https://example.com/image.png",
-				Name:     "screenshot.png",
-				MimeType: "image/png",
-				Size:     1024,
+				Type:      pb.Attachment_IMAGE,
+				Url:       "https://example.com/image.png",
+				Filename:  "screenshot.png",
+				MimeType:  "image/png",
+				SizeBytes: 1024,
 			},
 		},
 	}
 
-	_, err := server.HandleIncomingMessageFromAdapter(context.Background(), incomingMsg)
+	err := server.HandleIncomingMessage(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1153,62 +895,6 @@ func TestNewServer_NilAgentConfigStore(t *testing.T) {
 	}
 }
 
-// --- mockGRPCAdapter implements adapter.GRPCAdapter for testing routeAgentResponse ---
-
-type mockGRPCAdapter struct {
-	mockAdapter
-	responses []*pb.AgentResponse
-	respMu    sync.Mutex
-	respErr   error
-}
-
-func newMockGRPCAdapter(platform string) *mockGRPCAdapter {
-	return &mockGRPCAdapter{
-		mockAdapter: mockAdapter{
-			platform:     platform,
-			sentMessages: make([]*types.SendMessageRequest, 0),
-			healthy:      true,
-		},
-		responses: make([]*pb.AgentResponse, 0),
-	}
-}
-
-func (m *mockGRPCAdapter) Initialize(ctx context.Context, config adapter.Config) error { return nil }
-func (m *mockGRPCAdapter) Start(ctx context.Context) error                            { return nil }
-func (m *mockGRPCAdapter) Stop(ctx context.Context) error                             { return nil }
-func (m *mockGRPCAdapter) Capabilities() adapter.AdapterCapabilities {
-	return adapter.AdapterCapabilities{}
-}
-func (m *mockGRPCAdapter) SetMessageHandler(handler adapter.GRPCMessageHandler) {}
-func (m *mockGRPCAdapter) HydrateThread(ctx context.Context, conversationID string, s *store.ThreadHistoryStore) error {
-	return nil
-}
-
-func (m *mockGRPCAdapter) HandleAgentResponse(ctx context.Context, response *pb.AgentResponse) error {
-	m.respMu.Lock()
-	defer m.respMu.Unlock()
-	if m.respErr != nil {
-		return m.respErr
-	}
-	m.responses = append(m.responses, response)
-	return nil
-}
-
-func (m *mockGRPCAdapter) getLastResponse() *pb.AgentResponse {
-	m.respMu.Lock()
-	defer m.respMu.Unlock()
-	if len(m.responses) == 0 {
-		return nil
-	}
-	return m.responses[len(m.responses)-1]
-}
-
-func (m *mockGRPCAdapter) getResponseCount() int {
-	m.respMu.Lock()
-	defer m.respMu.Unlock()
-	return len(m.responses)
-}
-
 // --- Tests for routeAgentResponse ---
 
 func TestRouteAgentResponse_RoutesViaCacheToCorrectAdapter(t *testing.T) {
@@ -1216,12 +902,11 @@ func TestRouteAgentResponse_RoutesViaCacheToCorrectAdapter(t *testing.T) {
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
 
-	webAdapter := newMockGRPCAdapter("web")
-	slackAdapter := newMockGRPCAdapter("slack")
+	webAdapter := newMockAdapter("web")
+	slackAdapter := newMockAdapter("slack")
 	server.RegisterAdapter("web", webAdapter)
 	server.RegisterAdapter("slack", slackAdapter)
 
-	// Pre-populate conversation cache with platform info
 	ctx := context.Background()
 	convStore.Create(ctx, &types.ConversationContext{
 		ConversationID: "conv-web-123",
@@ -1244,11 +929,9 @@ func TestRouteAgentResponse_RoutesViaCacheToCorrectAdapter(t *testing.T) {
 		t.Fatalf("routeAgentResponse failed: %v", err)
 	}
 
-	// Web adapter should receive it
 	if webAdapter.getLastResponse() == nil {
 		t.Fatal("expected web adapter to receive response")
 	}
-	// Slack adapter should NOT receive it
 	if slackAdapter.getLastResponse() != nil {
 		t.Error("slack adapter should not receive response for web conversation")
 	}
@@ -1259,12 +942,11 @@ func TestRouteAgentResponse_BroadcastsWhenNotInCache(t *testing.T) {
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
 
-	webAdapter := newMockGRPCAdapter("web")
-	slackAdapter := newMockGRPCAdapter("slack")
+	webAdapter := newMockAdapter("web")
+	slackAdapter := newMockAdapter("slack")
 	server.RegisterAdapter("web", webAdapter)
 	server.RegisterAdapter("slack", slackAdapter)
 
-	// No cache entry — should broadcast to all
 	response := &pb.AgentResponse{
 		ConversationId: "unknown-conv",
 		Payload: &pb.AgentResponse_Status{
@@ -1292,7 +974,7 @@ func TestRouteAgentResponse_StatusUpdate(t *testing.T) {
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
 
-	webAdapter := newMockGRPCAdapter("web")
+	webAdapter := newMockAdapter("web")
 	server.RegisterAdapter("web", webAdapter)
 
 	ctx := context.Background()
@@ -1340,7 +1022,7 @@ func TestRouteAgentResponse_ContentChunkSequence(t *testing.T) {
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
 
-	webAdapter := newMockGRPCAdapter("web")
+	webAdapter := newMockAdapter("web")
 	server.RegisterAdapter("web", webAdapter)
 
 	ctx := context.Background()
@@ -1350,7 +1032,6 @@ func TestRouteAgentResponse_ContentChunkSequence(t *testing.T) {
 		ChannelID:      "conv-1",
 	})
 
-	// Send START → DELTA → DELTA → END
 	chunks := []struct {
 		chunkType pb.ContentChunk_ChunkType
 		content   string
@@ -1380,7 +1061,6 @@ func TestRouteAgentResponse_ContentChunkSequence(t *testing.T) {
 		t.Errorf("expected 4 responses, got %d", webAdapter.getResponseCount())
 	}
 
-	// Verify last was END with full content
 	last := webAdapter.getLastResponse()
 	endContent := last.GetContent()
 	if endContent.Type != pb.ContentChunk_END {
@@ -1391,7 +1071,68 @@ func TestRouteAgentResponse_ContentChunkSequence(t *testing.T) {
 	}
 }
 
-// --- Tests for updateConversationCache creating new entries ---
+func TestRouteAgentResponse_AdapterReturnsError(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockAdapter("web")
+	webAdapter.respErr = fmt.Errorf("adapter broken")
+	server.RegisterAdapter("web", webAdapter)
+
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-err",
+		Platform:       "web",
+	})
+
+	resp := &pb.AgentResponse{
+		ConversationId: "conv-err",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "test",
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected error when adapter returns error")
+	}
+	if !strings.Contains(err.Error(), "adapter broken") {
+		t.Errorf("expected 'adapter broken' in error, got: %v", err)
+	}
+}
+
+func TestRouteAgentResponse_EmptyConversationID(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockAdapter("web")
+	server.RegisterAdapter("web", webAdapter)
+
+	resp := &pb.AgentResponse{
+		ConversationId: "",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "test",
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(context.Background(), resp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if webAdapter.getResponseCount() != 1 {
+		t.Errorf("expected 1 broadcast response, got %d", webAdapter.getResponseCount())
+	}
+}
+
+// --- Tests for updateConversationCache ---
 
 func TestUpdateConversationCache_CreatesNewEntry(t *testing.T) {
 	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
@@ -1418,7 +1159,6 @@ func TestUpdateConversationCache_CreatesNewEntry(t *testing.T) {
 		t.Fatalf("updateConversationCache failed: %v", err)
 	}
 
-	// Verify it was created
 	conv, err := convStore.Get(context.Background(), "C123-thread-ts")
 	if err != nil {
 		t.Fatalf("expected conversation to be in cache: %v", err)
@@ -1446,7 +1186,6 @@ func TestUpdateConversationCache_UpdatesExistingEntry(t *testing.T) {
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
 
-	// Pre-create entry
 	ctx := context.Background()
 	convStore.Create(ctx, &types.ConversationContext{
 		ConversationID: "conv-1",
@@ -1501,17 +1240,15 @@ func TestUpdateConversationCache_NilPlatformContext(t *testing.T) {
 }
 
 func TestRouteAgentResponse_UsesCache_AfterIncomingMessage(t *testing.T) {
-	// End-to-end: incoming message populates cache, then routeAgentResponse uses it
 	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
 	convStore := store.NewMemoryStore()
 	server := NewServer(":0", threadStore, convStore, nil)
 
-	webAdapter := newMockGRPCAdapter("web")
-	slackAdapter := newMockGRPCAdapter("slack")
+	webAdapter := newMockAdapter("web")
+	slackAdapter := newMockAdapter("slack")
 	server.RegisterAdapter("web", webAdapter)
 	server.RegisterAdapter("slack", slackAdapter)
 
-	// Simulate incoming message (populates cache)
 	mockStream := &captureStream{
 		sendFunc: func(resp *pb.AgentResponse) error { return nil },
 	}
@@ -1536,7 +1273,6 @@ func TestRouteAgentResponse_UsesCache_AfterIncomingMessage(t *testing.T) {
 	}
 	server.HandleIncomingMessage(ctx, incomingMsg)
 
-	// Now route an agent response — should go to web only (via cache)
 	agentResp := &pb.AgentResponse{
 		ConversationId: "conv-web-999",
 		Payload: &pb.AgentResponse_Content{
@@ -1557,151 +1293,6 @@ func TestRouteAgentResponse_UsesCache_AfterIncomingMessage(t *testing.T) {
 	}
 	if slackAdapter.getLastResponse() != nil {
 		t.Error("slack adapter should NOT receive response — cache should route to web only")
-	}
-}
-
-// --- Tests for routeAgentResponse error paths ---
-
-func TestRouteAgentResponse_AdapterReturnsError(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	webAdapter := newMockGRPCAdapter("web")
-	webAdapter.respErr = fmt.Errorf("adapter broken")
-	server.RegisterAdapter("web", webAdapter)
-
-	// Pre-populate cache
-	ctx := context.Background()
-	convStore.Create(ctx, &types.ConversationContext{
-		ConversationID: "conv-err",
-		Platform:       "web",
-	})
-
-	resp := &pb.AgentResponse{
-		ConversationId: "conv-err",
-		Payload: &pb.AgentResponse_Content{
-			Content: &pb.ContentChunk{
-				Type:    pb.ContentChunk_END,
-				Content: "test",
-			},
-		},
-	}
-
-	err := server.routeAgentResponse(ctx, resp)
-	if err == nil {
-		t.Fatal("expected error when adapter returns error")
-	}
-	if !strings.Contains(err.Error(), "adapter broken") {
-		t.Errorf("expected 'adapter broken' in error, got: %v", err)
-	}
-}
-
-func TestRouteAgentResponse_EmptyConversationID(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	webAdapter := newMockGRPCAdapter("web")
-	server.RegisterAdapter("web", webAdapter)
-
-	resp := &pb.AgentResponse{
-		ConversationId: "",
-		Payload: &pb.AgentResponse_Content{
-			Content: &pb.ContentChunk{
-				Type:    pb.ContentChunk_END,
-				Content: "test",
-			},
-		},
-	}
-
-	// Empty conversation ID means cache miss → broadcasts to all
-	err := server.routeAgentResponse(context.Background(), resp)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should still broadcast to all adapters
-	if webAdapter.getResponseCount() != 1 {
-		t.Errorf("expected 1 broadcast response, got %d", webAdapter.getResponseCount())
-	}
-}
-
-func TestRouteAgentResponse_NonGRPCAdapterSkipped(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	// Register a plain adapter (not GRPCAdapter)
-	plainAdapter := newMockAdapter("plain")
-	server.RegisterAdapter("plain", plainAdapter)
-
-	// Pre-populate cache pointing to "plain" platform
-	ctx := context.Background()
-	convStore.Create(ctx, &types.ConversationContext{
-		ConversationID: "conv-plain",
-		Platform:       "plain",
-	})
-
-	resp := &pb.AgentResponse{
-		ConversationId: "conv-plain",
-		Payload: &pb.AgentResponse_Content{
-			Content: &pb.ContentChunk{
-				Type:    pb.ContentChunk_END,
-				Content: "test",
-			},
-		},
-	}
-
-	// Should not panic — just fails to type-assert and falls through
-	err := server.routeAgentResponse(ctx, resp)
-	// Behavior depends on implementation — this tests it doesn't panic
-	_ = err
-}
-
-func TestUpdateConversationCache_CacheCreateError(t *testing.T) {
-	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
-	convStore := store.NewMemoryStore()
-	server := NewServer(":0", threadStore, convStore, nil)
-
-	ctx := context.Background()
-
-	// Create a message with valid data — this should succeed
-	msg := &pb.Message{
-		Id:             "msg-1",
-		Platform:       "web",
-		ConversationId: "conv-new",
-		Content:        "Hello",
-		User:           &pb.User{Id: "user-1"},
-		PlatformContext: &pb.PlatformContext{
-			ChannelId: "chan-1",
-			ThreadId:  "thread-1",
-		},
-	}
-
-	err := server.updateConversationCache(ctx, msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify fields were stored correctly
-	conv, getErr := convStore.Get(ctx, "conv-new")
-	if getErr != nil {
-		t.Fatalf("failed to get conversation: %v", getErr)
-	}
-	if conv.Platform != "web" {
-		t.Errorf("expected platform 'web', got %q", conv.Platform)
-	}
-	if conv.ChannelID != "chan-1" {
-		t.Errorf("expected channelID 'chan-1', got %q", conv.ChannelID)
-	}
-	if conv.ThreadID != "thread-1" {
-		t.Errorf("expected threadID 'thread-1', got %q", conv.ThreadID)
-	}
-	if conv.UserID != "user-1" {
-		t.Errorf("expected userID 'user-1', got %q", conv.UserID)
-	}
-	if conv.MessageCount != 1 {
-		t.Errorf("expected messageCount 1, got %d", conv.MessageCount)
 	}
 }
 
@@ -1739,7 +1330,6 @@ func TestUpdateConversationCache_SecondMessageIncrements(t *testing.T) {
 
 // --- captureStream mock ---
 
-// captureStream implements pb.AgentMessaging_ProcessConversationServer for testing
 type captureStream struct {
 	pb.AgentMessaging_ProcessConversationServer
 	sendFunc func(*pb.AgentResponse) error
