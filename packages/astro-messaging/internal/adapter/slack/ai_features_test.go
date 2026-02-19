@@ -801,6 +801,96 @@ func TestSlackAdapter_HandleAgentResponse_ErrorWithCodeAppended(t *testing.T) {
 	}
 }
 
+// --- Tests for feedback buttons ---
+
+func TestSlackAdapter_HandleAgentResponse_ContentEnd_IncludesFeedbackButtons(t *testing.T) {
+	a, calls, cleanup := newTestSlackAdapter(t)
+	defer cleanup()
+
+	convID := "C123-1234567890.000001"
+
+	// Send START → DELTA → END
+	for _, resp := range []*pb.AgentResponse{
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_START}}},
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "Hello!"}}},
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_END}}},
+	} {
+		if err := a.HandleAgentResponse(t.Context(), resp); err != nil {
+			t.Fatalf("HandleAgentResponse failed: %v", err)
+		}
+	}
+
+	// Verify chat.postMessage was called with blocks containing feedback buttons
+	for _, call := range *calls {
+		if call.Method == "/chat.postMessage" {
+			blocksRaw, ok := call.Body["blocks"]
+			if !ok {
+				t.Fatal("expected 'blocks' field in chat.postMessage call")
+			}
+
+			// blocks is JSON-encoded string from Slack client
+			blocksStr, ok := blocksRaw.(string)
+			if !ok {
+				t.Fatalf("expected blocks to be a string, got %T", blocksRaw)
+			}
+
+			// Should contain the feedback action block and button action IDs
+			if !strings.Contains(blocksStr, "context_actions") {
+				t.Errorf("expected blocks to contain 'context_actions' block ID, got: %s", blocksStr)
+			}
+			if !strings.Contains(blocksStr, "feedback_buttons") {
+				t.Errorf("expected blocks to contain 'feedback_buttons' action ID, got: %s", blocksStr)
+			}
+			if !strings.Contains(blocksStr, "positive_feedback") {
+				t.Errorf("expected blocks to contain 'positive_feedback' value, got: %s", blocksStr)
+			}
+			if !strings.Contains(blocksStr, "negative_feedback") {
+				t.Errorf("expected blocks to contain 'negative_feedback' value, got: %s", blocksStr)
+			}
+			return
+		}
+	}
+	t.Error("expected chat.postMessage call for END chunk")
+}
+
+func TestSlackAdapter_HandleAgentResponse_ContentEnd_MessageTextAndBlocks(t *testing.T) {
+	a, calls, cleanup := newTestSlackAdapter(t)
+	defer cleanup()
+
+	convID := "C123-1234567890.000001"
+
+	for _, resp := range []*pb.AgentResponse{
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_START}}},
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "Test response"}}},
+		{ConversationId: convID, Payload: &pb.AgentResponse_Content{Content: &pb.ContentChunk{Type: pb.ContentChunk_END}}},
+	} {
+		if err := a.HandleAgentResponse(t.Context(), resp); err != nil {
+			t.Fatalf("HandleAgentResponse failed: %v", err)
+		}
+	}
+
+	for _, call := range *calls {
+		if call.Method == "/chat.postMessage" {
+			// Verify fallback text is set (for notifications/accessibility)
+			text, _ := call.Body["text"].(string)
+			if text != "Test response" {
+				t.Errorf("expected fallback text 'Test response', got %q", text)
+			}
+
+			// Verify blocks contain the message content in a section block
+			blocksStr, _ := call.Body["blocks"].(string)
+			if !strings.Contains(blocksStr, "Test response") {
+				t.Errorf("expected blocks to contain message content, got: %s", blocksStr)
+			}
+			if !strings.Contains(blocksStr, "section") {
+				t.Errorf("expected blocks to contain section block, got: %s", blocksStr)
+			}
+			return
+		}
+	}
+	t.Error("expected chat.postMessage call")
+}
+
 func TestSlackAdapter_HandleAgentResponse_ErrorUnspecifiedCode(t *testing.T) {
 	a, calls, cleanup := newTestSlackAdapter(t)
 	defer cleanup()

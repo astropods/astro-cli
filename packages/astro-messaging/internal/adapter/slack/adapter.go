@@ -185,11 +185,14 @@ func (a *SlackAdapter) handleMessage(ctx context.Context, ev *slackevents.Messag
 		return
 	}
 
-	// Only process message events in DMs (channel starts with 'D')
-	// In public/private channels, we'll rely on app_mention events to avoid duplicates
+	// In public/private channels, only process thread replies (follow-ups).
+	// Top-level channel messages are handled via app_mention events to avoid duplicates.
 	if ev.Channel != "" && ev.Channel[0] != 'D' {
-		log.Printf("[Slack] Ignoring message in channel %s (will handle via app_mention)", ev.Channel)
-		return
+		if ev.ThreadTimeStamp == "" {
+			log.Printf("[Slack] Ignoring top-level message in channel %s (will handle via app_mention)", ev.Channel)
+			return
+		}
+		log.Printf("[Slack] Processing thread reply in channel %s, thread=%s", ev.Channel, ev.ThreadTimeStamp)
 	}
 
 	log.Printf("[Slack] Message received: channel=%s, user=%s, text=%s", ev.Channel, ev.User, ev.Text)
