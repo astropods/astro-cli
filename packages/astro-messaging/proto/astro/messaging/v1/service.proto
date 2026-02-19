@@ -40,6 +40,7 @@ message ConversationRequest {
     Message message = 1;
     PlatformFeedback feedback = 2;
     AgentConfig agent_config = 3;
+    AgentResponse agent_response = 4;
   }
 }
 

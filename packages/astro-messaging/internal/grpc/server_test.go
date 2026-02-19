@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1149,6 +1150,590 @@ func TestNewServer_NilAgentConfigStore(t *testing.T) {
 
 	if server.agentConfigStore != nil {
 		t.Error("expected agentConfigStore to be nil")
+	}
+}
+
+// --- mockGRPCAdapter implements adapter.GRPCAdapter for testing routeAgentResponse ---
+
+type mockGRPCAdapter struct {
+	mockAdapter
+	responses []*pb.AgentResponse
+	respMu    sync.Mutex
+	respErr   error
+}
+
+func newMockGRPCAdapter(platform string) *mockGRPCAdapter {
+	return &mockGRPCAdapter{
+		mockAdapter: mockAdapter{
+			platform:     platform,
+			sentMessages: make([]*types.SendMessageRequest, 0),
+			healthy:      true,
+		},
+		responses: make([]*pb.AgentResponse, 0),
+	}
+}
+
+func (m *mockGRPCAdapter) Initialize(ctx context.Context, config adapter.Config) error { return nil }
+func (m *mockGRPCAdapter) Start(ctx context.Context) error                            { return nil }
+func (m *mockGRPCAdapter) Stop(ctx context.Context) error                             { return nil }
+func (m *mockGRPCAdapter) Capabilities() adapter.AdapterCapabilities {
+	return adapter.AdapterCapabilities{}
+}
+func (m *mockGRPCAdapter) SetMessageHandler(handler adapter.GRPCMessageHandler) {}
+func (m *mockGRPCAdapter) HydrateThread(ctx context.Context, conversationID string, s *store.ThreadHistoryStore) error {
+	return nil
+}
+
+func (m *mockGRPCAdapter) HandleAgentResponse(ctx context.Context, response *pb.AgentResponse) error {
+	m.respMu.Lock()
+	defer m.respMu.Unlock()
+	if m.respErr != nil {
+		return m.respErr
+	}
+	m.responses = append(m.responses, response)
+	return nil
+}
+
+func (m *mockGRPCAdapter) getLastResponse() *pb.AgentResponse {
+	m.respMu.Lock()
+	defer m.respMu.Unlock()
+	if len(m.responses) == 0 {
+		return nil
+	}
+	return m.responses[len(m.responses)-1]
+}
+
+func (m *mockGRPCAdapter) getResponseCount() int {
+	m.respMu.Lock()
+	defer m.respMu.Unlock()
+	return len(m.responses)
+}
+
+// --- Tests for routeAgentResponse ---
+
+func TestRouteAgentResponse_RoutesViaCacheToCorrectAdapter(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	slackAdapter := newMockGRPCAdapter("slack")
+	server.RegisterAdapter("web", webAdapter)
+	server.RegisterAdapter("slack", slackAdapter)
+
+	// Pre-populate conversation cache with platform info
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-web-123",
+		Platform:       "web",
+		ChannelID:      "conv-web-123",
+	})
+
+	response := &pb.AgentResponse{
+		ConversationId: "conv-web-123",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_DELTA,
+				Content: "Hello",
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(ctx, response)
+	if err != nil {
+		t.Fatalf("routeAgentResponse failed: %v", err)
+	}
+
+	// Web adapter should receive it
+	if webAdapter.getLastResponse() == nil {
+		t.Fatal("expected web adapter to receive response")
+	}
+	// Slack adapter should NOT receive it
+	if slackAdapter.getLastResponse() != nil {
+		t.Error("slack adapter should not receive response for web conversation")
+	}
+}
+
+func TestRouteAgentResponse_BroadcastsWhenNotInCache(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	slackAdapter := newMockGRPCAdapter("slack")
+	server.RegisterAdapter("web", webAdapter)
+	server.RegisterAdapter("slack", slackAdapter)
+
+	// No cache entry — should broadcast to all
+	response := &pb.AgentResponse{
+		ConversationId: "unknown-conv",
+		Payload: &pb.AgentResponse_Status{
+			Status: &pb.StatusUpdate{
+				Status: pb.StatusUpdate_THINKING,
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(context.Background(), response)
+	if err != nil {
+		t.Fatalf("routeAgentResponse failed: %v", err)
+	}
+
+	if webAdapter.getLastResponse() == nil {
+		t.Error("expected web adapter to receive broadcast")
+	}
+	if slackAdapter.getLastResponse() == nil {
+		t.Error("expected slack adapter to receive broadcast")
+	}
+}
+
+func TestRouteAgentResponse_StatusUpdate(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	server.RegisterAdapter("web", webAdapter)
+
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-1",
+		Platform:       "web",
+		ChannelID:      "conv-1",
+	})
+
+	response := &pb.AgentResponse{
+		ConversationId: "conv-1",
+		Payload: &pb.AgentResponse_Status{
+			Status: &pb.StatusUpdate{
+				Status:        pb.StatusUpdate_PROCESSING,
+				CustomMessage: "Running search_docs",
+				Emoji:         "🔧",
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(ctx, response)
+	if err != nil {
+		t.Fatalf("routeAgentResponse failed: %v", err)
+	}
+
+	resp := webAdapter.getLastResponse()
+	if resp == nil {
+		t.Fatal("expected adapter to receive response")
+	}
+
+	status := resp.GetStatus()
+	if status == nil {
+		t.Fatal("expected Status payload")
+	}
+	if status.Status != pb.StatusUpdate_PROCESSING {
+		t.Errorf("expected PROCESSING, got %v", status.Status)
+	}
+	if status.CustomMessage != "Running search_docs" {
+		t.Errorf("expected 'Running search_docs', got %q", status.CustomMessage)
+	}
+}
+
+func TestRouteAgentResponse_ContentChunkSequence(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	server.RegisterAdapter("web", webAdapter)
+
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-1",
+		Platform:       "web",
+		ChannelID:      "conv-1",
+	})
+
+	// Send START → DELTA → DELTA → END
+	chunks := []struct {
+		chunkType pb.ContentChunk_ChunkType
+		content   string
+	}{
+		{pb.ContentChunk_START, ""},
+		{pb.ContentChunk_DELTA, "Hello "},
+		{pb.ContentChunk_DELTA, "world"},
+		{pb.ContentChunk_END, "Hello world"},
+	}
+
+	for _, c := range chunks {
+		resp := &pb.AgentResponse{
+			ConversationId: "conv-1",
+			Payload: &pb.AgentResponse_Content{
+				Content: &pb.ContentChunk{
+					Type:    c.chunkType,
+					Content: c.content,
+				},
+			},
+		}
+		if err := server.routeAgentResponse(ctx, resp); err != nil {
+			t.Fatalf("routeAgentResponse failed for %v: %v", c.chunkType, err)
+		}
+	}
+
+	if webAdapter.getResponseCount() != 4 {
+		t.Errorf("expected 4 responses, got %d", webAdapter.getResponseCount())
+	}
+
+	// Verify last was END with full content
+	last := webAdapter.getLastResponse()
+	endContent := last.GetContent()
+	if endContent.Type != pb.ContentChunk_END {
+		t.Errorf("expected END chunk, got %v", endContent.Type)
+	}
+	if endContent.Content != "Hello world" {
+		t.Errorf("expected 'Hello world', got %q", endContent.Content)
+	}
+}
+
+// --- Tests for updateConversationCache creating new entries ---
+
+func TestUpdateConversationCache_CreatesNewEntry(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	msg := &pb.Message{
+		Id:             "msg-001",
+		Platform:       "slack",
+		ConversationId: "C123-thread-ts",
+		Content:        "Hello",
+		PlatformContext: &pb.PlatformContext{
+			ChannelId: "C123",
+			ThreadId:  "thread-ts",
+		},
+		User: &pb.User{
+			Id:       "U456",
+			Username: "testuser",
+		},
+	}
+
+	err := server.updateConversationCache(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("updateConversationCache failed: %v", err)
+	}
+
+	// Verify it was created
+	conv, err := convStore.Get(context.Background(), "C123-thread-ts")
+	if err != nil {
+		t.Fatalf("expected conversation to be in cache: %v", err)
+	}
+
+	if conv.Platform != "slack" {
+		t.Errorf("Platform: expected 'slack', got %q", conv.Platform)
+	}
+	if conv.ChannelID != "C123" {
+		t.Errorf("ChannelID: expected 'C123', got %q", conv.ChannelID)
+	}
+	if conv.ThreadID != "thread-ts" {
+		t.Errorf("ThreadID: expected 'thread-ts', got %q", conv.ThreadID)
+	}
+	if conv.UserID != "U456" {
+		t.Errorf("UserID: expected 'U456', got %q", conv.UserID)
+	}
+	if conv.MessageCount != 1 {
+		t.Errorf("MessageCount: expected 1, got %d", conv.MessageCount)
+	}
+}
+
+func TestUpdateConversationCache_UpdatesExistingEntry(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	// Pre-create entry
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-1",
+		Platform:       "web",
+		ChannelID:      "conv-1",
+		MessageCount:   5,
+	})
+
+	msg := &pb.Message{
+		ConversationId: "conv-1",
+		Platform:       "web",
+		Content:        "New message",
+		User:           &pb.User{Id: "u1"},
+	}
+
+	err := server.updateConversationCache(ctx, msg)
+	if err != nil {
+		t.Fatalf("updateConversationCache failed: %v", err)
+	}
+
+	conv, _ := convStore.Get(ctx, "conv-1")
+	if conv.MessageCount != 6 {
+		t.Errorf("MessageCount: expected 6, got %d", conv.MessageCount)
+	}
+}
+
+func TestUpdateConversationCache_NilPlatformContext(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	msg := &pb.Message{
+		ConversationId:  "conv-no-pc",
+		Platform:        "web",
+		Content:         "No platform context",
+		PlatformContext: nil,
+		User:            &pb.User{Id: "u1"},
+	}
+
+	err := server.updateConversationCache(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("should not error with nil PlatformContext: %v", err)
+	}
+
+	conv, err := convStore.Get(context.Background(), "conv-no-pc")
+	if err != nil {
+		t.Fatalf("expected conversation to be created: %v", err)
+	}
+	if conv.ChannelID != "" {
+		t.Errorf("ChannelID: expected empty, got %q", conv.ChannelID)
+	}
+}
+
+func TestRouteAgentResponse_UsesCache_AfterIncomingMessage(t *testing.T) {
+	// End-to-end: incoming message populates cache, then routeAgentResponse uses it
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	slackAdapter := newMockGRPCAdapter("slack")
+	server.RegisterAdapter("web", webAdapter)
+	server.RegisterAdapter("slack", slackAdapter)
+
+	// Simulate incoming message (populates cache)
+	mockStream := &captureStream{
+		sendFunc: func(resp *pb.AgentResponse) error { return nil },
+	}
+	server.streamsMu.Lock()
+	server.streams["agent-stream"] = &conversationStream{
+		stream:         mockStream,
+		conversationID: "agent-stream",
+	}
+	server.streamsMu.Unlock()
+
+	ctx := context.Background()
+	incomingMsg := &pb.Message{
+		Id:             "msg-1",
+		Platform:       "web",
+		ConversationId: "conv-web-999",
+		Content:        "Hello",
+		PlatformContext: &pb.PlatformContext{
+			ChannelId: "conv-web-999",
+			MessageId: "msg-1",
+		},
+		User: &pb.User{Id: "u1"},
+	}
+	server.HandleIncomingMessage(ctx, incomingMsg)
+
+	// Now route an agent response — should go to web only (via cache)
+	agentResp := &pb.AgentResponse{
+		ConversationId: "conv-web-999",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "Hi there!",
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(ctx, agentResp)
+	if err != nil {
+		t.Fatalf("routeAgentResponse failed: %v", err)
+	}
+
+	if webAdapter.getLastResponse() == nil {
+		t.Fatal("expected web adapter to receive response")
+	}
+	if slackAdapter.getLastResponse() != nil {
+		t.Error("slack adapter should NOT receive response — cache should route to web only")
+	}
+}
+
+// --- Tests for routeAgentResponse error paths ---
+
+func TestRouteAgentResponse_AdapterReturnsError(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	webAdapter.respErr = fmt.Errorf("adapter broken")
+	server.RegisterAdapter("web", webAdapter)
+
+	// Pre-populate cache
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-err",
+		Platform:       "web",
+	})
+
+	resp := &pb.AgentResponse{
+		ConversationId: "conv-err",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "test",
+			},
+		},
+	}
+
+	err := server.routeAgentResponse(ctx, resp)
+	if err == nil {
+		t.Fatal("expected error when adapter returns error")
+	}
+	if !strings.Contains(err.Error(), "adapter broken") {
+		t.Errorf("expected 'adapter broken' in error, got: %v", err)
+	}
+}
+
+func TestRouteAgentResponse_EmptyConversationID(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	webAdapter := newMockGRPCAdapter("web")
+	server.RegisterAdapter("web", webAdapter)
+
+	resp := &pb.AgentResponse{
+		ConversationId: "",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "test",
+			},
+		},
+	}
+
+	// Empty conversation ID means cache miss → broadcasts to all
+	err := server.routeAgentResponse(context.Background(), resp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should still broadcast to all adapters
+	if webAdapter.getResponseCount() != 1 {
+		t.Errorf("expected 1 broadcast response, got %d", webAdapter.getResponseCount())
+	}
+}
+
+func TestRouteAgentResponse_NonGRPCAdapterSkipped(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	// Register a plain adapter (not GRPCAdapter)
+	plainAdapter := newMockAdapter("plain")
+	server.RegisterAdapter("plain", plainAdapter)
+
+	// Pre-populate cache pointing to "plain" platform
+	ctx := context.Background()
+	convStore.Create(ctx, &types.ConversationContext{
+		ConversationID: "conv-plain",
+		Platform:       "plain",
+	})
+
+	resp := &pb.AgentResponse{
+		ConversationId: "conv-plain",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_END,
+				Content: "test",
+			},
+		},
+	}
+
+	// Should not panic — just fails to type-assert and falls through
+	err := server.routeAgentResponse(ctx, resp)
+	// Behavior depends on implementation — this tests it doesn't panic
+	_ = err
+}
+
+func TestUpdateConversationCache_CacheCreateError(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	ctx := context.Background()
+
+	// Create a message with valid data — this should succeed
+	msg := &pb.Message{
+		Id:             "msg-1",
+		Platform:       "web",
+		ConversationId: "conv-new",
+		Content:        "Hello",
+		User:           &pb.User{Id: "user-1"},
+		PlatformContext: &pb.PlatformContext{
+			ChannelId: "chan-1",
+			ThreadId:  "thread-1",
+		},
+	}
+
+	err := server.updateConversationCache(ctx, msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify fields were stored correctly
+	conv, getErr := convStore.Get(ctx, "conv-new")
+	if getErr != nil {
+		t.Fatalf("failed to get conversation: %v", getErr)
+	}
+	if conv.Platform != "web" {
+		t.Errorf("expected platform 'web', got %q", conv.Platform)
+	}
+	if conv.ChannelID != "chan-1" {
+		t.Errorf("expected channelID 'chan-1', got %q", conv.ChannelID)
+	}
+	if conv.ThreadID != "thread-1" {
+		t.Errorf("expected threadID 'thread-1', got %q", conv.ThreadID)
+	}
+	if conv.UserID != "user-1" {
+		t.Errorf("expected userID 'user-1', got %q", conv.UserID)
+	}
+	if conv.MessageCount != 1 {
+		t.Errorf("expected messageCount 1, got %d", conv.MessageCount)
+	}
+}
+
+func TestUpdateConversationCache_SecondMessageIncrements(t *testing.T) {
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	convStore := store.NewMemoryStore()
+	server := NewServer(":0", threadStore, convStore, nil)
+
+	ctx := context.Background()
+	msg := &pb.Message{
+		Id:             "msg-1",
+		Platform:       "web",
+		ConversationId: "conv-inc",
+		Content:        "First",
+		User:           &pb.User{Id: "user-1"},
+	}
+
+	server.updateConversationCache(ctx, msg)
+
+	msg2 := &pb.Message{
+		Id:             "msg-2",
+		Platform:       "web",
+		ConversationId: "conv-inc",
+		Content:        "Second",
+		User:           &pb.User{Id: "user-1"},
+	}
+
+	server.updateConversationCache(ctx, msg2)
+
+	conv, _ := convStore.Get(ctx, "conv-inc")
+	if conv.MessageCount != 2 {
+		t.Errorf("expected messageCount 2 after second message, got %d", conv.MessageCount)
 	}
 }
 

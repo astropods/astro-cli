@@ -196,6 +196,14 @@ func (s *Server) ProcessConversation(stream pb.AgentMessaging_ProcessConversatio
 				log.Printf("[gRPC] Stored agent config from stream")
 			}
 
+		case *pb.ConversationRequest_AgentResponse:
+			// Agent sending a typed response (ContentChunk, StatusUpdate, etc.)
+			response := payload.AgentResponse
+			log.Printf("[gRPC] Agent response for conversation: %s", response.ConversationId)
+			if err := s.routeAgentResponse(streamCtx, response); err != nil {
+				log.Printf("[gRPC] Error routing agent response: %v", err)
+			}
+
 		default:
 			log.Printf("[gRPC] Unknown request type in stream")
 		}
@@ -403,6 +411,43 @@ func (s *Server) routeAgentMessage(ctx context.Context, msg *pb.Message) error {
 	return nil
 }
 
+// routeAgentResponse routes typed AgentResponse payloads (ContentChunk, StatusUpdate, etc.)
+// back to the appropriate platform adapter via HandleAgentResponse
+func (s *Server) routeAgentResponse(ctx context.Context, response *pb.AgentResponse) error {
+	conversationID := response.ConversationId
+
+	// Try to find the platform from conversation cache
+	conv, err := s.conversationCache.Get(ctx, conversationID)
+	if err == nil {
+		// Found in cache — route to the specific adapter
+		s.mu.RLock()
+		adpt, exists := s.adapters[conv.Platform]
+		s.mu.RUnlock()
+
+		if exists {
+			if grpcAdapter, ok := adpt.(adapter.GRPCAdapter); ok {
+				return grpcAdapter.HandleAgentResponse(ctx, response)
+			}
+		}
+	}
+
+	// Conversation not in cache — broadcast to all adapters
+	// Each adapter handles unknown conversations gracefully
+	log.Printf("[gRPC] Conversation %s not in cache, broadcasting to all adapters", conversationID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for name, adpt := range s.adapters {
+		if grpcAdapter, ok := adpt.(adapter.GRPCAdapter); ok {
+			if err := grpcAdapter.HandleAgentResponse(ctx, response); err != nil {
+				log.Printf("[gRPC] Error routing agent response to %s: %v", name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // updateConversationCache updates the conversation metadata cache
 func (s *Server) updateConversationCache(ctx context.Context, msg *pb.Message) error {
 	conversationID := msg.ConversationId
@@ -410,9 +455,24 @@ func (s *Server) updateConversationCache(ctx context.Context, msg *pb.Message) e
 	// Try to get existing conversation
 	conv, err := s.conversationCache.Get(ctx, conversationID)
 	if err != nil {
-		// Create new conversation
-		// For now, skip - this is optional metadata
-		return nil
+		// Create new conversation entry so routeAgentResponse can look up the platform
+		var channelID, threadID string
+		if msg.PlatformContext != nil {
+			channelID = msg.PlatformContext.ChannelId
+			threadID = msg.PlatformContext.ThreadId
+		}
+
+		now := time.Now()
+		return s.conversationCache.Create(ctx, &types.ConversationContext{
+			ConversationID: conversationID,
+			Platform:       msg.Platform,
+			ChannelID:      channelID,
+			ThreadID:       threadID,
+			UserID:         msg.User.GetId(),
+			CreatedAt:      now,
+			LastMessageAt:  now,
+			MessageCount:   1,
+		})
 	}
 
 	// Update metadata

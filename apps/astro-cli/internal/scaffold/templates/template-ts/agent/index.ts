@@ -27,6 +27,7 @@
  */
 
 import { AstroAgent } from '@saswatds/astro-agent';
+import type { AgentStep } from '@saswatds/astro-types';
 import {
   MessagingClient,
   type AgentConfig,
@@ -41,6 +42,10 @@ const GRPC_SERVER_ADDR = process.env.GRPC_SERVER_ADDR || 'localhost:9090';
 const agent = new AstroAgent()
 {{- if and (ne .ModelProvider "") (ne .Model "")}}
   .model('{{.ModelProvider}}/{{.Model}}')
+{{- else if .HasIntegration "anthropic"}}
+  .model('anthropic/claude-sonnet-4-5')
+{{- else if .HasIntegration "openai"}}
+  .model('openai/gpt-4o')
 {{- end}}
   .meta({ title: '{{.Name}}', description: '{{.Description}}' })
   .instructions('You are {{.Name}}, a helpful AI assistant. {{.Description}}');
@@ -77,25 +82,37 @@ async function main() {
     const username = message.user?.username || message.user?.id || 'Anonymous User';
     console.log(`📨 ${username}: ${message.content}`);
 
-    const agentUser = {
-      id: AGENT_NAME.toLowerCase().replace(/\s+/g, '-'),
-      username: AGENT_NAME,
-    };
+    // Signal start of streaming response
+    stream.sendContentChunk(message.conversationId, { type: 'START', content: '' });
 
     agent.stream({
       prompt: message.content,
       threadId: message.conversationId,
       userId: message.user?.id ?? 'anonymous',
-      onChunk: (chunk: string) => {
-        stream.sendMessage({
-          conversationId: message.conversationId,
-          platform: message.platform,
-          platformContext: message.platformContext,
-          content: chunk,
-          user: agentUser,
+      onReasoningStart: () => {
+        stream.sendStatusUpdate(message.conversationId, { status: 'THINKING' });
+      },
+      onReasoningEnd: () => {
+        stream.sendStatusUpdate(message.conversationId, { status: 'GENERATING' });
+      },
+      onStepStart: (step: AgentStep) => {
+        stream.sendStatusUpdate(message.conversationId, {
+          status: 'PROCESSING',
+          customMessage: `Running ${step.name}`,
+          emoji: '🔧',
         });
       },
-      onFinish: () => {
+      onStepEnd: (step: AgentStep) => {
+        stream.sendStatusUpdate(message.conversationId, {
+          status: 'ANALYZING',
+          customMessage: `Finished ${step.name}`,
+        });
+      },
+      onChunk: (chunk: string) => {
+        stream.sendContentChunk(message.conversationId, { type: 'DELTA', content: chunk });
+      },
+      onFinish: (result: string) => {
+        stream.sendContentChunk(message.conversationId, { type: 'END', content: result });
         console.log('📤 Response complete');
       },
       onError: (error: Error) => {

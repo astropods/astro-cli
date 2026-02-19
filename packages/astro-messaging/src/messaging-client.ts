@@ -153,6 +153,7 @@ export interface ConversationRequest {
   message?: Message;
   feedback?: any;
   agentConfig?: AgentConfig;
+  agentResponse?: AgentResponse;
 }
 
 /**
@@ -357,6 +358,36 @@ export class ConversationStream extends EventEmitter {
       agentConfig: config,
     };
     this.stream.write(request);
+  }
+
+  /**
+   * Send a typed AgentResponse through the stream
+   */
+  sendAgentResponse(response: AgentResponse): void {
+    const request: ConversationRequest = {
+      agentResponse: response,
+    };
+    this.stream.write(request);
+  }
+
+  /**
+   * Send a content chunk (START/DELTA/END) for a conversation
+   */
+  sendContentChunk(conversationId: string, chunk: ContentChunk): void {
+    this.sendAgentResponse({
+      conversationId,
+      payload: { content: chunk },
+    });
+  }
+
+  /**
+   * Send a status update for a conversation
+   */
+  sendStatusUpdate(conversationId: string, status: StatusUpdate): void {
+    this.sendAgentResponse({
+      conversationId,
+      payload: { status },
+    });
   }
 
   /**

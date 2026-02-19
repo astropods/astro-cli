@@ -1266,6 +1266,440 @@ func TestHandlers_AgentConfig_MultipleTools(t *testing.T) {
 	}
 }
 
+// --- Tests for full streaming sequence via HandleAgentResponse ---
+
+func TestWebAdapter_HandleAgentResponse_FullStreamingSequence(t *testing.T) {
+	adapter := New()
+	threadStore := store.NewThreadHistoryStore(100, 50, time.Hour)
+	adapter.SetThreadStore(threadStore)
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-stream",
+		EventChan:      make(chan SSEEvent, 20),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	// Simulate the full agent streaming flow:
+	// THINKING status → START → DELTA → DELTA → GENERATING status → DELTA → END
+	responses := []*pb.AgentResponse{
+		{
+			ConversationId: "conv-stream",
+			Payload: &pb.AgentResponse_Status{
+				Status: &pb.StatusUpdate{Status: pb.StatusUpdate_THINKING},
+			},
+		},
+		{
+			ConversationId: "conv-stream",
+			ResponseId:     "resp-1",
+			Payload: &pb.AgentResponse_Content{
+				Content: &pb.ContentChunk{Type: pb.ContentChunk_START, Content: ""},
+			},
+		},
+		{
+			ConversationId: "conv-stream",
+			ResponseId:     "resp-1",
+			Payload: &pb.AgentResponse_Content{
+				Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "Hello "},
+			},
+		},
+		{
+			ConversationId: "conv-stream",
+			ResponseId:     "resp-1",
+			Payload: &pb.AgentResponse_Content{
+				Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "world"},
+			},
+		},
+		{
+			ConversationId: "conv-stream",
+			Payload: &pb.AgentResponse_Status{
+				Status: &pb.StatusUpdate{Status: pb.StatusUpdate_GENERATING},
+			},
+		},
+		{
+			ConversationId: "conv-stream",
+			ResponseId:     "resp-1",
+			Payload: &pb.AgentResponse_Content{
+				Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "!"},
+			},
+		},
+		{
+			ConversationId: "conv-stream",
+			ResponseId:     "resp-1",
+			Payload: &pb.AgentResponse_Content{
+				Content: &pb.ContentChunk{Type: pb.ContentChunk_END, Content: "Hello world!"},
+			},
+		},
+	}
+
+	for i, resp := range responses {
+		if err := adapter.HandleAgentResponse(ctx, resp); err != nil {
+			t.Fatalf("HandleAgentResponse failed at step %d: %v", i, err)
+		}
+	}
+
+	// Collect all events (END produces chunk + finish = 8 total)
+	expectedEvents := []string{
+		EventStatus,  // THINKING
+		EventChunk,   // START
+		EventChunk,   // DELTA "Hello "
+		EventChunk,   // DELTA "world"
+		EventStatus,  // GENERATING
+		EventChunk,   // DELTA "!"
+		EventChunk,   // END
+		EventFinish,  // finish (auto-sent after END)
+	}
+
+	for i, expected := range expectedEvents {
+		select {
+		case event := <-conn.EventChan:
+			if event.Event != expected {
+				t.Errorf("event %d: expected %q, got %q", i, expected, event.Event)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("timeout waiting for event %d (%s)", i, expected)
+		}
+	}
+
+	// Verify thread history stored the END content
+	history := threadStore.GetHistory("conv-stream", 10, false)
+	if len(history.Messages) != 1 {
+		t.Errorf("expected 1 message in history, got %d", len(history.Messages))
+	}
+	if history.Messages[0].Content != "Hello world!" {
+		t.Errorf("stored content: expected 'Hello world!', got %q", history.Messages[0].Content)
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_ProcessingStatus(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-tools",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	// Send PROCESSING status with custom message (tool call)
+	response := &pb.AgentResponse{
+		ConversationId: "conv-tools",
+		Payload: &pb.AgentResponse_Status{
+			Status: &pb.StatusUpdate{
+				Status:        pb.StatusUpdate_PROCESSING,
+				CustomMessage: "Running search_docs",
+				Emoji:         "🔧",
+			},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	select {
+	case event := <-conn.EventChan:
+		if event.Event != EventStatus {
+			t.Errorf("expected event type %s, got %s", EventStatus, event.Event)
+		}
+		var data StatusEventData
+		if err := json.Unmarshal([]byte(event.Data), &data); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if data.Status != "PROCESSING" {
+			t.Errorf("expected status PROCESSING, got %s", data.Status)
+		}
+		if data.Message != "Running search_docs" {
+			t.Errorf("expected message 'Running search_docs', got %q", data.Message)
+		}
+		if data.Emoji != "🔧" {
+			t.Errorf("expected emoji '🔧', got %q", data.Emoji)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("timeout waiting for event")
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_AnalyzingStatus(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-tools",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	response := &pb.AgentResponse{
+		ConversationId: "conv-tools",
+		Payload: &pb.AgentResponse_Status{
+			Status: &pb.StatusUpdate{
+				Status:        pb.StatusUpdate_ANALYZING,
+				CustomMessage: "Finished search_docs",
+			},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	select {
+	case event := <-conn.EventChan:
+		var data StatusEventData
+		if err := json.Unmarshal([]byte(event.Data), &data); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if data.Status != "ANALYZING" {
+			t.Errorf("expected status ANALYZING, got %s", data.Status)
+		}
+		if data.Message != "Finished search_docs" {
+			t.Errorf("expected message 'Finished search_docs', got %q", data.Message)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("timeout waiting for event")
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_StartChunkData(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-1",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	response := &pb.AgentResponse{
+		ConversationId: "conv-1",
+		ResponseId:     "resp-1",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{Type: pb.ContentChunk_START, Content: ""},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	select {
+	case event := <-conn.EventChan:
+		var data ChunkEventData
+		if err := json.Unmarshal([]byte(event.Data), &data); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if data.ChunkType != "start" {
+			t.Errorf("expected chunk_type 'start', got %q", data.ChunkType)
+		}
+		if data.ResponseID != "resp-1" {
+			t.Errorf("expected response_id 'resp-1', got %q", data.ResponseID)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("timeout waiting for event")
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_NoEventsToWrongConversation(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-A",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	// Send to conv-B — conn-A should not receive it
+	response := &pb.AgentResponse{
+		ConversationId: "conv-B",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{Type: pb.ContentChunk_DELTA, Content: "wrong conversation"},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	select {
+	case event := <-conn.EventChan:
+		t.Errorf("should not have received event, got: %s", event.Event)
+	case <-time.After(50 * time.Millisecond):
+		// Expected — no event received
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_ThreadMetadata(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-meta",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	// ThreadMetadata is just logged, no SSE event emitted
+	response := &pb.AgentResponse{
+		ConversationId: "conv-meta",
+		Payload: &pb.AgentResponse_ThreadMetadata{
+			ThreadMetadata: &pb.ThreadMetadata{
+				ThreadId: "thread-123",
+				Title:    "Metadata Title",
+			},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	// No SSE event should be emitted for ThreadMetadata
+	select {
+	case event := <-conn.EventChan:
+		t.Errorf("should not have received event for ThreadMetadata, got: %s", event.Event)
+	case <-time.After(50 * time.Millisecond):
+		// Expected — no event
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_Prompts(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-prompts",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	response := &pb.AgentResponse{
+		ConversationId: "conv-prompts",
+		Payload: &pb.AgentResponse_Prompts{
+			Prompts: &pb.SuggestedPrompts{
+				Prompts: []*pb.SuggestedPrompts_Prompt{
+					{Title: "Help", Message: "How can I help?"},
+				},
+			},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	select {
+	case event := <-conn.EventChan:
+		if event.Event != "prompts" {
+			t.Errorf("expected 'prompts' event, got %q", event.Event)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("timed out waiting for prompts event")
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_NilPayload(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	// Response with nil payload should not error (unhandled type logs and returns nil)
+	response := &pb.AgentResponse{
+		ConversationId: "conv-nil",
+	}
+
+	err := adapter.HandleAgentResponse(ctx, response)
+	if err != nil {
+		t.Errorf("expected nil error for unhandled payload type, got: %v", err)
+	}
+}
+
+func TestWebAdapter_HandleAgentResponse_ContentReplace(t *testing.T) {
+	adapter := New()
+
+	ctx := context.Background()
+	if err := adapter.Initialize(ctx, adapter.config); err != nil {
+		t.Fatalf("failed to initialize adapter: %v", err)
+	}
+
+	conn := &SSEConnection{
+		ID:             "test-conn",
+		ConversationID: "conv-replace",
+		EventChan:      make(chan SSEEvent, 10),
+		Done:           make(chan struct{}),
+	}
+	adapter.connManager.Add(conn)
+
+	response := &pb.AgentResponse{
+		ConversationId: "conv-replace",
+		Payload: &pb.AgentResponse_Content{
+			Content: &pb.ContentChunk{
+				Type:    pb.ContentChunk_REPLACE,
+				Content: "Replaced content",
+			},
+		},
+	}
+
+	if err := adapter.HandleAgentResponse(ctx, response); err != nil {
+		t.Fatalf("HandleAgentResponse failed: %v", err)
+	}
+
+	select {
+	case event := <-conn.EventChan:
+		if event.Event != "chunk" {
+			t.Errorf("expected 'chunk' event, got %q", event.Event)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("timed out waiting for chunk event")
+	}
+}
+
 func TestBearerTokenSessionManager(t *testing.T) {
 	sm := NewBearerTokenSessionManager(func(ctx context.Context, token string) (*Session, error) {
 		if token == "valid-token" {

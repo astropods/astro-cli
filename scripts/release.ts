@@ -13,6 +13,7 @@ const { values: flags } = parseArgs({
     bump: { type: "string" },
     "dry-run": { type: "boolean", default: false },
     yes: { type: "boolean", short: "y", default: false },
+    "allow-branch": { type: "boolean", default: false },
   },
   strict: true,
 });
@@ -20,6 +21,7 @@ const { values: flags } = parseArgs({
 const BUMP_OVERRIDE = flags.bump as "patch" | "minor" | "major" | undefined;
 const DRY_RUN = flags["dry-run"]!;
 const SKIP_CONFIRM = flags.yes!;
+const ALLOW_BRANCH = flags["allow-branch"]!;
 
 if (BUMP_OVERRIDE && !["patch", "minor", "major"].includes(BUMP_OVERRIDE)) {
   console.error(`Invalid bump type: ${BUMP_OVERRIDE}. Must be patch, minor, or major.`);
@@ -102,9 +104,14 @@ async function preflight() {
   // 2. Branch guard
   const branch = await run(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
   if (!ALLOWED_BRANCHES.includes(branch)) {
-    console.error(c.red(`Publishing is only allowed from: ${ALLOWED_BRANCHES.join(", ")}`));
-    console.error(c.red(`Current branch: ${branch}`));
-    process.exit(1);
+    if (ALLOW_BRANCH) {
+      console.log(c.yellow(`Publishing from non-standard branch: ${branch} (--allow-branch)`));
+    } else {
+      console.error(c.red(`Publishing is only allowed from: ${ALLOWED_BRANCHES.join(", ")}`));
+      console.error(c.red(`Current branch: ${branch}`));
+      console.error(c.red(`Use --allow-branch to override.`));
+      process.exit(1);
+    }
   }
 
   // 3. npm auth check

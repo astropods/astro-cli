@@ -17,6 +17,7 @@ const (
 type SlackAIClient struct {
 	botToken   string
 	httpClient *http.Client
+	baseURL    string // defaults to slackAPIBaseURL
 }
 
 // NewSlackAIClient creates a new Slack AI API client
@@ -24,6 +25,7 @@ func NewSlackAIClient(botToken string) *SlackAIClient {
 	return &SlackAIClient{
 		botToken:   botToken,
 		httpClient: &http.Client{},
+		baseURL:    slackAPIBaseURL,
 	}
 }
 
@@ -183,7 +185,7 @@ func (c *SlackAIClient) PostMessageWithFeedback(ctx context.Context, channelID, 
 
 // postJSON makes a POST request to a Slack API endpoint with JSON body
 func (c *SlackAIClient) postJSON(ctx context.Context, method string, body interface{}, result interface{}) error {
-	url := fmt.Sprintf("%s/%s", slackAPIBaseURL, method)
+	url := fmt.Sprintf("%s/%s", c.baseURL, method)
 
 	// Marshal request body
 	jsonBody, err := json.Marshal(body)

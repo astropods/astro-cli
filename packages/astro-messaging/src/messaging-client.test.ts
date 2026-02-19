@@ -127,7 +127,7 @@ describe('proto-loader field mapping', () => {
     expect(fieldNames).toContain('content');
   });
 
-  it('should have ConversationRequest with message and feedback fields', () => {
+  it('should have ConversationRequest with message, feedback, and agentResponse fields', () => {
     const reqType = packageDefinition['astro.messaging.v1.ConversationRequest'];
     expect(reqType).toBeDefined();
 
@@ -135,6 +135,7 @@ describe('proto-loader field mapping', () => {
 
     expect(fieldNames).toContain('message');
     expect(fieldNames).toContain('feedback');
+    expect(fieldNames).toContain('agentResponse');
   });
 
   it('should match keepCase=false with the TS interface field names', () => {
@@ -380,6 +381,94 @@ describe('ConversationStream', () => {
       const written = mockGrpc.written[0] as ConversationRequest;
       expect(written.feedback).toBeDefined();
       expect(written.feedback.conversationId).toBe('conv-1');
+    });
+  });
+
+  describe('sendAgentResponse', () => {
+    it('should wrap AgentResponse in ConversationRequest', () => {
+      stream.sendAgentResponse({
+        conversationId: 'conv-1',
+        payload: { content: { type: 'DELTA', content: 'Hello' } },
+      });
+
+      expect(mockGrpc.written).toHaveLength(1);
+      const written = mockGrpc.written[0] as ConversationRequest;
+      expect(written.agentResponse).toBeDefined();
+      expect(written.agentResponse?.conversationId).toBe('conv-1');
+    });
+
+    it('should not set message or feedback keys', () => {
+      stream.sendAgentResponse({
+        conversationId: 'conv-1',
+        payload: { status: { status: 'THINKING' } },
+      });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      expect(written.message).toBeUndefined();
+      expect(written.feedback).toBeUndefined();
+      expect(written.agentResponse).toBeDefined();
+    });
+  });
+
+  describe('sendContentChunk', () => {
+    it('should send START chunk', () => {
+      stream.sendContentChunk('conv-1', { type: 'START', content: '' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      const payload = written.agentResponse?.payload as { content: { type: string; content: string } };
+      expect(payload.content.type).toBe('START');
+      expect(payload.content.content).toBe('');
+    });
+
+    it('should send DELTA chunk with content', () => {
+      stream.sendContentChunk('conv-1', { type: 'DELTA', content: 'Hello ' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      const payload = written.agentResponse?.payload as { content: { type: string; content: string } };
+      expect(payload.content.type).toBe('DELTA');
+      expect(payload.content.content).toBe('Hello ');
+    });
+
+    it('should send END chunk with full content', () => {
+      stream.sendContentChunk('conv-1', { type: 'END', content: 'Hello world' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      const payload = written.agentResponse?.payload as { content: { type: string; content: string } };
+      expect(payload.content.type).toBe('END');
+      expect(payload.content.content).toBe('Hello world');
+    });
+
+    it('should set conversationId on the AgentResponse', () => {
+      stream.sendContentChunk('my-conv', { type: 'DELTA', content: 'x' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      expect(written.agentResponse?.conversationId).toBe('my-conv');
+    });
+  });
+
+  describe('sendStatusUpdate', () => {
+    it('should send THINKING status', () => {
+      stream.sendStatusUpdate('conv-1', { status: 'THINKING' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      const payload = written.agentResponse?.payload as { status: { status: string } };
+      expect(payload.status.status).toBe('THINKING');
+    });
+
+    it('should send CUSTOM status with message', () => {
+      stream.sendStatusUpdate('conv-1', { status: 'CUSTOM', customMessage: 'Searching docs...' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      const payload = written.agentResponse?.payload as { status: { status: string; customMessage?: string } };
+      expect(payload.status.status).toBe('CUSTOM');
+      expect(payload.status.customMessage).toBe('Searching docs...');
+    });
+
+    it('should set conversationId on the AgentResponse', () => {
+      stream.sendStatusUpdate('my-conv', { status: 'GENERATING' });
+
+      const written = mockGrpc.written[0] as ConversationRequest;
+      expect(written.agentResponse?.conversationId).toBe('my-conv');
     });
   });
 
