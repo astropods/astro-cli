@@ -188,25 +188,22 @@ describe('Helpers', () => {
       const resp = Helpers.createStatusResponse('conv-1', 'THINKING');
 
       expect(resp.conversationId).toBe('conv-1');
-      const payload = resp.payload as { status: { status: string; customMessage?: string } };
-      expect(payload.status.status).toBe('THINKING');
-      expect(payload.status.customMessage).toBeUndefined();
+      expect(resp.status?.status).toBe('THINKING');
+      expect(resp.status?.customMessage).toBeUndefined();
     });
 
     it('should include custom message when provided', () => {
       const resp = Helpers.createStatusResponse('conv-1', 'CUSTOM', 'Searching docs...');
 
-      const payload = resp.payload as { status: { status: string; customMessage?: string } };
-      expect(payload.status.status).toBe('CUSTOM');
-      expect(payload.status.customMessage).toBe('Searching docs...');
+      expect(resp.status?.status).toBe('CUSTOM');
+      expect(resp.status?.customMessage).toBe('Searching docs...');
     });
 
     it('should support all status types', () => {
       const statuses = ['THINKING', 'SEARCHING', 'GENERATING', 'PROCESSING', 'ANALYZING', 'CUSTOM'] as const;
       for (const status of statuses) {
         const resp = Helpers.createStatusResponse('conv-1', status);
-        const payload = resp.payload as { status: { status: string } };
-        expect(payload.status.status).toBe(status);
+        expect(resp.status?.status).toBe(status);
       }
     });
   });
@@ -215,16 +212,14 @@ describe('Helpers', () => {
     it('should create END chunk by default (final=true)', () => {
       const resp = Helpers.createContentResponse('conv-1', 'Hello world');
 
-      const payload = resp.payload as { content: { type: string; content: string } };
-      expect(payload.content.type).toBe('END');
-      expect(payload.content.content).toBe('Hello world');
+      expect(resp.content?.type).toBe('END');
+      expect(resp.content?.content).toBe('Hello world');
     });
 
     it('should create START chunk when final=false', () => {
       const resp = Helpers.createContentResponse('conv-1', 'Starting...', false);
 
-      const payload = resp.payload as { content: { type: string; content: string } };
-      expect(payload.content.type).toBe('START');
+      expect(resp.content?.type).toBe('START');
     });
   });
 
@@ -236,19 +231,17 @@ describe('Helpers', () => {
       ];
 
       const resp = Helpers.createSuggestedPromptsResponse('conv-1', prompts);
-      const payload = resp.payload as { prompts: { prompts: Array<{ id: string; title: string; message: string }> } };
 
-      expect(payload.prompts.prompts).toHaveLength(2);
-      expect(payload.prompts.prompts[0].id).toBe('prompt_0');
-      expect(payload.prompts.prompts[0].title).toBe('Help');
-      expect(payload.prompts.prompts[0].message).toBe('Can you help me?');
-      expect(payload.prompts.prompts[1].id).toBe('prompt_1');
+      expect(resp.prompts?.prompts).toHaveLength(2);
+      expect(resp.prompts?.prompts[0].id).toBe('prompt_0');
+      expect(resp.prompts?.prompts[0].title).toBe('Help');
+      expect(resp.prompts?.prompts[0].message).toBe('Can you help me?');
+      expect(resp.prompts?.prompts[1].id).toBe('prompt_1');
     });
 
     it('should handle empty prompts array', () => {
       const resp = Helpers.createSuggestedPromptsResponse('conv-1', []);
-      const payload = resp.payload as { prompts: { prompts: any[] } };
-      expect(payload.prompts.prompts).toHaveLength(0);
+      expect(resp.prompts?.prompts).toHaveLength(0);
     });
   });
 
@@ -256,9 +249,8 @@ describe('Helpers', () => {
     it('should create error with code and message', () => {
       const resp = Helpers.createErrorResponse('conv-1', 'RATE_LIMIT', 'Too many requests');
 
-      const payload = resp.payload as { error: { code: string; message: string } };
-      expect(payload.error.code).toBe('RATE_LIMIT');
-      expect(payload.error.message).toBe('Too many requests');
+      expect(resp.error?.code).toBe('RATE_LIMIT');
+      expect(resp.error?.message).toBe('Too many requests');
     });
   });
 });
@@ -388,7 +380,7 @@ describe('ConversationStream', () => {
     it('should wrap AgentResponse in ConversationRequest', () => {
       stream.sendAgentResponse({
         conversationId: 'conv-1',
-        payload: { content: { type: 'DELTA', content: 'Hello' } },
+        content: { type: 'DELTA', content: 'Hello' },
       });
 
       expect(mockGrpc.written).toHaveLength(1);
@@ -400,7 +392,7 @@ describe('ConversationStream', () => {
     it('should not set message or feedback keys', () => {
       stream.sendAgentResponse({
         conversationId: 'conv-1',
-        payload: { status: { status: 'THINKING' } },
+        status: { status: 'THINKING' },
       });
 
       const written = mockGrpc.written[0] as ConversationRequest;
@@ -415,27 +407,24 @@ describe('ConversationStream', () => {
       stream.sendContentChunk('conv-1', { type: 'START', content: '' });
 
       const written = mockGrpc.written[0] as ConversationRequest;
-      const payload = written.agentResponse?.payload as { content: { type: string; content: string } };
-      expect(payload.content.type).toBe('START');
-      expect(payload.content.content).toBe('');
+      expect(written.agentResponse?.content?.type).toBe('START');
+      expect(written.agentResponse?.content?.content).toBe('');
     });
 
     it('should send DELTA chunk with content', () => {
       stream.sendContentChunk('conv-1', { type: 'DELTA', content: 'Hello ' });
 
       const written = mockGrpc.written[0] as ConversationRequest;
-      const payload = written.agentResponse?.payload as { content: { type: string; content: string } };
-      expect(payload.content.type).toBe('DELTA');
-      expect(payload.content.content).toBe('Hello ');
+      expect(written.agentResponse?.content?.type).toBe('DELTA');
+      expect(written.agentResponse?.content?.content).toBe('Hello ');
     });
 
     it('should send END chunk with full content', () => {
       stream.sendContentChunk('conv-1', { type: 'END', content: 'Hello world' });
 
       const written = mockGrpc.written[0] as ConversationRequest;
-      const payload = written.agentResponse?.payload as { content: { type: string; content: string } };
-      expect(payload.content.type).toBe('END');
-      expect(payload.content.content).toBe('Hello world');
+      expect(written.agentResponse?.content?.type).toBe('END');
+      expect(written.agentResponse?.content?.content).toBe('Hello world');
     });
 
     it('should set conversationId on the AgentResponse', () => {
@@ -451,17 +440,15 @@ describe('ConversationStream', () => {
       stream.sendStatusUpdate('conv-1', { status: 'THINKING' });
 
       const written = mockGrpc.written[0] as ConversationRequest;
-      const payload = written.agentResponse?.payload as { status: { status: string } };
-      expect(payload.status.status).toBe('THINKING');
+      expect(written.agentResponse?.status?.status).toBe('THINKING');
     });
 
     it('should send CUSTOM status with message', () => {
       stream.sendStatusUpdate('conv-1', { status: 'CUSTOM', customMessage: 'Searching docs...' });
 
       const written = mockGrpc.written[0] as ConversationRequest;
-      const payload = written.agentResponse?.payload as { status: { status: string; customMessage?: string } };
-      expect(payload.status.status).toBe('CUSTOM');
-      expect(payload.status.customMessage).toBe('Searching docs...');
+      expect(written.agentResponse?.status?.status).toBe('CUSTOM');
+      expect(written.agentResponse?.status?.customMessage).toBe('Searching docs...');
     });
 
     it('should set conversationId on the AgentResponse', () => {

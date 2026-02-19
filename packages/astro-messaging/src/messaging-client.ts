@@ -40,20 +40,20 @@ export interface Attachment {
   title?: string;
 }
 
+// AgentResponse uses proto-loader's oneof flattening (oneofs: true).
+// The active oneof field goes directly on the object, not nested under "payload".
 export interface AgentResponse {
   conversationId: string;
   responseId?: string;
-  payload?: AgentResponsePayload;
+  // oneof payload — only one of these should be set:
+  incomingMessage?: Message;
+  status?: StatusUpdate;
+  content?: ContentChunk;
+  prompts?: SuggestedPrompts;
+  threadMetadata?: ThreadMetadata;
+  error?: ErrorResponse;
+  contextRequest?: ThreadHistoryRequest;
 }
-
-export type AgentResponsePayload =
-  | { incomingMessage: Message }
-  | { status: StatusUpdate }
-  | { content: ContentChunk }
-  | { prompts: SuggestedPrompts }
-  | { threadMetadata: ThreadMetadata }
-  | { error: ErrorResponse }
-  | { contextRequest: ThreadHistoryRequest };
 
 export interface StatusUpdate {
   status: 'THINKING' | 'SEARCHING' | 'GENERATING' | 'PROCESSING' | 'ANALYZING' | 'CUSTOM';
@@ -376,7 +376,7 @@ export class ConversationStream extends EventEmitter {
   sendContentChunk(conversationId: string, chunk: ContentChunk): void {
     this.sendAgentResponse({
       conversationId,
-      payload: { content: chunk },
+      content: chunk,
     });
   }
 
@@ -386,7 +386,7 @@ export class ConversationStream extends EventEmitter {
   sendStatusUpdate(conversationId: string, status: StatusUpdate): void {
     this.sendAgentResponse({
       conversationId,
-      payload: { status },
+      status,
     });
   }
 
@@ -447,11 +447,9 @@ export const Helpers = {
   ): AgentResponse {
     return {
       conversationId,
-      payload: {
-        status: {
-          status,
-          customMessage: message,
-        },
+      status: {
+        status,
+        customMessage: message,
       },
     };
   },
@@ -459,11 +457,9 @@ export const Helpers = {
   createContentResponse(conversationId: string, content: string, final: boolean = true): AgentResponse {
     return {
       conversationId,
-      payload: {
-        content: {
-          type: final ? 'END' : 'START',
-          content,
-        },
+      content: {
+        type: final ? 'END' : 'START',
+        content,
       },
     };
   },
@@ -474,14 +470,12 @@ export const Helpers = {
   ): AgentResponse {
     return {
       conversationId,
-      payload: {
-        prompts: {
-          prompts: prompts.map((p, i) => ({
-            id: `prompt_${i}`,
-            title: p.title,
-            message: p.message,
-          })),
-        },
+      prompts: {
+        prompts: prompts.map((p, i) => ({
+          id: `prompt_${i}`,
+          title: p.title,
+          message: p.message,
+        })),
       },
     };
   },
@@ -493,11 +487,9 @@ export const Helpers = {
   ): AgentResponse {
     return {
       conversationId,
-      payload: {
-        error: {
-          code,
-          message,
-        },
+      error: {
+        code,
+        message,
       },
     };
   },
