@@ -820,32 +820,27 @@ func TestSlackAdapter_HandleAgentResponse_ContentEnd_IncludesFeedbackButtons(t *
 		}
 	}
 
-	// Verify chat.postMessage was called with blocks containing feedback buttons
+	// PostMessageWithFeedback sends JSON via aiClient, so the body is parsed as JSON
 	for _, call := range *calls {
 		if call.Method == "/chat.postMessage" {
-			blocksRaw, ok := call.Body["blocks"]
-			if !ok {
-				t.Fatal("expected 'blocks' field in chat.postMessage call")
+			// Re-marshal the body to search for expected keys
+			bodyJSON, err := json.Marshal(call.Body)
+			if err != nil {
+				t.Fatalf("failed to marshal call body: %v", err)
 			}
+			bodyStr := string(bodyJSON)
 
-			// blocks is JSON-encoded string from Slack client
-			blocksStr, ok := blocksRaw.(string)
-			if !ok {
-				t.Fatalf("expected blocks to be a string, got %T", blocksRaw)
+			if !strings.Contains(bodyStr, "context_actions") {
+				t.Errorf("expected body to contain 'context_actions' block type, got: %s", bodyStr)
 			}
-
-			// Should contain the feedback action block and button action IDs
-			if !strings.Contains(blocksStr, "context_actions") {
-				t.Errorf("expected blocks to contain 'context_actions' block ID, got: %s", blocksStr)
+			if !strings.Contains(bodyStr, "feedback_buttons") {
+				t.Errorf("expected body to contain 'feedback_buttons' element type, got: %s", bodyStr)
 			}
-			if !strings.Contains(blocksStr, "feedback_buttons") {
-				t.Errorf("expected blocks to contain 'feedback_buttons' action ID, got: %s", blocksStr)
+			if !strings.Contains(bodyStr, "positive_feedback") {
+				t.Errorf("expected body to contain 'positive_feedback' value, got: %s", bodyStr)
 			}
-			if !strings.Contains(blocksStr, "positive_feedback") {
-				t.Errorf("expected blocks to contain 'positive_feedback' value, got: %s", blocksStr)
-			}
-			if !strings.Contains(blocksStr, "negative_feedback") {
-				t.Errorf("expected blocks to contain 'negative_feedback' value, got: %s", blocksStr)
+			if !strings.Contains(bodyStr, "negative_feedback") {
+				t.Errorf("expected body to contain 'negative_feedback' value, got: %s", bodyStr)
 			}
 			return
 		}
@@ -871,19 +866,20 @@ func TestSlackAdapter_HandleAgentResponse_ContentEnd_MessageTextAndBlocks(t *tes
 
 	for _, call := range *calls {
 		if call.Method == "/chat.postMessage" {
-			// Verify fallback text is set (for notifications/accessibility)
+			// Verify fallback text is set
 			text, _ := call.Body["text"].(string)
 			if text != "Test response" {
 				t.Errorf("expected fallback text 'Test response', got %q", text)
 			}
 
-			// Verify blocks contain the message content in a section block
-			blocksStr, _ := call.Body["blocks"].(string)
-			if !strings.Contains(blocksStr, "Test response") {
-				t.Errorf("expected blocks to contain message content, got: %s", blocksStr)
+			// Re-marshal to check blocks content
+			bodyJSON, _ := json.Marshal(call.Body)
+			bodyStr := string(bodyJSON)
+			if !strings.Contains(bodyStr, "Test response") {
+				t.Errorf("expected body to contain message content, got: %s", bodyStr)
 			}
-			if !strings.Contains(blocksStr, "section") {
-				t.Errorf("expected blocks to contain section block, got: %s", blocksStr)
+			if !strings.Contains(bodyStr, "section") {
+				t.Errorf("expected body to contain section block, got: %s", bodyStr)
 			}
 			return
 		}

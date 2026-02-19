@@ -236,7 +236,7 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 	for _, action := range callback.ActionCallback.BlockActions {
 		log.Printf("[Slack] Action: id=%s, value=%s", action.ActionID, action.Value)
 
-		// Handle feedback button clicks
+		// Handle feedback button clicks (Slack AI context_actions/feedback_buttons)
 		if action.ActionID == "feedback_buttons" {
 			feedbackType := action.Value // "positive_feedback" or "negative_feedback"
 			log.Printf("[Slack] Feedback received: %s from user %s on message %s",
@@ -252,9 +252,11 @@ func (a *SlackAdapter) handleBlockActions(ctx context.Context, callback *slack.I
 			if len(callback.Message.Blocks.BlockSet) > 0 {
 				updatedBlocks := []slack.Block{}
 				for _, block := range callback.Message.Blocks.BlockSet {
-					if block.BlockType() != "context_actions" {
-						updatedBlocks = append(updatedBlocks, block)
+					// Filter out the context_actions block (Slack AI feedback block type)
+					if block.BlockType() == "context_actions" {
+						continue
 					}
+					updatedBlocks = append(updatedBlocks, block)
 				}
 
 				_, _, _, err := a.client.UpdateMessage(

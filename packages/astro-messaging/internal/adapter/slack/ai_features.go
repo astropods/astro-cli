@@ -140,25 +140,7 @@ func (a *SlackAdapter) handleContentChunk(ctx context.Context, conversationID st
 			return fmt.Errorf("rate limit wait failed: %w", err)
 		}
 
-		// Build feedback buttons
-		feedbackActions := slack.NewActionBlock("context_actions",
-			slack.NewButtonBlockElement("feedback_buttons", "positive_feedback",
-				slack.NewTextBlockObject("plain_text", ":thumbsup:", true, false)),
-			slack.NewButtonBlockElement("feedback_buttons", "negative_feedback",
-				slack.NewTextBlockObject("plain_text", ":thumbsdown:", true, false)),
-		)
-
-		_, _, err = a.client.PostMessageContext(ctx, channelID,
-			slack.MsgOptionText(fullContent, false),
-			slack.MsgOptionTS(threadTS),
-			slack.MsgOptionBlocks(
-				slack.NewSectionBlock(
-					slack.NewTextBlockObject("mrkdwn", fullContent, false, false),
-					nil, nil,
-				),
-				feedbackActions,
-			),
-		)
+		_, err = a.aiClient.PostMessageWithFeedback(ctx, channelID, fullContent, threadTS)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
