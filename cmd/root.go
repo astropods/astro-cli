@@ -37,9 +37,17 @@ It reads an astroai.yml specification file that declares:
 }
 
 func Execute() {
+	// Identify the subcommand before executing so we can skip the version
+	// check for commands that manage the CLI itself.
+	invoked, _, _ := rootCmd.Find(os.Args[1:])
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	if invoked == nil || invoked.Name() != "upgrade" {
+		notifyIfUpdateAvailable()
 	}
 }
 
