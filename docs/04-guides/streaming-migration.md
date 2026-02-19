@@ -6,12 +6,12 @@ This guide walks you through updating to the new `ContentChunk` / `StatusUpdate`
 
 ## What changed
 
-| Before | After |
-|---|---|
-| `stream.sendMessage({...})` per token | `stream.sendContentChunk(convId, { type: 'DELTA', content })` |
-| No start/end signals | `START` before streaming, `END` with full result |
-| No status updates | `StatusUpdate` for thinking, tool use, etc. |
-| Only `onChunk` / `onFinish` / `onError` | Also `onReasoningStart/End`, `onStepStart/End` |
+| Before                                  | After                                                         |
+| --------------------------------------- | ------------------------------------------------------------- |
+| `stream.sendMessage({...})` per token   | `stream.sendContentChunk(convId, { type: 'DELTA', content })` |
+| No start/end signals                    | `START` before streaming, `END` with full result              |
+| No status updates                       | `StatusUpdate` for thinking, tool use, etc.                   |
+| Only `onChunk` / `onFinish` / `onError` | Also `onReasoningStart/End`, `onStepStart/End`                |
 
 ## Step-by-step
 
@@ -112,7 +112,7 @@ stream.on('response', async (response: AgentResponse) => {
       stream.sendContentChunk(message.conversationId, { type: 'DELTA', content: chunk });
     },
     onFinish: (result: string) => {
-      stream.sendContentChunk(message.conversationId, { type: 'END', content: result });
+      stream.sendContentChunk(message.conversationId, { type: 'END', content: '' });
       console.log('Response complete');
     },
     onError: (error: Error) => {
@@ -133,28 +133,28 @@ You can delete any `agentUser` const that was only used for `sendMessage` calls.
 Make sure you're on a version that includes the new `sendContentChunk` / `sendStatusUpdate` methods:
 
 ```bash
-bun update @saswatds/astro-messaging
+bun update @saswatds/astro-messaging @saswatds/astro-types
 ```
 
 ## What each chunk type does
 
-| Type | When to send | Content |
-|---|---|---|
-| `START` | Before streaming begins | Empty string |
-| `DELTA` | Each LLM token | The token text |
-| `END` | When streaming completes | Full accumulated result |
-| `REPLACE` | To overwrite a previous message | Full replacement text |
+| Type      | When to send                    | Content                 |
+| --------- | ------------------------------- | ----------------------- |
+| `START`   | Before streaming begins         | Empty string            |
+| `DELTA`   | Each LLM token                  | The token text          |
+| `END`     | When streaming completes        | Empty string            |
+| `REPLACE` | To overwrite a previous message | Full replacement text   |
 
 ## What each status does
 
-| Status | When to send | Platform behavior |
-|---|---|---|
-| `THINKING` | Reasoning/extended thinking starts | Slack: thought balloon emoji. Web: thinking indicator |
-| `GENERATING` | Resuming text generation | Slack: pencil emoji. Web: generating indicator |
-| `PROCESSING` | Tool is executing | Slack: gear emoji. Web: processing indicator |
-| `ANALYZING` | Interpreting tool results | Slack: chart emoji. Web: analyzing indicator |
-| `SEARCHING` | Searching knowledge base | Slack: magnifying glass. Web: searching indicator |
-| `CUSTOM` | Anything else | Uses `customMessage` and optional `emoji` |
+| Status       | When to send                       | Platform behavior                                     |
+| ------------ | ---------------------------------- | ----------------------------------------------------- |
+| `THINKING`   | Reasoning/extended thinking starts | Slack: thought balloon emoji. Web: thinking indicator |
+| `GENERATING` | Resuming text generation           | Slack: pencil emoji. Web: generating indicator        |
+| `PROCESSING` | Tool is executing                  | Slack: gear emoji. Web: processing indicator          |
+| `ANALYZING`  | Interpreting tool results          | Slack: chart emoji. Web: analyzing indicator          |
+| `SEARCHING`  | Searching knowledge base           | Slack: magnifying glass. Web: searching indicator     |
+| `CUSTOM`     | Anything else                      | Uses `customMessage` and optional `emoji`             |
 
 ## Minimal migration
 
@@ -172,7 +172,7 @@ agent.stream({
     stream.sendContentChunk(message.conversationId, { type: 'DELTA', content: chunk });
   },
   onFinish: (result: string) => {
-    stream.sendContentChunk(message.conversationId, { type: 'END', content: result });
+    stream.sendContentChunk(message.conversationId, { type: 'END', content: '' });
   },
   onError: (error: Error) => {
     console.error('Error:', error);
