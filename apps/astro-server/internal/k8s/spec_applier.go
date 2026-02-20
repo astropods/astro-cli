@@ -9,6 +9,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -758,10 +759,109 @@ func (a *Applier) ensureNamespace(ctx context.Context) error {
 				existing.Labels[k] = v
 			}
 			_, updateErr := a.clientset.CoreV1().Namespaces().Update(ctx, existing, metav1.UpdateOptions{})
-			return updateErr
+			if updateErr != nil {
+				return updateErr
+			}
+		} else {
+			return err
 		}
-		return err
 	}
+
+	if len(a.podSubnetCIDRs) > 0 {
+		if err := a.applyNetworkPolicies(ctx); err != nil {
+			return fmt.Errorf("failed to apply network policies: %w", err)
+		}
+	}
+	return nil
+}
+
+// applyNetworkPolicies applies namespace isolation NetworkPolicies.
+// Policy 1 (default-deny-all): deny all ingress and egress.
+// Policy 2 (allow-namespace-traffic): allow intra-namespace pods, ALB/external
+// traffic (matching ipBlock 0.0.0.0/0 except podSubnetCIDRs), and DNS.
+func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
+	policyTypes := []networkingv1.PolicyType{
+		networkingv1.PolicyTypeIngress,
+		networkingv1.PolicyTypeEgress,
+	}
+
+	externalIPBlock := networkingv1.IPBlock{
+		CIDR:   "0.0.0.0/0",
+		Except: make([]string, 0, len(a.podSubnetCIDRs)),
+	}
+	for _, cidr := range a.podSubnetCIDRs {
+		externalIPBlock.Except = append(externalIPBlock.Except, cidr)
+	}
+
+	// Policy 1: default-deny-all
+	denyAll := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default-deny-all",
+			Namespace: a.namespace,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: policyTypes,
+		},
+	}
+	if err := a.applyNetworkPolicy(ctx, denyAll); err != nil {
+		return fmt.Errorf("default-deny-all: %w", err)
+	}
+
+	// Policy 2: allow-namespace-traffic
+	udpProto := corev1.ProtocolUDP
+	tcpProto := corev1.ProtocolTCP
+	dnsPort := intstr.FromInt(53)
+
+	allowNamespace := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-namespace-traffic",
+			Namespace: a.namespace,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: policyTypes,
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				// Allow from same-namespace pods
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{PodSelector: &metav1.LabelSelector{}},
+					},
+				},
+				// Allow from ALB/external (0.0.0.0/0 except pod subnets)
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{IPBlock: &externalIPBlock},
+					},
+				},
+			},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				// Allow to same-namespace pods
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{PodSelector: &metav1.LabelSelector{}},
+					},
+				},
+				// Allow to external APIs (0.0.0.0/0 except pod subnets)
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{IPBlock: &externalIPBlock},
+					},
+				},
+				// Allow DNS (port 53 UDP/TCP)
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Protocol: &udpProto, Port: &dnsPort},
+						{Protocol: &tcpProto, Port: &dnsPort},
+					},
+				},
+			},
+		},
+	}
+	if err := a.applyNetworkPolicy(ctx, allowNamespace); err != nil {
+		return fmt.Errorf("allow-namespace-traffic: %w", err)
+	}
+
 	return nil
 }
 

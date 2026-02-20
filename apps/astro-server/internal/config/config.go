@@ -89,6 +89,8 @@ type DeploymentConfig struct {
 	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astromode.ai)
 	IngestionACMCertARN    string // ACM certificate ARN for ingestion wildcard cert
 	IngestionALBGroupName  string // ALB group name for ingestion ALB (separate from agents)
+	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
+	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// Observability (Galileo) — injected into every collector sidecar
 	GalileoAPIKey      string // GALILEO_API_KEY
 	GalileoProject     string // GALILEO_PROJECT — name, injected into collector sidecars
@@ -132,6 +134,7 @@ func Load() (*Config, error) {
 			IngestionIngressDomain: getEnv("INGESTION_INGRESS_DOMAIN", ""),
 			IngestionACMCertARN:    getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
 			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
+			PodSubnetCIDRs:         getEnvSlice("POD_SUBNET_CIDRS", nil),
 			GalileoAPIKey:      getEnv("GALILEO_API_KEY", ""),
 			GalileoProject:     getEnv("GALILEO_PROJECT", ""),
 			GalileoProjectID:   getEnv("GALILEO_PROJECT_ID", ""),

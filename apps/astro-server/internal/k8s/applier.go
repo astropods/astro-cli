@@ -35,6 +35,9 @@ type ApplierConfig struct {
 	GalileoProject string
 	// NamespaceLabels are merged into the namespace metadata on create/update
 	NamespaceLabels map[string]string
+	// PodSubnetCIDRs are the private subnet CIDRs where cluster pods run.
+	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
+	PodSubnetCIDRs []string
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -57,6 +60,8 @@ type Applier struct {
 	galileoProject string
 	// Per-namespace labels
 	namespaceLabels map[string]string
+	// Pod subnet CIDRs for NetworkPolicy isolation
+	podSubnetCIDRs []string
 }
 
 // NewApplier creates a new applier
@@ -80,6 +85,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		galileoAPIKey:     cfg.GalileoAPIKey,
 		galileoProject:    cfg.GalileoProject,
 		namespaceLabels:   cfg.NamespaceLabels,
+		podSubnetCIDRs:    cfg.PodSubnetCIDRs,
 	}
 }
 
@@ -329,6 +335,24 @@ func (a *Applier) applyJob(ctx context.Context, job *batchv1.Job) (deployment.Re
 
 	status.Status = "created"
 	return status, nil
+}
+
+// applyNetworkPolicy creates or updates a NetworkPolicy
+func (a *Applier) applyNetworkPolicy(ctx context.Context, np *networkingv1.NetworkPolicy) error {
+	_, err := a.clientset.NetworkingV1().NetworkPolicies(a.namespace).Create(ctx, np, metav1.CreateOptions{})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			existing, getErr := a.clientset.NetworkingV1().NetworkPolicies(a.namespace).Get(ctx, np.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+			np.ResourceVersion = existing.ResourceVersion
+			_, err = a.clientset.NetworkingV1().NetworkPolicies(a.namespace).Update(ctx, np, metav1.UpdateOptions{})
+			return err
+		}
+		return err
+	}
+	return nil
 }
 
 // applyIngress creates or updates an Ingress.

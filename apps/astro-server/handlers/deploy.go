@@ -280,6 +280,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			IngestionALBGroupName:  cfg.Deployment.IngestionALBGroupName,
 			GalileoAPIKey:          cfg.Deployment.GalileoAPIKey,
 			GalileoProject:         cfg.Deployment.GalileoProject,
+			PodSubnetCIDRs:         cfg.Deployment.PodSubnetCIDRs,
 			NamespaceLabels: map[string]string{
 				"astro.dev/account-id":      acct.ID,
 				"astro.dev/account":         req.Account,
