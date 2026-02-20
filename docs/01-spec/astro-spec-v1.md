@@ -1,4 +1,4 @@
-# AstroAI Spec (astro/v1)
+# AstroAI Spec (package/v1)
 
 **Version:** 1.0
 **Date:** 2026-02-17
@@ -6,7 +6,7 @@
 
 ## Abstract
 
-The AstroAI Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, tool services, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns.
+The AstroAI Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, tool services, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
 
 ## Conventions
 
@@ -19,12 +19,21 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 An AstroAI Spec file (`astroai.yml`) is a YAML document that declares:
 
 - The agent's container image (pre-built or build-from-source).
-- Sidecar components the agent depends on — models, knowledge stores, and tools — each supplied by either a platform-managed provider or a user-managed container.
-- Cloud integrations that require credential injection.
+- Components the agent depends on — models, knowledge stores, and tools — each supplied by either a platform-managed provider or a user-managed container.
+- Custom providers for external API services that require credential injection.
 - Data ingestion pipelines with trigger semantics.
 - Local development overrides.
 
-The spec does **not** cover: resource limits (CPU/memory), guardrails, observability, rate limits, budgets, security policies, deployment region, or interface routing (Slack, web). These are deployment-time concerns configured separately.
+A central concept is **provider binding**. Components that an agent depends on — models, knowledge stores, and tools — are each declared as either a **provider** reference or a **container** definition:
+
+- A **provider** is a named, platform-known service (e.g. `ollama`, `anthropic`, `qdrant`). The platform resolves each provider to one of two kinds:
+  - **Self-hosted** — the platform deploys and manages a container on the agent's behalf.
+  - **Cloud** — the platform injects credentials for an external API.
+- A **container** gives the user full control over the image, port, and configuration.
+
+This design lets authors mix managed and custom components freely within a single spec.
+
+The spec does **not** cover: resource limits (CPU/memory), observability, rate limits, budgets, security policies, deployment region, or interface routing (Slack, web). These are deployment-time concerns configured separately.
 
 The document format is YAML. Implementations MUST accept files named `astroai.yml` or `astroai.yaml`.
 
@@ -34,18 +43,19 @@ The document format is YAML. Implementations MUST accept files named `astroai.ym
 
 A conforming document MUST contain the following top-level fields:
 
-| Field          | Type                       | Required | Description                                  |
-| -------------- | -------------------------- | -------- | -------------------------------------------- |
-| `spec`         | string                     | REQUIRED | Spec version identifier. MUST be `astro/v1`. |
-| `name`         | string                     | REQUIRED | Unique agent name.                           |
-| `meta`         | object                     | REQUIRED | Agent metadata.                              |
-| `agent`        | object                     | REQUIRED | Main agent container definition.             |
-| `models`       | map\<string, Model\>       | OPTIONAL | Model sidecar entries.                       |
-| `knowledge`    | map\<string, Knowledge\>   | OPTIONAL | Knowledge store entries.                     |
-| `tools`        | map\<string, Tool\>        | OPTIONAL | Tool service entries.                        |
-| `integrations` | map\<string, Integration\> | OPTIONAL | Cloud integration entries.                   |
-| `ingestion`    | map\<string, Ingestion\>   | OPTIONAL | Data ingestion pipeline entries.             |
-| `dev`          | object                     | OPTIONAL | Local development overrides.                 |
+| Field       | Type                     | Required     | Description                                                        |
+| ----------- | ------------------------ | ------------ | ------------------------------------------------------------------ |
+| `spec`      | string                   | **REQUIRED** | Spec version identifier. MUST be `package/v1`.                     |
+| `name`      | string                   | **REQUIRED** | Unique agent name.                                                 |
+| `meta`      | object                   | **REQUIRED** | Agent metadata.                                                    |
+| `agent`     | object                   | **REQUIRED** | Agent definition.                                                  |
+| `models`    | map\<string, Model\>     | OPTIONAL     | Model entries (LLMs, embedding models, etc).                       |
+| `knowledge` | map\<string, Knowledge\> | OPTIONAL     | Knowledge store entries.                                           |
+| `tools`     | map\<string, Tool\>      | OPTIONAL     | Tool service entries.                                              |
+| `providers` | map\<string, Provider\>  | OPTIONAL     | Custom provider entries.                                           |
+| `inputs`    | map\<string, Input\>     | OPTIONAL     | User-supplied inputs injected into every container at deploy time. |
+| `ingestion` | map\<string, Ingestion\> | OPTIONAL     | Data ingestion pipeline entries.                                   |
+| `dev`       | object                   | OPTIONAL     | Local development overrides.                                       |
 
 Map keys serve as entry names and are used in credential injection (see [Section 8](#8-credential-injection-model)).
 
@@ -60,36 +70,38 @@ Map keys serve as entry names and are used in credential injection (see [Section
 
 ## 3. Agent
 
-The `agent` object defines the main agent container.
+The `agent` object defines the agent's primary service — its container image or build configuration.
 
-| Field         | Type        | Required    | Description                          |
-| ------------- | ----------- | ----------- | ------------------------------------ |
-| `image`       | string      | Conditional | Pre-built container image reference. |
-| `build`       | BuildConfig | Conditional | Build-from-source configuration.     |
-| `healthcheck` | Healthcheck | OPTIONAL    | Health check configuration.          |
+| Field         | Type        | Required    | Description                                                            |
+| ------------- | ----------- | ----------- | ---------------------------------------------------------------------- |
+| `image`       | string      | Conditional | Pre-built container image reference.                                   |
+| `build`       | BuildConfig | Conditional | Build-from-source configuration.                                       |
+| `distributed` | boolean     | OPTIONAL    | Whether the agent supports multi-replica deployment. Default: `false`. |
+| `healthcheck` | Healthcheck | OPTIONAL    | Health check configuration.                                            |
+| `inputs`      | Input[]     | OPTIONAL    | User-supplied inputs injected into the agent container.                |
 
 An agent entry MUST specify exactly one of `image` or `build`. Providing both or neither is invalid.
 
 ### 3.1 BuildConfig
 
-| Field        | Type                  | Required | Description                             |
-| ------------ | --------------------- | -------- | --------------------------------------- |
-| `context`    | string                | REQUIRED | Build context path.                     |
-| `dockerfile` | string                | REQUIRED | Path to Dockerfile relative to context. |
-| `target`     | string                | OPTIONAL | Multi-stage build target.               |
-| `args`       | map\<string, string\> | OPTIONAL | Build arguments passed to the builder.  |
-| `secrets`    | BuildSecret[]         | OPTIONAL | Build-time secrets.                     |
+| Field        | Type                  | Required     | Description                             |
+| ------------ | --------------------- | ------------ | --------------------------------------- |
+| `context`    | string                | **REQUIRED** | Build context path.                     |
+| `dockerfile` | string                | **REQUIRED** | Path to Dockerfile relative to context. |
+| `target`     | string                | OPTIONAL     | Multi-stage build target.               |
+| `args`       | map\<string, string\> | OPTIONAL     | Build arguments passed to the builder.  |
+| `secrets`    | BuildSecret[]         | OPTIONAL     | Build-time secrets.                     |
 
 #### BuildSecret
 
-| Field | Type   | Required | Description                                              |
-| ----- | ------ | -------- | -------------------------------------------------------- |
-| `id`  | string | REQUIRED | Secret identifier used in `--mount=type=secret,id=<id>`. |
-| `env` | string | OPTIONAL | Environment variable to source the secret value from.    |
+| Field | Type   | Required     | Description                                              |
+| ----- | ------ | ------------ | -------------------------------------------------------- |
+| `id`  | string | **REQUIRED** | Secret identifier used in `--mount=type=secret,id=<id>`. |
+| `env` | string | OPTIONAL     | Environment variable to source the secret value from.    |
 
 ### 3.2 Healthcheck
 
-Applies to the agent container and to any `ContainerConfig.healthcheck` in component sections.
+Applies to the agent definition and to any `ContainerConfig.healthcheck` in component sections.
 
 | Field      | Type     | Required | Description                                                        |
 | ---------- | -------- | -------- | ------------------------------------------------------------------ |
@@ -105,7 +117,7 @@ Implementations SHOULD support both `test` (exec-based) and `path` (HTTP-based) 
 
 ## 4. Component Sections: Models, Knowledge, Tools
 
-Models, knowledge stores, and tools share a unified provider model. Each entry operates in exactly one of two modes:
+Models, knowledge stores, and tools share a unified provider binding scheme. Each entry operates in exactly one of two modes:
 
 - **Provider mode** — the entry specifies a `provider` string. The platform resolves this to either a self-hosted provider (deploys a container from its registry) or a cloud provider (injects credentials).
 - **Container mode** — the entry specifies a `container` object. The user manages the image, port, and configuration.
@@ -114,13 +126,14 @@ These modes are **mutually exclusive**: an entry MUST specify exactly one of `pr
 
 ### 4.1 Models
 
-Each entry in the `models` map:
+The `models` section declares AI models the agent consumes — LLMs (e.g. Claude, GPT, Llama), embedding models, or any model served behind an inference API. Each entry in the `models` map:
 
 | Field       | Type            | Required    | Description                                                                             |
 | ----------- | --------------- | ----------- | --------------------------------------------------------------------------------------- |
 | `provider`  | string          | Conditional | Platform-managed provider name (e.g. `ollama`, `anthropic`).                            |
 | `model`     | string          | OPTIONAL    | Provider-specific model identifier (e.g. `llama3.2`). Only meaningful in provider mode. |
 | `container` | ContainerConfig | Conditional | Custom container configuration.                                                         |
+| `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the model's container.                               |
 
 ### 4.2 Knowledge
 
@@ -131,17 +144,21 @@ Each entry in the `knowledge` map:
 | `provider`   | string          | Conditional | Platform-managed provider name (e.g. `qdrant`, `pinecone`).         |
 | `container`  | ContainerConfig | Conditional | Custom container configuration.                                     |
 | `persistent` | boolean         | OPTIONAL    | Whether data SHOULD be persisted across restarts. Default: `false`. |
+| `inputs`     | Input[]         | OPTIONAL    | User-supplied inputs injected into the knowledge container.         |
 
 When `persistent` is `true`, the platform SHOULD provision durable storage for the entry regardless of mode.
 
 ### 4.3 Tools
 
-Each entry in the `tools` map:
+The `tools` section declares services the agent invokes to perform actions or retrieve data. Tools can be HTTP APIs, MCP (Model Context Protocol) servers, or any service exposed over a network port. Each entry in the `tools` map:
 
 | Field       | Type            | Required    | Description                                               |
 | ----------- | --------------- | ----------- | --------------------------------------------------------- |
 | `provider`  | string          | Conditional | Platform-managed provider name (e.g. `github`, `gitlab`). |
 | `container` | ContainerConfig | Conditional | Custom container configuration.                           |
+| `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the tool's container.  |
+
+For external API services that need credentials but no platform-managed container, define a custom provider in the `providers` section (see [Section 5](#5-custom-providers)) instead.
 
 ### 4.4 ContainerConfig
 
@@ -152,7 +169,7 @@ Used by container-mode entries and by ingestion containers.
 | `image`       | string                | Conditional | Container image reference.                                    |
 | `build`       | BuildConfig           | Conditional | Build-from-source configuration (same schema as Section 3.1). |
 | `port`        | integer               | OPTIONAL    | Primary port the container listens on.                        |
-| `environment` | map\<string, string\> | OPTIONAL    | Environment variables injected into the container.            |
+| `environment` | map\<string, string\> | OPTIONAL    | Static environment variables injected into the container.     |
 | `gpu`         | GPUConfig             | OPTIONAL    | GPU resource requirements.                                    |
 | `persistent`  | boolean               | OPTIONAL    | Whether data SHOULD be persisted. Default: `false`.           |
 | `healthcheck` | Healthcheck           | OPTIONAL    | Health check configuration (same schema as Section 3.2).      |
@@ -166,24 +183,36 @@ A ContainerConfig SHOULD specify at least one of `image` or `build`.
 | `vram`    | string | OPTIONAL | GPU memory required (e.g. `24Gi`).                             |
 | `runtime` | string | OPTIONAL | GPU runtime. MUST be one of `cuda` or `rocm`. Default: `cuda`. |
 
+### 4.5 Input
+
+An `Input` declares a user-supplied value that the platform prompts for at deploy time and injects as an environment variable into the target container. The `name` is used directly as the env var key. See [Section 8.4](#84-inputs) for injection targets.
+
+| Field         | Type     | Required     | Description                                                                                                |
+| ------------- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `name`        | string   | **REQUIRED** | Env var key injected into the target container.                                                            |
+| `datatype`    | string   | **REQUIRED** | Value type. MUST be one of: `string`, `boolean`, `number`, `array`, `object`.                              |
+| `secret`      | boolean  | OPTIONAL     | If `true`, the platform MUST store the value securely and MUST NOT log it. Default: `false`.               |
+| `description` | string   | OPTIONAL     | Human-readable description for deploy-time prompts.                                                        |
+| `display-as`  | string   | OPTIONAL     | UI rendering hint. MUST be one of: `short-text`, `long-text`, `select`.                                    |
+| `options`     | string[] | OPTIONAL     | Allowed values. When present, UIs SHOULD render a dropdown/select. Required when `display-as` is `select`. |
+| `default`     | string   | OPTIONAL     | Default value pre-filled in the UI.                                                                        |
+| `optional`    | boolean  | OPTIONAL     | If `true`, the input MAY be omitted at deploy time. Default: `false`.                                      |
+
+The `datatype` field controls validation and type coercion applied before injection. `secret` is orthogonal to datatype — it controls storage and logging: when `true`, the platform stores the value securely and never logs it. The `display-as` field controls UI rendering: `short-text` renders a single-line field, `long-text` a multi-line field, and `select` a dropdown using `options`.
+
 ---
 
-## 5. Integrations
+## 5. Custom Providers
 
-The `integrations` section declares external services that do not fit into models, knowledge, or tools. Each integration entry defines the credentials it requires.
+The `providers` section extends the platform's built-in provider registry with user-defined entries. A custom provider is a **template** — it declares the variables it requires so the platform can prompt for them at deploy time, but does not inject them directly. Injection happens at the entry that references the provider (see [Section 8.4](#84-inputs)).
 
-| Field         | Type               | Required | Description                                               |
-| ------------- | ------------------ | -------- | --------------------------------------------------------- |
-| `config`      | map\<string, any\> | OPTIONAL | Provider-specific configuration.                          |
-| `credentials` | CustomCredential[] | REQUIRED | Credential requirements. MUST contain at least one entry. |
+Custom providers can be referenced by name from the `models`, `knowledge`, and `tools` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider — the platform MUST reject references from sections not listed in `scope`.
 
-#### CustomCredential
-
-| Field         | Type    | Required | Description                                                                |
-| ------------- | ------- | -------- | -------------------------------------------------------------------------- |
-| `suffix`      | string  | REQUIRED | Credential suffix used in env var naming (see Section 8).                  |
-| `description` | string  | OPTIONAL | Human-readable description for deploy-time credential prompts.             |
-| `optional`    | boolean | OPTIONAL | If `true`, the credential MAY be omitted at deploy time. Default: `false`. |
+| Field     | Type               | Required     | Description                                                                                             |
+| --------- | ------------------ | ------------ | ------------------------------------------------------------------------------------------------------- |
+| `scope`   | string[]           | **REQUIRED** | Sections that may reference this provider. MUST contain one or more of: `models`, `knowledge`, `tools`. |
+| `variables` | Input[]          | **REQUIRED** | Variables this provider requires from the user. MUST contain at least one entry.                        |
+| `config`  | map\<string, any\> | OPTIONAL     | Provider-specific configuration.                                                                        |
 
 ---
 
@@ -191,16 +220,17 @@ The `integrations` section declares external services that do not fit into model
 
 The `ingestion` section declares data ingestion pipelines. Each entry is a container that runs on a trigger.
 
-| Field       | Type             | Required | Description                            |
-| ----------- | ---------------- | -------- | -------------------------------------- |
-| `container` | ContainerConfig  | REQUIRED | Container that performs the ingestion. |
-| `trigger`   | IngestionTrigger | REQUIRED | When the container runs.               |
+| Field       | Type             | Required     | Description                                                 |
+| ----------- | ---------------- | ------------ | ----------------------------------------------------------- |
+| `container` | ContainerConfig  | **REQUIRED** | Container that performs the ingestion.                      |
+| `trigger`   | IngestionTrigger | **REQUIRED** | When the container runs.                                    |
+| `inputs`    | Input[]          | OPTIONAL     | User-supplied inputs injected into the ingestion container. |
 
 #### IngestionTrigger
 
-| Field  | Type   | Required | Description                                                 |
-| ------ | ------ | -------- | ----------------------------------------------------------- |
-| `type` | string | REQUIRED | MUST be one of: `schedule`, `startup`, `manual`, `webhook`. |
+| Field  | Type   | Required     | Description                                                 |
+| ------ | ------ | ------------ | ----------------------------------------------------------- |
+| `type` | string | **REQUIRED** | MUST be one of: `schedule`, `startup`, `manual`, `webhook`. |
 
 Trigger type semantics:
 
@@ -225,7 +255,7 @@ The `dev` section provides local development overrides consumed by `astro dev`. 
 
 ## 8. Environment Variable Injection Model
 
-The platform automatically injects environment variables into the agent container to wire it to its dependencies. The injection model differs by entry mode: cloud providers inject credentials, self-hosted providers inject connection details, and container-mode entries inject generic connection details.
+The platform automatically injects environment variables into the agent to wire it to its dependencies. The injection model differs by entry mode: cloud providers inject credentials, self-hosted providers inject connection details, and container-mode entries inject generic connection details.
 
 ### 8.1 Cloud Provider Credentials
 
@@ -293,17 +323,22 @@ Container-mode entries (no provider) receive generic section-prefixed env vars:
 - **Knowledge:** `KNOWLEDGE_{UPPER(name)}_HOST`, `KNOWLEDGE_{UPPER(name)}_PORT`
 - **Tools:** `TOOL_{UPPER(name)}_HOST`, `TOOL_{UPPER(name)}_PORT`, `TOOL_{UPPER(name)}_URL`
 
-### 8.4 Integration Credentials
+### 8.4 Inputs
 
-Integration credentials use the **entry name** as prefix:
+Inputs are user-supplied values prompted at deploy time. Each input's `name` is used directly as the env var key (no prefix) in the target container:
 
-```
-{UPPER(entry_name)}_{suffix}
-```
+| Declared on          | Injected into       |
+| -------------------- | ------------------- |
+| Top-level `inputs`   | All containers      |
+| `agent.inputs`       | Agent container     |
+| `models[].inputs`    | Model container     |
+| `knowledge[].inputs` | Knowledge container |
+| `tools[].inputs`     | Tool container      |
+| `ingestion[].inputs` | Ingestion container |
 
-Where `suffix` comes from the `credentials[].suffix` field. Integration credentials are required unless the credential's `optional` field is `true`.
+`providers[].variables` is a template only — it declares what variables a provider requires so the platform can prompt for them at deploy time.
 
-Example: `integrations.my-service` with `credentials: [{suffix: API_KEY}, {suffix: SECRET, optional: true}]` → `MY-SERVICE_API_KEY` (required), `MY-SERVICE_SECRET` (optional).
+Example: `inputs: [{name: OPENAI_API_KEY, datatype: secret}]` → `OPENAI_API_KEY` in the target container.
 
 ### 8.5 Name Sanitization
 
@@ -321,10 +356,13 @@ Implementations MUST enforce the following validation rules:
 4. For each entry in `models`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
 5. For each entry in `knowledge`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
 6. For each entry in `tools`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
-7. For each entry in `integrations`: `credentials` MUST be present and MUST contain at least one element. Each credential MUST have a non-empty `suffix`.
+7. For each entry in `providers`: `scope` MUST be present and contain one or more of `models`, `knowledge`, `tools`. `variables` MUST be present and MUST contain at least one element. Each variable MUST have a non-empty `name` and a valid `datatype`.
+7a. When a component entry references a custom provider by name, the referencing section MUST be listed in that provider's `scope`.
 8. For each entry in `ingestion`: both `container` and `trigger` are REQUIRED. `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
 9. When a `BuildConfig` is provided (in `agent.build`, `container.build`), `context` and `dockerfile` are REQUIRED.
 10. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
+11. When an input's `display-as` is `select`, `options` MUST be present and non-empty.
+12. Each `Input` in any context MUST have a non-empty `name` and `datatype` MUST be one of `string`, `boolean`, `number`, `array`, `object`.
 
 ---
 
@@ -391,7 +429,7 @@ Schema ID: `https://astromode.ai/schema/astroai.json`
 ## Appendix C: Complete Example
 
 ```yaml
-spec: astro/v1
+spec: package/v1
 name: engineering-assistant
 
 meta:
@@ -405,6 +443,18 @@ agent:
     secrets:
       - id: npm_token
         env: GITHUB_PACKAGES_TOKEN
+  inputs:
+    - name: LOG_LEVEL
+      datatype: string
+      default: info
+      description: Agent log level
+
+inputs:
+  ALLOWED_ORIGINS:
+    name: ALLOWED_ORIGINS
+    datatype: string
+    description: Comma-separated list of allowed CORS origins
+    optional: true
 
 models:
   local_llm:
@@ -414,7 +464,6 @@ models:
   primary:
     provider: anthropic
 
-
   embedder:
     container:
       build:
@@ -423,6 +472,11 @@ models:
       port: 8000
       healthcheck:
         path: /health
+    inputs:
+      - name: EMBEDDING_BATCH_SIZE
+        datatype: number
+        default: "32"
+        description: Number of texts to embed per request
 
 knowledge:
   docs:
@@ -436,12 +490,29 @@ tools:
   github:
     provider: github
 
-integrations:
-  my-service:
-    credentials:
-      - suffix: API_KEY
-        description: API key for my-service
-      - suffix: SECRET
+  jira:
+    provider: my-jira    # references custom provider below
+
+providers:
+  my-jira:
+    scope: [tools]
+    variables:
+      - name: JIRA_API_KEY
+        datatype: string
+        secret: true
+        description: Jira API key
+      - name: JIRA_BASE_URL
+        datatype: string
+        display-as: short-text
+        description: Jira instance URL
+      - name: JIRA_PROJECT
+        datatype: string
+        display-as: select
+        options: [ENG, PLATFORM, INFRA]
+        description: Default Jira project
+      - name: JIRA_HMAC_SECRET
+        datatype: string
+        secret: true
         description: Shared secret for HMAC signing
         optional: true
 
@@ -454,6 +525,11 @@ ingestion:
         TARGET_COLLECTION: docs
     trigger:
       type: schedule
+    inputs:
+      - name: SYNC_BATCH_SIZE
+        datatype: number
+        default: "100"
+        description: Number of documents to sync per batch
 
   initial_load:
     container:
