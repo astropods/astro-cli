@@ -18,6 +18,7 @@ type TemplatePaths struct {
 	EnvExample          string
 	Gitignore           string
 	Dockerignore        string
+	Npmrc               string
 	AgentIndex          string
 	IngestionIndex      string
 	LlmMd                  string
@@ -39,6 +40,7 @@ func GetTemplatePaths(lang string) (*TemplatePaths, error) {
 			EnvExample:          "templates/template-ts/env.example.tmpl",
 			Gitignore:           "templates/template-ts/gitignore.tmpl",
 			Dockerignore:        "templates/template-ts/dockerignore.tmpl",
+			Npmrc:               "templates/template-ts/npmrc.tmpl",
 			AgentIndex:          "templates/template-ts/agent/index.ts",
 			IngestionIndex:      "templates/template-ts/ingestion/index.ts",
 			LlmMd:               "templates/template-ts/agents.md.tmpl",

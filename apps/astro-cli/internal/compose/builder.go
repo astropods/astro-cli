@@ -392,7 +392,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			if name == "slack" || name == "web" {
 				messagingService := types.ServiceConfig{
 					Name:       "astro-messaging",
-					Image:      "ghcr.io/saswatds/astro-messaging:latest",
+					Image:      "astromodeai/astro-messaging:latest",
 					PullPolicy: types.PullPolicyAlways,
 					Networks: map[string]*types.ServiceNetworkConfig{
 						"astro-dev": nil,
@@ -409,7 +409,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				apiURL := ""
 				playgroundService := types.ServiceConfig{
 					Name:       "playground",
-					Image:      "ghcr.io/saswatds/astro-playground:latest",
+					Image:      "astromodeai/astro-playground:latest",
 					PullPolicy: types.PullPolicyAlways,
 					Networks: map[string]*types.ServiceNetworkConfig{
 						"astro-dev": nil,
@@ -466,28 +466,6 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 		project.Services[serviceName] = service
 	}
-
-	// Add observability collector sidecar
-	collectorService := types.ServiceConfig{
-		Name:       "astro-collector",
-		Image:      "ghcr.io/saswatds/astro-collector:latest",
-		PullPolicy: types.PullPolicyAlways,
-		Networks: map[string]*types.ServiceNetworkConfig{
-			"astro-dev": nil,
-		},
-		Environment: buildCollectorEnvironment(s, envVars),
-		Ports: []types.ServicePortConfig{
-			{
-				Target:    4317,
-				Published: "4317",
-			},
-			{
-				Target:    4318,
-				Published: "4318",
-			},
-		},
-	}
-	project.Services["astro-collector"] = collectorService
 
 	// Add agent service
 	agentService := types.ServiceConfig{
@@ -657,10 +635,6 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
 
-	// Inject OTel collector endpoint for automatic agent telemetry export
-	otelEndpoint := "http://astro-collector:4318"
-	env["OTEL_EXPORTER_OTLP_ENDPOINT"] = &otelEndpoint
-
 	return env
 }
 
@@ -738,27 +712,3 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	return env
 }
 
-// buildCollectorEnvironment creates environment variables for the astro-collector sidecar.
-// Dev mode disables Galileo forwarding; spans are logged locally via the debug exporter.
-func buildCollectorEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
-	env := make(types.MappingWithEquals)
-
-	mode := "dev"
-	env["ASTRO_COLLECTOR_MODE"] = &mode
-
-	agentName := s.Name
-	env["ASTRO_AGENT_NAME"] = &agentName
-
-	// Optional collector tuning from .env
-	if val, ok := envVars["COLLECTOR_LOG_LEVEL"]; ok {
-		env["COLLECTOR_LOG_LEVEL"] = &val
-	}
-	if val, ok := envVars["COLLECTOR_DEBUG_VERBOSITY"]; ok {
-		env["COLLECTOR_DEBUG_VERBOSITY"] = &val
-	}
-	if val, ok := envVars["ASTRO_REDACT_PROMPTS"]; ok {
-		env["ASTRO_REDACT_PROMPTS"] = &val
-	}
-
-	return env
-}

@@ -1,17 +1,5 @@
 # Docker image builds (context = workspace root). Used by `ast dev --local` and CI.
 tasks:
-  "messaging":
-    command: "cd .. && docker build -t prod-astro-messaging:latest -f deployment/Dockerfile.astro-messaging ."
-    options:
-      cache: false
-      runInCI: false
-
-  "playground":
-    command: "cd .. && docker build -t astro-playground:latest -f deployment/Dockerfile.astro-playground ."
-    options:
-      cache: false
-      runInCI: false
-
   "collector":
     command: "cd .. && docker build -t prod-astro-collector:latest -f deployment/Dockerfile.astro-collector ."
     options:
@@ -19,6 +7,6 @@ tasks:
       runInCI: false
 
   "clean":
-    command: "docker rmi prod-astro-messaging:latest astro-server:latest astro-registry:latest astro-playground:latest prod-astro-collector:latest ghcr.io/saswatds/astro-messaging:latest ghcr.io/saswatds/astro-server:latest ghcr.io/saswatds/astro-registry:latest ghcr.io/saswatds/astro-playground:latest ghcr.io/saswatds/astro-collector:latest 2>/dev/null || true"
+    command: "docker rmi astro-server:latest astro-registry:latest prod-astro-collector:latest ghcr.io/saswatds/astro-server:latest ghcr.io/saswatds/astro-registry:latest ghcr.io/saswatds/astro-collector:latest 2>/dev/null || true"
     options:
       runInCI: false

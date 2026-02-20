@@ -16,7 +16,6 @@ COPY packages/astro-graph/package.json ./packages/astro-graph/
 COPY packages/astro-engine/package.json ./packages/astro-engine/
 COPY packages/astro-nodes/package.json ./packages/astro-nodes/
 COPY packages/astro-types/package.json ./packages/astro-types/
-COPY packages/astro-messaging/package.json ./packages/astro-messaging/
 
 # Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.bun/install/cache \

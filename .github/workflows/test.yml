@@ -33,44 +33,6 @@ jobs:
         run: bun run test
         working-directory: apps/astro-client
 
-  test-astro-messaging:
-    runs-on: ubuntu-latest
-    name: Test astro-messaging (TS + Go cross-language)
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-          cache-dependency-path: packages/astro-messaging/go.sum
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Generate Go serialized test data
-        working-directory: packages/astro-messaging
-        run: go run tools/test-serialization/main.go serialize
-
-      - name: Run TypeScript tests
-        working-directory: packages/astro-messaging
-        run: bun test
-
-      - name: Verify Go can deserialize TypeScript output
-        working-directory: packages/astro-messaging
-        run: go run tools/test-serialization/main.go deserialize
-
-      - name: Run Go tests
-        working-directory: packages/astro-messaging
-        run: go test -v ./...
-
   test-go:
     runs-on: ubuntu-latest
     name: Test Go applications

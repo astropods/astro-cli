@@ -29,7 +29,7 @@ type TemplateInput struct {
 	Account           string
 	BuildID           string
 	RegistryURL       string
-	ProxyRegistryHost string // Proxy registry host for tenant image resolution (e.g. "registry.astropod.ai")
+	ProxyRegistryHost string // Host of the tenant's private image registry (e.g. "registry.astropod.ai")
 	Environment       string // Environment prefix for ECR tenant repos (e.g. "prod", "preview")
 }
 
@@ -248,7 +248,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	agentEnv["ASTRO_AGENT_BUILD"] = "${source.build}"
 
 	// Build agent block
-	agentImage := resolveTenantImage(astroSpec.Agent.Image, input)
+	agentImage := resolveImage(astroSpec.Agent.Image, input)
 	if agentImage == "" && input.RegistryURL != "" {
 		agentImage = fmt.Sprintf("%s/%s:%s", input.RegistryURL, astroSpec.Name, input.BuildID)
 	}
@@ -274,7 +274,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	// Interfaces block — empty adapters, user fills in
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters:  []string{},
-		Image:     fmt.Sprintf("%s/prod-astro-messaging:latest", input.RegistryURL),
+		Image:     resolveImage("astromodeai/astro-messaging:latest", input),
 		Port:      9090,
 		Resources: spec.MessagingResources,
 		Expose:    spec.ExposeConfig{Enabled: false},
@@ -289,7 +289,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
 	container := model.ResolvedContainer()
 	dm := spec.DeploymentModel{
-		Image:       resolveTenantImage(container.Image, input),
+		Image:       resolveImage(container.Image, input),
 		Port:        container.Port,
 		Replicas:    1,
 		Resources:   spec.StandardResources,
@@ -363,7 +363,7 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spec.DeploymentKnowledge {
 	container := knowledge.ResolvedContainer()
 	dk := spec.DeploymentKnowledge{
-		Image:       resolveTenantImage(container.Image, input),
+		Image:       resolveImage(container.Image, input),
 		Port:        container.Port,
 		Replicas:    1,
 		Resources:   spec.StandardResources,
@@ -423,7 +423,7 @@ func buildDeploymentTool(tool spec.Tool, input TemplateInput) spec.DeploymentToo
 		Update:    spec.DefaultUpdateStrategy(),
 	}
 	if tool.Container != nil {
-		dt.Image = resolveTenantImage(tool.Container.Image, input)
+		dt.Image = resolveImage(tool.Container.Image, input)
 		dt.Port = tool.Container.Port
 		dt.Healthcheck = tool.Container.Healthcheck
 		if len(tool.Container.Environment) > 0 {
@@ -437,7 +437,7 @@ func buildDeploymentTool(tool spec.Tool, input TemplateInput) spec.DeploymentToo
 }
 
 func buildDeploymentIngestion(ingestion spec.Ingestion, input TemplateInput) spec.DeploymentIngestion {
-	image := resolveTenantImage(ingestion.Container.Image, input)
+	image := resolveImage(ingestion.Container.Image, input)
 	di := spec.DeploymentIngestion{
 		Image:     image,
 		Port:      ingestion.Container.Port,
@@ -457,35 +457,57 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, input TemplateInput) spe
 	return di
 }
 
-// resolveTenantImage translates a proxy-registry image reference to an ECR path.
-// e.g. "registry.astropod.ai/account/image:tag" → "{ecrHost}/{env}-tenant-account/image:tag"
-// Images that don't match the proxy registry host are returned as-is.
-func resolveTenantImage(image string, input TemplateInput) string {
-	if image == "" || input.ProxyRegistryHost == "" {
-		return image
-	}
-	if !strings.HasPrefix(image, input.ProxyRegistryHost+"/") {
-		return image
-	}
-
-	// Remove proxy host prefix → "account/image:tag"
-	pathWithTag := strings.TrimPrefix(image, input.ProxyRegistryHost+"/")
-	parts := strings.SplitN(pathWithTag, "/", 2)
-	if len(parts) < 2 {
+// resolveImage maps an image reference to its final pull path:
+//   - Tenant images (hosted on ProxyRegistryHost) → ECR tenant repo: {ecrHost}/{env}-tenant-{account}/{image}
+//   - Public images (bare Docker Hub reference, no registry host) → ECR pull-through cache: {ecrHost}/dockerhub/{image}
+//     Official library images (no org prefix) are placed under "library/".
+//   - Third-party images (explicit registry host such as gcr.io, ghcr.io) → unchanged.
+func resolveImage(image string, input TemplateInput) string {
+	if image == "" {
 		return image
 	}
 
-	namespace := parts[0]
-	imageAndTag := parts[1]
-
-	// Strip scheme from registry URL if present
-	registryHost := input.RegistryURL
-	if idx := strings.Index(registryHost, "://"); idx >= 0 {
-		registryHost = registryHost[idx+3:]
+	// 1. Tenant image → ECR tenant repo
+	if input.ProxyRegistryHost != "" && input.RegistryURL != "" && strings.HasPrefix(image, input.ProxyRegistryHost+"/") {
+		pathWithTag := strings.TrimPrefix(image, input.ProxyRegistryHost+"/")
+		parts := strings.SplitN(pathWithTag, "/", 2)
+		if len(parts) >= 2 {
+			return fmt.Sprintf("%s/%s-tenant-%s/%s", stripScheme(input.RegistryURL), input.Environment, parts[0], parts[1])
+		}
+		return image
 	}
 
-	// Build ECR path: {ecrHost}/{env}-tenant-{namespace}/{imageAndTag}
-	return fmt.Sprintf("%s/%s-tenant-%s/%s", registryHost, input.Environment, namespace, imageAndTag)
+	// 2. Public image (no registry host in first segment) → ECR pull-through cache
+	if input.RegistryURL != "" {
+		name := image
+		if i := strings.LastIndex(image, ":"); i >= 0 {
+			name = image[:i]
+		}
+		firstSegment := name
+		if i := strings.Index(name, "/"); i >= 0 {
+			firstSegment = name[:i]
+		}
+		if !strings.Contains(firstSegment, ".") && !strings.Contains(firstSegment, ":") {
+			imageName, tag := image, ""
+			if i := strings.LastIndex(image, ":"); i >= 0 {
+				imageName, tag = image[:i], image[i:]
+			}
+			if !strings.Contains(imageName, "/") {
+				imageName = "library/" + imageName
+			}
+			return fmt.Sprintf("%s/dockerhub/%s%s", stripScheme(input.RegistryURL), imageName, tag)
+		}
+	}
+
+	// 3. Third-party image (explicit registry host) → unchanged
+	return image
+}
+
+func stripScheme(url string) string {
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		url = url[idx+3:]
+	}
+	return strings.TrimRight(url, "/")
 }
 
 func defaultEditableFields() []string {

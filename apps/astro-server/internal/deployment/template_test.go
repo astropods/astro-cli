@@ -200,8 +200,8 @@ func TestTemplate_ProviderModel(t *testing.T) {
 	if !ok {
 		t.Fatal("models.local_llm: not found")
 	}
-	if m.Image != "ollama/ollama:latest" {
-		t.Errorf("models.local_llm.image: expected ollama/ollama:latest, got %s", m.Image)
+	if m.Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
+		t.Errorf("models.local_llm.image: expected registry.example.com/dockerhub/ollama/ollama:latest, got %s", m.Image)
 	}
 	if m.Port != 11434 {
 		t.Errorf("models.local_llm.port: expected 11434, got %d", m.Port)
@@ -234,8 +234,8 @@ func TestTemplate_ContainerModel(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	m := ds.Models["embedder"]
-	if m.Image != "custom-embedder:v1" {
-		t.Errorf("image: expected custom-embedder:v1, got %s", m.Image)
+	if m.Image != "registry.example.com/dockerhub/library/custom-embedder:v1" {
+		t.Errorf("image: expected registry.example.com/dockerhub/library/custom-embedder:v1, got %s", m.Image)
 	}
 	if m.Port != 9999 {
 		t.Errorf("port: expected 9999, got %d", m.Port)
@@ -323,8 +323,8 @@ func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["docs"]
-	if k.Image != "qdrant/qdrant:latest" {
-		t.Errorf("image: expected qdrant/qdrant:latest, got %s", k.Image)
+	if k.Image != "registry.example.com/dockerhub/qdrant/qdrant:latest" {
+		t.Errorf("image: expected registry.example.com/dockerhub/qdrant/qdrant:latest, got %s", k.Image)
 	}
 	if k.Port != 6333 {
 		t.Errorf("port: expected 6333, got %d", k.Port)
@@ -365,8 +365,8 @@ func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["cache"]
-	if k.Image != "redis:7-alpine" {
-		t.Errorf("image: expected redis:7-alpine, got %s", k.Image)
+	if k.Image != "registry.example.com/dockerhub/library/redis:7-alpine" {
+		t.Errorf("image: expected registry.example.com/dockerhub/library/redis:7-alpine, got %s", k.Image)
 	}
 	if k.Port != 6379 {
 		t.Errorf("port: expected 6379, got %d", k.Port)
@@ -397,8 +397,8 @@ func TestTemplate_ProviderKnowledge_Neo4j(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["graph"]
-	if k.Image != "neo4j:5-community" {
-		t.Errorf("image: expected neo4j:5-community, got %s", k.Image)
+	if k.Image != "registry.example.com/dockerhub/library/neo4j:5-community" {
+		t.Errorf("image: expected registry.example.com/dockerhub/library/neo4j:5-community, got %s", k.Image)
 	}
 	if k.Port != 7474 {
 		t.Errorf("port: expected 7474, got %d", k.Port)
@@ -424,8 +424,8 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	k := ds.Knowledge["custom_db"]
-	if k.Image != "my-db:latest" {
-		t.Errorf("image: expected my-db:latest, got %s", k.Image)
+	if k.Image != "registry.example.com/dockerhub/library/my-db:latest" {
+		t.Errorf("image: expected registry.example.com/dockerhub/library/my-db:latest, got %s", k.Image)
 	}
 	if k.Port != 5000 {
 		t.Errorf("port: expected 5000, got %d", k.Port)
@@ -472,8 +472,8 @@ func TestTemplate_Tool(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	tool := ds.Tools["websearch"]
-	if tool.Image != "search:v2" {
-		t.Errorf("image: expected search:v2, got %s", tool.Image)
+	if tool.Image != "registry.example.com/dockerhub/library/search:v2" {
+		t.Errorf("image: expected registry.example.com/dockerhub/library/search:v2, got %s", tool.Image)
 	}
 	if tool.Port != 3000 {
 		t.Errorf("port: expected 3000, got %d", tool.Port)
@@ -536,8 +536,8 @@ func TestTemplate_IngestionSchedule(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	ing := ds.Ingestion["sync"]
-	if ing.Image != "sync:latest" {
-		t.Errorf("image: expected sync:latest, got %s", ing.Image)
+	if ing.Image != "registry.example.com/dockerhub/library/sync:latest" {
+		t.Errorf("image: expected registry.example.com/dockerhub/library/sync:latest, got %s", ing.Image)
 	}
 	if ing.Trigger.Type != "schedule" {
 		t.Errorf("trigger.type: expected schedule, got %s", ing.Trigger.Type)
@@ -730,8 +730,8 @@ func TestTemplate_InterfacesDefaults(t *testing.T) {
 	if ds.Interfaces.Resources != spec.MessagingResources {
 		t.Errorf("interfaces.resources: expected MessagingResources, got %+v", ds.Interfaces.Resources)
 	}
-	if !strings.HasSuffix(ds.Interfaces.Image, "/prod-astro-messaging:latest") {
-		t.Errorf("interfaces.image: expected messaging sidecar image, got %s", ds.Interfaces.Image)
+	if ds.Interfaces.Image != "registry.example.com/dockerhub/astromodeai/astro-messaging:latest" {
+		t.Errorf("interfaces.image: expected registry.example.com/dockerhub/astromodeai/astro-messaging:latest, got %s", ds.Interfaces.Image)
 	}
 	if ds.Interfaces.Expose.Enabled {
 		t.Error("interfaces.expose.enabled: expected false")
@@ -769,7 +769,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 		},
 		Account:     "acme",
 		BuildID:     "build42",
-		RegistryURL: "registry.example.com/acme",
+		RegistryURL: "registry.example.com",
 	}
 
 	ds := mustGenerate(t, input)
@@ -778,7 +778,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 	if len(ds.Models) != 1 {
 		t.Errorf("models: expected 1 (ollama only), got %d", len(ds.Models))
 	}
-	if ds.Models["local_llm"].Image != "ollama/ollama:latest" {
+	if ds.Models["local_llm"].Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
 		t.Errorf("models.local_llm.image: got %s", ds.Models["local_llm"].Image)
 	}
 
@@ -881,10 +881,10 @@ func TestTemplate_MultipleModels(t *testing.T) {
 	if len(ds.Models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(ds.Models))
 	}
-	if ds.Models["ollama"].Image != "ollama/ollama:latest" {
+	if ds.Models["ollama"].Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
 		t.Errorf("ollama image: got %s", ds.Models["ollama"].Image)
 	}
-	if ds.Models["custom"].Image != "custom:latest" {
+	if ds.Models["custom"].Image != "registry.example.com/dockerhub/library/custom:latest" {
 		t.Errorf("custom image: got %s", ds.Models["custom"].Image)
 	}
 	if ds.Models["custom"].Port != 5000 {
@@ -949,7 +949,7 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	if parsed.Source.Name != "my-agent" {
 		t.Errorf("source.name: expected my-agent, got %s", parsed.Source.Name)
 	}
-	if parsed.Models["llm"].Image != "ollama/ollama:latest" {
+	if parsed.Models["llm"].Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
 		t.Errorf("models.llm.image lost in round-trip: got %s", parsed.Models["llm"].Image)
 	}
 	if !parsed.Knowledge["docs"].Persistent {
@@ -982,56 +982,122 @@ func proxyInput() TemplateInput {
 	}
 }
 
-func TestResolveTenantImage_ProxyImage(t *testing.T) {
+func TestResolveImage_TenantImage(t *testing.T) {
 	input := proxyInput()
-	got := resolveTenantImage("proxy.registry.io/acme/my-app:v1", input)
+	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
 	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
 }
 
-func TestResolveTenantImage_NonProxyImage(t *testing.T) {
+func TestResolveImage_TenantImageMissingImageSegment(t *testing.T) {
 	input := proxyInput()
-	got := resolveTenantImage("docker.io/library/python:3.11", input)
-	if got != "docker.io/library/python:3.11" {
-		t.Errorf("non-proxy image should be unchanged, got %s", got)
+	// Only account, no image name — malformed, returned unchanged
+	got := resolveImage("proxy.registry.io/acme", input)
+	if got != "proxy.registry.io/acme" {
+		t.Errorf("malformed tenant path should be unchanged, got %s", got)
 	}
 }
 
-func TestResolveTenantImage_EmptyImage(t *testing.T) {
+func TestResolveImage_TenantImageRegistryURLWithoutScheme(t *testing.T) {
 	input := proxyInput()
-	got := resolveTenantImage("", input)
+	input.RegistryURL = "123456789.dkr.ecr.us-east-1.amazonaws.com"
+	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
+	if got != expected {
+		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestResolveImage_PublicOrgImage(t *testing.T) {
+	input := proxyInput()
+	got := resolveImage("astromodeai/astro-messaging:latest", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astromodeai/astro-messaging:latest"
+	if got != expected {
+		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestResolveImage_PublicLibraryImage(t *testing.T) {
+	input := proxyInput()
+	got := resolveImage("nginx:1.27", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/nginx:1.27"
+	if got != expected {
+		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestResolveImage_ThirdPartyImageUnchanged(t *testing.T) {
+	input := proxyInput()
+	cases := []string{
+		"gcr.io/my-project/my-app:v1",
+		"123456789.dkr.ecr.us-east-1.amazonaws.com/my-repo:latest",
+		"registry.example.com/org/image:tag",
+		"localhost:5000/my-image:latest",
+		"docker.io/library/python:3.11",
+	}
+	for _, img := range cases {
+		got := resolveImage(img, input)
+		if got != img {
+			t.Errorf("third-party image %q should be unchanged, got %q", img, got)
+		}
+	}
+}
+
+func TestResolveImage_EmptyImage(t *testing.T) {
+	got := resolveImage("", proxyInput())
 	if got != "" {
 		t.Errorf("empty image should stay empty, got %s", got)
 	}
 }
 
-func TestResolveTenantImage_NoProxyHost(t *testing.T) {
+func TestResolveImage_NoRegistryConfigured(t *testing.T) {
 	input := proxyInput()
+	input.RegistryURL = ""
 	input.ProxyRegistryHost = ""
-	got := resolveTenantImage("proxy.registry.io/acme/my-app:v1", input)
-	if got != "proxy.registry.io/acme/my-app:v1" {
-		t.Errorf("without proxy host config, image should be unchanged, got %s", got)
+	got := resolveImage("astromodeai/astro-messaging:latest", input)
+	if got != "astromodeai/astro-messaging:latest" {
+		t.Errorf("without registry config, image should be unchanged, got %s", got)
 	}
 }
 
-func TestResolveTenantImage_RegistryURLWithoutScheme(t *testing.T) {
+func TestResolveImage_TenantImageWithoutRegistryURL(t *testing.T) {
+	// ProxyRegistryHost configured but RegistryURL missing — must not produce a malformed path
 	input := proxyInput()
-	input.RegistryURL = "123456789.dkr.ecr.us-east-1.amazonaws.com"
-	got := resolveTenantImage("proxy.registry.io/acme/my-app:v1", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
+	input.RegistryURL = ""
+	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
+	if got != "proxy.registry.io/acme/my-app:v1" {
+		t.Errorf("tenant image without RegistryURL should be unchanged, got %s", got)
+	}
+}
+
+func TestResolveImage_RegistryURLWithTrailingSlash(t *testing.T) {
+	input := proxyInput()
+	input.RegistryURL = "https://123456789.dkr.ecr.us-east-1.amazonaws.com/"
+	got := resolveImage("nginx:1.27", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/nginx:1.27"
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
 }
 
-func TestResolveTenantImage_SingleSegmentPath(t *testing.T) {
+func TestResolveImage_PublicImageWithNoTag(t *testing.T) {
 	input := proxyInput()
-	// Only namespace, no image name — should return as-is
-	got := resolveTenantImage("proxy.registry.io/acme", input)
-	if got != "proxy.registry.io/acme" {
-		t.Errorf("single-segment path should be unchanged, got %s", got)
+	got := resolveImage("nginx", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/library/nginx"
+	if got != expected {
+		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestResolveImage_DockerIOPrefixIsThirdParty(t *testing.T) {
+	// docker.io is an explicit registry host — treated as third-party, not routed to cache
+	input := proxyInput()
+	image := "docker.io/library/python:3.11"
+	got := resolveImage(image, input)
+	if got != image {
+		t.Errorf("docker.io-prefixed image should be unchanged, got %s", got)
 	}
 }
 
@@ -1064,7 +1130,7 @@ func TestTemplate_ModelImageResolved(t *testing.T) {
 	}
 }
 
-func TestTemplate_ModelProviderImageUnchanged(t *testing.T) {
+func TestTemplate_ProviderModelPublicImageViaCache(t *testing.T) {
 	input := proxyInput()
 	input.Spec.Models = map[string]spec.Model{
 		"llm": {Provider: "ollama"},
@@ -1072,9 +1138,10 @@ func TestTemplate_ModelProviderImageUnchanged(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	// Provider images (ollama/ollama:latest) should not be rewritten
-	if ds.Models["llm"].Image != "ollama/ollama:latest" {
-		t.Errorf("provider model image should be unchanged, got %s", ds.Models["llm"].Image)
+	// Public provider images are served through the ECR pull-through cache
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest"
+	if ds.Models["llm"].Image != expected {
+		t.Errorf("expected %s, got %s", expected, ds.Models["llm"].Image)
 	}
 }
 
@@ -1171,7 +1238,7 @@ func TestTemplate_AllComponentImagesResolved(t *testing.T) {
 	}
 }
 
-func TestTemplate_MixedProxyAndPublicImages(t *testing.T) {
+func TestTemplate_MixedTenantAndPublicImages(t *testing.T) {
 	input := proxyInput()
 	input.Spec.Models = map[string]spec.Model{
 		"proxy":  {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/custom:v1", Port: 8000}},
@@ -1184,9 +1251,10 @@ func TestTemplate_MixedProxyAndPublicImages(t *testing.T) {
 	if !strings.Contains(ds.Models["proxy"].Image, "prod-tenant-acme") {
 		t.Errorf("proxy image should be resolved, got %s", ds.Models["proxy"].Image)
 	}
-	// Public image should be unchanged
-	if ds.Models["public"].Image != "ollama/ollama:latest" {
-		t.Errorf("public image should be unchanged, got %s", ds.Models["public"].Image)
+	// Public image is served through the ECR pull-through cache
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest"
+	if ds.Models["public"].Image != expected {
+		t.Errorf("expected %s, got %s", expected, ds.Models["public"].Image)
 	}
 }
 

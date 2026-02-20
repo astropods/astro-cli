@@ -95,9 +95,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if envVars == nil {
 		envVars = make(map[string]string)
 	}
-	if t := getGitHubPackagesToken(); t != "" && envVars["GITHUB_PACKAGES_TOKEN"] == "" {
-		envVars["GITHUB_PACKAGES_TOKEN"] = t
-	}
 
 	// Create Docker client
 	ctx := context.Background()

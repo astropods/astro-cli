@@ -464,7 +464,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		// Deployment
 		msgImage := ds.Interfaces.Image
 		if msgImage == "" {
-			msgImage = fmt.Sprintf("%s/prod-astro-messaging:latest", a.registryURL)
+			msgImage = "astromodeai/astro-messaging:latest"
 		}
 		msgCfg := MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,

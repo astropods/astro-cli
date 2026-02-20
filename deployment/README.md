@@ -7,20 +7,14 @@ Dockerfiles and moon tasks for building Astro service images. Used by CI and to 
 From the **repository root** (same as [building the CLI](apps/astro-cli/README.md)):
 
 ```bash
-# Messaging service (gRPC + HTTP sidecar)
-moon run deployment:messaging
-
-# Playground (web UI for agents)
-moon run deployment:playground
-
 # Collector (OpenTelemetry collector)
 moon run deployment:collector
 
-# Remove astro Docker images (messaging, server, registry, playground, collector; local and ghcr.io/saswatds/*)
+# Remove astro Docker images (server, registry, collector; local and ghcr.io/saswatds/*)
 moon run deployment:clean
 ```
 
-Images are tagged `astro-messaging:latest`, `astro-playground:latest`, and `astro-collector:latest`. Use them with:
+Images are tagged `astro-collector:latest`. Use them with:
 
 ```bash
 ast dev --local
@@ -32,8 +26,6 @@ ast dev --local
 
 | File | Image | Source |
 |------|--------|--------|
-| `Dockerfile.astro-messaging` | astro-messaging | packages/astro-messaging |
-| `Dockerfile.astro-playground` | astro-playground | packages/astro-playground-web |
 | `Dockerfile.astro-collector` | astro-collector | OTel Collector custom distribution |
 | `Dockerfile.astro-registry` | astro-registry | apps/astro-registry |
 | `Dockerfile.astro-server` | astro-server | apps/astro-server |

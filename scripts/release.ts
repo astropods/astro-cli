@@ -14,6 +14,7 @@ const { values: flags } = parseArgs({
     "dry-run": { type: "boolean", default: false },
     yes: { type: "boolean", short: "y", default: false },
     "allow-branch": { type: "boolean", default: false },
+    "no-bump": { type: "boolean", default: false },
   },
   strict: true,
 });
@@ -22,13 +23,12 @@ const BUMP_OVERRIDE = flags.bump as "patch" | "minor" | "major" | undefined;
 const DRY_RUN = flags["dry-run"]!;
 const SKIP_CONFIRM = flags.yes!;
 const ALLOW_BRANCH = flags["allow-branch"]!;
+const NO_BUMP = flags["no-bump"]!;
 
 if (BUMP_OVERRIDE && !["patch", "minor", "major"].includes(BUMP_OVERRIDE)) {
   console.error(`Invalid bump type: ${BUMP_OVERRIDE}. Must be patch, minor, or major.`);
   process.exit(1);
 }
-
-const REGISTRY = "https://npm.pkg.github.com";
 
 // --- Helpers ---
 
@@ -116,7 +116,7 @@ async function preflight() {
 
   // 3. npm auth check
   try {
-    await run(["npm", "whoami", "--registry", REGISTRY]);
+    await run(["npm", "whoami"]);
   } catch {
     console.error(c.red("Not logged into npm. Run `npm login` first."));
     process.exit(1);
@@ -276,7 +276,10 @@ async function inferBumpFromCommits(since: string | null): Promise<"patch" | "mi
 
 let BUMP_TYPE: "patch" | "minor" | "major";
 
-if (BUMP_OVERRIDE) {
+if (NO_BUMP) {
+  BUMP_TYPE = "patch"; // unused, but satisfies type
+  console.log(c.yellow("--no-bump: skipping version bump, publishing current versions as-is"));
+} else if (BUMP_OVERRIDE) {
   BUMP_TYPE = BUMP_OVERRIDE;
   console.log(c.blue(`Bump type (manual override): ${BUMP_TYPE}`));
 } else {
@@ -303,7 +306,11 @@ if (baseRef) {
   }
 }
 
-if (affected.length === 0) {
+if (NO_BUMP) {
+  // When skipping bump, check all packages — filter by unpublished version happens in step 4
+  console.log(c.blue("--no-bump: checking all publishable packages for unpublished versions"));
+  affected = [...PUBLISH_ORDER];
+} else if (affected.length === 0) {
   console.log(c.yellow("No affected packages detected, checking all publishable packages"));
   affected = [...PUBLISH_ORDER];
 } else {
@@ -334,10 +341,19 @@ if (packagesToPublish.length === 0) {
 
 async function getRegistryVersion(pkgName: string): Promise<string | null> {
   try {
-    const out = await run(["npm", "view", pkgName, "version", "--registry", REGISTRY]);
+    const out = await run(["npm", "view", pkgName, "version"]);
     return out || null;
   } catch {
     return null; // not yet published
+  }
+}
+
+async function isVersionPublished(pkgName: string, version: string): Promise<boolean> {
+  try {
+    const out = await run(["npm", "view", `${pkgName}@${version}`, "version"]);
+    return out.trim() === version;
+  } catch {
+    return false;
   }
 }
 
@@ -352,13 +368,20 @@ console.log(c.yellow("Packages to publish (in order):"));
 
 const versionMap = new Map<string, { local: string; registry: string | null; current: string; next: string }>();
 
-for (const name of packagesToPublish) {
+for (const name of [...packagesToPublish]) {
   const pkg = await readPkgJson(name);
   const local = pkg.version;
   const registry = await getRegistryVersion(pkg.name);
   // Use whichever is higher as the base for bumping
   const current = registry && compareVersions(registry, local) > 0 ? registry : local;
-  const next = bumpVersion(current, BUMP_TYPE);
+  const next = NO_BUMP ? local : bumpVersion(current, BUMP_TYPE);
+
+  if (NO_BUMP && await isVersionPublished(pkg.name, local)) {
+    console.log(`  ${c.yellow(name)}: ${local} already published — skipping`);
+    packagesToPublish.splice(packagesToPublish.indexOf(name), 1);
+    continue;
+  }
+
   versionMap.set(name, { local, registry, current, next });
   const registryInfo = registry ? (registry !== local ? c.yellow(` (registry: ${registry})`) : ` (registry: ${registry})`) : " (not yet published)";
   console.log(`  ${c.green(name)}: ${current} → ${next}${registryInfo}`);
@@ -385,16 +408,20 @@ if (!SKIP_CONFIRM) {
 
 // --- Step 6: Bump versions ---
 
-console.log("");
-console.log(c.yellow("Bumping versions..."));
+if (NO_BUMP) {
+  console.log(c.yellow("Skipping version bump (--no-bump)."));
+} else {
+  console.log("");
+  console.log(c.yellow("Bumping versions..."));
 
-for (const name of packagesToPublish) {
-  const { local, current, next } = versionMap.get(name)!;
-  const pkg = await readPkgJson(name);
-  pkg.version = next;
-  await writePkgJson(name, pkg);
-  const note = current !== local ? c.yellow(` (was ${local} locally, ${current} on registry)`) : "";
-  console.log(`  ${c.green(name)}: ${current} → ${next}${note}`);
+  for (const name of packagesToPublish) {
+    const { local, current, next } = versionMap.get(name)!;
+    const pkg = await readPkgJson(name);
+    pkg.version = next;
+    await writePkgJson(name, pkg);
+    const note = current !== local ? c.yellow(` (was ${local} locally, ${current} on registry)`) : "";
+    console.log(`  ${c.green(name)}: ${current} → ${next}${note}`);
+  }
 }
 
 // --- Step 7: Resolve workspace:* → real versions ---
@@ -450,7 +477,7 @@ console.log(c.yellow("Publishing packages..."));
 for (const name of packagesToPublish) {
   const pkg = await readPkgJson(name);
   console.log(`\n${c.green(`[${name}]`)} Publishing ${pkg.name}@${pkg.version}...`);
-  await runPassthrough(["bun", "publish", "--access", "restricted"], { cwd: pkgDir(name) });
+  await runPassthrough(["bun", "publish", "--access", "public"], { cwd: pkgDir(name) });
   console.log(c.green(`[${name}] Published successfully`));
 }
 
@@ -524,7 +551,7 @@ for (const name of packagesToPublish) {
   let verified = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const published = await run(["npm", "view", `${fullName}@${next}`, "version", "--registry", REGISTRY]);
+      const published = await run(["npm", "view", `${fullName}@${next}`, "version"]);
       if (published === next) {
         console.log(`  ${c.green(name)}: ${next} verified on registry`);
         verified = true;
