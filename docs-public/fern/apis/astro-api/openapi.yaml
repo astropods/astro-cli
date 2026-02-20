@@ -871,7 +871,7 @@ paths:
     post:
       tags: [deployments]
       summary: Trigger ingestion
-      description: Manually triggers a one-shot ingestion job for an ingestion source configured with `trigger.type: manual`.
+      description: "Manually triggers a one-shot ingestion job for an ingestion source configured with `trigger.type: manual`."
       operationId: triggerIngestion
       parameters:
         - $ref: "#/components/parameters/Namespace"
