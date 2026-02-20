@@ -1,0 +1,56 @@
+---
+title: Install the CLI
+subtitle: Download and set up the ast CLI
+slug: install-cli
+---
+
+The Astro AI CLI (`ast`) is used to create agents, run them locally, and push to the Astro AI registry. Install it from your Astro AI host (e.g. [astropod.ai](https://astropod.ai)).
+
+## Install (recommended)
+
+Run this in your terminal (macOS):
+
+```bash
+curl -fsSL https://astropod.ai/install | sh
+```
+
+Replace the URL with your Astro AI host if different. On Mac, if the binary is blocked, open **Settings → Privacy & Security** and click "Allow" for the downloaded file so it can run.
+
+## Manual install (macOS)
+
+Get the binary for your architecture and install into `/usr/local/bin`:
+
+**macOS (Intel):**
+
+```bash
+curl -fsSL https://astropod.ai/download/ast-darwin-amd64 -o ast && chmod +x ast
+sudo mv ast /usr/local/bin/
+```
+
+**macOS (Apple Silicon):**
+
+```bash
+curl -fsSL https://astropod.ai/download/ast-darwin-arm64 -o ast && chmod +x ast
+sudo mv ast /usr/local/bin/
+```
+
+## Verify installation
+
+```bash
+ast --version
+```
+
+## Keeping up to date
+
+Upgrade to the latest CLI version at any time:
+
+```bash
+ast upgrade
+```
+
+## Next steps
+
+- [Log in](/authentication#cli-commands) — `ast login`
+- [Your first project](/get-started) — create and run your first agent
+
+Run `ast --help` to see all available commands.

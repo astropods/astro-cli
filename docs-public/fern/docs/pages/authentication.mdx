@@ -1,0 +1,49 @@
+---
+title: Authentication
+subtitle: Log in and manage credentials for the Astro AI CLI and API
+slug: authentication
+---
+
+The Astro AI CLI and API use OAuth 2.0 Device Authorization Flow (RFC 8628) via WorkOS. You authenticate once in the browser; the CLI stores tokens and uses them for API calls.
+
+## How it works
+
+1. You run `ast login`.
+2. The CLI requests a device code from WorkOS and shows you a short code (e.g. `ABCD-EFGH`) and a verification URL.
+3. You open the URL, enter the code, and sign in with your identity provider (e.g. Google, GitHub).
+4. The CLI polls until authentication completes, then stores the tokens.
+
+Tokens are stored in the system keyring when available (macOS Keychain, Linux Secret Service, Windows Credential Manager). Otherwise they are stored in `~/.astro/credentials.json` with restricted permissions.
+
+## CLI commands
+
+| Command | Description |
+|--------|-------------|
+| `ast login` | Start device flow and open browser to authenticate |
+| `ast login --no-browser` | Print the verification URL instead of opening it |
+| `ast logout` | Clear stored credentials for the current profile |
+| `ast logout --all` | Clear all stored credentials |
+| `ast whoami` | Show current user and account info |
+
+## Credential storage
+
+- **Directory:** `~/.astro/`
+- **File:** `credentials.json` holds profile metadata. Tokens are in the keyring when available, or in this file as fallback.
+- **Profile:** Default profile is `default`. Use the `--server` flag on commands (e.g. `ast push`) to override the API server URL.
+
+## Token lifecycle
+
+- **Access token** — Short-lived (~1 hour), used for API requests.
+- **Refresh token** — Long-lived; used to obtain new access tokens.
+
+The CLI refreshes the access token automatically when it is close to expiry.
+
+## API authentication
+
+Authenticated API requests use a Bearer token in the `Authorization` header:
+
+```
+Authorization: Bearer <access_token>
+```
+
+Obtain the token via the CLI login flow or from your credential store. The [API reference](/api-reference) documents which endpoints require authentication.

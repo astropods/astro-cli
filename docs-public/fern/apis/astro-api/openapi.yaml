@@ -1,0 +1,407 @@
+openapi: 3.1.0
+servers:
+  - url: https://api.astropod.ai/api/v1
+    description: Astro AI API server
+info:
+  title: Astro AI API
+  description: |
+    API for the Astro AI platform: list and manage agents, register and publish agent builds,
+    and retrieve deployment configuration. Public endpoints return only published agents;
+    authenticated account members can see all builds and perform write operations.
+  version: 1.0.0
+  contact:
+    name: Astro AI Support
+    url: https://astropod.ai
+
+tags:
+  - name: agents
+    description: Agent registry and lifecycle
+  - name: accounts
+    description: Account and profile
+
+security:
+  - BearerAuth: []
+
+paths:
+  /agents:
+    get:
+      tags: [agents]
+      summary: List agents
+      description: Returns the public catalog of agents that have at least one published semver version. No authentication required.
+      operationId: listAgents
+      security: []
+      responses:
+        "200":
+          description: List of agents with versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentsListResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /agents/{account}/{name}:
+    get:
+      tags: [agents]
+      summary: Get agent
+      description: |
+        Returns an agent by account and name. Public callers see only published versions;
+        authenticated account members see all builds and semver annotations.
+      operationId: getAgent
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: Agent details with versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{account}/{name}/register:
+    post:
+      tags: [agents]
+      summary: Register agent
+      description: Registers a new agent build or updates an existing one. Requires account owner or admin role.
+      operationId: registerAgent
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterAgentRequest"
+      responses:
+        "201":
+          description: Agent registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /agents/{account}/{name}/publish:
+    post:
+      tags: [agents]
+      summary: Publish agent version
+      description: Assigns a semver version to a build, making it publicly visible in the catalog. Requires account owner or admin.
+      operationId: publishAgent
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishAgentRequest"
+      responses:
+        "201":
+          description: Version published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{account}/{name}/config:
+    get:
+      tags: [agents]
+      summary: Get agent config
+      description: Returns required credentials and config for deploying the latest build. Used by the dashboard for deployment setup.
+      operationId: getAgentConfig
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+        - name: interfaces
+          in: query
+          description: Comma-separated interface names to include (e.g. slack,web)
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent name, build_id, and required credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentConfigResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me:
+    get:
+      tags: [accounts]
+      summary: Get profile
+      description: Returns the authenticated user's profile and accounts.
+      operationId: getProfile
+      responses:
+        "200":
+          description: User profile and accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth 2.0 device flow or session token from WorkOS
+
+  parameters:
+    Account:
+      name: account
+      in: path
+      required: true
+      description: Account name (slug)
+      schema:
+        type: string
+    Name:
+      name: name
+      in: path
+      required: true
+      description: Agent name
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient permissions for this account
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+
+    AgentsListResponse:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentResponse"
+        count:
+          type: integer
+
+    AgentResponse:
+      type: object
+      properties:
+        account:
+          type: string
+        name:
+          type: string
+        registry:
+          type: string
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentVersionResponse"
+
+    AgentVersionResponse:
+      type: object
+      properties:
+        build_id:
+          type: string
+        version:
+          type: string
+          description: Semver if published
+        spec:
+          type: object
+          additionalProperties: true
+        readme:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+        validation_warnings:
+          type: array
+          items:
+            type: object
+
+    RegisterAgentRequest:
+      type: object
+      required: [build_id, registry, spec_content]
+      properties:
+        build_id:
+          type: string
+        registry:
+          type: string
+          description: OCI registry URL
+        spec_content:
+          type: string
+          description: YAML content of astro spec
+        readme:
+          type: string
+
+    RegisterAgentResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        account:
+          type: string
+        name:
+          type: string
+        build_id:
+          type: string
+        validation_warnings:
+          type: array
+          items:
+            type: object
+
+    PublishAgentRequest:
+      type: object
+      required: [build_id, version]
+      properties:
+        build_id:
+          type: string
+        version:
+          type: string
+          description: Semver version (e.g. 1.0.0)
+
+    PublishAgentResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        account:
+          type: string
+        name:
+          type: string
+        build_id:
+          type: string
+        version:
+          type: string
+
+    AgentConfigResponse:
+      type: object
+      properties:
+        agent:
+          type: string
+        build_id:
+          type: string
+        credentials:
+          type: array
+          description: Required credential keys for deployment
+
+    ProfileResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Account"
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email_verified:
+          type: boolean
+        profile_picture_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        role:
+          type: string
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSummary"
+
+    AgentSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        registry:
+          type: string
+        build_count:
+          type: integer
+        published_version_count:
+          type: integer

@@ -1,0 +1,48 @@
+---
+title: API reference
+subtitle: Astro AI REST API for agents and accounts
+slug: api-reference
+---
+
+The Astro AI API lets you list and inspect agents, register and push builds, and retrieve deployment configuration. It is used by the `ast` CLI and the Astro AI dashboard.
+
+## Base URL
+
+Requests go to your Astro AI server, for example:
+
+```
+https://api.astro.example.com/api/v1
+```
+
+The base URL is set when you run `ast login` and is stored in your profile.
+
+## Authentication
+
+- **Public:** `GET /agents` (list public catalog) and `GET /agents/:account/:name` (public view of an agent) do not require authentication.
+- **Authenticated:** All other endpoints require a Bearer token. Use `ast login` to obtain and store tokens; the CLI sends them automatically.
+
+Send the token in the header:
+
+```
+Authorization: Bearer <your_access_token>
+```
+
+## Agents
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/agents` | List all agents with at least one published version (public) |
+| GET | `/agents/:account/:name` | Get agent details and versions (public sees published only; account members see all builds) |
+| POST | `/agents/:account/:name/register` | Register or update an agent build (auth, account owner/admin) |
+| POST | `/agents/:account/:name/publish` | Push a build with a semver version (auth, account owner/admin) |
+| GET | `/agents/:account/:name/config` | Get required credentials for deploying the latest build (auth) |
+
+## Profile
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/me` | Get current user profile and accounts (auth) |
+
+## OpenAPI spec
+
+The reference documentation in the **Endpoints** section is generated from the [Astro AI OpenAPI specification](https://github.com/astromode-ai/astro-docs/blob/main/fern/apis/astro-api/openapi.yaml). You can use it to generate clients or integrate with the API programmatically.

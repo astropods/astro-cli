@@ -1,0 +1,53 @@
+---
+title: Your first Astro AI project
+subtitle: Deploy your first agent in four steps
+slug: get-started
+---
+
+Go from zero to a running agent in four steps. Have the [CLI installed](/install-cli) and Docker ready.
+
+## 1. Log in
+
+Authenticate with your Astro AI account:
+
+```bash
+ast login
+```
+
+Complete the browser flow to link the CLI to your account.
+
+## 2. Create an agent
+
+Scaffold a new project:
+
+```bash
+ast create hello-astro
+```
+
+Use `--yes` to skip prompts and use defaults (HTTP interface, Anthropic model, no knowledge or tools).
+
+## 3. Run locally
+
+Start a local dev environment with hot-reload:
+
+```bash
+cd hello-astro && ast dev
+```
+
+Edit code and the agent restarts automatically. Add API keys to `.env` as needed (e.g. `ANTHROPIC_API_KEY`).
+
+## 4. Push
+
+Push your agent to the Astro AI registry:
+
+```bash
+ast push
+```
+
+Your agent is then available in your account. You can use `ast push --build` to build first, then push to your OCI registry and register with the Astro AI server.
+
+---
+
+## More commands
+
+Run `ast --help` to see all available commands.

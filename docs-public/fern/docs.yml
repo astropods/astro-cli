@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
+
+instances:
+  - url: astro-061127.docs.buildwithfern.com
+    custom-domain: docs.astropod.ai
+    audiences:
+      - internal
+
+ai-search:
+  location:
+    - docs
+
+title: Astro AI | Documentation
+layout:
+  searchbar-placement: header
+  page-width: full
+  tabs-placement: header
+
+tabs:
+  home:
+    display-name: Docs
+    icon: home
+  API Reference:
+    display-name: API Reference
+    icon: puzzle
+
+navigation:
+  - tab: home
+    layout:
+      - section: Get started
+        contents:
+          - page: Welcome
+            path: docs/pages/welcome.mdx
+            icon: fa-duotone fa-house
+          - page: Install the CLI
+            path: docs/pages/install-cli.mdx
+            icon: fa-duotone fa-download
+          - page: Your first project
+            path: docs/pages/get-started.mdx
+            icon: fa-duotone fa-rocket
+          - page: Authentication
+            path: docs/pages/authentication.mdx
+            icon: fa-duotone fa-key
+      - section: Changelog
+        contents:
+          - changelog: docs/changelog
+  - tab: API Reference
+    layout:
+      - section: Overview
+        contents:
+          - page: API reference
+            path: docs/pages/api-reference-overview.mdx
+            icon: fa-duotone fa-book
+      - section: Endpoints
+        contents:
+          - api: Astro AI API
+            api-name: astro-api
+
+colors:
+  accent-primary:
+    dark: "#14b8a6"
+    light: "#0d9488"
+  background:
+    dark: "#252525"
+    light: "#f5f5f4"
+
+theme:
+  page-actions: toolbar
+  footer-nav: minimal
+
+logo:
+  dark: docs/assets/logo-dark.svg
+  light: docs/assets/logo.svg
+  height: 24
+
+favicon: docs/assets/favicon.svg

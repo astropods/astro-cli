@@ -1,0 +1,27 @@
+name: fern-check
+
+on:
+  pull_request:
+    paths:
+      - 'docs-public/fern/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs-public/fern/**'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-public
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Fern CLI tool
+        run: npm install -g fern-api
+
+      - name: Check API is valid
+        run: fern check
