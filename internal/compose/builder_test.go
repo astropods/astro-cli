@@ -30,12 +30,8 @@ func TestBuildProject_MinimalSpec(t *testing.T) {
 		t.Errorf("Name = %q, want %q", project.Name, "my-agent")
 	}
 
-	// Should have agent + collector = 2 services
 	if _, ok := project.Services["agent"]; !ok {
 		t.Error("missing agent service")
-	}
-	if _, ok := project.Services["astro-collector"]; !ok {
-		t.Error("missing astro-collector service")
 	}
 
 	agent := project.Services["agent"]

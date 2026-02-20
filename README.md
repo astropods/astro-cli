@@ -27,14 +27,6 @@ moon run astro-cli:build
 
 Output: `apps/astro-cli/bin/ast`.
 
-Optional: inject `GITHUB_PACKAGES_TOKEN` at link time so the binary can pull from GHCR without env:
-
-```bash
-GITHUB_PACKAGES_TOKEN=ghp_xxx moon run astro-cli:build
-```
-
-Without the token, the CLI falls back to `GITHUB_PACKAGES_TOKEN` from the environment (e.g. `.env`) at runtime.
-
 Plain Go build (no moon):
 
 ```bash
@@ -81,7 +73,7 @@ apps/astro-cli/
 │   ├── login.go / logout.go # Auth
 │   ├── playground.go       # ast playground
 │   ├── create.go            # ast create — scaffold new agent
-│   └── tokens.go            # GITHUB_PACKAGES_TOKEN (ldflags-injected or env)
+│   └── version.go           # version/commit (ldflags-injected)
 ├── internal/
 │   ├── auth/               # Server/registry auth, token storage, crane
 │   ├── compose/             # Compose project generation from spec
@@ -89,7 +81,7 @@ apps/astro-cli/
 │   ├── utils/               # Helpers (env, image names)
 │   └── watcher/             # File watcher for hot reload
 ├── go.mod / go.sum
-├── moon.yml                 # moon build task (optional token injection)
+├── moon.yml                 # moon build task
 └── docs/
     └── INTERNAL.md          # This file
 ```

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -53,7 +52,7 @@ var devStartCmd = &cobra.Command{
 var devLogsCmd = &cobra.Command{
 	Use:   "logs [service]",
 	Short: "Tail container logs",
-	Long:  `Tail logs from the running dev containers. Optionally specify a service name to filter logs.`,
+	Long:  `Tail logs from the running dev containers. Defaults to the agent container. Optionally specify a service name (e.g. astro-messaging, playground) to tail a different container.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDevLogs,
 }
@@ -114,7 +113,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if err := unlinkLocalPackages(workingDir); err != nil {
 			return fmt.Errorf("local-reset: %w", err)
 		}
-		log.Printf("📦 Removed local packages. Run 'bun install' to restore dependencies.")
+		fmt.Println("📦 Removed local packages. Run 'bun install' to restore dependencies.")
 		return nil
 	}
 
@@ -126,8 +125,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	log.Printf("🚀 Starting Astro dev mode...")
-	log.Printf("📄 Loading spec from: %s", specFile)
+	fmt.Printf("🚀 Starting Astro dev mode...\n")
+	fmt.Printf("📄 Loading spec from: %s\n", specFile)
 
 	// Parse astroai.yml
 	specPath := filepath.Join(workingDir, specFile)
@@ -136,7 +135,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	log.Printf("✅ Loaded spec for agent: %s", astroSpec.Name)
+	fmt.Printf("✅ Loaded spec for agent: %s\n", astroSpec.Name)
 
 	// Load .env file
 	envVars, err := utils.LoadEnvFile(workingDir, envFile)
@@ -145,25 +144,19 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	if envVars == nil {
 		envVars = make(map[string]string)
-		log.Printf("⚠️  No .env file found at %s (continuing without integration credentials)", envFile)
+		fmt.Printf("⚠️  No .env file found at %s (continuing without integration credentials)\n", envFile)
 	} else {
-		log.Printf("🔑 Loading environment from: %s", envFile)
+		fmt.Printf("🔑 Loading environment from: %s\n", envFile)
 		var envKeys []string
 		for key := range envVars {
 			envKeys = append(envKeys, key)
 		}
-		log.Printf("   Loaded %d environment variables: %s", len(envKeys), strings.Join(envKeys, ", "))
+		fmt.Printf("   Loaded %d environment variables: %s\n", len(envKeys), strings.Join(envKeys, ", "))
 		for key, val := range envVars {
 			os.Setenv(key, val)
 		}
 	}
-	if t := getGitHubPackagesToken(); t != "" {
-		envVars["GITHUB_PACKAGES_TOKEN"] = t
-		os.Setenv("GITHUB_PACKAGES_TOKEN", t)
-	}
-
 	// Build Docker Compose project
-	log.Printf("🐳 Building Docker Compose project...")
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
 	if err != nil {
 		return fmt.Errorf("failed to build compose project: %w", err)
@@ -178,7 +171,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if verbose {
-			log.Printf("   --local: using local image names (no pull)")
+			fmt.Println("   --local: using local image names (no pull)")
 		}
 	}
 
@@ -186,14 +179,14 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if local {
 		delete(project.Services, "agent")
 		if verbose {
-			log.Printf("   --local: agent will run as local process")
+			fmt.Println("   --local: agent will run as local process")
 		}
 	}
 
 	if verbose {
-		log.Printf("   Services: %d", len(project.Services))
+		fmt.Printf("   Services: %d\n", len(project.Services))
 		for name := range project.Services {
-			log.Printf("     - %s", name)
+			fmt.Printf("     - %s\n", name)
 		}
 	}
 
@@ -213,31 +206,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if verbose {
-		log.Printf("   Wrote compose file to: %s", cPath)
-	}
-
-	// Check for GITHUB_PACKAGES_TOKEN before building (unless skipping pull)
-	if !noPull {
-		ghcrToken := getGitHubPackagesToken()
-		if ghcrToken == "" {
-			return fmt.Errorf("GITHUB_PACKAGES_TOKEN is required (set in env or use a CLI build that injects it)")
-		}
-
-		// Login to GHCR (for pulling astro-messaging image)
-		log.Printf("🔑 Logging into GHCR...")
-		loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
-		loginCmd.Stdin = strings.NewReader(ghcrToken)
-		if err := loginCmd.Run(); err != nil {
-			log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
-		}
+		fmt.Printf("   Wrote compose file to: %s\n", cPath)
 	}
 
 	// Start services using Docker Compose CLI
-	log.Printf("🔨 Building and starting services...")
+	fmt.Println("🔨 Building and starting services...")
 
 	// Build with or without cache based on rebuild flag
 	if rebuild {
-		log.Printf("   Using --no-cache for clean rebuild...")
+		fmt.Println("   Using --no-cache for clean rebuild...")
 		buildCmd := exec.Command("docker", "compose", "-f", cPath, "build", "--no-cache")
 		buildCmd.Stdout = os.Stdout
 		buildCmd.Stderr = os.Stderr
@@ -257,7 +234,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
-	log.Printf("✅ All services running!")
+	fmt.Println()
+	fmt.Println("✅ All services running!")
 
 	// Check if messaging interface is configured (from dev section)
 	hasMessagingInterface := false
@@ -273,13 +251,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if hasMessagingInterface {
-		log.Printf("💬 Messaging service running on gRPC port 9090")
-	}
-
-	if hasWebInterface {
-		log.Printf("🌐 Playground running at http://localhost:3000")
-		log.Printf("   Web API available at http://localhost:3100")
+	if hasMessagingInterface && !hasWebInterface {
+		fmt.Println("💬 Messaging service running on gRPC port 9090")
 	}
 
 	// --local: run agent as local process and block
@@ -288,11 +261,18 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Non-local mode: print hints and exit
-	log.Printf("")
-	log.Printf("💡 Containers running in background. Use:")
-	log.Printf("   ast dev logs    — tail container logs")
-	log.Printf("   ast dev stop    — stop containers")
-	log.Printf("")
+	fmt.Println()
+	if hasWebInterface {
+		fmt.Println("  Your agent is ready. Open the playground to start chatting:")
+		fmt.Println()
+		fmt.Printf("  %s%s➜  http://localhost:3000%s\n", colorBold, colorGreen, colorReset)
+		fmt.Println()
+		fmt.Printf("  %sAPI  http://localhost:3100%s\n", colorDim, colorReset)
+	}
+	fmt.Println()
+	fmt.Printf("  %sast dev logs%s  — tail logs\n", colorBold, colorReset)
+	fmt.Printf("  %sast dev stop%s  — stop\n", colorBold, colorReset)
+	fmt.Println()
 
 	return nil
 }
@@ -312,7 +292,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("link local packages: %w", err)
 	}
-	log.Printf("📦 Using local packages from %s", astroRoot)
+	fmt.Printf("📦 Using local packages from %s\n", astroRoot)
 
 	// Resolve start command from spec (default: "bun --watch run start")
 	startCommand := "bun --watch run start"
@@ -330,7 +310,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("failed to start agent: %w", err)
 	}
-	log.Printf("🤖 Agent running as local process (%s)", startCommand)
+	fmt.Printf("🤖 Agent running as local process (%s)\n", startCommand)
 
 	if hasWebInterface {
 		// Open playground in browser
@@ -354,10 +334,10 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 				cronPattern := devSchedule
 				ingestionName := name
 
-				log.Printf("⏰ Scheduling ingestion '%s' with pattern: %s", ingestionName, cronPattern)
+				fmt.Printf("⏰ Scheduling ingestion '%s' with pattern: %s\n", ingestionName, cronPattern)
 
 				_, err := cronScheduler.AddFunc(cronPattern, func() {
-					log.Printf("🔄 Running ingestion: %s", ingestionName)
+					fmt.Printf("🔄 Running ingestion: %s\n", ingestionName)
 
 					serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
 					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName)
@@ -365,18 +345,18 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 					runCmd.Stderr = os.Stderr
 
 					if err := runCmd.Run(); err != nil {
-						log.Printf("❌ Failed to run ingestion '%s': %v", ingestionName, err)
+						fmt.Printf("❌ Failed to run ingestion '%s': %v\n", ingestionName, err)
 					} else {
-						log.Printf("✅ Ingestion '%s' completed", ingestionName)
+						fmt.Printf("✅ Ingestion '%s' completed\n", ingestionName)
 					}
 				})
 
 				if err != nil {
-					log.Printf("⚠️  Failed to schedule ingestion '%s': %v", ingestionName, err)
+					fmt.Printf("⚠️  Failed to schedule ingestion '%s': %v\n", ingestionName, err)
 				}
 			} else if ingestion.Trigger.Type == "startup" {
 				ingestionName := name
-				log.Printf("🚀 Running startup ingestion: %s", ingestionName)
+				fmt.Printf("🚀 Running startup ingestion: %s\n", ingestionName)
 
 				serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
 				go func() {
@@ -384,9 +364,9 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 					runCmd.Stdout = os.Stdout
 					runCmd.Stderr = os.Stderr
 					if err := runCmd.Run(); err != nil {
-						log.Printf("❌ Failed to run startup ingestion '%s': %v", ingestionName, err)
+						fmt.Printf("❌ Failed to run startup ingestion '%s': %v\n", ingestionName, err)
 					} else {
-						log.Printf("✅ Startup ingestion '%s' completed", ingestionName)
+						fmt.Printf("✅ Startup ingestion '%s' completed\n", ingestionName)
 					}
 				}()
 			}
@@ -395,7 +375,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		if cronScheduler != nil {
 			cronScheduler.Start()
 			defer cronScheduler.Stop()
-			log.Printf("📅 Ingestion scheduler started")
+			fmt.Println("📅 Ingestion scheduler started")
 		}
 	}
 
@@ -403,14 +383,14 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	log.Printf("")
-	log.Printf("✨ Ready! Press Ctrl+C to stop")
-	log.Printf("")
+	fmt.Println()
+	fmt.Println("✨ Ready! Press Ctrl+C to stop")
+	fmt.Println()
 
 	<-sigChan
 
-	log.Printf("")
-	log.Printf("🛑 Shutting down...")
+	fmt.Println()
+	fmt.Println("🛑 Shutting down...")
 
 	agentCancel()
 	if agentCmd.Process != nil {
@@ -425,8 +405,8 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
-	log.Printf("✅ Cleanup complete")
-	log.Printf("💡 Tip: run 'ast dev --local-reset' to remove injected local dependencies")
+	fmt.Println("✅ Cleanup complete")
+	fmt.Println("💡 Tip: run 'ast dev --local-reset' to remove injected local dependencies")
 
 	return nil
 }
@@ -441,10 +421,11 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
 	}
 
-	logsArgs := []string{"compose", "-f", cPath, "logs", "-f"}
+	service := "agent"
 	if len(args) > 0 {
-		logsArgs = append(logsArgs, args[0])
+		service = args[0]
 	}
+	logsArgs := []string{"compose", "-f", cPath, "logs", "-f", service}
 
 	logsCmd := exec.Command("docker", logsArgs...)
 	logsCmd.Stdout = os.Stdout
@@ -473,7 +454,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
 	}
 
-	log.Printf("🛑 Stopping dev containers...")
+	fmt.Println("🛑 Stopping dev containers...")
 	downCmd := exec.Command("docker", "compose", "-f", cPath, "down")
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
@@ -481,7 +462,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
-	log.Printf("✅ Containers stopped")
+	fmt.Println("✅ Containers stopped")
 	return nil
 }
 
@@ -497,7 +478,7 @@ func resolveAstroSourceRoot() (string, error) {
 
 // localAstroPackages are the @saswatds/* packages we link in --local and remove in --local-reset.
 var localAstroPackages = []string{
-	"astro-agent", "astro-graph", "astro-messaging",
+	"astro-agent", "astro-graph",
 }
 
 // linkLocalPackages symlinks node_modules/@saswatds/* to the given Astro repo packages/
@@ -575,10 +556,10 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	default:
-		log.Printf("⚠️  Unable to open browser automatically on %s", runtime.GOOS)
+		fmt.Printf("⚠️  Unable to open browser automatically on %s\n", runtime.GOOS)
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		log.Printf("⚠️  Failed to open browser: %v", err)
+		fmt.Printf("⚠️  Failed to open browser: %v\n", err)
 	}
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/postman/astro/apps/astro-cli/internal/utils"
 )
 
-const playgroundImage = "ghcr.io/saswatds/astro-playground:latest"
+const playgroundImage = "astromodeai/astro-playground:latest"
 
 var playgroundCmd = &cobra.Command{
 	Use:   "playground <url>",
@@ -80,18 +80,6 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 
 	// Pull latest image unless --no-pull or --local
 	if !playgroundNoPull {
-		ghcrToken := getGitHubPackagesToken()
-		if ghcrToken == "" {
-			return fmt.Errorf("GITHUB_PACKAGES_TOKEN is required (set in env or use a CLI build that injects it)")
-		}
-
-		log.Printf("🔑 Logging into GHCR...")
-		loginCmd := exec.Command("docker", "login", "ghcr.io", "-u", "saswatds", "--password-stdin")
-		loginCmd.Stdin = strings.NewReader(ghcrToken)
-		if err := loginCmd.Run(); err != nil {
-			log.Printf("⚠️  GHCR login failed: %v (continuing anyway)", err)
-		}
-
 		log.Printf("📦 Pulling playground image...")
 		pullCmd := exec.Command("docker", "pull", imageToUse)
 		pullCmd.Stdout = os.Stdout

@@ -3,19 +3,9 @@ FROM oven/bun:1 AS builder
 
 WORKDIR /app
 
-# NPM private registry configuration
-ARG NPM_SCOPE
-ARG NPM_REGISTRY
-
 # Install dependencies
-COPY package.json bun.lock* ./
-RUN --mount=type=secret,id=npm_token \
-    if [ -f /run/secrets/npm_token ]; then \
-      echo "${NPM_SCOPE}:registry=${NPM_REGISTRY}" >> ~/.npmrc; \
-      echo "//npm.pkg.github.com/:_authToken=$(cat /run/secrets/npm_token)" >> ~/.npmrc; \
-    fi && \
-    bun install --frozen-lockfile && \
-    rm -f ~/.npmrc
+COPY package.json .npmrc ./
+RUN bun install
 
 # Copy source
 COPY . .

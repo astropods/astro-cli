@@ -9,12 +9,6 @@ agent:
   build:
     context: .
     dockerfile: Dockerfile
-    args:
-      NPM_SCOPE: "@saswatds"
-      NPM_REGISTRY: "https://npm.pkg.github.com"
-    secrets:
-      - id: npm_token
-        env: GITHUB_PACKAGES_TOKEN
 {{- if or (ne .ModelProvider "") (.HasIntegration "anthropic") (.HasIntegration "openai")}}
 
 models:
@@ -66,12 +60,6 @@ ingestion:
       build:
         context: .
         dockerfile: Dockerfile.ingestion
-        args:
-          NPM_SCOPE: "@saswatds"
-          NPM_REGISTRY: "https://npm.pkg.github.com"
-        secrets:
-          - id: npm_token
-            env: GITHUB_PACKAGES_TOKEN
 {{- if eq .Ingestion "webhook"}}
       port: 3001
 {{- end}}

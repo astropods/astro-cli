@@ -33,7 +33,7 @@ import {
   type AgentConfig,
   type AgentResponse,
   type Message,
-} from '@saswatds/astro-messaging';
+} from '@astromode-ai/astro-messaging';
 
 const AGENT_NAME = '{{.Name}}';
 const GRPC_SERVER_ADDR = process.env.GRPC_SERVER_ADDR || 'localhost:9090';
