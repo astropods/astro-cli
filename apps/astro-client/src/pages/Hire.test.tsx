@@ -150,17 +150,20 @@ describe('Hire page', () => {
   // ── Agent Card Links ──────────────────────────────────────────────────
 
   describe('agent card links', () => {
-    it('agent cards link to /hire/{account}/{name}', async () => {
+    it('agent cards link to /{account}/{name}', async () => {
       renderHire();
       await waitForAgents();
 
       const links = screen.getAllByRole('link');
-      const agentLinks = links.filter((l) => l.getAttribute('href')?.startsWith('/hire/'));
+      const agentLinks = links.filter((l) => {
+        const href = l.getAttribute('href');
+        return href?.startsWith('/testuser/');
+      });
       expect(agentLinks).toHaveLength(2);
 
       const hrefs = agentLinks.map((l) => l.getAttribute('href'));
-      expect(hrefs).toContain('/hire/testuser/code-reviewer');
-      expect(hrefs).toContain('/hire/testuser/data-analyst');
+      expect(hrefs).toContain('/testuser/code-reviewer');
+      expect(hrefs).toContain('/testuser/data-analyst');
     });
   });
 });

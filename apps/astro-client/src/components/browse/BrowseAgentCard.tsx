@@ -18,7 +18,7 @@ export function BrowseAgentCard({
 }: BrowseAgentCardProps) {
   return (
     <Link
-      to={`/hire/${slug}`}
+      to={`/${slug}`}
       className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-stone-200"
     >
       <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">

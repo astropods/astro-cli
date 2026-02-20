@@ -225,7 +225,7 @@ export function FindAgentsWizard({ onClose }: WizardProps) {
                     </div>
                     <p className="text-stone-600 text-sm mb-2">{agent.description}</p>
                     <Link
-                      to={`/hire/${agent.slug}`}
+                      to={`/${agent.slug}`}
                       className="inline-block px-3 py-1.5 border border-stone-300 text-sm text-stone-700 no-underline hover:bg-stone-50"
                       onClick={onClose}
                     >

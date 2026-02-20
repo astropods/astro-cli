@@ -58,7 +58,7 @@ export function AgentCard({
           Install Agent
         </Button>
         <Button variant="outline" className="flex-1" asChild>
-          <Link to={`/hire/${slug}`}>View details</Link>
+          <Link to={`/${slug}`}>View details</Link>
         </Button>
       </div>
     </div>
