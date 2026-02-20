@@ -13,6 +13,7 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
 	repairui "github.com/postman/astro/apps/astro-cli/internal/tui/repair"
@@ -51,12 +52,50 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	var specMissing bool
 
 	if specErr != nil {
-		specMissing = true
-		config = inferConfigFallback(workingDir)
-		fmt.Println()
-		fmt.Printf("%s!%s astroai.yml is missing or invalid — using inferred config (name: %s%s%s)\n",
-			colorYellow, colorReset, colorBold, config.Name, colorReset)
-	} else {
+		// Check if the old astro.yml filename is present and offer to rename it.
+		oldSpecPath := filepath.Join(workingDir, "astro.yml")
+		if oldSpec, oldErr := spec.ParseSpec(oldSpecPath); oldErr == nil {
+			fmt.Println()
+			fmt.Printf("%s!%s Found %sastro.yml%s — this file has been renamed to %sastroai.yml%s\n",
+				colorYellow, colorReset, colorBold, colorReset, colorBold, colorReset)
+
+			rename := true
+			if !yesFlag {
+				reader := bufio.NewReader(os.Stdin)
+				fmt.Printf("  Rename astro.yml → astroai.yml? [Y/n] ")
+				line, _ := reader.ReadString('\n')
+				trimmed := strings.TrimSpace(strings.ToLower(line))
+				if trimmed != "" && trimmed != "y" {
+					rename = false
+					fmt.Printf("  %sskipped%s\n", colorDim, colorReset)
+				}
+			}
+
+			if rename {
+				if renameErr := os.Rename(oldSpecPath, specPath); renameErr != nil {
+					fmt.Printf("  %s✗%s failed to rename: %v\n", colorRed, colorReset, renameErr)
+				} else {
+					fmt.Printf("  %s✓%s Renamed astro.yml → astroai.yml\n", colorGreen, colorReset)
+					astroSpec = oldSpec
+					specErr = nil
+				}
+			} else {
+				// Use the old spec for config even without renaming
+				astroSpec = oldSpec
+				specErr = nil
+			}
+		}
+
+		if specErr != nil {
+			specMissing = true
+			config = inferConfigFallback(workingDir)
+			fmt.Println()
+			fmt.Printf("%s!%s astroai.yml is missing or invalid — using inferred config (name: %s%s%s)\n",
+				colorYellow, colorReset, colorBold, config.Name, colorReset)
+		}
+	}
+
+	if specErr == nil {
 		config = configFromSpec(astroSpec)
 	}
 
@@ -79,8 +118,6 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		{repairFileCheck{filepath.Join(workingDir, ".dockerignore"), paths.Dockerignore}, ".dockerignore", true},
 		{repairFileCheck{filepath.Join(workingDir, "CLAUDE.md"), paths.LlmMd}, "CLAUDE.md", true},
 		{repairFileCheck{filepath.Join(workingDir, "AGENTS.md"), paths.LlmMd}, "AGENTS.md", true},
-		{repairFileCheck{filepath.Join(workingDir, "package.json"), paths.PackageJson}, "package.json", false},
-		{repairFileCheck{filepath.Join(workingDir, "README.md"), paths.Readme}, "README.md", false},
 	}
 
 	if config.Ingestion != "none" {
@@ -185,6 +222,11 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	// Scan for deprecated @saswatds/astro-messaging references
 	checkDeprecatedPackages(workingDir, reader, yesFlag)
 
+	// Remove deprecated build args/secrets from astroai.yml
+	if !specMissing {
+		checkBuildArgsAndSecrets(specPath, reader, yesFlag)
+	}
+
 	// Delete bun.lock so the updated .npmrc is picked up on next install
 	bunLock := filepath.Join(workingDir, "bun.lock")
 	if _, err := os.Stat(bunLock); err == nil {
@@ -194,6 +236,16 @@ func runRepair(cmd *cobra.Command, args []string) error {
 			fmt.Printf("%s✓%s Removed bun.lock\n", colorGreen, colorReset)
 		}
 		fmt.Printf("%s!%s Run %sbun install%s to reinstall dependencies\n\n", colorYellow, colorReset, colorBold, colorReset)
+	}
+
+	// Delete the old .astro directory if present (replaced by .ast).
+	astroDir := filepath.Join(workingDir, ".astro")
+	if _, err := os.Stat(astroDir); err == nil {
+		if removeErr := os.RemoveAll(astroDir); removeErr != nil {
+			fmt.Printf("%s!%s Failed to remove .astro: %v\n", colorYellow, colorReset, removeErr)
+		} else {
+			fmt.Printf("%s✓%s Removed .astro\n", colorGreen, colorReset)
+		}
 	}
 
 	return nil
@@ -419,4 +471,89 @@ func checkDeprecatedPackages(workingDir string, reader *bufio.Reader, yes bool) 
 	if updated > 0 {
 		fmt.Println()
 	}
+}
+
+// checkBuildArgsAndSecrets scans astroai.yml for deprecated build args/secrets under
+// agent.build and ingestion[*].container.build, and offers to remove them.
+func checkBuildArgsAndSecrets(specPath string, reader *bufio.Reader, yes bool) {
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		return
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil || len(root.Content) == 0 {
+		return
+	}
+	doc := root.Content[0]
+
+	removed := removeBuildArgsSecrets(doc)
+	if removed == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Printf("%s!%s Found deprecated %sargs%s/%ssecrets%s in build config in %s (no longer needed):\n",
+		colorYellow, colorReset, colorBold, colorReset, colorBold, colorReset, filepath.Base(specPath))
+	fmt.Println()
+
+	if !yes {
+		fmt.Printf("  Remove build args and secrets from %s? [Y/n] ", filepath.Base(specPath))
+		line, _ := reader.ReadString('\n')
+		trimmed := strings.TrimSpace(strings.ToLower(line))
+		if trimmed != "" && trimmed != "y" {
+			fmt.Printf("  %sskipped%s\n\n", colorDim, colorReset)
+			return
+		}
+	}
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		fmt.Printf("  %s✗%s failed to encode yaml: %v\n", colorRed, colorReset, err)
+		return
+	}
+	if err := os.WriteFile(specPath, buf.Bytes(), 0644); err != nil {
+		fmt.Printf("  %s✗%s failed to write %s: %v\n", colorRed, colorReset, filepath.Base(specPath), err)
+		return
+	}
+	fmt.Printf("  %s✓%s Removed build args and secrets from %s\n\n", colorGreen, colorReset, filepath.Base(specPath))
+}
+
+// removeBuildArgsSecrets walks a yaml.Node tree and removes "args" and "secrets" keys
+// from any "build" mapping node. Returns the number of keys removed.
+func removeBuildArgsSecrets(node *yaml.Node) int {
+	if node == nil {
+		return 0
+	}
+	removed := 0
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content)-1; i += 2 {
+			key := node.Content[i]
+			val := node.Content[i+1]
+			if key.Value == "build" && val.Kind == yaml.MappingNode {
+				// Remove args and secrets keys from this build node
+				var kept []*yaml.Node
+				for j := 0; j < len(val.Content)-1; j += 2 {
+					if val.Content[j].Value == "args" || val.Content[j].Value == "secrets" {
+						removed++
+					} else {
+						kept = append(kept, val.Content[j], val.Content[j+1])
+					}
+				}
+				val.Content = kept
+			} else {
+				removed += removeBuildArgsSecrets(val)
+			}
+		}
+	}
+	for _, child := range node.Content {
+		if child.Kind == yaml.SequenceNode || child.Kind == yaml.DocumentNode {
+			for _, item := range child.Content {
+				removed += removeBuildArgsSecrets(item)
+			}
+		}
+	}
+	return removed
 }
