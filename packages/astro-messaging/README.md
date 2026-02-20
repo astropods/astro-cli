@@ -16,7 +16,7 @@ A production-ready Go-based messaging service that enables AI agents to interact
 This package includes SDKs for building agents:
 
 - **Go SDK**: `pkg/client/go/` - See [examples/simple-agent](examples/simple-agent/)
-- **TypeScript SDK**: `sdk/typescript/` - See [engineering-assistant-ts](../astro-agents/engineering-assistant-ts/)
+- **TypeScript SDK**: `sdk/typescript/`
 
 Both SDKs provide the same functionality:
 - gRPC client for messaging service
@@ -66,7 +66,7 @@ Both SDKs provide the same functionality:
 
 ## 🚀 Quick Start
 
-This package provides a standalone container for the messaging service. For a complete working setup with docker-compose orchestration, see the `@astro/agents` package which includes scripts to run the full application stack (agent + messaging + Redis).
+This package provides a standalone container for the messaging service.
 
 ### Using gRPC (Recommended)
 
@@ -138,7 +138,7 @@ docker run -p 8081:8081 \
 
 ### Running the Full Application Stack
 
-See `packages/astro-agents` for docker-compose setup and orchestration scripts.
+See `deployments/docker-compose.yaml` for docker-compose setup.
 
 ## Architecture
 
@@ -227,26 +227,11 @@ See `packages/astro-agents` for docker-compose setup and orchestration scripts.
    go run cmd/messaging/main.go
    ```
 
-5. **In another terminal, start the agent container:**
-   ```bash
-   cd ../../packages/astro-agents
-   bun run slack-server
-   ```
-
-6. **Verify health:**
+5. **Verify health:**
    ```bash
    curl http://localhost:8081/health
    curl http://localhost:8080/health
    ```
-
-### With Full Application Stack
-
-For docker-compose orchestration with agent and Redis, see the `@astro/agents` package:
-
-```bash
-cd packages/astro-agents
-./start.sh  # Runs full stack via docker-compose
-```
 
 ## Configuration
 

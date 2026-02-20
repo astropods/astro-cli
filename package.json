@@ -4,7 +4,6 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "packages/astro-agents/*",
     "apps/*"
   ],
   "scripts": {
