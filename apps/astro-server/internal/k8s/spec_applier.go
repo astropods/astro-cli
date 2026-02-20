@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
@@ -587,6 +588,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Phase 7: CronJobs/Jobs for ingestion
+	var manualIngestions []string
 	for name, ingestion := range ds.Ingestion {
 		resourceName := deployment.GenerateResourceName(agentName, "ingestion", name)
 		component := fmt.Sprintf("ingestion-%s", name)
@@ -684,8 +686,22 @@ func (a *Applier) ApplyDeploymentSpec(
 					URL: externalURL, Port: 443,
 				})
 			}
+
+		case "manual":
+			manualIngestions = append(manualIngestions, name)
 		}
-		// "manual" triggers: no resources created at deploy time
+	}
+
+	// Annotate namespace with manual ingestion names so the listing API can surface them
+	if len(manualIngestions) > 0 {
+		ns, err := a.clientset.CoreV1().Namespaces().Get(ctx, a.namespace, metav1.GetOptions{})
+		if err == nil {
+			if ns.Annotations == nil {
+				ns.Annotations = make(map[string]string)
+			}
+			ns.Annotations["astro.dev/manual-ingestions"] = strings.Join(manualIngestions, ",")
+			_, _ = a.clientset.CoreV1().Namespaces().Update(ctx, ns, metav1.UpdateOptions{})
+		}
 	}
 
 	// Collect agent service endpoint

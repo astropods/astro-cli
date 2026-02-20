@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
 	"github.com/postman/astro/packages/astro-spec"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -638,18 +640,30 @@ type PodDetail struct {
 	Containers []ContainerStatus `json:"containers"`
 }
 
+// JobDetail represents details about a single K8s Job (e.g. ingestion run)
+type JobDetail struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`      // "Running", "Succeeded", "Failed", "Pending"
+	Component   string `json:"component"`
+	Age         string `json:"age"`
+	StartTime   string `json:"start_time,omitempty"`
+	Completions string `json:"completions"` // "1/1", "0/1"
+}
+
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	Name         string               `json:"name"`
-	BuildID      string               `json:"build_id"`
-	Namespace    string               `json:"namespace"`
-	Status       string               `json:"status"`
-	Replicas     int32                `json:"replicas"`
-	Ready        int32                `json:"ready"`
-	CreatedAt    string               `json:"created_at"`
-	Components   []string             `json:"components"`
-	ExternalURLs []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	Pods         []PodDetail          `json:"pods,omitempty"`
+	Name              string               `json:"name"`
+	BuildID           string               `json:"build_id"`
+	Namespace         string               `json:"namespace"`
+	Status            string               `json:"status"`
+	Replicas          int32                `json:"replicas"`
+	Ready             int32                `json:"ready"`
+	CreatedAt         string               `json:"created_at"`
+	Components        []string             `json:"components"`
+	ManualIngestions  []string             `json:"manual_ingestions,omitempty"`
+	ExternalURLs      []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	Pods              []PodDetail          `json:"pods,omitempty"`
+	Jobs              []JobDetail          `json:"jobs,omitempty"`
 }
 
 // ListDeployments returns a handler for listing deployed agents
@@ -714,7 +728,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		// Aggregate deployments across all per-deployment namespaces
 		var allDeployments []AgentDeployment
 		for _, ns := range nsList.Items {
-			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name)
+			manualIngestions := parseManualIngestions(ns.Annotations)
+			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name, manualIngestions)
 			if err != nil {
 				log.Warn("Failed to list deployments in namespace", "namespace", ns.Name, "error", err)
 				continue
@@ -729,8 +744,17 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 	}
 }
 
+// parseManualIngestions reads the "astro.dev/manual-ingestions" annotation from a namespace.
+func parseManualIngestions(annotations map[string]string) []string {
+	val := annotations["astro.dev/manual-ingestions"]
+	if val == "" {
+		return nil
+	}
+	return strings.Split(val, ",")
+}
+
 // listAstroDeployments lists all deployments managed by astro in a namespace
-func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string) ([]AgentDeployment, error) {
+func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error) {
 	clientset := k8sClient.Clientset()
 
 	// List deployments with astro label selector
@@ -805,14 +829,15 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			}
 
 			info = &AgentDeployment{
-				Name:       agentName,
-				BuildID:    version,
-				Namespace:  namespace,
-				Status:     status,
-				Replicas:   dep.Status.Replicas,
-				Ready:      dep.Status.ReadyReplicas,
-				CreatedAt:  dep.CreationTimestamp.Format(time.RFC3339),
-				Components: []string{},
+				Name:             agentName,
+				BuildID:          version,
+				Namespace:        namespace,
+				Status:           status,
+				Replicas:         dep.Status.Replicas,
+				Ready:            dep.Status.ReadyReplicas,
+				CreatedAt:        dep.CreationTimestamp.Format(time.RFC3339),
+				Components:       []string{},
+				ManualIngestions: manualIngestions,
 			}
 
 			// Add external URLs if available
@@ -832,6 +857,62 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		if dep.Status.ReadyReplicas < dep.Status.Replicas {
 			info.Status = "Pending"
 		}
+	}
+
+	// List Jobs (e.g. ingestion runs) for the namespace
+	jobList, err := clientset.BatchV1().Jobs(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		jobList = &batchv1.JobList{} // non-critical, continue without jobs
+	}
+
+	// Attach Jobs to their respective agent deployments (and create entries for job-only agents)
+	for _, job := range jobList.Items {
+		agentName := job.Labels["astro.dev/agent"]
+		version := job.Labels["app.kubernetes.io/version"]
+		component := job.Labels["app.kubernetes.io/component"]
+		if agentName == "" {
+			continue
+		}
+
+		key := agentName + ":" + version
+		info, exists := agentDeployments[key]
+		if !exists {
+			// Job exists but no Deployment entry — create a stub so it's visible
+			info = &AgentDeployment{
+				Name:             agentName,
+				BuildID:          version,
+				Namespace:        namespace,
+				Status:           "Running",
+				CreatedAt:        job.CreationTimestamp.Format(time.RFC3339),
+				Components:       []string{},
+				ManualIngestions: manualIngestions,
+			}
+			agentDeployments[key] = info
+		}
+
+		jobDetail := JobDetail{
+			Name:      job.Name,
+			Component: component,
+			Age:       formatAge(job.CreationTimestamp.Time),
+		}
+
+		if job.Status.StartTime != nil {
+			jobDetail.StartTime = job.Status.StartTime.Format(time.RFC3339)
+		}
+
+		// Derive completions string
+		desired := int32(1)
+		if job.Spec.Completions != nil {
+			desired = *job.Spec.Completions
+		}
+		jobDetail.Completions = fmt.Sprintf("%d/%d", job.Status.Succeeded, desired)
+
+		// Derive status from conditions and counters
+		jobDetail.Status = jobStatus(&job)
+
+		info.Jobs = append(info.Jobs, jobDetail)
 	}
 
 	// Attach pods to their respective agent deployments
@@ -948,6 +1029,22 @@ func formatAge(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// jobStatus derives a human-readable status from a K8s Job's conditions and counters.
+func jobStatus(job *batchv1.Job) string {
+	for _, c := range job.Status.Conditions {
+		if c.Type == batchv1.JobComplete && c.Status == corev1.ConditionTrue {
+			return "Succeeded"
+		}
+		if c.Type == batchv1.JobFailed && c.Status == corev1.ConditionTrue {
+			return "Failed"
+		}
+	}
+	if job.Status.Active > 0 {
+		return "Running"
+	}
+	return "Pending"
 }
 
 // RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.

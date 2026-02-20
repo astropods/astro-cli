@@ -12,9 +12,10 @@ import {
   Eye,
   History,
   Code,
+  Play,
 } from "lucide-react";
 import type { AgentDeployment, PodDetail } from "../../lib/api";
-import { useRestartPod } from "../../api/queries/deployments";
+import { useRestartPod, useTriggerIngestion } from "../../api/queries/deployments";
 import { LogModal } from "./LogModal";
 import { DeploymentSpecModal } from "./DeploymentSpecModal";
 import { DeploymentHistoryModal } from "./DeploymentHistoryModal";
@@ -48,6 +49,19 @@ function phaseColor(phase: string): string {
   }
 }
 
+function jobStatusBadge(status: string): { color: string; bg: string } {
+  switch (status) {
+    case "Running":
+      return { color: "text-green-700", bg: "bg-green-50 border-green-200" };
+    case "Succeeded":
+      return { color: "text-blue-700", bg: "bg-blue-50 border-blue-200" };
+    case "Failed":
+      return { color: "text-red-700", bg: "bg-red-50 border-red-200" };
+    default:
+      return { color: "text-yellow-700", bg: "bg-yellow-50 border-yellow-200" };
+  }
+}
+
 export interface DeploymentCardProps {
   accountName: string;
   deployment: AgentDeployment;
@@ -70,6 +84,7 @@ export function DeploymentCard({
   const [showSpec, setShowSpec] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const restartMutation = useRestartPod(accountName);
+  const triggerIngestion = useTriggerIngestion(accountName);
 
   const statusColor =
     deployment.status === "Running"
@@ -86,6 +101,7 @@ export function DeploymentCard({
         : "bg-stone-50 border-stone-200";
 
   const pods = deployment.pods || [];
+  const jobs = deployment.jobs || [];
 
   return (
     <div className="border border-stone-300 bg-white">
@@ -165,16 +181,46 @@ export function DeploymentCard({
 
       {/* Summary info always visible */}
       <div className="px-4 pb-3">
-        {deployment.components.length > 0 && (
+        {(deployment.components.length > 0 || (deployment.manual_ingestions?.length ?? 0) > 0) && (
           <div className="flex gap-1 flex-wrap mb-2">
             {deployment.components.map((c) => (
               <span
                 key={c}
-                className="px-2 py-0.5 text-xs bg-stone-100 border border-stone-200"
+                className="px-2 py-0.5 text-xs bg-stone-100 border border-stone-200 flex items-center gap-1"
               >
                 {c}
               </span>
             ))}
+            {deployment.manual_ingestions?.map((name) => {
+              const isTriggeringThis = triggerIngestion.isPending && triggerIngestion.variables?.ingestion === name;
+              return (
+                <span
+                  key={`manual-${name}`}
+                  className="px-2 py-0.5 text-xs bg-stone-100 border border-stone-200 flex items-center gap-1"
+                >
+                  ingestion-{name}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerIngestion.mutate({
+                        namespace: deployment.namespace,
+                        ingestion: name,
+                        account: accountName,
+                      });
+                    }}
+                    disabled={isTriggeringThis}
+                    className="ml-1 p-0.5 hover:bg-stone-200 cursor-pointer disabled:opacity-50 rounded-sm"
+                    title={`Trigger ${name} ingestion`}
+                  >
+                    {isTriggeringThis ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Play size={12} className="text-stone-600" />
+                    )}
+                  </button>
+                </span>
+              );
+            })}
           </div>
         )}
         {deployment.external_urls && deployment.external_urls.length > 0 && (
@@ -331,6 +377,44 @@ export function DeploymentCard({
                 );
               })}
             </div>
+          )}
+
+          {/* Job details */}
+          {jobs.length > 0 && (
+            <>
+              <h4 className="text-sm font-medium mb-3 mt-4">
+                Jobs ({jobs.length})
+              </h4>
+              <div className="space-y-2">
+                {jobs.map((job) => {
+                  const badge = jobStatusBadge(job.status);
+                  return (
+                    <div
+                      key={job.name}
+                      className="bg-white border border-stone-200 p-3 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-sm truncate max-w-[300px]">
+                          {job.name}
+                        </span>
+                        <span className={`px-2 py-0.5 text-xs border ${badge.bg} ${badge.color}`}>
+                          {job.status}
+                        </span>
+                        {job.component && (
+                          <span className="text-xs text-stone-500">{job.component}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-stone-500">
+                          Completions: {job.completions}
+                        </span>
+                        <span className="text-xs text-stone-400">{job.age}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}

@@ -339,6 +339,18 @@ class ApiClient {
     );
   }
 
+  async triggerIngestion(data: {
+    namespace: string;
+    ingestion: string;
+    account: string;
+  }): Promise<TriggerIngestionResponse> {
+    const params = new URLSearchParams({ account: data.account });
+    return this.request<TriggerIngestionResponse>(
+      `/api/v1/deployments/${encodeURIComponent(data.namespace)}/ingestion/${encodeURIComponent(data.ingestion)}/trigger?${params}`,
+      { method: 'POST' }
+    );
+  }
+
   async getObservabilityTraces(
     account: string,
     name: string,
@@ -491,6 +503,15 @@ export interface PodDetail {
   containers: ContainerStatus[];
 }
 
+export interface JobDetail {
+  name: string;
+  status: string;
+  component: string;
+  age: string;
+  start_time?: string;
+  completions: string;
+}
+
 export interface AgentDeployment {
   name: string;
   build_id: string;
@@ -500,8 +521,10 @@ export interface AgentDeployment {
   ready: number;
   created_at: string;
   components: string[];
+  manual_ingestions?: string[];
   external_urls?: ServiceEndpointInfo[];
   pods?: PodDetail[];
+  jobs?: JobDetail[];
 }
 
 export interface DeploymentsListResponse {
@@ -579,6 +602,12 @@ export interface ObservabilityTracesResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface TriggerIngestionResponse {
+  status: string;
+  job_name: string;
+  namespace: string;
 }
 
 // Export singleton instance

@@ -70,6 +70,17 @@ export function useSecretKeys(account: string, namespace: string, secretName: st
   });
 }
 
+export function useTriggerIngestion(account: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: api.triggerIngestion.bind(api),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
 export function useRestartPod(account: string) {
   const queryClient = useQueryClient();
 
