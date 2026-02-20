@@ -224,7 +224,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			agentDetail.GET("/agents/:account/:name", handlers.GetAgent(log, agentIndex, accountStore))
 		}
 		// Account endpoints (public read)
-		v1.GET("/accounts/:account", handlers.GetAccount(log, accountStore))
+		v1.GET("/accounts/:account", handlers.GetAccount(log, accountStore, authHandler.GetWorkOSClient()))
 		v1.GET("/accounts/check/:name", handlers.CheckAccountName(log, accountStore))
 
 		// Protected endpoints (require authentication)

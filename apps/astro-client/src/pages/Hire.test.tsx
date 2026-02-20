@@ -1,7 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Outlet } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockAgents } from '@/test/msw/handlers';
@@ -11,36 +10,23 @@ import Hire from './Hire';
 // RTL auto-cleanup requires vitest globals — run it explicitly.
 afterEach(cleanup);
 
-// Hire calls useOutletContext(), so we render it inside a layout route
-// that provides the context via <Outlet context={...} />.
-function renderHire({
-  initialEntries = ['/hire'],
-  openAuthModal = vi.fn(),
-}: { initialEntries?: string[]; openAuthModal?: ReturnType<typeof vi.fn> } = {}) {
-  const result = renderRoute(
+function renderHire({ initialEntries = ['/hire'] } = {}) {
+  return renderRoute(
     [
       {
-        path: '/',
-        Component: () => <Outlet context={{ openAuthModal }} />,
-        children: [
-          {
-            path: 'hire',
-            // @ts-expect-error: `matches` won't align between test code and app code
-            Component: Hire,
-          },
-        ],
+        path: '/hire',
+        // @ts-expect-error: `matches` won't align between test code and app code
+        Component: Hire,
       },
     ],
     { initialEntries },
   );
-
-  return { ...result, openAuthModal };
 }
 
 /** Wait for agents to finish loading. */
 async function waitForAgents() {
   await waitFor(() => {
-    expect(screen.getByText('code-reviewer')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /code-reviewer/ })).toBeInTheDocument();
   });
 }
 
@@ -52,7 +38,7 @@ describe('Hire page', () => {
       renderHire();
       await waitForAgents();
 
-      expect(screen.getByText('data-analyst')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
     });
 
     it('shows a loading spinner while fetching', () => {
@@ -115,62 +101,17 @@ describe('Hire page', () => {
     });
   });
 
-  // ── Search ──────────────────────────────────────────────────────────
-
-  describe('search', () => {
-    it('filters agents by name when typing in search', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      await user.type(screen.getByPlaceholderText(/search/i), 'data');
-
-      expect(screen.queryByText('code-reviewer')).not.toBeInTheDocument();
-      expect(screen.getByText('data-analyst')).toBeInTheDocument();
-    });
-
-    it('search is case-insensitive', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      await user.type(screen.getByPlaceholderText(/search/i), 'CODE');
-
-      expect(screen.getByText('code-reviewer')).toBeInTheDocument();
-      expect(screen.queryByText('data-analyst')).not.toBeInTheDocument();
-    });
-
-    it('shows all agents when search is cleared', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      const input = screen.getByPlaceholderText(/search/i);
-      await user.type(input, 'data');
-      expect(screen.queryByText('code-reviewer')).not.toBeInTheDocument();
-
-      await user.clear(input);
-      expect(screen.getByText('code-reviewer')).toBeInTheDocument();
-      expect(screen.getByText('data-analyst')).toBeInTheDocument();
-    });
-  });
-
   // ── Category Filter ─────────────────────────────────────────────────
 
   describe('category filter', () => {
-    it('populates category dropdown from agent tags', async () => {
-      const user = userEvent.setup();
+    it('renders category sidebar from agent tags', async () => {
       renderHire();
       await waitForAgents();
 
-      await user.click(screen.getByRole('button', { name: /industry/i }));
-
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: 'All' })).toBeInTheDocument();
-      });
-      expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Developer Tools' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Security' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Analytics' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Developer Tools' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Security' })).toBeInTheDocument();
     });
 
     it('filters agents by selected category', async () => {
@@ -178,16 +119,12 @@ describe('Hire page', () => {
       renderHire();
       await waitForAgents();
 
-      await user.click(screen.getByRole('button', { name: /industry/i }));
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('menuitem', { name: 'Analytics' }));
+      await user.click(screen.getByRole('button', { name: 'Analytics' }));
 
       await waitFor(() => {
-        expect(screen.queryByText('code-reviewer')).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
       });
-      expect(screen.getByText('data-analyst')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
     });
 
     it('"All" resets the category filter', async () => {
@@ -196,147 +133,34 @@ describe('Hire page', () => {
       await waitForAgents();
 
       // Filter by Analytics first
-      await user.click(screen.getByRole('button', { name: /industry/i }));
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('menuitem', { name: 'Analytics' }));
-
-      await waitFor(() => {
-        expect(screen.queryByText('code-reviewer')).not.toBeInTheDocument();
-      });
-
-      // Reset — button now shows the selected category name
       await user.click(screen.getByRole('button', { name: 'Analytics' }));
       await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: 'All' })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
       });
-      await user.click(screen.getByRole('menuitem', { name: 'All' }));
 
+      // Reset with All
+      await user.click(screen.getByRole('button', { name: 'All' }));
       await waitFor(() => {
-        expect(screen.getByText('code-reviewer')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /code-reviewer/ })).toBeInTheDocument();
       });
-      expect(screen.getByText('data-analyst')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
     });
   });
 
-  // ── Combined Filters ────────────────────────────────────────────────
+  // ── Agent Card Links ──────────────────────────────────────────────────
 
-  describe('combined filters', () => {
-    it('applies search and category filter together', async () => {
-      const user = userEvent.setup();
+  describe('agent card links', () => {
+    it('agent cards link to /hire/{account}/{name}', async () => {
       renderHire();
       await waitForAgents();
 
-      // Select "Developer Tools" category
-      await user.click(screen.getByRole('button', { name: /industry/i }));
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: 'Developer Tools' })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('menuitem', { name: 'Developer Tools' }));
+      const links = screen.getAllByRole('link');
+      const agentLinks = links.filter((l) => l.getAttribute('href')?.startsWith('/hire/'));
+      expect(agentLinks).toHaveLength(2);
 
-      await waitFor(() => {
-        expect(screen.queryByText('data-analyst')).not.toBeInTheDocument();
-      });
-      expect(screen.getByText('code-reviewer')).toBeInTheDocument();
-
-      // Now search for something that doesn't match the remaining agent
-      await user.type(screen.getByPlaceholderText(/search/i), 'data');
-
-      expect(screen.queryByText('code-reviewer')).not.toBeInTheDocument();
-      expect(screen.queryByText('data-analyst')).not.toBeInTheDocument();
-    });
-
-    it('shows empty grid when search matches no agents', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      await user.type(screen.getByPlaceholderText(/search/i), 'zzz-no-match');
-
-      expect(screen.queryByText('code-reviewer')).not.toBeInTheDocument();
-      expect(screen.queryByText('data-analyst')).not.toBeInTheDocument();
-      // The agent grid should be empty but the page should not show the "No agents available" empty state
-      // (that state is for when the API returns zero agents)
-      expect(screen.queryByText('No agents available')).not.toBeInTheDocument();
-    });
-  });
-
-  // ── Sorting ─────────────────────────────────────────────────────────
-
-  describe('sorting', () => {
-    it('defaults to most-recent-first based on published_at', async () => {
-      renderHire();
-      await waitForAgents();
-
-      // data-analyst (March) is more recent than code-reviewer (Feb)
-      const headings = screen.getAllByRole('heading', { level: 3 });
-      const names = headings.map((h) => h.textContent);
-      expect(names).toEqual(['testuser/data-analyst', 'testuser/code-reviewer']);
-    });
-
-    it('sorts alphabetically by name when "Name A-Z" is selected', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      // Default is most-recent-first: data-analyst before code-reviewer
-      const headingsBefore = screen.getAllByRole('heading', { level: 3 });
-      expect(headingsBefore.map((h) => h.textContent)).toEqual(['testuser/data-analyst', 'testuser/code-reviewer']);
-
-      await user.click(screen.getByRole('button', { name: /most recent/i }));
-      await waitFor(() => {
-        expect(screen.getByRole('menuitem', { name: /name a-z/i })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('menuitem', { name: /name a-z/i }));
-
-      // A-Z flips the order
-      const headingsAfter = screen.getAllByRole('heading', { level: 3 });
-      expect(headingsAfter.map((h) => h.textContent)).toEqual(['testuser/code-reviewer', 'testuser/data-analyst']);
-    });
-  });
-
-  // ── Agent Card Interactions ─────────────────────────────────────────
-
-  describe('agent card interactions', () => {
-    it('"View details" links to /hire/{slug}', async () => {
-      renderHire();
-      await waitForAgents();
-
-      const links = screen.getAllByRole('link', { name: /view details/i });
-      // Default sort is most-recent-first, so data-analyst appears first
-      expect(links[0]).toHaveAttribute('href', '/hire/testuser/data-analyst');
-    });
-
-    it('"Install Agent" triggers the auth modal callback', async () => {
-      const user = userEvent.setup();
-      const { openAuthModal } = renderHire();
-      await waitForAgents();
-
-      const installButtons = screen.getAllByRole('button', { name: /install agent/i });
-      await user.click(installButtons[0]);
-
-      expect(openAuthModal).toHaveBeenCalledTimes(1);
-      expect(openAuthModal).toHaveBeenCalledWith();
-    });
-  });
-
-  // ── Wizard Overlay ──────────────────────────────────────────────────
-
-  describe('wizard overlay', () => {
-    it('opens wizard when URL has ?start=true', async () => {
-      renderHire({ initialEntries: ['/hire?start=true'] });
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog', { name: /find agents wizard/i })).toBeInTheDocument();
-      });
-    });
-
-    it('does not show wizard by default', async () => {
-      renderHire();
-      await waitForAgents();
-
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      const hrefs = agentLinks.map((l) => l.getAttribute('href'));
+      expect(hrefs).toContain('/hire/testuser/code-reviewer');
+      expect(hrefs).toContain('/hire/testuser/data-analyst');
     });
   });
 });

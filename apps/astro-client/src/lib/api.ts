@@ -19,6 +19,21 @@ export interface AgentSummary {
   published_version_count: number;
 }
 
+export interface AccountOwner {
+  first_name?: string;
+  last_name?: string;
+  profile_picture_url?: string;
+}
+
+export interface AccountPublic {
+  id: string;
+  name: string;
+  type: string;
+  owner?: AccountOwner;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -155,6 +170,12 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  async getAccount(name: string): Promise<AccountPublic> {
+    return this.request<AccountPublic>(
+      `/api/v1/accounts/${encodeURIComponent(name)}`
+    );
   }
 
   async checkAccountName(name: string): Promise<{ available: boolean; reason?: string }> {

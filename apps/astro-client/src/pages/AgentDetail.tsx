@@ -1,14 +1,12 @@
 import { useParams, useOutletContext, Link } from "react-router";
 import type { Route } from "./+types/AgentDetail";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/Badge";
-import { AgentPreviewPanel } from "@/components/AgentPreviewPanel";
-import { RecommendedAgents } from "@/components/RecommendedAgents";
-import { integrationIconMap } from "@/lib/integrationIcons";
+import {
+  AgentDetailBreadcrumb,
+  AgentDetailContent,
+  AgentDetailSidebar,
+} from "@/components/agent-detail";
 import { useAgent, useAgents } from "@/api/queries";
 import type { Agent } from "@/lib/api";
 import type { LayoutContext } from "@/components/Layout";
@@ -19,12 +17,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const account = params.account ?? "";
   const agentSlug = params.agentSlug ?? "";
 
-  const [agent, agentsData] = await Promise.all([
+  const [agent, agentsData, accountData] = await Promise.all([
     account && agentSlug ? api.getAgent(account, agentSlug).catch(() => null) : null,
     api.listAgents().catch(() => ({ agents: [], count: 0 })),
+    account ? api.getAccount(account).catch(() => null) : null,
   ]);
 
-  return { agent, agentsData };
+  return { agent, agentsData, accountData };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
@@ -69,63 +68,73 @@ function getAgentCategories(agent: Agent): string[] {
 
 function AgentDetailSkeleton() {
   return (
-    <div className="flex flex-1 min-h-0">
-      <div className="flex-1 min-w-0 md:overflow-y-auto">
-        <div className="p-6 md:p-8 max-w-4xl">
-          {/* Title */}
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Breadcrumb skeleton */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3.5 w-3.5" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+        <div className="flex gap-1">
+          <Skeleton className="size-7 rounded" />
+          <Skeleton className="size-7 rounded" />
+        </div>
+      </div>
+
+      {/* Content skeleton */}
+      <div className="flex flex-1 overflow-y-auto">
+        {/* Left column */}
+        <div className="flex-1 min-w-0 p-6 md:p-8 max-w-3xl">
           <Skeleton className="h-7 w-64 mb-3" />
-          {/* Description */}
           <div className="space-y-2 mb-5">
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-3/4" />
           </div>
-          {/* CTA button */}
-          <div className="mb-6">
-            <Skeleton className="h-9 w-44 rounded-md" />
+          <div className="flex gap-2 mb-8">
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <Skeleton className="h-6 w-16 rounded-full" />
           </div>
-          {/* Apps Used */}
-          <div className="mb-6">
+          <div className="mb-8">
             <Skeleton className="h-3 w-16 mb-3" />
-            <div className="flex gap-2">
-              <Skeleton className="h-9 w-32 rounded-lg" />
-              <Skeleton className="h-9 w-24 rounded-lg" />
-              <Skeleton className="h-9 w-28 rounded-lg" />
-            </div>
+            <Skeleton className="h-40 w-full rounded-lg" />
           </div>
-          {/* Safety & Permissions */}
           <div className="mb-8">
             <Skeleton className="h-3 w-32 mb-3" />
             <div className="space-y-2">
               <Skeleton className="h-4 w-56" />
               <Skeleton className="h-4 w-48" />
-              <Skeleton className="h-4 w-52" />
-            </div>
-          </div>
-          {/* Recommended Agents */}
-          <div>
-            <Skeleton className="h-6 w-48 mb-4" />
-            <div className="grid grid-cols-1 @[480px]:grid-cols-2 gap-4">
-              <Skeleton className="h-44 rounded-lg" />
-              <Skeleton className="h-44 rounded-lg" />
             </div>
           </div>
         </div>
-      </div>
-      {/* Right panel */}
-      <div className="hidden lg:flex w-[400px] shrink-0 flex-col border-l border-border bg-muted/50 ml-auto">
-        {/* Header */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <Skeleton className="size-4 rounded" />
-          <div className="space-y-1">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-3 w-40" />
+
+        {/* Right sidebar skeleton */}
+        <div className="hidden lg:block w-[340px] shrink-0 p-6">
+          <div className="rounded-lg border border-border p-5 space-y-5">
+            <Skeleton className="h-10 w-full rounded" />
+            <div className="h-px bg-border" />
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-10 rounded-full" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+            <div className="h-px bg-border" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-10 w-full rounded-lg" />
+              <Skeleton className="h-10 w-full rounded-lg" />
+            </div>
           </div>
-        </div>
-        {/* Empty state */}
-        <div className="flex flex-1 flex-col items-center justify-center px-4">
-          <Skeleton className="size-14 rounded-xl mb-3" />
-          <Skeleton className="h-4 w-32 mb-6" />
-          <Skeleton className="h-24 w-full rounded-lg" />
         </div>
       </div>
     </div>
@@ -182,7 +191,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Something went wrong</h1>
-        <p className="text-muted-foreground text-sm mb-4">
+        <p className="text-stone-500 text-sm mb-4">
           {error instanceof Error ? error.message : "Failed to load agent details."}
         </p>
         <Button asChild>
@@ -196,7 +205,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Agent not found</h1>
-        <p className="text-muted-foreground text-sm mb-4">
+        <p className="text-stone-500 text-sm mb-4">
           The agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>
@@ -218,75 +227,30 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   );
 
   return (
-    <div className="flex flex-1 min-h-0">
-      {/* Left scroll area — fills remaining space so scrollbar is flush with sidebar */}
-      <div className="flex-1 min-w-0 md:overflow-y-auto">
-        <div className="p-6 md:p-8 max-w-4xl">
-          <h1 className="text-xl font-semibold mb-3"><span className="font-normal text-muted-foreground">{agent.account}/</span>{agent.name}</h1>
+    <div className="flex flex-col flex-1 min-h-0 bg-white">
+      <AgentDetailBreadcrumb account={agent.account} agentName={agent.name} />
 
-          <p className="text-sm text-muted-foreground leading-relaxed mb-5">
-            {description}
-          </p>
+      <div className="flex flex-1 overflow-y-auto">
+      <div className="flex flex-1 max-w-[1200px] mx-auto">
+        <AgentDetailContent
+          account={agent.account}
+          name={agent.name}
+          description={description}
+          categories={getAgentCategories(agent)}
+          readme={readme}
+          safetyPermissions={safetyPermissions}
+          recommendedAgents={recommendedAgents}
+        />
 
-          <div className="flex items-center gap-3 mb-6">
-            <Button onClick={openAuthModal} className="gap-2">
-              Hire this agent
-              <ArrowRight className="size-4" />
-            </Button>
-          </div>
-
-          {/* Apps Used */}
-          {integrations.length > 0 && (
-            <section className="mb-6">
-              <h2 className="text-xs font-medium text-muted-foreground mb-3">
-                Apps Used
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {integrations.map((name) => (
-                  <Badge key={name} size="lg" icon={integrationIconMap[name]}>
-                    {name}
-                  </Badge>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Safety & Permissions */}
-          {safetyPermissions.length > 0 && (
-            <section className="mb-8">
-              <h2 className="text-xs font-medium text-muted-foreground mb-3">
-                Safety & Permissions
-              </h2>
-              <ul className="space-y-2">
-                {safetyPermissions.map((permission, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
-                    <ShieldCheck className="size-4 shrink-0 text-muted-foreground mt-0.5" />
-                    <span>{permission}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* README */}
-          {readme && (
-            <section className="mb-8">
-              <h2 className="text-xs font-medium text-muted-foreground mb-3">
-                README
-              </h2>
-              <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-muted/30 p-4">
-                <div className="prose prose-sm prose-stone dark:prose-invert max-w-none">
-                  <Markdown remarkPlugins={[remarkGfm]}>{readme}</Markdown>
-                </div>
-              </div>
-            </section>
-          )}
-
-          <RecommendedAgents agents={recommendedAgents} />
-        </div>
+        <AgentDetailSidebar
+          agent={agent}
+          integrations={integrations}
+          permissions={safetyPermissions}
+          onInstall={openAuthModal}
+          initialAccountData={loaderData?.accountData ?? undefined}
+        />
       </div>
-
-      <AgentPreviewPanel suggestedPrompts={[]} />
+      </div>
     </div>
   );
 }

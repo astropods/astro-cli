@@ -489,6 +489,11 @@ func (h *AuthHandler) GetJWTValidator() *auth.JWTValidator {
 	return h.jwtValidator
 }
 
+// GetWorkOSClient returns the WorkOS client for use in other handlers
+func (h *AuthHandler) GetWorkOSClient() *auth.WorkOSClient {
+	return h.workos
+}
+
 // generateRandomState generates a cryptographically random state string
 func generateRandomState() (string, error) {
 	b := make([]byte, 32)

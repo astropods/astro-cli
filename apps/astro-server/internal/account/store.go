@@ -185,6 +185,25 @@ func (s *AccountStore) Rename(accountID, newName string) error {
 	return nil
 }
 
+// GetOwnerUserID returns the user ID of the account owner
+func (s *AccountStore) GetOwnerUserID(accountID string) (string, error) {
+	var userID string
+	err := s.db.QueryRow(`
+		SELECT user_id FROM account_members
+		WHERE account_id = $1 AND role = 'owner'
+		LIMIT 1
+	`, accountID).Scan(&userID)
+
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("no owner found for account: %s", accountID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to query account owner: %w", err)
+	}
+
+	return userID, nil
+}
+
 // HasPersonalAccount checks if a user already has a personal account
 func (s *AccountStore) HasPersonalAccount(userID string) (bool, error) {
 	var count int

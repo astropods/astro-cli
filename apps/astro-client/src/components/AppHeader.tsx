@@ -32,7 +32,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const publicNav = [
-  { label: "Discover", to: "/hire" },
+  { label: "Browse", to: "/hire" },
   { label: "Pricing", to: "/pricing" },
   { label: "Docs", to: "/docs" },
   { label: "Blog", to: "/blog" },

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
+	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
 )
@@ -16,13 +17,21 @@ type CreateAccountRequest struct {
 	Type string `json:"type" binding:"required"`
 }
 
+// AccountOwner represents the owner's public profile in account responses
+type AccountOwner struct {
+	FirstName         string `json:"first_name,omitempty"`
+	LastName          string `json:"last_name,omitempty"`
+	ProfilePictureURL string `json:"profile_picture_url,omitempty"`
+}
+
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	Type      string        `json:"type"`
+	Owner     *AccountOwner `json:"owner,omitempty"`
+	CreatedAt string        `json:"created_at"`
+	UpdatedAt string        `json:"updated_at"`
 }
 
 // AccountWithRoleResponse represents an account with the user's role
@@ -111,7 +120,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 }
 
 // GetAccount handles GET /api/v1/accounts/:account (public)
-func GetAccount(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *auth.WorkOSClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -121,13 +130,26 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore) gin.Hand
 			return
 		}
 
-		c.JSON(http.StatusOK, AccountResponse{
+		resp := AccountResponse{
 			ID:        acct.ID,
 			Name:      acct.Name,
 			Type:      acct.Type,
 			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		}
+
+		// Best-effort: look up owner profile for public display
+		if ownerID, err := accountStore.GetOwnerUserID(acct.ID); err == nil {
+			if user, err := workos.GetUser(c.Request.Context(), ownerID); err == nil {
+				resp.Owner = &AccountOwner{
+					FirstName:         user.FirstName,
+					LastName:          user.LastName,
+					ProfilePictureURL: user.ProfilePictureURL,
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
