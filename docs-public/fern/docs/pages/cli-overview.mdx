@@ -1,0 +1,62 @@
+---
+title: CLI overview
+subtitle: The ast CLI — create, develop, and deploy agents from your terminal
+slug: cli
+---
+
+The Astro AI CLI (`ast`) is the primary tool for working with agents locally and pushing them to the Astro AI platform. It handles project scaffolding, local development, building containers, and deploying to the registry.
+
+## Installation
+
+See [Install the CLI](/install-cli) for platform-specific installation instructions.
+
+Verify your installation:
+
+```bash
+ast --version
+```
+
+## Configuration file
+
+Most commands read `astroai.yml` in the current directory. This file defines your agent's spec — its name, interface, models, tools, knowledge bases, and other configuration.
+
+Override the file path with the global `--file` flag:
+
+```bash
+ast --file path/to/astroai.yml <command>
+```
+
+Generate a JSON Schema for editor autocompletion:
+
+```bash
+ast schema > .ast/schema.json
+```
+
+## Global flags
+
+These flags are available on all commands:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--file <path>` | `-f` | Path to spec file (default: `astroai.yml`) |
+| `--verbose` | `-v` | Verbose output |
+| `--quiet` | `-q` | Minimal output |
+| `--version` | | Print the CLI version |
+| `--help` | `-h` | Help for the current command |
+
+## Workflow overview
+
+A typical development workflow uses these commands in sequence:
+
+1. **[`ast create`](/cli-reference#create)** — scaffold a new agent project
+2. **[`ast dev`](/cli-reference#dev)** — run the agent locally with hot-reload
+3. **[`ast validate`](/cli-reference#validate)** — check `astroai.yml` for errors
+4. **[`ast push`](/cli-reference#push)** — build and push to the Astro AI platform
+
+Authentication is handled separately with [`ast login`](/authentication).
+
+## Next steps
+
+- [CLI reference](/cli-reference) — full command and flag documentation
+- [Your first project](/get-started) — step-by-step guide
+- [Authentication](/authentication) — manage credentials

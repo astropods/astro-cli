@@ -20,6 +20,9 @@ tabs:
   home:
     display-name: Docs
     icon: home
+  CLI:
+    display-name: CLI
+    icon: terminal
   API Reference:
     display-name: API Reference
     icon: puzzle
@@ -44,6 +47,18 @@ navigation:
       - section: Changelog
         contents:
           - changelog: docs/changelog
+  - tab: CLI
+    layout:
+      - section: Overview
+        contents:
+          - page: Overview
+            path: docs/pages/cli-overview.mdx
+            icon: fa-duotone fa-terminal
+      - section: Commands
+        contents:
+          - page: Reference
+            path: docs/pages/cli-reference.mdx
+            icon: fa-duotone fa-list
   - tab: API Reference
     layout:
       - section: Overview

@@ -1,0 +1,265 @@
+---
+title: CLI reference
+subtitle: Complete reference for all ast CLI commands
+slug: cli-reference
+---
+
+Full reference for the `ast` CLI. See [CLI overview](/cli) for global flags and workflow concepts.
+
+---
+
+## build
+
+Build agent and component containers from the spec.
+
+```bash
+ast build [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-t, --tag <tag>` | Image tag (default: `latest`) |
+| `--no-cache` | Build without cache |
+| `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64,linux/arm64`) |
+
+Builds the agent container and any custom component images (models, knowledge bases, tools) defined in `astroai.yml`. Use `ast push` to build and push in one step.
+
+---
+
+## create
+
+Scaffold a new Astro AI agent project.
+
+```bash
+ast create <name> [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-y, --yes` | Accept all defaults, skip prompts |
+| `-p, --path <dir>` | Parent directory for the project |
+| `-l, --lang <lang>` | Language template (default: `ts`) |
+| `--force` | Overwrite existing directory |
+
+Creates a new directory named `<name>` with a scaffolded agent project including `astroai.yml`, `Dockerfile`, and starter source code.
+
+---
+
+## dev
+
+Manage the local development environment.
+
+```bash
+ast dev [subcommand] [flags]
+```
+
+Running `ast dev` with no subcommand starts the dev environment.
+
+### Subcommands
+
+#### start
+
+Start local dev containers with hot-reload.
+
+```bash
+ast dev start [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--env <file>` | Environment file for credentials (default: `.env`) |
+| `--rebuild` | Force rebuild all containers without cache |
+| `--no-pull` | Use only local images; skip pulling |
+
+Edit your agent source and it restarts automatically. Add API keys to `.env` (e.g. `ANTHROPIC_API_KEY`).
+
+#### logs
+
+Tail container logs.
+
+```bash
+ast dev logs [service]
+```
+
+`service` defaults to `agent`. Pass a service name (e.g. `astro-messaging`) to tail a specific container.
+
+#### stop
+
+Stop and remove dev containers.
+
+```bash
+ast dev stop
+```
+
+---
+
+## docs
+
+Display Astro documentation in the terminal.
+
+```bash
+ast docs [category]
+```
+
+| Category | Content |
+|----------|---------|
+| `agent` (default) | Agent development guide — LLM, tools, messaging |
+| `help` | CLI help — installation, quickstart, commands, spec |
+
+Alias: `ast doc`
+
+---
+
+## explain
+
+Print a human-readable explanation of the agent defined in `astroai.yml`.
+
+```bash
+ast explain [flags]
+```
+
+Uses the global `--file` flag to locate the spec. Useful for quickly understanding what an agent does and how it is configured.
+
+---
+
+## login
+
+Authenticate with the Astro AI platform.
+
+```bash
+ast login [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--no-browser` | Print the verification URL instead of opening it |
+
+Initiates an OAuth 2.0 Device Authorization Flow. After completing the browser flow, credentials are stored in the system keyring or `~/.astro/credentials.json`. See [Authentication](/authentication) for details.
+
+---
+
+## logout
+
+Clear stored credentials.
+
+```bash
+ast logout [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Log out from all profiles |
+
+Without `--all`, clears credentials for the current profile only.
+
+---
+
+## playground
+
+Open the Astro playground UI connected to a running agent.
+
+```bash
+ast playground <url> [flags]
+```
+
+`<url>` is the base URL of the agent's messaging HTTP API (e.g. `http://localhost:3100`).
+
+| Flag | Description |
+|------|-------------|
+| `--port <port>` | Local port for the playground UI (default: `3737`) |
+| `--no-pull` | Skip pulling the playground image |
+| `--no-open` | Don't open the browser automatically |
+
+Starts a local playground container and opens it in the browser, connected to the agent at `<url>`.
+
+---
+
+## push
+
+Build and push the agent to the Astro AI platform.
+
+```bash
+ast push [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--skip-build` | Skip building containers before pushing |
+| `--skip-push` | Skip pushing images to the registry |
+| `--skip-register` | Skip registering the spec with the server |
+| `--server <url>` | Override the Astro server URL |
+| `--registry <url>` | Override the registry URL |
+| `--no-auth` | Skip authentication (not recommended) |
+| `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64`) |
+
+By default, `push` builds containers, pushes images to the Astro registry, and registers the agent spec with the server. Requires [`ast login`](/authentication) first.
+
+---
+
+## schema
+
+Print the JSON Schema for `astroai.yml` to stdout.
+
+```bash
+ast schema
+```
+
+Redirect to a file for use with editor YAML validation:
+
+```bash
+ast schema > .ast/schema.json
+```
+
+**VS Code** — add to `.vscode/settings.json`:
+
+```json
+{ "yaml.schemas": { ".ast/schema.json": "astroai.yml" } }
+```
+
+**Inline** — add to the top of `astroai.yml`:
+
+```yaml
+# yaml-language-server: $schema=https://<your-server>/schema/astroai.json
+```
+
+---
+
+## upgrade
+
+Upgrade the CLI to the latest version.
+
+```bash
+ast upgrade [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Skip version check and always download |
+
+Downloads the latest binary from the Astro AI server and replaces the current installation.
+
+---
+
+## validate
+
+Validate `astroai.yml` against the spec schema.
+
+```bash
+ast validate [flags]
+```
+
+Checks YAML syntax, JSON schema conformance, and semantic rules (required fields, mutual exclusions, etc.). Uses the global `--file` flag to locate the spec.
+
+Exit code `0` on success, non-zero on validation failure — suitable for use in CI.
+
+---
+
+## whoami
+
+Display the currently authenticated user.
+
+```bash
+ast whoami
+```
+
+Prints the user name, email, account, user ID, and token expiration. If the environment variable `ASTRO_ACCESS_TOKEN` is set, that is reported instead of the stored credential.

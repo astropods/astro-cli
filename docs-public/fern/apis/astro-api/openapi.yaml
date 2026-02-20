@@ -6,8 +6,8 @@ info:
   title: Astro AI API
   description: |
     API for the Astro AI platform: list and manage agents, register and publish agent builds,
-    and retrieve deployment configuration. Public endpoints return only published agents;
-    authenticated account members can see all builds and perform write operations.
+    deploy agents to Kubernetes, and query observability data. Public endpoints return only
+    published agents; authenticated account members can see all builds and perform write operations.
   version: 1.0.0
   contact:
     name: Astro AI Support
@@ -18,11 +18,17 @@ tags:
     description: Agent registry and lifecycle
   - name: accounts
     description: Account and profile
+  - name: deployments
+    description: Deploy and manage agents
+  - name: observability
+    description: Traces and metrics
 
 security:
   - BearerAuth: []
 
 paths:
+  # ── Agents ──────────────────────────────────────────────────────────────────
+
   /agents:
     get:
       tags: [agents]
@@ -154,6 +160,246 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /agents/{account}/{name}/deployment-template:
+    get:
+      tags: [agents]
+      summary: Get deployment template
+      description: |
+        Generates a deployment spec template for the agent. Returns YAML by default; pass
+        `format=json` for JSON. Optionally pin to a specific build with `?build=<build_id>`.
+      operationId: getDeploymentTemplate
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+        - name: build
+          in: query
+          description: Specific build ID to use (defaults to latest)
+          required: false
+          schema:
+            type: string
+        - name: format
+          in: query
+          description: Response format (`json` or `yaml`, default `yaml`)
+          required: false
+          schema:
+            type: string
+            enum: [json, yaml]
+      responses:
+        "200":
+          description: Deployment spec template
+          content:
+            application/yaml:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /agents/{account}/{name}/deployment:
+    get:
+      tags: [deployments]
+      summary: Get active deployment
+      description: Returns the stored deployment spec for the currently active deployment of the agent.
+      operationId: getActiveDeployment
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: Active deployment record with spec
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /agents/{account}/{name}/deployment/history:
+    get:
+      tags: [deployments]
+      summary: Get deployment history
+      description: Returns all deployment records for the agent, ordered by most recent first.
+      operationId: getDeploymentHistory
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: List of deployment records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deployments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeploymentRecord"
+                  count:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ── Observability ────────────────────────────────────────────────────────────
+
+  /agents/{account}/{name}/observability/metrics:
+    get:
+      tags: [observability]
+      summary: Get metrics
+      description: Returns bucketed trace metrics for the agent over a time range. Requires Galileo observability to be configured.
+      operationId: getObservabilityMetrics
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+        - name: start_time
+          in: query
+          description: Start of time range (RFC 3339)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          description: End of time range (RFC 3339)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: interval
+          in: query
+          description: Bucket interval in minutes (default 60)
+          required: false
+          schema:
+            type: integer
+            default: 60
+      responses:
+        "200":
+          description: Bucketed metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /agents/{account}/{name}/observability/summary:
+    get:
+      tags: [observability]
+      summary: Get observability summary
+      description: Returns aggregated trace summary statistics (latency, error rate, throughput) for the agent over a time range.
+      operationId: getObservabilitySummary
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+        - name: start_time
+          in: query
+          description: Start of time range (RFC 3339)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          description: End of time range (RFC 3339)
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObservabilitySummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /agents/{account}/{name}/observability/traces:
+    get:
+      tags: [observability]
+      summary: List traces
+      description: Returns a paginated list of traces for the agent.
+      operationId: getObservabilityTraces
+      parameters:
+        - $ref: "#/components/parameters/Account"
+        - $ref: "#/components/parameters/Name"
+        - name: start_time
+          in: query
+          description: Start of time range (RFC 3339)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          description: End of time range (RFC 3339)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Maximum number of traces to return (default 50)
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          description: Pagination offset (default 0)
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: status
+          in: query
+          description: Filter by status (`ok` or `error`)
+          required: false
+          schema:
+            type: string
+            enum: [ok, error]
+      responses:
+        "200":
+          description: Paginated list of traces
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TracesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ── Accounts ─────────────────────────────────────────────────────────────────
+
   /me:
     get:
       tags: [accounts]
@@ -169,6 +415,503 @@ paths:
                 $ref: "#/components/schemas/ProfileResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /accounts:
+    post:
+      tags: [accounts]
+      summary: Create account
+      description: Creates a new personal or team account for the authenticated user.
+      operationId: createAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Conflict — personal account already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /accounts/check/{name}:
+    get:
+      tags: [accounts]
+      summary: Check account name
+      description: Returns whether an account name is available. No authentication required.
+      operationId: checkAccountName
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Account name to check
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Availability result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  reason:
+                    type: string
+                    description: Explanation when not available
+
+  /accounts/{account}:
+    get:
+      tags: [accounts]
+      summary: Get account
+      description: Returns public profile for an account. No authentication required.
+      operationId: getAccount
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Account"
+      responses:
+        "200":
+          description: Account profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [accounts]
+      summary: Rename account
+      description: Renames the account. Requires owner or admin role.
+      operationId: renameAccount
+      parameters:
+        - $ref: "#/components/parameters/Account"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: New account name
+      responses:
+        "200":
+          description: Account renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  name:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Deployments ───────────────────────────────────────────────────────────────
+
+  /deployments:
+    get:
+      tags: [deployments]
+      summary: List deployments
+      description: Lists all active deployments for the given account, including pod and job status.
+      operationId: listDeployments
+      parameters:
+        - name: account
+          in: query
+          required: true
+          description: Account name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of active deployments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deployments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgentDeployment"
+                  count:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deploy:
+    post:
+      tags: [deployments]
+      summary: Deploy agent
+      description: |
+        Deploys the latest build of an agent to Kubernetes. Creates or updates the K8s namespace,
+        deployment, services, and ingress. Returns `200` on full success or `207` if some
+        resources had errors.
+      operationId: deployAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeployRequest"
+      responses:
+        "200":
+          description: Deployment succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeployResponse"
+        "207":
+          description: Deployment partially succeeded (some resources had errors)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeployResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deploy/validate:
+    post:
+      tags: [deployments]
+      summary: Validate deployment
+      description: Validates a deployment request without applying it to the cluster. Useful for pre-flight checks.
+      operationId: validateDeployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeployRequest"
+      responses:
+        "200":
+          description: Validation passed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  build_id:
+                    type: string
+                  name:
+                    type: string
+        "400":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: false
+                  validation_errors:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /undeploy:
+    post:
+      tags: [deployments]
+      summary: Undeploy agent
+      description: Removes the agent's Kubernetes namespace and all associated resources.
+      operationId: undeployAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, name]
+              properties:
+                account:
+                  type: string
+                name:
+                  type: string
+                  description: Agent name
+      responses:
+        "200":
+          description: Undeploy succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UndeployResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{namespace}/logs:
+    get:
+      tags: [deployments]
+      summary: Get pod logs
+      description: Returns the last N lines of logs from a pod in the deployment's namespace.
+      operationId: getDeploymentLogs
+      parameters:
+        - $ref: "#/components/parameters/Namespace"
+        - name: account
+          in: query
+          required: true
+          description: Account name (used for ownership verification)
+          schema:
+            type: string
+        - name: pod
+          in: query
+          required: true
+          description: Pod name
+          schema:
+            type: string
+        - name: container
+          in: query
+          required: false
+          description: Container name (defaults to first container)
+          schema:
+            type: string
+        - name: tailLines
+          in: query
+          required: false
+          description: Number of log lines to return (default 200)
+          schema:
+            type: integer
+            default: 200
+      responses:
+        "200":
+          description: Log output as plain text
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{namespace}/pods/{pod}/restart:
+    post:
+      tags: [deployments]
+      summary: Restart pod
+      description: Deletes the pod, causing Kubernetes to recreate it.
+      operationId: restartPod
+      parameters:
+        - $ref: "#/components/parameters/Namespace"
+        - name: pod
+          in: path
+          required: true
+          description: Pod name
+          schema:
+            type: string
+        - name: account
+          in: query
+          required: true
+          description: Account name (used for ownership verification)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pod restart initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: restarting
+                  pod:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /deployments/{namespace}/configmap/{cmname}:
+    get:
+      tags: [deployments]
+      summary: Get ConfigMap data
+      description: Returns the key-value data of a ConfigMap in the deployment's namespace.
+      operationId: getConfigMapData
+      parameters:
+        - $ref: "#/components/parameters/Namespace"
+        - name: cmname
+          in: path
+          required: true
+          description: ConfigMap name
+          schema:
+            type: string
+        - name: account
+          in: query
+          required: true
+          description: Account name (used for ownership verification)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ConfigMap data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /deployments/{namespace}/secret/{secretname}/keys:
+    get:
+      tags: [deployments]
+      summary: Get secret keys
+      description: Returns the key names of a Secret (values are never returned).
+      operationId: getSecretKeys
+      parameters:
+        - $ref: "#/components/parameters/Namespace"
+        - name: secretname
+          in: path
+          required: true
+          description: Secret name
+          schema:
+            type: string
+        - name: account
+          in: query
+          required: true
+          description: Account name (used for ownership verification)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Secret key names
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                  keys:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /deployments/{namespace}/ingestion/{ingestion}/trigger:
+    post:
+      tags: [deployments]
+      summary: Trigger ingestion
+      description: Manually triggers a one-shot ingestion job for an ingestion source configured with `trigger.type: manual`.
+      operationId: triggerIngestion
+      parameters:
+        - $ref: "#/components/parameters/Namespace"
+        - name: ingestion
+          in: path
+          required: true
+          description: Ingestion source name as defined in the agent spec
+          schema:
+            type: string
+        - name: account
+          in: query
+          required: true
+          description: Account name (used for ownership verification)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ingestion job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: triggered
+                  job_name:
+                    type: string
+                  namespace:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   securitySchemes:
@@ -191,6 +934,13 @@ components:
       in: path
       required: true
       description: Agent name
+      schema:
+        type: string
+    Namespace:
+      name: namespace
+      in: path
+      required: true
+      description: Kubernetes namespace for the deployment
       schema:
         type: string
 
@@ -225,6 +975,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: Service not configured or unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
   schemas:
     Error:
@@ -234,6 +990,8 @@ components:
           type: string
         details:
           type: string
+
+    # ── Agent schemas ────────────────────────────────────────────────────────
 
     AgentsListResponse:
       type: object
@@ -291,7 +1049,7 @@ components:
           description: OCI registry URL
         spec_content:
           type: string
-          description: YAML content of astro spec
+          description: YAML content of astroai.yml
         readme:
           type: string
 
@@ -346,6 +1104,8 @@ components:
           type: array
           description: Required credential keys for deployment
 
+    # ── Account schemas ──────────────────────────────────────────────────────
+
     ProfileResponse:
       type: object
       properties:
@@ -387,12 +1147,50 @@ components:
           type: string
         type:
           type: string
+          enum: [personal, team]
         role:
           type: string
+          enum: [owner, admin, member]
         agents:
           type: array
           items:
             $ref: "#/components/schemas/AgentSummary"
+
+    AccountResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [personal, team]
+        owner:
+          type: object
+          properties:
+            first_name:
+              type: string
+            last_name:
+              type: string
+            profile_picture_url:
+              type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateAccountRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [personal, team]
 
     AgentSummary:
       type: object
@@ -405,3 +1203,319 @@ components:
           type: integer
         published_version_count:
           type: integer
+
+    # ── Deployment schemas ───────────────────────────────────────────────────
+
+    DeployRequest:
+      type: object
+      required: [account, name]
+      properties:
+        account:
+          type: string
+          description: Account that owns the deployment
+        name:
+          type: string
+          description: Agent name
+        source_account:
+          type: string
+          description: Source account for cross-account deploys (uses latest published version)
+        user_credentials:
+          type: object
+          additionalProperties:
+            type: string
+          description: Credential key-value pairs required by the agent
+        interfaces:
+          type: array
+          items:
+            type: string
+          description: Interface adapter names to enable (e.g. ["slack", "web"])
+        schedules:
+          type: object
+          additionalProperties:
+            type: string
+          description: Cron schedules keyed by ingestion name
+
+    DeployResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, partial]
+        name:
+          type: string
+        build_id:
+          type: string
+        k8s_namespace:
+          type: string
+        deployed_at:
+          type: string
+          format: date-time
+        resources:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Kubernetes resources created or updated
+        service_endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceEndpoint"
+        errors:
+          type: array
+          items:
+            type: string
+
+    UndeployResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        name:
+          type: string
+        build_id:
+          type: string
+        k8s_namespace:
+          type: string
+        undeployed_at:
+          type: string
+          format: date-time
+
+    AgentDeployment:
+      type: object
+      properties:
+        name:
+          type: string
+        build_id:
+          type: string
+        namespace:
+          type: string
+        status:
+          type: string
+          enum: [Running, Pending, Stopped]
+        replicas:
+          type: integer
+        ready:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        components:
+          type: array
+          items:
+            type: string
+        manual_ingestions:
+          type: array
+          items:
+            type: string
+        external_urls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceEndpoint"
+        pods:
+          type: array
+          items:
+            $ref: "#/components/schemas/PodDetail"
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobDetail"
+
+    DeploymentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        agent_name:
+          type: string
+        build_id:
+          type: string
+        namespace:
+          type: string
+        status:
+          type: string
+        deployed_at:
+          type: string
+          format: date-time
+        undeployed_at:
+          type: string
+          format: date-time
+          nullable: true
+        spec:
+          type: object
+          additionalProperties: true
+
+    ServiceEndpoint:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+
+    PodDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        phase:
+          type: string
+          enum: [Pending, Running, Succeeded, Failed, Unknown]
+        pod_ip:
+          type: string
+        age:
+          type: string
+        containers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContainerStatus"
+
+    ContainerStatus:
+      type: object
+      properties:
+        name:
+          type: string
+        state:
+          type: string
+          enum: [Running, Waiting, Terminated, Unknown]
+        ready:
+          type: boolean
+        restart_count:
+          type: integer
+        reason:
+          type: string
+        message:
+          type: string
+        env:
+          type: array
+          items:
+            $ref: "#/components/schemas/EnvVar"
+
+    EnvVar:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+          description: Literal value (omitted for secret/configmap references)
+        from:
+          type: string
+          description: Source reference (e.g. `secret:my-secret/key`)
+
+    JobDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [Pending, Running, Succeeded, Failed]
+        component:
+          type: string
+        age:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        completions:
+          type: string
+          description: "Completion ratio (e.g. `1/1`)"
+
+    # ── Observability schemas ────────────────────────────────────────────────
+
+    MetricsResponse:
+      type: object
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetricsBucket"
+        time_range:
+          $ref: "#/components/schemas/TimeRange"
+        interval_minutes:
+          type: integer
+
+    MetricsBucket:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        trace_count:
+          type: integer
+        avg_latency_ms:
+          type: number
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        error_count:
+          type: integer
+
+    ObservabilitySummaryResponse:
+      type: object
+      properties:
+        total_traces:
+          type: integer
+        time_range:
+          $ref: "#/components/schemas/TimeRange"
+        metrics:
+          type: object
+          properties:
+            avg_latency_ms:
+              type: number
+            p95_latency_ms:
+              type: number
+            total_tokens:
+              type: integer
+            error_rate:
+              type: number
+            traces_per_hour:
+              type: number
+
+    TracesResponse:
+      type: object
+      properties:
+        traces:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraceEntry"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    TraceEntry:
+      type: object
+      properties:
+        trace_id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ok, error]
+        latency_ms:
+          type: number
+        input:
+          type: string
+        output:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    TimeRange:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
