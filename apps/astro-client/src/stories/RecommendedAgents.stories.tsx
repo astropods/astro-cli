@@ -1,13 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  MemoryRouter,
-  Routes,
-  Route,
-  Outlet,
-} from "react-router";
+import { MemoryRouter } from "react-router";
 
 import { RecommendedAgents } from "@/components/RecommendedAgents";
-import type { LayoutContext } from "@/components/Layout";
 
 const meta = {
   title: "Components/RecommendedAgents",
@@ -15,24 +9,9 @@ const meta = {
   decorators: [
     (Story) => (
       <MemoryRouter>
-        <Routes>
-          <Route
-            element={
-              <>
-                <Outlet context={{ openAuthModal: () => {} } satisfies LayoutContext} />
-              </>
-            }
-          >
-            <Route
-              index
-              element={
-                <div className="max-w-3xl">
-                  <Story />
-                </div>
-              }
-            />
-          </Route>
-        </Routes>
+        <div className="max-w-3xl">
+          <Story />
+        </div>
       </MemoryRouter>
     ),
   ],

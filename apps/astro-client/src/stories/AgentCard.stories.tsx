@@ -28,7 +28,6 @@ export const Default: Story = {
       "Analyzes customer feedback to surface actionable insights and trends.",
     integrations: ["Slack", "GitHub", "Linear", "Notion"],
     categories: ["Analytics"],
-    onInstall: (slug) => console.log("Install", slug),
   },
 };
 
@@ -41,7 +40,6 @@ export const LongDescription: Story = {
       "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history, previous interactions, and the specific context of their issue. Agents can review and send with a single click.",
     integrations: ["Slack", "Notion"],
     categories: ["Customer Support", "Analytics"],
-    onInstall: (slug) => console.log("Install", slug),
   },
 };
 
@@ -54,7 +52,6 @@ export const FewIntegrations: Story = {
       "Continuously scans for vulnerabilities and alerts your security team.",
     integrations: ["GitHub"],
     categories: ["Security"],
-    onInstall: (slug) => console.log("Install", slug),
   },
 };
 
@@ -67,6 +64,5 @@ export const ManyIntegrations: Story = {
       "Aggregates product research and competitive intelligence from multiple sources.",
     integrations: ["Slack", "Notion", "GitHub", "Linear", "Google Drive"],
     categories: ["Analytics", "Developer Tools"],
-    onInstall: (slug) => console.log("Install", slug),
   },
 };

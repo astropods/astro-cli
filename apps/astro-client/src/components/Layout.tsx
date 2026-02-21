@@ -1,11 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { Outlet, useSearchParams } from "react-router";
-import { AuthModal } from "./AuthModal";
 import { AppHeader } from "./AppHeader";
 import { useAuth } from "../lib/auth";
 
 export default function Layout() {
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { error } = useAuth();
 
@@ -26,24 +24,15 @@ export default function Layout() {
     }
   }, [searchParams, setSearchParams]);
 
-  const openAuthModal = useCallback(() => setIsAuthModalOpen(true), []);
-  const closeAuthModal = useCallback(() => setIsAuthModalOpen(false), []);
-
   return (
-    <>
+    <div className="flex flex-col flex-1 min-h-0">
       <AppHeader />
       {error && (
         <div className="m-6 mb-0 md:m-8 md:mb-0 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">
           {error}
         </div>
       )}
-      <Outlet context={{ openAuthModal }} />
-      <AuthModal isOpen={isAuthModalOpen} onClose={closeAuthModal} />
-    </>
+      <Outlet />
+    </div>
   );
-}
-
-// Type for useOutletContext
-export interface LayoutContext {
-  openAuthModal: () => void;
 }

@@ -1,4 +1,4 @@
-import { useParams, useOutletContext, Link } from "react-router";
+import { useParams, Link } from "react-router";
 import type { Route } from "./+types/AgentDetail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,9 +8,13 @@ import {
   AgentDetailSidebar,
 } from "@/components/agent-detail";
 import { useAgent, useAgents } from "@/api/queries";
-import type { Agent } from "@/lib/api";
-import type { LayoutContext } from "@/components/Layout";
 import { createServerApi } from "@/lib/api.server";
+import {
+  getLatestSpec,
+  getAgentDescription,
+  getAgentIntegrations,
+  getAgentCategories,
+} from "@/lib/agent-utils";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -39,28 +43,6 @@ export const meta: Route.MetaFunction = ({ data }) => {
     { property: "og:description", content: description },
   ];
 };
-
-// ---------------------------------------------------------------------------
-// Helpers (mirrors Hire page utilities)
-// ---------------------------------------------------------------------------
-
-function getLatestSpec(agent: Agent) {
-  return agent.versions[0]?.spec;
-}
-
-function getAgentDescription(agent: Agent): string {
-  return getLatestSpec(agent)?.meta?.description ?? agent.name;
-}
-
-function getAgentIntegrations(agent: Agent): string[] {
-  const integrations = getLatestSpec(agent)?.integrations;
-  if (!integrations) return [];
-  return [...new Set(Object.values(integrations).map((i) => i.provider))];
-}
-
-function getAgentCategories(agent: Agent): string[] {
-  return getLatestSpec(agent)?.meta?.tags ?? [];
-}
 
 // ---------------------------------------------------------------------------
 // Loading skeleton
@@ -147,7 +129,6 @@ function AgentDetailSkeleton() {
 
 export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
-  const { openAuthModal } = useOutletContext<LayoutContext>();
 
   // Support both /:account/:agentSlug and legacy /:agentSlug routes
   const { data: agent, isLoading, isError, error } = useAgent(account ?? '', agentSlug ?? "", {
@@ -246,7 +227,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           agent={agent}
           integrations={integrations}
           permissions={safetyPermissions}
-          onInstall={openAuthModal}
           initialAccountData={loaderData?.accountData ?? undefined}
         />
       </div>

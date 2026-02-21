@@ -1,4 +1,5 @@
 import { ArrowRight } from "lucide-react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
 import { PermissionsPreview } from "./PermissionsPreview";
@@ -10,7 +11,6 @@ export interface AgentDetailSidebarProps {
   agent: Agent;
   integrations: string[];
   permissions: string[];
-  onInstall: () => void;
   initialAccountData?: AccountPublic;
 }
 
@@ -18,7 +18,6 @@ export function AgentDetailSidebar({
   agent,
   integrations,
   permissions,
-  onInstall,
   initialAccountData,
 }: AgentDetailSidebarProps) {
   const latestVersion = agent.versions[0];
@@ -41,9 +40,11 @@ export function AgentDetailSidebar({
       <div className="sticky top-[57px]">
         <div className="rounded-lg border border-border bg-stone-100 p-5">
           {/* Install CTA */}
-          <Button onClick={onInstall} size="lg" className="w-full gap-2">
-            Install Agent
-            <ArrowRight className="h-4 w-4" />
+          <Button asChild size="lg" className="w-full gap-2">
+            <Link to={`/deploy/${agent.account}/${agent.name}`}>
+              Install Agent
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </Button>
 
           {/* Author block */}

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type AgentsListResponse, type Agent } from '../../lib/api';
+import { api, type AgentsListResponse, type Agent, type DeploymentTemplate } from '../../lib/api';
 import { agentKeys, deploymentKeys, accountKeys } from './keys';
 
 export function useAgents(opts?: { initialData?: AgentsListResponse }) {
@@ -21,11 +21,13 @@ export function useAgent(account: string, name: string, opts?: { initialData?: A
   });
 }
 
-export function useDeploymentTemplate(account: string, name: string) {
+export function useDeploymentTemplate(account: string, name: string, opts?: { initialData?: DeploymentTemplate }) {
   return useQuery({
     queryKey: agentKeys.template(account, name),
     queryFn: () => api.getDeploymentTemplate(account, name),
     enabled: !!account && !!name,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? Date.now() : undefined,
   });
 }
 

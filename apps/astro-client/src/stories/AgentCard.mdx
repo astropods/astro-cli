@@ -17,12 +17,12 @@ import { AgentCard } from "@/components/AgentCard"
 
 ```tsx
 <AgentCard
-  slug="customer-insight-engine"
+  slug="acme/customer-insight-engine"
+  account="acme"
   name="Customer Insight Engine"
   description="Analyzes customer feedback to surface actionable insights and trends."
   integrations={["Slack", "GitHub", "Linear", "Notion"]}
   categories={["Analytics"]}
-  onInstall={(slug) => console.log("Install", slug)}
 />
 ```
 

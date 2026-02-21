@@ -9,8 +9,8 @@ import { BrowseAgentCard } from "@/components/browse/BrowseAgentCard";
 import { CategorySidebar } from "@/components/browse/CategorySidebar";
 import { PublishCTA } from "@/components/browse/PublishCTA";
 import { useAgents } from "@/api/queries";
-import type { Agent } from "@/lib/api";
 import { createServerApi } from "@/lib/api.server";
+import { getAgentCategories, getAgentDescription } from "@/lib/agent-utils";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -23,22 +23,6 @@ export const meta: Route.MetaFunction = () => [
   { property: "og:title", content: "Browse Agents | Astro" },
   { property: "og:description", content: "Browse AI agents available for hire on Astro." },
 ];
-
-function getLatestVersion(agent: Agent) {
-  return agent.versions[0];
-}
-
-function getLatestSpec(agent: Agent) {
-  return getLatestVersion(agent)?.spec;
-}
-
-function getAgentCategories(agent: Agent): string[] {
-  return getLatestSpec(agent)?.meta?.tags ?? [];
-}
-
-function getAgentDescription(agent: Agent): string {
-  return getLatestSpec(agent)?.meta?.description ?? agent.name;
-}
 
 export default function Hire({ loaderData }: Route.ComponentProps) {
   const [selectedCategory, setSelectedCategory] = useState("All");

@@ -1,6 +1,4 @@
-import { useOutletContext } from "react-router";
 import { AgentCard } from "@/components/AgentCard";
-import type { LayoutContext } from "@/components/Layout";
 
 export interface RecommendedAgent {
   slug: string;
@@ -16,8 +14,6 @@ export interface RecommendedAgentsProps {
 }
 
 export function RecommendedAgents({ agents }: RecommendedAgentsProps) {
-  const { openAuthModal } = useOutletContext<LayoutContext>();
-
   if (agents.length === 0) return null;
 
   return (
@@ -33,7 +29,6 @@ export function RecommendedAgents({ agents }: RecommendedAgentsProps) {
             description={agent.description}
             integrations={agent.integrations}
             categories={agent.categories}
-            onInstall={() => openAuthModal()}
           />
         ))}
       </div>

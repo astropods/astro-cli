@@ -11,7 +11,6 @@ export interface AgentCardProps {
   description: string;
   integrations: string[];
   categories: string[];
-  onInstall?: (slug: string) => void;
 }
 
 export function AgentCard({
@@ -21,7 +20,6 @@ export function AgentCard({
   description,
   integrations,
   categories,
-  onInstall,
 }: AgentCardProps) {
   const integrationItems = getIntegrationItems(integrations);
 
@@ -54,8 +52,8 @@ export function AgentCard({
 
       {/* Actions */}
       <div className="mt-auto flex flex-col @[200px]:flex-row gap-2 pt-1">
-        <Button className="flex-1" onClick={() => onInstall?.(slug)}>
-          Install Agent
+        <Button className="flex-1" asChild>
+          <Link to={`/deploy/${slug}`}>Install Agent</Link>
         </Button>
         <Button variant="outline" className="flex-1" asChild>
           <Link to={`/${slug}`}>View details</Link>

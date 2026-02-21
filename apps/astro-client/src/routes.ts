@@ -12,6 +12,7 @@ export default [
     route("onboarding", "pages/Onboarding.tsx"),
     route("docs", "pages/Docs.tsx"),
     route("dev", "pages/DevRedirect.tsx"),
+    route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),
     route(":account/:agentSlug", "pages/AgentDetail.tsx", { id: "agent-detail" }),
     route("*", "pages/NotFound.tsx"),
   ]),
