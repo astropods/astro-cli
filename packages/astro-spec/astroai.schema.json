@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://astromode.ai/schema/astroai.json",
+  "$id": "https://astro.postman.com/schema/astroai.json",
   "properties": {
     "spec": {
       "type": "string",
@@ -352,6 +352,10 @@
     "tools": {
       "additionalProperties": {
         "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Cloud provider (e.g. github)"
+          },
           "container": {
             "properties": {
               "image": {
@@ -468,14 +472,6 @@
     "integrations": {
       "additionalProperties": {
         "properties": {
-          "provider": {
-            "type": "string",
-            "description": "Integration provider name"
-          },
-          "type": {
-            "type": "string",
-            "description": "Integration type"
-          },
           "config": {
             "type": "object",
             "description": "Provider-specific configuration"
@@ -500,14 +496,11 @@
               ]
             },
             "type": "array",
-            "description": "Custom credential requirements"
+            "description": "Credential requirements"
           }
         },
         "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "provider"
-        ]
+        "type": "object"
       },
       "type": "object",
       "description": "Cloud integrations"
@@ -670,6 +663,21 @@
         "command": {
           "type": "string",
           "description": "Start command for the agent (default: bun --watch run start)"
+        },
+        "overrides": {
+          "properties": {
+            "messagingImage": {
+              "type": "string",
+              "description": "Custom image for the messaging sidecar"
+            },
+            "playgroundImage": {
+              "type": "string",
+              "description": "Custom image for the playground UI"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "description": "Image overrides for local dev services"
         }
       },
       "additionalProperties": false,

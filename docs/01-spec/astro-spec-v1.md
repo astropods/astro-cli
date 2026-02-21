@@ -250,6 +250,14 @@ The `dev` section provides local development overrides consumed by `astro dev`. 
 | `interfaces` | string[]              | OPTIONAL | Messaging interfaces to enable locally (e.g. `slack`, `web`).                      |
 | `schedules`  | map\<string, string\> | OPTIONAL | Map of ingestion entry name to cron expression for local `schedule`-type triggers. |
 | `command`    | string                | OPTIONAL | Custom start command for the agent. Default: `bun --watch run start`.              |
+| `overrides`  | DevOverrides          | OPTIONAL | Image overrides for local dev services.                                            |
+
+#### DevOverrides
+
+| Field             | Type   | Required | Description                              |
+| ----------------- | ------ | -------- | ---------------------------------------- |
+| `messagingImage`  | string | OPTIONAL | Custom image for the messaging sidecar.  |
+| `playgroundImage` | string | OPTIONAL | Custom image for the playground UI.      |
 
 ---
 

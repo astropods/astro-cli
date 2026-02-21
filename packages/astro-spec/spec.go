@@ -164,13 +164,20 @@ type Dev struct {
 	Interfaces []string          `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Messaging interfaces to enable locally (e.g. slack)"`
 	Schedules  map[string]string `json:"schedules,omitempty" yaml:"schedules,omitempty" jsonschema:"description=Cron schedules for ingestion jobs during dev"`
 	Command    string            `json:"command,omitempty" yaml:"command,omitempty" jsonschema:"description=Start command for the agent (default: bun --watch run start)"`
+	Overrides  *DevOverrides     `json:"overrides,omitempty" yaml:"overrides,omitempty" jsonschema:"description=Image overrides for local dev services"`
+}
+
+// DevOverrides allows overriding default images for local dev services.
+type DevOverrides struct {
+	MessagingImage  string `json:"messagingImage,omitempty" yaml:"messagingImage,omitempty" jsonschema:"description=Custom image for the messaging sidecar"`
+	PlaygroundImage string `json:"playgroundImage,omitempty" yaml:"playgroundImage,omitempty" jsonschema:"description=Custom image for the playground UI"`
 }
 
 // Ingestion represents a data ingestion job
 // Just a container that runs on a trigger
 type Ingestion struct {
-	Container ContainerConfig   `json:"container" yaml:"container"`
-	Trigger   IngestionTrigger  `json:"trigger" yaml:"trigger"`
+	Container ContainerConfig  `json:"container" yaml:"container"`
+	Trigger   IngestionTrigger `json:"trigger" yaml:"trigger"`
 }
 
 type IngestionTrigger struct {
