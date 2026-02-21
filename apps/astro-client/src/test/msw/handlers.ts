@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw';
 import type {
   AgentsListResponse,
   Agent,
+  DeploymentTemplate,
   DeploymentsListResponse,
   DeployResponse,
   UndeployResponse,
@@ -83,6 +84,17 @@ export const mockDeployments: DeploymentsListResponse = {
   count: 1,
 };
 
+export const mockTemplate: DeploymentTemplate = {
+  spec: '1.0',
+  source: { account: 'testuser', name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
+  target: { runtime: 'k8s', namespace: 'user-abc123' },
+  agent: {},
+  credentials: {
+    OPENAI_API_KEY: { value: '', description: 'OpenAI API key for the model provider', optional: false },
+    SENTRY_DSN: { value: '', description: 'Sentry DSN for error tracking', optional: true },
+  },
+};
+
 export const handlers = [
   // GET /api/v1/agents
   http.get('/api/v1/agents', () => {
@@ -90,6 +102,15 @@ export const handlers = [
       agents: mockAgents,
       count: mockAgents.length,
     });
+  }),
+
+  // GET /api/v1/agents/:account/:name/deployment-template
+  http.get('/api/v1/agents/:account/:name/deployment-template', ({ params }) => {
+    const agent = mockAgents.find((a) => a.account === params.account && a.name === params.name);
+    if (!agent) {
+      return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+    }
+    return HttpResponse.json(mockTemplate);
   }),
 
   // GET /api/v1/agents/:account/:name

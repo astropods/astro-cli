@@ -1,9 +1,10 @@
 import type { StorybookConfig } from '@storybook/react-vite';
-import tailwindcss from '@tailwindcss/vite';
 
-import { dirname, resolve } from "path"
-
+import { dirname } from "path"
 import { fileURLToPath } from "url"
+
+// Signal to vite.config.ts to skip the react-router plugin
+process.env.STORYBOOK = 'true';
 
 /**
 * This function is used to resolve the absolute path of a package.
@@ -25,15 +26,5 @@ const config: StorybookConfig = {
     getAbsolutePath('@storybook/addon-onboarding')
   ],
   "framework": getAbsolutePath('@storybook/react-vite'),
-  viteFinal(config) {
-    config.plugins = config.plugins || [];
-    config.plugins.push(tailwindcss());
-    config.resolve = config.resolve || {};
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': resolve(dirname(fileURLToPath(import.meta.url)), '../src'),
-    };
-    return config;
-  },
 };
 export default config;

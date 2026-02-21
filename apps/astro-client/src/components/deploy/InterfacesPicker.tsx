@@ -43,6 +43,7 @@ export function InterfacesPicker({
           <div key={adapter.id}>
             <button
               type="button"
+              aria-pressed={isSelected}
               onClick={() => toggle(adapter.id)}
               className="w-[calc(100%+1.5rem)] flex items-center gap-4 py-4 pl-3 pr-6 -ml-3 -mr-3 rounded-[6px] text-left cursor-pointer transition-colors hover:bg-primary/5"
             >

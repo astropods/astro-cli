@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/InstallAgent";
-import { Loader2, Rocket, AlertCircle } from "lucide-react";
+import { Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAgent } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
@@ -9,6 +9,7 @@ import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { InterfacesPicker } from "@/components/deploy/InterfacesPicker";
 import { CredentialFields } from "@/components/deploy/CredentialFields";
 import { FormSection } from "@/components/deploy/FormSection";
+import { ErrorPanel } from "@/components/deploy/ErrorPanel";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 
 // --- Loader & Meta ---
@@ -109,8 +110,8 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
           </p>
 
           {form.templateErrorMessage && (
-            <div className="p-3 mb-8 rounded border border-destructive/30 bg-destructive/5 text-destructive text-sm">
-              {form.templateErrorMessage}
+            <div className="mb-8">
+              <ErrorPanel>{form.templateErrorMessage}</ErrorPanel>
             </div>
           )}
 
@@ -150,13 +151,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
               {/* Error */}
               {form.deployError && (
-                <div className="rounded-[6px] bg-red-100 p-4">
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <AlertCircle size={16} className="text-red-700" />
-                    <span className="text-sm font-medium text-red-700">Deployment failed</span>
-                  </div>
-                  <p className="text-sm text-red-700 whitespace-pre-wrap">{form.deployError}</p>
-                </div>
+                <ErrorPanel title="Deployment failed">{form.deployError}</ErrorPanel>
               )}
 
               {/* Deploy button */}

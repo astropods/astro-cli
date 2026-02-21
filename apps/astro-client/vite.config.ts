@@ -32,7 +32,10 @@ export default defineConfig(({ mode }) => {
   const useLocalDomain = !!httpsConfig;
 
   return {
-    plugins: [tailwindcss(), reactRouter()],
+    plugins: [
+      tailwindcss(),
+      !process.env.STORYBOOK && reactRouter(),
+    ].filter(Boolean),
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

@@ -1,0 +1,433 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import { screen, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { server } from '@/test/msw/server';
+import { mockTemplate } from '@/test/msw/handlers';
+import { renderRoute } from '@/test/test-utils';
+import InstallAgent from './InstallAgent';
+
+afterEach(cleanup);
+
+const ROUTE_PATH = '/:account/:agentSlug/install';
+const ACCOUNT = 'testuser';
+const AGENT = 'code-reviewer';
+
+function renderInstall({ account = ACCOUNT, agent = AGENT } = {}) {
+  return renderRoute(
+    [
+      {
+        path: ROUTE_PATH,
+        // @ts-expect-error: `matches` won't align between test code and app code
+        Component: InstallAgent,
+      },
+    ],
+    { initialEntries: [`/${account}/${agent}/install`] },
+  );
+}
+
+/** Wait for the install form to be fully loaded. */
+async function waitForForm() {
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { level: 1, name: /Install/ })).toBeInTheDocument();
+  });
+  // Also wait for template-driven sections to appear
+  await waitFor(() => {
+    expect(screen.getByText('Messaging')).toBeInTheDocument();
+  });
+}
+
+// ── Rendering & Data Loading ────────────────────────────────────────
+
+describe('InstallAgent page', () => {
+  describe('rendering & data loading', () => {
+    it('renders the install form with agent name', async () => {
+      renderInstall();
+      await waitForForm();
+
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Install');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('code-reviewer');
+    });
+
+    it('shows agent not found when agent does not exist', async () => {
+      renderInstall({ agent: 'no-such-agent' });
+
+      await waitFor(() => {
+        expect(screen.getByText('Agent not found')).toBeInTheDocument();
+      });
+      expect(screen.getByRole('link', { name: /browse agents/i })).toHaveAttribute('href', '/hire');
+    });
+
+    it('renders breadcrumb with correct links', async () => {
+      renderInstall();
+      await waitForForm();
+
+      const links = screen.getAllByRole('link');
+      const hrefs = links.map((l) => l.getAttribute('href'));
+      expect(hrefs).toContain('/hire');
+      expect(hrefs).toContain(`/${ACCOUNT}/${AGENT}`);
+    });
+  });
+
+  // ── Template Error ──────────────────────────────────────────────────
+
+  describe('template error', () => {
+    it('shows error panel when template fails to load', async () => {
+      server.use(
+        http.get('/api/v1/agents/:account/:name/deployment-template', () =>
+          HttpResponse.json({ error: 'internal_error', error_description: 'Template service unavailable' }, { status: 500 }),
+        ),
+      );
+
+      renderInstall();
+
+      await waitFor(() => {
+        expect(screen.getByText('Template service unavailable')).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ── Interfaces Picker ─────────────────────────────────────────────
+
+  describe('interfaces picker', () => {
+    it('has Web selected by default', async () => {
+      renderInstall();
+      await waitForForm();
+
+      const webButton = screen.getByRole('button', { name: /web/i });
+      expect(webButton).toHaveAttribute('aria-pressed', 'true');
+
+      const slackButton = screen.getByRole('button', { name: /slack/i });
+      expect(slackButton).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('shows Slack credential fields when Slack is toggled on', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack Bot Token')).toBeInTheDocument();
+      });
+      expect(screen.getByLabelText('Slack App Token')).toBeInTheDocument();
+    });
+
+    it('hides Slack credential fields when Slack is toggled off', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      // Toggle on
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack Bot Token')).toBeInTheDocument();
+      });
+
+      // Toggle off
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Slack Bot Token')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  // ── Credential Fields ─────────────────────────────────────────────
+
+  describe('credential fields', () => {
+    it('renders required credential fields from template', async () => {
+      renderInstall();
+      await waitForForm();
+
+      expect(screen.getByText('Configuration')).toBeInTheDocument();
+      expect(screen.getByLabelText('Openai Api Key')).toBeInTheDocument();
+    });
+
+    it('renders optional credential fields from template', async () => {
+      renderInstall();
+      await waitForForm();
+
+      expect(screen.getByText('Optional credentials')).toBeInTheDocument();
+      expect(screen.getByLabelText('Sentry Dsn')).toBeInTheDocument();
+    });
+
+    it('hides sections when template has no credentials', async () => {
+      server.use(
+        http.get('/api/v1/agents/:account/:name/deployment-template', () =>
+          HttpResponse.json({ ...mockTemplate, credentials: {} }),
+        ),
+      );
+
+      renderInstall();
+      await waitForForm();
+
+      expect(screen.queryByText('Configuration')).not.toBeInTheDocument();
+      expect(screen.queryByText('Optional credentials')).not.toBeInTheDocument();
+    });
+  });
+
+  // ── Deploy Button Validation ──────────────────────────────────────
+
+  describe('deploy button validation', () => {
+    it('disables deploy button when required credentials are empty', async () => {
+      renderInstall();
+      await waitForForm();
+
+      expect(screen.getByRole('button', { name: /launch agent/i })).toBeDisabled();
+    });
+
+    it('enables deploy button when required credentials are filled', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+    });
+
+    it('disables deploy button when Slack is selected but tokens are empty', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      // Fill required agent credential
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+
+      // Select Slack (now requires Slack tokens)
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack Bot Token')).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('button', { name: /launch agent/i })).toBeDisabled();
+    });
+
+    it('enables deploy button when Slack tokens are also filled', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack Bot Token')).toBeInTheDocument();
+      });
+
+      await user.type(screen.getByLabelText('Slack Bot Token'), 'xoxb-test');
+      await user.type(screen.getByLabelText('Slack App Token'), 'xapp-test');
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+    });
+  });
+
+  // ── Deployment Submission ─────────────────────────────────────────
+
+  describe('deployment submission', () => {
+    it('navigates to /agents on successful deploy', async () => {
+      const user = userEvent.setup();
+
+      renderRoute(
+        [
+          {
+            path: ROUTE_PATH,
+            // @ts-expect-error: `matches` won't align between test code and app code
+            Component: InstallAgent,
+          },
+          {
+            path: '/agents',
+            Component: () => <div>Agents Page</div>,
+          },
+        ],
+        { initialEntries: [`/${ACCOUNT}/${AGENT}/install`] },
+      );
+
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Agents Page')).toBeInTheDocument();
+      });
+    });
+
+    it('sends correct payload with credentials and interfaces', async () => {
+      const capturedRequests: unknown[] = [];
+      server.use(
+        http.post('/api/v1/deploy', async ({ request }) => {
+          capturedRequests.push(await request.json());
+          return HttpResponse.json({
+            status: 'deployed',
+            name: AGENT,
+            build_id: 'a1b2c3d4e5f6',
+            k8s_namespace: 'user-abc123',
+            deployed_at: new Date().toISOString(),
+            resources: [{ kind: 'Deployment', name: AGENT, status: 'created' }],
+          });
+        }),
+      );
+
+      const user = userEvent.setup();
+
+      renderRoute(
+        [
+          {
+            path: ROUTE_PATH,
+            // @ts-expect-error: `matches` won't align between test code and app code
+            Component: InstallAgent,
+          },
+          {
+            path: '/agents',
+            Component: () => <div>Agents Page</div>,
+          },
+        ],
+        { initialEntries: [`/${ACCOUNT}/${AGENT}/install`] },
+      );
+
+      await waitForForm();
+
+      // Fill required credential
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+
+      // Enable Slack and fill its tokens
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack Bot Token')).toBeInTheDocument();
+      });
+      await user.type(screen.getByLabelText('Slack Bot Token'), 'xoxb-test');
+      await user.type(screen.getByLabelText('Slack App Token'), 'xapp-test');
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(capturedRequests).toHaveLength(1);
+      });
+
+      const payload = capturedRequests[0] as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        account: 'testuser',
+        name: AGENT,
+        user_credentials: {
+          OPENAI_API_KEY: 'sk-test123',
+          SLACK_BOT_TOKEN: 'xoxb-test',
+          SLACK_APP_TOKEN: 'xapp-test',
+        },
+        interfaces: expect.arrayContaining(['web', 'slack']),
+      });
+    });
+
+    it('shows error panel when deploy fails', async () => {
+      server.use(
+        http.post('/api/v1/deploy', () =>
+          HttpResponse.json(
+            { error: 'deploy_failed', details: 'Insufficient quota' },
+            { status: 400 },
+          ),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Deployment failed')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Insufficient quota')).toBeInTheDocument();
+    });
+
+    it('shows validation errors from API response', async () => {
+      server.use(
+        http.post('/api/v1/deploy', () =>
+          HttpResponse.json(
+            {
+              error: 'validation_error',
+              validation_errors: [{ field: 'OPENAI_API_KEY', message: 'invalid key format' }],
+            },
+            { status: 422 },
+          ),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'bad-key');
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/OPENAI_API_KEY: invalid key format/)).toBeInTheDocument();
+      });
+    });
+
+    it('shows missing credentials error from API response', async () => {
+      server.use(
+        http.post('/api/v1/deploy', () =>
+          HttpResponse.json(
+            {
+              error: 'missing_credentials',
+              missing_credentials: ['SECRET_TOKEN'],
+            },
+            { status: 400 },
+          ),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      });
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Missing credentials: SECRET_TOKEN/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ── Cancel Link ───────────────────────────────────────────────────
+
+  describe('cancel link', () => {
+    it('links back to the agent detail page', async () => {
+      renderInstall();
+      await waitForForm();
+
+      expect(screen.getByRole('link', { name: /cancel/i })).toHaveAttribute(
+        'href',
+        `/${ACCOUNT}/${AGENT}`,
+      );
+    });
+  });
+});
