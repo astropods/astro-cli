@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router";
 import {
   ArrowLeft,
   Rocket,
+  RefreshCw,
   Loader2,
   Server,
   Brain,
@@ -16,6 +17,7 @@ import {
   Check,
   CheckCircle,
   AlertCircle,
+  Info,
   ShieldCheck,
 } from "lucide-react";
 import type {
@@ -24,6 +26,7 @@ import type {
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useDeploymentTemplate, useDeployAgent, useValidateDeployment } from "../api/queries/agents";
+import { useDeployments } from "../api/queries/deployments";
 
 // --- Available adapters (server validates against this same set) ---
 
@@ -340,6 +343,11 @@ export default function DeployPage() {
   const deployMutation = useDeployAgent(userAccount);
   const validateMutation = useValidateDeployment();
 
+  // Check for existing deployment to distinguish deploy vs redeploy
+  const { data: deploymentsData } = useDeployments(userAccount, isAuthenticated);
+  const existingDeployment = (deploymentsData?.deployments ?? []).find((dep) => dep.name === name);
+  const isRedeploy = !!existingDeployment;
+
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>({});
@@ -507,6 +515,16 @@ export default function DeployPage() {
           </div>
         </div>
 
+        {/* Redeploy info banner */}
+        {isRedeploy && existingDeployment && (
+          <div className="shrink-0 mx-6 md:mx-8 mt-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm flex items-center gap-2">
+            <Info size={16} className="shrink-0" />
+            <span>
+              This will update the existing deployment in namespace <code className="font-mono font-medium">{existingDeployment.namespace}</code>. Persistent data (volumes, secrets) will be preserved.
+            </span>
+          </div>
+        )}
+
         {/* Loading / Error */}
         {isLoading && (
           <div className="flex items-center justify-center py-16 flex-1">
@@ -658,12 +676,12 @@ export default function DeployPage() {
               {deployMutation.isPending ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Deploying...
+                  {isRedeploy ? "Updating..." : "Deploying..."}
                 </>
               ) : (
                 <>
-                  <Rocket size={16} />
-                  Deploy {account}/{name}
+                  {isRedeploy ? <RefreshCw size={16} /> : <Rocket size={16} />}
+                  {isRedeploy ? "Update" : "Deploy"} {account}/{name}
                 </>
               )}
             </button>

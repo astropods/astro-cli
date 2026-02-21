@@ -382,6 +382,26 @@ class ApiClient {
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/traces${qs}`
     );
   }
+
+  // Admin endpoints (basic auth, not session-based)
+  async adminListDeployments(username: string, password: string): Promise<AdminDeploymentsResponse> {
+    const url = `${this.baseUrl}/api/v1/admin/deployments`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Basic ${btoa(`${username}:${password}`)}`,
+        'Content-Type': 'application/json',
+        ...this.defaultHeaders,
+      },
+    });
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'request_failed',
+        error_description: `Request failed with status ${response.status}`,
+      }));
+      throw error;
+    }
+    return response.json();
+  }
 }
 
 export interface ConfigMapResponse {
@@ -629,6 +649,15 @@ export interface TriggerIngestionResponse {
   status: string;
   job_name: string;
   namespace: string;
+}
+
+export interface AdminAgentDeployment extends AgentDeployment {
+  account_name: string;
+}
+
+export interface AdminDeploymentsResponse {
+  deployments: AdminAgentDeployment[];
+  count: number;
 }
 
 // Export singleton instance

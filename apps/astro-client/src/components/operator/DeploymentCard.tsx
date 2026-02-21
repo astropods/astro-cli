@@ -65,9 +65,9 @@ function jobStatusBadge(status: string): { color: string; bg: string } {
 export interface DeploymentCardProps {
   accountName: string;
   deployment: AgentDeployment;
-  onUndeploy: (name: string) => void;
-  onRefresh: () => void;
-  isUndeploying: boolean;
+  onUndeploy?: (name: string) => void;
+  onRefresh?: () => void;
+  isUndeploying?: boolean;
 }
 
 export function DeploymentCard({
@@ -149,32 +149,36 @@ export function DeploymentCard({
             <History size={14} />
             History
           </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRefresh();
-            }}
-            className="px-2 py-1.5 border border-stone-300 text-sm text-stone-600 bg-white hover:bg-stone-50 cursor-pointer flex items-center gap-1"
-            title="Refresh deployment status"
-          >
-            <RefreshCw size={14} />
-            Refresh
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onUndeploy(deployment.name);
-            }}
-            disabled={isUndeploying}
-            className="px-3 py-1.5 border border-red-300 text-sm text-red-600 bg-white hover:bg-red-50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-          >
-            {isUndeploying ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Trash2 size={14} />
-            )}
-            Undeploy
-          </button>
+          {onRefresh && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRefresh();
+              }}
+              className="px-2 py-1.5 border border-stone-300 text-sm text-stone-600 bg-white hover:bg-stone-50 cursor-pointer flex items-center gap-1"
+              title="Refresh deployment status"
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+          )}
+          {onUndeploy && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUndeploy(deployment.name);
+              }}
+              disabled={isUndeploying}
+              className="px-3 py-1.5 border border-red-300 text-sm text-red-600 bg-white hover:bg-red-50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {isUndeploying ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              Undeploy
+            </button>
+          )}
           {expanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
         </div>
       </div>
@@ -269,7 +273,7 @@ export function DeploymentCard({
           {pods.length === 0 ? (
             <p className="text-sm text-stone-500">No pods found</p>
           ) : (
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
               {pods.map((pod) => {
                 const readyContainers = pod.containers.filter((c) => c.ready).length;
                 const totalContainers = pod.containers.length;
@@ -277,50 +281,47 @@ export function DeploymentCard({
                   (sum, c) => sum + c.restart_count,
                   0
                 );
+                const isRestarting = restartMutation.isPending && restartMutation.variables?.pod === pod.name;
 
                 return (
                   <div
                     key={pod.name}
-                    className="bg-white border border-stone-200 p-3"
+                    className="bg-white border border-stone-200 p-2.5"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm truncate max-w-[300px]">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs truncate" title={pod.name}>
                           {pod.name}
-                        </span>
-                        <span className={`text-xs font-medium ${phaseColor(pod.phase)}`}>
-                          {pod.phase}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-stone-500">
-                          {readyContainers}/{totalContainers} ready
-                        </span>
-                        {totalRestarts > 0 && (
-                          <span className="text-xs text-orange-600">
-                            {totalRestarts} restart{totalRestarts !== 1 ? "s" : ""}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-xs font-medium ${phaseColor(pod.phase)}`}>
+                            {pod.phase}
                           </span>
-                        )}
-                        <span className="text-xs text-stone-400">{pod.age}</span>
+                          <span className="text-xs text-stone-400">
+                            {readyContainers}/{totalContainers} ready
+                          </span>
+                          {totalRestarts > 0 && (
+                            <span className="text-xs text-orange-600">
+                              {totalRestarts}↻
+                            </span>
+                          )}
+                          <span className="text-xs text-stone-400">{pod.age}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEnvPod(pod);
-                          }}
-                          className="px-2 py-1 text-xs border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer flex items-center gap-1"
+                          onClick={(e) => { e.stopPropagation(); setEnvPod(pod); }}
+                          className="p-1 border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer"
+                          title="View Env"
                         >
-                          <Code size={12} />
-                          View Env
+                          <Code size={12} className="text-stone-500" />
                         </button>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setLogPod(pod);
-                          }}
-                          className="px-2 py-1 text-xs border border-stone-300 bg-white hover:bg-stone-50 cursor-pointer flex items-center gap-1"
+                          onClick={(e) => { e.stopPropagation(); setLogPod(pod); }}
+                          className="p-1 border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer"
+                          title="View Logs"
                         >
-                          <FileText size={12} />
-                          View Logs
+                          <FileText size={12} className="text-stone-500" />
                         </button>
                         <button
                           onClick={(e) => {
@@ -333,40 +334,37 @@ export function DeploymentCard({
                               });
                             }
                           }}
-                          disabled={restartMutation.isPending && restartMutation.variables?.pod === pod.name}
-                          className="px-2 py-1 text-xs border border-orange-300 text-orange-600 bg-white hover:bg-orange-50 cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                          disabled={isRestarting}
+                          className="p-1 border border-orange-200 bg-white hover:bg-orange-50 cursor-pointer disabled:opacity-50"
+                          title="Restart Pod"
                         >
-                          <RefreshCw size={12} className={restartMutation.isPending && restartMutation.variables?.pod === pod.name ? "animate-spin" : ""} />
-                          Restart
+                          <RefreshCw size={12} className={`text-orange-500 ${isRestarting ? "animate-spin" : ""}`} />
                         </button>
                       </div>
                     </div>
 
                     {/* Container details */}
                     {pod.containers.length > 0 && (
-                      <div className="mt-1">
+                      <div className="border-t border-stone-100 pt-1.5 space-y-0.5">
                         {pod.containers.map((container) => (
                           <div
                             key={container.name}
-                            className="flex items-center gap-3 text-xs py-1 border-t border-stone-100 first:border-t-0"
+                            className="flex items-center gap-2 text-xs"
                           >
-                            <span className="font-mono text-stone-700 w-32 truncate">
+                            <span className="font-mono text-stone-600 truncate max-w-[120px]" title={container.name}>
                               {container.name}
                             </span>
                             <span className={`font-medium ${containerStateColor(container.state)}`}>
                               {container.state}
                             </span>
                             {container.reason && (
-                              <span className="text-stone-500" title={container.message || ""}>
-                                ({container.reason})
+                              <span className="text-stone-400 truncate" title={container.message || ""}>
+                                {container.reason}
                               </span>
                             )}
-                            <span className={container.ready ? "text-green-600" : "text-stone-400"}>
-                              {container.ready ? "Ready" : "Not Ready"}
-                            </span>
                             {container.restart_count > 0 && (
                               <span className="text-orange-600">
-                                {container.restart_count} restart{container.restart_count !== 1 ? "s" : ""}
+                                {container.restart_count}↻
                               </span>
                             )}
                           </div>
@@ -421,6 +419,7 @@ export function DeploymentCard({
 
       {logPod && (
         <LogModal
+          accountName={accountName}
           deployment={deployment}
           pod={logPod}
           onClose={() => setLogPod(null)}

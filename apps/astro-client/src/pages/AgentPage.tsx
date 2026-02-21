@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import {
   ArrowLeft,
   Rocket,
+  RefreshCw,
   Loader2,
   Trash2,
   Activity,
@@ -182,8 +183,17 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
             onClick={() => navigate(`/operator/deploy/${account}/${agentName}`)}
             className="px-4 py-2 border border-stone-800 text-sm bg-stone-800 text-white hover:bg-stone-700 cursor-pointer flex items-center gap-2"
           >
-            <Rocket size={16} />
-            Deploy
+            {deployments.length > 0 ? (
+              <>
+                <RefreshCw size={16} />
+                Redeploy
+              </>
+            ) : (
+              <>
+                <Rocket size={16} />
+                Deploy
+              </>
+            )}
           </button>
         </div>
 

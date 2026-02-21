@@ -44,8 +44,7 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		}
 
 		// Verify membership
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}

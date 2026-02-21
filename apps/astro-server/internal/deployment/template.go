@@ -277,7 +277,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Image:     resolveImage("astromodeai/astro-messaging:latest", input),
 		Port:      9090,
 		Resources: spec.MessagingResources,
-		Expose:    spec.ExposeConfig{Enabled: false},
+		Expose:    spec.ExposeConfig{Enabled: false, Port: 8080},
 	}
 
 	// Editable fields

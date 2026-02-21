@@ -1,18 +1,17 @@
 import { useState, useCallback } from "react";
 import { X, Loader2, RefreshCw } from "lucide-react";
 import type { AgentDeployment, ApiError, PodDetail } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
 import { useDeploymentLogs } from "../../api/queries/deployments";
 
 export interface LogModalProps {
+  accountName: string;
   deployment: AgentDeployment;
   pod: PodDetail;
   onClose: () => void;
 }
 
-export function LogModal({ deployment, pod, onClose }: LogModalProps) {
-  const { accounts } = useAuth();
-  const account = accounts[0]?.name ?? '';
+export function LogModal({ accountName, deployment, pod, onClose }: LogModalProps) {
+  const account = accountName;
   const [selectedContainer, setSelectedContainer] = useState(
     pod.containers[0]?.name || ""
   );

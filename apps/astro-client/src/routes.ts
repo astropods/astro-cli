@@ -14,6 +14,7 @@ export default [
     route("dev", "pages/DevRedirect.tsx"),
     route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),
     route(":account/:agentSlug", "pages/AgentDetail.tsx", { id: "agent-detail" }),
+    route("admin", "pages/Admin.tsx"),
     route("*", "pages/NotFound.tsx"),
   ]),
 ] satisfies RouteConfig;

@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../lib/api';
+import { useApiClient } from '../../lib/api-context';
 import { deploymentKeys } from './keys';
 
 export function useDeployments(account: string, enabled = true) {
+  const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.all(account),
     queryFn: () => api.listDeployments(account),
@@ -17,6 +18,7 @@ export function useDeploymentLogs(
   container: string,
   tailLines?: number,
 ) {
+  const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.logs(account, namespace, pod, container, tailLines),
     queryFn: () => api.getDeploymentLogs(namespace, pod, container, account, tailLines),
@@ -28,6 +30,7 @@ export function useDeploymentLogs(
 }
 
 export function useUndeployAgent(account: string) {
+  const api = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -39,6 +42,7 @@ export function useUndeployAgent(account: string) {
 }
 
 export function useActiveDeploymentSpec(account: string, name: string, enabled = true) {
+  const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.spec(account, name),
     queryFn: () => api.getActiveDeploymentSpec(account, name),
@@ -47,6 +51,7 @@ export function useActiveDeploymentSpec(account: string, name: string, enabled =
 }
 
 export function useDeploymentHistory(account: string, name: string, enabled = true) {
+  const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.history(account, name),
     queryFn: () => api.getDeploymentHistory(account, name),
@@ -55,6 +60,7 @@ export function useDeploymentHistory(account: string, name: string, enabled = tr
 }
 
 export function useConfigMapData(account: string, namespace: string, cmname: string, enabled = true) {
+  const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.configmap(account, namespace, cmname),
     queryFn: () => api.getConfigMapData(namespace, cmname, account),
@@ -63,6 +69,7 @@ export function useConfigMapData(account: string, namespace: string, cmname: str
 }
 
 export function useSecretKeys(account: string, namespace: string, secretName: string, enabled = true) {
+  const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.secretKeys(account, namespace, secretName),
     queryFn: () => api.getSecretKeys(namespace, secretName, account),
@@ -71,6 +78,7 @@ export function useSecretKeys(account: string, namespace: string, secretName: st
 }
 
 export function useTriggerIngestion(account: string) {
+  const api = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -82,6 +90,7 @@ export function useTriggerIngestion(account: string) {
 }
 
 export function useRestartPod(account: string) {
+  const api = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({

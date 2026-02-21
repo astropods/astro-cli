@@ -289,6 +289,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		{
 			admin.GET("/cluster/status", handlers.ClusterStatus(log, k8sClient))
 			admin.GET("/images", handlers.ListImages(log, cfg.Deployment.AWSRegion, cfg.Deployment.Environment))
+			admin.GET("/deployments", handlers.AdminListDeployments(log, deploymentStore, k8sClient))
 		}
 	}
 }

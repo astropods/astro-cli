@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"log"
+
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/packages/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
@@ -239,7 +241,10 @@ func (a *Applier) applyDeployment(ctx context.Context, depl *appsv1.Deployment) 
 	return status, nil
 }
 
-// applyStatefulSet creates or updates a StatefulSet
+// applyStatefulSet creates or updates a StatefulSet.
+// On update it preserves immutable fields (selector, serviceName,
+// volumeClaimTemplates) from the existing resource so that Kubernetes
+// does not reject the request.
 func (a *Applier) applyStatefulSet(ctx context.Context, ss *appsv1.StatefulSet) (deployment.ResourceStatus, error) {
 	status := deployment.ResourceStatus{
 		Kind:      "StatefulSet",
@@ -250,6 +255,19 @@ func (a *Applier) applyStatefulSet(ctx context.Context, ss *appsv1.StatefulSet) 
 	_, err := a.clientset.AppsV1().StatefulSets(a.namespace).Create(ctx, ss, metav1.CreateOptions{})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
+			existing, getErr := a.clientset.AppsV1().StatefulSets(a.namespace).Get(ctx, ss.Name, metav1.GetOptions{})
+			if getErr != nil {
+				status.Status = "failed"
+				status.Message = getErr.Error()
+				return status, getErr
+			}
+
+			// Preserve immutable fields from the existing StatefulSet
+			ss.Spec.Selector = existing.Spec.Selector
+			ss.Spec.ServiceName = existing.Spec.ServiceName
+			ss.Spec.VolumeClaimTemplates = existing.Spec.VolumeClaimTemplates
+			ss.ResourceVersion = existing.ResourceVersion
+
 			_, err = a.clientset.AppsV1().StatefulSets(a.namespace).Update(ctx, ss, metav1.UpdateOptions{})
 			if err != nil {
 				status.Status = "failed"
@@ -353,6 +371,128 @@ func (a *Applier) applyNetworkPolicy(ctx context.Context, np *networkingv1.Netwo
 		return err
 	}
 	return nil
+}
+
+// cleanupStaleBuildResources deletes resources from a previous build of the same
+// agent. This prevents stale Deployments/Services/Ingresses from lingering when
+// resource names change between builds (e.g. a container is renamed).
+// Errors are logged but not returned — stale resources are annoying but not fatal.
+func (a *Applier) cleanupStaleBuildResources(ctx context.Context, agentName, buildID string) []error {
+	labelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=astro-server,astro.dev/agent=%s", agentName)
+	propagation := metav1.DeletePropagationBackground
+	deleteOpts := metav1.DeleteOptions{PropagationPolicy: &propagation}
+	listOpts := metav1.ListOptions{LabelSelector: labelSelector}
+
+	var errs []error
+	isStale := func(labels map[string]string) bool {
+		return labels["app.kubernetes.io/version"] != "" && labels["app.kubernetes.io/version"] != buildID
+	}
+
+	// Ingresses
+	ingresses, err := a.clientset.NetworkingV1().Ingresses(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range ingresses.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale Ingress %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.NetworkingV1().Ingresses(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete ingress %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// Deployments
+	deployments, err := a.clientset.AppsV1().Deployments(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range deployments.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale Deployment %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.AppsV1().Deployments(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete deployment %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// StatefulSets
+	statefulSets, err := a.clientset.AppsV1().StatefulSets(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range statefulSets.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale StatefulSet %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.AppsV1().StatefulSets(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete statefulset %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// CronJobs
+	cronJobs, err := a.clientset.BatchV1().CronJobs(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range cronJobs.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale CronJob %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.BatchV1().CronJobs(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete cronjob %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// Jobs
+	jobs, err := a.clientset.BatchV1().Jobs(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range jobs.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale Job %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.BatchV1().Jobs(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete job %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// Services
+	services, err := a.clientset.CoreV1().Services(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range services.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale Service %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.CoreV1().Services(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete service %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// ConfigMaps
+	configMaps, err := a.clientset.CoreV1().ConfigMaps(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range configMaps.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale ConfigMap %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.CoreV1().ConfigMaps(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete configmap %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	// Secrets
+	secrets, err := a.clientset.CoreV1().Secrets(a.namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, item := range secrets.Items {
+			if isStale(item.Labels) {
+				log.Printf("[cleanup] deleting stale Secret %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
+				if err := a.clientset.CoreV1().Secrets(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
+					errs = append(errs, fmt.Errorf("delete secret %s: %w", item.Name, err))
+				}
+			}
+		}
+	}
+
+	return errs
 }
 
 // applyIngress creates or updates an Ingress.

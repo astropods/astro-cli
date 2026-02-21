@@ -33,8 +33,8 @@ func NewAuthMiddleware(
 	}
 }
 
-// RequireAuth middleware ensures the request is authenticated
-// It checks for either a valid session cookie or a Bearer token in the Authorization header
+// RequireAuth middleware ensures the request is authenticated.
+// It checks for a Bearer token, session cookie, or admin Basic Auth credentials.
 func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// First, try to authenticate via Authorization header (for API clients)
@@ -45,6 +45,11 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 					c.Next()
 					return
 				}
+			}
+			// Try admin Basic Auth as a fallback for god-mode access
+			if strings.HasPrefix(authHeader, "Basic ") && m.authenticateAsAdmin(c) {
+				c.Next()
+				return
 			}
 		}
 
@@ -63,6 +68,33 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 			Description: "Authentication required",
 		})
 	}
+}
+
+// authenticateAsAdmin checks admin Basic Auth credentials from config.
+// On success, injects a synthetic admin user and sets the admin bypass flag.
+func (m *AuthMiddleware) authenticateAsAdmin(c *gin.Context) bool {
+	if !m.cfg.Admin.Enabled {
+		return false
+	}
+	username, password, ok := c.Request.BasicAuth()
+	if !ok {
+		return false
+	}
+	if username != m.cfg.Admin.Username || password != m.cfg.Admin.Password {
+		return false
+	}
+	c.Set(string(auth.UserContextKey), &auth.User{ID: "admin", Email: "admin"})
+	c.Set(adminBypassKey, true)
+	return true
+}
+
+const adminBypassKey = "admin_bypass"
+
+// IsAdmin returns true if the request was authenticated via admin Basic Auth.
+func IsAdmin(c *gin.Context) bool {
+	v, _ := c.Get(adminBypassKey)
+	b, _ := v.(bool)
+	return b
 }
 
 // OptionalAuth middleware attempts to authenticate the request but doesn't require it

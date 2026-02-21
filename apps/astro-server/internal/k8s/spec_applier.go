@@ -59,6 +59,15 @@ func (a *Applier) ApplyDeploymentSpec(
 		return result, fmt.Errorf("failed to ensure namespace: %w", err)
 	}
 
+	// Clean up resources from previous builds whose names may have changed
+	if cleanupErrs := a.cleanupStaleBuildResources(ctx, agentName, buildID); len(cleanupErrs) > 0 {
+		for _, e := range cleanupErrs {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: "cleanup", Kind: "Cleanup", Error: e.Error(),
+			})
+		}
+	}
+
 	// Phase 1: Create Secret (credentials)
 	if len(resolved.SecretData) > 0 {
 		secret := BuildSecret(a.namespace, agentName, buildID, resolved.SecretData)

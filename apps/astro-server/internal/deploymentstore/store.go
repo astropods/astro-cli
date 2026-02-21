@@ -119,6 +119,46 @@ func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment
 	return deployments, nil
 }
 
+// DeploymentWithAccount extends Deployment with the owning account name.
+type DeploymentWithAccount struct {
+	Deployment
+	AccountName string `json:"account_name"`
+}
+
+// ListAllActive returns all active deployments across all accounts, joined with account names.
+func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
+	rows, err := s.db.Query(`
+		SELECT d.id, d.account_id, d.agent_name, d.build_id, d.namespace,
+		       d.deployment_spec_json, d.status, d.deployed_at, d.undeployed_at,
+		       a.name AS account_name
+		FROM deployments d
+		JOIN accounts a ON d.account_id = a.id
+		WHERE d.status = 'active'
+		ORDER BY d.deployed_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all active deployments: %w", err)
+	}
+	defer rows.Close()
+
+	var deployments []*DeploymentWithAccount
+	for rows.Next() {
+		var d DeploymentWithAccount
+		if err := rows.Scan(
+			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+			&d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
+			&d.AccountName,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
+		}
+		deployments = append(deployments, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
+	}
+	return deployments, nil
+}
+
 // MarkUndeployed sets the active deployment for an agent to 'undeployed'.
 func (s *Store) MarkUndeployed(accountID, agentName string) error {
 	_, err := s.db.Exec(`

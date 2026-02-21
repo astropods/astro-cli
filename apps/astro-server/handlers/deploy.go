@@ -27,6 +27,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// isAccountMember checks whether the user has access to the account.
+// Admin users (authenticated via admin Basic Auth) bypass the membership check.
+func isAccountMember(c *gin.Context, accountStore *account.AccountStore, acctID, userID string) bool {
+	if middleware.IsAdmin(c) {
+		return true
+	}
+	isMember, err := accountStore.IsMember(acctID, userID)
+	return err == nil && isMember
+}
+
 // deploymentNamespace derives a deterministic K8s namespace from a deployment's
 // identity. The namespace is stable across builds so that persistent data
 // (volumes, secrets, configmaps) survives redeploys of the same agent.
@@ -1070,8 +1080,7 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 			return
 		}
 
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
@@ -1120,8 +1129,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			return
 		}
 
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
@@ -1291,8 +1299,7 @@ func GetActiveDeploymentSpec(log *logger.Logger, accountStore *account.AccountSt
 			return
 		}
 
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
 			return
 		}
@@ -1346,8 +1353,7 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
 			return
 		}
@@ -1418,8 +1424,7 @@ func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cf
 			return
 		}
 
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
@@ -1473,8 +1478,7 @@ func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
+		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
