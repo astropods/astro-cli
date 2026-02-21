@@ -3,7 +3,7 @@ import { Sparkles } from "lucide-react";
 export function PublishCTA() {
   return (
     <a
-      href="https://docs.astromode.ai"
+      href="https://docs.astropod.ai"
       target="_blank"
       rel="noopener noreferrer"
       className="flex items-start gap-3 rounded-lg border border-dashed border-border p-4 transition-colors hover:bg-muted/50"

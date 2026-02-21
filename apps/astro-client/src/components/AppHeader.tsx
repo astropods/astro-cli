@@ -34,10 +34,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 const publicNav = [
   { label: "Browse", to: "/hire" },
   { label: "Pricing", to: "/pricing" },
-  { label: "Docs", to: "/docs" },
+  { label: "Docs", to: "https://docs.astropod.ai", external: true },
   { label: "Blog", to: "/blog" },
   { label: "Enterprise", to: "/enterprise" },
 ];
+
+function NavLink({ to, external, children, className }: { to: string; external?: boolean; children: React.ReactNode; className?: string }) {
+  if (external) {
+    return <a href={to} target="_blank" rel="noopener noreferrer" className={className}>{children}</a>;
+  }
+  return <Link to={to} className={className}>{children}</Link>;
+}
 
 /** Number of nav items always visible; the rest collapse below `lg`. */
 const ALWAYS_VISIBLE = 2;
@@ -78,14 +85,14 @@ export function AppHeader() {
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-4">
               {mobileNavItems.map((item) => (
-                <Link key={item.to} to={item.to}>
+                <NavLink key={item.to} to={item.to} external={"external" in item && item.external}>
                   <Button
                     variant="ghost"
                     className="w-full justify-start font-normal"
                   >
                     {item.label}
                   </Button>
-                </Link>
+                </NavLink>
               ))}
               <Separator className="my-2" />
               {isLoading ? (
@@ -129,15 +136,16 @@ export function AppHeader() {
 
       <nav className="flex items-center gap-1">
         {navItems.map((item, i) => (
-          <Link
+          <NavLink
             key={item.to}
             to={item.to}
+            external={"external" in item && item.external}
             className={i >= ALWAYS_VISIBLE ? "hidden lg:block" : undefined}
           >
             <Button variant="ghost" className="whitespace-nowrap font-normal">
               {item.label}
             </Button>
-          </Link>
+          </NavLink>
         ))}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -148,7 +156,7 @@ export function AppHeader() {
           <DropdownMenuContent align="start">
             {navItems.slice(ALWAYS_VISIBLE).map((item) => (
               <DropdownMenuItem key={item.to} asChild>
-                <Link to={item.to}>{item.label}</Link>
+                <NavLink to={item.to} external={"external" in item && item.external}>{item.label}</NavLink>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
