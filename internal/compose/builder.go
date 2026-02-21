@@ -390,10 +390,16 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		for _, name := range s.Dev.Interfaces {
 			// Check for messaging interfaces
 			if name == "slack" || name == "web" {
+				messagingImage := "astromodeai/astro-messaging:latest"
+				messagingPull := types.PullPolicyAlways
+				if s.Dev.Overrides != nil && s.Dev.Overrides.MessagingImage != "" {
+					messagingImage = s.Dev.Overrides.MessagingImage
+					messagingPull = ""
+				}
 				messagingService := types.ServiceConfig{
 					Name:       "astro-messaging",
-					Image:      "astromodeai/astro-messaging:latest",
-					PullPolicy: types.PullPolicyAlways,
+					Image:      messagingImage,
+					PullPolicy: messagingPull,
 					Networks: map[string]*types.ServiceNetworkConfig{
 						"astro-dev": nil,
 					},
@@ -407,10 +413,16 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			if name == "web" {
 				// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
 				apiURL := ""
+				playgroundImage := "astromodeai/astro-playground:latest"
+				playgroundPull := types.PullPolicyAlways
+				if s.Dev.Overrides != nil && s.Dev.Overrides.PlaygroundImage != "" {
+					playgroundImage = s.Dev.Overrides.PlaygroundImage
+					playgroundPull = ""
+				}
 				playgroundService := types.ServiceConfig{
 					Name:       "playground",
-					Image:      "astromodeai/astro-playground:latest",
-					PullPolicy: types.PullPolicyAlways,
+					Image:      playgroundImage,
+					PullPolicy: playgroundPull,
 					Networks: map[string]*types.ServiceNetworkConfig{
 						"astro-dev": nil,
 					},
