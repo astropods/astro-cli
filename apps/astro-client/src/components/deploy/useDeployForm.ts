@@ -29,6 +29,14 @@ export const ADAPTER_CREDENTIALS: Record<string, { key: string; label: string; d
   ],
 };
 
+// --- Validation errors ---
+
+export interface FormErrors {
+  adapters?: string;
+  credentials?: string[];
+  adapterCredentials?: string[];
+}
+
 // --- Hook ---
 
 export function useDeployForm(account: string, name: string, opts?: UseDeployFormOptions) {
@@ -47,6 +55,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>({});
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   // Derived credential lists
   const credentialEntries = useMemo(
@@ -92,18 +101,56 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
   }, [credentialEntries]);
 
-  // Validation
-  const adapterCredsValid = selectedAdapters.every((adapterId) => {
-    const creds = ADAPTER_CREDENTIALS[adapterId];
-    if (!creds) return true;
-    return creds.every((c) => adapterCredentials[c.key]?.trim());
-  });
+  // Compute validation errors (only surfaced after first submit attempt)
+  const errors = useMemo<FormErrors>(() => {
+    if (!submitted) return {};
 
-  const canDeploy =
-    !templateLoading &&
-    !deployMutation.isPending &&
-    requiredCredentials.every(([key]) => credentialValues[key]?.trim()) &&
-    adapterCredsValid;
+    const result: FormErrors = {};
+
+    if (selectedAdapters.length === 0) {
+      result.adapters = "Select at least one messaging type";
+    }
+
+    const emptyRequired = requiredCredentials
+      .filter(([key]) => !credentialValues[key]?.trim())
+      .map(([key]) => key);
+    if (emptyRequired.length > 0) {
+      result.credentials = emptyRequired;
+    }
+
+    const emptyAdapterCreds = selectedAdapters.flatMap((adapterId) => {
+      const creds = ADAPTER_CREDENTIALS[adapterId];
+      if (!creds) return [];
+      return creds
+        .filter((c) => !adapterCredentials[c.key]?.trim())
+        .map((c) => c.key);
+    });
+    if (emptyAdapterCreds.length > 0) {
+      result.adapterCredentials = emptyAdapterCreds;
+    }
+
+    return result;
+  }, [submitted, selectedAdapters, requiredCredentials, credentialValues, adapterCredentials]);
+
+  const isValid = submitted
+    ? !errors.adapters && !errors.credentials && !errors.adapterCredentials
+    : true;
+
+  // Try to submit: marks form as submitted and returns validity
+  const trySubmit = (): boolean => {
+    setSubmitted(true);
+
+    // Compute validity inline (state update is async, can't rely on `errors` yet)
+    const hasAdapter = selectedAdapters.length > 0;
+    const credsValid = requiredCredentials.every(([key]) => credentialValues[key]?.trim());
+    const adapterCredsValid = selectedAdapters.every((adapterId) => {
+      const creds = ADAPTER_CREDENTIALS[adapterId];
+      if (!creds) return true;
+      return creds.every((c) => adapterCredentials[c.key]?.trim());
+    });
+
+    return hasAdapter && credsValid && adapterCredsValid;
+  };
 
   // Submission
   const deploy = async () => {
@@ -167,7 +214,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     requiredCredentials,
     optionalCredentials,
 
-    canDeploy,
+    errors,
+    submitted,
+    isValid,
+    trySubmit,
     deploy,
     isDeploying: deployMutation.isPending,
     deployError,

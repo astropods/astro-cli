@@ -73,6 +73,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.trySubmit()) return;
     try {
       await form.deploy();
       navigate("/agents");
@@ -124,6 +125,8 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                   onChange={form.setSelectedAdapters}
                   adapterCredentials={form.adapterCredentials}
                   onAdapterCredentialsChange={form.setAdapterCredentials}
+                  showError={!!form.errors.adapters}
+                  adapterErrorKeys={form.errors.adapterCredentials}
                 />
               </FormSection>
 
@@ -134,6 +137,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                     credentials={form.requiredCredentials}
                     values={form.credentialValues}
                     onChange={form.setCredentialValues}
+                    errorKeys={form.errors.credentials}
                   />
                 </FormSection>
               )}
@@ -168,7 +172,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                 <Button
                   type="submit"
                   size="lg"
-                  disabled={!form.canDeploy}
+                  disabled={form.isDeploying}
                 >
                   {form.isDeploying ? (
                     <>

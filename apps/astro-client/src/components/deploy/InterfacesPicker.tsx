@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Check, Globe } from "lucide-react";
+import { AlertCircle, Check, Globe } from "lucide-react";
 import { Slack } from "@/components/ui/svgs/slack";
 import { AVAILABLE_ADAPTERS, ADAPTER_CREDENTIALS } from "./useDeployForm";
 import { CredentialFields } from "./CredentialFields";
@@ -15,6 +15,8 @@ export interface InterfacesPickerProps {
   onChange: (adapters: string[]) => void;
   adapterCredentials: Record<string, string>;
   onAdapterCredentialsChange: (values: Record<string, string>) => void;
+  showError?: boolean;
+  adapterErrorKeys?: string[];
 }
 
 export function InterfacesPicker({
@@ -22,13 +24,16 @@ export function InterfacesPicker({
   onChange,
   adapterCredentials,
   onAdapterCredentialsChange,
+  showError,
+  adapterErrorKeys,
 }: InterfacesPickerProps) {
   const toggle = (id: string) => {
     onChange(selected.includes(id) ? selected.filter((a) => a !== id) : [...selected, id]);
   };
 
   return (
-    <div className="[&>div+div]:relative [&>div+div]:before:content-[''] [&>div+div]:before:absolute [&>div+div]:before:top-0 [&>div+div]:before:left-3 [&>div+div]:before:right-3 [&>div+div]:before:border-t [&>div+div]:before:border-border">
+    <div>
+      <div className="[&>div+div]:relative [&>div+div]:before:content-[''] [&>div+div]:before:absolute [&>div+div]:before:top-0 [&>div+div]:before:left-3 [&>div+div]:before:right-3 [&>div+div]:before:border-t [&>div+div]:before:border-border">
       {AVAILABLE_ADAPTERS.map((adapter) => {
         const isSelected = selected.includes(adapter.id);
         const icon = ADAPTER_ICONS[adapter.id];
@@ -68,12 +73,22 @@ export function InterfacesPicker({
                   credentials={credentialEntries}
                   values={adapterCredentials}
                   onChange={onAdapterCredentialsChange}
+                  errorKeys={adapterErrorKeys}
                 />
               </div>
             )}
           </div>
         );
       })}
+      </div>
+      {showError && (
+        <div className="flex items-center gap-1.5 mt-3 px-3 py-2 rounded-[6px] bg-red-50" role="alert">
+          <AlertCircle size={14} className="text-red-700 shrink-0" />
+          <p className="text-sm text-red-700">
+            Select at least one messaging type
+          </p>
+        </div>
+      )}
     </div>
   );
 }

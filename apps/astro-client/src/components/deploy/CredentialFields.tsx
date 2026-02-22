@@ -25,9 +25,10 @@ export interface CredentialFieldsProps {
   credentials: [string, DeploymentTemplateCredential & { label?: string; placeholder?: string; helpUrl?: string }][];
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
+  errorKeys?: string[];
 }
 
-export function CredentialFields({ credentials, values, onChange }: CredentialFieldsProps) {
+export function CredentialFields({ credentials, values, onChange, errorKeys }: CredentialFieldsProps) {
   if (credentials.length === 0) return null;
 
   return (
@@ -77,7 +78,11 @@ export function CredentialFields({ credentials, values, onChange }: CredentialFi
               onChange={(e) => onChange({ ...values, [key]: e.target.value })}
               placeholder={cred.placeholder || placeholderFromKey(key)}
               className="bg-white font-mono"
+              aria-invalid={errorKeys?.includes(key) || undefined}
             />
+            {errorKeys?.includes(key) && (
+              <p className="text-destructive text-xs mt-1">Required</p>
+            )}
           </div>
         ))}
       </div>
