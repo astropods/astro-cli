@@ -8,7 +8,6 @@ import type { RecommendedAgent } from "@/components/RecommendedAgents";
 export interface AgentDetailContentProps {
   account: string;
   name: string;
-  description: string;
   categories: string[];
   readme?: string;
   safetyPermissions: string[];
@@ -18,7 +17,6 @@ export interface AgentDetailContentProps {
 export function AgentDetailContent({
   account,
   name,
-  description,
   categories,
   readme,
   safetyPermissions,
@@ -28,13 +26,11 @@ export function AgentDetailContent({
     <div className="flex-1 min-w-0 p-6 md:p-8 max-w-3xl">
       {/* Header */}
       <header className="mb-8">
-        <h1 className="text-[32px] leading-tight font-semibold text-foreground">
+        <h1 className="text-2xl leading-tight font-semibold text-foreground">
           <span className="font-normal text-muted-foreground">{account}/</span>
           {name}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          {description}
-        </p>
+        <hr className="mt-4 border-border" />
 
         {/* Category tags */}
         {categories.length > 0 && (

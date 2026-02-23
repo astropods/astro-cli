@@ -9,6 +9,7 @@ import type { Agent, AccountPublic } from "@/lib/api";
 
 export interface AgentDetailSidebarProps {
   agent: Agent;
+  description: string;
   integrations: string[];
   permissions: string[];
   initialAccountData?: AccountPublic;
@@ -16,6 +17,7 @@ export interface AgentDetailSidebarProps {
 
 export function AgentDetailSidebar({
   agent,
+  description,
   integrations,
   permissions,
   initialAccountData,
@@ -46,6 +48,16 @@ export function AgentDetailSidebar({
               <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
+
+          {/* About */}
+          {description && (
+            <div className="pt-5 mt-5 border-t border-border">
+              <span className="text-xs text-muted-foreground mb-2 block">About</span>
+              <p className="text-sm text-foreground leading-snug">
+                {description}
+              </p>
+            </div>
+          )}
 
           {/* Author block */}
           <div className="pt-5 mt-5 border-t border-border">

@@ -216,7 +216,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         <AgentDetailContent
           account={agent.account}
           name={agent.name}
-          description={description}
           categories={getAgentCategories(agent)}
           readme={readme}
           safetyPermissions={safetyPermissions}
@@ -225,6 +224,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
 
         <AgentDetailSidebar
           agent={agent}
+          description={description}
           integrations={integrations}
           permissions={safetyPermissions}
           initialAccountData={loaderData?.accountData ?? undefined}
