@@ -153,3 +153,4 @@ apps/astro-client/.certs.bak/local.astromode.ai-key.pem
 apps/astro-client/.certs.bak/local.astromode.ai.pem
 apps/astro-client/.certs.bak/local.odesdaz.com-key.pem
 apps/astro-client/.certs.bak/local.odesdaz.com.pem
+.mcp.json
