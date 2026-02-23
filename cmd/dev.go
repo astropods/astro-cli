@@ -292,6 +292,12 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("link local packages: %w", err)
 	}
+	// Ensure astro-messaging SDK is built (package main points to dist/index.js)
+	msgSDK := filepath.Join(astroRoot, "packages", "astro-messaging", "sdk", "node")
+	if _, err := os.Stat(filepath.Join(msgSDK, "dist", "index.js")); err != nil {
+		agentCancel()
+		return fmt.Errorf("astro-messaging SDK not built: run 'cd %s && bun run build' first", msgSDK)
+	}
 	fmt.Printf("📦 Using local packages from %s\n", astroRoot)
 
 	// Resolve start command from spec (default: "bun --watch run start")
@@ -476,46 +482,54 @@ func resolveAstroSourceRoot() (string, error) {
 	return filepath.Clean(p), nil
 }
 
-// localAstroPackages are the @saswatds/* packages we link in --local and remove in --local-reset.
-var localAstroPackages = []string{
-	"astro-agent", "astro-graph",
+// localPackage describes a package to link in --local mode (scope, name, path relative to astroRoot).
+type localPackage struct {
+	scope string // e.g. "@saswatds" or "@astromode-ai"
+	name  string // e.g. "astro-agent"
+	path  string // relative to astroRoot, e.g. "packages/astro-agent"
 }
 
-// linkLocalPackages symlinks node_modules/@saswatds/* to the given Astro repo packages/
+// localAstroPackages are the packages we link in --local and remove in --local-reset.
+var localAstroPackages = []localPackage{
+	{"@saswatds", "astro-agent", "packages/astro-agent"},
+	{"@saswatds", "astro-graph", "packages/astro-graph"},
+	{"@astromode-ai", "astro-messaging", "packages/astro-messaging/sdk/node"},
+}
+
+// linkLocalPackages symlinks node_modules/<scope>/<name> to the given Astro repo path
 // so the agent uses local source in --local mode.
 func linkLocalPackages(workingDir, astroRoot string) error {
-	scopeDir := filepath.Join(workingDir, "node_modules", "@saswatds")
-	if err := os.MkdirAll(scopeDir, 0755); err != nil {
-		return err
-	}
 	for _, pkg := range localAstroPackages {
-		target := filepath.Join(astroRoot, "packages", pkg)
+		scopeDir := filepath.Join(workingDir, "node_modules", pkg.scope)
+		if err := os.MkdirAll(scopeDir, 0755); err != nil {
+			return err
+		}
+		target := filepath.Join(astroRoot, pkg.path)
 		target, err := filepath.Abs(target)
 		if err != nil {
 			return err
 		}
 		if st, err := os.Stat(target); err != nil {
-			return fmt.Errorf("%s: %w", pkg, err)
+			return fmt.Errorf("%s/%s: %w", pkg.scope, pkg.name, err)
 		} else if !st.IsDir() {
-			return fmt.Errorf("%s is not a directory", target)
+			return fmt.Errorf("%s/%s is not a directory", pkg.scope, pkg.name)
 		}
-		link := filepath.Join(scopeDir, pkg)
+		link := filepath.Join(scopeDir, pkg.name)
 		_ = os.RemoveAll(link)
 		if err := os.Symlink(target, link); err != nil {
-			return fmt.Errorf("symlink %s: %w", pkg, err)
+			return fmt.Errorf("symlink %s/%s: %w", pkg.scope, pkg.name, err)
 		}
 	}
 	return nil
 }
 
-// unlinkLocalPackages removes the @saswatds/* symlinks (or dirs) created by linkLocalPackages
+// unlinkLocalPackages removes the symlinks created by linkLocalPackages
 // so the user can run bun install to restore registry dependencies.
 func unlinkLocalPackages(workingDir string) error {
-	scopeDir := filepath.Join(workingDir, "node_modules", "@saswatds")
 	for _, pkg := range localAstroPackages {
-		path := filepath.Join(scopeDir, pkg)
+		path := filepath.Join(workingDir, "node_modules", pkg.scope, pkg.name)
 		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove %s: %w", pkg, err)
+			return fmt.Errorf("remove %s/%s: %w", pkg.scope, pkg.name, err)
 		}
 	}
 	return nil
