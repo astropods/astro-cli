@@ -1,0 +1,6 @@
+[submodule "packages/astro-messaging"]
+	path = packages/astro-messaging
+	url = git@github.com:astromode-ai/astro-messaging.git
+[submodule "packages/astro-playground"]
+	path = packages/astro-playground
+	url = git@github.com:astromode-ai/astro-playground.git

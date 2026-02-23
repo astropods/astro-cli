@@ -30,7 +30,7 @@ ast dev --local
 | `Dockerfile.astro-registry` | astro-registry | apps/astro-registry |
 | `Dockerfile.astro-server` | astro-server | apps/astro-server |
 
-Build context for all is the workspace root (so `COPY packages/...` works).
+Build context for all is the workspace root (so `COPY packages/...` works). `astro-messaging` and `astro-playground` are git submodules from astromode-ai; run `git submodule update --init --recursive` after clone.
 
 ## Packages
 
