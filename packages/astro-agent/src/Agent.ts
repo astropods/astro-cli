@@ -248,71 +248,79 @@ export class AstroAgent {
       this._agent = this.createAgent();
     }
 
+    const configuredMaxSteps = Number(process.env.ASTRO_AGENT_MAX_STEPS || "8");
+    const maxSteps = Number.isFinite(configuredMaxSteps) && configuredMaxSteps > 0 ? configuredMaxSteps : 8;
+
     const stream = await this._agent.stream(config.prompt, {
       memory: {
         resource: config.userId,
         thread: config.threadId
-      }
+      },
+      maxSteps,
     });
 
     let result = "";
-    let reasoning = "";
+    let sawFinish = false;
 
-    for await (const chunk of stream.fullStream) {
-      if (chunk.type === "tool-call") {
-        const tool = this._tools.find((t) => {
-          if (t.type === "graph") {
-            return t.graph.meta.toolName === chunk.payload.toolName;
-          }
-          return false;
-        });
+    try {
+      for await (const chunk of stream.fullStream as AsyncIterable<{ type: string; payload: Record<string, any> }>) {
+        if (chunk.type === "tool-call") {
+          const tool = this._tools.find((t) => t.type === "graph" && t.graph.meta.toolName === chunk.payload.toolName);
 
-        config.onStepStart?.({
-          id: chunk.payload.toolCallId,
-          name: tool?.graph.meta.title ?? chunk.payload.toolName,
-          type: "tool",
-        });
-      }
-
-      if (chunk.type === "tool-result") {
-        const tool = this._tools.find((t) => {
-          if (t.type === "graph") {
-            return t.graph.meta.toolName === chunk.payload.toolName;
-          }
-          return false;
-        });
-
-        if (tool) {
-          config.onStepEnd?.({
+          config.onStepStart?.({
             id: chunk.payload.toolCallId,
-            name: tool.graph.meta.title ?? chunk.payload.toolName,
+            name: tool?.graph.meta.title ?? chunk.payload.toolName,
             type: "tool",
           });
         }
-      }
 
-      if (chunk.type === "text-delta") {
-        config.onChunk?.(chunk.payload.text);
-        result += chunk.payload.text;
-      }
+        if (chunk.type === "tool-result") {
+          const tool = this._tools.find((t) => t.type === "graph" && t.graph.meta.toolName === chunk.payload.toolName);
 
-      if (chunk.type === "reasoning-start") {
-        config.onReasoningStart?.();
-        reasoning = "";
-      }
+          if (tool) {
+            config.onStepEnd?.({
+              id: chunk.payload.toolCallId,
+              name: tool.graph.meta.title ?? chunk.payload.toolName,
+              type: "tool",
+            });
+          }
+        }
 
-      if (chunk.type === "reasoning-delta") {
-        config.onReasoningChunk?.(chunk.payload.text);
-        reasoning += chunk.payload.text;
-      }
+        if (chunk.type === "text-delta") {
+          const text = typeof chunk.payload.text === "string" ? chunk.payload.text : "";
+          if (text) {
+            config.onChunk?.(text);
+            result += text;
+          }
+        }
 
-      if (chunk.type === "reasoning-end") {
-        config.onReasoningEnd?.();
-      }
+        if (chunk.type === "reasoning-start") {
+          config.onReasoningStart?.();
+        }
 
-      if (chunk.type === "finish") {
-        config.onFinish?.(result);
+        if (chunk.type === "reasoning-delta") {
+          const reasoningText = typeof chunk.payload.text === "string" ? chunk.payload.text : "";
+          if (reasoningText) {
+            config.onReasoningChunk?.(reasoningText);
+          }
+        }
+
+        if (chunk.type === "reasoning-end") {
+          config.onReasoningEnd?.();
+        }
+
+        if (chunk.type === "finish") {
+          sawFinish = true;
+          config.onFinish?.(result);
+        }
       }
+    } catch (error) {
+      config.onError?.(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+
+    if (!sawFinish) {
+      config.onFinish?.(result);
     }
   }
 }
