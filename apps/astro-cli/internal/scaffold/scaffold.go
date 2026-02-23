@@ -18,19 +18,19 @@ type Fs interface {
 // OsFs is the real filesystem implementation backed by the OS.
 type OsFs struct{}
 
-func (OsFs) MkdirAll(path string, perm fs.FileMode) error        { return os.MkdirAll(path, perm) }
+func (OsFs) MkdirAll(path string, perm fs.FileMode) error { return os.MkdirAll(path, perm) }
 func (OsFs) WriteFile(path string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }
 
 // ScaffoldConfig holds the configuration for generating a new agent project.
 type ScaffoldConfig struct {
-	Name         string   // Agent name (required)
-	Description  string   // Agent description
-	Interfaces   []string // ["web", "slack"]
-	ModelProvider string  // "ollama" | "huggingface" | "" for none
-	Model         string  // Model name (e.g. "llama3", "mistral")
-	Knowledge    []string // ["qdrant", "redis", "neo4j"]
+	Name            string            // Agent name (required)
+	Description     string            // Agent description
+	Interfaces      []string          // ["web", "slack"]
+	ModelProvider   string            // "ollama" | "huggingface" | "" for none
+	Model           string            // Model name (e.g. "llama3", "mistral")
+	Knowledge       []string          // ["qdrant", "redis", "neo4j"]
 	Integrations    []string          // ["anthropic", "openai", "github"]
 	IntegrationKeys map[string]string // integration name -> API key (optional, user-provided)
 	Ingestions      []string          // e.g. ["schedule", "webhook"]
@@ -77,12 +77,12 @@ func (c ScaffoldConfig) IntegrationKey(name string) string {
 // DefaultConfig returns a ScaffoldConfig with default values.
 func DefaultConfig(name string) ScaffoldConfig {
 	return ScaffoldConfig{
-		Name:         name,
-		Description:  "An AI-powered agent",
-		Interfaces:   []string{"web"},
-		ModelProvider: "",
-		Model:         "",
-		Knowledge:    []string{},
+		Name:            name,
+		Description:     "An AI-powered agent",
+		Interfaces:      []string{"web"},
+		ModelProvider:   "",
+		Model:           "",
+		Knowledge:       []string{},
 		Integrations:    []string{},
 		IntegrationKeys: map[string]string{},
 		Ingestions:      []string{},
@@ -105,7 +105,7 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 	dirs := []string{
 		targetDir,
 		filepath.Join(targetDir, "agent"),
-		filepath.Join(targetDir, ".postman", "collections"),
+		filepath.Join(targetDir, "postman", "collections"),
 	}
 	for _, ing := range config.Ingestions {
 		dirs = append(dirs, filepath.Join(targetDir, "ingestion", ing))
@@ -158,7 +158,7 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 	}
 
 	// Copy static Postman collection (no templating)
-	if err := copyStaticFile(fsys, filepath.Join(targetDir, ".postman", "collections", "Astro-API.postman_collection.json"), paths.PostmanCollection); err != nil {
+	if err := copyStaticFile(fsys, filepath.Join(targetDir, "postman", "collections", "Astro-API.postman_collection.json"), paths.PostmanCollection); err != nil {
 		return err
 	}
 
