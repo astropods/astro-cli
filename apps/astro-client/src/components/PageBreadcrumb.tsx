@@ -15,7 +15,7 @@ export interface PageBreadcrumbProps {
 export function PageBreadcrumb({ items, actions }: PageBreadcrumbProps) {
   return (
     <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-3 min-h-[52px] bg-white border-b border-border">
-      <div className="flex items-center gap-2 text-sm text-stone-500">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         {items.map((item, i) => (
           <span key={i} className="flex items-center gap-2">
             {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-stone-400" />}

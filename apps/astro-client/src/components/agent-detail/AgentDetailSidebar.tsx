@@ -49,7 +49,7 @@ export function AgentDetailSidebar({
 
           {/* Author block */}
           <div className="pt-5 mt-5 border-t border-border">
-            <span className="text-xs text-stone-400 mb-3 block">Created by</span>
+            <span className="text-xs text-muted-foreground mb-3 block">Created by</span>
             <div className="flex items-center gap-3">
               {owner?.profile_picture_url ? (
                 <img
@@ -58,7 +58,7 @@ export function AgentDetailSidebar({
                   className="h-10 w-10 shrink-0 rounded-full object-cover"
                 />
               ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-200 text-sm font-semibold text-stone-600">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-200 text-sm font-semibold text-muted-foreground">
                   {accountInitial}
                 </div>
               )}
@@ -66,7 +66,7 @@ export function AgentDetailSidebar({
                 <span className="text-sm font-medium text-foreground">
                   {ownerName}
                 </span>
-                <span className="text-xs text-stone-400">
+                <span className="text-xs text-muted-foreground">
                   @{agent.account}
                 </span>
               </div>
@@ -80,7 +80,7 @@ export function AgentDetailSidebar({
               <div className="grid grid-cols-2 gap-3">
                 {version && (
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-xs text-stone-400">Version</span>
+                    <span className="text-xs text-muted-foreground">Version</span>
                     <span className="text-sm font-medium text-foreground">
                       {latestVersion?.version ? `v${version}` : version}
                     </span>
@@ -88,7 +88,7 @@ export function AgentDetailSidebar({
                 )}
                 {updatedAt && (
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-xs text-stone-400">Updated</span>
+                    <span className="text-xs text-muted-foreground">Updated</span>
                     <span className="text-sm font-medium text-foreground">
                       {updatedAt}
                     </span>

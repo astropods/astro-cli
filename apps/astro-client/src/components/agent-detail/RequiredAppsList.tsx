@@ -11,7 +11,7 @@ export function RequiredAppsList({ integrations }: RequiredAppsListProps) {
 
   return (
     <div>
-      <span className="text-xs text-stone-400 mb-3 block">Required Apps</span>
+      <span className="text-xs text-tertiary-foreground mb-3 block">Required Apps</span>
       <div className="flex flex-col gap-2">
         {integrations.map((name) => {
           const icon: ReactNode = integrationIconMap[name];
@@ -25,7 +25,7 @@ export function RequiredAppsList({ integrations }: RequiredAppsListProps) {
                   {icon}
                 </span>
               ) : (
-                <Puzzle className="h-5 w-5 shrink-0 text-stone-400" />
+                <Puzzle className="h-5 w-5 shrink-0 text-tertiary-foreground" />
               )}
               <span className="text-sm font-medium text-foreground">{name}</span>
             </div>

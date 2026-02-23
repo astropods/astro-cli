@@ -172,7 +172,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Something went wrong</h1>
-        <p className="text-stone-500 text-sm mb-4">
+        <p className="text-muted-foreground text-sm mb-4">
           {error instanceof Error ? error.message : "Failed to load agent details."}
         </p>
         <Button asChild>
@@ -186,7 +186,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Agent not found</h1>
-        <p className="text-stone-500 text-sm mb-4">
+        <p className="text-muted-foreground text-sm mb-4">
           The agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>

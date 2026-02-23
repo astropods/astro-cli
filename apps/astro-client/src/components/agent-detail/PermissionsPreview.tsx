@@ -15,7 +15,7 @@ const VISIBLE_COUNT = 3;
 function PermissionItem({ text }: { text: string }) {
   return (
     <div className="flex gap-2">
-      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-stone-400" />
+      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-tertiary-foreground" />
       <span>{text}</span>
     </div>
   );
@@ -31,8 +31,8 @@ export function PermissionsPreview({ permissions }: PermissionsPreviewProps) {
 
   return (
     <div>
-      <span className="text-xs text-stone-400 mb-3 block">Permissions</span>
-      <div className="flex flex-col gap-2 text-[13px] text-stone-600">
+      <span className="text-xs text-tertiary-foreground mb-3 block">Permissions</span>
+      <div className="flex flex-col gap-2 text-[13px] text-muted-foreground">
         {visible.map((p) => (
           <PermissionItem key={p} text={p} />
         ))}
@@ -47,7 +47,7 @@ export function PermissionsPreview({ permissions }: PermissionsPreviewProps) {
               </div>
             </CollapsibleContent>
             <CollapsibleTrigger asChild>
-              <button className="mt-1 flex items-center gap-1 text-xs text-stone-400 hover:text-stone-600 transition-colors">
+              <button className="mt-1 flex items-center gap-1 text-xs text-tertiary-foreground hover:text-muted-foreground transition-colors">
                 {open ? (
                   <>
                     Show less <ChevronUp className="h-3 w-3" />

@@ -22,7 +22,7 @@ export function AgentDetailBreadcrumb({
         {
           label: (
             <>
-              {account} <span className="text-stone-400">/</span> {agentName}
+              {account} <span className="text-muted-foreground">/</span> {agentName}
             </>
           ),
         },
@@ -33,7 +33,7 @@ export function AgentDetailBreadcrumb({
             variant="ghost"
             size="icon-sm"
             disabled
-            className="text-stone-400"
+            className="text-tertiary-foreground"
           >
             <Heart className="h-4 w-4" />
           </Button>
