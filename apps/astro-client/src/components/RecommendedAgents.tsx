@@ -7,6 +7,7 @@ export interface RecommendedAgent {
   description: string;
   integrations: string[];
   categories: string[];
+  ownerPictureUrl?: string;
 }
 
 export interface RecommendedAgentsProps {
@@ -29,6 +30,7 @@ export function RecommendedAgents({ agents }: RecommendedAgentsProps) {
             description={agent.description}
             integrations={agent.integrations}
             categories={agent.categories}
+            ownerPictureUrl={agent.ownerPictureUrl}
           />
         ))}
       </div>

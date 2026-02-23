@@ -15,6 +15,7 @@ import {
   getAgentIntegrations,
   getAgentCategories,
 } from "@/lib/agent-utils";
+import type { AccountPublic } from "@/lib/api";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -27,7 +28,20 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     account ? api.getAccount(account).catch(() => null) : null,
   ]);
 
-  return { agent, agentsData, accountData };
+  // Batch-fetch accounts for recommended agent cards (profile pictures)
+  // Seed with the already-fetched current account to avoid a duplicate request
+  const accountsMap: Record<string, AccountPublic> = {};
+  if (accountData) accountsMap[accountData.name] = accountData;
+  const uniqueAccounts = [...new Set(agentsData.agents.map((a) => a.account))]
+    .filter((name) => !(name in accountsMap));
+  const accountResults = await Promise.all(
+    uniqueAccounts.map((name) => api.getAccount(name).catch(() => null)),
+  );
+  for (const acc of accountResults) {
+    if (acc) accountsMap[acc.name] = acc;
+  }
+
+  return { agent, agentsData, accountData, accountsMap };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
@@ -138,6 +152,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     initialData: loaderData?.agentsData ?? undefined,
   });
 
+  const accountsMap = loaderData?.accountsMap ?? {};
   const recommendedAgents = (() => {
     if (!agent || !agentsData) return [];
     const currentIntegrations = new Set(getAgentIntegrations(agent));
@@ -161,6 +176,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         description: getAgentDescription(a),
         integrations,
         categories,
+        ownerPictureUrl: accountsMap[a.account]?.owner?.profile_picture_url,
       }));
   })();
 

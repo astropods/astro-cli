@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "astro",
@@ -24,6 +23,7 @@
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@heroicons/react": "^2.2.0",
         "@react-router/node": "^7.12.0",
+        "@saswatds/astro-identity-gen": "workspace:*",
         "@saswatds/astro-workflows": "workspace:*",
         "@tailwindcss/typography": "^0.5.19",
         "@tailwindcss/vite": "^4.1.18",
