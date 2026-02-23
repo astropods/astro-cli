@@ -47,7 +47,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
   const accountsMap = loaderData?.accountsMap ?? {};
 
   const categories = useMemo(() => {
-    const tagSet = new Set<string>();
+    const tagSet = new Set<string>(["Developer Tools", "Getting Started", "Security", "Starter"]);
     for (const agent of agents) {
       for (const tag of getAgentCategories(agent)) {
         tagSet.add(tag);
@@ -65,19 +65,6 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="@container w-full flex-1 overflow-y-auto px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6 max-w-[1500px] mx-auto">
-      <PageTitle
-        title="Browse Agents"
-        actions={
-          <Button asChild className="hidden @[540px]:inline-flex">
-            <Link to="/request-agent">
-              <PaperAirplaneIcon className="size-4" />
-              Request agent
-            </Link>
-          </Button>
-        }
-        className="mb-6"
-      />
-
       {isLoading ? (
         <div role="status" aria-label="Loading agents" className="flex items-center justify-center py-12">
           <Loader2 size={32} className="animate-spin text-muted-foreground" />
@@ -105,13 +92,25 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-6 md:flex-row">
+        <div className="flex flex-col gap-6 md:grid md:grid-cols-[9rem_1fr] md:gap-x-6 md:gap-y-6">
+          <PageTitle
+            title="Browse Agents"
+            actions={
+              <Button asChild className="hidden @[540px]:inline-flex">
+                <Link to="/request-agent">
+                  <PaperAirplaneIcon className="size-4" />
+                  Request agent
+                </Link>
+              </Button>
+            }
+            className="md:col-start-2"
+          />
           <CategorySidebar
             categories={categories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
           />
-          <div className="grid flex-1 grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
+          <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
             {filteredAgents.map((agent) => (
               <BrowseAgentCard
                 key={`${agent.account}/${agent.name}`}

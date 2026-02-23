@@ -142,7 +142,7 @@ export function AppHeader() {
             external={"external" in item && item.external}
             className={i >= ALWAYS_VISIBLE ? "hidden lg:block" : undefined}
           >
-            <Button variant="ghost" className="whitespace-nowrap font-normal">
+            <Button variant="ghost" className="whitespace-nowrap font-medium text-muted-foreground hover:text-foreground">
               {item.label}
             </Button>
           </NavLink>
