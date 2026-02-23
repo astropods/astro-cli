@@ -1,11 +1,27 @@
 package scaffold
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"text/template"
 )
+
+// Fs is the filesystem abstraction used by GenerateFiles.
+type Fs interface {
+	MkdirAll(path string, perm fs.FileMode) error
+	WriteFile(path string, data []byte, perm fs.FileMode) error
+}
+
+// OsFs is the real filesystem implementation backed by the OS.
+type OsFs struct{}
+
+func (OsFs) MkdirAll(path string, perm fs.FileMode) error        { return os.MkdirAll(path, perm) }
+func (OsFs) WriteFile(path string, data []byte, perm fs.FileMode) error {
+	return os.WriteFile(path, data, perm)
+}
 
 // ScaffoldConfig holds the configuration for generating a new agent project.
 type ScaffoldConfig struct {
@@ -17,13 +33,23 @@ type ScaffoldConfig struct {
 	Knowledge    []string // ["qdrant", "redis", "neo4j"]
 	Integrations    []string          // ["anthropic", "openai", "github"]
 	IntegrationKeys map[string]string // integration name -> API key (optional, user-provided)
-	Ingestion       string            // "schedule" | "webhook" | "manual" | "startup" | "none"
+	Ingestions      []string          // e.g. ["schedule", "webhook"]
 }
 
 // HasKnowledge returns true if the given knowledge type is selected.
 func (c ScaffoldConfig) HasKnowledge(k string) bool {
 	for _, v := range c.Knowledge {
 		if v == k {
+			return true
+		}
+	}
+	return false
+}
+
+// HasIngestion returns true if the given ingestion type is selected.
+func (c ScaffoldConfig) HasIngestion(t string) bool {
+	for _, v := range c.Ingestions {
+		if v == t {
 			return true
 		}
 	}
@@ -59,12 +85,16 @@ func DefaultConfig(name string) ScaffoldConfig {
 		Knowledge:    []string{},
 		Integrations:    []string{},
 		IntegrationKeys: map[string]string{},
-		Ingestion:       "none",
+		Ingestions:      []string{},
 	}
 }
 
-// GenerateFiles creates all project files in the target directory.
+// GenerateFiles creates all project files in the target directory using the OS filesystem.
 func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
+	return generateFiles(OsFs{}, targetDir, config, lang)
+}
+
+func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string) error {
 	// Get template paths for the specified language
 	paths, err := GetTemplatePaths(lang)
 	if err != nil {
@@ -75,12 +105,14 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 	dirs := []string{
 		targetDir,
 		filepath.Join(targetDir, "agent"),
-		filepath.Join(targetDir, "ingestion"),
 		filepath.Join(targetDir, ".postman", "collections"),
+	}
+	for _, ing := range config.Ingestions {
+		dirs = append(dirs, filepath.Join(targetDir, "ingestion", ing))
 	}
 
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := fsys.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
 	}
@@ -104,62 +136,97 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
 		{filepath.Join(targetDir, "README.md"), paths.Readme},
 	}
 
-	// Add ingestion files if ingestion is enabled
-	if config.Ingestion != "none" {
-		files = append(files, struct {
-			path         string
-			templatePath string
-		}{filepath.Join(targetDir, "Dockerfile.ingestion"), paths.DockerfileIngestion})
-
+	// Add per-ingestion-type files: ingestion/<type>/Dockerfile and ingestion/<type>/index.ts
+	for _, ing := range config.Ingestions {
 		ingestionTemplate := paths.IngestionIndex
-		if config.Ingestion == "webhook" {
+		if ing == "webhook" {
 			ingestionTemplate = paths.IngestionWebhookIndex
+		}
+		if err := writeIngestionDockerfile(fsys, filepath.Join(targetDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion, config, ing); err != nil {
+			return err
 		}
 		files = append(files, struct {
 			path         string
 			templatePath string
-		}{filepath.Join(targetDir, "ingestion", "index.ts"), ingestionTemplate})
+		}{filepath.Join(targetDir, "ingestion", ing, "index.ts"), ingestionTemplate})
 	}
 
 	for _, f := range files {
-		if err := writeTemplateFromEmbed(f.path, f.templatePath, config); err != nil {
+		if err := writeTemplateFromEmbed(fsys, f.path, f.templatePath, config); err != nil {
 			return err
 		}
 	}
 
 	// Copy static Postman collection (no templating)
-	if err := copyStaticFile(filepath.Join(targetDir, ".postman", "collections", "Astro-API.postman_collection.json"), paths.PostmanCollection); err != nil {
+	if err := copyStaticFile(fsys, filepath.Join(targetDir, ".postman", "collections", "Astro-API.postman_collection.json"), paths.PostmanCollection); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func writeTemplateFromEmbed(outputPath, templatePath string, config ScaffoldConfig) error {
-	// Read template from embedded filesystem
+// RenderIngestionDockerfile renders the ingestion Dockerfile template for a specific type.
+func RenderIngestionDockerfile(templatePath string, config ScaffoldConfig, ingType string) (string, error) {
 	tmplStr, err := GetTemplate(templatePath)
 	if err != nil {
-		return fmt.Errorf("failed to read template %s: %w", templatePath, err)
+		return "", fmt.Errorf("failed to read template %s: %w", templatePath, err)
 	}
-
 	tmpl, err := template.New(filepath.Base(templatePath)).Parse(tmplStr)
 	if err != nil {
-		return fmt.Errorf("failed to parse template %s: %w", templatePath, err)
+		return "", fmt.Errorf("failed to parse template %s: %w", templatePath, err)
 	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ingestionDockerfileData{config, ingType}); err != nil {
+		return "", fmt.Errorf("failed to execute template %s: %w", templatePath, err)
+	}
+	return buf.String(), nil
+}
 
-	file, err := os.Create(outputPath)
+// RenderTemplate renders the named template with config and returns the result as a string.
+// This is the same logic used when generating files; tests use it to get content without writing to disk.
+func RenderTemplate(templatePath string, config ScaffoldConfig) (string, error) {
+	tmplStr, err := GetTemplate(templatePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read template %s: %w", templatePath, err)
+	}
+	tmpl, err := template.New(filepath.Base(templatePath)).Parse(tmplStr)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template %s: %w", templatePath, err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, config); err != nil {
+		return "", fmt.Errorf("failed to execute template %s: %w", templatePath, err)
+	}
+	return buf.String(), nil
+}
+
+// ingestionDockerfileData extends ScaffoldConfig with the specific ingestion type
+// so that Dockerfile.ingestion templates can reference {{.IngestionType}}.
+type ingestionDockerfileData struct {
+	ScaffoldConfig
+	IngestionType string
+}
+
+func writeTemplateFromEmbed(fsys Fs, outputPath, templatePath string, config ScaffoldConfig) error {
+	content, err := RenderTemplate(templatePath, config)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-
-	return tmpl.Execute(file, config)
+	return fsys.WriteFile(outputPath, []byte(content), 0644)
 }
 
-func copyStaticFile(outputPath, embedPath string) error {
+func writeIngestionDockerfile(fsys Fs, outputPath, templatePath string, config ScaffoldConfig, ingType string) error {
+	content, err := RenderIngestionDockerfile(templatePath, config, ingType)
+	if err != nil {
+		return err
+	}
+	return fsys.WriteFile(outputPath, []byte(content), 0644)
+}
+
+func copyStaticFile(fsys Fs, outputPath, embedPath string) error {
 	data, err := GetTemplate(embedPath)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %w", embedPath, err)
 	}
-	return os.WriteFile(outputPath, []byte(data), 0644)
+	return fsys.WriteFile(outputPath, []byte(data), 0644)
 }

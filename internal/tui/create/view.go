@@ -16,7 +16,7 @@ func (m model) View() string {
 	b.WriteString("\n\n")
 
 	// Step indicator
-	steps := []string{"Description", "Interfaces", "Infrastructure", "Ingestion", "Confirm"}
+	steps := []string{"Description", "Interfaces", "Model", "Knowledge", "Tools", "Ingestion", "Confirm"}
 	stepIndex := m.screenStep()
 	for i, s := range steps {
 		if i == stepIndex {
@@ -47,25 +47,44 @@ func (m model) View() string {
 		b.WriteString("\n")
 		b.WriteString(hintStyle.Render("  How users interact with your agent."))
 		b.WriteString("\n\n")
-		b.WriteString(m.renderMultiSelectOptions(interfaceOptions()))
+		b.WriteString(m.renderOptionList(interfaceOptions(), false))
+		if m.err != "" {
+			b.WriteString(errorStyle.Render("  " + m.err))
+			b.WriteString("\n")
+		}
 		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
 
-	case screenInfrastructure:
-		b.WriteString(promptStyle.Render("  Infrastructure"))
+	case screenModel:
+		b.WriteString(promptStyle.Render("  Model"))
 		b.WriteString("\n")
-		b.WriteString(hintStyle.Render("  Models, knowledge stores, and tools for your agent."))
+		b.WriteString(hintStyle.Render("  LLM provider(s) for your agent."))
 		b.WriteString("\n\n")
-		b.WriteString(m.renderMultiSelectOptions(infrastructureOptions()))
+		b.WriteString(m.renderOptionList(modelOptions(), false))
 		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
 
-	case screenModelName:
-		b.WriteString(promptStyle.Render(fmt.Sprintf("  Model name (%s)", m.config.ModelProvider)))
+	case screenOllamaModel:
+		b.WriteString(promptStyle.Render("  Ollama model"))
 		b.WriteString("\n")
-		b.WriteString(hintStyle.Render("  e.g. llama3, mistral, codellama"))
+		b.WriteString(hintStyle.Render("  Choose one model."))
 		b.WriteString("\n\n")
-		b.WriteString("  " + m.modelInput.View())
+		b.WriteString(m.renderOptionList(ollamaModelOptions(), false))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
+
+	case screenKnowledge:
+		b.WriteString(promptStyle.Render("  Knowledge"))
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  Vector stores, caches, and graph DBs for your agent."))
 		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("  enter confirm · leave empty to skip"))
+		b.WriteString(m.renderOptionList(knowledgeOptions(), false))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
+
+	case screenIntegrations:
+		b.WriteString(promptStyle.Render("  Tools"))
+		b.WriteString("\n")
+		b.WriteString(hintStyle.Render("  Tool integrations (e.g. GitHub) for your agent."))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderOptionList(toolsOptions(), false))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
 
 	case screenIntegrationKey:
 		name := m.pendingKeys[m.keyIndex]
@@ -84,8 +103,8 @@ func (m model) View() string {
 		b.WriteString("\n")
 		b.WriteString(hintStyle.Render("  How to trigger your data pipeline that populates knowledge stores."))
 		b.WriteString("\n\n")
-		b.WriteString(m.renderOptions(ingestionOptions()))
-		b.WriteString(dimStyle.Render("  ↑/↓ navigate · enter select"))
+		b.WriteString(m.renderOptionList(ingestionOptions(), false))
+		b.WriteString(dimStyle.Render("  ↑/↓ navigate · space toggle · enter confirm"))
 
 	case screenConfirm:
 		b.WriteString(m.renderSummary())
@@ -105,31 +124,24 @@ func (m model) screenStep() int {
 		return 0
 	case screenInterface:
 		return 1
-	case screenInfrastructure, screenModelName, screenIntegrationKey:
+	case screenModel, screenOllamaModel:
 		return 2
-	case screenIngestion:
+	case screenKnowledge:
 		return 3
-	case screenConfirm:
+	case screenIntegrations, screenIntegrationKey:
 		return 4
+	case screenIngestion:
+		return 5
+	case screenConfirm:
+		return 6
 	}
 	return 0
 }
 
-func (m model) renderOptions(opts []option) string {
-	var b strings.Builder
-	for i, opt := range opts {
-		if i == m.cursor {
-			b.WriteString(selectedStyle.Render("  ❯ " + opt.label))
-		} else {
-			b.WriteString("    " + opt.label)
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
-func (m model) renderMultiSelectOptions(opts []option) string {
+// renderOptionList renders a list of options. When radio is true (e.g. Ollama model picker),
+// ● only on the cursor row (single-select). When radio is false (checkbox/multi-select),
+// ● on each selected row, ○ elsewhere.
+func (m model) renderOptionList(opts []option, radio bool) string {
 	var b strings.Builder
 	for i, opt := range opts {
 		if opt.isHeader {
@@ -143,11 +155,17 @@ func (m model) renderMultiSelectOptions(opts []option) string {
 		if i == m.cursor {
 			cursor = selectedStyle.Render("❯ ")
 		}
-		checkbox := "○"
-		if m.selected[i] {
-			checkbox = selectedStyle.Render("●")
+		filled := false
+		if radio {
+			filled = i == m.cursor
+		} else {
+			filled = m.selected[i]
 		}
-		b.WriteString("    " + cursor + checkbox + " " + opt.label + "\n")
+		marker := "○"
+		if filled {
+			marker = selectedStyle.Render("●")
+		}
+		b.WriteString("    " + cursor + marker + " " + opt.label + "\n")
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -188,7 +206,11 @@ func (m model) renderSummary() string {
 		row("Infrastructure", dimStyle.Render("none"))
 	}
 
-	row("Ingestion", m.config.Ingestion)
+	if len(m.config.Ingestions) > 0 {
+		row("Ingestion", strings.Join(m.config.Ingestions, ", "))
+	} else {
+		row("Ingestion", dimStyle.Render("none"))
+	}
 
 	return b.String()
 }

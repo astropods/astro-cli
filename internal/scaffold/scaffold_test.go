@@ -2,81 +2,55 @@ package scaffold
 
 import (
 	"bytes"
+	"io/fs"
 	"path/filepath"
 	"testing"
-	"text/template"
 
 	spec "github.com/postman/astro/packages/astro-spec"
 )
 
-// renderAstroYml renders the astroai.yml template with the given config and returns the YAML string.
+// MemFs is an in-memory Fs implementation for tests.
+type MemFs struct {
+	Files map[string][]byte
+	Dirs  map[string]struct{}
+}
+
+func newMemFs() *MemFs {
+	return &MemFs{Files: map[string][]byte{}, Dirs: map[string]struct{}{}}
+}
+
+func (m *MemFs) MkdirAll(path string, _ fs.FileMode) error {
+	m.Dirs[path] = struct{}{}
+	return nil
+}
+
+func (m *MemFs) WriteFile(path string, data []byte, _ fs.FileMode) error {
+	m.Files[path] = data
+	return nil
+}
+
+func (m *MemFs) HasFile(path string) bool {
+	_, ok := m.Files[path]
+	return ok
+}
+
+func (m *MemFs) HasDir(path string) bool {
+	_, ok := m.Dirs[path]
+	return ok
+}
+
+// renderAstroYml uses the same rendering path as the CLI (RenderTemplate) so tests assert real behavior.
 func renderAstroYml(t *testing.T, config ScaffoldConfig) string {
 	t.Helper()
 	paths, err := GetTemplatePaths("ts")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
-	tmplStr, err := GetTemplate(paths.AstroYml)
+	yaml, err := RenderTemplate(paths.AstroYml, config)
 	if err != nil {
-		t.Fatalf("GetTemplate: %v", err)
+		t.Fatalf("RenderTemplate: %v", err)
 	}
-	tmpl, err := template.New(filepath.Base(paths.AstroYml)).Parse(tmplStr)
-	if err != nil {
-		t.Fatalf("template.Parse: %v", err)
-	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, config); err != nil {
-		t.Fatalf("template.Execute: %v", err)
-	}
-	return buf.String()
-}
-
-func TestAstroYml_AnthropicUnderModels(t *testing.T) {
-	yaml := renderAstroYml(t, ScaffoldConfig{
-		Name:            "test-agent",
-		Description:     "test",
-		Interfaces:      []string{"web"},
-		Integrations:    []string{"anthropic"},
-		IntegrationKeys: map[string]string{},
-		Knowledge:       []string{},
-		Ingestion:       "none",
-	})
-
-	s, err := spec.ParseString(yaml)
-	if err != nil {
-		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
-	}
-
-	if _, ok := s.Models["anthropic"]; !ok {
-		t.Errorf("expected anthropic under models, got models=%v", s.Models)
-	}
-	if len(s.Integrations) != 0 {
-		t.Errorf("expected no integrations, got %v", s.Integrations)
-	}
-}
-
-func TestAstroYml_OpenAIUnderModels(t *testing.T) {
-	yaml := renderAstroYml(t, ScaffoldConfig{
-		Name:            "test-agent",
-		Description:     "test",
-		Interfaces:      []string{"web"},
-		Integrations:    []string{"openai"},
-		IntegrationKeys: map[string]string{},
-		Knowledge:       []string{},
-		Ingestion:       "none",
-	})
-
-	s, err := spec.ParseString(yaml)
-	if err != nil {
-		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
-	}
-
-	if _, ok := s.Models["openai"]; !ok {
-		t.Errorf("expected openai under models, got models=%v", s.Models)
-	}
-	if len(s.Integrations) != 0 {
-		t.Errorf("expected no integrations, got %v", s.Integrations)
-	}
+	return yaml
 }
 
 func TestAstroYml_GitHubUnderTools(t *testing.T) {
@@ -87,7 +61,7 @@ func TestAstroYml_GitHubUnderTools(t *testing.T) {
 		Integrations:    []string{"github"},
 		IntegrationKeys: map[string]string{},
 		Knowledge:       []string{},
-		Ingestion:       "none",
+		Ingestions:      []string{},
 	})
 
 	s, err := spec.ParseString(yaml)
@@ -103,36 +77,6 @@ func TestAstroYml_GitHubUnderTools(t *testing.T) {
 	}
 }
 
-func TestAstroYml_OllamaUnderModels(t *testing.T) {
-	yaml := renderAstroYml(t, ScaffoldConfig{
-		Name:            "test-agent",
-		Description:     "test",
-		Interfaces:      []string{"web"},
-		ModelProvider:   "ollama",
-		Model:           "llama3",
-		Integrations:    []string{},
-		IntegrationKeys: map[string]string{},
-		Knowledge:       []string{},
-		Ingestion:       "none",
-	})
-
-	s, err := spec.ParseString(yaml)
-	if err != nil {
-		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
-	}
-
-	m, ok := s.Models["default"]
-	if !ok {
-		t.Fatalf("expected 'default' under models, got models=%v", s.Models)
-	}
-	if m.Provider != "ollama" {
-		t.Errorf("expected provider=ollama, got %q", m.Provider)
-	}
-	if m.Model != "llama3" {
-		t.Errorf("expected model=llama3, got %q", m.Model)
-	}
-}
-
 func TestAstroYml_KnowledgeMapping(t *testing.T) {
 	yaml := renderAstroYml(t, ScaffoldConfig{
 		Name:            "test-agent",
@@ -141,7 +85,7 @@ func TestAstroYml_KnowledgeMapping(t *testing.T) {
 		Integrations:    []string{},
 		IntegrationKeys: map[string]string{},
 		Knowledge:       []string{"qdrant", "redis", "neo4j"},
-		Ingestion:       "none",
+		Ingestions:      []string{},
 	})
 
 	s, err := spec.ParseString(yaml)
@@ -170,7 +114,7 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 		Integrations:    []string{"anthropic", "openai", "github"},
 		IntegrationKeys: map[string]string{},
 		Knowledge:       []string{"qdrant", "redis"},
-		Ingestion:       "schedule",
+		Ingestions:      []string{"schedule"},
 	})
 
 	s, err := spec.ParseString(yaml)
@@ -211,6 +155,9 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 	if len(s.Ingestion) != 1 {
 		t.Errorf("expected 1 ingestion, got %d", len(s.Ingestion))
 	}
+	if _, ok := s.Ingestion["schedule"]; !ok {
+		t.Errorf("expected ingestion key 'schedule', got %v", s.Ingestion)
+	}
 }
 
 func TestAstroYml_MinimalConfig(t *testing.T) {
@@ -221,7 +168,7 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 		Integrations:    []string{},
 		IntegrationKeys: map[string]string{},
 		Knowledge:       []string{},
-		Ingestion:       "none",
+		Ingestions:      []string{},
 	})
 
 	s, err := spec.ParseString(yaml)
@@ -243,5 +190,422 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 	}
 	if len(s.Integrations) != 0 {
 		t.Errorf("expected no integrations, got %v", s.Integrations)
+	}
+}
+
+// TestAstroYml_ModelDeclarationPerModelChoice ensures the spec includes the correct
+// models block for each model selection (ollama+name, anthropic, openai, combined).
+func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
+	tests := []struct {
+		name              string
+		config            ScaffoldConfig
+		wantModels        []string // expected keys under models: (e.g. "default", "anthropic")
+		wantDefault       string   // if non-empty, default model provider
+		wantDefaultModel  string   // if non-empty, default model name (e.g. "llama3")
+	}{
+		{
+			name: "ollama with model name",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				ModelProvider: "ollama", Model: "llama3",
+				Integrations: nil, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
+			},
+			wantModels:       []string{"default"},
+			wantDefault:      "ollama",
+			wantDefaultModel: "llama3",
+		},
+		{
+			name: "ollama without model name",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				ModelProvider: "ollama", Model: "",
+				Integrations: nil, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
+			},
+			wantModels:       []string{"default"},
+			wantDefault:      "ollama",
+			wantDefaultModel: "",
+		},
+		{
+			name: "anthropic only",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				ModelProvider: "", Model: "",
+				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
+			},
+			wantModels:  []string{"anthropic"},
+			wantDefault: "",
+		},
+		{
+			name: "openai only",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				ModelProvider: "", Model: "",
+				Integrations: []string{"openai"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
+			},
+			wantModels:  []string{"openai"},
+			wantDefault: "",
+		},
+		{
+			name: "ollama and anthropic",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				ModelProvider: "ollama", Model: "mistral",
+				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
+			},
+			wantModels:       []string{"default", "anthropic"},
+			wantDefault:      "ollama",
+			wantDefaultModel: "mistral",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yaml := renderAstroYml(t, tt.config)
+			if !bytes.Contains([]byte(yaml), []byte("models:")) {
+				t.Errorf("generated spec missing 'models:' section:\n%s", yaml)
+			}
+			s, err := spec.ParseString(yaml)
+			if err != nil {
+				t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+			}
+			for _, key := range tt.wantModels {
+				if _, ok := s.Models[key]; !ok {
+					t.Errorf("expected models to contain %q, got %v", key, s.Models)
+				}
+			}
+			if tt.wantDefault != "" {
+				def, ok := s.Models["default"]
+				if !ok {
+					t.Errorf("expected default model, got %v", s.Models)
+				} else if def.Provider != tt.wantDefault {
+					t.Errorf("default provider = %q, want %q", def.Provider, tt.wantDefault)
+				}
+				if tt.wantDefaultModel != "" && def.Model != tt.wantDefaultModel {
+					t.Errorf("default model = %q, want %q", def.Model, tt.wantDefaultModel)
+				}
+			}
+		})
+	}
+}
+
+func TestAstroYml_MultipleIngestions(t *testing.T) {
+	yaml := renderAstroYml(t, ScaffoldConfig{
+		Name:            "test-agent",
+		Description:     "test",
+		Interfaces:      []string{"web"},
+		Integrations:    []string{},
+		IntegrationKeys: map[string]string{},
+		Knowledge:       []string{},
+		Ingestions:      []string{"schedule", "webhook"},
+	})
+
+	s, err := spec.ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+	}
+
+	if len(s.Ingestion) != 2 {
+		t.Errorf("expected 2 ingestion jobs, got %d: %v", len(s.Ingestion), s.Ingestion)
+	}
+	if _, ok := s.Ingestion["schedule"]; !ok {
+		t.Errorf("expected ingestion key 'schedule', got %v", s.Ingestion)
+	}
+	if _, ok := s.Ingestion["webhook"]; !ok {
+		t.Errorf("expected ingestion key 'webhook', got %v", s.Ingestion)
+	}
+}
+
+func TestAstroYml_SingleIngestion(t *testing.T) {
+	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
+		t.Run(ingType, func(t *testing.T) {
+			yaml := renderAstroYml(t, ScaffoldConfig{
+				Name:            "test-agent",
+				Description:     "test",
+				Interfaces:      []string{"web"},
+				Integrations:    []string{},
+				IntegrationKeys: map[string]string{},
+				Knowledge:       []string{},
+				Ingestions:      []string{ingType},
+			})
+
+			s, err := spec.ParseString(yaml)
+			if err != nil {
+				t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+			}
+
+			if len(s.Ingestion) != 1 {
+				t.Errorf("expected 1 ingestion job, got %d: %v", len(s.Ingestion), s.Ingestion)
+			}
+			if _, ok := s.Ingestion[ingType]; !ok {
+				t.Errorf("expected ingestion key %q, got %v", ingType, s.Ingestion)
+			}
+			if s.Ingestion[ingType].Trigger.Type != ingType {
+				t.Errorf("trigger type = %q, want %q", s.Ingestion[ingType].Trigger.Type, ingType)
+			}
+		})
+	}
+}
+
+// subsets returns all 2^n subsets of items (including empty).
+func subsets(items []string) [][]string {
+	result := make([][]string, 1<<len(items))
+	for mask := range result {
+		var s []string
+		for i, v := range items {
+			if mask&(1<<i) != 0 {
+				s = append(s, v)
+			}
+		}
+		result[mask] = s
+	}
+	return result
+}
+
+// TestAllTemplatesRender renders every template against every combination of
+// interfaces, model state, integrations, knowledge, and ingestion selections.
+// This catches stale field references the moment a ScaffoldConfig field is renamed.
+func TestAllTemplatesRender(t *testing.T) {
+	paths, err := GetTemplatePaths("ts")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+
+	// Standard templates rendered with ScaffoldConfig.
+	standardTemplates := []struct {
+		name string
+		path string
+	}{
+		{"astroai.yml", paths.AstroYml},
+		{"Dockerfile", paths.Dockerfile},
+		{"package.json", paths.PackageJson},
+		{"tsconfig.json", paths.Tsconfig},
+		{"env.example", paths.EnvExample},
+		{"gitignore", paths.Gitignore},
+		{"dockerignore", paths.Dockerignore},
+		{"npmrc", paths.Npmrc},
+		{"agent/index.ts", paths.AgentIndex},
+		{"ingestion/<type>/index.ts", paths.IngestionIndex},
+		{"ingestion/webhook/index.ts", paths.IngestionWebhookIndex},
+		{"agents.md", paths.LlmMd},
+		{"README.md", paths.Readme},
+	}
+
+	// Ingestion Dockerfile is rendered with ingestionDockerfileData (needs IngestionType).
+	ingestionDockerfileTypes := []string{"schedule", "webhook", "manual", "startup"}
+
+	// All subsets of each multi-valued field.
+	interfaceSubsets := subsets([]string{"web", "slack"})                          // 2^2 = 4
+	integrationSubsets := subsets([]string{"anthropic", "openai", "github"})       // 2^3 = 8
+	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})              // 2^3 = 8
+	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"}) // 2^4 = 16
+
+	// Model states: none, provider-only, provider+model.
+	type modelState struct{ provider, model string }
+	modelStates := []modelState{
+		{"", ""},
+		{"ollama", ""},
+		{"ollama", "llama3.2:1b"},
+	}
+
+	for _, tmpl := range standardTemplates {
+		t.Run(tmpl.name, func(t *testing.T) {
+			for _, ifaces := range interfaceSubsets {
+				for _, ms := range modelStates {
+					for _, integs := range integrationSubsets {
+						for _, know := range knowledgeSubsets {
+							for _, ings := range ingestionSubsets {
+								cfg := ScaffoldConfig{
+									Name:            "a",
+									Description:     "d",
+									Interfaces:      ifaces,
+									ModelProvider:   ms.provider,
+									Model:           ms.model,
+									Integrations:    integs,
+									IntegrationKeys: map[string]string{},
+									Knowledge:       know,
+									Ingestions:      ings,
+								}
+								if _, err := RenderTemplate(tmpl.path, cfg); err != nil {
+									t.Errorf(
+										"interfaces=%v model=%q/%q integrations=%v knowledge=%v ingestions=%v: %v",
+										ifaces, ms.provider, ms.model, integs, know, ings, err,
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+
+	// Ingestion Dockerfile is rendered with RenderIngestionDockerfile (requires IngestionType).
+	t.Run("ingestion/<type>/Dockerfile", func(t *testing.T) {
+		cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+		for _, ingType := range ingestionDockerfileTypes {
+			if _, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, ingType); err != nil {
+				t.Errorf("ingestionType=%q: %v", ingType, err)
+			}
+		}
+	})
+}
+
+
+// generateWithMemFs runs generateFiles with an in-memory filesystem and returns it.
+func generateWithMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
+	t.Helper()
+	memfs := newMemFs()
+	if err := generateFiles(memfs, "/proj", config, "ts"); err != nil {
+		t.Fatalf("generateFiles: %v", err)
+	}
+	return memfs
+}
+
+func TestGenerateFiles_IngestionPerTypeFolderStructure(t *testing.T) {
+	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
+		t.Run(ingType, func(t *testing.T) {
+			memfs := generateWithMemFs(t, ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Integrations: []string{}, IntegrationKeys: map[string]string{},
+				Knowledge: []string{}, Ingestions: []string{ingType},
+			})
+
+			if !memfs.HasDir(filepath.Join("/proj", "ingestion", ingType)) {
+				t.Errorf("expected dir ingestion/%s", ingType)
+			}
+			if !memfs.HasFile(filepath.Join("/proj", "ingestion", ingType, "Dockerfile")) {
+				t.Errorf("expected file ingestion/%s/Dockerfile", ingType)
+			}
+			if !memfs.HasFile(filepath.Join("/proj", "ingestion", ingType, "index.ts")) {
+				t.Errorf("expected file ingestion/%s/index.ts", ingType)
+			}
+			if memfs.HasFile(filepath.Join("/proj", "Dockerfile.ingestion")) {
+				t.Errorf("unexpected top-level Dockerfile.ingestion")
+			}
+		})
+	}
+}
+
+func TestGenerateFiles_MultipleIngestions_EachGetsOwnFolder(t *testing.T) {
+	ingestions := []string{"schedule", "webhook", "manual", "startup"}
+	memfs := generateWithMemFs(t, ScaffoldConfig{
+		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Integrations: []string{}, IntegrationKeys: map[string]string{},
+		Knowledge: []string{}, Ingestions: ingestions,
+	})
+
+	for _, ing := range ingestions {
+		if !memfs.HasDir(filepath.Join("/proj", "ingestion", ing)) {
+			t.Errorf("expected dir ingestion/%s", ing)
+		}
+		if !memfs.HasFile(filepath.Join("/proj", "ingestion", ing, "Dockerfile")) {
+			t.Errorf("expected file ingestion/%s/Dockerfile", ing)
+		}
+		if !memfs.HasFile(filepath.Join("/proj", "ingestion", ing, "index.ts")) {
+			t.Errorf("expected file ingestion/%s/index.ts", ing)
+		}
+	}
+	if memfs.HasFile(filepath.Join("/proj", "Dockerfile.ingestion")) {
+		t.Errorf("unexpected top-level Dockerfile.ingestion")
+	}
+}
+
+func TestGenerateFiles_NoIngestion_NoIngestionSubdirs(t *testing.T) {
+	memfs := generateWithMemFs(t, ScaffoldConfig{
+		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Integrations: []string{}, IntegrationKeys: map[string]string{},
+		Knowledge: []string{}, Ingestions: []string{},
+	})
+
+	for path := range memfs.Dirs {
+		if filepath.Dir(path) == filepath.Join("/proj", "ingestion") {
+			t.Errorf("unexpected ingestion subdir: %s", path)
+		}
+	}
+}
+
+func TestAstroYml_IngestionDockerfilePath(t *testing.T) {
+	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
+		t.Run(ingType, func(t *testing.T) {
+			yaml := renderAstroYml(t, ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Integrations: []string{}, IntegrationKeys: map[string]string{},
+				Knowledge: []string{}, Ingestions: []string{ingType},
+			})
+
+			s, err := spec.ParseString(yaml)
+			if err != nil {
+				t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+			}
+
+			ing, ok := s.Ingestion[ingType]
+			if !ok {
+				t.Fatalf("expected ingestion key %q, got %v", ingType, s.Ingestion)
+			}
+			wantDockerfile := filepath.Join("ingestion", ingType, "Dockerfile")
+			if ing.Container.Build == nil {
+				t.Fatalf("ingestion[%q].container.build is nil", ingType)
+			}
+			if ing.Container.Build.Dockerfile != wantDockerfile {
+				t.Errorf("dockerfile = %q, want %q", ing.Container.Build.Dockerfile, wantDockerfile)
+			}
+		})
+	}
+}
+
+func TestIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
+	paths, err := GetTemplatePaths("ts")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+
+	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
+		t.Run(ingType, func(t *testing.T) {
+			content, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, ingType)
+			if err != nil {
+				t.Fatalf("RenderIngestionDockerfile: %v", err)
+			}
+			wantCopy := "COPY ingestion/" + ingType
+			wantCmd := `"ingestion/` + ingType + `/index.ts"`
+			if !bytes.Contains([]byte(content), []byte(wantCopy)) {
+				t.Errorf("expected COPY referencing %q in:\n%s", wantCopy, content)
+			}
+			if !bytes.Contains([]byte(content), []byte(wantCmd)) {
+				t.Errorf("expected CMD referencing %q in:\n%s", wantCmd, content)
+			}
+			if bytes.Contains([]byte(content), []byte("ingestion/index.ts")) {
+				t.Errorf("found stale ingestion/index.ts path in:\n%s", content)
+			}
+		})
+	}
+}
+
+func TestAstroYml_MultipleIngestions_DockerfilePaths(t *testing.T) {
+	ingestions := []string{"schedule", "webhook", "manual", "startup"}
+	yaml := renderAstroYml(t, ScaffoldConfig{
+		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Integrations: []string{}, IntegrationKeys: map[string]string{},
+		Knowledge: []string{}, Ingestions: ingestions,
+	})
+
+	s, err := spec.ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+	}
+
+	for _, ingType := range ingestions {
+		ing, ok := s.Ingestion[ingType]
+		if !ok {
+			t.Errorf("expected ingestion key %q", ingType)
+			continue
+		}
+		wantDockerfile := filepath.Join("ingestion", ingType, "Dockerfile")
+		if ing.Container.Build == nil {
+			t.Errorf("ingestion[%q].container.build is nil", ingType)
+			continue
+		}
+		if ing.Container.Build.Dockerfile != wantDockerfile {
+			t.Errorf("ingestion[%q] dockerfile = %q, want %q", ingType, ing.Container.Build.Dockerfile, wantDockerfile)
+		}
 	}
 }

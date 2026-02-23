@@ -15,17 +15,38 @@ func interfaceOptions() []option {
 	}
 }
 
-func infrastructureOptions() []option {
+// modelOptions returns multi-select options for the model screen (Ollama, Anthropic, OpenAI).
+func modelOptions() []option {
 	return []option{
-		{"Models", "", true},
 		{"Ollama (self-hosted)", "ollama", false},
 		{"Anthropic", "anthropic", false},
 		{"OpenAI", "openai", false},
-		{"Knowledge", "", true},
+	}
+}
+
+// ollamaModelOptions returns the closed set of Ollama model names (radio/single-select).
+func ollamaModelOptions() []option {
+	return []option{
+		{"llama3.2:1b", "llama3.2:1b", false},
+		{"llama3.1:8b", "llama3.1:8b", false},
+		{"mistral:7b", "mistral:7b", false},
+		{"codellama:7b", "codellama:7b", false},
+		{"phi3:3.8b", "phi3:3.8b", false},
+		{"gemma2:2b", "gemma2:2b", false},
+	}
+}
+
+func knowledgeOptions() []option {
+	return []option{
 		{"Qdrant (vector store)", "qdrant", false},
 		{"Redis (key-value)", "redis", false},
 		{"Neo4j (graph)", "neo4j", false},
-		{"Tools", "", true},
+	}
+}
+
+// toolsOptions returns multi-select options for integrations/tools (e.g. GitHub).
+func toolsOptions() []option {
+	return []option{
 		{"GitHub", "github", false},
 	}
 }
@@ -36,7 +57,6 @@ func ingestionOptions() []option {
 		{"Webhook", "webhook", false},
 		{"Manual trigger", "manual", false},
 		{"On startup", "startup", false},
-		{"None", "none", false},
 	}
 }
 

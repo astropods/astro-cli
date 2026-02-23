@@ -52,35 +52,29 @@ tools:
   github:
     provider: github
 {{- end}}
-{{- if ne .Ingestion "none"}}
+{{- if gt (len .Ingestions) 0}}
 
 ingestion:
-  data:
+{{- range .Ingestions}}
+  {{.}}:
     container:
       build:
         context: .
-        dockerfile: Dockerfile.ingestion
-{{- if eq .Ingestion "webhook"}}
+        dockerfile: ingestion/{{.}}/Dockerfile
+{{- if eq . "webhook"}}
       port: 3001
 {{- end}}
     trigger:
-{{- if eq .Ingestion "schedule"}}
-      type: schedule
-{{- else if eq .Ingestion "webhook"}}
-      type: webhook
-{{- else if eq .Ingestion "manual"}}
-      type: manual
-{{- else if eq .Ingestion "startup"}}
-      type: startup
+      type: {{.}}
 {{- end}}
 {{- end}}
-{{- if or (gt (len .Interfaces) 0) (eq .Ingestion "schedule")}}
+{{- if or (gt (len .Interfaces) 0) (.HasIngestion "schedule")}}
 
 dev:
 {{- if gt (len .Interfaces) 0}}
   interfaces: [{{- range $i, $v := .Interfaces}}{{if $i}}, {{end}}{{$v}}{{- end}}]
 {{- end}}
-{{- if eq .Ingestion "schedule"}}
+{{- if .HasIngestion "schedule"}}
   schedules:
     data: "0 * * * *"  # every hour
 {{- end}}
