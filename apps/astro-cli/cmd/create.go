@@ -109,10 +109,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 }
 
 func printSuccess(name, targetDir string) {
-	fmt.Printf("\n%s✓%s Created agent %s%s%s\n\n", colorGreen, colorReset, colorBold, name, colorReset)
-	fmt.Println("Next steps:")
-	fmt.Printf("  %s→%s cd %s\n", colorCyan, colorReset, targetDir)
-	fmt.Printf("  %s→%s update .env as needed\n", colorCyan, colorReset)
-	fmt.Printf("  %s→%s ast dev\n", colorCyan, colorReset)
-	fmt.Println()
+	fmt.Printf("\n%s%s✓ Created agent %s%s\n\n", colorGreen, colorBold, name, colorReset)
+	fmt.Printf("  %s$ cd %s%s\n\n", colorYellow, targetDir, colorReset)
+	fmt.Printf("  %s%-12s%s  captures everything you configured — infrastructure, models, and integrations.\n", colorBold, "astroai.yml", colorReset)
+	fmt.Printf("  %s%-12s%s  holds the secrets you provided. Add any missing ones before starting.\n\n", colorBold, ".env", colorReset)
+	fmt.Printf("  When ready, run %s%sast dev%s to start your agent locally.\n\n", colorBold, colorCyan, colorReset)
+	fmt.Printf("  %sTip:%s run %sast explain%s for a plain-English breakdown of your agent spec.\n\n", colorDim, colorReset, colorCyan, colorReset)
 }

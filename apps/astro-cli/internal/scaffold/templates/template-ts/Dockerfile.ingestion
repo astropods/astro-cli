@@ -1,4 +1,4 @@
-# Ingestion container
+# Ingestion container — {{.IngestionType}}
 FROM oven/bun:1 AS builder
 
 WORKDIR /app
@@ -7,8 +7,8 @@ WORKDIR /app
 COPY package.json .npmrc ./
 RUN bun install
 
-# Copy source
-COPY . .
+# Copy ingestion source
+COPY ingestion/{{.IngestionType}} ./ingestion/{{.IngestionType}}
 
 # Runtime stage
 FROM oven/bun:1-slim
@@ -17,7 +17,7 @@ WORKDIR /app
 
 # Copy from builder
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/ingestion ./ingestion
+COPY --from=builder /app/ingestion/{{.IngestionType}} ./ingestion/{{.IngestionType}}
 COPY --from=builder /app/package.json ./
 
 # Use non-root user already present in oven/bun image (bun:1000)
@@ -25,4 +25,4 @@ RUN chown -R bun:bun /app
 USER bun
 
 # Run the ingestion script
-CMD ["bun", "run", "ingestion/index.ts"]
+CMD ["bun", "run", "ingestion/{{.IngestionType}}/index.ts"]

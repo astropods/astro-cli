@@ -18,15 +18,16 @@ ast dev
 {{.Name}}/
 ├── agent/
 │   └── index.ts          # Agent entry point
-{{- if ne .Ingestion "none"}}
+{{- if gt (len .Ingestions) 0}}
 ├── ingestion/
-│   └── index.ts          # Data ingestion pipeline
+{{- range .Ingestions}}
+│   ├── {{.}}/
+│   │   ├── index.ts      # {{.}} ingestion pipeline
+│   │   └── Dockerfile
+{{- end}}
 {{- end}}
 ├── astroai.yml             # Agent specification
 ├── Dockerfile            # Agent container
-{{- if ne .Ingestion "none"}}
-├── Dockerfile.ingestion  # Ingestion container
-{{- end}}
 ├── .env                  # Environment variables (not committed)
 └── package.json
 ```
@@ -82,10 +83,10 @@ Self-hosted **{{.ModelProvider}}** provider{{if ne .Model ""}} running `{{.Model
 {{- end}}
 {{- end}}
 {{- end}}
-{{- if ne .Ingestion "none"}}
+{{- if gt (len .Ingestions) 0}}
 
 ### Ingestion
 
-Data pipeline triggered via **{{.Ingestion}}**. Edit `ingestion/index.ts` to define how data flows into your knowledge stores.
+Data pipeline triggered via **{{range $i, $v := .Ingestions}}{{if $i}}, {{end}}{{$v}}{{end}}**. Edit `ingestion/index.ts` to define how data flows into your knowledge stores.
 {{- end}}
 

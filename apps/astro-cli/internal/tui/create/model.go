@@ -12,10 +12,12 @@ import (
 type screen int
 
 const (
-	screenDescription    screen = iota
+	screenDescription screen = iota
 	screenInterface
-	screenInfrastructure
-	screenModelName
+	screenModel
+	screenOllamaModel // radio list to pick Ollama model name
+	screenKnowledge
+	screenIntegrations
 	screenIntegrationKey
 	screenIngestion
 	screenConfirm
@@ -45,6 +47,7 @@ type model struct {
 	// State
 	done     bool
 	quitting bool
+	err      string // inline validation error
 }
 
 func initialModel(name string) model {
@@ -90,16 +93,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case screenDescription:
 		return m.updateDescription(msg)
-	case screenInterface:
-		return m.updateInterface(msg)
-	case screenInfrastructure:
-		return m.updateInfrastructure(msg)
-	case screenModelName:
-		return m.updateModelName(msg)
+	case screenInterface, screenModel, screenOllamaModel, screenKnowledge, screenIntegrations, screenIngestion:
+		return m.updateOptionScreen(msg)
 	case screenIntegrationKey:
 		return m.updateIntegrationKey(msg)
-	case screenIngestion:
-		return m.updateIngestion(msg)
 	case screenConfirm:
 		return m.updateConfirm(msg)
 	}
@@ -110,7 +107,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Run launches the TUI and returns the user's configuration.
 func Run(name string) (scaffold.ScaffoldConfig, error) {
 	m := initialModel(name)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	result, err := p.Run()
 	if err != nil {

@@ -120,12 +120,15 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		{repairFileCheck{filepath.Join(workingDir, "AGENTS.md"), paths.LlmMd}, "AGENTS.md", true},
 	}
 
-	if config.Ingestion != "none" {
-		entries = append(entries, fileEntry{
-			repairFileCheck{filepath.Join(workingDir, "Dockerfile.ingestion"), paths.DockerfileIngestion},
-			"Dockerfile.ingestion",
-			true,
-		})
+	for _, ing := range config.Ingestions {
+		ingestionTemplate := paths.IngestionIndex
+		if ing == "webhook" {
+			ingestionTemplate = paths.IngestionWebhookIndex
+		}
+		entries = append(entries,
+			fileEntry{repairFileCheck{filepath.Join(workingDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion}, filepath.Join("ingestion", ing, "Dockerfile"), true},
+			fileEntry{repairFileCheck{filepath.Join(workingDir, "ingestion", ing, "index.ts"), ingestionTemplate}, filepath.Join("ingestion", ing, "index.ts"), true},
+		)
 	}
 
 	// Ask the user which files to repair (skipped when --yes)
@@ -371,11 +374,9 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 		}
 	}
 
-	// Ingestion trigger type
-	config.Ingestion = "none"
+	// Ingestion trigger types
 	for _, ing := range s.Ingestion {
-		config.Ingestion = ing.Trigger.Type
-		break
+		config.Ingestions = append(config.Ingestions, ing.Trigger.Type)
 	}
 
 	return config

@@ -2,11 +2,19 @@ layer: "application"
 language: "go"
 
 tasks:
+  clean:
+    command: "rm -rf bin/ast"
+    options:
+      cache: false
+
   build:
     command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD)" -o bin/ast .'
     inputs:
       - "**/*.go"
       - "internal/scaffold/templates/**"
+      - "go.mod"
+      - "go.sum"
+      - "/packages/astro-spec/**"
     outputs:
       - "bin/ast"
 

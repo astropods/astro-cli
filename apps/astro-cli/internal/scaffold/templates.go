@@ -45,7 +45,7 @@ func GetTemplatePaths(lang string) (*TemplatePaths, error) {
 			IngestionIndex:      "templates/template-ts/ingestion/index.ts",
 			LlmMd:               "templates/template-ts/agents.md.tmpl",
 			Readme:              "templates/template-ts/README.md.tmpl",
-			PostmanCollection:      "templates/template-ts/.postman/collections/Astro-API.postman_collection.json",
+			PostmanCollection:      "templates/template-ts/postman/collections/Astro-API.postman_collection.json",
 			IngestionWebhookIndex: "templates/template-ts/ingestion/webhook.ts",
 		}, nil
 	default:
