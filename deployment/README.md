@@ -1,81 +1,45 @@
 # Deployment
 
-Dockerfiles and moon tasks for building Astro service images. Used by CI and to support `ast dev --local`.
+Dockerfiles and moon tasks for building Astro service images. 
+Used by CI and to support `ast dev --local`.
 
-## Build images with moon
+With `ast dev --local`, the CLI runs the agent as a local process, using local Docker images and packages from **`ASTRO_SOURCE`**. Those packages must have **`dist/`** built first.
 
-From the **repository root** (same as [building the CLI](apps/astro-cli/README.md)):
+All instructions assume you are in the repo root.
 
-```bash
-# Collector (OpenTelemetry collector)
-moon run deployment:collector
-
-# Remove astro Docker images (server, registry, collector; local and ghcr.io/saswatds/*)
-moon run deployment:clean
-```
-
-Images are tagged `astro-collector:latest`. Use them with:
+## Build packages
 
 ```bash
-ast dev --local
+bun install
+bun run build
+cd packages/astro-messaging/sdk/node && bun run build
 ```
 
-(`--local` strips the remote registry prefix from compose so those local tags are used and no pull is done.)
-
-## Dockerfiles
+## Build images
 
 | File | Image | Source |
 |------|--------|--------|
-| `Dockerfile.astro-collector` | astro-collector | OTel Collector custom distribution |
+| `Dockerfile.astro-collector` | prod-astro-collector | OTel Collector custom distribution |
 | `Dockerfile.astro-registry` | astro-registry | apps/astro-registry |
 | `Dockerfile.astro-server` | astro-server | apps/astro-server |
+| `Dockerfile.astro-client` | astro-client | apps/astro-client (SSR); built by CI |
 
-Build context for all is the workspace root (so `COPY packages/...` works). `astro-messaging` and `astro-playground` are git submodules from astromode-ai; run `git submodule update --init --recursive` after clone.
-
-## Packages
-
-Monorepo packages for the Astro platform: agent SDK, graph/workflows, messaging client, engine, types, and related libraries.
-
-### How local refs work
-
-Package deps on `@saswatds/*` use **`workspace:*`**, so they must resolve to the local `packages/*` in this repo, not the registry. That only happens when the install is run from the **repository root** (where the root `package.json` has `"workspaces": ["packages/*", "apps/*"]`). Then Bun links workspace packages and every `@saswatds/*` import points at local source.
-
-- **Leaf:** `astro-types` has no `@saswatds` deps; it can build on its own once deps (e.g. zod) are installed.
-- **Others:** Packages like `astro-nodes`, `astro-agent` depend on `@saswatds/astro-types` etc. They build from **local refs** only if you ran `bun install` from the repo root first. If you run install from a single package dir (e.g. `packages/astro-nodes`), those deps resolve from the registry and you can get version/behavior mismatches.
-
-So: **always run `bun install` from the repository root**, then build.
-
-### Building
-
-From the **repository root** (same as CI):
-
-```bashgit
-bun install
-bun run build
-```
-
-`bun run build` runs `moon run :build --query "language=typescript AND projectType=library"` (packages only, no apps). Moon runs builds in dependency order (e.g. `astro-types` before `astro-nodes`).
-
-Single package (and its deps):
+Build context for collector, registry, server, and client is the workspace root (so `COPY packages/...` works). `astro-messaging` and `astro-playground` are git submodules; run `git submodule update --init --recursive` after clone.
 
 ```bash
-bun install
-moon run astro-agent:build
+# Messaging sidecar → astro-messaging:latest
+moon run deployment:messaging
+
+# Playground → astro-playground:latest
+moon run deployment:playground
+
+# Collector (OpenTelemetry collector) → prod-astro-collector:latest
+moon run deployment:collector
 ```
 
-### Local development (`ast dev --local`)
-
-With `ast dev --local`, the CLI runs the agent as a local process and loads `@saswatds/astro-agent`, `astro-graph`, and `astro-messaging` from **`ASTRO_SOURCE`**. Those packages must have **`dist/`** built first.
-
-From the repo root:
+## Rmove local images
 
 ```bash
-export ASTRO_SOURCE=/path/to/astro
-
-bun install
-bun run build
-# or only the three the agent needs:
-# moon run astro-agent:build astro-graph:build astro-messaging:build
-
-ast dev --local
+# Remove local/ghcr.io astro images (server, registry, prod-astro-collector)
+moon run deployment:clean
 ```
