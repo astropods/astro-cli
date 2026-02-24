@@ -61,6 +61,6 @@ func runDocs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to render docs: %w", err)
 	}
 
-	fmt.Fprint(os.Stdout, out)
+	_, _ = fmt.Fprint(os.Stdout, out)
 	return nil
 }

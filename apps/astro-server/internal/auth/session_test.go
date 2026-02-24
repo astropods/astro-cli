@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -75,7 +76,7 @@ func TestUnsealSession_EmptyData(t *testing.T) {
 	sm := NewSessionManager("test-password-that-is-32-chars!!", 24*time.Hour)
 
 	_, err := sm.UnsealSession("")
-	if err != ErrInvalidCookie {
+	if !errors.Is(err, ErrInvalidCookie) {
 		t.Errorf("expected ErrInvalidCookie, got %v", err)
 	}
 }
@@ -128,7 +129,7 @@ func TestUnsealSession_ExpiredSession(t *testing.T) {
 	}
 
 	_, err = sm.UnsealSession(sealed)
-	if err != ErrSessionExpired {
+	if !errors.Is(err, ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired, got %v", err)
 	}
 }

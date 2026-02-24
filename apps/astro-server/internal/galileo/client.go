@@ -204,15 +204,15 @@ func (c *Client) doPost(rawURL string, body any, out any) error {
 	if err != nil {
 		return fmt.Errorf("galileo: failed to create request: %w", err)
 	}
-	req.Header.Set("Galileo-API-Key", c.apiKey)
+	req.Header.Set("Galileo-Api-Key", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("galileo: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)

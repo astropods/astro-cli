@@ -60,7 +60,7 @@ func (h *colorHandler) Handle(_ context.Context, r slog.Record) error {
 	defer h.mu.Unlock()
 
 	// timestamp level message
-	fmt.Fprintf(h.w, "%s%s%s %s %s", gray, timeStr, reset, levelTag, msg)
+	_, _ = fmt.Fprintf(h.w, "%s%s%s %s %s", gray, timeStr, reset, levelTag, msg)
 
 	// pre-set attrs from With()
 	for _, a := range h.attrs {
@@ -73,7 +73,7 @@ func (h *colorHandler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 
-	fmt.Fprintln(h.w)
+	_, _ = fmt.Fprintln(h.w)
 	return nil
 }
 
@@ -106,7 +106,7 @@ func writeAttr(w io.Writer, group string, a slog.Attr) {
 	if group != "" {
 		key = group + "." + key
 	}
-	fmt.Fprintf(w, " %s%s%s=%v", cyan, key, reset, a.Value)
+	_, _ = fmt.Fprintf(w, " %s%s%s=%v", cyan, key, reset, a.Value)
 }
 
 func levelStyle(l slog.Level) (string, string) {

@@ -117,5 +117,5 @@ func (fw *FileWatcher) watch() {
 // Stop stops the file watcher
 func (fw *FileWatcher) Stop() {
 	close(fw.done)
-	fw.watcher.Close()
+	_ = fw.watcher.Close()
 }

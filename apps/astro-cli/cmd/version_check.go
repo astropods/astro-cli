@@ -44,7 +44,7 @@ func loadVersionCache() *versionCache {
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		return nil
 	}
@@ -80,7 +80,7 @@ func fetchLatestVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("server returned %d", resp.StatusCode)
@@ -119,6 +119,6 @@ func notifyIfUpdateAvailable() {
 	}
 
 	fmt.Fprintln(os.Stderr)
-	color.New(color.FgYellow).Fprintf(os.Stderr, "  Update available: %s → %s\n", version, cache.LatestVersion)
-	color.New(color.Faint).Fprintf(os.Stderr, "  Run `%s upgrade` to update.\n\n", binaryName)
+	_, _ = color.New(color.FgYellow).Fprintf(os.Stderr, "  Update available: %s → %s\n", version, cache.LatestVersion)
+	_, _ = color.New(color.Faint).Fprintf(os.Stderr, "  Run `%s upgrade` to update.\n\n", binaryName)
 }

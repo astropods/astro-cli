@@ -11,26 +11,9 @@ import (
 // setupTestDir creates a temp directory and sets HOME for testing
 func setupTestDir(t *testing.T) (string, func()) {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("", "astro-cli-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-
-	// Save original HOME
-	originalHome := os.Getenv("HOME")
-
-	// Set HOME to temp dir so ConfigDir uses it
-	os.Setenv("HOME", tmpDir)
-
-	return tmpDir, func() {
-		// Restore original HOME
-		if originalHome == "" {
-			os.Unsetenv("HOME")
-		} else {
-			os.Setenv("HOME", originalHome)
-		}
-		os.RemoveAll(tmpDir)
-	}
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	return tmpDir, func() {}
 }
 
 // createTestStorage creates a Storage that doesn't use keyring

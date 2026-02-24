@@ -22,7 +22,7 @@ import (
 
 const (
 	clusterIDHeader = "x-k8s-aws-id"
-	tokenPrefix     = "k8s-aws-v1."
+	tokenPrefix     = "k8s-aws-v1." //nolint:gosec
 	tokenExpiry     = 14 * time.Minute // Tokens valid for 15min, refresh at 14min
 )
 
@@ -185,7 +185,7 @@ func (c *EKSClient) DiagnoseConnection() map[string]string {
 
 	if tokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE"); tokenFile != "" {
 		diag["irsa_token_file"] = tokenFile
-		if _, err := os.Stat(tokenFile); err != nil {
+		if _, err := os.Stat(tokenFile); err != nil { //nolint:gosec
 			diag["irsa_status"] = "token file not accessible"
 		} else {
 			diag["irsa_status"] = "configured"
@@ -312,7 +312,7 @@ func (t *eksTokenTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		}
 
 		newToken, _ := t.tokenProvider.getToken(req.Context())
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		retryCopy := req.Clone(req.Context())
 		retryCopy.Header.Set("Authorization", "Bearer "+newToken)

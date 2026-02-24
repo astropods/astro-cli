@@ -58,7 +58,7 @@ func dockerPushWithRetry(ctx context.Context, dockerCli *client.Client, imageRef
 		}
 
 		totalBytes, err := streamDockerPushProgress(pushResp, label)
-		pushResp.Close()
+		_ = pushResp.Close()
 
 		if err == nil {
 			return totalBytes, nil
@@ -96,7 +96,7 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 		fmt.Println()
 		return 0, fmt.Errorf("failed to create Docker client: %w", err)
 	}
-	defer dockerCli.Close()
+	defer dockerCli.Close() //nolint:errcheck
 
 	// Tag image for remote registry
 	if err := dockerCli.ImageTag(ctx, localImageName, remoteImageName); err != nil {
@@ -137,7 +137,7 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 	if err != nil {
 		return 0, fmt.Errorf("failed to create Docker client: %w", err)
 	}
-	defer dockerCli.Close()
+	defer dockerCli.Close() //nolint:errcheck
 
 	// Get auth once for all pushes
 	var authStr string

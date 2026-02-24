@@ -73,7 +73,7 @@ func (m model) View() string {
 		if item.Selected {
 			checkbox = selectedStyle.Render("●")
 		}
-		b.WriteString(fmt.Sprintf("    %s%s %s\n", cursor, checkbox, item.Label))
+		_, _ = fmt.Fprintf(&b, "    %s%s %s\n", cursor, checkbox, item.Label)
 	}
 
 	b.WriteString("\n")

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +35,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		}
 
 		// Handle preflight
-		if c.Request.Method == "OPTIONS" {
+		if c.Request.Method == http.MethodOptions {
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS")
 			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Docker-Content-Digest, Docker-Distribution-API-Version")
 			c.Header("Access-Control-Max-Age", "86400")

@@ -57,13 +57,13 @@ func (sm *SessionManager) SealSession(data *SessionData) (string, error) {
 	// Serialize the session data to JSON
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return "", fmt.Errorf("%w: failed to marshal session data: %v", ErrEncryptionFailed, err)
+		return "", fmt.Errorf("%w: failed to marshal session data: %w", ErrEncryptionFailed, err)
 	}
 
 	// Encrypt the JSON data
 	encrypted, err := sm.encrypt(jsonData)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+		return "", fmt.Errorf("%w: %w", ErrEncryptionFailed, err)
 	}
 
 	// Use URL-safe base64 encoding for cookie storage (avoids issues with + and / chars)
@@ -85,7 +85,7 @@ func (sm *SessionManager) UnsealSession(sealedData string) (*SessionData, error)
 	// Decrypt the data
 	jsonData, err := sm.decrypt(encrypted)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: %w", ErrDecryptionFailed, err)
 	}
 
 	// Deserialize the JSON

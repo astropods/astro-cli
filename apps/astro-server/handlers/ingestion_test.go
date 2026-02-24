@@ -167,7 +167,7 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 	k8sHandler := http.NewServeMux()
 	k8sHandler.HandleFunc("/api/v1/namespaces/test-ns", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"apiVersion": "v1", "kind": "Namespace",
 			"metadata": {
 				"name": "test-ns",
@@ -208,7 +208,9 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
 	if errMsg, ok := resp["error"].(string); !ok || errMsg == "" {
 		t.Errorf("expected error about trigger type, got %v", resp["error"])
 	}
@@ -218,7 +220,7 @@ func TestTriggerIngestion_IngestionNotInSpec(t *testing.T) {
 	k8sHandler := http.NewServeMux()
 	k8sHandler.HandleFunc("/api/v1/namespaces/test-ns", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"apiVersion": "v1", "kind": "Namespace",
 			"metadata": {
 				"name": "test-ns",
@@ -264,7 +266,7 @@ func TestTriggerIngestion_Success(t *testing.T) {
 	k8sHandler := http.NewServeMux()
 	k8sHandler.HandleFunc("/api/v1/namespaces/test-ns", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{
+		_, _ = fmt.Fprint(w, `{
 			"apiVersion": "v1", "kind": "Namespace",
 			"metadata": {
 				"name": "test-ns",
@@ -286,7 +288,7 @@ func TestTriggerIngestion_Success(t *testing.T) {
 		// Return a minimal valid Job response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprint(w, `{"apiVersion":"batch/v1","kind":"Job","metadata":{"name":"test-job","namespace":"test-ns"},"spec":{}}`)
+		_, _ = fmt.Fprint(w, `{"apiVersion":"batch/v1","kind":"Job","metadata":{"name":"test-job","namespace":"test-ns"},"spec":{}}`)
 	})
 
 	k8sClient := newMockK8sClient(k8sHandler)

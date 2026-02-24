@@ -7,15 +7,15 @@ import (
 
 func TestLoad_Defaults(t *testing.T) {
 	// Set required env vars
-	os.Setenv("REGISTRY_URL", "https://123456789.dkr.ecr.us-east-1.amazonaws.com")
-	os.Setenv("ENVIRONMENT", "test")
-	os.Setenv("WORKOS_CLIENT_ID", "client_test")
-	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("REGISTRY_URL", "https://123456789.dkr.ecr.us-east-1.amazonaws.com")
+	t.Setenv("ENVIRONMENT", "test")
+	t.Setenv("WORKOS_CLIENT_ID", "client_test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	defer func() {
-		os.Unsetenv("REGISTRY_URL")
-		os.Unsetenv("ENVIRONMENT")
-		os.Unsetenv("WORKOS_CLIENT_ID")
-		os.Unsetenv("DATABASE_URL")
+		_ = os.Unsetenv("REGISTRY_URL")
+		_ = os.Unsetenv("ENVIRONMENT")
+		_ = os.Unsetenv("WORKOS_CLIENT_ID")
+		_ = os.Unsetenv("DATABASE_URL")
 	}()
 
 	cfg, err := Load()
@@ -38,24 +38,24 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_CustomValues(t *testing.T) {
-	os.Setenv("PORT", "9090")
-	os.Setenv("HOST", "127.0.0.1")
-	os.Setenv("LOG_LEVEL", "debug")
-	os.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
-	os.Setenv("AWS_REGION", "us-west-2")
-	os.Setenv("ENVIRONMENT", "staging")
-	os.Setenv("WORKOS_CLIENT_ID", "client_test")
-	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("PORT", "9090")
+	t.Setenv("HOST", "127.0.0.1")
+	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
+	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("ENVIRONMENT", "staging")
+	t.Setenv("WORKOS_CLIENT_ID", "client_test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 
 	defer func() {
-		os.Unsetenv("PORT")
-		os.Unsetenv("HOST")
-		os.Unsetenv("LOG_LEVEL")
-		os.Unsetenv("REGISTRY_URL")
-		os.Unsetenv("AWS_REGION")
-		os.Unsetenv("ENVIRONMENT")
-		os.Unsetenv("WORKOS_CLIENT_ID")
-		os.Unsetenv("DATABASE_URL")
+		_ = os.Unsetenv("PORT")
+		_ = os.Unsetenv("HOST")
+		_ = os.Unsetenv("LOG_LEVEL")
+		_ = os.Unsetenv("REGISTRY_URL")
+		_ = os.Unsetenv("AWS_REGION")
+		_ = os.Unsetenv("ENVIRONMENT")
+		_ = os.Unsetenv("WORKOS_CLIENT_ID")
+		_ = os.Unsetenv("DATABASE_URL")
 	}()
 
 	cfg, err := Load()
@@ -81,14 +81,14 @@ func TestLoad_CustomValues(t *testing.T) {
 }
 
 func TestLoad_MissingRegistryURL(t *testing.T) {
-	os.Unsetenv("REGISTRY_URL")
-	os.Setenv("ENVIRONMENT", "test")
-	os.Setenv("WORKOS_CLIENT_ID", "client_test")
-	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	_ = os.Unsetenv("REGISTRY_URL")
+	t.Setenv("ENVIRONMENT", "test")
+	t.Setenv("WORKOS_CLIENT_ID", "client_test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	defer func() {
-		os.Unsetenv("ENVIRONMENT")
-		os.Unsetenv("WORKOS_CLIENT_ID")
-		os.Unsetenv("DATABASE_URL")
+		_ = os.Unsetenv("ENVIRONMENT")
+		_ = os.Unsetenv("WORKOS_CLIENT_ID")
+		_ = os.Unsetenv("DATABASE_URL")
 	}()
 
 	_, err := Load()
@@ -98,15 +98,15 @@ func TestLoad_MissingRegistryURL(t *testing.T) {
 }
 
 func TestLoad_MissingClientID(t *testing.T) {
-	os.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
-	os.Setenv("ENVIRONMENT", "test")
-	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Unsetenv("WORKOS_CLIENT_ID")
+	t.Setenv("REGISTRY_URL", "https://test.ecr.amazonaws.com")
+	t.Setenv("ENVIRONMENT", "test")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	_ = os.Unsetenv("WORKOS_CLIENT_ID")
 
 	defer func() {
-		os.Unsetenv("REGISTRY_URL")
-		os.Unsetenv("ENVIRONMENT")
-		os.Unsetenv("DATABASE_URL")
+		_ = os.Unsetenv("REGISTRY_URL")
+		_ = os.Unsetenv("ENVIRONMENT")
+		_ = os.Unsetenv("DATABASE_URL")
 	}()
 
 	_, err := Load()
@@ -146,8 +146,7 @@ func TestValidate_InvalidServerMode(t *testing.T) {
 }
 
 func TestGetEnvSlice(t *testing.T) {
-	os.Setenv("TEST_SLICE", "a,b,c")
-	defer os.Unsetenv("TEST_SLICE")
+	t.Setenv("TEST_SLICE", "a,b,c")
 
 	result := getEnvSlice("TEST_SLICE", []string{})
 	if len(result) != 3 {
@@ -159,7 +158,7 @@ func TestGetEnvSlice(t *testing.T) {
 }
 
 func TestGetEnvSlice_Default(t *testing.T) {
-	os.Unsetenv("TEST_SLICE_MISSING")
+	_ = os.Unsetenv("TEST_SLICE_MISSING")
 
 	result := getEnvSlice("TEST_SLICE_MISSING", []string{"default"})
 	if len(result) != 1 || result[0] != "default" {

@@ -552,7 +552,7 @@ func buildProbe(healthcheck *spec.Healthcheck, provider string, port int32) *cor
 	}
 
 	if healthcheck.Retries > 0 {
-		probe.FailureThreshold = int32(healthcheck.Retries)
+		probe.FailureThreshold = int32(healthcheck.Retries) //nolint:gosec
 	}
 
 	return probe
@@ -574,7 +574,7 @@ func buildProbeHandler(provider string, port int32, path string) *corev1.ProbeHa
 	// HTTP health check from provider registry
 	if prov.HealthPath != "" {
 		if port == 0 {
-			port = int32(prov.DefaultPort)
+			port = int32(prov.DefaultPort) //nolint:gosec
 		}
 		return &corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
@@ -638,17 +638,17 @@ func buildResourceRequirements(gpu *spec.GPUConfig) corev1.ResourceRequirements 
 func ParsePort(portValue any) (int32, error) {
 	switch v := portValue.(type) {
 	case int:
-		return int32(v), nil
+		return int32(v), nil //nolint:gosec
 	case int32:
 		return v, nil
 	case int64:
-		return int32(v), nil
+		return int32(v), nil //nolint:gosec
 	case string:
 		port, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			return 0, fmt.Errorf("invalid port format: %v", err)
+			return 0, fmt.Errorf("invalid port format: %w", err)
 		}
-		return int32(port), nil
+		return int32(port), nil //nolint:gosec
 	default:
 		return 0, fmt.Errorf("unsupported port type: %T", portValue)
 	}

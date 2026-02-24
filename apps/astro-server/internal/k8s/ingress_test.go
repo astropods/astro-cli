@@ -87,7 +87,7 @@ func TestGenerateIngressHost(t *testing.T) {
 				}
 				// Verify hash is hex
 				for _, c := range hashPart {
-					if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+					if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 						t.Errorf("Hash contains non-hex character: %c in %s", c, hashPart)
 					}
 				}

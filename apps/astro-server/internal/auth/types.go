@@ -26,8 +26,8 @@ type Session struct {
 	OrganizationID string    `json:"organization_id,omitempty"`
 	Role           string    `json:"role,omitempty"`
 	Permissions    []string  `json:"permissions,omitempty"`
-	AccessToken    string    `json:"access_token"`
-	RefreshToken   string    `json:"refresh_token"`
+	AccessToken    string    `json:"access_token"`  //nolint:gosec
+	RefreshToken   string    `json:"refresh_token"` //nolint:gosec
 	ExpiresAt      time.Time `json:"expires_at"`
 	CreatedAt      time.Time `json:"created_at"`
 }

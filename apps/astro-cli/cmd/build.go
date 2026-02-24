@@ -102,7 +102,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
 	}
-	defer cli.Close()
+	defer cli.Close() //nolint:errcheck
 
 	imagesBuilt := 0
 	platforms := parsePlatforms(buildPlatform)
@@ -291,7 +291,7 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 	if err != nil {
 		return fmt.Errorf("failed to create build context: %w", err)
 	}
-	defer buildContext.Close()
+	defer buildContext.Close() //nolint:errcheck
 
 	// Convert buildArgs map[string]string to map[string]*string
 	buildArgsPtr := make(map[string]*string)
@@ -332,8 +332,8 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 			return cli.DialHijack(ctx, "/session", proto, meta)
 		}
 
-		go sess.Run(ctx, dialSession)
-		defer sess.Close()
+		go sess.Run(ctx, dialSession) //nolint:errcheck
+		defer sess.Close()            //nolint:errcheck
 
 		opts.Version = build.BuilderBuildKit
 		opts.SessionID = sess.ID()
@@ -348,7 +348,7 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 	if err != nil {
 		return fmt.Errorf("failed to build image: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Stream build output
 	if err := streamBuildOutput(resp.Body, verbose, quiet); err != nil {
@@ -441,11 +441,6 @@ func streamBuildOutput(reader io.Reader, _, quiet bool) error {
 	}
 
 	return nil
-}
-
-// tagImageLocal tags an image in the local Docker daemon using the Docker SDK.
-func tagImageLocal(ctx context.Context, cli *client.Client, source, target string) error {
-	return cli.ImageTag(ctx, source, target)
 }
 
 // parsePlatforms splits a comma-separated platform string into a slice.

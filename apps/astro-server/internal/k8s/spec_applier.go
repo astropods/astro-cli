@@ -96,7 +96,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Model services
 	for name, model := range ds.Models {
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
-		port := int32(model.Port)
+		port := int32(model.Port) //nolint:gosec
 		if port == 0 {
 			port = 8080
 		}
@@ -111,7 +111,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Knowledge services
 	for name, knowledge := range ds.Knowledge {
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := int32(knowledge.Port)
+		port := int32(knowledge.Port) //nolint:gosec
 		svc := a.buildKnowledgeService(resourceName, agentName, buildID, name, port)
 		a.applyServiceAndRecord(ctx, svc, result)
 	}
@@ -119,7 +119,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Tool services
 	for name, tool := range ds.Tools {
 		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
-		port := int32(tool.Port)
+		port := int32(tool.Port) //nolint:gosec
 		if port == 0 {
 			port = 8080
 		}
@@ -133,7 +133,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Agent service
 	agentResourceName := deployment.GenerateAgentResourceName(agentName, "agent")
-	agentPort := int32(ds.Agent.Port)
+	agentPort := int32(ds.Agent.Port) //nolint:gosec
 	if agentPort == 0 {
 		agentPort = 8080
 	}
@@ -150,7 +150,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := int32(knowledge.Port)
+		port := int32(knowledge.Port) //nolint:gosec
 
 		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port)}
 		resolvedContainer, err := a.resolveContainerImage(container)
@@ -181,7 +181,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Container: resolvedContainer, Port: port,
 			StorageSize: storageSize, StorageClass: storageClass, AccessMode: accessMode,
 			Healthcheck: knowledge.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(knowledge.Replicas),
+			Replicas:  int32(knowledge.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(knowledge.Resources),
 			Strategy:  BuildStatefulSetUpdateStrategy(knowledge.Update),
 		}
@@ -201,7 +201,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
-		port := int32(model.Port)
+		port := int32(model.Port) //nolint:gosec
 		if port == 0 {
 			port = 8080
 		}
@@ -216,12 +216,6 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 
-		// Determine mount path and storage from provider
-		prov := spec.GetModelProvider(model.Provider)
-		mountPath := prov.MountPath
-		if mountPath == "" {
-			mountPath = "/data"
-		}
 		resolvedContainer.Persistent = true
 
 		// Override healthcheck with model-aware readiness when ModelName is set
@@ -243,7 +237,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Container: resolvedContainer, Port: port,
 			StorageSize: "50Gi", AccessMode: corev1.ReadWriteOnce,
 			Healthcheck: healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:     int32(model.Replicas),
+			Replicas:     int32(model.Replicas), //nolint:gosec
 			Resources:    BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
 			Strategy:     BuildStatefulSetUpdateStrategy(model.Update),
 			NodeSelector: BuildGPUNodeSelector(model.GPU),
@@ -276,7 +270,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
-		port := int32(model.Port)
+		port := int32(model.Port) //nolint:gosec
 		if port == 0 {
 			port = 8080
 		}
@@ -296,7 +290,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:     int32(model.Replicas),
+			Replicas:     int32(model.Replicas), //nolint:gosec
 			Resources:    BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
 			Strategy:     BuildDeploymentStrategy(model.Update),
 			NodeSelector: BuildGPUNodeSelector(model.GPU),
@@ -318,7 +312,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := int32(knowledge.Port)
+		port := int32(knowledge.Port) //nolint:gosec
 
 		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port), Environment: knowledge.Environment}
 		resolvedContainer, err := a.resolveContainerImage(container)
@@ -335,7 +329,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(knowledge.Replicas),
+			Replicas:  int32(knowledge.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(knowledge.Resources),
 			Strategy:  BuildDeploymentStrategy(knowledge.Update),
 		}
@@ -352,7 +346,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Tools
 	for name, tool := range ds.Tools {
 		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
-		port := int32(tool.Port)
+		port := int32(tool.Port) //nolint:gosec
 		if port == 0 {
 			port = 8080
 		}
@@ -372,7 +366,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: fmt.Sprintf("tool-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(tool.Replicas),
+			Replicas:  int32(tool.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(tool.Resources),
 			Strategy:  BuildDeploymentStrategy(tool.Update),
 		}
@@ -401,7 +395,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
 			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(ds.Agent.Replicas),
+			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
 			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
 		}
@@ -418,12 +412,12 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Phase 5b: Messaging interfaces
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 		// Resolve interface port and web port from deployment spec
-		grpcPort := int32(ds.Interfaces.Port)
+		grpcPort := int32(ds.Interfaces.Port) //nolint:gosec
 		if grpcPort == 0 {
 			grpcPort = 9090
 		}
 
-		webPort := int32(ds.Interfaces.Expose.Port)
+		webPort := int32(ds.Interfaces.Expose.Port) //nolint:gosec
 
 		// Resolve interface resources from deployment spec
 		var msgResources *corev1.ResourceRequirements
@@ -531,7 +525,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		collectorResourceName := deployment.GenerateAgentResourceName(agentName, "collector")
 
 		// Resolve ports from deployment spec
-		otlpHTTPPort := int32(ds.Observability.Port)
+		otlpHTTPPort := int32(ds.Observability.Port) //nolint:gosec
 		if otlpHTTPPort == 0 {
 			otlpHTTPPort = 4318
 		}
@@ -649,7 +643,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 
 		case "webhook":
-			port := int32(ingestion.Port) // port is required for webhook triggers (validated by deployment parser)
+			port := int32(ingestion.Port) //nolint:gosec // port is required for webhook triggers (validated by deployment parser)
 			// Service
 			svc := BuildService(ServiceConfig{
 				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
@@ -718,7 +712,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	svc, err := a.clientset.CoreV1().Services(a.namespace).Get(ctx, agentResourceName, metav1.GetOptions{})
 	if err == nil {
 		endpoint := deployment.ServiceEndpoint{
-			Name: "agent-http", Type: "http", Port: int32(agentPort),
+			Name: "agent-http", Type: "http", Port: agentPort,
 		}
 		if svc.Spec.Type == corev1.ServiceTypeLoadBalancer {
 			time.Sleep(2 * time.Second)
@@ -798,9 +792,7 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 		CIDR:   "0.0.0.0/0",
 		Except: make([]string, 0, len(a.podSubnetCIDRs)),
 	}
-	for _, cidr := range a.podSubnetCIDRs {
-		externalIPBlock.Except = append(externalIPBlock.Except, cidr)
-	}
+	externalIPBlock.Except = append(externalIPBlock.Except, a.podSubnetCIDRs...)
 
 	// Policy 1: default-deny-all
 	denyAll := &networkingv1.NetworkPolicy{

@@ -29,7 +29,7 @@ func TestRegistryVersionCheck(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
 
-	if rec.Header().Get("Docker-Distribution-API-Version") != "registry/2.0" {
+	if rec.Header().Get("Docker-Distribution-Api-Version") != "registry/2.0" {
 		t.Error("expected Docker-Distribution-API-Version header")
 	}
 }

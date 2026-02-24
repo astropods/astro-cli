@@ -85,7 +85,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 	// Parse the token without validation first to get the key ID
 	token, _, err := jwt.NewParser().ParseUnverified(tokenString, &JWTClaims{})
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to parse token: %v", ErrInvalidToken, err)
+		return nil, fmt.Errorf("%w: failed to parse token: %w", ErrInvalidToken, err)
 	}
 
 	// Get the key ID from the token header
@@ -114,7 +114,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrTokenExpired
 		}
-		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)
 	}
 
 	if !validatedToken.Valid {
@@ -197,14 +197,14 @@ func (v *JWTValidator) refreshJWKS(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.jwksURL, nil)
 	if err != nil {
-		return fmt.Errorf("%w: failed to create request: %v", ErrJWKSFetchFailed, err)
+		return fmt.Errorf("%w: failed to create request: %w", ErrJWKSFetchFailed, err)
 	}
 
-	resp, err := v.httpClient.Do(req)
+	resp, err := v.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrJWKSFetchFailed, err)
+		return fmt.Errorf("%w: %w", ErrJWKSFetchFailed, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%w: unexpected status code: %d", ErrJWKSFetchFailed, resp.StatusCode)
@@ -212,7 +212,7 @@ func (v *JWTValidator) refreshJWKS(ctx context.Context) error {
 
 	var jwks JWKS
 	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return fmt.Errorf("%w: failed to decode response: %v", ErrJWKSFetchFailed, err)
+		return fmt.Errorf("%w: failed to decode response: %w", ErrJWKSFetchFailed, err)
 	}
 
 	v.jwks = &jwks
@@ -229,12 +229,12 @@ func parseRSAPublicKey(key JWKSKey) (interface{}, error) {
 	// Decode the modulus (n) and exponent (e) from base64url
 	nBytes, err := base64URLDecode(key.N)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode modulus: %v", err)
+		return nil, fmt.Errorf("failed to decode modulus: %w", err)
 	}
 
 	eBytes, err := base64URLDecode(key.E)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode exponent: %v", err)
+		return nil, fmt.Errorf("failed to decode exponent: %w", err)
 	}
 
 	// Convert exponent bytes to int

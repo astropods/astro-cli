@@ -123,7 +123,10 @@ func TestBuildCallbackSuccessURL_WithPath(t *testing.T) {
 func createTestJWT(claims map[string]interface{}) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 
-	payload, _ := json.Marshal(claims)
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		panic("failed to marshal claims: " + err.Error())
+	}
 	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
 
 	signature := base64.RawURLEncoding.EncodeToString([]byte("fake-signature"))

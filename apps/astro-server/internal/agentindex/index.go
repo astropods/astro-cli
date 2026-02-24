@@ -3,6 +3,7 @@ package agentindex
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -73,7 +74,7 @@ func NewIndex(databaseURL string) (*Index, error) {
 
 	// Verify connection
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
@@ -107,7 +108,7 @@ func (idx *Index) Register(accountID, name, buildID, registry string, spec map[s
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	now := time.Now()
 
@@ -149,7 +150,7 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 		WHERE account_id = $1 AND name = $2
 	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.CreatedAt, &agent.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
 	}
 	if err != nil {
@@ -166,7 +167,7 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query versions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	for rows.Next() {
 		var v AgentVersion
@@ -196,7 +197,7 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 		WHERE account_id = $1 AND name = $2 AND build_id = $3
 	`, accountID, name, buildID).Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("build not found: %s", buildID)
 	}
 	if err != nil {
@@ -221,7 +222,7 @@ func (idx *Index) List() ([]*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agents: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var agents []*Agent
 	for rows.Next() {
@@ -245,17 +246,17 @@ func (idx *Index) List() ([]*Agent, error) {
 			var v AgentVersion
 			var specJSON, warningsJSON string
 			if err := versionRows.Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
-				versionRows.Close()
+				_ = versionRows.Close()
 				return nil, fmt.Errorf("failed to scan version: %w", err)
 			}
 			if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
-				versionRows.Close()
+				_ = versionRows.Close()
 				return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
 			}
 			v.ValidationWarnings = parseValidationWarnings(warningsJSON)
 			agent.Versions = append(agent.Versions, &v)
 		}
-		versionRows.Close()
+		_ = versionRows.Close()
 
 		agents = append(agents, &agent)
 	}
@@ -274,7 +275,7 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query agents: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var agents []*Agent
 	for rows.Next() {
@@ -297,17 +298,17 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 			var v AgentVersion
 			var specJSON, warningsJSON string
 			if err := versionRows.Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
-				versionRows.Close()
+				_ = versionRows.Close()
 				return nil, fmt.Errorf("failed to scan version: %w", err)
 			}
 			if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
-				versionRows.Close()
+				_ = versionRows.Close()
 				return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
 			}
 			v.ValidationWarnings = parseValidationWarnings(warningsJSON)
 			agent.Versions = append(agent.Versions, &v)
 		}
-		versionRows.Close()
+		_ = versionRows.Close()
 
 		agents = append(agents, &agent)
 	}
@@ -447,7 +448,7 @@ func (idx *Index) Publish(accountID, name, buildID, version string) error {
 		ORDER BY published_at DESC
 		LIMIT 1
 	`, accountID, name).Scan(&latestVersion)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to query latest version: %w", err)
 	}
 
@@ -488,7 +489,7 @@ func (idx *Index) ListPublic() ([]*PublicAgent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query public agents: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var agents []*PublicAgent
 	for rows.Next() {
@@ -536,7 +537,7 @@ func (idx *Index) GetPublicVersion(accountID, name, version string) (*PublishedV
 		WHERE p.account_id = $1 AND p.name = $2 AND p.version = $3
 	`, accountID, name, version).Scan(&buildID, &specJSON, &readme, &publishedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("published version not found: %s@%s", name, version)
 	}
 	if err != nil {
@@ -569,7 +570,7 @@ func (idx *Index) GetPublishedVersionsForAgent(accountID, name string) ([]*Publi
 	if err != nil {
 		return nil, fmt.Errorf("failed to query published versions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var versions []*PublishedVersion
 	for rows.Next() {
@@ -608,7 +609,7 @@ func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error
 		LIMIT 1
 	`, accountID, name).Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no builds found for agent: %s", name)
 	}
 	if err != nil {
@@ -636,7 +637,7 @@ func (idx *Index) GetLatestPublishedVersion(accountID, name string) (*AgentVersi
 		LIMIT 1
 	`, accountID, name).Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no published versions found for agent: %s", name)
 	}
 	if err != nil {

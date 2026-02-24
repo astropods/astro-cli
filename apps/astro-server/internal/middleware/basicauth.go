@@ -10,7 +10,7 @@ import (
 // BasicAuthConfig holds configuration for basic auth middleware
 type BasicAuthConfig struct {
 	Username string
-	Password string
+	Password string //nolint:gosec
 	Realm    string
 }
 

@@ -29,7 +29,7 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	now := time.Now()
 	var account Account
@@ -110,7 +110,7 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to query accounts: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var accounts []AccountWithRole
 	for rows.Next() {

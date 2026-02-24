@@ -62,7 +62,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 	workingDir, _ := os.Getwd()
 	if envMap, _ := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile); envMap != nil {
 		for key, val := range envMap {
-			os.Setenv(key, val)
+			_ = os.Setenv(key, val)
 		}
 	}
 
@@ -81,7 +81,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 	// Pull latest image unless --no-pull or --local
 	if !playgroundNoPull {
 		log.Printf("📦 Pulling playground image...")
-		pullCmd := exec.Command("docker", "pull", imageToUse)
+		pullCmd := exec.Command("docker", "pull", imageToUse) //nolint:gosec
 		pullCmd.Stdout = os.Stdout
 		pullCmd.Stderr = os.Stderr
 		if err := pullCmd.Run(); err != nil {
@@ -102,8 +102,8 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 	log.Printf("🐳 Starting playground container...")
 
 	// Remove any stale container with the same name
-	rmCmd := exec.Command("docker", "rm", "-f", containerName)
-	rmCmd.Run() // ignore errors – container may not exist
+	rmCmd := exec.Command("docker", "rm", "-f", containerName) //nolint:gosec
+	_ = rmCmd.Run() // ignore errors – container may not exist
 
 	runArgs := []string{
 		"run", "-d",
@@ -113,7 +113,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 		"-e", "BACKEND_URL=" + containerBackendURL,
 		imageToUse,
 	}
-	dockerRun := exec.Command("docker", runArgs...)
+	dockerRun := exec.Command("docker", runArgs...) //nolint:gosec
 	dockerRun.Stdout = os.Stdout
 	dockerRun.Stderr = os.Stderr
 	if err := dockerRun.Run(); err != nil {
@@ -143,7 +143,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 	log.Printf("")
 	log.Printf("🛑 Shutting down...")
 
-	stopCmd := exec.Command("docker", "rm", "-f", containerName)
+	stopCmd := exec.Command("docker", "rm", "-f", containerName) //nolint:gosec
 	stopCmd.Stdout = os.Stdout
 	stopCmd.Stderr = os.Stderr
 	if err := stopCmd.Run(); err != nil {

@@ -108,13 +108,13 @@ func RegistryProxy(cfg RegistryProxyConfig) gin.HandlerFunc {
 		)
 
 		// Execute the request
-		resp, err := client.Do(proxyReq)
+		resp, err := client.Do(proxyReq) //nolint:gosec
 		if err != nil {
 			cfg.Logger.Error("Failed to proxy request", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"errors": []gin.H{{"code": "PROXY_ERROR", "message": "Failed to connect to registry"}}})
 			return
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 
 		// Copy response headers to client
 		namespace := extractNamespace(path)
@@ -171,7 +171,7 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 	namespace := parts[0]
 
 	// Read operations are allowed for any authenticated user
-	if c.Request.Method == "GET" || c.Request.Method == "HEAD" {
+	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
 		return true
 	}
 

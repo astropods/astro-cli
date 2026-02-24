@@ -36,7 +36,7 @@ func (s *Store) SaveDeployment(accountID, agentName, buildID, namespace, specJSO
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Mark existing active deployment as undeployed
 	_, err = tx.Exec(`
@@ -100,7 +100,7 @@ func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment
 	if err != nil {
 		return nil, fmt.Errorf("failed to query deployment history: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var deployments []*Deployment
 	for rows.Next() {
@@ -139,7 +139,7 @@ func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query all active deployments: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var deployments []*DeploymentWithAccount
 	for rows.Next() {

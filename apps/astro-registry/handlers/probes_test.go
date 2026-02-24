@@ -21,7 +21,7 @@ func TestLivez(t *testing.T) {
 	router := gin.New()
 	router.GET("/livez", probeHandler.Livez())
 
-	req, _ := http.NewRequest("GET", "/livez", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/livez", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -42,7 +42,7 @@ func TestReadyz_Ready(t *testing.T) {
 	router := gin.New()
 	router.GET("/readyz", probeHandler.Readyz())
 
-	req, _ := http.NewRequest("GET", "/readyz", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -64,7 +64,7 @@ func TestReadyz_NotReady(t *testing.T) {
 	router := gin.New()
 	router.GET("/readyz", probeHandler.Readyz())
 
-	req, _ := http.NewRequest("GET", "/readyz", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -81,7 +81,7 @@ func TestHealthz_Healthy(t *testing.T) {
 	router := gin.New()
 	router.GET("/healthz", probeHandler.Healthz())
 
-	req, _ := http.NewRequest("GET", "/healthz", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -121,7 +121,7 @@ func TestHealthz_NotReady(t *testing.T) {
 	router := gin.New()
 	router.GET("/healthz", probeHandler.Healthz())
 
-	req, _ := http.NewRequest("GET", "/healthz", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)

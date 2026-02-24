@@ -146,16 +146,16 @@ func (c *WorkOSClient) BuildCallbackSuccessURL() string {
 // AuthResult represents the result of authentication
 type AuthResult struct {
 	User           *User
-	AccessToken    string
-	RefreshToken   string
+	AccessToken    string //nolint:gosec
+	RefreshToken   string //nolint:gosec
 	OrganizationID string
 	SessionID      string
 }
 
 // RefreshResult represents the result of a token refresh
 type RefreshResult struct {
-	AccessToken  string
-	RefreshToken string
+	AccessToken  string //nolint:gosec
+	RefreshToken string //nolint:gosec
 }
 
 // extractSessionIDFromToken extracts the session ID from a JWT access token

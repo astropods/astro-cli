@@ -1177,7 +1177,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			})
 			return
 		}
-		defer stream.Close()
+		defer stream.Close() //nolint:errcheck
 
 		logBytes, err := io.ReadAll(stream)
 		if err != nil {

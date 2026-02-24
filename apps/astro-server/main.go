@@ -67,7 +67,7 @@ func main() {
 		log.Error("Failed to open database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	if err := db.Ping(); err != nil {
 		log.Error("Failed to connect to database", "error", err)

@@ -30,8 +30,8 @@ type Credentials struct {
 
 // Profile represents a single authentication profile
 type Profile struct {
-	AccessToken  string           `json:"access_token,omitempty"`
-	RefreshToken string           `json:"refresh_token,omitempty"`
+	AccessToken  string           `json:"access_token,omitempty"`  //nolint:gosec
+	RefreshToken string           `json:"refresh_token,omitempty"` //nolint:gosec
 	ExpiresAt    time.Time        `json:"expires_at,omitempty"`
 	User         *StoredUser      `json:"user,omitempty"`
 	Accounts     []StoredAccount  `json:"accounts,omitempty"`
@@ -90,7 +90,7 @@ func (s *Storage) LoadCredentials() (*Credentials, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &Credentials{

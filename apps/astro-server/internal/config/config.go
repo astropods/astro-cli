@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -21,7 +20,7 @@ type Config struct {
 // AdminConfig holds admin API configuration
 type AdminConfig struct {
 	Username string
-	Password string
+	Password string //nolint:gosec
 	Enabled  bool
 }
 
@@ -270,12 +269,3 @@ func getEnvSlice(key string, defaultValue []string) []string {
 	return defaultValue
 }
 
-// getEnvInt gets an integer from environment variable or returns default
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
-		}
-	}
-	return defaultValue
-}

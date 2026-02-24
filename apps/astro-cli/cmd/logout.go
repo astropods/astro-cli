@@ -40,7 +40,7 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		if err := storage.DeleteAllProfiles(); err != nil {
 			return fmt.Errorf("failed to clear credentials: %w", err)
 		}
-		green.Print("✓ ")
+		green.Print("✓ ") //nolint:errcheck,gosec
 		fmt.Println("Logged out from all profiles")
 	} else {
 		creds, err := storage.LoadCredentials()
@@ -49,14 +49,14 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		}
 
 		if _, ok := creds.Profiles[creds.CurrentProfile]; !ok {
-			dim.Println("Not currently logged in.")
+			dim.Println("Not currently logged in.") //nolint:errcheck,gosec
 			return nil
 		}
 
 		if err := storage.DeleteProfile(creds.CurrentProfile); err != nil {
 			return fmt.Errorf("failed to clear credentials: %w", err)
 		}
-		green.Print("✓ ")
+		green.Print("✓ ") //nolint:errcheck,gosec
 		fmt.Printf("Logged out from profile %q\n", creds.CurrentProfile)
 	}
 

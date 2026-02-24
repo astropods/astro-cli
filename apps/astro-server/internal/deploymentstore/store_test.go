@@ -18,7 +18,7 @@ func testDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	if err := db.Ping(); err != nil {
 		t.Fatalf("failed to ping database: %v", err)
 	}
@@ -42,7 +42,7 @@ func ensureTestAccount(t *testing.T, db *sql.DB) string {
 		}
 	}
 	t.Cleanup(func() {
-		db.Exec("DELETE FROM deployments WHERE account_id = $1", id)
+		_, _ = db.Exec("DELETE FROM deployments WHERE account_id = $1", id)
 	})
 	return id
 }

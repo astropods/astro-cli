@@ -50,7 +50,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 
 	port := cfg.Port
 	if port == 0 {
-		port = int32(prov.DefaultPort)
+		port = int32(prov.DefaultPort) //nolint:gosec
 	}
 
 	storageSize := cfg.StorageSize
@@ -66,11 +66,11 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 
 	// Build container ports from provider registry
 	containerPorts := []corev1.ContainerPort{
-		{Name: "app", ContainerPort: int32(prov.DefaultPort), Protocol: corev1.ProtocolTCP},
+		{Name: "app", ContainerPort: int32(prov.DefaultPort), Protocol: corev1.ProtocolTCP}, //nolint:gosec
 	}
 	for _, ep := range prov.ExtraPorts {
 		containerPorts = append(containerPorts, corev1.ContainerPort{
-			Name: ep.Name, ContainerPort: int32(ep.Port), Protocol: corev1.ProtocolTCP,
+			Name: ep.Name, ContainerPort: int32(ep.Port), Protocol: corev1.ProtocolTCP, //nolint:gosec
 		})
 	}
 

@@ -123,9 +123,7 @@ func applySelectionAndTransition(m model, selected []string) (model, tea.Cmd) {
 		m.options = toolsOptions()
 		return m, nil
 	case screenIntegrations:
-		for _, v := range selected {
-			m.config.Integrations = append(m.config.Integrations, v)
-		}
+		m.config.Integrations = append(m.config.Integrations, selected...)
 		return transitionToKeys(m)
 	case screenIngestion:
 		m.config.Ingestions = selected

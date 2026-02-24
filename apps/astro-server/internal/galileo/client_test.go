@@ -16,18 +16,18 @@ func TestSearchLogStreams(t *testing.T) {
 			if r.URL.Path != "/v2/projects/proj-1/log_streams/search" {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
-			if r.Header.Get("Galileo-API-Key") != "test-key" {
+			if r.Header.Get("Galileo-Api-Key") != "test-key" {
 				t.Errorf("expected Galileo-API-Key header")
 			}
 
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			filters, _ := body["filters"].([]any)
 			if len(filters) == 0 {
 				t.Errorf("expected filters in request body")
 			}
 
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"log_streams": []map[string]string{
 					{"id": "ls-1", "name": "my-agent-build-1"},
 					{"id": "ls-2", "name": "my-agent-build-2"},
@@ -54,7 +54,7 @@ func TestSearchLogStreams(t *testing.T) {
 
 	t.Run("empty result", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"log_streams": []any{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"log_streams": []any{}})
 		}))
 		defer srv.Close()
 
@@ -71,7 +71,7 @@ func TestSearchLogStreams(t *testing.T) {
 	t.Run("server error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":"internal"}`))
+			_, _ = w.Write([]byte(`{"error":"internal"}`))
 		}))
 		defer srv.Close()
 
@@ -94,7 +94,7 @@ func TestSearchMetrics(t *testing.T) {
 			}
 
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if body["log_stream_id"] != "ls-1" {
 				t.Errorf("expected log_stream_id=ls-1, got %v", body["log_stream_id"])
 			}
@@ -105,7 +105,7 @@ func TestSearchMetrics(t *testing.T) {
 				t.Errorf("expected interval=30, got %v", body["interval"])
 			}
 
-			json.NewEncoder(w).Encode(MetricsResponse{
+			_ = json.NewEncoder(w).Encode(MetricsResponse{
 				AggregateMetrics: AggregateMetrics{
 					RequestsCount: 10,
 					AvgDurationNs: 50500000,
@@ -139,11 +139,11 @@ func TestSearchMetrics(t *testing.T) {
 	t.Run("zero interval omitted", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if _, ok := body["interval"]; ok {
 				t.Errorf("expected interval to be omitted, got %v", body["interval"])
 			}
-			json.NewEncoder(w).Encode(MetricsResponse{})
+			_ = json.NewEncoder(w).Encode(MetricsResponse{})
 		}))
 		defer srv.Close()
 
@@ -166,7 +166,7 @@ func TestSearchTraces(t *testing.T) {
 			}
 
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if body["log_stream_id"] != "ls-1" {
 				t.Errorf("expected log_stream_id=ls-1")
 			}
@@ -177,7 +177,7 @@ func TestSearchTraces(t *testing.T) {
 				t.Errorf("expected starting_token=10, got %v", body["starting_token"])
 			}
 
-			json.NewEncoder(w).Encode(TracesResponse{
+			_ = json.NewEncoder(w).Encode(TracesResponse{
 				Records: []TraceEntry{
 					{TraceID: "t1", Name: "agent/llm-call", StatusCode: 1, Metrics: TraceMetrics{DurationNs: 120500000}},
 				},
@@ -207,14 +207,14 @@ func TestSearchTraces(t *testing.T) {
 	t.Run("optional params omitted", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if _, ok := body["limit"]; ok {
 				t.Errorf("expected limit to be omitted, got %v", body["limit"])
 			}
 			if _, ok := body["starting_token"]; ok {
 				t.Errorf("expected starting_token to be omitted, got %v", body["starting_token"])
 			}
-			json.NewEncoder(w).Encode(TracesResponse{})
+			_ = json.NewEncoder(w).Encode(TracesResponse{})
 		}))
 		defer srv.Close()
 
@@ -228,7 +228,7 @@ func TestSearchTraces(t *testing.T) {
 	t.Run("invalid JSON response", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`not json`))
+			_, _ = w.Write([]byte(`not json`))
 		}))
 		defer srv.Close()
 
@@ -243,13 +243,13 @@ func TestSearchTraces(t *testing.T) {
 func TestAuthenticationHeader(t *testing.T) {
 	var gotKey string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotKey = r.Header.Get("Galileo-API-Key")
-		json.NewEncoder(w).Encode(map[string]any{"log_streams": []any{}})
+		gotKey = r.Header.Get("Galileo-Api-Key")
+		_ = json.NewEncoder(w).Encode(map[string]any{"log_streams": []any{}})
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "my-secret-key", "proj")
-	c.SearchLogStreams("proj", "agent")
+	_, _ = c.SearchLogStreams("proj", "agent")
 
 	want := "my-secret-key"
 	if gotKey != want {
