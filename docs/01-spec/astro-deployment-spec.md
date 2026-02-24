@@ -630,7 +630,7 @@ ingestion:
 
 interfaces:
   adapters: [slack, web]                    # available: ["slack", "web"]
-  image: astromodeai/astro-messaging:latest
+  image: astropods/messaging:latest
   port: 9090                                # gRPC — always enabled
   resources:
     cpu: "100m"

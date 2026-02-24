@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -468,14 +468,14 @@ func (a *Applier) ApplyDeploymentSpec(
 		// Deployment
 		msgImage := ds.Interfaces.Image
 		if msgImage == "" {
-			msgImage = "astromodeai/astro-messaging:latest"
+			msgImage = "astropods/messaging:latest"
 		}
 		msgCfg := MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 			BuildID: buildID, Component: "messaging",
 			Image: msgImage, Port: grpcPort, SecretName: secretName,
 			ConfigMapName: "",
-			SlackEnabled: slackEnabled, WebEnabled: webEnabled,
+			SlackEnabled:  slackEnabled, WebEnabled: webEnabled,
 			WebPort:         webPort,
 			ImagePullPolicy: a.imagePullPolicy,
 			Resources:       msgResources,
@@ -569,17 +569,17 @@ func (a *Applier) ApplyDeploymentSpec(
 			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
 			AgentVersion: ds.Source.Build,
 			BuildID:      buildID, Component: "collector",
-			DeploymentID:    buildID,
-			Image:           collectorImage,
-			Port:            otlpHTTPPort,
-			ConfigMapName:   "",
-			SecretName:      "",
-			GalileoAPIKey:   a.galileoAPIKey,
-			GalileoProject:  a.galileoProject,
+			DeploymentID:     buildID,
+			Image:            collectorImage,
+			Port:             otlpHTTPPort,
+			ConfigMapName:    "",
+			SecretName:       "",
+			GalileoAPIKey:    a.galileoAPIKey,
+			GalileoProject:   a.galileoProject,
 			GalileoLogStream: fmt.Sprintf("%s-%s", agentName, buildID),
-			ImagePullPolicy: a.imagePullPolicy,
-			Resources:       collectorResources,
-			Environment:     resolvedObsEnv,
+			ImagePullPolicy:  a.imagePullPolicy,
+			Resources:        collectorResources,
+			Environment:      resolvedObsEnv,
 		}
 		collectorDepl := BuildCollectorDeployment(collectorCfg)
 		status, err := a.applyDeployment(ctx, collectorDepl)
@@ -614,7 +614,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				cronJob := BuildCronJob(CronJobConfig{
 					Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 					BuildID: buildID, Component: component,
-					Schedule: ingestion.Trigger.Schedule,
+					Schedule:   ingestion.Trigger.Schedule,
 					SecretName: secretName, ConfigMapName: configMapName,
 					Ingestion: ingestionSpec,
 				})

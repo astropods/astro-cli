@@ -1,6 +1,6 @@
 # Astro AI Docs
 
-Public product documentation for [Astro AI](https://github.com/astromode-ai/astro), built with [Fern](https://buildwithfern.com).
+Public product documentation built with [Fern](https://buildwithfern.com).
 
 ## Contents
 

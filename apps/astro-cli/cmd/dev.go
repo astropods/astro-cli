@@ -65,8 +65,8 @@ var devStopCmd = &cobra.Command{
 }
 
 var (
-	envFile string
-	rebuild bool
+	envFile    string
+	rebuild    bool
 	noPull     bool
 	local      bool
 	localReset bool
@@ -294,11 +294,11 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("link local packages: %w", err)
 	}
-	// Ensure astro-messaging SDK is built (package main points to dist/index.js)
+	// Ensure messaging SDK is built (package main points to dist/index.js)
 	msgSDK := filepath.Join(astroRoot, "packages", "astro-messaging", "sdk", "node")
 	if _, err := os.Stat(filepath.Join(msgSDK, "dist", "index.js")); err != nil {
 		agentCancel()
-		return fmt.Errorf("astro-messaging SDK not built: run 'cd %s && bun run build' first", msgSDK)
+		return fmt.Errorf("messaging SDK not built: run 'cd %s && bun run build' first", msgSDK)
 	}
 	fmt.Printf("📦 Using local packages from %s\n", astroRoot)
 
@@ -486,7 +486,7 @@ func resolveAstroSourceRoot() (string, error) {
 
 // localPackage describes a package to link in --local mode (scope, name, path relative to astroRoot).
 type localPackage struct {
-	scope string // e.g. "@saswatds" or "@astromode-ai"
+	scope string // e.g. "@saswatds" or "@astropods"
 	name  string // e.g. "astro-agent"
 	path  string // relative to astroRoot, e.g. "packages/astro-agent"
 }
@@ -495,7 +495,7 @@ type localPackage struct {
 var localAstroPackages = []localPackage{
 	{"@saswatds", "astro-agent", "packages/astro-agent"},
 	{"@saswatds", "astro-graph", "packages/astro-graph"},
-	{"@astromode-ai", "astro-messaging", "packages/astro-messaging/sdk/node"},
+	{"@astropods", "messaging", "packages/astro-messaging/sdk/node"},
 }
 
 // linkLocalPackages symlinks node_modules/<scope>/<name> to the given Astro repo path

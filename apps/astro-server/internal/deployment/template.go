@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 // providerEnvKey returns the env-var key for a provider entry.
@@ -274,7 +274,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	// Interfaces block — empty adapters, user fills in
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters:  []string{},
-		Image:     resolveImage("astromodeai/astro-messaging:latest", input),
+		Image:     resolveImage("astropods/messaging:latest", input),
 		Port:      9090,
 		Resources: spec.MessagingResources,
 		Expose:    spec.ExposeConfig{Enabled: false, Port: 8080},

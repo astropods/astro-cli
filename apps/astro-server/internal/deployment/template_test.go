@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 // --- helpers ---
@@ -730,8 +730,8 @@ func TestTemplate_InterfacesDefaults(t *testing.T) {
 	if ds.Interfaces.Resources != spec.MessagingResources {
 		t.Errorf("interfaces.resources: expected MessagingResources, got %+v", ds.Interfaces.Resources)
 	}
-	if ds.Interfaces.Image != "registry.example.com/dockerhub/astromodeai/astro-messaging:latest" {
-		t.Errorf("interfaces.image: expected registry.example.com/dockerhub/astromodeai/astro-messaging:latest, got %s", ds.Interfaces.Image)
+	if ds.Interfaces.Image != "registry.example.com/dockerhub/astropods/messaging:latest" {
+		t.Errorf("interfaces.image: expected registry.example.com/dockerhub/astropods/messaging:latest, got %s", ds.Interfaces.Image)
 	}
 	if ds.Interfaces.Expose.Enabled {
 		t.Error("interfaces.expose.enabled: expected false")
@@ -1012,8 +1012,8 @@ func TestResolveImage_TenantImageRegistryURLWithoutScheme(t *testing.T) {
 
 func TestResolveImage_PublicOrgImage(t *testing.T) {
 	input := proxyInput()
-	got := resolveImage("astromodeai/astro-messaging:latest", input)
-	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astromodeai/astro-messaging:latest"
+	got := resolveImage("astropods/messaging:latest", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest"
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
@@ -1056,8 +1056,8 @@ func TestResolveImage_NoRegistryConfigured(t *testing.T) {
 	input := proxyInput()
 	input.RegistryURL = ""
 	input.ProxyRegistryHost = ""
-	got := resolveImage("astromodeai/astro-messaging:latest", input)
-	if got != "astromodeai/astro-messaging:latest" {
+	got := resolveImage("astropods/messaging:latest", input)
+	if got != "astropods/messaging:latest" {
 		t.Errorf("without registry config, image should be unchanged, got %s", got)
 	}
 }

@@ -25,7 +25,7 @@ import {
   type AgentConfig,
   type AgentResponse,
   type Message,
-} from '@saswatds/astro-messaging';
+} from '@astropods/messaging';
 ```
 
 **After:**
@@ -37,7 +37,7 @@ import {
   type AgentConfig,
   type AgentResponse,
   type Message,
-} from '@saswatds/astro-messaging';
+} from '@astropods/messaging';
 ```
 
 ### 2. Replace the message handler
@@ -128,12 +128,12 @@ The old pattern required constructing a `User` object and a full `Message` with 
 
 You can delete any `agentUser` const that was only used for `sendMessage` calls.
 
-### 4. Update `@saswatds/astro-messaging` dependency
+### 4. Update `@astropods/messaging` dependency
 
 Make sure you're on a version that includes the new `sendContentChunk` / `sendStatusUpdate` methods:
 
 ```bash
-bun update @saswatds/astro-messaging @saswatds/astro-types
+bun update @astropods/messaging @saswatds/astro-types
 ```
 
 ## What each chunk type does
