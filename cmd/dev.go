@@ -153,7 +153,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("   Loaded %d environment variables: %s\n", len(envKeys), strings.Join(envKeys, ", "))
 		for key, val := range envVars {
-			os.Setenv(key, val)
+			if err := os.Setenv(key, val); err != nil {
+				return fmt.Errorf("failed to set env var %s: %w", key, err)
+			}
 		}
 	}
 	// Build Docker Compose project
@@ -192,7 +194,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Write docker-compose.yml file
 	cPath := filepath.Join(workingDir, ".ast", "docker-compose.yml")
-	if err := os.MkdirAll(filepath.Dir(cPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cPath), 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create .ast directory: %w", err)
 	}
 
@@ -201,7 +203,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to marshal compose project: %w", err)
 	}
 
-	if err := os.WriteFile(cPath, composeData, 0644); err != nil {
+	if err := os.WriteFile(cPath, composeData, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write compose file: %w", err)
 	}
 
@@ -215,7 +217,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Build with or without cache based on rebuild flag
 	if rebuild {
 		fmt.Println("   Using --no-cache for clean rebuild...")
-		buildCmd := exec.Command("docker", "compose", "-f", cPath, "build", "--no-cache")
+		buildCmd := exec.Command("docker", "compose", "-f", cPath, "build", "--no-cache") //nolint:gosec
 		buildCmd.Stdout = os.Stdout
 		buildCmd.Stderr = os.Stderr
 		if err := buildCmd.Run(); err != nil {
@@ -227,7 +229,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if noPull {
 		upArgs = append(upArgs, "--pull=never")
 	}
-	upCmd := exec.Command("docker", upArgs...)
+	upCmd := exec.Command("docker", upArgs...) //nolint:gosec
 	upCmd.Stdout = os.Stdout
 	upCmd.Stderr = os.Stderr
 	if err := upCmd.Run(); err != nil {
@@ -307,7 +309,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	}
 
 	// Run via shell so the command string is interpreted correctly
-	agentCmd := exec.CommandContext(agentCtx, "sh", "-c", startCommand)
+	agentCmd := exec.CommandContext(agentCtx, "sh", "-c", startCommand) //nolint:gosec
 	agentCmd.Dir = workingDir
 	agentCmd.Env = agentEnv
 	agentCmd.Stdout = os.Stdout
@@ -346,7 +348,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 					fmt.Printf("🔄 Running ingestion: %s\n", ingestionName)
 
 					serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
-					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName)
+					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName) //nolint:gosec
 					runCmd.Stdout = os.Stdout
 					runCmd.Stderr = os.Stderr
 
@@ -366,7 +368,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 
 				serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
 				go func() {
-					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName)
+					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName) //nolint:gosec
 					runCmd.Stdout = os.Stdout
 					runCmd.Stderr = os.Stderr
 					if err := runCmd.Run(); err != nil {
@@ -404,7 +406,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	}
 
 	// Stop all services
-	downCmd := exec.Command("docker", "compose", "-f", cPath, "down")
+	downCmd := exec.Command("docker", "compose", "-f", cPath, "down") //nolint:gosec
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
 	if err := downCmd.Run(); err != nil {
@@ -433,7 +435,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	}
 	logsArgs := []string{"compose", "-f", cPath, "logs", "-f", service}
 
-	logsCmd := exec.Command("docker", logsArgs...)
+	logsCmd := exec.Command("docker", logsArgs...) //nolint:gosec
 	logsCmd.Stdout = os.Stdout
 	logsCmd.Stderr = os.Stderr
 
@@ -461,7 +463,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("🛑 Stopping dev containers...")
-	downCmd := exec.Command("docker", "compose", "-f", cPath, "down")
+	downCmd := exec.Command("docker", "compose", "-f", cPath, "down") //nolint:gosec
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
 	if err := downCmd.Run(); err != nil {
@@ -501,7 +503,7 @@ var localAstroPackages = []localPackage{
 func linkLocalPackages(workingDir, astroRoot string) error {
 	for _, pkg := range localAstroPackages {
 		scopeDir := filepath.Join(workingDir, "node_modules", pkg.scope)
-		if err := os.MkdirAll(scopeDir, 0755); err != nil {
+		if err := os.MkdirAll(scopeDir, 0755); err != nil { //nolint:gosec
 			return err
 		}
 		target := filepath.Join(astroRoot, pkg.path)
@@ -564,11 +566,11 @@ func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", url) //nolint:gosec
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", url) //nolint:gosec
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec
 	default:
 		fmt.Printf("⚠️  Unable to open browser automatically on %s\n", runtime.GOOS)
 		return

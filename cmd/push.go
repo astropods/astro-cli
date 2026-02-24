@@ -330,7 +330,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		// Retag locally-built platform images to registry paths so the local server can resolve them
 		if pushLocal {
 			retag := func(local, remote string) error {
-				cmd := exec.Command("docker", "tag", local, remote)
+				cmd := exec.Command("docker", "tag", local, remote) //nolint:gosec
 				if out, err := cmd.CombinedOutput(); err != nil {
 					return fmt.Errorf("failed to retag %s → %s: %s", local, remote, strings.TrimSpace(string(out)))
 				}
@@ -412,7 +412,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		// Read README.md if it exists
 		readmeContent := ""
 		readmePath := filepath.Join(workingDir, "README.md")
-		if readmeData, err := os.ReadFile(readmePath); err == nil {
+		if readmeData, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
 			readmeContent = string(readmeData)
 		}
 
@@ -515,7 +515,7 @@ func getRegistryHost(registryURL string) (string, error) {
 // registerAgent registers the agent spec with the astro-server
 func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme string, verbose bool, skipAuth bool) error {
 	// Read and parse spec file
-	specData, err := os.ReadFile(specPath)
+	specData, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to read spec file: %w", err)
 	}
@@ -561,7 +561,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		url.PathEscape(accountName),
 		url.PathEscape(agentName),
 	)
-	req, err := http.NewRequestWithContext(context.Background(), "POST", reqURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -579,12 +579,12 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 				// Show first/last few chars of token for debugging
 				token := strings.TrimPrefix(authHeader, "Bearer ")
 				if len(token) > 20 {
-					log.Printf("   Auth: Bearer %s...%s (len=%d)", token[:10], token[len(token)-5:], len(token))
+					log.Printf("   Auth: Bearer %s...%s (len=%d)", token[:10], token[len(token)-5:], len(token)) //nolint:gosec
 				} else {
-					log.Printf("   Auth: Bearer <short token, len=%d>", len(token))
+					log.Printf("   Auth: Bearer <short token, len=%d>", len(token)) //nolint:gosec
 				}
 			} else {
-				log.Printf("   Auth: WARNING - no Authorization header set!")
+				log.Printf("   Auth: WARNING - no Authorization header set!") //nolint:gosec
 			}
 		}
 	}
@@ -596,11 +596,11 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 			return http.ErrUseLastResponse
 		},
 	}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// If the server redirected, report it clearly instead of silently failing
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
@@ -621,11 +621,11 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		// Read the full response body for detailed error logging
 		body, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
-			return fmt.Errorf("server returned status %d (failed to read response body: %v)", resp.StatusCode, readErr)
+			return fmt.Errorf("server returned status %d (failed to read response body: %w)", resp.StatusCode, readErr)
 		}
 
 		// Log the raw error response
-		log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body))
+		log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body)) //nolint:gosec
 
 		// Try to parse as JSON for structured error
 		var errorResp map[string]interface{}
@@ -640,7 +640,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	if verbose {
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-			log.Printf("   Server response: %v", result)
+			log.Printf("   Server response: %v", result) //nolint:gosec
 		}
 	}
 

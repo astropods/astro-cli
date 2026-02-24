@@ -82,7 +82,7 @@ func GetEnvAccessToken() string {
 	envTokenOnce.Do(func() {
 		envToken = os.Getenv(EnvAccessToken)
 		if envToken != "" {
-			os.Unsetenv(EnvAccessToken)
+			_ = os.Unsetenv(EnvAccessToken)
 		}
 	})
 	return envToken

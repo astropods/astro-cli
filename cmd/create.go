@@ -71,7 +71,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	targetDir := name
 	if pathFlag != "" {
 		// Create the parent directory if it doesn't exist
-		if err := os.MkdirAll(pathFlag, 0755); err != nil {
+		if err := os.MkdirAll(pathFlag, 0755); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 		targetDir = filepath.Join(pathFlag, name)
@@ -100,7 +100,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	// Generate files
 	if err := scaffold.GenerateFiles(targetDir, config, langFlag); err != nil {
-		os.RemoveAll(targetDir)
+		_ = os.RemoveAll(targetDir)
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
 

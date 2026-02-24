@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestRequestDeviceAuthorization_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(expectedResp)
+		_ = json.NewEncoder(w).Encode(expectedResp)
 	})
 	defer server.Close()
 
@@ -76,7 +77,7 @@ func TestRequestDeviceAuthorization_DefaultValues(t *testing.T) {
 	// Return a response without ExpiresIn and Interval
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"device_code":      "dev_xyz",
 			"user_code":        "TEST-CODE",
 			"verification_uri": "https://auth.workos.com/device",
@@ -104,7 +105,7 @@ func TestRequestDeviceAuthorization_HTTPError(t *testing.T) {
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(TokenError{
+		_ = json.NewEncoder(w).Encode(TokenError{
 			Error:            "invalid_request",
 			ErrorDescription: "Client ID is invalid",
 		})
@@ -129,14 +130,14 @@ func TestPollForTokens_Success(t *testing.T) {
 		// Return authorization_pending for first 2 requests, then success
 		if count < 3 {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(TokenError{
+			_ = json.NewEncoder(w).Encode(TokenError{
 				Error:            ErrorAuthorizationPending,
 				ErrorDescription: "User has not yet authorized",
 			})
 			return
 		}
 
-		json.NewEncoder(w).Encode(TokenResponse{
+		_ = json.NewEncoder(w).Encode(TokenResponse{
 			AccessToken:  "access_token_123",
 			RefreshToken: "refresh_token_456",
 			ExpiresIn:    3600,
@@ -166,7 +167,7 @@ func TestPollForTokens_AccessDenied(t *testing.T) {
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(TokenError{
+		_ = json.NewEncoder(w).Encode(TokenError{
 			Error:            ErrorAccessDenied,
 			ErrorDescription: "User denied the request",
 		})
@@ -189,7 +190,7 @@ func TestPollForTokens_ExpiredToken(t *testing.T) {
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(TokenError{
+		_ = json.NewEncoder(w).Encode(TokenError{
 			Error:            ErrorExpiredToken,
 			ErrorDescription: "Device code has expired",
 		})
@@ -212,7 +213,7 @@ func TestPollForTokens_ContextCancellation(t *testing.T) {
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(TokenError{
+		_ = json.NewEncoder(w).Encode(TokenError{
 			Error:            ErrorAuthorizationPending,
 			ErrorDescription: "Waiting for user",
 		})
@@ -233,7 +234,7 @@ func TestPollForTokens_ContextCancellation(t *testing.T) {
 		t.Fatal("expected error for context cancellation, got nil")
 	}
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled error, got %v", err)
 	}
 }
@@ -260,7 +261,7 @@ func TestRefreshAccessToken_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(TokenResponse{
+		_ = json.NewEncoder(w).Encode(TokenResponse{
 			AccessToken:  "new_access_token",
 			RefreshToken: "new_refresh_token",
 			ExpiresIn:    3600,
@@ -287,7 +288,7 @@ func TestRefreshAccessToken_InvalidToken(t *testing.T) {
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(TokenError{
+		_ = json.NewEncoder(w).Encode(TokenError{
 			Error:            "invalid_grant",
 			ErrorDescription: "Refresh token is invalid or expired",
 		})
@@ -337,7 +338,7 @@ func TestPollForTokens_Timeout(t *testing.T) {
 	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(TokenError{
+		_ = json.NewEncoder(w).Encode(TokenError{
 			Error:            ErrorAuthorizationPending,
 			ErrorDescription: "Waiting for user",
 		})

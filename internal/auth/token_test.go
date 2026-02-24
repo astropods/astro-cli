@@ -21,22 +21,9 @@ func resetEnvToken() {
 // setupTokenTestDir creates a temp directory and sets HOME for testing
 func setupTokenTestDir(t *testing.T) (string, func()) {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("", "astro-cli-token-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-
-	return tmpDir, func() {
-		if originalHome == "" {
-			os.Unsetenv("HOME")
-		} else {
-			os.Setenv("HOME", originalHome)
-		}
-		os.RemoveAll(tmpDir)
-	}
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	return tmpDir, func() {}
 }
 
 // writeTokenTestCredentials writes credentials for token tests
@@ -50,8 +37,13 @@ func writeTokenTestCredentials(t *testing.T, creds *Credentials) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatalf("failed to create dir: %v", err)
 	}
-	data, _ := json.MarshalIndent(creds, "", "  ")
-	os.WriteFile(path, data, 0600)
+	data, err := json.MarshalIndent(creds, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal credentials: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("failed to write credentials: %v", err)
+	}
 }
 
 func TestShouldRefresh_NotExpiring(t *testing.T) {
@@ -107,7 +99,7 @@ func TestGetValidAccessToken_EnvVarOverride(t *testing.T) {
 	defer resetEnvToken()
 
 	// Set env var
-	os.Setenv(EnvAccessToken, "env_access_token_123")
+	t.Setenv(EnvAccessToken, "env_access_token_123")
 
 	manager := NewTokenManager("ast")
 	token, err := manager.GetValidAccessToken(context.Background())
@@ -125,7 +117,7 @@ func TestGetValidAccessToken_ValidToken(t *testing.T) {
 	defer resetEnvToken()
 
 	// Ensure no env var is set
-	os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(EnvAccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -162,7 +154,7 @@ func TestGetValidAccessToken_RefreshesExpiring(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(EnvAccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -183,7 +175,7 @@ func TestGetValidAccessToken_RefreshesExpiring(t *testing.T) {
 	// Create mock server for token refresh
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(TokenResponse{
+		_ = json.NewEncoder(w).Encode(TokenResponse{
 			AccessToken:  "refreshed_access_token",
 			RefreshToken: "new_refresh_token",
 			ExpiresIn:    3600,
@@ -215,7 +207,7 @@ func TestGetValidAccessToken_NoRefreshToken(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(EnvAccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -253,7 +245,7 @@ func TestIsAuthenticated_EnvVar(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Setenv(EnvAccessToken, "env_token")
+	t.Setenv(EnvAccessToken, "env_token")
 
 	manager := NewTokenManager("ast")
 	if !manager.IsAuthenticated() {
@@ -265,7 +257,7 @@ func TestIsAuthenticated_ValidCredentials(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(EnvAccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -296,7 +288,7 @@ func TestIsAuthenticated_NotAuthenticated(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(EnvAccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -317,7 +309,7 @@ func TestRequireAuth_NotAuthenticated(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(EnvAccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -342,7 +334,7 @@ func TestRequireAuth_Authenticated(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	os.Setenv(EnvAccessToken, "valid_token")
+	t.Setenv(EnvAccessToken, "valid_token")
 
 	manager := NewTokenManager("ast")
 	err := manager.RequireAuth()

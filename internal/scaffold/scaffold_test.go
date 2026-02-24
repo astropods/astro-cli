@@ -1,9 +1,9 @@
 package scaffold
 
 import (
-	"bytes"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	spec "github.com/postman/astro/packages/astro-spec"
@@ -260,7 +260,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			yaml := renderAstroYml(t, tt.config)
-			if !bytes.Contains([]byte(yaml), []byte("models:")) {
+			if !strings.Contains(yaml, "models:") {
 				t.Errorf("generated spec missing 'models:' section:\n%s", yaml)
 			}
 			s, err := spec.ParseString(yaml)
@@ -567,13 +567,13 @@ func TestIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
 			}
 			wantCopy := "COPY ingestion/" + ingType
 			wantCmd := `"ingestion/` + ingType + `/index.ts"`
-			if !bytes.Contains([]byte(content), []byte(wantCopy)) {
+			if !strings.Contains(content, wantCopy) {
 				t.Errorf("expected COPY referencing %q in:\n%s", wantCopy, content)
 			}
-			if !bytes.Contains([]byte(content), []byte(wantCmd)) {
+			if !strings.Contains(content, wantCmd) {
 				t.Errorf("expected CMD referencing %q in:\n%s", wantCmd, content)
 			}
-			if bytes.Contains([]byte(content), []byte("ingestion/index.ts")) {
+			if strings.Contains(content, "ingestion/index.ts") {
 				t.Errorf("found stale ingestion/index.ts path in:\n%s", content)
 			}
 		})

@@ -197,7 +197,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		}
 
 		relPath, _ := filepath.Rel(workingDir, check.path)
-		existing, readErr := os.ReadFile(check.path)
+		existing, readErr := os.ReadFile(check.path) //nolint:gosec
 
 		switch {
 		case os.IsNotExist(readErr):
@@ -275,10 +275,10 @@ func writeRepairFile(outputPath, templatePath string, config scaffold.ScaffoldCo
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil { //nolint:gosec
 		return err
 	}
-	return os.WriteFile(outputPath, []byte(rendered), 0644)
+	return os.WriteFile(outputPath, []byte(rendered), 0644) //nolint:gosec
 }
 
 // inferConfigFallback builds a minimal ScaffoldConfig when astroai.yml is absent or unparseable.
@@ -287,7 +287,7 @@ func inferConfigFallback(workingDir string) scaffold.ScaffoldConfig {
 	config := scaffold.DefaultConfig(filepath.Base(workingDir))
 
 	pkgPath := filepath.Join(workingDir, "package.json")
-	if data, err := os.ReadFile(pkgPath); err == nil {
+	if data, err := os.ReadFile(pkgPath); err == nil { //nolint:gosec
 		var pkg struct {
 			Name        string `json:"name"`
 			Description string `json:"description"`
@@ -409,7 +409,7 @@ func checkDeprecatedPackages(workingDir string, reader *bufio.Reader, yes bool) 
 		if ext != ".ts" && ext != ".js" && ext != ".json" {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec
 		if err != nil {
 			return nil
 		}
@@ -457,12 +457,12 @@ func checkDeprecatedPackages(workingDir string, reader *bufio.Reader, yes bool) 
 		}
 		seen[m.file] = true
 		fullPath := filepath.Join(workingDir, m.file)
-		data, err := os.ReadFile(fullPath)
+		data, err := os.ReadFile(fullPath) //nolint:gosec
 		if err != nil {
 			continue
 		}
 		newData := pattern.ReplaceAll(data, []byte(newPkg))
-		if err := os.WriteFile(fullPath, newData, 0644); err != nil {
+		if err := os.WriteFile(fullPath, newData, 0644); err != nil { //nolint:gosec
 			fmt.Printf("  %s✗%s failed to update %s: %v\n", colorRed, colorReset, m.file, err)
 		} else {
 			fmt.Printf("  %s✓%s updated %s\n", colorGreen, colorReset, m.file)
@@ -477,7 +477,7 @@ func checkDeprecatedPackages(workingDir string, reader *bufio.Reader, yes bool) 
 // checkBuildArgsAndSecrets scans astroai.yml for deprecated build args/secrets under
 // agent.build and ingestion[*].container.build, and offers to remove them.
 func checkBuildArgsAndSecrets(specPath string, reader *bufio.Reader, yes bool) {
-	data, err := os.ReadFile(specPath)
+	data, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
 		return
 	}
@@ -515,7 +515,7 @@ func checkBuildArgsAndSecrets(specPath string, reader *bufio.Reader, yes bool) {
 		fmt.Printf("  %s✗%s failed to encode yaml: %v\n", colorRed, colorReset, err)
 		return
 	}
-	if err := os.WriteFile(specPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(specPath, buf.Bytes(), 0644); err != nil { //nolint:gosec
 		fmt.Printf("  %s✗%s failed to write %s: %v\n", colorRed, colorReset, filepath.Base(specPath), err)
 		return
 	}

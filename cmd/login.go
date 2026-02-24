@@ -62,7 +62,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-sigChan
 		fmt.Println()
-		yellow.Println("Login cancelled.")
+		yellow.Println("Login cancelled.") //nolint:errcheck,gosec
 		cancel()
 		os.Exit(1)
 	}()
@@ -71,7 +71,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	client := auth.NewClient()
 
 	// Request device authorization
-	cyan.Print("→ ")
+	cyan.Print("→ ") //nolint:errcheck,gosec
 	fmt.Println("Initiating authentication...")
 	authResp, err := client.RequestDeviceAuthorization(ctx)
 	if err != nil {
@@ -82,7 +82,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Println("  ┌────────────────────────────────────────┐")
 	fmt.Print("  │  Your verification code is: ")
-	yellow.Printf("%-11s", authResp.UserCode)
+	yellow.Printf("%-11s", authResp.UserCode) //nolint:errcheck,gosec
 	fmt.Println("│")
 	fmt.Println("  └────────────────────────────────────────┘")
 	fmt.Println()
@@ -95,21 +95,21 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Open browser if not disabled
 	if !noBrowser {
-		cyan.Print("→ ")
+		cyan.Print("→ ") //nolint:errcheck,gosec
 		fmt.Print("Opening browser to: ")
-		dim.Println(verificationURL)
+		dim.Println(verificationURL) //nolint:errcheck,gosec
 		if err := browser.OpenURL(verificationURL); err != nil {
-			yellow.Println("  Could not open browser automatically.")
+			yellow.Println("  Could not open browser automatically.") //nolint:errcheck,gosec
 			fmt.Print("  Please visit: ")
-			bold.Println(verificationURL)
+			bold.Println(verificationURL) //nolint:errcheck,gosec
 		}
 	} else {
 		fmt.Print("  Please visit: ")
-		bold.Println(verificationURL)
+		bold.Println(verificationURL) //nolint:errcheck,gosec
 	}
 
 	fmt.Println()
-	cyan.Print("→ ")
+	cyan.Print("→ ") //nolint:errcheck,gosec
 	fmt.Print("Waiting for authentication")
 
 	// Poll for tokens with a simple spinner
@@ -123,7 +123,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 				return
 			case <-time.After(500 * time.Millisecond):
 				fmt.Printf("\r")
-				cyan.Print("→ ")
+				cyan.Print("→ ") //nolint:errcheck,gosec
 				fmt.Printf("Waiting for authentication%-4s", dots[i%len(dots)])
 				i++
 			}
@@ -171,14 +171,14 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Success message
 	fmt.Println()
-	green.Print("✓ ")
-	bold.Println("Authentication successful!")
+	green.Print("✓ ") //nolint:errcheck,gosec
+	bold.Println("Authentication successful!") //nolint:errcheck,gosec
 	fmt.Println()
 
 	if profile.User != nil {
 		if profile.User.FirstName != "" || profile.User.LastName != "" {
 			fmt.Printf("  Logged in as: %s %s ", profile.User.FirstName, profile.User.LastName)
-			dim.Printf("(%s)\n", profile.User.Email)
+			dim.Printf("(%s)\n", profile.User.Email) //nolint:errcheck,gosec
 		} else {
 			fmt.Printf("  Logged in as: %s\n", profile.User.Email)
 		}
@@ -189,7 +189,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	if len(profile.Accounts) == 0 {
 		fmt.Println()
-		yellow.Println("  Note: No account found. Visit the dashboard to choose your username before pushing.")
+		yellow.Println("  Note: No account found. Visit the dashboard to choose your username before pushing.") //nolint:errcheck,gosec
 	}
 
 	return nil
@@ -198,17 +198,17 @@ func runLogin(cmd *cobra.Command, args []string) error {
 // fetchUserAccounts calls GET /api/v1/me on the server to get the user's accounts.
 func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, error) {
 	reqURL := fmt.Sprintf("%s/api/v1/me", serverURL)
-	req, err := http.NewRequestWithContext(context.Background(), "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck,gosec
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)

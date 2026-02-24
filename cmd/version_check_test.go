@@ -25,7 +25,7 @@ func captureStderr(t *testing.T, f func()) string {
 
 	f()
 
-	w.Close()
+	_ = w.Close()
 	var buf strings.Builder
 	b := make([]byte, 4096)
 	for {
@@ -283,7 +283,7 @@ func TestNotifyIfUpdateAvailable_SilentOnNetworkError(t *testing.T) {
 			return
 		}
 		conn, _, _ := hj.Hijack()
-		conn.Close()
+		_ = conn.Close()
 	}))
 	defer srv.Close()
 

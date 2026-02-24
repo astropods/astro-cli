@@ -30,8 +30,6 @@ type model struct {
 
 	// Text input for description
 	descInput textinput.Model
-	// Text input for ollama model name
-	modelInput textinput.Model
 	// Masked input for integration API keys
 	keyInput textinput.Model
 

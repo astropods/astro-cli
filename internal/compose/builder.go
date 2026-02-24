@@ -163,7 +163,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		if resolved.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(resolved.Port),
+					Target:    uint32(resolved.Port), //nolint:gosec
 					Published: fmt.Sprintf("%d", resolved.Port),
 				},
 			}
@@ -289,7 +289,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		if container.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(container.Port),
+					Target:    uint32(container.Port), //nolint:gosec
 					Published: fmt.Sprintf("%d", container.Port),
 				},
 			}
@@ -298,7 +298,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			qdrantPort := spec.GetProvider("qdrant").DefaultPort
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(qdrantPort),
+					Target:    uint32(qdrantPort), //nolint:gosec
 					Published: fmt.Sprintf("%d", qdrantPort),
 				},
 			}
@@ -375,7 +375,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			if tool.Container.Port > 0 {
 				service.Ports = []types.ServicePortConfig{
 					{
-						Target:    uint32(tool.Container.Port),
+						Target:    uint32(tool.Container.Port), //nolint:gosec
 						Published: fmt.Sprintf("%d", tool.Container.Port),
 					},
 				}

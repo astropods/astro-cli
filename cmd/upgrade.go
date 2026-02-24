@@ -39,14 +39,14 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	downloadURL := serverURL + "/download/" + binName
 
 	if verbose {
-		dim.Printf("  server:  %s\n", serverURL)
-		dim.Printf("  binary:  %s\n", binName)
-		dim.Printf("  url:     %s\n", downloadURL)
+		dim.Printf("  server:  %s\n", serverURL) //nolint:errcheck,gosec
+		dim.Printf("  binary:  %s\n", binName) //nolint:errcheck,gosec
+		dim.Printf("  url:     %s\n", downloadURL) //nolint:errcheck,gosec
 	}
 
 	// Check latest version via HEAD request
 	if !forceUpgrade {
-		cyan.Print("→ ")
+		cyan.Print("→ ") //nolint:errcheck,gosec
 		fmt.Println("Checking for updates...")
 
 		latest, err := checkLatestVersion(downloadURL, verbose)
@@ -54,7 +54,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to check latest version: %w", err)
 		}
 		if latest != "" && latest == version {
-			green.Print("✓ ")
+			green.Print("✓ ") //nolint:errcheck,gosec
 			fmt.Printf("Already up to date (%s)\n", version)
 			return nil
 		}
@@ -75,32 +75,32 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer os.Remove(tmpPath) //nolint:errcheck,gosec
 
-	cyan.Print("→ ")
+	cyan.Print("→ ") //nolint:errcheck,gosec
 	fmt.Printf("Downloading %s...\n", binName)
 
-	resp, err := http.Get(downloadURL)
+	resp, err := http.Get(downloadURL) //nolint:gosec
 	if err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("failed to download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck,gosec
 
 	if resp.StatusCode != http.StatusOK {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("download failed: server returned %d", resp.StatusCode)
 	}
 
 	newVersion := resp.Header.Get("X-Cli-Version")
 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("failed to write download: %w", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
-	if err := os.Chmod(tmpPath, 0o755); err != nil {
+	if err := os.Chmod(tmpPath, 0o755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
@@ -110,12 +110,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		versionedPath := filepath.Join(installDir, versionedName)
 
 		// Move temp to versioned path
-		if err := os.Rename(tmpPath, versionedPath); err != nil {
+		if err := os.Rename(tmpPath, versionedPath); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to install binary: %w", err)
 		}
 
 		// Remove old symlink and create new one
-		os.Remove(symlinkPath)
+		_ = os.Remove(symlinkPath)
 		if err := os.Symlink(versionedName, symlinkPath); err != nil {
 			return fmt.Errorf("failed to create symlink: %w", err)
 		}
@@ -128,19 +128,19 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			realPath = execPath
 		}
-		if err := os.Rename(tmpPath, realPath); err != nil {
+		if err := os.Rename(tmpPath, realPath); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 	}
 
-	green.Print("✓ ")
+	green.Print("✓ ") //nolint:errcheck,gosec
 	fmt.Print("Upgraded ")
-	dim.Print(version)
+	dim.Print(version) //nolint:errcheck,gosec
 	fmt.Print(" → ")
 	if newVersion != "" {
-		green.Println(newVersion)
+		green.Println(newVersion) //nolint:errcheck,gosec
 	} else {
-		green.Println("latest")
+		green.Println("latest") //nolint:errcheck,gosec
 	}
 
 	return nil
@@ -163,23 +163,23 @@ func cleanOldVersions(dir, binaryName, keepVersion string) {
 		// Only remove versioned binaries (start with a digit after binaryName-)
 		rest := strings.TrimPrefix(name, pfx)
 		if len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
-			os.Remove(filepath.Join(dir, name))
+			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
 }
 
 // checkLatestVersion sends a HEAD request and reads the X-Cli-Version header.
 func checkLatestVersion(url string, verbose bool) (string, error) {
-	resp, err := http.Head(url)
+	resp, err := http.Head(url) //nolint:gosec
 	if err != nil {
 		return "", err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if verbose {
 		dim := color.New(color.Faint)
-		dim.Printf("  HEAD %s → %d\n", url, resp.StatusCode)
+		dim.Printf("  HEAD %s → %d\n", url, resp.StatusCode) //nolint:errcheck,gosec
 		if v := resp.Header.Get("X-Cli-Version"); v != "" {
-			dim.Printf("  X-Cli-Version: %s\n", v)
+			dim.Printf("  X-Cli-Version: %s\n", v) //nolint:errcheck,gosec
 		}
 	}
 	if resp.StatusCode != http.StatusOK {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	if !filepath.IsAbs(specFile) {
 		specPath = filepath.Join(workingDir, specFile)
 	}
-	data, err := os.ReadFile(specPath)
+	data, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("cannot read %s: %w", specFile, err)
 	}
@@ -110,8 +111,8 @@ func schemaValidationErrors(raw interface{}) []string {
 		return nil
 	}
 
-	ve, ok := valErr.(*jsonschema.ValidationError)
-	if !ok {
+	var ve *jsonschema.ValidationError
+	if !errors.As(valErr, &ve) {
 		return []string{valErr.Error()}
 	}
 

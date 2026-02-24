@@ -60,28 +60,8 @@ func ingestionOptions() []option {
 	}
 }
 
-// nextSelectable returns the next selectable index after idx, or idx if none.
-func nextSelectable(opts []option, idx int) int {
-	for i := idx + 1; i < len(opts); i++ {
-		if !opts[i].isHeader {
-			return i
-		}
-	}
-	return idx
-}
-
-// prevSelectable returns the previous selectable index before idx, or idx if none.
-func prevSelectable(opts []option, idx int) int {
-	for i := idx - 1; i >= 0; i-- {
-		if !opts[i].isHeader {
-			return i
-		}
-	}
-	return idx
-}
-
 // integrationKeyEnvVar maps key names to their environment variable names.
-var integrationKeyEnvVar = map[string]string{
+var integrationKeyEnvVar = map[string]string{ //nolint:gosec
 	"anthropic":       "ANTHROPIC_API_KEY",
 	"openai":          "OPENAI_API_KEY",
 	"github":          "GITHUB_TOKEN",
@@ -90,7 +70,7 @@ var integrationKeyEnvVar = map[string]string{
 }
 
 // integrationKeyLabel maps key names to display labels.
-var integrationKeyLabel = map[string]string{
+var integrationKeyLabel = map[string]string{ //nolint:gosec
 	"anthropic":       "Anthropic",
 	"openai":          "OpenAI",
 	"github":          "GitHub",

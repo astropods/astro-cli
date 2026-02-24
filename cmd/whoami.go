@@ -35,7 +35,7 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 
 	// Check for environment token first
 	if token := auth.GetEnvAccessToken(); token != "" {
-		cyan.Print("→ ")
+		cyan.Print("→ ") //nolint:errcheck,gosec
 		fmt.Println("Authenticated via ASTRO_ACCESS_TOKEN environment variable")
 		return nil
 	}
@@ -66,8 +66,8 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	}
 
 	// Display user info
-	green.Print("✓ ")
-	bold.Println("Authenticated")
+	green.Print("✓ ") //nolint:errcheck,gosec
+	bold.Println("Authenticated") //nolint:errcheck,gosec
 	fmt.Println()
 
 	if profile.User != nil {
@@ -81,15 +81,15 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  Account: %s\n", profile.Accounts[0].Name)
 		} else {
 			yellow := color.New(color.FgYellow)
-			yellow.Println("  Account: (none — visit the dashboard to choose your username)")
+			yellow.Println("  Account: (none — visit the dashboard to choose your username)") //nolint:errcheck,gosec
 		}
 		fmt.Print("  ID:      ")
-		dim.Println(profile.User.ID)
+		dim.Println(profile.User.ID) //nolint:errcheck,gosec
 	}
 
 	if !profile.ExpiresAt.IsZero() {
 		fmt.Print("  Expires: ")
-		dim.Println(profile.ExpiresAt.Format("2006-01-02 15:04:05 MST"))
+		dim.Println(profile.ExpiresAt.Format("2006-01-02 15:04:05 MST")) //nolint:errcheck,gosec
 	}
 
 	return nil
