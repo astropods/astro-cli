@@ -6,6 +6,7 @@ import {
   AgentDetailBreadcrumb,
   AgentDetailContent,
   AgentDetailSidebar,
+  SidebarCard,
 } from "@/components/agent-detail";
 import { useAgent, useAgents } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
@@ -228,7 +229,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       <AgentDetailBreadcrumb account={agent.account} agentName={agent.name} />
 
       <div className="flex flex-1 overflow-y-auto">
-      <div className="flex flex-1 max-w-[1200px] mx-auto">
+      <div className="flex min-w-0 flex-1 max-w-[1200px] mx-auto">
         <AgentDetailContent
           account={agent.account}
           name={agent.name}
@@ -236,6 +237,15 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           readme={readme}
           safetyPermissions={safetyPermissions}
           recommendedAgents={recommendedAgents}
+          mobileSidebar={
+            <SidebarCard
+              agent={agent}
+              description={description}
+              integrations={integrations}
+              permissions={safetyPermissions}
+              initialAccountData={loaderData?.accountData ?? undefined}
+            />
+          }
         />
 
         <AgentDetailSidebar

@@ -5,7 +5,7 @@ import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { Loader2 } from "lucide-react";
 import { PageTitle } from "@/components/PageTitle";
 import { Button } from "@/components/ui/button";
-import { BrowseAgentCard } from "@/components/browse/BrowseAgentCard";
+import { AgentCard } from "@/components/AgentCard";
 import { CategorySidebar } from "@/components/browse/CategorySidebar";
 import { PublishCTA } from "@/components/browse/PublishCTA";
 import { useAgents } from "@/api/queries";
@@ -112,7 +112,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
           />
           <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
             {filteredAgents.map((agent) => (
-              <BrowseAgentCard
+              <AgentCard
                 key={`${agent.account}/${agent.name}`}
                 slug={`${agent.account}/${agent.name}`}
                 account={agent.account}

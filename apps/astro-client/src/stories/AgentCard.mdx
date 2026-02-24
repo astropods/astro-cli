@@ -5,7 +5,7 @@ import * as AgentCardStories from "./AgentCard.stories"
 
 # AgentCard
 
-A card component for the agent marketplace grid. Displays an agent's name, description, integration icons, category badges, and install/view-details actions.
+A card component for the agent marketplace grid. Displays an agent's avatar, name, description, and category badges. The entire card is a link to the agent detail page.
 
 ## Import
 
@@ -21,12 +21,9 @@ import { AgentCard } from "@/components/AgentCard"
   account="acme"
   name="Customer Insight Engine"
   description="Analyzes customer feedback to surface actionable insights and trends."
-  integrations={["Slack", "GitHub", "Linear", "Notion"]}
   categories={["Analytics"]}
 />
 ```
-
-Integration names are resolved to icons via `getIntegrationItems` from `@/lib/integrationIcons`. Names without a known icon are filtered out. The `IntegrationIconStack` shows up to 3 icons with a "+N" overflow indicator.
 
 ## Default
 
@@ -34,23 +31,19 @@ Integration names are resolved to icons via `getIntegrationItems` from `@/lib/in
 
 ## Long Description
 
-Descriptions are clamped to 3 lines.
+Descriptions are clamped to 2 lines.
 
 <Canvas of={AgentCardStories.LongDescription} />
 
-## Few Integrations
+## Few Categories
 
-<Canvas of={AgentCardStories.FewIntegrations} />
+<Canvas of={AgentCardStories.FewCategories} />
 
-## Many Integrations
+## Many Categories
 
-Shows the "+N" overflow on the icon stack.
+Only the first 2 categories are shown.
 
-<Canvas of={AgentCardStories.ManyIntegrations} />
-
-## Responsive Behavior
-
-The card uses container queries (`@container`) so the action buttons stack vertically when the card is narrow and sit side-by-side when there's enough room.
+<Canvas of={AgentCardStories.ManyCategories} />
 
 ## Props
 

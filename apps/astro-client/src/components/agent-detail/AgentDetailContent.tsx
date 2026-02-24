@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/Badge";
+import { AgentIdentity } from "@/components/AgentIdentity";
 import { RecommendedAgents } from "@/components/RecommendedAgents";
 import type { RecommendedAgent } from "@/components/RecommendedAgents";
 
@@ -12,6 +14,7 @@ export interface AgentDetailContentProps {
   readme?: string;
   safetyPermissions: string[];
   recommendedAgents: RecommendedAgent[];
+  mobileSidebar?: ReactNode;
 }
 
 export function AgentDetailContent({
@@ -21,15 +24,23 @@ export function AgentDetailContent({
   readme,
   safetyPermissions,
   recommendedAgents,
+  mobileSidebar,
 }: AgentDetailContentProps) {
   return (
-    <div className="flex-1 min-w-0 p-6 md:p-8 max-w-3xl">
+    <div className="flex-1 min-w-0 p-6 md:p-8 lg:max-w-3xl">
       {/* Header */}
       <header className="mb-8">
-        <h1 className="text-2xl leading-tight font-semibold text-foreground">
-          <span className="font-normal text-muted-foreground">{account}/</span>
-          {name}
-        </h1>
+        <div className="flex items-center gap-3">
+          <AgentIdentity
+            account={account}
+            name={name}
+            size={40}
+            className="size-10 shrink-0 rounded-sm overflow-hidden"
+          />
+          <h1 className="text-2xl leading-tight font-semibold text-foreground">
+            {name}
+          </h1>
+        </div>
         <hr className="mt-4 border-border" />
 
         {/* Category tags */}
@@ -42,10 +53,15 @@ export function AgentDetailContent({
         )}
       </header>
 
+      {/* Sidebar content inlined on mobile */}
+      {mobileSidebar && (
+        <div className="lg:hidden mb-8">{mobileSidebar}</div>
+      )}
+
       {/* README */}
       {readme && (
         <section className="mb-8">
-          <div className="prose prose-stone dark:prose-invert max-w-none prose-headings:font-bold prose-headings:text-foreground text-foreground prose-p:my-2 prose-headings:mt-6 prose-headings:mb-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-3 prose-blockquote:my-3 prose-hr:my-4 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-stone-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-foreground [&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']">
+          <div className="prose prose-stone dark:prose-invert max-w-none overflow-x-auto prose-headings:font-bold prose-headings:text-foreground text-foreground prose-p:my-2 prose-headings:mt-6 prose-headings:mb-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-3 prose-blockquote:my-3 prose-hr:my-4 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-stone-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-foreground [&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']">
             <Markdown remarkPlugins={[remarkGfm]}>{readme}</Markdown>
           </div>
         </section>

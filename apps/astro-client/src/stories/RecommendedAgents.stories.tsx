@@ -27,7 +27,6 @@ const sampleAgents = [
     name: "Ticket Scanner",
     description:
       "Surfaces actionable feedback from support tickets, reviews, and user conversations to guide product decisions.",
-    integrations: ["Slack", "Gmail", "Google Drive"],
     categories: ["Analytics", "Support"],
   },
   {
@@ -36,7 +35,6 @@ const sampleAgents = [
     name: "Sentiment Analyzer",
     description:
       "Monitors customer sentiment across channels and flags critical shifts in real time.",
-    integrations: ["Slack", "Gmail"],
     categories: ["Analytics"],
   },
 ];
