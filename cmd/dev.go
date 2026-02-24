@@ -3,16 +3,17 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -64,6 +65,14 @@ var devStopCmd = &cobra.Command{
 	RunE:  runDevStop,
 }
 
+var devTriggerCmd = &cobra.Command{
+	Use:   "trigger <name>",
+	Short: "Trigger an ingestion job",
+	Long:  `Manually trigger a named ingestion job. Runs the ingestion container and exits when done.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runDevTrigger,
+}
+
 var (
 	envFile    string
 	rebuild    bool
@@ -77,6 +86,7 @@ func init() {
 	devCmd.AddCommand(devStartCmd)
 	devCmd.AddCommand(devLogsCmd)
 	devCmd.AddCommand(devStopCmd)
+	devCmd.AddCommand(devTriggerCmd)
 
 	// Flags on both devCmd and devStartCmd so they work with `ast dev` and `ast dev start`
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
@@ -185,13 +195,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if verbose {
-		fmt.Printf("   Services: %d\n", len(project.Services))
-		for name := range project.Services {
-			fmt.Printf("     - %s\n", name)
-		}
-	}
-
 	// Write docker-compose.yml file
 	cPath := filepath.Join(workingDir, ".ast", "docker-compose.yml")
 	if err := os.MkdirAll(filepath.Dir(cPath), 0755); err != nil { //nolint:gosec
@@ -211,50 +214,51 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   Wrote compose file to: %s\n", cPath)
 	}
 
-	// Start services using Docker Compose CLI
-	fmt.Println("🔨 Building and starting services...")
+	// Log services before building
+	serviceNames := make([]string, 0, len(project.Services))
+	for name := range project.Services {
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+	fmt.Printf("📦 %d service(s): %s\n", len(serviceNames), strings.Join(serviceNames, ", "))
 
-	// Build with or without cache based on rebuild flag
+	// Build all services upfront — including profiled ingestion containers — so
+	// startup ingestions don't get built lazily after everything else is running.
+	fmt.Println("🔨 Building services...")
+	buildArgs := []string{"compose", "--profile", "ingestion", "-f", cPath, "build"}
 	if rebuild {
 		fmt.Println("   Using --no-cache for clean rebuild...")
-		buildCmd := exec.Command("docker", "compose", "-f", cPath, "build", "--no-cache") //nolint:gosec
-		buildCmd.Stdout = os.Stdout
-		buildCmd.Stderr = os.Stderr
-		if err := buildCmd.Run(); err != nil {
-			return fmt.Errorf("failed to build services: %w", err)
-		}
+		buildArgs = append(buildArgs, "--no-cache")
+	}
+	if noPull {
+		buildArgs = append(buildArgs, "--pull=never")
+	}
+	buildCmd := exec.Command("docker", buildArgs...) //nolint:gosec
+	buildCmd.Stdout = verboseWriter(verbose)
+	buildCmd.Stderr = os.Stderr
+	if err := buildCmd.Run(); err != nil {
+		return fmt.Errorf("failed to build services: %w", err)
 	}
 
-	upArgs := []string{"compose", "-f", cPath, "up", "-d", "--build"}
-	if noPull {
-		upArgs = append(upArgs, "--pull=never")
-	}
+	// Start non-profiled services (already built above)
+	fmt.Println("🚀 Starting services...")
+	upArgs := []string{"compose", "-f", cPath, "up", "-d", "--no-build"}
 	upCmd := exec.Command("docker", upArgs...) //nolint:gosec
-	upCmd.Stdout = os.Stdout
+	upCmd.Stdout = verboseWriter(verbose)
 	upCmd.Stderr = os.Stderr
 	if err := upCmd.Run(); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
 	fmt.Println()
-	fmt.Println("✅ All services running!")
-
 	// Check if messaging interface is configured (from dev section)
-	hasMessagingInterface := false
 	hasWebInterface := false
 	if astroSpec.Dev != nil {
 		for _, name := range astroSpec.Dev.Interfaces {
-			if name == "slack" || name == "web" {
-				hasMessagingInterface = true
-			}
 			if name == "web" {
 				hasWebInterface = true
 			}
 		}
-	}
-
-	if hasMessagingInterface && !hasWebInterface {
-		fmt.Println("💬 Messaging service running on gRPC port 9090")
 	}
 
 	// --local: run agent as local process and block
@@ -262,7 +266,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return runLocalAgent(cmd, astroSpec, workingDir, cPath, envVars, hasWebInterface)
 	}
 
-	// Non-local mode: print hints and exit
+	// Run startup ingestions before printing the ready block so output isn't interleaved
+	runStartupIngestions(astroSpec, cPath)
+
+	// Print unified ready block
+	fmt.Println()
+	fmt.Println("✅ All services running!")
 	fmt.Println()
 	if hasWebInterface {
 		fmt.Println("  Your agent is ready. Open the playground to start chatting:")
@@ -271,9 +280,20 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Printf("  %sAPI  http://localhost:3100%s\n", colorDim, colorReset)
 	}
+	for name, ingestion := range astroSpec.Ingestion {
+		if ingestion.Trigger.Type != "webhook" {
+			continue
+		}
+		port := ingestion.Container.Port
+		if port == 0 {
+			port = 3001
+		}
+		fmt.Printf("  %sWebhook  http://localhost:%d%s  (%s)\n", colorDim, port, colorReset, name)
+	}
 	fmt.Println()
-	fmt.Printf("  %sast dev logs%s  — tail logs\n", colorBold, colorReset)
-	fmt.Printf("  %sast dev stop%s  — stop\n", colorBold, colorReset)
+	fmt.Printf("  %sast dev logs%s         — tail logs\n", colorBold, colorReset)
+	fmt.Printf("  %sast dev stop%s         — stop\n", colorBold, colorReset)
+	printIngestionHints(astroSpec)
 	fmt.Println()
 
 	return nil
@@ -326,65 +346,6 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 			time.Sleep(2 * time.Second)
 			openBrowser("http://localhost:3000")
 		}()
-	}
-
-	// Set up cron scheduler for ingestion workers
-	var cronScheduler *cron.Cron
-	if len(astroSpec.Ingestion) > 0 {
-		cronScheduler = cron.New()
-
-		for name, ingestion := range astroSpec.Ingestion {
-			devSchedule := ""
-			if astroSpec.Dev != nil {
-				devSchedule = astroSpec.Dev.Schedules[name]
-			}
-			if ingestion.Trigger.Type == "schedule" && devSchedule != "" {
-				cronPattern := devSchedule
-				ingestionName := name
-
-				fmt.Printf("⏰ Scheduling ingestion '%s' with pattern: %s\n", ingestionName, cronPattern)
-
-				_, err := cronScheduler.AddFunc(cronPattern, func() {
-					fmt.Printf("🔄 Running ingestion: %s\n", ingestionName)
-
-					serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
-					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName) //nolint:gosec
-					runCmd.Stdout = os.Stdout
-					runCmd.Stderr = os.Stderr
-
-					if err := runCmd.Run(); err != nil {
-						fmt.Printf("❌ Failed to run ingestion '%s': %v\n", ingestionName, err)
-					} else {
-						fmt.Printf("✅ Ingestion '%s' completed\n", ingestionName)
-					}
-				})
-
-				if err != nil {
-					fmt.Printf("⚠️  Failed to schedule ingestion '%s': %v\n", ingestionName, err)
-				}
-			} else if ingestion.Trigger.Type == "startup" {
-				ingestionName := name
-				fmt.Printf("🚀 Running startup ingestion: %s\n", ingestionName)
-
-				serviceName := fmt.Sprintf("ingestion-%s", ingestionName)
-				go func() {
-					runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", serviceName) //nolint:gosec
-					runCmd.Stdout = os.Stdout
-					runCmd.Stderr = os.Stderr
-					if err := runCmd.Run(); err != nil {
-						fmt.Printf("❌ Failed to run startup ingestion '%s': %v\n", ingestionName, err)
-					} else {
-						fmt.Printf("✅ Startup ingestion '%s' completed\n", ingestionName)
-					}
-				}()
-			}
-		}
-
-		if cronScheduler != nil {
-			cronScheduler.Start()
-			defer cronScheduler.Stop()
-			fmt.Println("📅 Ingestion scheduler started")
-		}
 	}
 
 	// Handle graceful shutdown
@@ -474,6 +435,66 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runDevTrigger(cmd *cobra.Command, args []string) error {
+	specFile, _ := cmd.Flags().GetString("file")
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
+	if err != nil {
+		return fmt.Errorf("failed to parse spec: %w", err)
+	}
+
+	// No name given — list available ingestion jobs and exit
+	if len(args) == 0 {
+		if len(astroSpec.Ingestion) == 0 {
+			return fmt.Errorf("no ingestion jobs defined in %s", specFile)
+		}
+		fmt.Println("Available ingestion jobs:")
+		fmt.Println()
+		for name, ing := range astroSpec.Ingestion {
+			fmt.Printf("  %s%s%s  %s(%s)%s\n", colorBold, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
+		}
+		fmt.Println()
+		fmt.Printf("Run %sast dev trigger <name>%s to trigger one.\n", colorBold, colorReset)
+		return nil
+	}
+
+	name := args[0]
+
+	// Validate the name exists in the spec
+	if _, ok := astroSpec.Ingestion[name]; !ok {
+		fmt.Fprintf(os.Stderr, "Unknown ingestion job %q. Available:\n\n", name)
+		for n := range astroSpec.Ingestion {
+			fmt.Fprintf(os.Stderr, "  %s\n", n)
+		}
+		fmt.Fprintln(os.Stderr)
+		return fmt.Errorf("ingestion job %q not found in %s", name, specFile)
+	}
+
+	cPath, err := composePath()
+	if err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(cPath); os.IsNotExist(err) {
+		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
+	}
+
+	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
+	runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)) //nolint:gosec
+	runCmd.Stdout = os.Stdout
+	runCmd.Stderr = os.Stderr
+	if err := runCmd.Run(); err != nil {
+		return fmt.Errorf("ingestion '%s' failed: %w", name, err)
+	}
+	fmt.Printf("✅ Ingestion '%s' completed\n", name)
+	return nil
+}
+
 // resolveAstroSourceRoot returns the Astro monorepo root from ASTRO_ROOT.
 // Used in --local to link @saswatds/* from packages/.
 func resolveAstroSourceRoot() (string, error) {
@@ -559,6 +580,42 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
+func runStartupIngestions(s *spec.AstroSpec, cPath string) {
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type != "startup" {
+			continue
+		}
+		fmt.Printf("🚀 Running startup ingestion: %s\n", name)
+		runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)) //nolint:gosec
+		runCmd.Stdout = os.Stdout
+		runCmd.Stderr = os.Stderr
+		if err := runCmd.Run(); err != nil {
+			fmt.Printf("❌ Failed to run startup ingestion '%s': %v\n", name, err)
+		} else {
+			fmt.Printf("✅ Startup ingestion '%s' completed\n", name)
+		}
+	}
+}
+
+// printIngestionHints prints manual trigger instructions for schedule and manual ingestions.
+func printIngestionHints(s *spec.AstroSpec) {
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
+			continue
+		}
+		fmt.Printf("  %sast dev trigger %-8s%s — trigger ingestion\n", colorBold, name, colorReset)
+	}
+}
+
+// verboseWriter returns stdout when verbose is true, io.Discard otherwise.
+func verboseWriter(verbose bool) io.Writer {
+	if verbose {
+		return os.Stdout
+	}
+	return io.Discard
 }
 
 // openBrowser opens the specified URL in the default browser

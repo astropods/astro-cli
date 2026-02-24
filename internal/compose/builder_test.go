@@ -267,6 +267,133 @@ func TestBuildProject_KnowledgeStore(t *testing.T) {
 	}
 }
 
+func TestBuildProject_IngestionScheduleHasProfile(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Ingestion: map[string]spec.Ingestion{
+			"schedule": {
+				Container: spec.ContainerConfig{
+					Build: &spec.BuildConfig{Context: ".", Dockerfile: "ingestion/schedule/Dockerfile"},
+				},
+				Trigger: spec.IngestionTrigger{Type: "schedule"},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc, ok := project.Services["ingestion-schedule"]
+	if !ok {
+		t.Fatal("missing ingestion-schedule service")
+	}
+	// schedule-type ingestions are on-demand — must have the ingestion profile
+	if len(svc.Profiles) != 1 || svc.Profiles[0] != "ingestion" {
+		t.Errorf("profiles = %v, want [ingestion]", svc.Profiles)
+	}
+	// must not expose ports
+	if len(svc.Ports) != 0 {
+		t.Errorf("unexpected ports on schedule ingestion: %v", svc.Ports)
+	}
+}
+
+func TestBuildProject_IngestionStartupHasProfile(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Ingestion: map[string]spec.Ingestion{
+			"data": {
+				Container: spec.ContainerConfig{
+					Build: &spec.BuildConfig{Context: ".", Dockerfile: "ingestion/data/Dockerfile"},
+				},
+				Trigger: spec.IngestionTrigger{Type: "startup"},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc, ok := project.Services["ingestion-data"]
+	if !ok {
+		t.Fatal("missing ingestion-data service")
+	}
+	if len(svc.Profiles) != 1 || svc.Profiles[0] != "ingestion" {
+		t.Errorf("profiles = %v, want [ingestion]", svc.Profiles)
+	}
+}
+
+func TestBuildProject_IngestionWebhookNoProfileExposesPort(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Ingestion: map[string]spec.Ingestion{
+			"webhook": {
+				Container: spec.ContainerConfig{
+					Build: &spec.BuildConfig{Context: ".", Dockerfile: "ingestion/webhook/Dockerfile"},
+					Port:  3001,
+				},
+				Trigger: spec.IngestionTrigger{Type: "webhook"},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc, ok := project.Services["ingestion-webhook"]
+	if !ok {
+		t.Fatal("missing ingestion-webhook service")
+	}
+	// webhook ingestions are persistent servers — must NOT have the ingestion profile
+	if len(svc.Profiles) != 0 {
+		t.Errorf("webhook ingestion should have no profiles, got %v", svc.Profiles)
+	}
+	// must expose port 3001
+	if len(svc.Ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(svc.Ports))
+	}
+	if svc.Ports[0].Target != 3001 {
+		t.Errorf("port target = %d, want 3001", svc.Ports[0].Target)
+	}
+	if svc.Ports[0].Published != "3001" {
+		t.Errorf("port published = %q, want 3001", svc.Ports[0].Published)
+	}
+}
+
+func TestBuildProject_IngestionWebhookDefaultPort(t *testing.T) {
+	// When no port is specified in the spec, webhook should default to 3001
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Ingestion: map[string]spec.Ingestion{
+			"webhook": {
+				Container: spec.ContainerConfig{
+					Build: &spec.BuildConfig{Context: ".", Dockerfile: "ingestion/webhook/Dockerfile"},
+				},
+				Trigger: spec.IngestionTrigger{Type: "webhook"},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc := project.Services["ingestion-webhook"]
+	if len(svc.Ports) != 1 || svc.Ports[0].Target != 3001 {
+		t.Errorf("expected default port 3001, got %v", svc.Ports)
+	}
+}
+
 func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:     "my-agent",
