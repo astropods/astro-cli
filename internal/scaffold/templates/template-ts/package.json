@@ -13,7 +13,7 @@
   "dependencies": {
     "@saswatds/astro-agent": "latest",
     "@saswatds/astro-graph": "latest",
-    "@astromode-ai/astro-messaging": "latest"
+    "@astropods/messaging": "latest"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",

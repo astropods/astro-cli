@@ -15,7 +15,7 @@ import (
 	"github.com/postman/astro/apps/astro-cli/internal/utils"
 )
 
-const playgroundImage = "astromodeai/astro-playground:latest"
+const playgroundImage = "astropods/playground:latest"
 
 var playgroundCmd = &cobra.Command{
 	Use:   "playground <url>",
@@ -103,7 +103,7 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 
 	// Remove any stale container with the same name
 	rmCmd := exec.Command("docker", "rm", "-f", containerName) //nolint:gosec
-	_ = rmCmd.Run() // ignore errors – container may not exist
+	_ = rmCmd.Run()                                            // ignore errors – container may not exist
 
 	runArgs := []string{
 		"run", "-d",

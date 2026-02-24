@@ -9,7 +9,7 @@ This is the complete pattern for building an agent with tools and connecting it 
 ```typescript
 import { AstroAgent } from '@saswatds/astro-agent';
 import { Graph, z } from '@saswatds/astro-graph';
-import { MessagingClient } from '@astromode-ai/astro-messaging';
+import { MessagingClient } from '@astropods/messaging';
 
 // 1. Define a tool using Graph
 const fetchUrl = new Graph(z.object({ url: z.string() }))
@@ -185,7 +185,7 @@ agent.stream({
 |---------|---------|
 | `@saswatds/astro-agent` | LLM-driven agent with tools and memory |
 | `@saswatds/astro-graph` | Deterministic workflows as composable tools |
-| `@astromode-ai/astro-messaging` | gRPC messaging (always needed) |
+| `@astropods/messaging` | gRPC messaging (always needed) |
 
 ---
 

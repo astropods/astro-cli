@@ -390,7 +390,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		for _, name := range s.Dev.Interfaces {
 			// Check for messaging interfaces
 			if name == "slack" || name == "web" {
-				messagingImage := "astromodeai/astro-messaging:latest"
+				messagingImage := "astropods/messaging:latest"
 				messagingPull := types.PullPolicyAlways
 				if s.Dev.Overrides != nil && s.Dev.Overrides.MessagingImage != "" {
 					messagingImage = s.Dev.Overrides.MessagingImage
@@ -413,7 +413,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			if name == "web" {
 				// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
 				apiURL := ""
-				playgroundImage := "astromodeai/astro-playground:latest"
+				playgroundImage := "astropods/playground:latest"
 				playgroundPull := types.PullPolicyAlways
 				if s.Dev.Overrides != nil && s.Dev.Overrides.PlaygroundImage != "" {
 					playgroundImage = s.Dev.Overrides.PlaygroundImage
@@ -723,4 +723,3 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 
 	return env
 }
-

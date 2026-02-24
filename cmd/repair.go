@@ -105,8 +105,8 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	}
 
 	type fileEntry struct {
-		check          repairFileCheck
-		label          string
+		check           repairFileCheck
+		label           string
 		defaultSelected bool
 	}
 
@@ -222,7 +222,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s✓%s All files are up to date\n\n", colorGreen, colorReset)
 	}
 
-	// Scan for deprecated @saswatds/astro-messaging references
+	// Scan for deprecated astro-messaging references
 	checkDeprecatedPackages(workingDir, reader, yesFlag)
 
 	// Remove deprecated build args/secrets from astroai.yml
@@ -382,10 +382,10 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 	return config
 }
 
-// checkDeprecatedPackages scans project files for @saswatds/astro-messaging and prompts to update.
+// checkDeprecatedPackages scans project files for astro-messaging and prompts to update.
 func checkDeprecatedPackages(workingDir string, reader *bufio.Reader, yes bool) {
-	const oldPkg = "@saswatds/astro-messaging"
-	const newPkg = "@astromode-ai/astro-messaging"
+	const oldPkg = "@astromode-ai/astro-messaging"
+	const newPkg = "@astropods/messaging"
 
 	pattern := regexp.MustCompile(regexp.QuoteMeta(oldPkg))
 
