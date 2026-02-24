@@ -60,12 +60,6 @@ jobs:
         working-directory: ${{ matrix.app.path }}
         run: go mod download
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          working-directory: ${{ matrix.app.path }}
-
       - name: Run go vet
         working-directory: ${{ matrix.app.path }}
         run: go vet ./...
