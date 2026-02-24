@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -e
+
+# Run gofmt on staged Go files
+STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [ -n "$STAGED_GO" ]; then
+  UNFORMATTED=$(echo "$STAGED_GO" | xargs gofmt -l 2>/dev/null || true)
+  if [ -n "$UNFORMATTED" ]; then
+    echo "gofmt: the following files need formatting:"
+    echo "$UNFORMATTED"
+    echo "Run: gofmt -w <files>"
+    exit 1
+  fi
+fi

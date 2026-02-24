@@ -29,6 +29,15 @@ export PATH="$HOME/.moon/bin:$PATH"
 
 Or use via bun: `bun x moon run <task>`.
 
+## Setup
+
+```bash
+bun install
+git config core.hooksPath .githooks
+```
+
+The pre-commit hook runs `gofmt` on staged Go files.
+
 ## Project Structure
 
 ```
