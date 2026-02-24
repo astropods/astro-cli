@@ -15,8 +15,8 @@ const VISIBLE_COUNT = 3;
 
 function PermissionItem({ text }: { text: string }) {
   return (
-    <div className="flex gap-2">
-      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    <div className="flex items-center gap-2">
+      <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span>{text}</span>
     </div>
   );
@@ -32,7 +32,7 @@ export function PermissionsPreview({ permissions }: PermissionsPreviewProps) {
 
   return (
     <SidebarSection title="Permissions">
-      <div className="flex flex-col gap-2 text-[13px] text-muted-foreground">
+      <div className="flex flex-col gap-2 text-sm text-foreground">
         {visible.map((p) => (
           <PermissionItem key={p} text={p} />
         ))}

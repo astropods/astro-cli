@@ -8,7 +8,7 @@ export interface SidebarSectionProps {
 export function SidebarSection({ title, children }: SidebarSectionProps) {
   return (
     <div>
-      <span className="text-xs text-muted-foreground mb-3 block">{title}</span>
+      <span className="text-xs text-muted-foreground mb-2 block">{title}</span>
       {children}
     </div>
   );
