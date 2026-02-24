@@ -6,7 +6,7 @@ import { VariableFields } from "./VariableFields";
 import type { VariableDisplay } from "./VariableFields";
 
 const ADAPTER_ICONS: Record<string, ReactNode> = {
-  web: <Globe className="h-5 w-5 text-muted-foreground" />,
+  web: <Globe className="h-5 w-5 text-muted-foreground" strokeWidth={1.5} />,
   slack: <Slack className="h-5 w-5" />,
 };
 
@@ -52,7 +52,7 @@ export function InterfacesPicker({
               onClick={() => toggle(adapter.id)}
               className="w-[calc(100%+1.5rem)] flex items-center gap-4 py-4 pl-3 pr-6 -ml-3 -mr-3 rounded-[6px] text-left cursor-pointer transition-colors hover:bg-primary/5"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-stone-100 shrink-0">
                 {icon}
               </div>
               <div className="flex flex-col gap-0.5 flex-1 min-w-0">

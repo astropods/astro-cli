@@ -11,6 +11,7 @@ import { VariableFields } from "@/components/deploy/VariableFields";
 import { FormSection } from "@/components/deploy/FormSection";
 import { ErrorPanel } from "@/components/deploy/ErrorPanel";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { AgentIdentity } from "@/components/AgentIdentity";
 
 // --- Loader & Meta ---
 
@@ -103,12 +104,17 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
         <div className="flex-1 overflow-y-auto">
         <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto px-6 pt-8 pb-12 md:px-8 md:pt-10">
           {/* Header */}
-          <h1 className="text-2xl font-semibold mb-1">
-            Install <span className="text-muted-foreground font-normal">{agent.account}/</span>{agent.name}
-          </h1>
-          <p className="text-sm text-muted-foreground mb-8">
-            Configure and launch this agent
-          </p>
+          <div className="flex items-start gap-4 mb-8">
+            <AgentIdentity account={agent.account} name={agent.name} size={48} className="size-12 shrink-0 rounded-lg overflow-hidden" />
+            <div>
+              <h1 className="text-2xl font-semibold mb-1">
+                Install <span className="text-muted-foreground font-normal">{agent.account}/</span>{agent.name}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Configure and launch this agent
+              </p>
+            </div>
+          </div>
 
           {form.templateErrorMessage && (
             <div className="mb-8">
