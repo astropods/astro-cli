@@ -609,3 +609,22 @@ func TestAstroYml_MultipleIngestions_DockerfilePaths(t *testing.T) {
 		}
 	}
 }
+
+// TestAstroYml_ScheduleIngestion_NoDevSchedules ensures the generated spec does
+// not include a dev.schedules block — triggering is handled via `ast dev trigger`.
+func TestAstroYml_ScheduleIngestion_NoDevSchedules(t *testing.T) {
+	yaml := renderAstroYml(t, ScaffoldConfig{
+		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Integrations: []string{}, IntegrationKeys: map[string]string{},
+		Knowledge: []string{}, Ingestions: []string{"schedule"},
+	})
+
+	s, err := spec.ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+	}
+
+	if s.Dev != nil && len(s.Dev.Schedules) > 0 {
+		t.Errorf("expected no dev.schedules, got %v", s.Dev.Schedules)
+	}
+}

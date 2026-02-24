@@ -56,7 +56,6 @@ Tests include push version/auto logic, `baseVersion`, `updateSpecVersion`, and `
 - **Compose Go** — Docker Compose project generation
 - **ORAS** (crane) — OCI artifact push (via auth/crane)
 - **fsnotify** — File watching for hot reload
-- **cron** — Scheduling for ingestion triggers
 - **astro-spec** (internal package) — YAML spec parsing and types
 
 ## Project structure

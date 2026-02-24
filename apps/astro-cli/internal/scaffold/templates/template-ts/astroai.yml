@@ -68,14 +68,8 @@ ingestion:
       type: {{.}}
 {{- end}}
 {{- end}}
-{{- if or (gt (len .Interfaces) 0) (.HasIngestion "schedule")}}
+{{- if gt (len .Interfaces) 0}}
 
 dev:
-{{- if gt (len .Interfaces) 0}}
   interfaces: [{{- range $i, $v := .Interfaces}}{{if $i}}, {{end}}{{$v}}{{- end}}]
-{{- end}}
-{{- if .HasIngestion "schedule"}}
-  schedules:
-    data: "0 * * * *"  # every hour
-{{- end}}
 {{- end}}

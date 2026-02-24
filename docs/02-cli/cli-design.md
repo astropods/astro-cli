@@ -39,17 +39,18 @@ astro create <agent-name>
 ```
 <agent-name>/
 ├── astroai.yml              # Agent specification
-├── Dockerfile             # Agent container (Bun runtime)
-├── Dockerfile.ingestion   # Ingestion pipeline (if enabled)
-├── package.json           # Bun dependencies
-├── tsconfig.json          # TypeScript config
-├── .env.example           # Environment variables template
+├── Dockerfile               # Agent container (Bun runtime)
+├── package.json             # Bun dependencies
+├── tsconfig.json            # TypeScript config
+├── .env                     # Secrets and API keys
 ├── .gitignore
 ├── .dockerignore
 ├── agent/
-│   └── index.ts           # Agent entry point (HTTP server)
-└── ingestion/
-    └── index.ts           # Data pipeline script
+│   └── index.ts             # Agent entry point
+└── ingestion/               # One subdirectory per ingestion type (if enabled)
+    └── <type>/
+        ├── Dockerfile       # Ingestion container for this trigger type
+        └── index.ts         # Ingestion script
 ```
 
 **Naming rules:**
@@ -129,49 +130,48 @@ astro publish [options]
 
 ### astro dev
 
-Runs agent locally with hot reload for development.
+Runs the agent and all supporting containers locally.
 
-**Usage:**
-```bash
-astro dev [options]
-```
+**Subcommands:**
 
-**Options:**
+| Subcommand | Description |
+|---|---|
+| `ast dev` / `ast dev start` | Build and start all containers (exits after start) |
+| `ast dev logs [service]` | Tail container logs (default: agent) |
+| `ast dev stop` | Stop and remove all containers |
+| `ast dev trigger <name>` | Manually trigger a named ingestion job |
+
+**Options (start):**
 - `-f, --file <path>` - Path to astroai.yml (default: ./astroai.yml)
-- `--env <file>` - Environment file for integration credentials (default: .env)
-- `--no-reload` - Disable hot reload
+- `--env <file>` - Environment file for credentials (default: .env)
+- `--rebuild` - Force rebuild without cache
+- `--no-pull` - Skip pulling images
 
 **What it does:**
-1. Validates astroai.yml spec
-2. Spins up self-hosted components locally:
-   - Models (docker containers from `models.*.container`)
-   - Knowledge stores (docker containers from `knowledge.*.container`)
-   - Tools (docker containers from `tools.*.container`)
-3. Builds and runs agent container with:
-   - Volume mounts for hot reload (watches source files)
-   - Injected connection strings for local components
-   - Injected credentials from .env for integrations
-   - Port forwarding for interfaces
-4. Watches for changes:
-   - Rebuilds agent on source code changes
-   - Restarts agent container
-   - Does NOT rebuild component containers (restart dev to rebuild)
+1. Parses `astroai.yml`
+2. Generates a Docker Compose project covering all spec components (models, knowledge, tools, messaging, ingestion)
+3. Writes `.ast/docker-compose.yml`
+4. Runs `docker compose up -d --build` and exits
+
+**Ingestion handling:**
+
+| Trigger type | Behaviour |
+|---|---|
+| `startup` | Ingestion container is run once synchronously before the CLI exits |
+| `webhook` | Started alongside the agent as a persistent container; port exposed (default 3001) |
+| `schedule` | Not auto-triggered; use `ast dev trigger <name>` on demand |
+| `manual` | Not auto-triggered; use `ast dev trigger <name>` on demand |
+
+**`ast dev trigger <name>`:**
+
+Runs an ingestion container as a one-shot job against the running dev environment:
+```bash
+ast dev trigger schedule   # runs ingestion-schedule container and exits
+```
 
 **Integration credentials:**
-- Reads from .env file (or specified --env)
-- Expected format:
-  ```
-  ANTHROPIC_API_KEY=sk-...
-  GITHUB_TOKEN=ghp_...
-  PINECONE_API_KEY=...
-  ```
-- Injects into agent container as environment variables
-
-**Hot reload:**
-- Watches: `container.build.context` directory
-- Ignores: node_modules, .git, build artifacts
-- On change: rebuilds agent image, restarts container
-- Components stay running (manual restart needed for component changes)
+- Reads from .env (or `--env`)
+- Injects into all containers as environment variables
 
 ---
 

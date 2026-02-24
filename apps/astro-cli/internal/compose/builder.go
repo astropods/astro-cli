@@ -448,7 +448,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Add ingestion services if defined
-	// Each ingestion is a container that runs on a trigger (schedule, manual, startup)
+	// Each ingestion is a container that runs on a trigger (schedule, manual, startup, webhook)
 	for name, ingestion := range s.Ingestion {
 		serviceName := fmt.Sprintf("ingestion-%s", name)
 		service := types.ServiceConfig{
@@ -456,8 +456,20 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			Networks: map[string]*types.ServiceNetworkConfig{
 				"astro-dev": nil,
 			},
-			// Don't auto-start - triggered by scheduler or manually
-			Profiles: []string{"ingestion"},
+		}
+
+		// webhook ingestions run as persistent servers — start with compose up and expose their port.
+		// All other types are triggered on-demand (scheduler or manual) and use the ingestion profile.
+		if ingestion.Trigger.Type == "webhook" {
+			port := ingestion.Container.Port
+			if port == 0 {
+				port = 3001
+			}
+			service.Ports = []types.ServicePortConfig{
+				{Target: uint32(port), Published: fmt.Sprintf("%d", port)},
+			}
+		} else {
+			service.Profiles = []string{"ingestion"}
 		}
 
 		// Build or image configuration
