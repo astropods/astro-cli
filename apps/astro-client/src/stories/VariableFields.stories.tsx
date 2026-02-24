@@ -1,18 +1,18 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { CredentialFields, type CredentialFieldsProps } from "@/components/deploy/CredentialFields";
+import { VariableFields, type VariableFieldsProps } from "@/components/deploy/VariableFields";
 
-function CredentialFieldsStateful(props: CredentialFieldsProps) {
+function VariableFieldsStateful(props: VariableFieldsProps) {
   const [values, setValues] = useState<Record<string, string>>(props.values);
-  return <CredentialFields {...props} values={values} onChange={setValues} />;
+  return <VariableFields {...props} values={values} onChange={setValues} />;
 }
 
 const meta = {
-  title: "Deploy/CredentialFields",
-  component: CredentialFieldsStateful,
+  title: "Deploy/VariableFields",
+  component: VariableFieldsStateful,
   parameters: { layout: "padded" },
-} satisfies Meta<typeof CredentialFieldsStateful>;
+} satisfies Meta<typeof VariableFieldsStateful>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -20,8 +20,8 @@ type Story = StoryObj<typeof meta>;
 export const SingleRequired: Story = {
   name: "Single Required Field",
   args: {
-    credentials: [
-      ["OPENAI_API_KEY", { value: "", description: "OpenAI API key for the model provider", optional: false }],
+    variables: [
+      ["OPENAI_API_KEY", { description: "OpenAI API key for the model provider", optional: false }],
     ],
     values: {},
     onChange: () => {},
@@ -31,10 +31,10 @@ export const SingleRequired: Story = {
 export const MultipleFields: Story = {
   name: "Multiple Fields",
   args: {
-    credentials: [
-      ["OPENAI_API_KEY", { value: "", description: "OpenAI API key for the model provider", optional: false }],
-      ["ANTHROPIC_API_KEY", { value: "", description: "Anthropic API key", optional: false }],
-      ["DATABASE_URL", { value: "", description: "Postgres connection string", optional: false }],
+    variables: [
+      ["OPENAI_API_KEY", { description: "OpenAI API key for the model provider", optional: false }],
+      ["ANTHROPIC_API_KEY", { description: "Anthropic API key", optional: false }],
+      ["DATABASE_URL", { description: "Postgres connection string", optional: false }],
     ],
     values: {},
     onChange: () => {},
@@ -44,9 +44,9 @@ export const MultipleFields: Story = {
 export const WithOptionalFields: Story = {
   name: "With Optional Fields",
   args: {
-    credentials: [
-      ["SLACK_WEBHOOK_URL", { value: "", description: "Webhook for notifications", optional: true }],
-      ["SENTRY_DSN", { value: "", description: "Sentry DSN for error tracking", optional: true }],
+    variables: [
+      ["SLACK_WEBHOOK_URL", { description: "Webhook for notifications", optional: true }],
+      ["SENTRY_DSN", { description: "Sentry DSN for error tracking", optional: true }],
     ],
     values: {},
     onChange: () => {},
@@ -56,11 +56,10 @@ export const WithOptionalFields: Story = {
 export const WithHelpLinks: Story = {
   name: "With Help Links",
   args: {
-    credentials: [
+    variables: [
       [
         "SLACK_BOT_TOKEN",
         {
-          value: "",
           description: "Slack bot token for messaging",
           optional: false,
           label: "Slack Bot Token",
@@ -71,7 +70,6 @@ export const WithHelpLinks: Story = {
       [
         "SLACK_APP_TOKEN",
         {
-          value: "",
           description: "Slack app token for socket mode",
           optional: false,
           label: "Slack App Token",
@@ -88,9 +86,9 @@ export const WithHelpLinks: Story = {
 export const Prefilled: Story = {
   name: "Prefilled Values",
   args: {
-    credentials: [
-      ["OPENAI_API_KEY", { value: "", description: "OpenAI API key", optional: false }],
-      ["DATABASE_URL", { value: "", description: "Postgres connection string", optional: false }],
+    variables: [
+      ["OPENAI_API_KEY", { description: "OpenAI API key", optional: false }],
+      ["DATABASE_URL", { description: "Postgres connection string", optional: false }],
     ],
     values: {
       OPENAI_API_KEY: "sk-abc123...",

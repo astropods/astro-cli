@@ -73,14 +73,17 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 	// Step 3: Fill user-provided values
 	ds.Target.Namespace = opts.Namespace
 
-	// Fill credential values
+	// Fill credential/variable values
 	for key, val := range opts.Credentials {
-		cred, ok := ds.Credentials[key]
-		if !ok {
-			t.Fatalf("credential %q not in deployment spec (available: %v)", key, credentialKeys(ds.Credentials))
+		if ds.Variables == nil {
+			ds.Variables = make(map[string]spec.Variable)
 		}
-		cred.Value = val
-		ds.Credentials[key] = cred
+		v, ok := ds.Variables[key]
+		if !ok {
+			t.Fatalf("variable %q not in deployment spec (available: %v)", key, variableKeys(ds.Variables))
+		}
+		v.Value = val
+		ds.Variables[key] = v
 	}
 
 	// Fill schedules
@@ -101,7 +104,7 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 		Namespace:  opts.Namespace,
 		AgentName:  astroSpec.Name,
 		BuildID:    opts.BuildID,
-		SecretName: deployment.GenerateCredentialSecretName(astroSpec.Name, opts.BuildID),
+		SecretName: deployment.GenerateSecretName(astroSpec.Name, opts.BuildID),
 	}
 	deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
@@ -195,9 +198,9 @@ agent:
 		t.Error("expected agent Service")
 	}
 
-	// Verify correct image in the deployment spec
-	if r.DeploymentSpec.Agent.Port != 8080 {
-		t.Errorf("expected default port 8080, got %d", r.DeploymentSpec.Agent.Port)
+	// Verify correct port in the deployment spec
+	if spec.PrimaryPort(r.DeploymentSpec.Agent.Endpoints) != 8080 {
+		t.Errorf("expected default port 8080, got %d", spec.PrimaryPort(r.DeploymentSpec.Agent.Endpoints))
 	}
 
 	// Check agent-http endpoint
@@ -282,17 +285,17 @@ models:
 
 	// Secret should contain the credential
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["ANTHROPIC_API_KEY"]) != "sk-ant-test-key" {
 		t.Errorf("expected ANTHROPIC_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	// Agent env should reference the credential
+	// Agent env should reference the variable
 	if ref, ok := r.DeploymentSpec.Agent.Environment["ANTHROPIC_API_KEY"]; !ok {
 		t.Error("expected ANTHROPIC_API_KEY in agent env")
-	} else if !strings.Contains(ref, "credentials") {
-		t.Errorf("expected credential reference, got %q", ref)
+	} else if !strings.Contains(ref, "variables") {
+		t.Errorf("expected variable reference, got %q", ref)
 	}
 }
 
@@ -388,7 +391,7 @@ tools:
 
 	// Secret should have GITHUB_TOKEN
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["GITHUB_TOKEN"]) != "ghp_test123" {
 		t.Errorf("expected GITHUB_TOKEN in secret, got keys: %v", keysOf(secret.Data))
@@ -403,17 +406,25 @@ tools:
 
 func TestE2E_IntegrationCredentials(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
-integrations:
+providers:
   jira:
-    credentials:
-      - suffix: API_TOKEN
+    scope: [tools]
+    variables:
+      - name: JIRA_API_TOKEN
+        datatype: string
+        secret: true
         description: "Jira API token"
-      - suffix: EMAIL
+      - name: JIRA_EMAIL
+        datatype: string
+        secret: true
         description: "Jira account email"
+tools:
+  jira:
+    provider: jira
 `, e2eOpts{
 		Credentials: map[string]string{
 			"JIRA_API_TOKEN": "token-abc",
@@ -425,7 +436,7 @@ integrations:
 
 	// Secret should have both integration credentials
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["JIRA_API_TOKEN"]) != "token-abc" {
 		t.Errorf("expected JIRA_API_TOKEN in secret, got keys: %v", keysOf(secret.Data))
@@ -510,10 +521,15 @@ knowledge:
 tools:
   github:
     provider: github
-integrations:
   jira:
-    credentials:
-      - suffix: TOKEN
+    provider: jira
+providers:
+  jira:
+    scope: [tools]
+    variables:
+      - name: JIRA_TOKEN
+        datatype: string
+        secret: true
         description: "Jira token"
 ingestion:
   daily:
@@ -584,7 +600,7 @@ ingestion:
 	}
 
 	// Secret should exist with credentials
-	if !r.hasResource("Secret", deployment.GenerateCredentialSecretName("my-agent", "build-001")) {
+	if !r.hasResource("Secret", deployment.GenerateSecretName("my-agent", "build-001")) {
 		t.Error("expected credentials Secret")
 	}
 
@@ -632,7 +648,7 @@ ingestion:
 	}
 
 	// Verify Secret data
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	expectedSecretKeys := []string{"ANTHROPIC_API_KEY", "GITHUB_TOKEN", "JIRA_TOKEN"}
 	for _, key := range expectedSecretKeys {
@@ -792,7 +808,7 @@ models:
 
 	// Cloud provider → credential in Secret, reference resolved in ConfigMap
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["OPENAI_API_KEY"]) != "sk-openai-test" {
 		t.Errorf("expected OPENAI_API_KEY=sk-openai-test in secret")
@@ -831,7 +847,7 @@ models:
 	requireNoErrors(t, r)
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	// Each cloud provider gets a {PROVIDER}_API_KEY credential
@@ -987,7 +1003,7 @@ knowledge:
 
 	// Credential in Secret
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["PINECONE_API_KEY"]) != "pc-test-key" {
 		t.Errorf("expected PINECONE_API_KEY in secret")
@@ -1044,7 +1060,7 @@ tools:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["GITLAB_TOKEN"]) != "glpat-test" {
 		t.Errorf("expected GITLAB_TOKEN in secret")
@@ -1122,7 +1138,7 @@ knowledge:
 func TestE2E_ProviderEnv_CredentialResolvedValues(t *testing.T) {
 	// Credential references resolve to the actual credential value in the ConfigMap
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1132,10 +1148,15 @@ models:
 tools:
   github:
     provider: github
-integrations:
   slack:
-    credentials:
-      - suffix: WEBHOOK_URL
+    provider: slack-provider
+providers:
+  slack-provider:
+    scope: [tools]
+    variables:
+      - name: SLACK_WEBHOOK_URL
+        datatype: string
+        secret: true
         description: "Slack webhook"
 `, e2eOpts{
 		Credentials: map[string]string{
@@ -1150,7 +1171,7 @@ integrations:
 	ns := r.DeploymentSpec.Target.Namespace
 
 	// All credential values should be in the Secret
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	wantSecret := map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-real",
@@ -1314,7 +1335,7 @@ models:
 
 	// Provider-prefixed keys in the Secret
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["ANTHROPIC_API_KEY"]) != "sk-bare" {
@@ -1364,7 +1385,7 @@ tools:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["GITHUB_TOKEN"]) != "ghp_bare" {
@@ -1406,7 +1427,7 @@ models:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	// Only 2 keys: bare + name-qualified for fallback (no ANTHROPIC_ANTHROPIC_API_KEY)
@@ -1454,7 +1475,7 @@ models:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["OPENAI_API_KEY"]) != "sk-bare" {
@@ -1502,7 +1523,7 @@ models:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["GOOGLE_API_KEY"]) != "goog-bare" {
@@ -1550,7 +1571,7 @@ models:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["COHERE_API_KEY"]) != "co-bare" {
@@ -1602,7 +1623,7 @@ knowledge:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["PINECONE_API_KEY"]) != "pc-bare" {
@@ -1654,7 +1675,7 @@ tools:
 	}
 
 	ns := r.DeploymentSpec.Target.Namespace
-	secretName := deployment.GenerateCredentialSecretName("my-agent", "build-001")
+	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
 	if string(secret.Data["GITLAB_TOKEN"]) != "glpat-bare" {
@@ -1932,7 +1953,7 @@ tools:
 
 // --- utility ---
 
-func credentialKeys(m map[string]spec.DeploymentCredential) []string {
+func variableKeys(m map[string]spec.Variable) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

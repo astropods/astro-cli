@@ -172,7 +172,7 @@ describe('InstallAgent page', () => {
     it('hides sections when template has no credentials', async () => {
       server.use(
         http.get('/api/v1/agents/:account/:name/deployment-template', () =>
-          HttpResponse.json({ ...mockTemplate, credentials: {} }),
+          HttpResponse.json({ ...mockTemplate, variables: {} }),
         ),
       );
 
@@ -381,14 +381,11 @@ describe('InstallAgent page', () => {
 
       const payload = capturedRequests[0] as Record<string, unknown>;
       expect(payload).toMatchObject({
-        account: 'testuser',
-        name: AGENT,
-        user_credentials: {
-          OPENAI_API_KEY: 'sk-test123',
-          SLACK_BOT_TOKEN: 'xoxb-test',
-          SLACK_APP_TOKEN: 'xapp-test',
+        spec: 'deployment/v1',
+        source: { account: 'testuser', name: AGENT },
+        variables: {
+          OPENAI_API_KEY: expect.objectContaining({ value: 'sk-test123' }),
         },
-        interfaces: expect.arrayContaining(['web', 'slack']),
       });
     });
 
@@ -445,8 +442,8 @@ describe('InstallAgent page', () => {
         http.post('/api/v1/deploy', () =>
           HttpResponse.json(
             {
-              error: 'missing_credentials',
-              missing_credentials: ['SECRET_TOKEN'],
+              error: 'missing_variables',
+              missing_variables: ['SECRET_TOKEN'],
             },
             { status: 400 },
           ),
@@ -461,7 +458,7 @@ describe('InstallAgent page', () => {
       await user.click(screen.getByRole('button', { name: /launch agent/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Missing credentials: SECRET_TOKEN/)).toBeInTheDocument();
+        expect(screen.getByText(/Missing variables: SECRET_TOKEN/)).toBeInTheDocument();
       });
     });
   });

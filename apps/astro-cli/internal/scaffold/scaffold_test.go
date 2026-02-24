@@ -2,6 +2,7 @@ package scaffold
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,8 +73,8 @@ func TestAstroYml_GitHubUnderTools(t *testing.T) {
 	if _, ok := s.Tools["github"]; !ok {
 		t.Errorf("expected github under tools, got tools=%v", s.Tools)
 	}
-	if len(s.Integrations) != 0 {
-		t.Errorf("expected no integrations, got %v", s.Integrations)
+	if len(s.Providers) != 0 {
+		t.Errorf("expected no integrations, got %v", s.Providers)
 	}
 }
 
@@ -147,8 +148,8 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 	}
 
 	// Integrations: none (all mapped to models/tools)
-	if len(s.Integrations) != 0 {
-		t.Errorf("expected no integrations, got %v", s.Integrations)
+	if len(s.Providers) != 0 {
+		t.Errorf("expected no integrations, got %v", s.Providers)
 	}
 
 	// Ingestion
@@ -188,8 +189,8 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 	if len(s.Tools) != 0 {
 		t.Errorf("expected no tools, got %v", s.Tools)
 	}
-	if len(s.Integrations) != 0 {
-		t.Errorf("expected no integrations, got %v", s.Integrations)
+	if len(s.Providers) != 0 {
+		t.Errorf("expected no integrations, got %v", s.Providers)
 	}
 }
 
@@ -607,6 +608,80 @@ func TestAstroYml_MultipleIngestions_DockerfilePaths(t *testing.T) {
 		if ing.Container.Build.Dockerfile != wantDockerfile {
 			t.Errorf("ingestion[%q] dockerfile = %q, want %q", ingType, ing.Container.Build.Dockerfile, wantDockerfile)
 		}
+	}
+}
+
+// validateWithParseSpec writes yaml to a temp file and runs the same semantic
+// validation that `ast validate` uses (spec.ParseSpec). This catches errors that
+// spec.ParseString silently ignores (missing required fields, mutual exclusions, etc.).
+func validateWithParseSpec(t *testing.T, yaml string) {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "astroai-*.yml")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(yaml); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := spec.ParseSpec(f.Name()); err != nil {
+		t.Errorf("ast validate (ParseSpec) failed:\n%s\nerror: %v", yaml, err)
+	}
+}
+
+// TestAstroYml_PassesSpecValidate checks that the generated astroai.yml passes
+// the same semantic validation run by `ast validate` for representative configs.
+func TestAstroYml_PassesSpecValidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		config ScaffoldConfig
+	}{
+		{
+			name: "minimal",
+			config: ScaffoldConfig{
+				Name: "bare-agent", Description: "minimal",
+				Interfaces: []string{"web"}, Integrations: []string{},
+				IntegrationKeys: map[string]string{}, Knowledge: []string{}, Ingestions: []string{},
+			},
+		},
+		{
+			name: "full infrastructure",
+			config: ScaffoldConfig{
+				Name: "full-agent", Description: "full",
+				Interfaces:      []string{"web", "slack"},
+				ModelProvider:   "ollama", Model: "mistral",
+				Integrations:    []string{"anthropic", "openai", "github"},
+				IntegrationKeys: map[string]string{},
+				Knowledge:       []string{"qdrant", "redis", "neo4j"},
+				Ingestions:      []string{"schedule", "webhook"},
+			},
+		},
+		{
+			name: "anthropic only",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{},
+				Knowledge: []string{}, Ingestions: []string{},
+			},
+		},
+		{
+			name: "all ingestion types",
+			config: ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Integrations: []string{}, IntegrationKeys: map[string]string{},
+				Knowledge: []string{}, Ingestions: []string{"schedule", "webhook", "manual", "startup"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yaml := renderAstroYml(t, tt.config)
+			validateWithParseSpec(t, yaml)
+		})
 	}
 }
 

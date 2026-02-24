@@ -7,7 +7,7 @@ import { createServerApi } from "@/lib/api.server";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { InterfacesPicker } from "@/components/deploy/InterfacesPicker";
-import { CredentialFields } from "@/components/deploy/CredentialFields";
+import { VariableFields } from "@/components/deploy/VariableFields";
 import { FormSection } from "@/components/deploy/FormSection";
 import { ErrorPanel } from "@/components/deploy/ErrorPanel";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
@@ -130,25 +130,25 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                 />
               </FormSection>
 
-              {/* Required credentials */}
-              {form.requiredCredentials.length > 0 && (
+              {/* Required variables */}
+              {form.requiredVariables.length > 0 && (
                 <FormSection title="Configuration" description="Required configuration for this agent.">
-                  <CredentialFields
-                    credentials={form.requiredCredentials}
-                    values={form.credentialValues}
-                    onChange={form.setCredentialValues}
+                  <VariableFields
+                    variables={form.requiredVariables}
+                    values={form.variableValues}
+                    onChange={form.setVariableValues}
                     errorKeys={form.errors.credentials}
                   />
                 </FormSection>
               )}
 
-              {/* Optional credentials */}
-              {form.optionalCredentials.length > 0 && (
+              {/* Optional variables */}
+              {form.optionalVariables.length > 0 && (
                 <FormSection title="Optional credentials" description="These are not required but enable additional functionality.">
-                  <CredentialFields
-                    credentials={form.optionalCredentials}
-                    values={form.credentialValues}
-                    onChange={form.setCredentialValues}
+                  <VariableFields
+                    variables={form.optionalVariables}
+                    values={form.variableValues}
+                    onChange={form.setVariableValues}
                   />
                 </FormSection>
               )}

@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { AlertCircle, Check, Globe } from "lucide-react";
 import { Slack } from "@/components/ui/svgs/slack";
 import { AVAILABLE_ADAPTERS, ADAPTER_CREDENTIALS } from "./useDeployForm";
-import { CredentialFields } from "./CredentialFields";
-import type { DeploymentTemplateCredential } from "@/lib/api";
+import { VariableFields } from "./VariableFields";
+import type { VariableDisplay } from "./VariableFields";
 
 const ADAPTER_ICONS: Record<string, ReactNode> = {
   web: <Globe className="h-5 w-5 text-muted-foreground" />,
@@ -40,8 +40,8 @@ export function InterfacesPicker({
         const creds = ADAPTER_CREDENTIALS[adapter.id];
         const hasCredentials = isSelected && creds && creds.length > 0;
 
-        const credentialEntries: [string, DeploymentTemplateCredential & { label?: string; placeholder?: string; helpUrl?: string }][] = creds
-          ? creds.map((c) => [c.key, { value: "", description: c.description, optional: false, label: c.label, placeholder: c.placeholder, helpUrl: c.helpUrl }])
+        const credentialEntries: [string, VariableDisplay][] = creds
+          ? creds.map((c) => [c.key, { description: c.description, optional: false, label: c.label, placeholder: c.placeholder, helpUrl: c.helpUrl }])
           : [];
 
         return (
@@ -69,8 +69,8 @@ export function InterfacesPicker({
             </button>
             {hasCredentials && (
               <div className="pt-2 pb-4">
-                <CredentialFields
-                  credentials={credentialEntries}
+                <VariableFields
+                  variables={credentialEntries}
                   values={adapterCredentials}
                   onChange={onAdapterCredentialsChange}
                   errorKeys={adapterErrorKeys}

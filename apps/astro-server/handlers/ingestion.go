@@ -117,7 +117,7 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		resourceName := deployment.GenerateResourceName(agentName, "ingestion", ingestionName)
 		jobName := fmt.Sprintf("%s-%d", resourceName, time.Now().Unix())
 
-		secretName := deployment.GenerateCredentialSecretName(agentName, buildID)
+		secretName := deployment.GenerateSecretName(agentName, buildID)
 		configMapName := deployment.GenerateConfigMapName(agentName, buildID)
 
 		jobCfg := k8s.JobConfig{

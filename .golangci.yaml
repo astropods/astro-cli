@@ -28,7 +28,5 @@ linters:
     - usestdlibvars
     - usetesting
   exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - gosec
+    paths:
+      - ".*_test\\.go$"

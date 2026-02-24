@@ -4,7 +4,7 @@
   "properties": {
     "spec": {
       "type": "string",
-      "description": "Spec version (e.g. astro/v1)"
+      "description": "Spec version. Must be package/v1"
     },
     "name": {
       "type": "string",
@@ -73,6 +73,10 @@
             "dockerfile"
           ]
         },
+        "distributed": {
+          "type": "boolean",
+          "description": "Whether the agent supports multi-replica deployment"
+        },
         "healthcheck": {
           "properties": {
             "test": {
@@ -96,6 +100,65 @@
           },
           "additionalProperties": false,
           "type": "object"
+        },
+        "inputs": {
+          "items": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Env var key injected into the target container"
+              },
+              "datatype": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "boolean",
+                  "number",
+                  "array",
+                  "object"
+                ],
+                "description": "Value type"
+              },
+              "secret": {
+                "type": "boolean",
+                "description": "If true"
+              },
+              "description": {
+                "type": "string"
+              },
+              "display-as": {
+                "type": "string",
+                "enum": [
+                  "short-text",
+                  "long-text",
+                  "select"
+                ],
+                "description": "UI rendering hint"
+              },
+              "options": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "Allowed values; required when display-as is select"
+              },
+              "default": {
+                "type": "string"
+              },
+              "optional": {
+                "type": "boolean",
+                "description": "If true"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "name",
+              "datatype"
+            ]
+          },
+          "type": "array",
+          "description": "User-supplied inputs injected into the agent container"
         }
       },
       "additionalProperties": false,
@@ -107,7 +170,7 @@
         "properties": {
           "provider": {
             "type": "string",
-            "description": "Platform-managed provider (e.g. ollama)"
+            "description": "Platform-managed provider (e.g. ollama) or custom provider name"
           },
           "model": {
             "type": "string",
@@ -219,6 +282,65 @@
             "additionalProperties": false,
             "type": "object",
             "description": "Custom container config (alternative to provider)"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Env var key injected into the target container"
+                },
+                "datatype": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "boolean",
+                    "number",
+                    "array",
+                    "object"
+                  ],
+                  "description": "Value type"
+                },
+                "secret": {
+                  "type": "boolean",
+                  "description": "If true"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "display-as": {
+                  "type": "string",
+                  "enum": [
+                    "short-text",
+                    "long-text",
+                    "select"
+                  ],
+                  "description": "UI rendering hint"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "Allowed values; required when display-as is select"
+                },
+                "default": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "If true"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "datatype"
+              ]
+            },
+            "type": "array",
+            "description": "User-supplied inputs injected into the model container"
           }
         },
         "additionalProperties": false,
@@ -341,6 +463,65 @@
           },
           "persistent": {
             "type": "boolean"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Env var key injected into the target container"
+                },
+                "datatype": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "boolean",
+                    "number",
+                    "array",
+                    "object"
+                  ],
+                  "description": "Value type"
+                },
+                "secret": {
+                  "type": "boolean",
+                  "description": "If true"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "display-as": {
+                  "type": "string",
+                  "enum": [
+                    "short-text",
+                    "long-text",
+                    "select"
+                  ],
+                  "description": "UI rendering hint"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "Allowed values; required when display-as is select"
+                },
+                "default": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "If true"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "datatype"
+              ]
+            },
+            "type": "array",
+            "description": "User-supplied inputs injected into the knowledge container"
           }
         },
         "additionalProperties": false,
@@ -354,7 +535,7 @@
         "properties": {
           "provider": {
             "type": "string",
-            "description": "Cloud provider (e.g. github)"
+            "description": "Platform provider (e.g. github) or custom provider name"
           },
           "container": {
             "properties": {
@@ -461,6 +642,65 @@
             },
             "additionalProperties": false,
             "type": "object"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Env var key injected into the target container"
+                },
+                "datatype": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "boolean",
+                    "number",
+                    "array",
+                    "object"
+                  ],
+                  "description": "Value type"
+                },
+                "secret": {
+                  "type": "boolean",
+                  "description": "If true"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "display-as": {
+                  "type": "string",
+                  "enum": [
+                    "short-text",
+                    "long-text",
+                    "select"
+                  ],
+                  "description": "UI rendering hint"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "Allowed values; required when display-as is select"
+                },
+                "default": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "If true"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "datatype"
+              ]
+            },
+            "type": "array",
+            "description": "User-supplied inputs injected into the tool container"
           }
         },
         "additionalProperties": false,
@@ -469,41 +709,148 @@
       "type": "object",
       "description": "Tool sidecar containers"
     },
-    "integrations": {
+    "providers": {
       "additionalProperties": {
         "properties": {
-          "config": {
-            "type": "object",
-            "description": "Provider-specific configuration"
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Sections that may reference this provider"
           },
-          "credentials": {
+          "variables": {
             "items": {
               "properties": {
-                "suffix": {
-                  "type": "string"
+                "name": {
+                  "type": "string",
+                  "description": "Env var key injected into the target container"
+                },
+                "datatype": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "boolean",
+                    "number",
+                    "array",
+                    "object"
+                  ],
+                  "description": "Value type"
+                },
+                "secret": {
+                  "type": "boolean",
+                  "description": "If true"
                 },
                 "description": {
                   "type": "string"
                 },
+                "display-as": {
+                  "type": "string",
+                  "enum": [
+                    "short-text",
+                    "long-text",
+                    "select"
+                  ],
+                  "description": "UI rendering hint"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "Allowed values; required when display-as is select"
+                },
+                "default": {
+                  "type": "string"
+                },
                 "optional": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "description": "If true"
                 }
               },
               "additionalProperties": false,
               "type": "object",
               "required": [
-                "suffix"
+                "name",
+                "datatype"
               ]
             },
             "type": "array",
-            "description": "Credential requirements"
+            "description": "Variables this provider requires from the user"
+          },
+          "config": {
+            "type": "object",
+            "description": "Provider-specific configuration"
           }
         },
         "additionalProperties": false,
-        "type": "object"
+        "type": "object",
+        "required": [
+          "scope",
+          "variables"
+        ]
       },
       "type": "object",
-      "description": "Cloud integrations"
+      "description": "Custom provider definitions"
+    },
+    "inputs": {
+      "additionalProperties": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Env var key injected into the target container"
+          },
+          "datatype": {
+            "type": "string",
+            "enum": [
+              "string",
+              "boolean",
+              "number",
+              "array",
+              "object"
+            ],
+            "description": "Value type"
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "If true"
+          },
+          "description": {
+            "type": "string"
+          },
+          "display-as": {
+            "type": "string",
+            "enum": [
+              "short-text",
+              "long-text",
+              "select"
+            ],
+            "description": "UI rendering hint"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Allowed values; required when display-as is select"
+          },
+          "default": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean",
+            "description": "If true"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "datatype"
+        ]
+      },
+      "type": "object",
+      "description": "User-supplied inputs injected into every container"
     },
     "ingestion": {
       "additionalProperties": {
@@ -632,6 +979,65 @@
             "required": [
               "type"
             ]
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Env var key injected into the target container"
+                },
+                "datatype": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "boolean",
+                    "number",
+                    "array",
+                    "object"
+                  ],
+                  "description": "Value type"
+                },
+                "secret": {
+                  "type": "boolean",
+                  "description": "If true"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "display-as": {
+                  "type": "string",
+                  "enum": [
+                    "short-text",
+                    "long-text",
+                    "select"
+                  ],
+                  "description": "UI rendering hint"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "description": "Allowed values; required when display-as is select"
+                },
+                "default": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "If true"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "name",
+                "datatype"
+              ]
+            },
+            "type": "array",
+            "description": "User-supplied inputs injected into the ingestion container"
           }
         },
         "additionalProperties": false,

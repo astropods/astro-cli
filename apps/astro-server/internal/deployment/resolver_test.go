@@ -6,12 +6,16 @@ import (
 	"github.com/postman/astro/packages/astro-spec"
 )
 
+func agentEndpoints() map[string]spec.Endpoint {
+	return map[string]spec.Endpoint{"http": {Port: 8080}}
+}
+
 func baseDeploymentSpec() *spec.AstroDeploymentSpec {
 	return &spec.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1", Account: "acme"},
 		Target: spec.DeploymentTarget{Namespace: "prod", Runtime: "kubernetes"},
-		Agent:  spec.DeploymentAgent{Image: "agent:latest", Port: 8080},
+		Agent:  spec.DeploymentAgent{Image: "agent:latest", Endpoints: agentEndpoints()},
 	}
 }
 
@@ -50,31 +54,31 @@ func TestValidateAndResolve_MissingNamespace(t *testing.T) {
 	}
 }
 
-func TestValidateAndResolve_EmptyRequiredCredential(t *testing.T) {
+func TestValidateAndResolve_EmptyRequiredVariable(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Credentials = map[string]spec.DeploymentCredential{
-		"API_KEY": {Value: "", Description: "required key"},
+	ds.Variables = map[string]spec.Variable{
+		"API_KEY": {Value: "", Description: "required key", Secret: true},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Errors) == 0 {
-		t.Fatal("expected validation error for empty required credential")
+		t.Fatal("expected validation error for empty required variable")
 	}
 }
 
-func TestValidateAndResolve_OptionalEmptyCredential(t *testing.T) {
+func TestValidateAndResolve_OptionalEmptyVariable(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Credentials = map[string]spec.DeploymentCredential{
-		"OPTIONAL_KEY": {Value: "", Description: "optional", Optional: true},
+	ds.Variables = map[string]spec.Variable{
+		"OPTIONAL_KEY": {Value: "", Description: "optional", Optional: true, Secret: true},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Errors) > 0 {
-		t.Fatalf("expected no errors for optional empty credential, got %v", result.Errors)
+		t.Fatalf("expected no errors for optional empty variable, got %v", result.Errors)
 	}
 }
 
@@ -132,9 +136,9 @@ func TestValidateAndResolve_MissingScheduleForScheduleTrigger(t *testing.T) {
 func TestValidateAndResolve_InvalidAdapterName(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters: []string{"telegram"},
-		Image:    "messaging:latest",
-		Port:     9090,
+		Adapters:  []string{"telegram"},
+		Image:     "messaging:latest",
+		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -148,9 +152,9 @@ func TestValidateAndResolve_InvalidAdapterName(t *testing.T) {
 func TestValidateAndResolve_SlackAdapterRequiresTokens(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters: []string{"slack"},
-		Image:    "messaging:latest",
-		Port:     9090,
+		Adapters:  []string{"slack"},
+		Image:     "messaging:latest",
+		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -164,13 +168,13 @@ func TestValidateAndResolve_SlackAdapterRequiresTokens(t *testing.T) {
 func TestValidateAndResolve_SlackAdapterWithTokens(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters: []string{"slack"},
-		Image:    "messaging:latest",
-		Port:     9090,
+		Adapters:  []string{"slack"},
+		Image:     "messaging:latest",
+		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
 	}
-	ds.Credentials = map[string]spec.DeploymentCredential{
-		"SLACK_BOT_TOKEN": {Value: "xoxb-123"},
-		"SLACK_APP_TOKEN": {Value: "xapp-456"},
+	ds.Variables = map[string]spec.Variable{
+		"SLACK_BOT_TOKEN": {Value: "xoxb-123", Secret: true},
+		"SLACK_APP_TOKEN": {Value: "xapp-456", Secret: true},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -184,7 +188,7 @@ func TestValidateAndResolve_SlackAdapterWithTokens(t *testing.T) {
 func TestValidateAndResolve_InvalidReference(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Agent.Environment = map[string]string{
-		"LLM_URL": "${models.nonexistent.url}",
+		"LLM_URL": "${models.nonexistent.http.url}",
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -198,10 +202,10 @@ func TestValidateAndResolve_InvalidReference(t *testing.T) {
 func TestValidateAndResolve_ValidReference(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Agent.Environment = map[string]string{
-		"LLM_URL": "${models.llm.url}",
+		"LLM_URL": "${models.llm.http.url}",
 	}
 	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "ollama:latest", Port: 11434},
+		"llm": {Image: "ollama:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 11434}}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -217,13 +221,13 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 	ds.Agent.Replicas = 0
 	ds.Agent.Update = spec.UpdateStrategy{}
 	ds.Models = map[string]spec.DeploymentModel{
-		"llm": {Image: "ollama:latest", Port: 11434},
+		"llm": {Image: "ollama:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 11434}}},
 	}
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
-		"docs": {Image: "qdrant:latest", Port: 6333, Persistent: true},
+		"docs": {Image: "qdrant:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}}, Persistent: true},
 	}
 	ds.Tools = map[string]spec.DeploymentTool{
-		"search": {Image: "search:latest", Port: 3000},
+		"search": {Image: "search:latest", Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}}},
 	}
 
 	result, err := ValidateAndResolve(ds)
@@ -268,7 +272,8 @@ func TestValidateAndResolve_AppliesDefaults(t *testing.T) {
 
 func TestValidateAndResolve_StripsEditable(t *testing.T) {
 	ds := baseDeploymentSpec()
-	ds.Editable = []string{"credentials"}
+	// Editable is a template-only field; resolver strips it and sets spec to deployment/v1
+	// We test that editable is nil after resolution
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -276,9 +281,12 @@ func TestValidateAndResolve_StripsEditable(t *testing.T) {
 	if result.Spec.Editable != nil {
 		t.Error("expected editable to be stripped after resolution")
 	}
+	if result.Spec.Spec != "deployment/v1" {
+		t.Errorf("expected spec version deployment/v1 after resolution, got %s", result.Spec.Spec)
+	}
 }
 
-func TestValidateAndResolve_WebhookIngestionMissingPort(t *testing.T) {
+func TestValidateAndResolve_WebhookIngestionMissingEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Ingestion = map[string]spec.DeploymentIngestion{
 		"data": {
@@ -291,17 +299,17 @@ func TestValidateAndResolve_WebhookIngestionMissingPort(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Errors) == 0 {
-		t.Fatal("expected validation error for webhook ingestion without port")
+		t.Fatal("expected validation error for webhook ingestion without endpoints")
 	}
 }
 
-func TestValidateAndResolve_WebhookIngestionWithPort(t *testing.T) {
+func TestValidateAndResolve_WebhookIngestionWithEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Ingestion = map[string]spec.DeploymentIngestion{
 		"data": {
-			Image:   "ingest:latest",
-			Port:    3001,
-			Trigger: spec.DeploymentTrigger{Type: "webhook"},
+			Image:     "ingest:latest",
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 3001}},
+			Trigger:   spec.DeploymentTrigger{Type: "webhook"},
 		},
 	}
 	result, err := ValidateAndResolve(ds)
@@ -329,7 +337,7 @@ func TestValidateAndResolve_MissingIngestionImage(t *testing.T) {
 	}
 }
 
-func TestValidateAndResolve_MissingModelPort(t *testing.T) {
+func TestValidateAndResolve_MissingModelEndpoints(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Models = map[string]spec.DeploymentModel{
 		"llm": {Image: "ollama:latest"},
@@ -339,14 +347,14 @@ func TestValidateAndResolve_MissingModelPort(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Errors) == 0 {
-		t.Fatal("expected validation error for model without port")
+		t.Fatal("expected validation error for model without endpoints")
 	}
 }
 
 func TestValidateAndResolve_MissingToolImage(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Tools = map[string]spec.DeploymentTool{
-		"search": {Port: 3000},
+		"search": {Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -360,9 +368,9 @@ func TestValidateAndResolve_MissingToolImage(t *testing.T) {
 func TestValidateAndResolve_DiscordAdapterRejected(t *testing.T) {
 	ds := baseDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters: []string{"discord"},
-		Image:    "messaging:latest",
-		Port:     9090,
+		Adapters:  []string{"discord"},
+		Image:     "messaging:latest",
+		Endpoints: map[string]spec.Endpoint{"grpc": {Port: 9090}},
 	}
 	result, err := ValidateAndResolve(ds)
 	if err != nil {
@@ -378,9 +386,12 @@ func TestValidateAndResolve_InterfacesReferenceValidation(t *testing.T) {
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "messaging:latest",
-		Port:     9090,
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090},
+			"http": {Port: 8080, Expose: &spec.EndpointExpose{Enabled: true}},
+		},
 		Environment: map[string]string{
-			"AGENT_URL": "${models.missing.url}",
+			"AGENT_URL": "${models.missing.http.url}",
 		},
 	}
 	result, err := ValidateAndResolve(ds)

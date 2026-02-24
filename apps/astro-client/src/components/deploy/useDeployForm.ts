@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
-import type { DeploymentTemplate, DeploymentTemplateCredential, ApiError } from "@/lib/api";
+import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 
 export interface UseDeployFormOptions {
   initialTemplate?: DeploymentTemplate;
@@ -29,6 +29,34 @@ export const ADAPTER_CREDENTIALS: Record<string, { key: string; label: string; d
   ],
 };
 
+function fulfillTemplate(
+  template: DeploymentTemplate,
+  variableValues: Record<string, string>,
+  selectedAdapters: string[],
+): DeploymentSpec {
+  // Destructure out editable (template-only) so it is not present in the fulfilled spec
+  const { editable: _editable, ...rest } = template;
+
+  // Rebuild variables: keep only runtime fields, fill in user-supplied value
+  const variables: Record<string, DeploymentVariable> | undefined = rest.variables
+    ? Object.fromEntries(
+        Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => [
+          key,
+          { value: variableValues[key] ?? '', targets, secret, optional },
+        ]),
+      )
+    : undefined;
+
+  return {
+    ...rest,
+    spec: 'deployment/v1',
+    variables,
+    interfaces: rest.interfaces
+      ? { ...rest.interfaces, adapters: selectedAdapters }
+      : rest.interfaces,
+  };
+}
+
 // --- Validation errors ---
 
 export interface FormErrors {
@@ -51,55 +79,65 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const deployMutation = useDeployAgent(userAccount);
 
-  const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
+  const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>({});
   const [deployError, setDeployError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  // Derived credential lists
-  const credentialEntries = useMemo(
-    () => (template?.credentials ? Object.entries(template.credentials) : []),
+  // Derived variable lists (agent/ingestion-targeting variables)
+  const variableEntries = useMemo(
+    () =>
+      template?.variables
+        ? Object.entries(template.variables).filter(([, v]) =>
+            v.targets.some((t) => t === "agent" || t.startsWith("ingestion")),
+          )
+        : [],
     [template],
   );
-  const requiredCredentials = useMemo(
-    () => credentialEntries.filter(([, c]) => !c.optional),
-    [credentialEntries],
+  const requiredVariables = useMemo(
+    () => variableEntries.filter(([, v]) => !v.optional),
+    [variableEntries],
   );
-  const optionalCredentials = useMemo(
-    () => credentialEntries.filter(([, c]) => c.optional),
-    [credentialEntries],
+  const optionalVariables = useMemo(
+    () => variableEntries.filter(([, v]) => v.optional),
+    [variableEntries],
   );
 
-  // Adapter credentials needed for selected adapters
+  // Adapter credentials needed for selected adapters, derived from template.variables
   const selectedAdapterCreds = useMemo(
     () =>
       selectedAdapters.flatMap((id) => {
+        if (template?.variables) {
+          // Derive from template variables whose targets include "interface.<id>"
+          const derived = Object.entries(template.variables).filter(([, v]) =>
+            v.targets.some((t) => t === `interface.${id}`),
+          );
+          if (derived.length > 0) return derived;
+        }
+        // Fall back to ADAPTER_CREDENTIALS for UI metadata
         const creds = ADAPTER_CREDENTIALS[id];
         if (!creds) return [];
-        return creds.map(
-          (c) =>
-            [c.key, { description: c.description, optional: false }] as [
-              string,
-              DeploymentTemplateCredential,
-            ],
-        );
+        return creds.map((c): [string, DeploymentVariable] => [
+          c.key,
+          { targets: [`interface.${id}`], description: c.description, optional: false },
+        ]);
       }),
-    [selectedAdapters],
+    [selectedAdapters, template],
   );
 
-  // Initialize credential values when template loads
+  // Initialize variable values when template loads
   useEffect(() => {
-    if (credentialEntries.length > 0) {
-      setCredentialValues((prev) => {
+    if (variableEntries.length > 0) {
+      setVariableValues((prev) => {
         const initial: Record<string, string> = {};
-        for (const [key] of credentialEntries) {
+        for (const [key] of variableEntries) {
           initial[key] = prev[key] ?? "";
         }
         return initial;
       });
     }
-  }, [credentialEntries]);
+  }, [variableEntries]);
 
   // Compute validation errors (only surfaced after first submit attempt)
   const errors = useMemo<FormErrors>(() => {
@@ -111,8 +149,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       result.adapters = "Select at least one messaging type";
     }
 
-    const emptyRequired = requiredCredentials
-      .filter(([key]) => !credentialValues[key]?.trim())
+    const emptyRequired = requiredVariables
+      .filter(([key]) => !variableValues[key]?.trim())
       .map(([key]) => key);
     if (emptyRequired.length > 0) {
       result.credentials = emptyRequired;
@@ -130,7 +168,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, selectedAdapters, requiredCredentials, credentialValues, adapterCredentials]);
+  }, [submitted, selectedAdapters, requiredVariables, variableValues, adapterCredentials]);
 
   const isValid = submitted
     ? !errors.adapters && !errors.credentials && !errors.adapterCredentials
@@ -142,49 +180,38 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // Compute validity inline (state update is async, can't rely on `errors` yet)
     const hasAdapter = selectedAdapters.length > 0;
-    const credsValid = requiredCredentials.every(([key]) => credentialValues[key]?.trim());
+    const varsValid = requiredVariables.every(([key]) => variableValues[key]?.trim());
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
       const creds = ADAPTER_CREDENTIALS[adapterId];
       if (!creds) return true;
       return creds.every((c) => adapterCredentials[c.key]?.trim());
     });
 
-    return hasAdapter && credsValid && adapterCredsValid;
+    return hasAdapter && varsValid && adapterCredsValid;
   };
 
   // Submission
   const deploy = async () => {
-    if (!account || !name) return;
+    if (!template || !account || !name) return;
 
     setDeployError(null);
-    const allCredentials = { ...credentialValues, ...adapterCredentials };
+    const allVariableValues = { ...variableValues, ...adapterCredentials };
+    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters);
 
     try {
-      await deployMutation.mutateAsync({
-        account: userAccount,
-        name,
-        source_account: account !== userAccount ? account : undefined,
-        user_credentials: allCredentials,
-        interfaces: selectedAdapters.length > 0 ? selectedAdapters : undefined,
-      });
+      await deployMutation.mutateAsync(spec);
     } catch (err) {
-      const apiErr = err as {
-        error?: string;
-        details?: string;
-        validation_errors?: Array<{ field: string; message: string }>;
-        missing_credentials?: string[];
-      };
-
+      const apiErr = err as ApiError;
       const messages: string[] = [];
       if (apiErr.validation_errors?.length) {
         for (const ve of apiErr.validation_errors) messages.push(`${ve.field}: ${ve.message}`);
       }
-      if (apiErr.missing_credentials?.length) {
-        messages.push(`Missing credentials: ${apiErr.missing_credentials.join(", ")}`);
+      if (apiErr.missing_variables?.length) {
+        messages.push(`Missing variables: ${apiErr.missing_variables.join(", ")}`);
       }
       if (messages.length === 0) {
         messages.push(
-          apiErr.details || apiErr.error || (err instanceof Error ? err.message : "Deployment failed"),
+          apiErr.details ?? apiErr.error ?? (err instanceof Error ? err.message : "Deployment failed"),
         );
       }
       setDeployError(messages.join("\n"));
@@ -193,8 +220,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   };
 
   const templateErrorMessage = templateError
-    ? ((templateError as unknown as ApiError).error_description ??
-      (templateError as Error).message ??
+    ? ((templateError as ApiError).error_description ??
+      (templateError instanceof Error ? templateError.message : null) ??
       "Failed to load deployment configuration")
     : null;
 
@@ -209,10 +236,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     adapterCredentials,
     setAdapterCredentials,
 
-    credentialValues,
-    setCredentialValues,
-    requiredCredentials,
-    optionalCredentials,
+    variableValues,
+    setVariableValues,
+    requiredVariables,
+    optionalVariables,
 
     errors,
     submitted,

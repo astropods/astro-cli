@@ -62,12 +62,12 @@ export interface ValidationError {
 }
 
 export interface ApiError {
-  error: string;
+  error?: string;
   error_description?: string;
   code?: string;
   details?: string;
   validation_errors?: ValidationError[];
-  missing_credentials?: string[];
+  missing_variables?: string[];
 }
 
 class ApiClient {
@@ -195,31 +195,17 @@ class ApiClient {
     );
   }
 
-  async deployAgent(data: {
-    account: string;
-    name: string;
-    source_account?: string;
-    user_credentials?: Record<string, string>;
-    interfaces?: string[];
-    schedules?: Record<string, string>;
-  }): Promise<DeployResponse> {
+  async deployAgent(deploySpec: DeploymentSpec): Promise<DeployResponse> {
     return this.request<DeployResponse>('/api/v1/deploy', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(deploySpec),
     });
   }
 
-  async validateDeployment(data: {
-    account: string;
-    name: string;
-    source_account?: string;
-    user_credentials?: Record<string, string>;
-    interfaces?: string[];
-    schedules?: Record<string, string>;
-  }): Promise<ValidateDeploymentResponse> {
+  async validateDeployment(deploySpec: DeploymentSpec): Promise<ValidateDeploymentResponse> {
     return this.request<ValidateDeploymentResponse>('/api/v1/deploy/validate', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(deploySpec),
     });
   }
 
@@ -444,14 +430,27 @@ export interface AgentsListResponse {
   count: number;
 }
 
-export interface DeploymentTemplateCredential {
-  value: string;
-  description?: string;
+export interface DeploymentVariable {
+  value?: string;
+  targets: string[];
+  secret?: boolean;
   optional?: boolean;
+  // template-only (present in deployment-template/v1, stripped in deployment/v1)
+  default?: string;
+  description?: string;
+  datatype?: string;
+  'display-as'?: string;
+  options?: string[];
+}
+
+export interface DeploymentEndpoint {
+  port: number;
+  protocol?: 'http' | 'grpc' | 'tcp';
+  expose?: { enabled: boolean; domain?: string };
 }
 
 export interface DeploymentTemplate {
-  spec: string;
+  spec: 'deployment-template/v1';
   source: { account: string; name: string; build: string; registry: string };
   target: { runtime: string; namespace: string };
   agent: Record<string, unknown>;
@@ -460,10 +459,14 @@ export interface DeploymentTemplate {
   tools?: Record<string, unknown>;
   ingestion?: Record<string, unknown>;
   interfaces?: Record<string, unknown>;
-  credentials?: Record<string, DeploymentTemplateCredential>;
+  variables?: Record<string, DeploymentVariable>;
   observability?: Record<string, unknown>;
   editable?: string[];
 }
+
+export type DeploymentSpec = Omit<DeploymentTemplate, 'spec' | 'editable'> & {
+  spec: 'deployment/v1';
+};
 
 export interface ResourceStatus {
   kind: string;

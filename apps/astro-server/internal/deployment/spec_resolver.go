@@ -17,27 +17,27 @@ type ResolveContext struct {
 }
 
 // ResolvedEnv holds the resolved environment: plain key-value pairs go into the
-// ConfigMap, and credential references become secret key refs.
+// ConfigMap, and secret variable references become secret key refs.
 type ResolvedEnv struct {
 	// ConfigMap entries (plain key=value, including resolved service URLs)
 	ConfigMapData map[string]string
-	// SecretData entries (credential key → actual value for the k8s Secret)
+	// SecretData entries (variable key → actual value for the k8s Secret)
 	SecretData map[string]string
 }
 
 // ResolveDeploymentSpecEnv resolves all ${} references in the deployment spec's
-// environment maps into concrete k8s values (service DNS, credential values, etc).
-// It also builds the standard connection-string ConfigMap and credential Secret data.
+// environment maps into concrete k8s values (service DNS, variable values, etc).
+// It also builds the standard connection-string ConfigMap and secret data.
 func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext) *ResolvedEnv {
 	result := &ResolvedEnv{
 		ConfigMapData: make(map[string]string),
 		SecretData:    make(map[string]string),
 	}
 
-	// Collect all credential values into secret data
-	for key, cred := range ds.Credentials {
-		if cred.Value != "" {
-			result.SecretData[strings.ToUpper(key)] = cred.Value
+	// Collect all secret variable values into secret data
+	for key, v := range ds.Variables {
+		if v.Secret && v.Value != "" {
+			result.SecretData[strings.ToUpper(key)] = v.Value
 		}
 	}
 
@@ -66,7 +66,11 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	// Add agent's own URL
 	agentServiceName := GenerateAgentResourceName(ds.Source.Name, "agent")
 	agentHost := GenerateServiceDNS(agentServiceName, rctx.Namespace)
-	result.ConfigMapData["AGENT_URL"] = fmt.Sprintf("http://%s:%d", agentHost, ds.Agent.Port)
+	agentPort := spec.PrimaryPort(ds.Agent.Endpoints)
+	if agentPort == 0 {
+		agentPort = 8080
+	}
+	result.ConfigMapData["AGENT_URL"] = fmt.Sprintf("http://%s:%d", agentHost, agentPort)
 	result.ConfigMapData["AGENT_HOST"] = agentHost
 
 	// Add OTel collector endpoint
@@ -85,7 +89,14 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 
 	// Add messaging gRPC address if interfaces are configured
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
-		grpcPort := ds.Interfaces.Port
+		// Prefer "grpc" endpoint; fall back to primary port; default 9090
+		grpcPort := 0
+		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
+			grpcPort = ep.Port
+		}
+		if grpcPort == 0 {
+			grpcPort = spec.PrimaryPort(ds.Interfaces.Endpoints)
+		}
 		if grpcPort == 0 {
 			grpcPort = 9090
 		}
@@ -97,21 +108,28 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 	return result
 }
 
-// componentInfo holds the resolved DNS and port for a deployed component.
-type componentInfo struct {
-	Host      string
+// componentEndpointInfo holds the port and protocol for a single named endpoint.
+type componentEndpointInfo struct {
 	Port      int
-	URLScheme string // e.g. "http", "redis", "bolt" — defaults to "http"
+	Protocol  string
 }
 
-// buildComponentLookup builds a map of component references to their resolved DNS/port.
+// componentInfo holds the resolved DNS and per-endpoint info for a deployed component.
+type componentInfo struct {
+	Host      string
+	Endpoints map[string]componentEndpointInfo
+	URLScheme string // provider-specific URL scheme (e.g. "redis", "bolt")
+}
+
+// buildComponentLookup builds a map of component references to their resolved DNS/ports.
 func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map[string]componentInfo {
 	lookup := make(map[string]componentInfo)
 
 	for name, model := range ds.Models {
 		resourceName := GenerateResourceName(ds.Source.Name, "model", name)
 		host := GenerateServiceDNS(resourceName, rctx.Namespace)
-		lookup["models."+name] = componentInfo{Host: host, Port: model.Port}
+		eps := endpointInfoMap(model.Endpoints)
+		lookup["models."+name] = componentInfo{Host: host, Endpoints: eps}
 	}
 
 	for name, knowledge := range ds.Knowledge {
@@ -123,20 +141,30 @@ func buildComponentLookup(ds *spec.AstroDeploymentSpec, rctx ResolveContext) map
 				urlScheme = prov.URLScheme
 			}
 		}
-		lookup["knowledge."+name] = componentInfo{Host: host, Port: knowledge.Port, URLScheme: urlScheme}
+		eps := endpointInfoMap(knowledge.Endpoints)
+		lookup["knowledge."+name] = componentInfo{Host: host, Endpoints: eps, URLScheme: urlScheme}
 	}
 
 	for name, tool := range ds.Tools {
 		resourceName := GenerateResourceName(ds.Source.Name, "tool", name)
 		host := GenerateServiceDNS(resourceName, rctx.Namespace)
-		lookup["tools."+name] = componentInfo{Host: host, Port: tool.Port}
+		eps := endpointInfoMap(tool.Endpoints)
+		lookup["tools."+name] = componentInfo{Host: host, Endpoints: eps}
 	}
 
 	return lookup
 }
 
+func endpointInfoMap(endpoints map[string]spec.Endpoint) map[string]componentEndpointInfo {
+	m := make(map[string]componentEndpointInfo, len(endpoints))
+	for name, ep := range endpoints {
+		m[name] = componentEndpointInfo{Port: ep.Port, Protocol: ep.Protocol}
+	}
+	return m
+}
+
 // resolveEnvMap resolves ${} references in an environment map and adds the
-// resolved values to the result's ConfigMapData (or SecretData for credentials).
+// resolved values to the result's ConfigMapData (or SecretData for secrets).
 func resolveEnvMap(
 	env map[string]string,
 	lookup map[string]componentInfo,
@@ -146,9 +174,6 @@ func resolveEnvMap(
 ) {
 	for key, value := range env {
 		resolved := resolveValue(value, lookup, ds, rctx)
-		// Credential references go into ConfigMap pointing at secret keys,
-		// but the actual values are already in SecretData.
-		// For simplicity, all resolved env vars go into ConfigMap.
 		result.ConfigMapData[key] = resolved
 	}
 }
@@ -172,26 +197,38 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 			if !ok {
 				continue
 			}
-			switch ref.Attribute {
-			case "host":
+			if ref.Attribute == "host" {
+				// 3-part host ref
 				replacement = info.Host
-			case "port":
-				replacement = fmt.Sprintf("%d", info.Port)
-			case "url":
-				scheme := info.URLScheme
-				if scheme == "" {
-					scheme = "http"
+			} else if ref.Endpoint != "" {
+				// 4-part endpoint ref: section.name.endpoint.attr
+				ep, epOK := info.Endpoints[ref.Endpoint]
+				if !epOK {
+					continue
 				}
-				replacement = fmt.Sprintf("%s://%s:%d", scheme, info.Host, info.Port)
+				switch ref.Attribute {
+				case "port":
+					replacement = fmt.Sprintf("%d", ep.Port)
+				case "url":
+					scheme := ep.Protocol
+					if scheme == "" || scheme == "tcp" || scheme == "grpc" {
+						// Use provider URL scheme for non-HTTP protocols
+						if info.URLScheme != "" && info.URLScheme != "http" {
+							scheme = info.URLScheme
+						} else {
+							scheme = "http"
+						}
+					}
+					if info.URLScheme != "" && info.URLScheme != "http" {
+						scheme = info.URLScheme
+					}
+					replacement = fmt.Sprintf("%s://%s:%d", scheme, info.Host, ep.Port)
+				}
 			}
 
-		case spec.RefCredential:
-			// Credential refs resolve to the credential key name (uppercase).
-			// The actual value is injected via envFrom on the k8s Secret.
-			// But for inline references like "Bearer ${credentials.API_KEY}",
-			// we need the actual value.
-			if cred, ok := ds.Credentials[ref.Name]; ok {
-				replacement = cred.Value
+		case spec.RefVariable:
+			if v, ok := ds.Variables[ref.Name]; ok {
+				replacement = v.Value
 			}
 
 		case spec.RefSource:

@@ -70,9 +70,9 @@ func GenerateAgentResourceName(agent, resourceType string) string {
 	return SanitizeName(fullName)
 }
 
-// GenerateCredentialSecretName generates the name for the credentials secret
+// GenerateSecretName generates the name for the secret that holds secret variable values.
 // Format: {agent}-{version}-credentials
-func GenerateCredentialSecretName(agent, version string) string {
+func GenerateSecretName(agent, version string) string {
 	versionSanitized := strings.ReplaceAll(version, ".", "-")
 	parts := []string{
 		SanitizeName(agent),

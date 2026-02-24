@@ -7,6 +7,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var validDatatypes = map[string]bool{
+	"string": true, "boolean": true, "number": true, "array": true, "object": true,
+}
+
+var validDisplayAs = map[string]bool{
+	"short-text": true, "long-text": true, "select": true,
+}
+
 // ParseFile reads and parses an astroai.yml file from the given path
 func ParseFile(path string) (*AstroSpec, error) {
 	data, err := os.ReadFile(path)
@@ -54,8 +62,53 @@ func ParseSpec(path string) (*AstroSpec, error) {
 	if spec.Agent.Build == nil && spec.Agent.Image == "" {
 		return nil, fmt.Errorf("agent.build or agent.image is required")
 	}
+	if spec.Agent.Build != nil && spec.Agent.Image != "" {
+		return nil, fmt.Errorf("agent: image and build are mutually exclusive")
+	}
 
-	// Validate knowledge entries: provider and container are mutually exclusive
+	// Validate build configs
+	if spec.Agent.Build != nil {
+		if err := validateBuildConfig("agent.build", spec.Agent.Build); err != nil {
+			return nil, err
+		}
+	}
+
+	// Validate top-level inputs
+	for name, input := range spec.Inputs {
+		if err := validateInput(fmt.Sprintf("inputs.%s", name), input); err != nil {
+			return nil, err
+		}
+	}
+
+	// Validate agent inputs
+	for i, input := range spec.Agent.Inputs {
+		if err := validateInput(fmt.Sprintf("agent.inputs[%d]", i), input); err != nil {
+			return nil, err
+		}
+	}
+
+	// Validate custom providers
+	validScopeValues := map[string]bool{"models": true, "knowledge": true, "tools": true}
+	for name, provider := range spec.Providers {
+		if len(provider.Scope) == 0 {
+			return nil, fmt.Errorf("providers.%s: scope is required and must contain at least one of: models, knowledge, tools", name)
+		}
+		for _, s := range provider.Scope {
+			if !validScopeValues[s] {
+				return nil, fmt.Errorf("providers.%s: invalid scope value %q (must be one of: models, knowledge, tools)", name, s)
+			}
+		}
+		if len(provider.Variables) == 0 {
+			return nil, fmt.Errorf("providers.%s: variables is required and must contain at least one entry", name)
+		}
+		for i, v := range provider.Variables {
+			if err := validateInput(fmt.Sprintf("providers.%s.variables[%d]", name, i), v); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Validate knowledge entries
 	for name, k := range spec.Knowledge {
 		if k.Provider != "" && k.Container != nil {
 			return nil, fmt.Errorf("knowledge %q: provider and container are mutually exclusive", name)
@@ -63,9 +116,32 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		if k.Provider == "" && k.Container == nil {
 			return nil, fmt.Errorf("knowledge %q: either provider or container is required", name)
 		}
+		// Validate custom provider scope
+		if k.Provider != "" {
+			if cp, ok := spec.Providers[k.Provider]; ok {
+				if !scopeContains(cp.Scope, "knowledge") {
+					return nil, fmt.Errorf("knowledge %q: provider %q does not allow scope %q", name, k.Provider, "knowledge")
+				}
+			}
+		}
+		if k.Container != nil && k.Container.Build != nil {
+			if err := validateBuildConfig(fmt.Sprintf("knowledge.%s.container.build", name), k.Container.Build); err != nil {
+				return nil, err
+			}
+		}
+		if k.Container != nil && k.Container.GPU != nil {
+			if k.Container.GPU.Runtime != "" && k.Container.GPU.Runtime != "cuda" && k.Container.GPU.Runtime != "rocm" {
+				return nil, fmt.Errorf("knowledge.%s.container.gpu.runtime: must be one of cuda or rocm", name)
+			}
+		}
+		for i, input := range k.Inputs {
+			if err := validateInput(fmt.Sprintf("knowledge.%s.inputs[%d]", name, i), input); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	// Validate model entries: provider and container are mutually exclusive
+	// Validate model entries
 	for name, m := range spec.Models {
 		if m.Provider != "" && m.Container != nil {
 			return nil, fmt.Errorf("model %q: provider and container are mutually exclusive", name)
@@ -73,9 +149,32 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		if m.Provider == "" && m.Container == nil {
 			return nil, fmt.Errorf("model %q: either provider or container is required", name)
 		}
+		// Validate custom provider scope
+		if m.Provider != "" {
+			if cp, ok := spec.Providers[m.Provider]; ok {
+				if !scopeContains(cp.Scope, "models") {
+					return nil, fmt.Errorf("model %q: provider %q does not allow scope %q", name, m.Provider, "models")
+				}
+			}
+		}
+		if m.Container != nil && m.Container.Build != nil {
+			if err := validateBuildConfig(fmt.Sprintf("models.%s.container.build", name), m.Container.Build); err != nil {
+				return nil, err
+			}
+		}
+		if m.Container != nil && m.Container.GPU != nil {
+			if m.Container.GPU.Runtime != "" && m.Container.GPU.Runtime != "cuda" && m.Container.GPU.Runtime != "rocm" {
+				return nil, fmt.Errorf("models.%s.container.gpu.runtime: must be one of cuda or rocm", name)
+			}
+		}
+		for i, input := range m.Inputs {
+			if err := validateInput(fmt.Sprintf("models.%s.inputs[%d]", name, i), input); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	// Validate tool entries: provider and container are mutually exclusive
+	// Validate tool entries
 	for name, t := range spec.Tools {
 		if t.Provider != "" && t.Container != nil {
 			return nil, fmt.Errorf("tool %q: provider and container are mutually exclusive", name)
@@ -83,14 +182,83 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		if t.Provider == "" && t.Container == nil {
 			return nil, fmt.Errorf("tool %q: either provider or container is required", name)
 		}
+		// Validate custom provider scope
+		if t.Provider != "" {
+			if cp, ok := spec.Providers[t.Provider]; ok {
+				if !scopeContains(cp.Scope, "tools") {
+					return nil, fmt.Errorf("tool %q: provider %q does not allow scope %q", name, t.Provider, "tools")
+				}
+			}
+		}
+		if t.Container != nil && t.Container.Build != nil {
+			if err := validateBuildConfig(fmt.Sprintf("tools.%s.container.build", name), t.Container.Build); err != nil {
+				return nil, err
+			}
+		}
+		if t.Container != nil && t.Container.GPU != nil {
+			if t.Container.GPU.Runtime != "" && t.Container.GPU.Runtime != "cuda" && t.Container.GPU.Runtime != "rocm" {
+				return nil, fmt.Errorf("tools.%s.container.gpu.runtime: must be one of cuda or rocm", name)
+			}
+		}
+		for i, input := range t.Inputs {
+			if err := validateInput(fmt.Sprintf("tools.%s.inputs[%d]", name, i), input); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	// Validate integrations: must have at least one credential
-	for name, integration := range spec.Integrations {
-		if len(integration.Credentials) == 0 {
-			return nil, fmt.Errorf("integration %q: at least one credential is required", name)
+	// Validate ingestion entries
+	validTriggerTypes := map[string]bool{"schedule": true, "startup": true, "manual": true, "webhook": true}
+	for name, ing := range spec.Ingestion {
+		if !validTriggerTypes[ing.Trigger.Type] {
+			return nil, fmt.Errorf("ingestion.%s.trigger.type: must be one of schedule, startup, manual, webhook", name)
+		}
+		if ing.Container.Build != nil {
+			if err := validateBuildConfig(fmt.Sprintf("ingestion.%s.container.build", name), ing.Container.Build); err != nil {
+				return nil, err
+			}
+		}
+		for i, input := range ing.Inputs {
+			if err := validateInput(fmt.Sprintf("ingestion.%s.inputs[%d]", name, i), input); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	return &spec, nil
+}
+
+func validateInput(path string, input Input) error {
+	if input.Name == "" {
+		return fmt.Errorf("%s: name is required", path)
+	}
+	if !validDatatypes[input.Datatype] {
+		return fmt.Errorf("%s: datatype must be one of string, boolean, number, array, object (got %q)", path, input.Datatype)
+	}
+	if input.DisplayAs != "" && !validDisplayAs[input.DisplayAs] {
+		return fmt.Errorf("%s: display-as must be one of short-text, long-text, select (got %q)", path, input.DisplayAs)
+	}
+	if input.DisplayAs == "select" && len(input.Options) == 0 {
+		return fmt.Errorf("%s: options must be present and non-empty when display-as is select", path)
+	}
+	return nil
+}
+
+func validateBuildConfig(path string, b *BuildConfig) error {
+	if b.Context == "" {
+		return fmt.Errorf("%s.context is required", path)
+	}
+	if b.Dockerfile == "" {
+		return fmt.Errorf("%s.dockerfile is required", path)
+	}
+	return nil
+}
+
+func scopeContains(scope []string, value string) bool {
+	for _, s := range scope {
+		if s == value {
+			return true
+		}
+	}
+	return false
 }

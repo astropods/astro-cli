@@ -352,7 +352,7 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 		}
 	}
 
-	// Integrations: cloud model providers + explicit integration entries
+	// Integrations: cloud model providers + custom providers
 	integrationSet := map[string]bool{}
 	for _, model := range s.Models {
 		p := strings.ToLower(model.Provider)
@@ -360,7 +360,7 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 			integrationSet[p] = true
 		}
 	}
-	for name := range s.Integrations {
+	for name := range s.Providers {
 		integrationSet[strings.ToLower(name)] = true
 	}
 	for k := range integrationSet {

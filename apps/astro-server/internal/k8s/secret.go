@@ -9,19 +9,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// BuildSecret creates a Kubernetes Secret manifest from user credentials
+// BuildSecret creates a Kubernetes Secret manifest from resolved secret variable values.
 func BuildSecret(
 	namespace string,
 	agentName string,
 	buildID string,
-	userCredentials map[string]string,
+	secretValues map[string]string,
 ) *corev1.Secret {
-	secretName := deployment.GenerateCredentialSecretName(agentName, buildID)
-	labels := deployment.GenerateLabels(agentName, buildID, "credentials")
+	secretName := deployment.GenerateSecretName(agentName, buildID)
+	labels := deployment.GenerateLabels(agentName, buildID, "variables")
 
-	// Encode credentials - convert keys to uppercase
+	// Encode values - convert keys to uppercase
 	data := make(map[string][]byte)
-	for key, value := range userCredentials {
+	for key, value := range secretValues {
 		upperKey := strings.ToUpper(key)
 		data[upperKey] = []byte(value)
 	}

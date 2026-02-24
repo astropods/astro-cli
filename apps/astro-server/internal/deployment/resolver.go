@@ -36,10 +36,10 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 		errs = append(errs, refErrs...)
 	}
 
-	// 3. Check required credentials non-empty
-	for key, cred := range submitted.Credentials {
-		if !cred.Optional && cred.Value == "" {
-			errs = append(errs, fmt.Sprintf("credentials.%s.value: required credential is empty", key))
+	// 3. Check required variables non-empty
+	for key, v := range submitted.Variables {
+		if !v.Optional && v.Value == "" {
+			errs = append(errs, fmt.Sprintf("variables.%s.value: required variable is empty", key))
 		}
 	}
 
@@ -59,8 +59,8 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 				errs = append(errs, fmt.Sprintf("ingestion.%s.trigger.schedule: invalid cron expression: %v", name, err))
 			}
 		}
-		if ing.Trigger.Type == "webhook" && ing.Port == 0 {
-			errs = append(errs, fmt.Sprintf("ingestion.%s.port: required for webhook triggers", name))
+		if ing.Trigger.Type == "webhook" && len(ing.Endpoints) == 0 {
+			errs = append(errs, fmt.Sprintf("ingestion.%s.endpoints: required for webhook triggers", name))
 		}
 	}
 
@@ -68,31 +68,31 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 	if submitted.Agent.Image == "" {
 		errs = append(errs, "agent.image: required")
 	}
-	if submitted.Agent.Port == 0 {
-		errs = append(errs, "agent.port: required")
+	if len(submitted.Agent.Endpoints) == 0 {
+		errs = append(errs, "agent.endpoints: required (at least one endpoint)")
 	}
 	for name, m := range submitted.Models {
 		if m.Image == "" {
 			errs = append(errs, fmt.Sprintf("models.%s.image: required", name))
 		}
-		if m.Port == 0 {
-			errs = append(errs, fmt.Sprintf("models.%s.port: required", name))
+		if len(m.Endpoints) == 0 {
+			errs = append(errs, fmt.Sprintf("models.%s.endpoints: required (at least one endpoint)", name))
 		}
 	}
 	for name, k := range submitted.Knowledge {
 		if k.Image == "" {
 			errs = append(errs, fmt.Sprintf("knowledge.%s.image: required", name))
 		}
-		if k.Port == 0 {
-			errs = append(errs, fmt.Sprintf("knowledge.%s.port: required", name))
+		if len(k.Endpoints) == 0 {
+			errs = append(errs, fmt.Sprintf("knowledge.%s.endpoints: required (at least one endpoint)", name))
 		}
 	}
 	for name, t := range submitted.Tools {
 		if t.Image == "" {
 			errs = append(errs, fmt.Sprintf("tools.%s.image: required", name))
 		}
-		if t.Port == 0 {
-			errs = append(errs, fmt.Sprintf("tools.%s.port: required", name))
+		if len(t.Endpoints) == 0 {
+			errs = append(errs, fmt.Sprintf("tools.%s.endpoints: required (at least one endpoint)", name))
 		}
 	}
 
@@ -105,18 +105,18 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 			}
 		}
 
-		// 6. Re-derive interface credentials for enabled adapters
+		// 6. Re-derive interface variables for enabled adapters
 		for _, adapter := range submitted.Interfaces.Adapters {
 			if adapter == "slack" {
-				ensureCredential(submitted, "SLACK_BOT_TOKEN", "Slack bot token for messaging", false)
-				ensureCredential(submitted, "SLACK_APP_TOKEN", "Slack app token for socket mode", false)
+				ensureVariable(submitted, "SLACK_BOT_TOKEN", "Slack bot token for messaging", false, []string{"interface.slack"})
+				ensureVariable(submitted, "SLACK_APP_TOKEN", "Slack app token for socket mode", false, []string{"interface.slack"})
 
-				// Verify these credentials have values
-				if c, ok := submitted.Credentials["SLACK_BOT_TOKEN"]; ok && c.Value == "" {
-					errs = append(errs, "credentials.SLACK_BOT_TOKEN.value: required for slack adapter")
+				// Verify these variables have values
+				if v, ok := submitted.Variables["SLACK_BOT_TOKEN"]; ok && v.Value == "" {
+					errs = append(errs, "variables.SLACK_BOT_TOKEN.value: required for slack adapter")
 				}
-				if c, ok := submitted.Credentials["SLACK_APP_TOKEN"]; ok && c.Value == "" {
-					errs = append(errs, "credentials.SLACK_APP_TOKEN.value: required for slack adapter")
+				if v, ok := submitted.Variables["SLACK_APP_TOKEN"]; ok && v.Value == "" {
+					errs = append(errs, "variables.SLACK_APP_TOKEN.value: required for slack adapter")
 				}
 			}
 		}
@@ -127,29 +127,37 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 		errs = append(errs, "target.namespace: namespace is required")
 	}
 
+	// 8. Validate agent.distributed / replicas rule
+	if !submitted.Agent.Distributed && submitted.Agent.Replicas > 1 {
+		errs = append(errs, "agent.replicas must be 1 when agent.distributed is false")
+	}
+
 	if len(errs) > 0 {
 		result.Errors = errs
 		return result, nil
 	}
 
-	// 8. Apply defaults for any omitted optional fields
+	// 9. Apply defaults for any omitted optional fields
 	resolved := applyDefaults(submitted)
 
-	// 9. Strip editable field (template-only)
+	// 10. Strip editable field (template-only) and set spec version
 	resolved.Editable = nil
+	resolved.Spec = "deployment/v1"
 
 	result.Spec = resolved
 	return result, nil
 }
 
-func ensureCredential(ds *spec.AstroDeploymentSpec, key, description string, optional bool) {
-	if ds.Credentials == nil {
-		ds.Credentials = make(map[string]spec.DeploymentCredential)
+func ensureVariable(ds *spec.AstroDeploymentSpec, key, description string, optional bool, targets []string) {
+	if ds.Variables == nil {
+		ds.Variables = make(map[string]spec.Variable)
 	}
-	if _, exists := ds.Credentials[key]; !exists {
-		ds.Credentials[key] = spec.DeploymentCredential{
+	if _, exists := ds.Variables[key]; !exists {
+		ds.Variables[key] = spec.Variable{
 			Description: description,
 			Optional:    optional,
+			Secret:      true,
+			Targets:     targets,
 		}
 	}
 }
@@ -158,9 +166,6 @@ func applyDefaults(ds *spec.AstroDeploymentSpec) *spec.AstroDeploymentSpec {
 	// Copy to avoid mutating input
 	resolved := *ds
 
-	if resolved.Agent.Port == 0 {
-		resolved.Agent.Port = 8080
-	}
 	if resolved.Agent.Replicas == 0 {
 		resolved.Agent.Replicas = 1
 	}

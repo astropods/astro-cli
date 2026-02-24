@@ -21,7 +21,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type {
-  DeploymentTemplateCredential,
+  DeploymentTemplate,
+  DeploymentVariable,
+  DeploymentSpec,
   ApiError,
 } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -276,31 +278,56 @@ function ObservabilityToggle({
 
 // --- Credential Form ---
 
+function fulfillTemplate(
+  template: DeploymentTemplate,
+  variableValues: Record<string, string>,
+  selectedAdapters: string[],
+): DeploymentSpec {
+  const fulfilled = JSON.parse(JSON.stringify(template)) as Record<string, unknown>;
+  fulfilled.spec = 'deployment/v1';
+  delete fulfilled.editable;
+  const variables = fulfilled.variables as Record<string, Record<string, unknown>> | undefined;
+  if (variables) {
+    for (const [key, v] of Object.entries(variables)) {
+      v.value = variableValues[key] ?? '';
+      delete v.default;
+      delete v.description;
+      delete v.datatype;
+      delete v['display-as'];
+      delete v.options;
+    }
+  }
+  if (fulfilled.interfaces) {
+    (fulfilled.interfaces as Record<string, unknown>).adapters = selectedAdapters;
+  }
+  return fulfilled as unknown as DeploymentSpec;
+}
+
 function CredentialForm({
-  credentials,
+  variables,
   values,
   onChange,
 }: {
-  credentials: Record<string, DeploymentTemplateCredential>;
+  variables: Record<string, DeploymentVariable>;
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
 }) {
-  const entries = Object.entries(credentials);
-  const required = entries.filter(([, c]) => !c.optional);
-  const optional = entries.filter(([, c]) => c.optional);
+  const entries = Object.entries(variables);
+  const required = entries.filter(([, v]) => !v.optional);
+  const optional = entries.filter(([, v]) => v.optional);
 
-  const renderFields = (fields: [string, DeploymentTemplateCredential][]) =>
-    fields.map(([key, cred]) => (
+  const renderFields = (fields: [string, DeploymentVariable][]) =>
+    fields.map(([key, variable]) => (
       <div key={key}>
         <label className="block text-xs font-medium text-stone-700 mb-1">{key}</label>
         <input
           type="password"
           value={values[key] || ""}
           onChange={(e) => onChange({ ...values, [key]: e.target.value })}
-          placeholder={cred.description || key}
+          placeholder={variable.description || key}
           className="w-full py-1.5 px-2 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
         />
-        {cred.description && <p className="text-xs text-stone-400 mt-0.5">{cred.description}</p>}
+        {variable.description && <p className="text-xs text-stone-400 mt-0.5">{variable.description}</p>}
       </div>
     ));
 
@@ -361,13 +388,18 @@ export default function DeployPage() {
       "Failed to load deployment template"
     : null;
 
-  const credentialEntries = template?.credentials ? Object.entries(template.credentials) : [];
+  // Agent/ingestion-targeting variables
+  const variableEntries = template?.variables
+    ? Object.entries(template.variables).filter(([, v]) =>
+        v.targets.some((t) => t === "agent" || t.startsWith("ingestion")),
+      )
+    : [];
 
   useEffect(() => {
-    if (credentialEntries.length > 0) {
+    if (variableEntries.length > 0) {
       setCredentialValues((prev) => {
         const initial: Record<string, string> = {};
-        for (const [key] of credentialEntries) {
+        for (const [key] of variableEntries) {
           initial[key] = prev[key] ?? "";
         }
         return initial;
@@ -382,7 +414,7 @@ export default function DeployPage() {
     }
   }, [template]);
 
-  const requiredCredentials = credentialEntries.filter(([, c]) => !c.optional);
+  const requiredVariables = variableEntries.filter(([, v]) => !v.optional);
 
   const adapterCredsValid = selectedAdapters.every((adapterId) => {
     const creds = ADAPTER_CREDENTIALS[adapterId];
@@ -393,12 +425,12 @@ export default function DeployPage() {
   const canDeploy =
     !isLoading &&
     !deployMutation.isPending &&
-    requiredCredentials.every(([key]) => credentialValues[key]?.trim()) &&
+    requiredVariables.every(([key]) => credentialValues[key]?.trim()) &&
     adapterCredsValid;
 
   const handleDeploy = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!account || !name) return;
+    if (!account || !name || !template) return;
 
     if (!isAuthenticated) {
       login();
@@ -406,31 +438,26 @@ export default function DeployPage() {
     }
 
     setDeployError(null);
-    const allCredentials = { ...credentialValues, ...adapterCredentials };
+    const allVariableValues = { ...credentialValues, ...adapterCredentials };
+    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters);
 
     try {
-      const result = await deployMutation.mutateAsync({
-        account: userAccount,
-        name,
-        source_account: account !== userAccount ? account : undefined,
-        user_credentials: allCredentials,
-        interfaces: selectedAdapters.length > 0 ? selectedAdapters : undefined,
-      });
+      const result = await deployMutation.mutateAsync(spec);
       navigate(`/u/${account}/${name}`, { state: { deployResult: result } });
     } catch (err) {
       const apiErr = err as {
         error?: string;
         details?: string;
         validation_errors?: Array<{ field: string; message: string }>;
-        missing_credentials?: string[];
+        missing_variables?: string[];
       };
 
       const messages: string[] = [];
       if (apiErr.validation_errors?.length) {
         for (const ve of apiErr.validation_errors) messages.push(`${ve.field}: ${ve.message}`);
       }
-      if (apiErr.missing_credentials?.length) {
-        messages.push(`Missing credentials: ${apiErr.missing_credentials.join(", ")}`);
+      if (apiErr.missing_variables?.length) {
+        messages.push(`Missing variables: ${apiErr.missing_variables.join(", ")}`);
       }
       if (messages.length === 0) {
         messages.push(apiErr.details || apiErr.error || (err instanceof Error ? err.message : "Deployment failed"));
@@ -440,7 +467,7 @@ export default function DeployPage() {
   };
 
   const handleValidate = async () => {
-    if (!account || !name) return;
+    if (!account || !name || !template) return;
     if (!isAuthenticated) {
       login();
       return;
@@ -448,16 +475,11 @@ export default function DeployPage() {
 
     setValidationResult(null);
     setDeployError(null);
-    const allCredentials = { ...credentialValues, ...adapterCredentials };
+    const allVariableValues = { ...credentialValues, ...adapterCredentials };
+    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters);
 
     try {
-      const result = await validateMutation.mutateAsync({
-        account: userAccount,
-        name,
-        source_account: account !== userAccount ? account : undefined,
-        user_credentials: allCredentials,
-        interfaces: selectedAdapters.length > 0 ? selectedAdapters : undefined,
-      });
+      const result = await validateMutation.mutateAsync(spec);
 
       if (result.valid) {
         setValidationResult({ valid: true });
@@ -603,11 +625,11 @@ export default function DeployPage() {
                   <Lock size={16} className="text-stone-600" />
                   <span className="text-sm font-medium text-stone-700">Credentials</span>
                 </div>
-                {credentialEntries.length === 0 ? (
+                {variableEntries.length === 0 ? (
                   <p className="text-xs text-stone-500">No credentials required for this agent.</p>
                 ) : (
                   <CredentialForm
-                    credentials={template.credentials!}
+                    variables={Object.fromEntries(variableEntries)}
                     values={credentialValues}
                     onChange={setCredentialValues}
                   />

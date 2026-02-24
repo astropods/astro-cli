@@ -216,10 +216,10 @@ func TestGenerateAgentResourceName(t *testing.T) {
 	}
 }
 
-// TestGenerateCredentialSecretName verifies the {agent}-{version}-credentials format
+// TestGenerateSecretName verifies the {agent}-{version}-credentials format
 // with dots in version replaced by hyphens.
-func TestGenerateCredentialSecretName(t *testing.T) {
-	got := GenerateCredentialSecretName("my-agent", "1.0")
+func TestGenerateSecretName(t *testing.T) {
+	got := GenerateSecretName("my-agent", "1.0")
 	if got != "my-agent-1-0-credentials" {
 		t.Errorf("expected my-agent-1-0-credentials, got %q", got)
 	}

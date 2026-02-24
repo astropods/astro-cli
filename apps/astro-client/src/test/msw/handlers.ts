@@ -85,14 +85,15 @@ export const mockDeployments: DeploymentsListResponse = {
 };
 
 export const mockTemplate: DeploymentTemplate = {
-  spec: '1.0',
+  spec: 'deployment-template/v1',
   source: { account: 'testuser', name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
-  target: { runtime: 'k8s', namespace: 'user-abc123' },
-  agent: {},
-  credentials: {
-    OPENAI_API_KEY: { value: '', description: 'OpenAI API key for the model provider', optional: false },
-    SENTRY_DSN: { value: '', description: 'Sentry DSN for error tracking', optional: true },
+  target: { runtime: 'kubernetes', namespace: '' },
+  agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
+  variables: {
+    OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key for the model provider' },
+    SENTRY_DSN: { default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN for error tracking' },
   },
+  editable: ['variables.*.value', 'target.namespace', 'interfaces.adapters'],
 };
 
 export const handlers = [
@@ -129,14 +130,16 @@ export const handlers = [
 
   // POST /api/v1/deploy
   http.post('/api/v1/deploy', async ({ request }) => {
-    const body = (await request.json()) as { name: string; build_id: string };
+    const body = (await request.json()) as { source?: { name?: string; build?: string } };
+    const name = body.source?.name ?? 'unknown';
+    const buildId = body.source?.build ?? 'a1b2c3d4e5f6';
     return HttpResponse.json<DeployResponse>({
       status: 'deployed',
-      name: body.name,
-      build_id: body.build_id || 'a1b2c3d4e5f6',
+      name,
+      build_id: buildId,
       k8s_namespace: 'user-abc123',
       deployed_at: new Date().toISOString(),
-      resources: [{ kind: 'Deployment', name: body.name, status: 'created' }],
+      resources: [{ kind: 'Deployment', name, status: 'created' }],
     });
   }),
 

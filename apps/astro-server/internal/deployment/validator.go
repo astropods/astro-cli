@@ -21,13 +21,13 @@ func NewValidator() *Validator {
 	}
 }
 
-// ValidateSpec validates the agent spec and credentials.
+// ValidateSpec validates the agent spec and variables.
 // interfaces and schedules are deployment-time values (not in spec).
-func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[string]string, interfaces []string, schedules map[string]string) ValidationResult {
+func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userVariables map[string]string, interfaces []string, schedules map[string]string) ValidationResult {
 	result := ValidationResult{
-		Valid:              true,
-		Errors:             []ValidationError{},
-		MissingCredentials: []string{},
+		Valid:            true,
+		Errors:           []ValidationError{},
+		MissingVariables: []string{},
 	}
 
 	// Validate basic spec fields
@@ -81,20 +81,20 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 		}
 	}
 
-	// Validate providers in models/knowledge/tools and integrations
+	// Validate providers in models/knowledge/tools
 	v.validateProviders(astroSpec, &result)
 
-	// Collect required credentials
-	requiredCreds := v.collectRequiredCredentials(astroSpec, interfaces)
+	// Collect required variables (provider credentials + interface tokens)
+	requiredVars := v.collectRequiredCredentials(astroSpec, interfaces)
 
-	// Check for missing credentials
-	for _, credKey := range requiredCreds {
-		if _, exists := userCredentials[credKey]; !exists {
+	// Check for missing variables
+	for _, varKey := range requiredVars {
+		if _, exists := userVariables[varKey]; !exists {
 			result.Valid = false
-			result.MissingCredentials = append(result.MissingCredentials, credKey)
+			result.MissingVariables = append(result.MissingVariables, varKey)
 			result.Errors = append(result.Errors, ValidationError{
-				Field:   "credentials." + credKey,
-				Message: fmt.Sprintf("missing required credential: %s", credKey),
+				Field:   "variables." + varKey,
+				Message: fmt.Sprintf("missing required variable: %s", varKey),
 			})
 		}
 	}
@@ -103,7 +103,6 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userCredentials map[
 }
 
 // collectRequiredCredentials identifies all required (non-optional) credentials from the spec.
-// It derives from GetRequiredCredentials to ensure consistency between validation and config endpoint.
 func (v *Validator) collectRequiredCredentials(astroSpec *spec.AstroSpec, interfaces []string) []string {
 	allCreds := v.GetRequiredCredentials(astroSpec, interfaces)
 
@@ -127,66 +126,44 @@ type CredentialInfo struct {
 }
 
 // validateProviders checks cloud providers in models/knowledge/tools and
-// validates that integrations have credentials.
+// validates custom provider references are within scope.
 func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *ValidationResult) {
-	// Validate model providers: cloud providers must be recognized
-	for name, model := range astroSpec.Models {
-		if model.IsProviderMode() && model.Container == nil {
-			provider := model.Provider
-			// Skip self-hosted providers (they have container registries)
-			if _, ok := spec.GetCloudModelCredentials(provider); !ok {
-				// Check if it's a self-hosted provider (has an image in the registry)
-				p := spec.GetModelProvider(provider)
-				if p.Image == "" {
-					result.Valid = false
-					result.Errors = append(result.Errors, ValidationError{
-						Field:   fmt.Sprintf("models.%s.provider", name),
-						Message: fmt.Sprintf("unsupported provider %q", provider),
-					})
-				}
-			}
-		}
-	}
-
-	// Validate knowledge providers
-	for name, knowledge := range astroSpec.Knowledge {
-		if knowledge.IsProviderMode() && knowledge.Container == nil {
-			provider := knowledge.Provider
-			if _, ok := spec.GetCloudKnowledgeCredentials(provider); !ok {
-				p := spec.GetProvider(provider)
-				if p.Image == "" {
-					result.Valid = false
-					result.Errors = append(result.Errors, ValidationError{
-						Field:   fmt.Sprintf("knowledge.%s.provider", name),
-						Message: fmt.Sprintf("unsupported provider %q", provider),
-					})
-				}
-			}
-		}
-	}
-
-	// Validate tool providers
-	for name, tool := range astroSpec.Tools {
-		if tool.IsProviderMode() && tool.Container == nil {
-			provider := tool.Provider
-			if _, ok := spec.GetCloudToolCredentials(provider); !ok {
+	// validateEntry checks a single provider reference and appends errors as needed.
+	validateEntry := func(section, entryName, provider string) {
+		// Custom provider — validate scope.
+		if cp, ok := astroSpec.Providers[provider]; ok {
+			if !scopeContains(cp.Scope, section) {
 				result.Valid = false
 				result.Errors = append(result.Errors, ValidationError{
-					Field:   fmt.Sprintf("tools.%s.provider", name),
-					Message: fmt.Sprintf("unsupported provider %q", provider),
+					Field:   fmt.Sprintf("%s.%s.provider", section, entryName),
+					Message: fmt.Sprintf("provider %q does not allow scope %q", provider, section),
 				})
 			}
+			return
+		}
+		// Built-in provider — must be known.
+		if p, ok := spec.LookupBuiltin(section, provider); !ok || p.Name == "" {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   fmt.Sprintf("%s.%s.provider", section, entryName),
+				Message: fmt.Sprintf("unsupported provider %q", provider),
+			})
 		}
 	}
 
-	// Validate integrations: must have credentials
-	for name, integration := range astroSpec.Integrations {
-		if len(integration.Credentials) == 0 {
-			result.Valid = false
-			result.Errors = append(result.Errors, ValidationError{
-				Field:   fmt.Sprintf("integrations.%s.credentials", name),
-				Message: "integration requires at least one credential",
-			})
+	for name, model := range astroSpec.Models {
+		if model.IsProviderMode() && model.Container == nil {
+			validateEntry("models", name, model.Provider)
+		}
+	}
+	for name, knowledge := range astroSpec.Knowledge {
+		if knowledge.IsProviderMode() && knowledge.Container == nil {
+			validateEntry("knowledge", name, knowledge.Provider)
+		}
+	}
+	for name, tool := range astroSpec.Tools {
+		if tool.IsProviderMode() && tool.Container == nil {
+			validateEntry("tools", name, tool.Provider)
 		}
 	}
 }
@@ -207,7 +184,7 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 
 	providerGroups := make(map[string][]cloudEntry)
 
-	// Pass 1: Collect cloud entries grouped by provider
+	// Pass 1: Collect cloud entries grouped by provider (skip custom providers).
 	for name, model := range astroSpec.Models {
 		if model.IsProviderMode() {
 			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
@@ -218,7 +195,6 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 			}
 		}
 	}
-
 	for name, knowledge := range astroSpec.Knowledge {
 		if knowledge.IsProviderMode() {
 			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
@@ -229,7 +205,6 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 			}
 		}
 	}
-
 	for name, tool := range astroSpec.Tools {
 		if tool.IsProviderMode() {
 			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
@@ -262,8 +237,6 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 		basePrefix := strings.ToUpper(entries[0].provider)
 
 		// Find which entry owns the bare key.
-		// Prefer an entry whose name matches the provider (natural primary);
-		// otherwise fall back to first alphabetically.
 		bareOwnerIdx := 0
 		if isDuplicate {
 			for i, entry := range entries {
@@ -277,15 +250,11 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 		for i, entry := range entries {
 			for _, cs := range entry.suffixes {
 				if !isDuplicate {
-					// Single entry: bare provider key (e.g., ANTHROPIC_API_KEY)
 					addCred(basePrefix+"_"+cs.Suffix, entry, cs)
 				} else {
-					// Name-qualified key for all entries, except when name == provider
-					// (e.g., skip redundant ANTHROPIC_ANTHROPIC_API_KEY)
 					if !strings.EqualFold(entry.name, entry.provider) {
 						addCred(basePrefix+"_"+strings.ToUpper(SanitizeName(entry.name))+"_"+cs.Suffix, entry, cs)
 					}
-					// Bare key for the primary entry
 					if i == bareOwnerIdx {
 						addCred(basePrefix+"_"+cs.Suffix, entry, cs)
 					}
@@ -294,16 +263,18 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 		}
 	}
 
-	// Scan integrations
-	for name, integration := range astroSpec.Integrations {
-		for _, cc := range integration.Credentials {
-			key := strings.ToUpper(name) + "_" + cc.Suffix
-			credMap[key] = CredentialInfo{
-				Key:         key,
-				Provider:    "integration",
-				Category:    "integration",
-				Description: cc.Description,
-				Optional:    cc.Optional,
+	// Scan custom providers referenced by components
+	referencedProviders := collectReferencedCustomProviders(astroSpec)
+	for provName, cp := range referencedProviders {
+		for _, v := range cp.Variables {
+			if v.Secret {
+				credMap[v.Name] = CredentialInfo{
+					Key:         v.Name,
+					Provider:    provName,
+					Category:    "provider",
+					Description: v.Description,
+					Optional:    v.Optional,
+				}
 			}
 		}
 	}
@@ -337,4 +308,40 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 	}
 
 	return creds
+}
+
+// collectReferencedCustomProviders returns all custom providers actually referenced by components.
+func collectReferencedCustomProviders(astroSpec *spec.AstroSpec) map[string]spec.CustomProvider {
+	result := make(map[string]spec.CustomProvider)
+	for _, model := range astroSpec.Models {
+		if model.IsProviderMode() {
+			if cp, ok := astroSpec.Providers[model.Provider]; ok {
+				result[model.Provider] = cp
+			}
+		}
+	}
+	for _, knowledge := range astroSpec.Knowledge {
+		if knowledge.IsProviderMode() {
+			if cp, ok := astroSpec.Providers[knowledge.Provider]; ok {
+				result[knowledge.Provider] = cp
+			}
+		}
+	}
+	for _, tool := range astroSpec.Tools {
+		if tool.IsProviderMode() {
+			if cp, ok := astroSpec.Providers[tool.Provider]; ok {
+				result[tool.Provider] = cp
+			}
+		}
+	}
+	return result
+}
+
+func scopeContains(scope []string, value string) bool {
+	for _, s := range scope {
+		if s == value {
+			return true
+		}
+	}
+	return false
 }

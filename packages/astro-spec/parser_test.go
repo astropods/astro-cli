@@ -355,46 +355,51 @@ dev:
 			},
 		},
 		{
-			name: "spec with integration credentials",
+			name: "spec with custom provider",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
-  version: 1.0.0
+  description: test
 agent:
   image: test:latest
-integrations:
+providers:
   my-service:
-    credentials:
-      - suffix: API_KEY
+    scope: [tools]
+    variables:
+      - name: MY_SERVICE_API_KEY
+        datatype: string
+        secret: true
         description: API key for my-service
-      - suffix: SECRET
+      - name: MY_SERVICE_SECRET
+        datatype: string
+        secret: true
         description: Shared secret
         optional: true
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if len(s.Integrations) != 1 {
-					t.Fatalf("len(Integrations) = %d, want 1", len(s.Integrations))
+				if len(s.Providers) != 1 {
+					t.Fatalf("len(Providers) = %d, want 1", len(s.Providers))
 				}
-				svc, ok := s.Integrations["my-service"]
+				prov, ok := s.Providers["my-service"]
 				if !ok {
-					t.Fatal("Integrations[my-service] not found")
+					t.Fatal("Providers[my-service] not found")
 				}
-				if len(svc.Credentials) != 2 {
-					t.Fatalf("len(Credentials) = %d, want 2", len(svc.Credentials))
+				if len(prov.Scope) != 1 || prov.Scope[0] != "tools" {
+					t.Errorf("Scope = %v, want [tools]", prov.Scope)
 				}
-				if svc.Credentials[0].Suffix != "API_KEY" {
-					t.Errorf("Credentials[0].Suffix = %q, want %q", svc.Credentials[0].Suffix, "API_KEY")
+				if len(prov.Variables) != 2 {
+					t.Fatalf("len(Variables) = %d, want 2", len(prov.Variables))
 				}
-				if svc.Credentials[0].Description != "API key for my-service" {
-					t.Errorf("Credentials[0].Description = %q, want %q", svc.Credentials[0].Description, "API key for my-service")
+				if prov.Variables[0].Name != "MY_SERVICE_API_KEY" {
+					t.Errorf("Variables[0].Name = %q, want MY_SERVICE_API_KEY", prov.Variables[0].Name)
 				}
-				if svc.Credentials[1].Suffix != "SECRET" {
-					t.Errorf("Credentials[1].Suffix = %q, want %q", svc.Credentials[1].Suffix, "SECRET")
+				if prov.Variables[0].Description != "API key for my-service" {
+					t.Errorf("Variables[0].Description = %q", prov.Variables[0].Description)
 				}
-				if !svc.Credentials[1].Optional {
-					t.Error("Credentials[1].Optional = false, want true")
+				if !prov.Variables[1].Optional {
+					t.Error("Variables[1].Optional = false, want true")
 				}
 			},
 		},
@@ -578,18 +583,20 @@ tools:
 			wantErr: "either provider or container is required",
 		},
 		{
-			name: "integration without credentials rejected",
+			name: "custom provider without variables rejected",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
-  version: 1.0.0
+  description: test
 agent:
   image: test:latest
-integrations:
-  my-service: {}
+providers:
+  my-service:
+    scope: [tools]
+    variables: []
 `,
-			wantErr: "at least one credential is required",
+			wantErr: "variables is required and must contain at least one entry",
 		},
 		{
 			name: "valid cloud model provider",
@@ -618,6 +625,148 @@ agent:
 tools:
   github:
     provider: github
+`,
+			wantErr: "",
+		},
+		// Fix 1: agent.image and agent.build are mutually exclusive
+		{
+			name: "agent with both image and build rejected",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+`,
+			wantErr: "image and build are mutually exclusive",
+		},
+		// Fix 2: tools container.build must have context and dockerfile
+		{
+			name: "tool container build missing context",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  mytool:
+    container:
+      build:
+        dockerfile: Dockerfile
+`,
+			wantErr: "tools.mytool.container.build.context is required",
+		},
+		{
+			name: "tool container build missing dockerfile",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  mytool:
+    container:
+      build:
+        context: .
+`,
+			wantErr: "tools.mytool.container.build.dockerfile is required",
+		},
+		{
+			name: "tool container build valid",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  mytool:
+    container:
+      build:
+        context: .
+        dockerfile: Dockerfile
+`,
+			wantErr: "",
+		},
+		// Fix 3: gpu.runtime must be cuda or rocm — tools and knowledge
+		{
+			name: "tool container invalid gpu runtime",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  mytool:
+    container:
+      image: tool:latest
+      gpu:
+        runtime: metal
+`,
+			wantErr: "tools.mytool.container.gpu.runtime: must be one of cuda or rocm",
+		},
+		{
+			name: "tool container valid gpu runtime rocm",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+tools:
+  mytool:
+    container:
+      image: tool:latest
+      gpu:
+        runtime: rocm
+`,
+			wantErr: "",
+		},
+		{
+			name: "knowledge container invalid gpu runtime",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+knowledge:
+  store:
+    container:
+      image: store:latest
+      gpu:
+        runtime: directx
+`,
+			wantErr: "knowledge.store.container.gpu.runtime: must be one of cuda or rocm",
+		},
+		{
+			name: "knowledge container valid gpu runtime cuda",
+			yaml: `
+spec: astro/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+knowledge:
+  store:
+    container:
+      image: store:latest
+      gpu:
+        runtime: cuda
 `,
 			wantErr: "",
 		},

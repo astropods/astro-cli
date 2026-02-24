@@ -10,19 +10,23 @@ import (
 type ReferenceKind string
 
 const (
-	RefModel      ReferenceKind = "models"
-	RefKnowledge  ReferenceKind = "knowledge"
-	RefTool       ReferenceKind = "tools"
-	RefCredential ReferenceKind = "credentials"
-	RefSource     ReferenceKind = "source"
+	RefModel    ReferenceKind = "models"
+	RefKnowledge ReferenceKind = "knowledge"
+	RefTool     ReferenceKind = "tools"
+	RefVariable ReferenceKind = "variables"
+	RefSource   ReferenceKind = "source"
 )
 
-// Reference represents a parsed ${section.name.attribute} reference.
+// Reference represents a parsed ${} reference.
+// Component refs can be 3-part (section.name.host) or 4-part (section.name.endpoint.attr).
+// Variable refs are 2-part (variables.key).
+// Source refs are 2-part (source.attr).
 type Reference struct {
-	Raw       string        // original string, e.g. "${models.local_llm.host}"
-	Kind      ReferenceKind // e.g. RefModel
-	Name      string        // e.g. "local_llm" (component name or credential key)
-	Attribute string        // e.g. "host", "port", "url" (empty for credentials)
+	Raw      string        // original string, e.g. "${models.local_llm.http.port}"
+	Kind     ReferenceKind // e.g. RefModel
+	Name     string        // component name or variable/source key
+	Endpoint string        // endpoint name for 4-part port/url refs (empty for host refs)
+	Attribute string       // e.g. "host", "port", "url" (empty for variables)
 }
 
 var refPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -56,41 +60,76 @@ func ExtractAllReferences(env map[string]string) []Reference {
 }
 
 // ValidateReferences checks that every reference in agent.environment resolves
-// to a declared component, credential, or source attribute.
+// to a declared component, variable, or source attribute.
 func ValidateReferences(refs []Reference, ds *AstroDeploymentSpec) []string {
 	var errs []string
 
 	for _, ref := range refs {
 		switch ref.Kind {
 		case RefModel:
-			if _, ok := ds.Models[ref.Name]; !ok {
+			m, ok := ds.Models[ref.Name]
+			if !ok {
 				errs = append(errs, fmt.Sprintf("%s: model %q not declared", ref.Raw, ref.Name))
-			} else if !isValidComponentAttr(ref.Attribute) {
-				errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected host, port, or url)", ref.Raw, ref.Attribute))
+				continue
+			}
+			if ref.Endpoint == "" {
+				// 3-part: only "host" is valid
+				if ref.Attribute != "host" {
+					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q for 3-part ref (only \"host\" allowed; use endpoint name for port/url)", ref.Raw, ref.Attribute))
+				}
+			} else {
+				// 4-part: validate endpoint exists and attribute is port/url
+				if _, epOK := m.Endpoints[ref.Endpoint]; !epOK {
+					errs = append(errs, fmt.Sprintf("%s: endpoint %q not declared on model %q", ref.Raw, ref.Endpoint, ref.Name))
+				} else if !isValidEndpointAttr(ref.Attribute) {
+					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected port or url)", ref.Raw, ref.Attribute))
+				}
 			}
 
 		case RefKnowledge:
-			if _, ok := ds.Knowledge[ref.Name]; !ok {
+			k, ok := ds.Knowledge[ref.Name]
+			if !ok {
 				errs = append(errs, fmt.Sprintf("%s: knowledge store %q not declared", ref.Raw, ref.Name))
-			} else if !isValidComponentAttr(ref.Attribute) {
-				errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected host, port, or url)", ref.Raw, ref.Attribute))
+				continue
+			}
+			if ref.Endpoint == "" {
+				if ref.Attribute != "host" {
+					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q for 3-part ref (only \"host\" allowed; use endpoint name for port/url)", ref.Raw, ref.Attribute))
+				}
+			} else {
+				if _, epOK := k.Endpoints[ref.Endpoint]; !epOK {
+					errs = append(errs, fmt.Sprintf("%s: endpoint %q not declared on knowledge %q", ref.Raw, ref.Endpoint, ref.Name))
+				} else if !isValidEndpointAttr(ref.Attribute) {
+					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected port or url)", ref.Raw, ref.Attribute))
+				}
 			}
 
 		case RefTool:
-			if _, ok := ds.Tools[ref.Name]; !ok {
+			t, ok := ds.Tools[ref.Name]
+			if !ok {
 				errs = append(errs, fmt.Sprintf("%s: tool %q not declared", ref.Raw, ref.Name))
-			} else if !isValidComponentAttr(ref.Attribute) {
-				errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected host, port, or url)", ref.Raw, ref.Attribute))
+				continue
+			}
+			if ref.Endpoint == "" {
+				if ref.Attribute != "host" {
+					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q for 3-part ref (only \"host\" allowed; use endpoint name for port/url)", ref.Raw, ref.Attribute))
+				}
+			} else {
+				if _, epOK := t.Endpoints[ref.Endpoint]; !epOK {
+					errs = append(errs, fmt.Sprintf("%s: endpoint %q not declared on tool %q", ref.Raw, ref.Endpoint, ref.Name))
+				} else if !isValidEndpointAttr(ref.Attribute) {
+					errs = append(errs, fmt.Sprintf("%s: invalid attribute %q (expected port or url)", ref.Raw, ref.Attribute))
+				}
 			}
 
-		case RefCredential:
-			if _, ok := ds.Credentials[ref.Name]; !ok {
-				errs = append(errs, fmt.Sprintf("%s: credential %q not declared", ref.Raw, ref.Name))
+		case RefVariable:
+			if _, ok := ds.Variables[ref.Name]; !ok {
+				errs = append(errs, fmt.Sprintf("%s: variable %q not declared", ref.Raw, ref.Name))
 			}
 
 		case RefSource:
-			if ref.Name != "name" && ref.Name != "build" {
-				errs = append(errs, fmt.Sprintf("%s: invalid source attribute %q (expected name or build)", ref.Raw, ref.Name))
+			if ref.Name != "name" && ref.Name != "build" && ref.Name != "account" && ref.Name != "registry" {
+				errs = append(errs, fmt.Sprintf("%s: invalid source attribute %q (expected name, build, account, or registry)", ref.Raw, ref.Name))
 			}
 		}
 	}
@@ -103,14 +142,15 @@ func IsReference(s string) bool {
 	return refPattern.MatchString(s)
 }
 
-// IsCredentialReference returns true if the string is a credential reference.
-func IsCredentialReference(s string) bool {
+// IsVariableReference returns true if the string is a variable reference.
+func IsVariableReference(s string) bool {
 	refs := ParseReferences(s)
-	return len(refs) == 1 && refs[0].Kind == RefCredential
+	return len(refs) == 1 && refs[0].Kind == RefVariable
 }
 
 func parseRefInner(raw, inner string) (Reference, error) {
-	parts := strings.SplitN(inner, ".", 3)
+	// Split into at most 4 parts to handle: section.name[.endpoint[.attr]]
+	parts := strings.SplitN(inner, ".", 4)
 	if len(parts) < 2 {
 		return Reference{}, fmt.Errorf("invalid reference %q: need at least section.name", raw)
 	}
@@ -123,10 +163,16 @@ func parseRefInner(raw, inner string) (Reference, error) {
 		ref.Kind = ReferenceKind(section)
 		ref.Name = parts[1]
 		if len(parts) == 3 {
+			// 3-part: section.name.attribute (only "host" is valid)
 			ref.Attribute = parts[2]
+		} else if len(parts) == 4 {
+			// 4-part: section.name.endpoint.attribute
+			ref.Endpoint = parts[2]
+			ref.Attribute = parts[3]
 		}
-	case RefCredential:
-		ref.Kind = RefCredential
+		// 2-part (section.name) is also valid, attribute left empty
+	case RefVariable:
+		ref.Kind = RefVariable
 		ref.Name = parts[1]
 	case RefSource:
 		ref.Kind = RefSource
@@ -138,6 +184,7 @@ func parseRefInner(raw, inner string) (Reference, error) {
 	return ref, nil
 }
 
-func isValidComponentAttr(attr string) bool {
-	return attr == "host" || attr == "port" || attr == "url"
+// isValidEndpointAttr returns true for valid 4-part endpoint attributes.
+func isValidEndpointAttr(attr string) bool {
+	return attr == "port" || attr == "url"
 }

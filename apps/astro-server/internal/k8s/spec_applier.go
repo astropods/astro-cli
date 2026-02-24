@@ -39,7 +39,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		Namespace:  a.namespace,
 		AgentName:  agentName,
 		BuildID:    buildID,
-		SecretName: deployment.GenerateCredentialSecretName(agentName, buildID),
+		SecretName: deployment.GenerateSecretName(agentName, buildID),
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
@@ -47,7 +47,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// referencing a non-existent Secret/ConfigMap causes K8s errors.
 	secretName := ""
 	if len(resolved.SecretData) > 0 {
-		secretName = deployment.GenerateCredentialSecretName(agentName, buildID)
+		secretName = deployment.GenerateSecretName(agentName, buildID)
 	}
 	configMapName := ""
 	if len(resolved.ConfigMapData) > 0 {
@@ -96,7 +96,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Model services
 	for name, model := range ds.Models {
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
-		port := int32(model.Port) //nolint:gosec
+		port := primaryPort(model.Endpoints)
 		if port == 0 {
 			port = 8080
 		}
@@ -111,7 +111,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Knowledge services
 	for name, knowledge := range ds.Knowledge {
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := int32(knowledge.Port) //nolint:gosec
+		port := primaryPort(knowledge.Endpoints)
 		svc := a.buildKnowledgeService(resourceName, agentName, buildID, name, port)
 		a.applyServiceAndRecord(ctx, svc, result)
 	}
@@ -119,7 +119,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Tool services
 	for name, tool := range ds.Tools {
 		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
-		port := int32(tool.Port) //nolint:gosec
+		port := primaryPort(tool.Endpoints)
 		if port == 0 {
 			port = 8080
 		}
@@ -133,7 +133,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Agent service
 	agentResourceName := deployment.GenerateAgentResourceName(agentName, "agent")
-	agentPort := int32(ds.Agent.Port) //nolint:gosec
+	agentPort := primaryPort(ds.Agent.Endpoints)
 	if agentPort == 0 {
 		agentPort = 8080
 	}
@@ -150,7 +150,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := int32(knowledge.Port) //nolint:gosec
+		port := primaryPort(knowledge.Endpoints)
 
 		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port)}
 		resolvedContainer, err := a.resolveContainerImage(container)
@@ -201,7 +201,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
-		port := int32(model.Port) //nolint:gosec
+		port := primaryPort(model.Endpoints)
 		if port == 0 {
 			port = 8080
 		}
@@ -218,12 +218,12 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		resolvedContainer.Persistent = true
 
-		// Override healthcheck with model-aware readiness when ModelName is set
+		// Override healthcheck with model-aware readiness when Model is set
 		healthcheck := model.Healthcheck
-		if model.ModelName != "" && healthcheck == nil {
+		if model.Model != "" && healthcheck == nil {
 			healthcheck = &spec.Healthcheck{
 				Test: []string{"sh", "-c",
-					fmt.Sprintf("ollama list | grep -q '%s'", model.ModelName),
+					fmt.Sprintf("ollama list | grep -q '%s'", model.Model),
 				},
 				Interval: "15s",
 				Timeout:  "5s",
@@ -246,10 +246,10 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		// Add model pull postStart hook
-		if model.ModelName != "" {
+		if model.Model != "" {
 			ssCfg.PostStartCommand = []string{
 				"sh", "-c",
-				fmt.Sprintf("until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull %s", model.ModelName),
+				fmt.Sprintf("until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull %s", model.Model),
 			}
 		}
 
@@ -270,7 +270,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "model", name)
-		port := int32(model.Port) //nolint:gosec
+		port := primaryPort(model.Endpoints)
 		if port == 0 {
 			port = 8080
 		}
@@ -290,11 +290,11 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:     int32(model.Replicas), //nolint:gosec
-			Resources:    BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
-			Strategy:     BuildDeploymentStrategy(model.Update),
-			NodeSelector: BuildGPUNodeSelector(model.GPU),
-			Tolerations:  BuildGPUTolerations(model.GPU),
+			Replicas:        int32(model.Replicas), //nolint:gosec
+			Resources:       BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
+			Strategy:        BuildDeploymentStrategy(model.Update),
+			NodeSelector:    BuildGPUNodeSelector(model.GPU),
+			Tolerations:     BuildGPUTolerations(model.GPU),
 		}
 		depl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, depl)
@@ -312,7 +312,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			continue
 		}
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := int32(knowledge.Port) //nolint:gosec
+		port := primaryPort(knowledge.Endpoints)
 
 		container := spec.ContainerConfig{Image: knowledge.Image, Port: int(port), Environment: knowledge.Environment}
 		resolvedContainer, err := a.resolveContainerImage(container)
@@ -329,9 +329,9 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(knowledge.Replicas), //nolint:gosec
-			Resources: BuildResourceRequirements(knowledge.Resources),
-			Strategy:  BuildDeploymentStrategy(knowledge.Update),
+			Replicas:        int32(knowledge.Replicas), //nolint:gosec
+			Resources:       BuildResourceRequirements(knowledge.Resources),
+			Strategy:        BuildDeploymentStrategy(knowledge.Update),
 		}
 		depl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, depl)
@@ -346,7 +346,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Tools
 	for name, tool := range ds.Tools {
 		resourceName := deployment.GenerateResourceName(agentName, "tool", name)
-		port := int32(tool.Port) //nolint:gosec
+		port := primaryPort(tool.Endpoints)
 		if port == 0 {
 			port = 8080
 		}
@@ -366,9 +366,9 @@ func (a *Applier) ApplyDeploymentSpec(
 			BuildID: buildID, Component: fmt.Sprintf("tool-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(tool.Replicas), //nolint:gosec
-			Resources: BuildResourceRequirements(tool.Resources),
-			Strategy:  BuildDeploymentStrategy(tool.Update),
+			Replicas:        int32(tool.Replicas), //nolint:gosec
+			Resources:       BuildResourceRequirements(tool.Resources),
+			Strategy:        BuildDeploymentStrategy(tool.Update),
 		}
 		depl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, depl)
@@ -411,13 +411,26 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Phase 5b: Messaging interfaces
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
-		// Resolve interface port and web port from deployment spec
-		grpcPort := int32(ds.Interfaces.Port) //nolint:gosec
+		// Resolve interface grpc port: prefer "grpc" endpoint, fall back to primary, default 9090
+		grpcPort := int32(0)
+		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc"); ep != nil {
+			grpcPort = int32(ep.Port) // nolint:gosec
+		}
+		if grpcPort == 0 {
+			grpcPort = int32(spec.PrimaryPort(ds.Interfaces.Endpoints)) // nolint:gosec
+		}
 		if grpcPort == 0 {
 			grpcPort = 9090
 		}
 
-		webPort := int32(ds.Interfaces.Expose.Port) //nolint:gosec
+		// Resolve web port from "http" endpoint
+		webPort := int32(0)
+		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
+			webPort = int32(ep.Port) // nolint:gosec
+		}
+		if webPort == 0 {
+			webPort = 8080
+		}
 
 		// Resolve interface resources from deployment spec
 		var msgResources *corev1.ResourceRequirements
@@ -493,7 +506,10 @@ func (a *Applier) ApplyDeploymentSpec(
 		// Ingress — expose web adapter if configured
 		if webEnabled {
 			ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-messaging")
-			host := ds.Interfaces.Expose.Domain
+			host := ""
+			if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil && ep.Expose != nil {
+				host = ep.Expose.Domain
+			}
 			if host == "" && a.ingressDomain != "" {
 				host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
 			}
@@ -600,7 +616,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		ingestionSpec := spec.Ingestion{
 			Container: spec.ContainerConfig{
 				Image:       ingestion.Image,
-				Port:        ingestion.Port,
+				Port:        spec.PrimaryPort(ingestion.Endpoints),
 				Environment: ingestion.Environment,
 			},
 			Trigger: spec.IngestionTrigger{
@@ -643,7 +659,8 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 
 		case "webhook":
-			port := int32(ingestion.Port) //nolint:gosec // port is required for webhook triggers (validated by deployment parser)
+			// port is required for webhook triggers (validated by deployment parser)
+			port := int32(spec.PrimaryPort(ingestion.Endpoints)) // nolint:gosec
 			// Service
 			svc := BuildService(ServiceConfig{
 				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
@@ -730,6 +747,13 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	return result, nil
+}
+
+// primaryPort returns the primary port from a component's Endpoints map as int32.
+// Prefers the "http" endpoint; otherwise returns the first endpoint sorted alphabetically.
+// Returns 0 if endpoints is nil or empty.
+func primaryPort(endpoints map[string]spec.Endpoint) int32 {
+	return int32(spec.PrimaryPort(endpoints)) // nolint:gosec
 }
 
 // ensureNamespace creates the namespace if it doesn't exist, or patches labels if it does.

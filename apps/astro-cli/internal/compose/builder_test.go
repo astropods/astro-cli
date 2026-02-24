@@ -161,24 +161,28 @@ func TestBuildProject_CloudProviderCredentials(t *testing.T) {
 	}
 }
 
-func TestBuildProject_IntegrationCredentials(t *testing.T) {
+func TestBuildProject_CustomProviderCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
-		Integrations: map[string]spec.Integration{
+		Providers: map[string]spec.CustomProvider{
 			"my-service": {
-				Credentials: []spec.CustomCredential{
-					{Suffix: "API_KEY", Description: "API key"},
-					{Suffix: "SECRET", Description: "Shared secret"},
+				Scope: []string{"tools"},
+				Variables: []spec.Input{
+					{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true},
+					{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true},
 				},
 			},
+		},
+		Tools: map[string]spec.Tool{
+			"jira": {Provider: "my-service"},
 		},
 	}
 
 	envVars := map[string]string{
-		"MY-SERVICE_API_KEY": "key1",
-		"MY-SERVICE_SECRET":  "s3cret",
+		"MY_SERVICE_API_KEY": "key1",
+		"MY_SERVICE_SECRET":  "s3cret",
 	}
 
 	project, err := BuildProject(s, "/work", envVars)
@@ -187,32 +191,36 @@ func TestBuildProject_IntegrationCredentials(t *testing.T) {
 	}
 
 	agent := project.Services["agent"]
-	if envVal(agent.Environment, "MY-SERVICE_API_KEY") != "key1" {
-		t.Errorf("MY-SERVICE_API_KEY = %q, want %q", envVal(agent.Environment, "MY-SERVICE_API_KEY"), "key1")
+	if envVal(agent.Environment, "MY_SERVICE_API_KEY") != "key1" {
+		t.Errorf("MY_SERVICE_API_KEY = %q, want %q", envVal(agent.Environment, "MY_SERVICE_API_KEY"), "key1")
 	}
-	if envVal(agent.Environment, "MY-SERVICE_SECRET") != "s3cret" {
-		t.Errorf("MY-SERVICE_SECRET = %q, want %q", envVal(agent.Environment, "MY-SERVICE_SECRET"), "s3cret")
+	if envVal(agent.Environment, "MY_SERVICE_SECRET") != "s3cret" {
+		t.Errorf("MY_SERVICE_SECRET = %q, want %q", envVal(agent.Environment, "MY_SERVICE_SECRET"), "s3cret")
 	}
 }
 
-func TestBuildProject_IntegrationMissingEnvVar(t *testing.T) {
+func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
-		Integrations: map[string]spec.Integration{
+		Providers: map[string]spec.CustomProvider{
 			"my-service": {
-				Credentials: []spec.CustomCredential{
-					{Suffix: "API_KEY"},
-					{Suffix: "SECRET"},
+				Scope: []string{"tools"},
+				Variables: []spec.Input{
+					{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true},
+					{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true},
 				},
 			},
 		},
+		Tools: map[string]spec.Tool{
+			"jira": {Provider: "my-service"},
+		},
 	}
 
-	// Only provide one of two credentials
+	// Only provide one of two variables
 	envVars := map[string]string{
-		"MY-SERVICE_API_KEY": "key1",
+		"MY_SERVICE_API_KEY": "key1",
 	}
 
 	project, err := BuildProject(s, "/work", envVars)
@@ -221,10 +229,10 @@ func TestBuildProject_IntegrationMissingEnvVar(t *testing.T) {
 	}
 
 	agent := project.Services["agent"]
-	if envVal(agent.Environment, "MY-SERVICE_API_KEY") != "key1" {
+	if envVal(agent.Environment, "MY_SERVICE_API_KEY") != "key1" {
 		t.Error("present env var should be injected")
 	}
-	if _, ok := agent.Environment["MY-SERVICE_SECRET"]; ok {
+	if _, ok := agent.Environment["MY_SERVICE_SECRET"]; ok {
 		t.Error("absent env var should not be injected")
 	}
 }

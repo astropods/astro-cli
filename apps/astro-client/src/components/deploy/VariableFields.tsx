@@ -6,7 +6,14 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import type { DeploymentTemplateCredential } from "@/lib/api";
+/** Display-only variable metadata — only the fields the component actually renders. */
+export interface VariableDisplay {
+  description?: string;
+  optional?: boolean;
+  label?: string;
+  placeholder?: string;
+  helpUrl?: string;
+}
 
 /** Convert "SLACK_BOT_TOKEN" → "Slack Bot Token" */
 function humanizeKey(key: string): string {
@@ -21,41 +28,41 @@ function placeholderFromKey(key: string): string {
   return "your-" + key.replace(/_/g, "-").toLowerCase();
 }
 
-export interface CredentialFieldsProps {
-  credentials: [string, DeploymentTemplateCredential & { label?: string; placeholder?: string; helpUrl?: string }][];
+export interface VariableFieldsProps {
+  variables: [string, VariableDisplay][];
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
   errorKeys?: string[];
 }
 
-export function CredentialFields({ credentials, values, onChange, errorKeys }: CredentialFieldsProps) {
-  if (credentials.length === 0) return null;
+export function VariableFields({ variables, values, onChange, errorKeys }: VariableFieldsProps) {
+  if (variables.length === 0) return null;
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="rounded-[6px] bg-stone-100 p-4">
-        {credentials.map(([key, cred]) => (
+        {variables.map(([key, v]) => (
           <div key={key} className="pt-5 first:pt-0">
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
                 <label htmlFor={key} className="text-sm font-medium text-foreground">
-                  {cred.label ?? humanizeKey(key)}
+                  {v.label ?? humanizeKey(key)}
                 </label>
-                {cred.description && (
+                {v.description && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={4}>
-                      {cred.description}
+                      {v.description}
                     </TooltipContent>
                   </Tooltip>
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {cred.helpUrl && (
+                {v.helpUrl && (
                   <a
-                    href={cred.helpUrl}
+                    href={v.helpUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"
@@ -64,7 +71,7 @@ export function CredentialFields({ credentials, values, onChange, errorKeys }: C
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}
-                {cred.optional && (
+                {v.optional && (
                   <span className="text-xs text-muted-foreground">Optional</span>
                 )}
               </div>
@@ -76,7 +83,7 @@ export function CredentialFields({ credentials, values, onChange, errorKeys }: C
               spellCheck={false}
               value={values[key] || ""}
               onChange={(e) => onChange({ ...values, [key]: e.target.value })}
-              placeholder={cred.placeholder || placeholderFromKey(key)}
+              placeholder={v.placeholder || placeholderFromKey(key)}
               className="bg-white font-mono"
               aria-invalid={errorKeys?.includes(key) || undefined}
             />

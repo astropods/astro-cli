@@ -170,36 +170,44 @@ func TestValidateSpec(t *testing.T) {
 			wantValid: true,
 		},
 		{
-			name: "integration with credentials provided",
+			name: "custom provider with secret credentials provided",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
-				Integrations: map[string]spec.Integration{
+				Providers: map[string]spec.CustomProvider{
 					"my-service": {
-						Credentials: []spec.CustomCredential{
-							{Suffix: "API_KEY", Description: "API key"},
-							{Suffix: "SECRET", Description: "Shared secret"},
+						Scope: []string{"tools"},
+						Variables: []spec.Input{
+							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
+							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
 						},
 					},
 				},
+				Tools: map[string]spec.Tool{
+					"jira": {Provider: "my-service"},
+				},
 			},
-			creds:     map[string]string{"MY-SERVICE_API_KEY": "key1", "MY-SERVICE_SECRET": "s3cret"},
+			creds:     map[string]string{"MY_SERVICE_API_KEY": "key1", "MY_SERVICE_SECRET": "s3cret"},
 			wantValid: true,
 		},
 		{
-			name: "integration with missing credentials",
+			name: "custom provider with missing secret credentials",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
-				Integrations: map[string]spec.Integration{
+				Providers: map[string]spec.CustomProvider{
 					"my-service": {
-						Credentials: []spec.CustomCredential{
-							{Suffix: "API_KEY", Description: "API key"},
-							{Suffix: "SECRET", Description: "Shared secret"},
+						Scope: []string{"tools"},
+						Variables: []spec.Input{
+							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
+							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
 						},
 					},
+				},
+				Tools: map[string]spec.Tool{
+					"jira": {Provider: "my-service"},
 				},
 			},
 			creds:       map[string]string{},
@@ -207,35 +215,25 @@ func TestValidateSpec(t *testing.T) {
 			wantMissing: 2,
 		},
 		{
-			name: "integration without credentials array",
+			name: "custom provider optional secret not required",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
-				Integrations: map[string]spec.Integration{
-					"my-service": {},
-				},
-			},
-			creds:          map[string]string{},
-			wantValid:      false,
-			wantErrorField: "integrations.my-service.credentials",
-		},
-		{
-			name: "integration optional credential not required",
-			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
-				Agent: spec.Container{Image: "agent:latest"},
-				Integrations: map[string]spec.Integration{
+				Providers: map[string]spec.CustomProvider{
 					"my-service": {
-						Credentials: []spec.CustomCredential{
-							{Suffix: "API_KEY", Description: "API key"},
-							{Suffix: "SECRET", Description: "Optional secret", Optional: true},
+						Scope: []string{"tools"},
+						Variables: []spec.Input{
+							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
+							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Optional secret", Optional: true},
 						},
 					},
 				},
+				Tools: map[string]spec.Tool{
+					"jira": {Provider: "my-service"},
+				},
 			},
-			creds:       map[string]string{"MY-SERVICE_API_KEY": "key1"},
+			creds:       map[string]string{"MY_SERVICE_API_KEY": "key1"},
 			wantValid:   true,
 			wantMissing: 0,
 		},
@@ -286,9 +284,9 @@ func TestValidateSpec(t *testing.T) {
 				}
 			}
 
-			if tt.wantMissing > 0 && len(result.MissingCredentials) != tt.wantMissing {
+			if tt.wantMissing > 0 && len(result.MissingVariables) != tt.wantMissing {
 				t.Errorf("missing credentials: expected %d, got %d: %v",
-					tt.wantMissing, len(result.MissingCredentials), result.MissingCredentials)
+					tt.wantMissing, len(result.MissingVariables), result.MissingVariables)
 			}
 		})
 	}
@@ -465,18 +463,22 @@ func TestGetRequiredCredentials(t *testing.T) {
 		}
 	})
 
-	t.Run("integration credentials", func(t *testing.T) {
+	t.Run("custom provider secret credentials", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
-			Integrations: map[string]spec.Integration{
+			Providers: map[string]spec.CustomProvider{
 				"my-service": {
-					Credentials: []spec.CustomCredential{
-						{Suffix: "API_KEY", Description: "API key for my-service"},
-						{Suffix: "SECRET", Description: "Shared secret", Optional: true},
+					Scope: []string{"tools"},
+					Variables: []spec.Input{
+						{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key for my-service"},
+						{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret", Optional: true},
 					},
 				},
+			},
+			Tools: map[string]spec.Tool{
+				"jira": {Provider: "my-service"},
 			},
 		}
 
@@ -489,35 +491,39 @@ func TestGetRequiredCredentials(t *testing.T) {
 		if len(creds) != 2 {
 			t.Fatalf("expected 2 credentials, got %d: %v", len(creds), credKeys)
 		}
-		if _, ok := credKeys["MY-SERVICE_API_KEY"]; !ok {
-			t.Errorf("expected MY-SERVICE_API_KEY, got %v", credKeys)
+		if _, ok := credKeys["MY_SERVICE_API_KEY"]; !ok {
+			t.Errorf("expected MY_SERVICE_API_KEY, got %v", credKeys)
 		}
-		if _, ok := credKeys["MY-SERVICE_SECRET"]; !ok {
-			t.Errorf("expected MY-SERVICE_SECRET, got %v", credKeys)
+		if _, ok := credKeys["MY_SERVICE_SECRET"]; !ok {
+			t.Errorf("expected MY_SERVICE_SECRET, got %v", credKeys)
 		}
-		if !credKeys["MY-SERVICE_SECRET"].Optional {
-			t.Error("expected MY-SERVICE_SECRET to be optional")
+		if !credKeys["MY_SERVICE_SECRET"].Optional {
+			t.Error("expected MY_SERVICE_SECRET to be optional")
 		}
-		if credKeys["MY-SERVICE_API_KEY"].Provider != "integration" {
-			t.Errorf("expected provider 'integration', got %q", credKeys["MY-SERVICE_API_KEY"].Provider)
+		if credKeys["MY_SERVICE_API_KEY"].Provider != "my-service" {
+			t.Errorf("expected provider 'my-service', got %q", credKeys["MY_SERVICE_API_KEY"].Provider)
 		}
 	})
 
-	t.Run("integration JSON round-trip", func(t *testing.T) {
+	t.Run("custom provider JSON round-trip", func(t *testing.T) {
 		rawSpec := map[string]interface{}{
-			"spec": "astro/v1",
+			"spec": "package/v1",
 			"name": "my-agent",
-			"meta": map[string]interface{}{"version": "1.0"},
+			"meta": map[string]interface{}{"description": "test"},
 			"agent": map[string]interface{}{
 				"image": "agent:latest",
 			},
-			"integrations": map[string]interface{}{
+			"providers": map[string]interface{}{
 				"my-service": map[string]interface{}{
-					"credentials": []interface{}{
-						map[string]interface{}{"suffix": "API_KEY", "description": "API key"},
-						map[string]interface{}{"suffix": "SECRET", "description": "Shared secret"},
+					"scope": []interface{}{"tools"},
+					"variables": []interface{}{
+						map[string]interface{}{"name": "MY_SERVICE_API_KEY", "datatype": "string", "secret": true, "description": "API key"},
+						map[string]interface{}{"name": "MY_SERVICE_SECRET", "datatype": "string", "secret": true, "description": "Shared secret"},
 					},
 				},
+			},
+			"tools": map[string]interface{}{
+				"jira": map[string]interface{}{"provider": "my-service"},
 			},
 		}
 
@@ -531,12 +537,12 @@ func TestGetRequiredCredentials(t *testing.T) {
 			t.Fatalf("failed to unmarshal into AstroSpec: %v", err)
 		}
 
-		integration, ok := astroSpec.Integrations["my-service"]
+		provider, ok := astroSpec.Providers["my-service"]
 		if !ok {
-			t.Fatal("expected my-service integration after round-trip")
+			t.Fatal("expected my-service provider after round-trip")
 		}
-		if len(integration.Credentials) != 2 {
-			t.Fatalf("expected 2 credentials after round-trip, got %d", len(integration.Credentials))
+		if len(provider.Variables) != 2 {
+			t.Fatalf("expected 2 variables after round-trip, got %d", len(provider.Variables))
 		}
 
 		creds := v.GetRequiredCredentials(&astroSpec, nil)
@@ -544,8 +550,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 		for _, c := range creds {
 			credKeys[c.Key] = true
 		}
-		if !credKeys["MY-SERVICE_API_KEY"] || !credKeys["MY-SERVICE_SECRET"] {
-			t.Errorf("expected MY-SERVICE_API_KEY and MY-SERVICE_SECRET, got %v", credKeys)
+		if !credKeys["MY_SERVICE_API_KEY"] || !credKeys["MY_SERVICE_SECRET"] {
+			t.Errorf("expected MY_SERVICE_API_KEY and MY_SERVICE_SECRET, got %v", credKeys)
 		}
 	})
 

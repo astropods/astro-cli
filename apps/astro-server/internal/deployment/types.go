@@ -2,16 +2,6 @@ package deployment
 
 import "time"
 
-// DeployRequest represents a deployment request
-type DeployRequest struct {
-	Account         string            `json:"account" binding:"required"`
-	Name            string            `json:"name" binding:"required"`
-	SourceAccount   string            `json:"source_account,omitempty"`
-	UserCredentials map[string]string `json:"user_credentials,omitempty"`
-	Interfaces      []string          `json:"interfaces,omitempty"`
-	Schedules       map[string]string `json:"schedules,omitempty"`
-}
-
 // DeployResponse represents a deployment response
 type DeployResponse struct {
 	Status           string             `json:"status"`
@@ -56,9 +46,9 @@ type ValidationError struct {
 
 // ValidationResult holds validation results
 type ValidationResult struct {
-	Valid              bool              `json:"valid"`
-	Errors             []ValidationError `json:"errors,omitempty"`
-	MissingCredentials []string          `json:"missing_credentials,omitempty"`
+	Valid            bool              `json:"valid"`
+	Errors           []ValidationError `json:"errors,omitempty"`
+	MissingVariables []string          `json:"missing_variables,omitempty"`
 }
 
 // UndeployRequest represents an undeploy request

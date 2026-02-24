@@ -35,7 +35,7 @@ type TemplateInput struct {
 
 // GenerateDeploymentTemplate creates a deployment spec template from a registered astro-spec.
 // The template has placeholder values for user-fillable fields and ${} references
-// for component wiring.
+// for component wiring. The spec version is "deployment-template/v1".
 func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec, error) {
 	astroSpec := input.Spec
 	if astroSpec == nil {
@@ -43,7 +43,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	}
 
 	ds := &spec.AstroDeploymentSpec{
-		Spec: "deployment/v1",
+		Spec: "deployment-template/v1",
 		Source: spec.DeploymentSource{
 			Account:  input.Account,
 			Name:     astroSpec.Name,
@@ -71,9 +71,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		// Count provider occurrences among self-hosted models
 		modelProviderCount := make(map[string]int)
 		for _, model := range astroSpec.Models {
-			if model.IsProviderMode() && !spec.IsCloudModelProvider(model.Provider) {
-				prov := spec.GetModelProvider(model.Provider)
-				if prov.EnvPrefix != "" {
+			if model.IsProviderMode() && model.DeploysContainer(astroSpec.Providers) {
+				if prov := spec.GetModelProvider(model.Provider); prov.EnvPrefix != "" {
 					modelProviderCount[prov.EnvPrefix]++
 				}
 			}
@@ -91,8 +90,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 		for _, name := range modelNames {
 			model := astroSpec.Models[name]
-			// Skip cloud providers — they produce credentials, not containers
-			if model.IsProviderMode() && spec.IsCloudModelProvider(model.Provider) {
+			if !model.DeploysContainer(astroSpec.Providers) {
 				continue
 			}
 
@@ -103,6 +101,9 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			ds.Models[name] = dm
 
 			// Wire references into agent environment
+			// Determine primary endpoint name for port/url refs
+			primaryEp := primaryEndpointName(dm.Endpoints)
+
 			if model.IsProviderMode() {
 				// Provider-specific env vars (e.g., OLLAMA_BASE_URL, OLLAMA_MODEL)
 				prov := spec.GetModelProvider(model.Provider)
@@ -115,13 +116,13 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 						agentEnv[key] = fmt.Sprintf("${models.%s.host}", name)
 					}
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.port}", name)
+						agentEnv[key] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
 					}
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.url}", name)
+						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
 					}
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "BASE_URL", isDup, isFirst) {
-						agentEnv[key] = fmt.Sprintf("${models.%s.url}", name) + "/api"
+						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp) + "/api"
 					}
 					if model.Model != "" {
 						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "MODEL", isDup, isFirst) {
@@ -133,8 +134,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 				// Generic env vars for container-mode models
 				envPrefix := fmt.Sprintf("MODEL_%s", strings.ToUpper(SanitizeName(name)))
 				agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
-				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.port}", name)
-				agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.url}", name)
+				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
+				agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
 			}
 		}
 	}
@@ -144,9 +145,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		// Count provider occurrences among self-hosted knowledge stores
 		knowledgeProviderCount := make(map[string]int)
 		for _, knowledge := range astroSpec.Knowledge {
-			if knowledge.IsProviderMode() && !spec.IsCloudKnowledgeProvider(knowledge.Provider) {
-				prov := spec.GetProvider(knowledge.Provider)
-				if prov.EnvPrefix != "" {
+			if knowledge.IsProviderMode() && knowledge.DeploysContainer(astroSpec.Providers) {
+				if prov := spec.GetProvider(knowledge.Provider); prov.EnvPrefix != "" {
 					knowledgeProviderCount[prov.EnvPrefix]++
 				}
 			}
@@ -164,8 +164,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 
 		for _, name := range knowledgeNames {
 			knowledge := astroSpec.Knowledge[name]
-			// Skip cloud providers — they produce credentials, not containers
-			if knowledge.IsProviderMode() && spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+			if !knowledge.DeploysContainer(astroSpec.Providers) {
 				continue
 			}
 
@@ -174,6 +173,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			}
 			dk := buildDeploymentKnowledge(knowledge, input)
 			ds.Knowledge[name] = dk
+
+			primaryEp := primaryEndpointName(dk.Endpoints)
 
 			// Wire references — use provider env prefix when available
 			if knowledge.IsProviderMode() {
@@ -187,22 +188,22 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 						agentEnv[key] = fmt.Sprintf("${knowledge.%s.host}", name)
 					}
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "PORT", isDup, isFirst) {
-						agentEnv[key] = fmt.Sprintf("${knowledge.%s.port}", name)
+						agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 					}
 					if prov.URLScheme != "" {
 						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "URL", isDup, isFirst) {
-							agentEnv[key] = fmt.Sprintf("${knowledge.%s.url}", name)
+							agentEnv[key] = fmt.Sprintf("${knowledge.%s.%s.url}", name, primaryEp)
 						}
 					}
 				} else {
 					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", strings.ToUpper(SanitizeName(name)))
 					agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
-					agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.port}", name)
+					agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 				}
 			} else {
 				envPrefix := fmt.Sprintf("KNOWLEDGE_%s", strings.ToUpper(SanitizeName(name)))
 				agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
-				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.port}", name)
+				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 			}
 		}
 	}
@@ -210,8 +211,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	// Process tools
 	if len(astroSpec.Tools) > 0 {
 		for name, tool := range astroSpec.Tools {
-			// Skip cloud providers — they produce credentials, not containers
-			if tool.IsProviderMode() && spec.IsCloudToolProvider(tool.Provider) {
+			if !tool.DeploysContainer(astroSpec.Providers) {
 				continue
 			}
 
@@ -221,26 +221,36 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			dt := buildDeploymentTool(tool, input)
 			ds.Tools[name] = dt
 
+			primaryEp := primaryEndpointName(dt.Endpoints)
 			envPrefix := fmt.Sprintf("TOOL_%s", strings.ToUpper(SanitizeName(name)))
 			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${tools.%s.host}", name)
-			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${tools.%s.port}", name)
-			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${tools.%s.url}", name)
+			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${tools.%s.%s.port}", name, primaryEp)
+			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${tools.%s.%s.url}", name, primaryEp)
 		}
 	}
 
-	// Extract credentials from integrations
+	// Build variables: merge provider credentials + user inputs
+	variables := make(map[string]spec.Variable)
+
+	// Extract credentials (cloud providers + custom provider secrets) → variables with secret:true
 	validator := NewValidator()
 	credInfos := validator.GetRequiredCredentials(astroSpec, nil)
-	if len(credInfos) > 0 {
-		ds.Credentials = make(map[string]spec.DeploymentCredential, len(credInfos))
-		for _, ci := range credInfos {
-			ds.Credentials[ci.Key] = spec.DeploymentCredential{
-				Description: ci.Description,
-				Optional:    ci.Optional,
-			}
-			// Wire credential references into agent environment
-			agentEnv[ci.Key] = fmt.Sprintf("${credentials.%s}", ci.Key)
+	for _, ci := range credInfos {
+		variables[ci.Key] = spec.Variable{
+			Description: ci.Description,
+			Optional:    ci.Optional,
+			Secret:      true,
+			Targets:     []string{"agent"},
 		}
+		// Wire credential references into agent environment
+		agentEnv[ci.Key] = fmt.Sprintf("${variables.%s}", ci.Key)
+	}
+
+	// Collect inputs from all sources into variables map
+	collectVariablesFromInputs(astroSpec, ds, agentEnv, variables)
+
+	if len(variables) > 0 {
+		ds.Variables = variables
 	}
 
 	// Platform metadata
@@ -253,14 +263,15 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		agentImage = fmt.Sprintf("%s/%s:%s", input.RegistryURL, astroSpec.Name, input.BuildID)
 	}
 	ds.Agent = spec.DeploymentAgent{
-		Image:       agentImage,
-		Port:        8080,
+		Image: agentImage,
+		Endpoints: map[string]spec.Endpoint{
+			"http": {Port: 8080, Protocol: "http"},
+		},
 		Replicas:    1,
 		Resources:   spec.StandardResources,
 		Environment: agentEnv,
 		Healthcheck: astroSpec.Agent.Healthcheck,
 		Update:      spec.DefaultUpdateStrategy(),
-		Expose:      spec.ExposeConfig{Enabled: false},
 	}
 
 	// Process ingestion
@@ -275,9 +286,11 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters:  []string{},
 		Image:     resolveImage("astropods/messaging:latest", input),
-		Port:      9090,
 		Resources: spec.MessagingResources,
-		Expose:    spec.ExposeConfig{Enabled: false, Port: 8080},
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+			"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: false}},
+		},
 	}
 
 	// Editable fields
@@ -286,24 +299,68 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	return ds, nil
 }
 
+// portNameToProtocol maps a provider-defined port name to one of the valid spec protocols
+// (http, grpc, tcp). Unknown names default to tcp.
+func portNameToProtocol(name string) string {
+	switch name {
+	case "http":
+		return "http"
+	case "grpc":
+		return "grpc"
+	default:
+		return "tcp"
+	}
+}
+
+// primaryEndpointName returns the name of the primary endpoint for env-var ref generation.
+// Prefers "http"; otherwise first alphabetically.
+func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
+	if _, ok := endpoints["http"]; ok {
+		return "http"
+	}
+	names := make([]string, 0, len(endpoints))
+	for name := range endpoints {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		return names[0]
+	}
+	return "http"
+}
+
 func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
 	container := model.ResolvedContainer()
+	port := container.Port
+	if port == 0 {
+		port = 8080
+	}
+
 	dm := spec.DeploymentModel{
 		Image:       resolveImage(container.Image, input),
-		Port:        container.Port,
+		Endpoints:   spec.SingleEndpoint("http", port, "http"),
 		Replicas:    1,
 		Resources:   spec.StandardResources,
 		Healthcheck: container.Healthcheck,
 		Update:      spec.DefaultUpdateStrategy(),
-	}
-	if dm.Port == 0 {
-		dm.Port = 8080
 	}
 
 	// Provider-mode auto-configuration
 	if model.IsProviderMode() {
 		prov := spec.GetModelProvider(model.Provider)
 		dm.Provider = model.Provider
+
+		// Provider port overrides container port
+		if prov.DefaultPort != 0 {
+			dm.Endpoints = spec.SingleEndpoint("http", prov.DefaultPort, "http")
+		}
+
+		// Multi-port providers (e.g. qdrant: http + grpc)
+		if len(prov.ExtraPorts) > 0 {
+			for _, ep := range prov.ExtraPorts {
+				dm.Endpoints[ep.Name] = spec.Endpoint{Port: ep.Port, Protocol: portNameToProtocol(ep.Name)}
+			}
+		}
 
 		// Auto-enable GPU for providers that require it
 		if prov.GPU {
@@ -317,7 +374,7 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 
 		// Set model name for pull
 		if model.Model != "" {
-			dm.ModelName = model.Model
+			dm.Model = model.Model
 			dm.Persistent = true
 		}
 
@@ -362,9 +419,14 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 
 func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spec.DeploymentKnowledge {
 	container := knowledge.ResolvedContainer()
+	port := container.Port
+	if port == 0 {
+		port = 8080
+	}
+
 	dk := spec.DeploymentKnowledge{
 		Image:       resolveImage(container.Image, input),
-		Port:        container.Port,
+		Endpoints:   spec.SingleEndpoint("http", port, "http"),
 		Replicas:    1,
 		Resources:   spec.StandardResources,
 		Persistent:  container.Persistent,
@@ -372,17 +434,26 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spe
 		Update:      spec.DefaultUpdateStrategy(),
 		Provider:    knowledge.Provider,
 	}
-	if dk.Port == 0 {
-		dk.Port = 8080
-	}
 
-	// Provider-specific healthcheck
-	if knowledge.IsProviderMode() && dk.Healthcheck == nil {
+	// Provider-specific port and multi-port
+	if knowledge.IsProviderMode() {
 		prov := spec.GetProvider(knowledge.Provider)
-		if prov.HealthCheck != nil {
-			dk.Healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
-		} else if prov.HealthPath != "" {
-			dk.Healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
+		if prov.DefaultPort != 0 {
+			dk.Endpoints = spec.SingleEndpoint("http", prov.DefaultPort, "http")
+		}
+		if len(prov.ExtraPorts) > 0 {
+			for _, ep := range prov.ExtraPorts {
+				dk.Endpoints[ep.Name] = spec.Endpoint{Port: ep.Port, Protocol: portNameToProtocol(ep.Name)}
+			}
+		}
+
+		// Provider-specific healthcheck
+		if dk.Healthcheck == nil {
+			if prov.HealthCheck != nil {
+				dk.Healthcheck = &spec.Healthcheck{Test: prov.HealthCheck}
+			} else if prov.HealthPath != "" {
+				dk.Healthcheck = &spec.Healthcheck{Path: prov.HealthPath}
+			}
 		}
 	}
 
@@ -417,6 +488,7 @@ func buildDeploymentKnowledge(knowledge spec.Knowledge, input TemplateInput) spe
 }
 
 func buildDeploymentTool(tool spec.Tool, input TemplateInput) spec.DeploymentTool {
+	port := 8080
 	dt := spec.DeploymentTool{
 		Replicas:  1,
 		Resources: spec.StandardResources,
@@ -424,15 +496,15 @@ func buildDeploymentTool(tool spec.Tool, input TemplateInput) spec.DeploymentToo
 	}
 	if tool.Container != nil {
 		dt.Image = resolveImage(tool.Container.Image, input)
-		dt.Port = tool.Container.Port
+		if tool.Container.Port != 0 {
+			port = tool.Container.Port
+		}
 		dt.Healthcheck = tool.Container.Healthcheck
 		if len(tool.Container.Environment) > 0 {
 			dt.Environment = tool.Container.Environment
 		}
 	}
-	if dt.Port == 0 {
-		dt.Port = 8080
-	}
+	dt.Endpoints = spec.SingleEndpoint("http", port, "http")
 	return dt
 }
 
@@ -440,7 +512,6 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, input TemplateInput) spe
 	image := resolveImage(ingestion.Container.Image, input)
 	di := spec.DeploymentIngestion{
 		Image:     image,
-		Port:      ingestion.Container.Port,
 		Resources: spec.StandardResources,
 		Trigger: spec.DeploymentTrigger{
 			Type: ingestion.Trigger.Type,
@@ -449,6 +520,10 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, input TemplateInput) spe
 	}
 	if len(ingestion.Container.Environment) > 0 {
 		di.Environment = ingestion.Container.Environment
+	}
+	// Webhook triggers expose a port via endpoints
+	if ingestion.Container.Port > 0 {
+		di.Endpoints = spec.SingleEndpoint("http", ingestion.Container.Port, "http")
 	}
 	// Schedule triggers get an empty placeholder
 	if ingestion.Trigger.Type == "schedule" {
@@ -518,7 +593,7 @@ func defaultEditableFields() []string {
 		"agent.environment",
 		"agent.healthcheck",
 		"agent.update",
-		"agent.expose",
+		"agent.endpoints.*.expose",
 		"models.*.replicas",
 		"models.*.resources",
 		"models.*.gpu",
@@ -541,10 +616,112 @@ func defaultEditableFields() []string {
 		"ingestion.*.environment",
 		"interfaces.adapters",
 		"interfaces.resources",
-		"interfaces.expose",
-		"credentials.*.value",
+		"interfaces.endpoints.*.expose",
+		"variables.*.value",
+		"variables.*.targets",
 		"observability.enabled",
 		"observability.resources",
 		"observability.environment",
+	}
+}
+
+// collectVariablesFromInputs gathers all Input declarations from the astro spec into
+// the variables map and injects default values into the relevant container environments.
+func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *spec.AstroDeploymentSpec, agentEnv map[string]string, variables map[string]spec.Variable) {
+	addVariable := func(input spec.Input, targets []string) {
+		v := spec.Variable{
+			Datatype:    input.Datatype,
+			Secret:      input.Secret,
+			Description: input.Description,
+			DisplayAs:   input.DisplayAs,
+			Options:     input.Options,
+			Default:     input.Default,
+			Optional:    input.Optional,
+			Targets:     targets,
+		}
+		if input.Default != "" {
+			v.Value = input.Default
+		}
+		// Use first-write-wins to avoid overwriting a more specific target
+		if _, exists := variables[input.Name]; !exists {
+			variables[input.Name] = v
+		}
+	}
+
+	// Top-level inputs → agent + ingestion
+	for _, inp := range astroSpec.Inputs {
+		addVariable(inp, []string{"agent", "ingestion"})
+		if inp.Default != "" {
+			agentEnv[inp.Name] = inp.Default
+		}
+	}
+
+	// Agent inputs → agent only
+	for _, inp := range astroSpec.Agent.Inputs {
+		addVariable(inp, []string{"agent"})
+		if inp.Default != "" {
+			agentEnv[inp.Name] = inp.Default
+		}
+	}
+
+	// Model inputs — inject defaults into model environment directly (not in variables)
+	for name, model := range astroSpec.Models {
+		for _, inp := range model.Inputs {
+			if inp.Default != "" && ds.Models != nil {
+				if dm, ok := ds.Models[name]; ok {
+					if dm.Environment == nil {
+						dm.Environment = make(map[string]string)
+					}
+					dm.Environment[inp.Name] = inp.Default
+					ds.Models[name] = dm
+				}
+			}
+		}
+	}
+
+	// Knowledge inputs — inject defaults into knowledge environment directly
+	for name, knowledge := range astroSpec.Knowledge {
+		for _, inp := range knowledge.Inputs {
+			if inp.Default != "" && ds.Knowledge != nil {
+				if dk, ok := ds.Knowledge[name]; ok {
+					if dk.Environment == nil {
+						dk.Environment = make(map[string]string)
+					}
+					dk.Environment[inp.Name] = inp.Default
+					ds.Knowledge[name] = dk
+				}
+			}
+		}
+	}
+
+	// Tool inputs — inject defaults into tool environment directly
+	for name, tool := range astroSpec.Tools {
+		for _, inp := range tool.Inputs {
+			if inp.Default != "" && ds.Tools != nil {
+				if dt, ok := ds.Tools[name]; ok {
+					if dt.Environment == nil {
+						dt.Environment = make(map[string]string)
+					}
+					dt.Environment[inp.Name] = inp.Default
+					ds.Tools[name] = dt
+				}
+			}
+		}
+	}
+
+	// Ingestion inputs → ingestion.<name> target
+	for name, ingestion := range astroSpec.Ingestion {
+		for _, inp := range ingestion.Inputs {
+			addVariable(inp, []string{"ingestion." + name})
+			if inp.Default != "" && ds.Ingestion != nil {
+				if di, ok := ds.Ingestion[name]; ok {
+					if di.Environment == nil {
+						di.Environment = make(map[string]string)
+					}
+					di.Environment[inp.Name] = inp.Default
+					ds.Ingestion[name] = di
+				}
+			}
+		}
 	}
 }

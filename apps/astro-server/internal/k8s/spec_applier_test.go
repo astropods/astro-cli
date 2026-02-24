@@ -21,16 +21,20 @@ func newTestApplier() *Applier {
 	}
 }
 
+func httpEp(port int) map[string]spec.Endpoint {
+	return map[string]spec.Endpoint{"http": {Port: port}}
+}
+
 func minimalDeploymentSpec() *spec.AstroDeploymentSpec {
 	return &spec.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
 		Source: spec.DeploymentSource{Name: "my-agent", Build: "build-123", Account: "acme"},
 		Target: spec.DeploymentTarget{Namespace: "test-ns", Runtime: "kubernetes"},
 		Agent: spec.DeploymentAgent{
-			Image:    "test-registry.example.com/my-agent:latest",
-			Port:     8080,
-			Replicas: 1,
-			Update:   spec.DefaultUpdateStrategy(),
+			Image:     "test-registry.example.com/my-agent:latest",
+			Endpoints: httpEp(8080),
+			Replicas:  1,
+			Update:    spec.DefaultUpdateStrategy(),
 		},
 	}
 }
@@ -80,14 +84,14 @@ func TestApplyDeploymentSpec_WithModel(t *testing.T) {
 	ds := minimalDeploymentSpec()
 	ds.Models = map[string]spec.DeploymentModel{
 		"llm": {
-			Image:    "test-registry.example.com/ollama:latest",
-			Port:     11434,
-			Replicas: 1,
-			Update:   spec.DefaultUpdateStrategy(),
+			Image:     "test-registry.example.com/ollama:latest",
+			Endpoints: httpEp(11434),
+			Replicas:  1,
+			Update:    spec.DefaultUpdateStrategy(),
 		},
 	}
 	ds.Agent.Environment = map[string]string{
-		"LLM_URL": "${models.llm.url}",
+		"LLM_URL": "${models.llm.http.url}",
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -130,7 +134,7 @@ func TestApplyDeploymentSpec_WithKnowledgePersistent(t *testing.T) {
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
 		"docs": {
 			Image:      "test-registry.example.com/qdrant:latest",
-			Port:       6333,
+			Endpoints:  httpEp(6333),
 			Replicas:   1,
 			Persistent: true,
 			Storage:    &spec.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"},
@@ -170,7 +174,7 @@ func TestApplyDeploymentSpec_WithKnowledgeNonPersistent(t *testing.T) {
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
 		"cache": {
 			Image:      "test-registry.example.com/redis:latest",
-			Port:       6379,
+			Endpoints:  httpEp(6379),
 			Replicas:   1,
 			Persistent: false,
 			Update:     spec.DefaultUpdateStrategy(),
@@ -209,10 +213,10 @@ func TestApplyDeploymentSpec_WithTool(t *testing.T) {
 	ds := minimalDeploymentSpec()
 	ds.Tools = map[string]spec.DeploymentTool{
 		"search": {
-			Image:    "test-registry.example.com/search:latest",
-			Port:     3000,
-			Replicas: 1,
-			Update:   spec.DefaultUpdateStrategy(),
+			Image:     "test-registry.example.com/search:latest",
+			Endpoints: httpEp(3000),
+			Replicas:  1,
+			Update:    spec.DefaultUpdateStrategy(),
 		},
 	}
 
@@ -242,11 +246,11 @@ func TestApplyDeploymentSpec_WithTool(t *testing.T) {
 	}
 }
 
-func TestApplyDeploymentSpec_WithCredentials(t *testing.T) {
+func TestApplyDeploymentSpec_WithSecretVariables(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
-	ds.Credentials = map[string]spec.DeploymentCredential{
-		"API_KEY": {Value: "sk-secret-123", Description: "API key"},
+	ds.Variables = map[string]spec.Variable{
+		"API_KEY": {Value: "sk-secret-123", Secret: true},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -264,7 +268,7 @@ func TestApplyDeploymentSpec_WithCredentials(t *testing.T) {
 		}
 	}
 	if !hasSecret {
-		t.Error("expected Secret resource for credentials")
+		t.Error("expected Secret resource for secret variables")
 	}
 }
 
@@ -449,9 +453,9 @@ func TestApplyDeploymentSpec_WithIngestionWebhook(t *testing.T) {
 	ds := minimalDeploymentSpec()
 	ds.Ingestion = map[string]spec.DeploymentIngestion{
 		"hook": {
-			Image:   "test-registry.example.com/ingest:latest",
-			Port:    9090,
-			Trigger: spec.DeploymentTrigger{Type: "webhook"},
+			Image:     "test-registry.example.com/ingest:latest",
+			Endpoints: httpEp(9090),
+			Trigger:   spec.DeploymentTrigger{Type: "webhook"},
 		},
 	}
 
@@ -523,33 +527,33 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	a.galileoProject = "project"
 	ds := minimalDeploymentSpec()
 	ds.Agent.Environment = map[string]string{
-		"LLM_URL":  "${models.llm.url}",
+		"LLM_URL":  "${models.llm.http.url}",
 		"DB_HOST":  "${knowledge.docs.host}",
-		"TOOL_URL": "${tools.search.url}",
+		"TOOL_URL": "${tools.search.http.url}",
 	}
 	ds.Models = map[string]spec.DeploymentModel{
 		"llm": {
-			Image: "test-registry.example.com/ollama:latest", Port: 11434,
+			Image: "test-registry.example.com/ollama:latest", Endpoints: httpEp(11434),
 			Replicas: 2, Update: spec.DefaultUpdateStrategy(),
-			GPU: &spec.DeploymentGPU{VRAM: "24Gi", Runtime: "cuda", Count: 1},
+			GPU:       &spec.DeploymentGPU{VRAM: "24Gi", Runtime: "cuda", Count: 1},
 			Resources: spec.GPUResources,
 		},
 	}
 	ds.Knowledge = map[string]spec.DeploymentKnowledge{
 		"docs": {
-			Image: "test-registry.example.com/qdrant:latest", Port: 6333,
+			Image: "test-registry.example.com/qdrant:latest", Endpoints: httpEp(6333),
 			Replicas: 1, Persistent: true, Update: spec.DefaultUpdateStrategy(),
 			Storage: &spec.StorageConfig{Size: "50Gi", Class: "gp3", AccessMode: "ReadWriteOnce"},
 		},
 	}
 	ds.Tools = map[string]spec.DeploymentTool{
 		"search": {
-			Image: "test-registry.example.com/search:latest", Port: 3000,
+			Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
 			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
 		},
 	}
-	ds.Credentials = map[string]spec.DeploymentCredential{
-		"ANTHROPIC_API_KEY": {Value: "sk-123"},
+	ds.Variables = map[string]spec.Variable{
+		"ANTHROPIC_API_KEY": {Value: "sk-123", Secret: true},
 	}
 	ds.Observability = spec.DeploymentObservability{Enabled: true}
 	ds.Ingestion = map[string]spec.DeploymentIngestion{
@@ -619,18 +623,20 @@ func TestApplyDeploymentSpec_WithSlackInterface(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()
 	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters:  []string{"slack"},
-		Image:     "test-registry.example.com/messaging:latest",
-		Port:      9090,
+		Adapters: []string{"slack"},
+		Image:    "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+		},
 		Resources: spec.MessagingResources,
 		Environment: map[string]string{
-			"SLACK_BOT_TOKEN": "${credentials.SLACK_BOT_TOKEN}",
-			"SLACK_APP_TOKEN": "${credentials.SLACK_APP_TOKEN}",
+			"SLACK_BOT_TOKEN": "${variables.SLACK_BOT_TOKEN}",
+			"SLACK_APP_TOKEN": "${variables.SLACK_APP_TOKEN}",
 		},
 	}
-	ds.Credentials = map[string]spec.DeploymentCredential{
-		"SLACK_BOT_TOKEN": {Value: "xoxb-test"},
-		"SLACK_APP_TOKEN": {Value: "xapp-test"},
+	ds.Variables = map[string]spec.Variable{
+		"SLACK_BOT_TOKEN": {Value: "xoxb-test", Secret: true},
+		"SLACK_APP_TOKEN": {Value: "xapp-test", Secret: true},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -668,11 +674,16 @@ func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Port:     9090,
-		Expose: spec.ExposeConfig{
-			Enabled: true,
-			Domain:  "my-agent.custom.example.com",
-			Port:    8080,
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+			"http": {
+				Port:     8080,
+				Protocol: "http",
+				Expose: &spec.EndpointExpose{
+					Enabled: true,
+					Domain:  "my-agent.custom.example.com",
+				},
+			},
 		},
 	}
 
@@ -725,8 +736,10 @@ func TestApplyDeploymentSpec_AdapterExposedWhenDefined(t *testing.T) {
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Port:     9090,
-		Expose:   spec.ExposeConfig{Port: 8080},
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+			"http": {Port: 8080, Protocol: "http"},
+		},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -752,8 +765,10 @@ func TestApplyDeploymentSpec_NoIngressWithoutDomain(t *testing.T) {
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"web"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Port:     9090,
-		Expose:   spec.ExposeConfig{Port: 8080},
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+			"http": {Port: 8080, Protocol: "http"},
+		},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -775,7 +790,9 @@ func TestApplyDeploymentSpec_SlackOnlyNoIngress(t *testing.T) {
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Port:     9090,
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+		},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -796,7 +813,9 @@ func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 	ds.Interfaces = &spec.DeploymentInterfaces{
 		Adapters: []string{"slack"},
 		Image:    "test-registry.example.com/messaging:latest",
-		Port:     7070,
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 7070, Protocol: "grpc"},
+		},
 		Resources: spec.DeploymentResources{
 			CPU: "200m", Memory: "256Mi",
 			CPULimit: "1", MemoryLimit: "1Gi",

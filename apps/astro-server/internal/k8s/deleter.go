@@ -264,7 +264,7 @@ func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, buildIDSanitiz
 
 // deleteSecret deletes the Secret for the agent
 func (d *Deleter) deleteSecret(ctx context.Context, agentName, buildIDSanitized string, result *DeleteResult) {
-	secretName := deployment.GenerateCredentialSecretName(agentName, buildIDSanitized)
+	secretName := deployment.GenerateSecretName(agentName, buildIDSanitized)
 
 	err := d.client.Clientset().CoreV1().Secrets(d.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
 	if err != nil {

@@ -123,9 +123,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		Driver: "bridge",
 	}
 
-	// Add self-hosted models (skip cloud providers)
+	// Add models that deploy a container (skip cloud and custom providers)
 	for name, model := range s.Models {
-		if model.IsProviderMode() && spec.IsCloudModelProvider(model.Provider) {
+		if !model.DeploysContainer(s.Providers) {
 			continue
 		}
 		resolved := model.ResolvedContainer()
@@ -258,9 +258,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		project.Services[serviceName] = service
 	}
 
-	// Add self-hosted knowledge stores (skip cloud providers)
+	// Add knowledge stores that deploy a container (skip cloud and custom providers)
 	for name, knowledge := range s.Knowledge {
-		if knowledge.IsProviderMode() && spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+		if !knowledge.DeploysContainer(s.Providers) {
 			continue
 		}
 		container := knowledge.ResolvedContainer()
@@ -357,9 +357,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		project.Services[serviceName] = service
 	}
 
-	// Add self-hosted tools (skip cloud providers)
+	// Add tools that deploy a container (skip cloud and custom providers)
 	for name, tool := range s.Tools {
-		if tool.IsProviderMode() && spec.IsCloudToolProvider(tool.Provider) {
+		if !tool.DeploysContainer(s.Providers) {
 			continue
 		}
 		if tool.Container != nil {
@@ -552,11 +552,11 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
-	// Auto-inject connection strings for self-hosted components
+	// Auto-inject connection strings for container-deploying components;
+	// inject credentials for cloud providers.
 	for name, model := range s.Models {
-		// Skip cloud providers — no container to reference
-		if model.IsProviderMode() && spec.IsCloudModelProvider(model.Provider) {
-			// Inject cloud provider credentials from .env
+		if !model.DeploysContainer(s.Providers) {
+			// Cloud provider — inject credentials from .env
 			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
 				for _, cs := range suffixes {
 					key := strings.ToUpper(name) + "_" + cs.Suffix
@@ -601,8 +601,7 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	}
 
 	for name, knowledge := range s.Knowledge {
-		// Skip cloud providers — no container to reference
-		if knowledge.IsProviderMode() && spec.IsCloudKnowledgeProvider(knowledge.Provider) {
+		if !knowledge.DeploysContainer(s.Providers) {
 			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
 				for _, cs := range suffixes {
 					key := strings.ToUpper(name) + "_" + cs.Suffix
@@ -628,7 +627,7 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	// Inject cloud tool provider credentials from .env
 	for name, tool := range s.Tools {
-		if tool.IsProviderMode() && spec.IsCloudToolProvider(tool.Provider) {
+		if !tool.DeploysContainer(s.Providers) {
 			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
 				for _, cs := range suffixes {
 					key := strings.ToUpper(name) + "_" + cs.Suffix
@@ -640,13 +639,65 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		}
 	}
 
-	// Inject integration credentials from .env
-	for name, integration := range s.Integrations {
-		for _, cc := range integration.Credentials {
-			key := strings.ToUpper(name) + "_" + cc.Suffix
-			if val, ok := envVars[key]; ok {
-				env[key] = &val
+	// Inject custom provider variables from .env (read using variable name directly)
+	for _, model := range s.Models {
+		if model.IsProviderMode() {
+			if cp, ok := s.Providers[model.Provider]; ok {
+				for _, v := range cp.Variables {
+					if val, exists := envVars[v.Name]; exists {
+						val := val
+						env[v.Name] = &val
+					}
+				}
 			}
+		}
+	}
+	for _, knowledge := range s.Knowledge {
+		if knowledge.IsProviderMode() {
+			if cp, ok := s.Providers[knowledge.Provider]; ok {
+				for _, v := range cp.Variables {
+					if val, exists := envVars[v.Name]; exists {
+						val := val
+						env[v.Name] = &val
+					}
+				}
+			}
+		}
+	}
+	for _, tool := range s.Tools {
+		if tool.IsProviderMode() {
+			if cp, ok := s.Providers[tool.Provider]; ok {
+				for _, v := range cp.Variables {
+					if val, exists := envVars[v.Name]; exists {
+						val := val
+						env[v.Name] = &val
+					}
+				}
+			}
+		}
+	}
+
+	// Inject top-level inputs (default or from .env)
+	for _, inp := range s.Inputs {
+		val := inp.Default
+		if v, ok := envVars[inp.Name]; ok {
+			val = v
+		}
+		if val != "" {
+			v := val
+			env[inp.Name] = &v
+		}
+	}
+
+	// Inject agent-level inputs (default or from .env)
+	for _, inp := range s.Agent.Inputs {
+		val := inp.Default
+		if v, ok := envVars[inp.Name]; ok {
+			val = v
+		}
+		if val != "" {
+			v := val
+			env[inp.Name] = &v
 		}
 	}
 

@@ -1,8 +1,6 @@
 package spec
 
-import (
-	"strings"
-)
+import "strings"
 
 // CredentialSuffix describes one credential a cloud provider requires.
 type CredentialSuffix struct {
@@ -11,82 +9,10 @@ type CredentialSuffix struct {
 	Optional    bool
 }
 
-// Cloud provider registries — these providers have no container, only credentials.
-
-var cloudModelProviders = map[string][]CredentialSuffix{
-	"anthropic": {{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
-	"openai":    {{Suffix: "API_KEY", Description: "OpenAI API key for GPT models"}},
-	"google":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
-	"gemini":    {{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
-	"cohere":    {{Suffix: "API_KEY", Description: "Cohere API key for language models"}},
-}
-
-var cloudKnowledgeProviders = map[string][]CredentialSuffix{
-	"pinecone": {{Suffix: "API_KEY", Description: "Pinecone API key for vector database"}},
-}
-
-var cloudToolProviders = map[string][]CredentialSuffix{
-	"github": {{Suffix: "TOKEN", Description: "GitHub token for API access"}},
-	"gitlab": {{Suffix: "TOKEN", Description: "GitLab token for API access"}},
-}
-
-// IsCloudModelProvider returns true if the provider is a cloud model provider (no container).
-func IsCloudModelProvider(name string) bool {
-	_, ok := cloudModelProviders[strings.ToLower(name)]
-	return ok
-}
-
-// IsCloudKnowledgeProvider returns true if the provider is a cloud knowledge provider (no container).
-func IsCloudKnowledgeProvider(name string) bool {
-	_, ok := cloudKnowledgeProviders[strings.ToLower(name)]
-	return ok
-}
-
-// IsCloudToolProvider returns true if the provider is a cloud tool provider (no container).
-func IsCloudToolProvider(name string) bool {
-	_, ok := cloudToolProviders[strings.ToLower(name)]
-	return ok
-}
-
-// GetCloudModelCredentials returns credential suffixes for a cloud model provider.
-func GetCloudModelCredentials(name string) ([]CredentialSuffix, bool) {
-	cs, ok := cloudModelProviders[strings.ToLower(name)]
-	return cs, ok
-}
-
-// GetCloudKnowledgeCredentials returns credential suffixes for a cloud knowledge provider.
-func GetCloudKnowledgeCredentials(name string) ([]CredentialSuffix, bool) {
-	cs, ok := cloudKnowledgeProviders[strings.ToLower(name)]
-	return cs, ok
-}
-
-// GetCloudToolCredentials returns credential suffixes for a cloud tool provider.
-func GetCloudToolCredentials(name string) ([]CredentialSuffix, bool) {
-	cs, ok := cloudToolProviders[strings.ToLower(name)]
-	return cs, ok
-}
-
-
 // PortDef defines a named port.
 type PortDef struct {
 	Name string
 	Port int
-}
-
-// Provider holds provider-specific configuration.
-type Provider struct {
-	Image        string            // default container image (e.g., "qdrant/qdrant:latest")
-	DefaultPort  int               // primary port (6333 for qdrant, 6379 for redis, etc.)
-	ExtraPorts   []PortDef         // additional named ports (e.g., gRPC 6334 for qdrant)
-	MountPath    string            // volume mount path for persistent data
-	EnvPrefix    string            // env var prefix ("QDRANT", "REDIS", etc.)
-	URLScheme    string            // connection URL scheme ("http", "redis")
-	HealthCheck  []string          // exec health check command; nil → use HealthPath instead
-	HealthPath   string            // HTTP health check path (e.g., "/healthz")
-	DefaultEnv   map[string]string // default environment variables for the container
-	GPU          bool              // whether the provider requires GPU resources
-	NodeSelector map[string]string // node selector labels for scheduling
-	Tolerations  []Toleration      // tolerations for GPU/specialized node taints
 }
 
 // Toleration mirrors corev1.Toleration for use outside k8s packages.
@@ -97,83 +23,194 @@ type Toleration struct {
 	Effect   string // "NoSchedule", "NoExecute", "PreferNoSchedule"
 }
 
-var providerRegistry = map[string]Provider{
-	"qdrant": {
-		Image:       "qdrant/qdrant:latest",
-		DefaultPort: 6333,
-		ExtraPorts:  []PortDef{{Name: "grpc", Port: 6334}},
-		MountPath:   "/qdrant/storage",
-		EnvPrefix:   "QDRANT",
-		URLScheme:   "http",
-		HealthPath:  "/healthz",
+// BuiltinProvider is the single canonical type for every platform-known provider.
+// All providers — cloud and self-hosted, across all sections — are declared once
+// in the builtinProviders slice below. Everything else is derived from it.
+type BuiltinProvider struct {
+	Name    string // lowercase provider name (e.g. "ollama", "anthropic")
+	Section string // "models", "knowledge", or "tools"
+	Cloud   bool   // true → credentials only, no container deployed
+
+	// Cloud provider fields
+	Credentials []CredentialSuffix
+
+	// Self-hosted provider fields
+	Image        string
+	DefaultPort  int
+	ExtraPorts   []PortDef
+	MountPath    string
+	EnvPrefix    string
+	URLScheme    string
+	HealthCheck  []string          // exec health check; nil → use HealthPath
+	HealthPath   string            // HTTP health check path
+	DefaultEnv   map[string]string
+	GPU          bool
+	NodeSelector map[string]string
+	Tolerations  []Toleration
+}
+
+// builtinProviders is the single authoritative list of all platform-known providers.
+// To add a provider, add one entry here — no other file needs to change.
+var builtinProviders = []BuiltinProvider{
+	// ── Models: self-hosted ──────────────────────────────────────────────────
+	{
+		Name: "ollama", Section: "models",
+		Image: "ollama/ollama:latest", DefaultPort: 11434,
+		MountPath: "/root/.ollama", EnvPrefix: "OLLAMA",
+		HealthPath: "/api/tags",
+		DefaultEnv: map[string]string{"OLLAMA_HOST": "0.0.0.0", "OLLAMA_KEEP_ALIVE": "-1"},
+		GPU:        true,
+		NodeSelector: map[string]string{"workload-type": "gpu"},
+		Tolerations:  []Toleration{{Key: "nvidia.com/gpu", Operator: "Exists", Effect: "NoSchedule"}},
 	},
-	"redis": {
-		Image:       "redis:7-alpine",
-		DefaultPort: 6379,
-		MountPath:   "/data",
-		EnvPrefix:   "REDIS",
-		URLScheme:   "redis",
+
+	// ── Models: cloud ────────────────────────────────────────────────────────
+	{
+		Name: "anthropic", Section: "models", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
+	},
+	{
+		Name: "openai", Section: "models", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "OpenAI API key for GPT models"}},
+	},
+	{
+		Name: "google", Section: "models", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Google API key for Gemini models"}},
+	},
+	{
+		Name: "gemini", Section: "models", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Google API key for Gemini models (alias for google)"}},
+	},
+	{
+		Name: "cohere", Section: "models", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Cohere API key for language models"}},
+	},
+
+	// ── Knowledge: self-hosted ───────────────────────────────────────────────
+	{
+		Name: "qdrant", Section: "knowledge",
+		Image: "qdrant/qdrant:latest", DefaultPort: 6333,
+		ExtraPorts: []PortDef{{Name: "grpc", Port: 6334}},
+		MountPath:  "/qdrant/storage", EnvPrefix: "QDRANT", URLScheme: "http",
+		HealthPath: "/healthz",
+	},
+	{
+		Name: "redis", Section: "knowledge",
+		Image: "redis:7-alpine", DefaultPort: 6379,
+		MountPath: "/data", EnvPrefix: "REDIS", URLScheme: "redis",
 		HealthCheck: []string{"redis-cli", "ping"},
 	},
-	"postgres": {
-		Image:       "postgres:15-alpine",
-		DefaultPort: 5432,
-		MountPath:   "/var/lib/postgresql/data",
-		EnvPrefix:   "POSTGRES",
+	{
+		Name: "postgres", Section: "knowledge",
+		Image: "postgres:15-alpine", DefaultPort: 5432,
+		MountPath: "/var/lib/postgresql/data", EnvPrefix: "POSTGRES",
 		HealthCheck: []string{"pg_isready", "-U", "postgres"},
 	},
-	"neo4j": {
-		Image:       "neo4j:5-community",
-		DefaultPort: 7474,
-		ExtraPorts:  []PortDef{{Name: "bolt", Port: 7687}},
-		MountPath:   "/data",
-		EnvPrefix:   "NEO4J",
-		URLScheme:   "bolt",
-		HealthPath:  "/",
-		DefaultEnv:  map[string]string{"NEO4J_AUTH": "none"},
+	{
+		Name: "neo4j", Section: "knowledge",
+		Image: "neo4j:5-community", DefaultPort: 7474,
+		ExtraPorts: []PortDef{{Name: "bolt", Port: 7687}},
+		MountPath:  "/data", EnvPrefix: "NEO4J", URLScheme: "bolt",
+		HealthPath: "/",
+		DefaultEnv: map[string]string{"NEO4J_AUTH": "none"},
+	},
+
+	// ── Knowledge: cloud ─────────────────────────────────────────────────────
+	{
+		Name: "pinecone", Section: "knowledge", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Pinecone API key for vector database"}},
+	},
+
+	// ── Tools: cloud ─────────────────────────────────────────────────────────
+	{
+		Name: "github", Section: "tools", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "TOKEN", Description: "GitHub token for API access"}},
+	},
+	{
+		Name: "gitlab", Section: "tools", Cloud: true,
+		Credentials: []CredentialSuffix{{Suffix: "TOKEN", Description: "GitLab token for API access"}},
 	},
 }
 
-var defaultProvider = Provider{
-	DefaultPort: 6333,
-	MountPath:   "/data",
-}
+// ── Lookup indexes (built once at init) ──────────────────────────────────────
 
-// GetProvider returns configuration for a given knowledge provider name.
-// Unknown providers get a sensible fallback.
-func GetProvider(provider string) Provider {
-	if p, ok := providerRegistry[strings.ToLower(provider)]; ok {
-		return p
+var builtinIndex map[string]BuiltinProvider // "section:name" → provider
+
+func init() {
+	builtinIndex = make(map[string]BuiltinProvider, len(builtinProviders))
+	for _, p := range builtinProviders {
+		builtinIndex[p.Section+":"+p.Name] = p
 	}
-	return defaultProvider
 }
 
-// Model provider registry (separate from knowledge providers).
-var modelProviderRegistry = map[string]Provider{
-	"ollama": {
-		Image:       "ollama/ollama:latest",
-		DefaultPort: 11434,
-		MountPath:   "/root/.ollama",
-		EnvPrefix:   "OLLAMA",
-		HealthPath:  "/api/tags",
-		DefaultEnv:  map[string]string{"OLLAMA_HOST": "0.0.0.0", "OLLAMA_KEEP_ALIVE": "-1"},
-		GPU:         true,
-		NodeSelector: map[string]string{"workload-type": "gpu"},
-		Tolerations: []Toleration{
-			{Key: "nvidia.com/gpu", Operator: "Exists", Effect: "NoSchedule"},
-		},
-	},
+// LookupBuiltin returns the BuiltinProvider for the given section and name.
+// The second return value is false if the provider is not in the registry.
+func LookupBuiltin(section, name string) (BuiltinProvider, bool) {
+	p, ok := builtinIndex[section+":"+strings.ToLower(name)]
+	return p, ok
 }
 
-var defaultModelProvider = Provider{
-	DefaultPort: 8080,
+// ── Derived helpers (maintain backward-compatible API) ───────────────────────
+
+// Provider holds self-hosted container configuration. Returned by GetProvider
+// and GetModelProvider for backward compatibility with existing callers.
+type Provider = BuiltinProvider
+
+func IsCloudModelProvider(name string) bool {
+	p, ok := LookupBuiltin("models", name)
+	return ok && p.Cloud
 }
 
-// GetModelProvider returns configuration for a given model provider name.
-// Unknown providers get a sensible fallback.
-func GetModelProvider(provider string) Provider {
-	if p, ok := modelProviderRegistry[strings.ToLower(provider)]; ok {
-		return p
+func IsCloudKnowledgeProvider(name string) bool {
+	p, ok := LookupBuiltin("knowledge", name)
+	return ok && p.Cloud
+}
+
+func IsCloudToolProvider(name string) bool {
+	p, ok := LookupBuiltin("tools", name)
+	return ok && p.Cloud
+}
+
+func GetCloudModelCredentials(name string) ([]CredentialSuffix, bool) {
+	p, ok := LookupBuiltin("models", name)
+	if !ok || !p.Cloud {
+		return nil, false
 	}
-	return defaultModelProvider
+	return p.Credentials, true
+}
+
+func GetCloudKnowledgeCredentials(name string) ([]CredentialSuffix, bool) {
+	p, ok := LookupBuiltin("knowledge", name)
+	if !ok || !p.Cloud {
+		return nil, false
+	}
+	return p.Credentials, true
+}
+
+func GetCloudToolCredentials(name string) ([]CredentialSuffix, bool) {
+	p, ok := LookupBuiltin("tools", name)
+	if !ok || !p.Cloud {
+		return nil, false
+	}
+	return p.Credentials, true
+}
+
+// GetProvider returns self-hosted configuration for a knowledge provider.
+// Unknown or cloud-only providers return a zero BuiltinProvider.
+func GetProvider(name string) BuiltinProvider {
+	p, ok := LookupBuiltin("knowledge", name)
+	if !ok || p.Cloud {
+		return BuiltinProvider{}
+	}
+	return p
+}
+
+// GetModelProvider returns self-hosted configuration for a model provider.
+// Unknown or cloud-only providers return a zero BuiltinProvider.
+func GetModelProvider(name string) BuiltinProvider {
+	p, ok := LookupBuiltin("models", name)
+	if !ok || p.Cloud {
+		return BuiltinProvider{}
+	}
+	return p
 }

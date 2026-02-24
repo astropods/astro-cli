@@ -62,8 +62,8 @@ func mapKeys(m map[string]string) []string {
 func TestTemplate_SourceMetadata(t *testing.T) {
 	ds := mustGenerate(t, baseInput())
 
-	if ds.Spec != "deployment/v1" {
-		t.Errorf("spec: expected deployment/v1, got %s", ds.Spec)
+	if ds.Spec != "deployment-template/v1" {
+		t.Errorf("spec: expected deployment-template/v1, got %s", ds.Spec)
 	}
 	if ds.Source.Account != "acme" {
 		t.Errorf("source.account: expected acme, got %s", ds.Source.Account)
@@ -113,7 +113,7 @@ func TestTemplate_EditableFieldsPresent(t *testing.T) {
 		"target.namespace",
 		"agent.replicas",
 		"agent.environment",
-		"credentials.*.value",
+		"variables.*.value",
 		"interfaces.adapters",
 	}
 	editSet := make(map[string]bool, len(ds.Editable))
@@ -135,8 +135,8 @@ func TestTemplate_AgentBlock(t *testing.T) {
 	if ds.Agent.Image != "registry.example.com/my-agent:abc123" {
 		t.Errorf("agent.image: got %s", ds.Agent.Image)
 	}
-	if ds.Agent.Port != 8080 {
-		t.Errorf("agent.port: expected 8080, got %d", ds.Agent.Port)
+	if spec.PrimaryPort(ds.Agent.Endpoints) != 8080 {
+		t.Errorf("agent.endpoints http port: expected 8080, got %d", spec.PrimaryPort(ds.Agent.Endpoints))
 	}
 	if ds.Agent.Replicas != 1 {
 		t.Errorf("agent.replicas: expected 1, got %d", ds.Agent.Replicas)
@@ -147,8 +147,9 @@ func TestTemplate_AgentBlock(t *testing.T) {
 	if ds.Agent.Update.Strategy != "rolling" {
 		t.Errorf("agent.update.strategy: expected rolling, got %s", ds.Agent.Update.Strategy)
 	}
-	if ds.Agent.Expose.Enabled {
-		t.Error("agent.expose.enabled: expected false")
+	// Agent expose should be false by default (no exposed endpoint)
+	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil && ep.Expose != nil && ep.Expose.Enabled {
+		t.Error("agent: expected no exposed endpoint by default")
 	}
 }
 
@@ -203,8 +204,8 @@ func TestTemplate_ProviderModel(t *testing.T) {
 	if m.Image != "registry.example.com/dockerhub/ollama/ollama:latest" {
 		t.Errorf("models.local_llm.image: expected registry.example.com/dockerhub/ollama/ollama:latest, got %s", m.Image)
 	}
-	if m.Port != 11434 {
-		t.Errorf("models.local_llm.port: expected 11434, got %d", m.Port)
+	if spec.PrimaryPort(m.Endpoints) != 11434 {
+		t.Errorf("models.local_llm endpoints primary port: expected 11434, got %d", spec.PrimaryPort(m.Endpoints))
 	}
 	if m.Replicas != 1 {
 		t.Errorf("models.local_llm.replicas: expected 1, got %d", m.Replicas)
@@ -212,9 +213,9 @@ func TestTemplate_ProviderModel(t *testing.T) {
 
 	// Check agent environment references — provider-specific env vars
 	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_HOST", "${models.local_llm.host}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_PORT", "${models.local_llm.port}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_URL", "${models.local_llm.url}")
-	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_BASE_URL", "${models.local_llm.url}/api")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_PORT", "${models.local_llm.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_URL", "${models.local_llm.http.url}")
+	assertEnvRef(t, ds.Agent.Environment, "OLLAMA_BASE_URL", "${models.local_llm.http.url}/api")
 }
 
 func TestTemplate_ContainerModel(t *testing.T) {
@@ -237,8 +238,8 @@ func TestTemplate_ContainerModel(t *testing.T) {
 	if m.Image != "registry.example.com/dockerhub/library/custom-embedder:v1" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/custom-embedder:v1, got %s", m.Image)
 	}
-	if m.Port != 9999 {
-		t.Errorf("port: expected 9999, got %d", m.Port)
+	if spec.PrimaryPort(m.Endpoints) != 9999 {
+		t.Errorf("endpoints primary port: expected 9999, got %d", spec.PrimaryPort(m.Endpoints))
 	}
 	if m.Environment["MODEL_NAME"] != "all-MiniLM-L6-v2" {
 		t.Errorf("environment: MODEL_NAME not preserved")
@@ -307,8 +308,8 @@ func TestTemplate_ModelDefaultPort(t *testing.T) {
 	}
 
 	ds := mustGenerate(t, input)
-	if ds.Models["noport"].Port != 8080 {
-		t.Errorf("port: expected 8080 default, got %d", ds.Models["noport"].Port)
+	if spec.PrimaryPort(ds.Models["noport"].Endpoints) != 8080 {
+		t.Errorf("endpoints: expected 8080 default, got %d", spec.PrimaryPort(ds.Models["noport"].Endpoints))
 	}
 }
 
@@ -326,8 +327,8 @@ func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/qdrant/qdrant:latest" {
 		t.Errorf("image: expected registry.example.com/dockerhub/qdrant/qdrant:latest, got %s", k.Image)
 	}
-	if k.Port != 6333 {
-		t.Errorf("port: expected 6333, got %d", k.Port)
+	if spec.PrimaryPort(k.Endpoints) != 6333 {
+		t.Errorf("endpoints primary port: expected 6333, got %d", spec.PrimaryPort(k.Endpoints))
 	}
 	if !k.Persistent {
 		t.Error("persistent: expected true")
@@ -352,8 +353,8 @@ func TestTemplate_ProviderKnowledge_Qdrant(t *testing.T) {
 
 	// Env uses provider prefix QDRANT_*
 	assertEnvRef(t, ds.Agent.Environment, "QDRANT_HOST", "${knowledge.docs.host}")
-	assertEnvRef(t, ds.Agent.Environment, "QDRANT_PORT", "${knowledge.docs.port}")
-	assertEnvRef(t, ds.Agent.Environment, "QDRANT_URL", "${knowledge.docs.url}")
+	assertEnvRef(t, ds.Agent.Environment, "QDRANT_PORT", "${knowledge.docs.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "QDRANT_URL", "${knowledge.docs.http.url}")
 }
 
 func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
@@ -368,8 +369,8 @@ func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/library/redis:7-alpine" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/redis:7-alpine, got %s", k.Image)
 	}
-	if k.Port != 6379 {
-		t.Errorf("port: expected 6379, got %d", k.Port)
+	if spec.PrimaryPort(k.Endpoints) != 6379 {
+		t.Errorf("endpoints primary port: expected 6379, got %d", spec.PrimaryPort(k.Endpoints))
 	}
 	if k.Persistent {
 		t.Error("persistent: expected false (not set in spec)")
@@ -384,8 +385,8 @@ func TestTemplate_ProviderKnowledge_Redis(t *testing.T) {
 	}
 
 	assertEnvRef(t, ds.Agent.Environment, "REDIS_HOST", "${knowledge.cache.host}")
-	assertEnvRef(t, ds.Agent.Environment, "REDIS_PORT", "${knowledge.cache.port}")
-	assertEnvRef(t, ds.Agent.Environment, "REDIS_URL", "${knowledge.cache.url}")
+	assertEnvRef(t, ds.Agent.Environment, "REDIS_PORT", "${knowledge.cache.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "REDIS_URL", "${knowledge.cache.http.url}")
 }
 
 func TestTemplate_ProviderKnowledge_Neo4j(t *testing.T) {
@@ -400,8 +401,8 @@ func TestTemplate_ProviderKnowledge_Neo4j(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/library/neo4j:5-community" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/neo4j:5-community, got %s", k.Image)
 	}
-	if k.Port != 7474 {
-		t.Errorf("port: expected 7474, got %d", k.Port)
+	if spec.PrimaryPort(k.Endpoints) != 7474 {
+		t.Errorf("endpoints primary port: expected 7474, got %d", spec.PrimaryPort(k.Endpoints))
 	}
 
 	// Neo4j has default env vars
@@ -427,13 +428,13 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	if k.Image != "registry.example.com/dockerhub/library/my-db:latest" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/my-db:latest, got %s", k.Image)
 	}
-	if k.Port != 5000 {
-		t.Errorf("port: expected 5000, got %d", k.Port)
+	if spec.PrimaryPort(k.Endpoints) != 5000 {
+		t.Errorf("endpoints primary port: expected 5000, got %d", spec.PrimaryPort(k.Endpoints))
 	}
 
 	// Container mode uses KNOWLEDGE_* prefix
 	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM-DB_HOST", "${knowledge.custom_db.host}")
-	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM-DB_PORT", "${knowledge.custom_db.port}")
+	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM-DB_PORT", "${knowledge.custom_db.http.port}")
 }
 
 func TestTemplate_KnowledgeNonPersistent_NoStorage(t *testing.T) {
@@ -475,8 +476,8 @@ func TestTemplate_Tool(t *testing.T) {
 	if tool.Image != "registry.example.com/dockerhub/library/search:v2" {
 		t.Errorf("image: expected registry.example.com/dockerhub/library/search:v2, got %s", tool.Image)
 	}
-	if tool.Port != 3000 {
-		t.Errorf("port: expected 3000, got %d", tool.Port)
+	if spec.PrimaryPort(tool.Endpoints) != 3000 {
+		t.Errorf("endpoints primary port: expected 3000, got %d", spec.PrimaryPort(tool.Endpoints))
 	}
 	if tool.Replicas != 1 {
 		t.Errorf("replicas: expected 1, got %d", tool.Replicas)
@@ -486,8 +487,8 @@ func TestTemplate_Tool(t *testing.T) {
 	}
 
 	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_HOST", "${tools.websearch.host}")
-	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_PORT", "${tools.websearch.port}")
-	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_URL", "${tools.websearch.url}")
+	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_PORT", "${tools.websearch.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_URL", "${tools.websearch.http.url}")
 }
 
 func TestTemplate_ToolDefaultPort(t *testing.T) {
@@ -497,8 +498,8 @@ func TestTemplate_ToolDefaultPort(t *testing.T) {
 	}
 
 	ds := mustGenerate(t, input)
-	if ds.Tools["noport"].Port != 8080 {
-		t.Errorf("port: expected 8080 default, got %d", ds.Tools["noport"].Port)
+	if spec.PrimaryPort(ds.Tools["noport"].Endpoints) != 8080 {
+		t.Errorf("endpoints: expected 8080 default, got %d", spec.PrimaryPort(ds.Tools["noport"].Endpoints))
 	}
 }
 
@@ -568,8 +569,8 @@ func TestTemplate_IngestionWebhookPort(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	ing := ds.Ingestion["data"]
-	if ing.Port != 3001 {
-		t.Errorf("port: expected 3001, got %d", ing.Port)
+	if spec.PrimaryPort(ing.Endpoints) != 3001 {
+		t.Errorf("endpoints primary port: expected 3001, got %d", spec.PrimaryPort(ing.Endpoints))
 	}
 	if ing.Trigger.Type != "webhook" {
 		t.Errorf("trigger.type: expected webhook, got %s", ing.Trigger.Type)
@@ -582,7 +583,7 @@ func TestTemplate_IngestionWebhookNoPort(t *testing.T) {
 		"data": {
 			Container: spec.ContainerConfig{
 				Image: "registry.example.com/ingestion:latest",
-				// No port — template should carry 0; validator rejects at deploy time
+				// No port — template should have empty endpoints; validator rejects at deploy time
 			},
 			Trigger: spec.IngestionTrigger{Type: "webhook"},
 		},
@@ -590,8 +591,8 @@ func TestTemplate_IngestionWebhookNoPort(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	if ds.Ingestion["data"].Port != 0 {
-		t.Errorf("port: expected 0 (unset), got %d", ds.Ingestion["data"].Port)
+	if spec.PrimaryPort(ds.Ingestion["data"].Endpoints) != 0 {
+		t.Errorf("endpoints: expected 0 (unset), got %d", spec.PrimaryPort(ds.Ingestion["data"].Endpoints))
 	}
 }
 
@@ -612,14 +613,14 @@ func TestTemplate_IngestionAllTypes(t *testing.T) {
 	if ds.Ingestion["sched"].Trigger.Type != "schedule" {
 		t.Error("schedule type not preserved")
 	}
-	if ds.Ingestion["webhook"].Port != 9000 {
-		t.Errorf("webhook port: expected 9000, got %d", ds.Ingestion["webhook"].Port)
+	if spec.PrimaryPort(ds.Ingestion["webhook"].Endpoints) != 9000 {
+		t.Errorf("webhook endpoints port: expected 9000, got %d", spec.PrimaryPort(ds.Ingestion["webhook"].Endpoints))
 	}
 }
 
-// ===== Phase 7: Credentials =====
+// ===== Phase 7: Variables (credentials + inputs) =====
 
-func TestTemplate_CredentialsFromCloudProviders(t *testing.T) {
+func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
 		"anthropic": {Provider: "anthropic"},
@@ -630,25 +631,28 @@ func TestTemplate_CredentialsFromCloudProviders(t *testing.T) {
 
 	ds := mustGenerate(t, input)
 
-	if len(ds.Credentials) < 2 {
-		t.Fatalf("expected at least 2 credentials, got %d", len(ds.Credentials))
+	if len(ds.Variables) < 2 {
+		t.Fatalf("expected at least 2 variables, got %d", len(ds.Variables))
 	}
 
 	// Anthropic
-	cred, ok := ds.Credentials["ANTHROPIC_API_KEY"]
+	v, ok := ds.Variables["ANTHROPIC_API_KEY"]
 	if !ok {
-		t.Fatal("credentials: ANTHROPIC_API_KEY not found")
+		t.Fatal("variables: ANTHROPIC_API_KEY not found")
 	}
-	if cred.Value != "" {
-		t.Errorf("credential value: expected empty placeholder, got %s", cred.Value)
+	if v.Value != "" {
+		t.Errorf("variable value: expected empty placeholder, got %s", v.Value)
 	}
-	if cred.Description == "" {
-		t.Error("credential description: expected non-empty")
+	if v.Description == "" {
+		t.Error("variable description: expected non-empty")
+	}
+	if !v.Secret {
+		t.Error("provider credential should have secret=true")
 	}
 
 	// GitHub
-	if _, ok := ds.Credentials["GITHUB_TOKEN"]; !ok {
-		t.Fatal("credentials: GITHUB_TOKEN not found")
+	if _, ok := ds.Variables["GITHUB_TOKEN"]; !ok {
+		t.Fatal("variables: GITHUB_TOKEN not found")
 	}
 
 	// Cloud models should NOT appear in ds.Models (no container)
@@ -660,45 +664,49 @@ func TestTemplate_CredentialsFromCloudProviders(t *testing.T) {
 		t.Errorf("cloud tools should not be in deployment spec, got %d", len(ds.Tools))
 	}
 
-	// Check agent env references wired for credentials
-	assertEnvRef(t, ds.Agent.Environment, "ANTHROPIC_API_KEY", "${credentials.ANTHROPIC_API_KEY}")
-	assertEnvRef(t, ds.Agent.Environment, "GITHUB_TOKEN", "${credentials.GITHUB_TOKEN}")
+	// Check agent env references wired for variables
+	assertEnvRef(t, ds.Agent.Environment, "ANTHROPIC_API_KEY", "${variables.ANTHROPIC_API_KEY}")
+	assertEnvRef(t, ds.Agent.Environment, "GITHUB_TOKEN", "${variables.GITHUB_TOKEN}")
 }
 
-func TestTemplate_CredentialsIntegration(t *testing.T) {
+func TestTemplate_VariablesCustomProvider(t *testing.T) {
 	input := baseInput()
-	input.Spec.Integrations = map[string]spec.Integration{
+	input.Spec.Providers = map[string]spec.CustomProvider{
 		"myapi": {
-			Credentials: []spec.CustomCredential{
-				{Suffix: "API_KEY", Description: "main key"},
-				{Suffix: "SECRET", Description: "optional secret", Optional: true},
+			Scope: []string{"tools"},
+			Variables: []spec.Input{
+				{Name: "MYAPI_API_KEY", Datatype: "string", Secret: true, Description: "main key"},
+				{Name: "MYAPI_SECRET", Datatype: "string", Secret: true, Description: "optional secret", Optional: true},
 			},
 		},
+	}
+	input.Spec.Tools = map[string]spec.Tool{
+		"myapi": {Provider: "myapi"},
 	}
 
 	ds := mustGenerate(t, input)
 
-	if _, ok := ds.Credentials["MYAPI_API_KEY"]; !ok {
-		t.Error("credentials: MYAPI_API_KEY not found")
+	if _, ok := ds.Variables["MYAPI_API_KEY"]; !ok {
+		t.Error("variables: MYAPI_API_KEY not found")
 	}
-	sec, ok := ds.Credentials["MYAPI_SECRET"]
+	v, ok := ds.Variables["MYAPI_SECRET"]
 	if !ok {
-		t.Fatal("credentials: MYAPI_SECRET not found")
+		t.Fatal("variables: MYAPI_SECRET not found")
 	}
-	if !sec.Optional {
+	if !v.Optional {
 		t.Error("expected MYAPI_SECRET to be optional")
 	}
 }
 
-func TestTemplate_NoIntegrations_NoCredentials(t *testing.T) {
+func TestTemplate_NoIntegrations_NoVariables(t *testing.T) {
 	ds := mustGenerate(t, baseInput())
 
-	if len(ds.Credentials) != 0 {
-		t.Errorf("expected 0 credentials for spec without integrations, got %d", len(ds.Credentials))
+	if len(ds.Variables) != 0 {
+		t.Errorf("expected 0 variables for spec without integrations, got %d", len(ds.Variables))
 	}
 }
 
-func TestTemplate_NameDerivedCredentialKeys(t *testing.T) {
+func TestTemplate_NameDerivedVariableKeys(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
 		"fallback": {Provider: "anthropic"},
@@ -707,10 +715,10 @@ func TestTemplate_NameDerivedCredentialKeys(t *testing.T) {
 	ds := mustGenerate(t, input)
 
 	// Single entry uses provider-prefixed key: ANTHROPIC_API_KEY
-	if _, ok := ds.Credentials["ANTHROPIC_API_KEY"]; !ok {
+	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; !ok {
 		t.Error("expected ANTHROPIC_API_KEY from provider-prefixed key")
 	}
-	assertEnvRef(t, ds.Agent.Environment, "ANTHROPIC_API_KEY", "${credentials.ANTHROPIC_API_KEY}")
+	assertEnvRef(t, ds.Agent.Environment, "ANTHROPIC_API_KEY", "${variables.ANTHROPIC_API_KEY}")
 }
 
 // ===== Phase 8: Interfaces =====
@@ -724,8 +732,9 @@ func TestTemplate_InterfacesDefaults(t *testing.T) {
 	if len(ds.Interfaces.Adapters) != 0 {
 		t.Errorf("interfaces.adapters: expected empty, got %v", ds.Interfaces.Adapters)
 	}
-	if ds.Interfaces.Port != 9090 {
-		t.Errorf("interfaces.port: expected 9090, got %d", ds.Interfaces.Port)
+	grpcEp := spec.EndpointByName(ds.Interfaces.Endpoints, "grpc")
+	if grpcEp == nil || grpcEp.Port != 9090 {
+		t.Errorf("interfaces.endpoints.grpc.port: expected 9090, got %v", grpcEp)
 	}
 	if ds.Interfaces.Resources != spec.MessagingResources {
 		t.Errorf("interfaces.resources: expected MessagingResources, got %+v", ds.Interfaces.Resources)
@@ -733,8 +742,10 @@ func TestTemplate_InterfacesDefaults(t *testing.T) {
 	if ds.Interfaces.Image != "registry.example.com/dockerhub/astropods/messaging:latest" {
 		t.Errorf("interfaces.image: expected registry.example.com/dockerhub/astropods/messaging:latest, got %s", ds.Interfaces.Image)
 	}
-	if ds.Interfaces.Expose.Enabled {
-		t.Error("interfaces.expose.enabled: expected false")
+	// http endpoint should have expose.enabled=false
+	httpEp := spec.EndpointByName(ds.Interfaces.Endpoints, "http")
+	if httpEp != nil && httpEp.Expose != nil && httpEp.Expose.Enabled {
+		t.Error("interfaces.endpoints.http.expose.enabled: expected false")
 	}
 }
 
@@ -806,12 +817,12 @@ func TestTemplate_FullSpec(t *testing.T) {
 		t.Error("ingestion environment not preserved")
 	}
 
-	// Credentials from cloud providers
-	if _, ok := ds.Credentials["ANTHROPIC_API_KEY"]; !ok {
-		t.Error("missing ANTHROPIC_API_KEY credential")
+	// Variables from cloud providers
+	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; !ok {
+		t.Error("missing ANTHROPIC_API_KEY variable")
 	}
-	if _, ok := ds.Credentials["GITHUB_TOKEN"]; !ok {
-		t.Error("missing GITHUB_TOKEN credential")
+	if _, ok := ds.Variables["GITHUB_TOKEN"]; !ok {
+		t.Error("missing GITHUB_TOKEN variable")
 	}
 
 	// Agent environment — check all component refs exist
@@ -887,8 +898,8 @@ func TestTemplate_MultipleModels(t *testing.T) {
 	if ds.Models["custom"].Image != "registry.example.com/dockerhub/library/custom:latest" {
 		t.Errorf("custom image: got %s", ds.Models["custom"].Image)
 	}
-	if ds.Models["custom"].Port != 5000 {
-		t.Errorf("custom port: expected 5000, got %d", ds.Models["custom"].Port)
+	if spec.PrimaryPort(ds.Models["custom"].Endpoints) != 5000 {
+		t.Errorf("custom endpoints port: expected 5000, got %d", spec.PrimaryPort(ds.Models["custom"].Endpoints))
 	}
 
 	// Provider model gets provider-specific env, container model gets generic
@@ -943,8 +954,8 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	}
 
 	// Verify key fields survived round-trip
-	if parsed.Spec != "deployment/v1" {
-		t.Errorf("spec: expected deployment/v1, got %s", parsed.Spec)
+	if parsed.Spec != "deployment-template/v1" {
+		t.Errorf("spec: expected deployment-template/v1, got %s", parsed.Spec)
 	}
 	if parsed.Source.Name != "my-agent" {
 		t.Errorf("source.name: expected my-agent, got %s", parsed.Source.Name)
@@ -958,8 +969,8 @@ func TestTemplate_YAMLRoundTrip(t *testing.T) {
 	if parsed.Knowledge["docs"].Storage == nil {
 		t.Error("knowledge.docs.storage lost in round-trip")
 	}
-	if _, ok := parsed.Credentials["ANTHROPIC_API_KEY"]; !ok {
-		t.Error("credentials.ANTHROPIC_API_KEY lost in round-trip")
+	if _, ok := parsed.Variables["ANTHROPIC_API_KEY"]; !ok {
+		t.Error("variables.ANTHROPIC_API_KEY lost in round-trip")
 	}
 	if parsed.Agent.Environment["ASTRO_AGENT_NAME"] != "${source.name}" {
 		t.Error("agent.environment reference lost in round-trip")
@@ -1281,11 +1292,6 @@ func TestTemplate_AllReferencesValid(t *testing.T) {
 				"search": {Container: &spec.ContainerConfig{Image: "search:latest", Port: 3000}},
 				"github": {Provider: "github"},
 			},
-			Integrations: map[string]spec.Integration{
-				"myapi": {
-					Credentials: []spec.CustomCredential{{Suffix: "TOKEN", Description: "token"}},
-				},
-			},
 		},
 		Account:     "testco",
 		BuildID:     "b1",
@@ -1342,19 +1348,19 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	if ds.Agent.Image != "registry.example.com/sasbot:abc123" {
 		t.Errorf("agent.image: got %s", ds.Agent.Image)
 	}
-	if ds.Agent.Port != 8080 {
-		t.Errorf("agent.port: expected 8080, got %d", ds.Agent.Port)
+	if spec.PrimaryPort(ds.Agent.Endpoints) != 8080 {
+		t.Errorf("agent endpoints primary port: expected 8080, got %d", spec.PrimaryPort(ds.Agent.Endpoints))
 	}
 
 	// Knowledge
 	if len(ds.Knowledge) != 2 {
 		t.Fatalf("knowledge: expected 2, got %d", len(ds.Knowledge))
 	}
-	if ds.Knowledge["cache"].Port != 6379 {
-		t.Errorf("knowledge.cache.port: expected 6379, got %d", ds.Knowledge["cache"].Port)
+	if spec.PrimaryPort(ds.Knowledge["cache"].Endpoints) != 6379 {
+		t.Errorf("knowledge.cache endpoints port: expected 6379, got %d", spec.PrimaryPort(ds.Knowledge["cache"].Endpoints))
 	}
-	if ds.Knowledge["graph"].Port != 7474 {
-		t.Errorf("knowledge.graph.port: expected 7474, got %d", ds.Knowledge["graph"].Port)
+	if spec.PrimaryPort(ds.Knowledge["graph"].Endpoints) != 7474 {
+		t.Errorf("knowledge.graph endpoints port: expected 7474, got %d", spec.PrimaryPort(ds.Knowledge["graph"].Endpoints))
 	}
 
 	// Ingestion — webhook with explicit port
@@ -1362,16 +1368,16 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	if ing.Image != "registry.example.com/sasbot-ingestion:abc123" {
 		t.Errorf("ingestion.data.image: got %s", ing.Image)
 	}
-	if ing.Port != 3001 {
-		t.Errorf("ingestion.data.port: expected 3001, got %d", ing.Port)
+	if spec.PrimaryPort(ing.Endpoints) != 3001 {
+		t.Errorf("ingestion.data endpoints port: expected 3001, got %d", spec.PrimaryPort(ing.Endpoints))
 	}
 	if ing.Trigger.Type != "webhook" {
 		t.Errorf("ingestion.data.trigger.type: expected webhook, got %s", ing.Trigger.Type)
 	}
 
-	// Credentials
-	if _, ok := ds.Credentials["ANTHROPIC_API_KEY"]; !ok {
-		t.Error("missing ANTHROPIC_API_KEY credential")
+	// Variables
+	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; !ok {
+		t.Error("missing ANTHROPIC_API_KEY variable")
 	}
 
 	// Interfaces present
@@ -1379,10 +1385,12 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 		t.Fatal("interfaces: expected non-nil")
 	}
 
-	// Deployment spec should pass validation when credentials are filled
+	// Deployment spec should pass validation when variables are filled
+	ds.Variables["ANTHROPIC_API_KEY"] = spec.Variable{Value: "sk-test", Secret: true}
+	// Fill in the webhook ingestion endpoint to make it parseable
 	ds.Ingestion["data"] = spec.DeploymentIngestion{
 		Image:     ing.Image,
-		Port:      ing.Port,
+		Endpoints: ing.Endpoints,
 		Resources: ing.Resources,
 		Trigger:   ing.Trigger,
 	}
@@ -1394,7 +1402,7 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("round-trip parse failed: %v", err)
 	}
-	if parsed.Ingestion["data"].Port != 3001 {
-		t.Errorf("round-trip port: expected 3001, got %d", parsed.Ingestion["data"].Port)
+	if spec.PrimaryPort(parsed.Ingestion["data"].Endpoints) != 3001 {
+		t.Errorf("round-trip port: expected 3001, got %d", spec.PrimaryPort(parsed.Ingestion["data"].Endpoints))
 	}
 }

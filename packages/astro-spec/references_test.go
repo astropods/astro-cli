@@ -11,18 +11,19 @@ func TestParseReferences(t *testing.T) {
 		wantLen  int
 		wantKind ReferenceKind
 		wantName string
+		wantEp   string
 		wantAttr string
 	}{
-		{"model host", "${models.local_llm.host}", 1, RefModel, "local_llm", "host"},
-		{"model port", "${models.local_llm.port}", 1, RefModel, "local_llm", "port"},
-		{"model url", "${models.local_llm.url}", 1, RefModel, "local_llm", "url"},
-		{"knowledge host", "${knowledge.docs.host}", 1, RefKnowledge, "docs", "host"},
-		{"tool url", "${tools.search.url}", 1, RefTool, "search", "url"},
-		{"credential", "${credentials.API_KEY}", 1, RefCredential, "API_KEY", ""},
-		{"source name", "${source.name}", 1, RefSource, "name", ""},
-		{"source build", "${source.build}", 1, RefSource, "build", ""},
-		{"no refs", "plain string", 0, "", "", ""},
-		{"partial ref ignored", "${invalid}", 0, "", "", ""},
+		{"model host", "${models.local_llm.host}", 1, RefModel, "local_llm", "", "host"},
+		{"model port 4-part", "${models.local_llm.http.port}", 1, RefModel, "local_llm", "http", "port"},
+		{"model url 4-part", "${models.local_llm.http.url}", 1, RefModel, "local_llm", "http", "url"},
+		{"knowledge host", "${knowledge.docs.host}", 1, RefKnowledge, "docs", "", "host"},
+		{"tool url", "${tools.search.http.url}", 1, RefTool, "search", "http", "url"},
+		{"variable", "${variables.API_KEY}", 1, RefVariable, "API_KEY", "", ""},
+		{"source name", "${source.name}", 1, RefSource, "name", "", ""},
+		{"source build", "${source.build}", 1, RefSource, "build", "", ""},
+		{"no refs", "plain string", 0, "", "", "", ""},
+		{"partial ref ignored", "${invalid}", 0, "", "", "", ""},
 	}
 
 	for _, tt := range tests {
@@ -41,6 +42,9 @@ func TestParseReferences(t *testing.T) {
 			if ref.Name != tt.wantName {
 				t.Errorf("name: expected %s, got %s", tt.wantName, ref.Name)
 			}
+			if ref.Endpoint != tt.wantEp {
+				t.Errorf("endpoint: expected %q, got %q", tt.wantEp, ref.Endpoint)
+			}
 			if ref.Attribute != tt.wantAttr {
 				t.Errorf("attribute: expected %s, got %s", tt.wantAttr, ref.Attribute)
 			}
@@ -49,20 +53,23 @@ func TestParseReferences(t *testing.T) {
 }
 
 func TestParseReferences_MultipleInOneString(t *testing.T) {
-	refs := ParseReferences("http://${models.llm.host}:${models.llm.port}")
+	refs := ParseReferences("http://${models.llm.host}:${models.llm.http.port}")
 	if len(refs) != 2 {
 		t.Fatalf("expected 2 refs, got %d", len(refs))
 	}
-	if refs[0].Attribute != "host" || refs[1].Attribute != "port" {
-		t.Errorf("expected host and port attrs, got %s and %s", refs[0].Attribute, refs[1].Attribute)
+	if refs[0].Attribute != "host" || refs[0].Endpoint != "" {
+		t.Errorf("expected host (3-part) ref, got endpoint=%q attr=%q", refs[0].Endpoint, refs[0].Attribute)
+	}
+	if refs[1].Attribute != "port" || refs[1].Endpoint != "http" {
+		t.Errorf("expected http.port (4-part) ref, got endpoint=%q attr=%q", refs[1].Endpoint, refs[1].Attribute)
 	}
 }
 
 func TestExtractAllReferences(t *testing.T) {
 	env := map[string]string{
-		"LLM_URL":     "${models.llm.url}",
+		"LLM_URL":     "${models.llm.http.url}",
 		"QDRANT_HOST": "${knowledge.docs.host}",
-		"API_KEY":     "${credentials.ANTHROPIC_API_KEY}",
+		"API_KEY":     "${variables.ANTHROPIC_API_KEY}",
 		"STATIC":      "no_refs_here",
 	}
 
@@ -74,21 +81,27 @@ func TestExtractAllReferences(t *testing.T) {
 
 func TestValidateReferences_Valid(t *testing.T) {
 	ds := &AstroDeploymentSpec{
-		Models:    map[string]DeploymentModel{"llm": {Image: "x", Port: 8080}},
-		Knowledge: map[string]DeploymentKnowledge{"docs": {Image: "x", Port: 6333}},
-		Tools:     map[string]DeploymentTool{"search": {Image: "x", Port: 3000}},
-		Credentials: map[string]DeploymentCredential{
-			"API_KEY": {Description: "key"},
+		Models: map[string]DeploymentModel{
+			"llm": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 8080}}},
+		},
+		Knowledge: map[string]DeploymentKnowledge{
+			"docs": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 6333}}},
+		},
+		Tools: map[string]DeploymentTool{
+			"search": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 3000}}},
+		},
+		Variables: map[string]Variable{
+			"API_KEY": {Description: "key", Secret: true},
 		},
 	}
 
 	refs := []Reference{
 		{Raw: "${models.llm.host}", Kind: RefModel, Name: "llm", Attribute: "host"},
-		{Raw: "${models.llm.port}", Kind: RefModel, Name: "llm", Attribute: "port"},
-		{Raw: "${models.llm.url}", Kind: RefModel, Name: "llm", Attribute: "url"},
+		{Raw: "${models.llm.http.port}", Kind: RefModel, Name: "llm", Endpoint: "http", Attribute: "port"},
+		{Raw: "${models.llm.http.url}", Kind: RefModel, Name: "llm", Endpoint: "http", Attribute: "url"},
 		{Raw: "${knowledge.docs.host}", Kind: RefKnowledge, Name: "docs", Attribute: "host"},
-		{Raw: "${tools.search.url}", Kind: RefTool, Name: "search", Attribute: "url"},
-		{Raw: "${credentials.API_KEY}", Kind: RefCredential, Name: "API_KEY"},
+		{Raw: "${tools.search.http.url}", Kind: RefTool, Name: "search", Endpoint: "http", Attribute: "url"},
+		{Raw: "${variables.API_KEY}", Kind: RefVariable, Name: "API_KEY"},
 		{Raw: "${source.name}", Kind: RefSource, Name: "name"},
 		{Raw: "${source.build}", Kind: RefSource, Name: "build"},
 	}
@@ -114,33 +127,54 @@ func TestValidateReferences_InvalidModel(t *testing.T) {
 	}
 }
 
-func TestValidateReferences_InvalidAttribute(t *testing.T) {
+func TestValidateReferences_InvalidAttributeForHostRef(t *testing.T) {
 	ds := &AstroDeploymentSpec{
-		Models: map[string]DeploymentModel{"llm": {Image: "x", Port: 8080}},
+		Models: map[string]DeploymentModel{
+			"llm": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 8080}}},
+		},
 	}
 
+	// 3-part ref with port instead of host — invalid
 	refs := []Reference{
-		{Raw: "${models.llm.invalid}", Kind: RefModel, Name: "llm", Attribute: "invalid"},
+		{Raw: "${models.llm.port}", Kind: RefModel, Name: "llm", Attribute: "port"},
 	}
 
 	errs := ValidateReferences(refs, ds)
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for invalid attribute, got %d: %v", len(errs), errs)
+		t.Fatalf("expected 1 error for invalid 3-part attribute, got %d: %v", len(errs), errs)
 	}
 }
 
-func TestValidateReferences_InvalidCredential(t *testing.T) {
+func TestValidateReferences_InvalidEndpointOnModel(t *testing.T) {
 	ds := &AstroDeploymentSpec{
-		Credentials: map[string]DeploymentCredential{},
+		Models: map[string]DeploymentModel{
+			"llm": {Image: "x", Endpoints: map[string]Endpoint{"http": {Port: 8080}}},
+		},
 	}
 
+	// 4-part ref with non-existent endpoint
 	refs := []Reference{
-		{Raw: "${credentials.MISSING}", Kind: RefCredential, Name: "MISSING"},
+		{Raw: "${models.llm.grpc.port}", Kind: RefModel, Name: "llm", Endpoint: "grpc", Attribute: "port"},
 	}
 
 	errs := ValidateReferences(refs, ds)
 	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for missing credential, got %d", len(errs))
+		t.Fatalf("expected 1 error for invalid endpoint, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestValidateReferences_InvalidVariable(t *testing.T) {
+	ds := &AstroDeploymentSpec{
+		Variables: map[string]Variable{},
+	}
+
+	refs := []Reference{
+		{Raw: "${variables.MISSING}", Kind: RefVariable, Name: "MISSING"},
+	}
+
+	errs := ValidateReferences(refs, ds)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for missing variable, got %d", len(errs))
 	}
 }
 
@@ -166,14 +200,14 @@ func TestIsReference(t *testing.T) {
 	}
 }
 
-func TestIsCredentialReference(t *testing.T) {
-	if !IsCredentialReference("${credentials.API_KEY}") {
-		t.Error("expected true for credential reference")
+func TestIsVariableReference(t *testing.T) {
+	if !IsVariableReference("${variables.API_KEY}") {
+		t.Error("expected true for variable reference")
 	}
-	if IsCredentialReference("${models.llm.host}") {
+	if IsVariableReference("${models.llm.host}") {
 		t.Error("expected false for model reference")
 	}
-	if IsCredentialReference("plain") {
+	if IsVariableReference("plain") {
 		t.Error("expected false for plain string")
 	}
 }
