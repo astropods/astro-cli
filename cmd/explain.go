@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,8 +16,8 @@ var explainCmd = &cobra.Command{
 	Use:   "explain",
 	Short: "Explain the agent project based on its spec",
 	Long: `Parse the astroai.yml spec and display a human-readable explanation
-of the agent project: its components, how they connect, and what
-gets built vs. pre-built.
+of the agent project: its components, what env vars each component
+injects into the agent, and what credentials and inputs are required.
 
 Example:
   ast explain
@@ -63,161 +64,136 @@ func resolvePath(contextPath, specDir, workingDir string) string {
 func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	fmt.Println()
 
-	// Agent overview
+	// ── Header ──────────────────────────────────────────────────────────────
 	fmt.Printf("%s%s%s%s\n", colorBold, colorGreen, astroSpec.Name, colorReset)
 	if astroSpec.Meta.Description != "" {
 		fmt.Printf("%s%s%s\n", colorDim, astroSpec.Meta.Description, colorReset)
 	}
 	if len(astroSpec.Meta.Tags) > 0 {
-		fmt.Printf("%s%v%s\n", colorDim, astroSpec.Meta.Tags, colorReset)
+		fmt.Printf("%stags: %v%s\n", colorDim, astroSpec.Meta.Tags, colorReset)
 	}
 	fmt.Println()
 
-	// Container
-	fmt.Printf("%s%sContainer%s  %sThe main runtime for the agent process%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
+	// ── Container ───────────────────────────────────────────────────────────
+	sectionHeader("Container", "main agent process")
 	if astroSpec.Agent.Build != nil {
 		resolved := resolvePath(astroSpec.Agent.Build.Context, specDir, workingDir)
-		fmt.Printf("  Build context: %s%s%s", colorYellow, resolved, colorReset)
+		detail := resolved
 		if astroSpec.Agent.Build.Dockerfile != "" {
-			fmt.Printf(" (Dockerfile: %s%s%s)", colorYellow, astroSpec.Agent.Build.Dockerfile, colorReset)
+			detail += " / " + astroSpec.Agent.Build.Dockerfile
 		}
-		fmt.Println()
+		fmt.Printf("  build:  %s%s%s\n", colorYellow, detail, colorReset)
 	} else if astroSpec.Agent.Image != "" {
-		fmt.Printf("  Image: %s%s%s\n", colorYellow, astroSpec.Agent.Image, colorReset)
+		fmt.Printf("  image:  %s%s%s\n", colorYellow, astroSpec.Agent.Image, colorReset)
 	}
+	if astroSpec.Agent.Distributed {
+		fmt.Printf("  multi-replica: yes\n")
+	}
+	printInputList(astroSpec.Agent.Inputs, "  ")
 	fmt.Println()
 
-	// Models
+	// ── Models ──────────────────────────────────────────────────────────────
 	if len(astroSpec.Models) > 0 {
-		fmt.Printf("%s%sModels%s  %sSelf-hosted inference servers deployed as sidecars%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
-		for name, model := range astroSpec.Models {
-			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
-			if model.Provider != "" {
-				fmt.Printf(" %s(%s)%s", colorDim, model.Provider, colorReset)
-			}
-			fmt.Println()
-			mc := model.ResolvedContainer()
-			if model.Container != nil && model.Container.Build != nil {
-				resolved := resolvePath(model.Container.Build.Context, specDir, workingDir)
-				fmt.Printf("    Build context: %s%s%s\n", colorYellow, resolved, colorReset)
-			} else if mc.Image != "" {
-				fmt.Printf("    Image: %s%s%s\n", colorDim, mc.Image, colorReset)
-			}
-			if mc.Port > 0 {
-				fmt.Printf("    Port: %d\n", mc.Port)
-			}
-			envKey := strings.ToUpper(name) + "_HOST"
-			fmt.Printf("    Env: %s%s%s\n", colorDim, envKey, colorReset)
+		sectionHeader("Models", "AI inference servers")
+		for _, name := range sortedKeys(astroSpec.Models) {
+			model := astroSpec.Models[name]
+			printModelEntry(name, model, astroSpec, specDir, workingDir)
 		}
 		fmt.Println()
 	}
 
-	// Knowledge
+	// ── Knowledge ───────────────────────────────────────────────────────────
 	if len(astroSpec.Knowledge) > 0 {
-		fmt.Printf("%s%sKnowledge%s  %sData stores that give the agent memory and context%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
-		for name, k := range astroSpec.Knowledge {
-			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
-			if k.Provider != "" {
-				fmt.Printf(" %s(%s)%s", colorDim, k.Provider, colorReset)
-			}
-			fmt.Println()
-			kc := k.ResolvedContainer()
-			if kc.Persistent {
-				fmt.Printf("    Persistent: %s%syes%s\n", colorBold, colorGreen, colorReset)
-			}
-			if kc.Build != nil {
-				resolved := resolvePath(kc.Build.Context, specDir, workingDir)
-				fmt.Printf("    Build context: %s%s%s\n", colorYellow, resolved, colorReset)
-			} else if kc.Image != "" {
-				fmt.Printf("    Image: %s%s%s\n", colorDim, kc.Image, colorReset)
-			}
-			if k.Provider != "" {
-				prov := spec.GetProvider(k.Provider)
-				if prov.EnvPrefix != "" {
-					fmt.Printf("    Env: %s%s_HOST%s, %s%s_PORT%s\n",
-						colorDim, prov.EnvPrefix, colorReset,
-						colorDim, prov.EnvPrefix, colorReset)
-				}
-			}
+		sectionHeader("Knowledge", "data stores for memory and context")
+		for _, name := range sortedKeys(astroSpec.Knowledge) {
+			k := astroSpec.Knowledge[name]
+			printKnowledgeEntry(name, k, astroSpec, specDir, workingDir)
 		}
 		fmt.Println()
 	}
 
-	// Tools
+	// ── Tools ───────────────────────────────────────────────────────────────
 	if len(astroSpec.Tools) > 0 {
-		fmt.Printf("%s%sTools%s  %sCallable capabilities that extend what the agent can do%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
-		for name, tool := range astroSpec.Tools {
-			fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
-			if tool.Container != nil {
-				fmt.Println(" (sidecar)")
-				if tool.Container.Build != nil {
-					resolved := resolvePath(tool.Container.Build.Context, specDir, workingDir)
-					fmt.Printf("    Build context: %s%s%s\n", colorYellow, resolved, colorReset)
-				} else if tool.Container.Image != "" {
-					fmt.Printf("    Image: %s%s%s\n", colorDim, tool.Container.Image, colorReset)
-				}
-				if tool.Container.Port > 0 {
-					fmt.Printf("    Port: %d\n", tool.Container.Port)
-				}
-			} else {
-				fmt.Println(" (in-process)")
+		sectionHeader("Tools", "callable capabilities")
+		for _, name := range sortedKeys(astroSpec.Tools) {
+			tool := astroSpec.Tools[name]
+			printToolEntry(name, tool, astroSpec, specDir, workingDir)
+		}
+		fmt.Println()
+	}
+
+	// ── Providers ───────────────────────────────────────────────────────────
+	if len(astroSpec.Providers) > 0 {
+		sectionHeader("Providers", "custom provider templates")
+		for _, name := range sortedKeys(astroSpec.Providers) {
+			provider := astroSpec.Providers[name]
+			fmt.Printf("\n  %s%s%s  %sscope: %s%s\n",
+				colorCyan, name, colorReset,
+				colorDim, strings.Join(provider.Scope, ", "), colorReset)
+			for _, v := range provider.Variables {
+				printVariableLine(v, "    ")
 			}
 		}
 		fmt.Println()
 	}
 
-	// Integrations
-	if len(astroSpec.Integrations) > 0 {
-		fmt.Printf("%s%sIntegrations%s  %sThird-party APIs accessed via credentials at runtime%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
-		for name, integration := range astroSpec.Integrations {
-			fmt.Printf("\n  %s%s%s\n", colorCyan, name, colorReset)
-
-			if len(integration.Credentials) > 0 {
-				var keys []string
-				for _, cc := range integration.Credentials {
-					keys = append(keys, strings.ToUpper(name)+"_"+cc.Suffix)
-				}
-				fmt.Printf("    Env: %s%s%s\n", colorDim, strings.Join(keys, ", "), colorReset)
-			}
+	// ── Top-level Inputs ────────────────────────────────────────────────────
+	if len(astroSpec.Inputs) > 0 {
+		sectionHeader("Inputs", "injected into all containers at deploy")
+		for _, name := range sortedKeys(astroSpec.Inputs) {
+			inp := astroSpec.Inputs[name]
+			printVariableLine(inp, "  ")
 		}
 		fmt.Println()
 	}
 
-	// Dev interfaces
-	if astroSpec.Dev != nil && len(astroSpec.Dev.Interfaces) > 0 {
-		fmt.Printf("%s%sDev Interfaces%s  %sChannels through which users and systems reach the agent (dev overrides)%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
-		for _, name := range astroSpec.Dev.Interfaces {
-			fmt.Printf("  %s%s%s %senabled%s\n", colorCyan, name, colorReset, colorGreen, colorReset)
-			if envs := getInterfaceEnvVars(name); len(envs) > 0 {
-				fmt.Printf("    Env: %s%s%s\n", colorDim, strings.Join(envs, ", "), colorReset)
-			}
-		}
-		fmt.Println()
-	}
-
-	// Ingestion
+	// ── Ingestion ───────────────────────────────────────────────────────────
 	if len(astroSpec.Ingestion) > 0 {
-		fmt.Printf("%s%sIngestion%s  %sBackground jobs that sync data into knowledge stores%s\n", colorBold, colorBlue, colorReset, colorDim, colorReset)
-		for name, ing := range astroSpec.Ingestion {
-			fmt.Printf("\n  %s%s%s\n", colorCyan, name, colorReset)
-			fmt.Printf("    Trigger: %s%s%s", colorYellow, ing.Trigger.Type, colorReset)
-			if astroSpec.Dev != nil {
-				if sched := astroSpec.Dev.Schedules[name]; sched != "" {
-					fmt.Printf(" (%s)", sched)
-				}
+		sectionHeader("Ingestion", "background data pipeline jobs")
+
+		// All ingestion containers inherit the agent environment.
+		// Show the shared consumes list once at section level, not per entry.
+		var sharedConsumes []string
+		for k := range spec.AgentConnectionKeys(astroSpec, nil) {
+			sharedConsumes = append(sharedConsumes, k)
+		}
+		for k := range spec.AllCredentialKeys(astroSpec) {
+			sharedConsumes = append(sharedConsumes, k)
+		}
+		for k := range astroSpec.Inputs {
+			sharedConsumes = append(sharedConsumes, k)
+		}
+		sort.Strings(sharedConsumes)
+		if len(sharedConsumes) > 0 {
+			printKeyList("  all jobs consume:", "                   ", sharedConsumes, 80)
+		}
+
+		for _, name := range sortedKeys(astroSpec.Ingestion) {
+			ing := astroSpec.Ingestion[name]
+			printIngestionEntry(name, ing, astroSpec, specDir, workingDir)
+		}
+		fmt.Println()
+	}
+
+	// ── Dev Interfaces ──────────────────────────────────────────────────────
+	if astroSpec.Dev != nil && len(astroSpec.Dev.Interfaces) > 0 {
+		sectionHeader("Dev Interfaces", "local messaging channels")
+		for _, name := range astroSpec.Dev.Interfaces {
+			envs := getInterfaceEnvVars(name)
+			fmt.Printf("  %s%s%s", colorCyan, name, colorReset)
+			if len(envs) > 0 {
+				fmt.Printf("  %s→ sidecar needs: %s%s",
+					colorDim, strings.Join(envs, ", "), colorReset)
 			}
 			fmt.Println()
-			if ing.Container.Build != nil {
-				resolved := resolvePath(ing.Container.Build.Context, specDir, workingDir)
-				fmt.Printf("    Build context: %s%s%s\n", colorYellow, resolved, colorReset)
-			} else if ing.Container.Image != "" {
-				fmt.Printf("    Image: %s%s%s\n", colorDim, ing.Container.Image, colorReset)
-			}
 		}
 		fmt.Println()
 	}
 
-	// Warnings
+	// ── Agent receives ──────────────────────────────────────────────────────
+	printAgentReceives(astroSpec)
+
+	// ── Warnings ────────────────────────────────────────────────────────────
 	warnings := collectWarnings(astroSpec)
 	if len(warnings) > 0 {
 		fmt.Printf("%s%sWarnings%s\n\n", colorBold, colorYellow, colorReset)
@@ -230,185 +206,374 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	return nil
 }
 
-// collectWarnings checks the spec for potential issues like overlapping env vars,
-// duplicate ports, duplicate providers, and user env vars that shadow auto-injected ones.
+// ── Component printers ───────────────────────────────────────────────────────
+
+func printModelEntry(name string, model spec.Model, s *spec.AstroSpec, specDir, workingDir string) {
+	mc := model.ResolvedContainer()
+
+	// Title line
+	fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
+	if model.Provider != "" {
+		provType := providerKind(model.Provider, "models", s)
+		fmt.Printf("  %s%s  ·  %s%s", colorDim, model.Provider, provType, colorReset)
+	}
+	fmt.Println()
+
+	if model.DeploysContainer(s.Providers) {
+		if model.Container != nil && model.Container.Build != nil {
+			resolved := resolvePath(model.Container.Build.Context, specDir, workingDir)
+			fmt.Printf("    build:  %s%s%s\n", colorYellow, resolved, colorReset)
+		} else if mc.Image != "" {
+			fmt.Printf("    image:  %s%s%s\n", colorDim, mc.Image, colorReset)
+		}
+		if mc.Port > 0 {
+			fmt.Printf("    port:   %d\n", mc.Port)
+		}
+		if mc.HasGPU() {
+			fmt.Printf("    gpu:    %syes%s\n", colorGreen, colorReset)
+		}
+		if model.Model != "" {
+			fmt.Printf("    model:  %s%s%s\n", colorDim, model.Model, colorReset)
+		}
+	}
+
+	// Output: what this component injects into the agent env
+	printComponentOutput(s, "models", name, model.Provider, model.Model, s)
+
+	// Component-specific inputs
+	printInputList(model.Inputs, "    ")
+}
+
+func printKnowledgeEntry(name string, k spec.Knowledge, s *spec.AstroSpec, specDir, workingDir string) {
+	kc := k.ResolvedContainer()
+
+	fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
+	if k.Provider != "" {
+		provType := providerKind(k.Provider, "knowledge", s)
+		fmt.Printf("  %s%s  ·  %s%s", colorDim, k.Provider, provType, colorReset)
+	}
+	if kc.Persistent {
+		fmt.Printf("  %spersistent%s", colorGreen, colorReset)
+	}
+	fmt.Println()
+
+	if kc.Build != nil {
+		resolved := resolvePath(kc.Build.Context, specDir, workingDir)
+		fmt.Printf("    build:  %s%s%s\n", colorYellow, resolved, colorReset)
+	} else if kc.Image != "" {
+		fmt.Printf("    image:  %s%s%s\n", colorDim, kc.Image, colorReset)
+	}
+	if kc.Port > 0 {
+		fmt.Printf("    port:   %d\n", kc.Port)
+	}
+
+	printComponentOutput(s, "knowledge", name, k.Provider, "", s)
+	printInputList(k.Inputs, "    ")
+}
+
+func printToolEntry(name string, tool spec.Tool, s *spec.AstroSpec, specDir, workingDir string) {
+	fmt.Printf("\n  %s%s%s", colorCyan, name, colorReset)
+	if tool.Provider != "" {
+		provType := providerKind(tool.Provider, "tools", s)
+		fmt.Printf("  %s%s  ·  %s%s", colorDim, tool.Provider, provType, colorReset)
+	} else {
+		fmt.Printf("  %s(container)%s", colorDim, colorReset)
+	}
+	fmt.Println()
+
+	if tool.Container != nil {
+		if tool.Container.Build != nil {
+			resolved := resolvePath(tool.Container.Build.Context, specDir, workingDir)
+			fmt.Printf("    build:  %s%s%s\n", colorYellow, resolved, colorReset)
+		} else if tool.Container.Image != "" {
+			fmt.Printf("    image:  %s%s%s\n", colorDim, tool.Container.Image, colorReset)
+		}
+		if tool.Container.Port > 0 {
+			fmt.Printf("    port:   %d\n", tool.Container.Port)
+		}
+	}
+
+	printComponentOutput(s, "tools", name, tool.Provider, "", s)
+	printInputList(tool.Inputs, "    ")
+}
+
+func printIngestionEntry(name string, ing spec.Ingestion, s *spec.AstroSpec, specDir, workingDir string) {
+	// Title: name + trigger type (+ cron schedule if set in dev)
+	fmt.Printf("\n  %s%s%s  %s%s%s", colorCyan, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
+	if s.Dev != nil {
+		if sched := s.Dev.Schedules[name]; sched != "" {
+			fmt.Printf("  %s%s%s", colorDim, sched, colorReset)
+		}
+	}
+	fmt.Println()
+
+	// Image / build
+	if ing.Container.Build != nil {
+		resolved := resolvePath(ing.Container.Build.Context, specDir, workingDir)
+		detail := resolved
+		if ing.Container.Build.Dockerfile != "" {
+			detail += " / " + ing.Container.Build.Dockerfile
+		}
+		fmt.Printf("    build:  %s%s%s\n", colorYellow, detail, colorReset)
+	} else if ing.Container.Image != "" {
+		fmt.Printf("    image:  %s%s%s\n", colorDim, ing.Container.Image, colorReset)
+	}
+
+	// Webhook trigger requires a port
+	if ing.Trigger.Type == "webhook" {
+		if ing.Container.Port > 0 {
+			fmt.Printf("    port:   %d\n", ing.Container.Port)
+		} else {
+			fmt.Printf("    port:   %s(none — webhook trigger should declare a port)%s\n", colorYellow, colorReset)
+		}
+	}
+
+	// Ingestion-specific inputs (the shared consumes list is shown once at section level)
+	printInputList(ing.Inputs, "    ")
+}
+
+// printComponentOutput shows what a component produces into the agent's environment.
+// All component types use a single "produces:" label — the mechanism (connection
+// wiring, credential injection, provider variables) is irrelevant to the consumer.
+func printComponentOutput(_ *spec.AstroSpec, section, name, provider, modelName string, full *spec.AstroSpec) {
+	var keys []string
+
+	if provider != "" {
+		if isSectionCloudProvider(provider, section) {
+			for k, meta := range spec.CloudCredentialKeys(full) {
+				if meta.Provider == strings.ToLower(provider) {
+					keys = append(keys, k)
+				}
+			}
+		} else if cp, ok := full.Providers[provider]; ok {
+			for _, v := range cp.Variables {
+				keys = append(keys, v.Name)
+			}
+		}
+	}
+
+	if len(keys) == 0 {
+		// Self-hosted provider or container mode: connection env vars.
+		keys = spec.AgentKeysForComponent(full, section, name)
+		// MODEL key carries a static value so the sentinel approach misses it — add explicitly.
+		if section == "models" && modelName != "" && provider != "" {
+			p := spec.GetModelProvider(provider)
+			if p.EnvPrefix != "" {
+				provCount := 0
+				for _, m := range full.Models {
+					if m.IsProviderMode() && strings.EqualFold(m.Provider, provider) {
+						provCount++
+					}
+				}
+				modelKey := p.EnvPrefix + "_MODEL"
+				if provCount > 1 {
+					modelKey = p.EnvPrefix + "_" + spec.SanitizeEnvName(name) + "_MODEL"
+				}
+				keys = appendIfMissing(keys, modelKey)
+			}
+		}
+	}
+
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		printKeyList("    produces:", "                ", keys, 80)
+	}
+}
+
+// ── Agent receives summary ────────────────────────────────────────────────────
+
+func printAgentReceives(s *spec.AstroSpec) {
+	// Connection keys (from self-hosted + container components)
+	connEnv := spec.AgentConnectionKeys(s, nil)
+	// Group by component for display
+	var connKeys []string
+	for k := range connEnv {
+		connKeys = append(connKeys, k)
+	}
+	sort.Strings(connKeys)
+
+	// Credential keys
+	credMap := spec.AllCredentialKeys(s)
+	var credRequired, credOptional []string
+	for k, meta := range credMap {
+		if meta.Optional {
+			credOptional = append(credOptional, k)
+		} else {
+			credRequired = append(credRequired, k)
+		}
+	}
+	sort.Strings(credRequired)
+	sort.Strings(credOptional)
+
+	// Non-secret custom provider variables (injected as plain env vars)
+	var plainProviderVars []string
+	for _, cp := range referencedCustomProviders(s) {
+		for _, v := range cp.Variables {
+			if !v.Secret {
+				plainProviderVars = append(plainProviderVars, v.Name)
+			}
+		}
+	}
+	sort.Strings(plainProviderVars)
+
+	// Inputs
+	var topInputNames []string
+	for k := range s.Inputs {
+		topInputNames = append(topInputNames, k)
+	}
+	sort.Strings(topInputNames)
+	var agentInputNames []string
+	for _, inp := range s.Agent.Inputs {
+		agentInputNames = append(agentInputNames, inp.Name)
+	}
+
+	// Only print the section if there's something to show
+	if len(connKeys) == 0 && len(credRequired) == 0 && len(credOptional) == 0 &&
+		len(plainProviderVars) == 0 && len(topInputNames) == 0 && len(agentInputNames) == 0 {
+		return
+	}
+
+	sectionHeader("Agent consumes", "complete env var list visible to agent code")
+
+	// Flatten everything into one sorted list grouped by source type.
+	if len(connKeys) > 0 {
+		printKeyList("  from producers:", "                  ", connKeys, 80)
+	}
+
+	if len(credRequired) > 0 || len(credOptional) > 0 || len(plainProviderVars) > 0 {
+		allProviderKeys := append(append(credRequired, credOptional...), plainProviderVars...)
+		sort.Strings(allProviderKeys)
+		printKeyList("  from providers:", "                  ", allProviderKeys, 80)
+	}
+
+	if len(topInputNames) > 0 || len(agentInputNames) > 0 {
+		fmt.Printf("  %sfrom inputs:%s\n", colorDim, colorReset)
+		for _, name := range topInputNames {
+			inp := s.Inputs[name]
+			printInputSummaryLine(inp, "    ", "(all containers)")
+		}
+		for _, inp := range s.Agent.Inputs {
+			printInputSummaryLine(inp, "    ", "(agent only)")
+		}
+	}
+	fmt.Println()
+}
+
+// ── Warnings ─────────────────────────────────────────────────────────────────
+
+// collectWarnings checks for overlapping env vars, duplicate ports, and shadows.
+// Uses the resolver for accurate connection key computation.
 func collectWarnings(s *spec.AstroSpec) []string {
 	var warnings []string
 
-	// Build map of auto-injected env vars -> source component for overlap detection.
-	// Mirrors the logic in compose/builder.go buildEnvironment().
-	autoEnv := make(map[string]string) // env key -> "source description"
+	// Build the authoritative set of auto-injected agent env vars using the resolver.
+	autoEnv := make(map[string]string) // key → source description
 
-	// Models inject {NAME}_HOST
-	for name := range s.Models {
-		key := strings.ToUpper(name) + "_HOST"
+	// Connection keys (self-hosted + container mode)
+	connEnv := spec.AgentConnectionKeys(s, nil)
+	for key := range connEnv {
+		autoEnv[key] = "component connection wiring"
+	}
+
+	// Cloud credential keys
+	for key, meta := range spec.CloudCredentialKeys(s) {
+		desc := fmt.Sprintf("cloud provider %s%s%s", colorCyan, meta.Provider, colorReset)
 		if prev, ok := autoEnv[key]; ok {
-			warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and model %s%s%s.",
-				colorBold, key, colorReset, prev, colorCyan, name, colorReset))
+			warnings = append(warnings, fmt.Sprintf(
+				"Env var %s%s%s is claimed by both %s and %s.",
+				colorBold, key, colorReset, prev, desc))
 		}
-		autoEnv[key] = fmt.Sprintf("model %s%s%s", colorCyan, name, colorReset)
+		autoEnv[key] = desc
 	}
 
-	// Knowledge stores inject {PROVIDER_PREFIX}_HOST and {PROVIDER_PREFIX}_PORT
-	providerUsers := make(map[string][]string) // provider -> list of knowledge names
-	for name, k := range s.Knowledge {
-		if k.Provider == "" {
-			continue
-		}
-		providerUsers[strings.ToLower(k.Provider)] = append(providerUsers[strings.ToLower(k.Provider)], name)
-
-		prov := spec.GetProvider(k.Provider)
-		if prov.EnvPrefix == "" {
-			continue
-		}
-		for _, suffix := range []string{"_HOST", "_PORT"} {
-			key := prov.EnvPrefix + suffix
-			if prev, ok := autoEnv[key]; ok {
-				warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and knowledge %s%s%s (provider %s). Only one will take effect.",
-					colorBold, key, colorReset, prev, colorCyan, name, colorReset, k.Provider))
+	// Custom provider variables
+	for provName, cp := range referencedCustomProviders(s) {
+		for _, v := range cp.Variables {
+			desc := fmt.Sprintf("provider %s%s%s", colorCyan, provName, colorReset)
+			if prev, ok := autoEnv[v.Name]; ok {
+				warnings = append(warnings, fmt.Sprintf(
+					"Env var %s%s%s is claimed by both %s and %s.",
+					colorBold, v.Name, colorReset, prev, desc))
 			}
-			autoEnv[key] = fmt.Sprintf("knowledge %s%s%s (provider %s)", colorCyan, name, colorReset, k.Provider)
+			autoEnv[v.Name] = desc
 		}
 	}
 
-	// Warn if same provider used by multiple knowledge stores
-	for provider, names := range providerUsers {
-		if len(names) > 1 {
-			warnings = append(warnings, fmt.Sprintf("Multiple knowledge stores use provider %s%s%s: %s. They will share the same env vars and only one set of connection details will be injected.",
-				colorYellow, provider, colorReset, strings.Join(names, ", ")))
-		}
-	}
-
-	// Cloud provider credentials inject {NAME}_{SUFFIX}
-	// Scan models for cloud providers
-	for name, model := range s.Models {
-		if model.IsProviderMode() {
-			if suffixes := getIntegrationSuffixes(model.Provider); len(suffixes) > 0 {
-				for _, suffix := range suffixes {
-					key := strings.ToUpper(name) + "_" + suffix
-					if prev, ok := autoEnv[key]; ok {
-						warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and model %s%s%s.",
-							colorBold, key, colorReset, prev, colorCyan, name, colorReset))
-					}
-					autoEnv[key] = fmt.Sprintf("model %s%s%s", colorCyan, name, colorReset)
-				}
-			}
-		}
-	}
-	// Scan knowledge for cloud providers
-	for name, knowledge := range s.Knowledge {
-		if knowledge.IsProviderMode() {
-			if suffixes := getIntegrationSuffixes(knowledge.Provider); len(suffixes) > 0 {
-				for _, suffix := range suffixes {
-					key := strings.ToUpper(name) + "_" + suffix
-					if prev, ok := autoEnv[key]; ok {
-						warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and knowledge %s%s%s.",
-							colorBold, key, colorReset, prev, colorCyan, name, colorReset))
-					}
-					autoEnv[key] = fmt.Sprintf("knowledge %s%s%s", colorCyan, name, colorReset)
-				}
-			}
-		}
-	}
-	// Scan tools for cloud providers
-	for name, tool := range s.Tools {
-		if tool.IsProviderMode() {
-			if suffixes := getIntegrationSuffixes(tool.Provider); len(suffixes) > 0 {
-				for _, suffix := range suffixes {
-					key := strings.ToUpper(name) + "_" + suffix
-					if prev, ok := autoEnv[key]; ok {
-						warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and tool %s%s%s.",
-							colorBold, key, colorReset, prev, colorCyan, name, colorReset))
-					}
-					autoEnv[key] = fmt.Sprintf("tool %s%s%s", colorCyan, name, colorReset)
-				}
-			}
-		}
-	}
-	// Integrations
-	for name, integration := range s.Integrations {
-		for _, cc := range integration.Credentials {
-			key := strings.ToUpper(name) + "_" + cc.Suffix
-			if prev, ok := autoEnv[key]; ok {
-				warnings = append(warnings, fmt.Sprintf("Env var %s%s%s is set by both %s and integration %s%s%s.",
-					colorBold, key, colorReset, prev, colorCyan, name, colorReset))
-			}
-			autoEnv[key] = fmt.Sprintf("integration %s%s%s", colorCyan, name, colorReset)
-		}
-	}
-
-	// System-reserved env vars
+	// System-reserved keys
 	reserved := map[string]string{
 		"GRPC_SERVER_ADDR":            "interfaces (messaging sidecar)",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "observability collector",
-		"AGENT_URL":                   "system",
-		"AGENT_HOST":                  "system",
 		"ASTRO_AGENT_NAME":            "system",
-		"ASTRO_AGENT_BUILD_ID":        "system",
+		"ASTRO_AGENT_BUILD":           "system",
 	}
-	for key, source := range reserved {
-		autoEnv[key] = source
+	for key, src := range reserved {
+		autoEnv[key] = src
 	}
 
-	// Check user-provided container.environment for shadows against auto-injected vars.
-	checkUserEnv := func(env map[string]string, component string) {
+	// Check user-provided container.environment fields for shadows
+	// Only check explicitly user-supplied environment fields (not provider defaults).
+	checkEnv := func(env map[string]string, label string) {
 		for key := range env {
-			if source, ok := autoEnv[key]; ok {
-				warnings = append(warnings, fmt.Sprintf("%s sets env var %s%s%s which shadows the value auto-injected by %s.",
-					component, colorBold, key, colorReset, source))
+			if src, ok := autoEnv[key]; ok {
+				warnings = append(warnings, fmt.Sprintf(
+					"%s sets env var %s%s%s which shadows the value auto-injected by %s.",
+					label, colorBold, key, colorReset, src))
 			}
 		}
 	}
-
-	for name, model := range s.Models {
-		mc := model.ResolvedContainer()
-		checkUserEnv(mc.Environment, fmt.Sprintf("Model %s%s%s", colorCyan, name, colorReset))
+	for name, m := range s.Models {
+		if m.Container != nil {
+			checkEnv(m.Container.Environment,
+				fmt.Sprintf("Model %s%s%s", colorCyan, name, colorReset))
+		}
 	}
 	for name, k := range s.Knowledge {
 		if k.Container != nil {
-			checkUserEnv(k.Container.Environment, fmt.Sprintf("Knowledge %s%s%s", colorCyan, name, colorReset))
+			checkEnv(k.Container.Environment,
+				fmt.Sprintf("Knowledge %s%s%s", colorCyan, name, colorReset))
 		}
 	}
-	for name, tool := range s.Tools {
-		if tool.Container != nil {
-			checkUserEnv(tool.Container.Environment, fmt.Sprintf("Tool %s%s%s", colorCyan, name, colorReset))
+	for name, t := range s.Tools {
+		if t.Container != nil {
+			checkEnv(t.Container.Environment,
+				fmt.Sprintf("Tool %s%s%s", colorCyan, name, colorReset))
 		}
 	}
 	for name, ing := range s.Ingestion {
-		checkUserEnv(ing.Container.Environment, fmt.Sprintf("Ingestion %s%s%s", colorCyan, name, colorReset))
+		checkEnv(ing.Container.Environment,
+			fmt.Sprintf("Ingestion %s%s%s", colorCyan, name, colorReset))
 	}
 
-	// Check for duplicate ports across components
-	portUsers := make(map[int][]string) // port -> list of component descriptions
-	for name, model := range s.Models {
-		mc := model.ResolvedContainer()
-		if mc.Port > 0 {
+	// Duplicate ports
+	portUsers := make(map[int][]string)
+	for name, m := range s.Models {
+		if !m.DeploysContainer(s.Providers) {
+			continue
+		}
+		if mc := m.ResolvedContainer(); mc.Port > 0 {
 			portUsers[mc.Port] = append(portUsers[mc.Port],
 				fmt.Sprintf("model %s%s%s", colorCyan, name, colorReset))
 		}
 	}
 	for name, k := range s.Knowledge {
-		kc := k.ResolvedContainer()
-		if kc.Port > 0 {
+		if k.IsProviderMode() && spec.IsCloudKnowledgeProvider(k.Provider) {
+			continue // cloud providers have no container
+		}
+		if kc := k.ResolvedContainer(); kc.Port > 0 {
 			portUsers[kc.Port] = append(portUsers[kc.Port],
 				fmt.Sprintf("knowledge %s%s%s", colorCyan, name, colorReset))
 		}
 	}
-	for name, tool := range s.Tools {
-		if tool.Container != nil && tool.Container.Port > 0 {
-			portUsers[tool.Container.Port] = append(portUsers[tool.Container.Port],
+	for name, t := range s.Tools {
+		if t.Container != nil && t.Container.Port > 0 {
+			portUsers[t.Container.Port] = append(portUsers[t.Container.Port],
 				fmt.Sprintf("tool %s%s%s", colorCyan, name, colorReset))
-		}
-	}
-	for name, ing := range s.Ingestion {
-		if ing.Container.Port > 0 {
-			portUsers[ing.Container.Port] = append(portUsers[ing.Container.Port],
-				fmt.Sprintf("ingestion %s%s%s", colorCyan, name, colorReset))
 		}
 	}
 	for port, users := range portUsers {
 		if len(users) > 1 {
-			warnings = append(warnings, fmt.Sprintf("Port %s%d%s is used by multiple components: %s.",
+			warnings = append(warnings, fmt.Sprintf(
+				"Port %s%d%s is used by multiple components: %s.",
 				colorBold, port, colorReset, strings.Join(users, ", ")))
 		}
 	}
@@ -416,29 +581,182 @@ func collectWarnings(s *spec.AstroSpec) []string {
 	return warnings
 }
 
-// getInterfaceEnvVars returns the env vars produced by a given interface.
-// Mirrors the switch in compose/builder.go buildMessagingEnvironment().
+// ── Input / variable display helpers ─────────────────────────────────────────
+
+// printInputList prints a list of component-specific inputs with a label.
+func printInputList(inputs []spec.Input, indent string) {
+	if len(inputs) == 0 {
+		return
+	}
+	fmt.Printf("%s%sinputs (provided at deploy):%s\n", indent, colorDim, colorReset)
+	for _, inp := range inputs {
+		printVariableLine(inp, indent+"  ")
+	}
+}
+
+// printVariableLine prints a single input/variable in a compact format.
+func printVariableLine(inp spec.Input, indent string) {
+	parts := []string{inp.Datatype}
+	if inp.Secret {
+		parts = append(parts, "secret")
+	}
+	if inp.Optional {
+		parts = append(parts, "optional")
+	} else {
+		parts = append(parts, "required")
+	}
+	if inp.DisplayAs == "select" && len(inp.Options) > 0 {
+		parts = append(parts, "select: "+strings.Join(inp.Options, "|"))
+	}
+
+	meta := strings.Join(parts, "  ·  ")
+	if inp.Default != "" {
+		fmt.Printf("%s%s%s%s  %s=%s  %s[%s]%s\n",
+			indent,
+			colorYellow, inp.Name, colorReset,
+			colorDim, inp.Default, colorReset,
+			colorDim, meta+colorReset)
+	} else {
+		fmt.Printf("%s%s%s%s  %s%s%s\n",
+			indent,
+			colorYellow, inp.Name, colorReset,
+			colorDim, meta, colorReset)
+	}
+	if inp.Description != "" {
+		fmt.Printf("%s  %s%s%s\n", indent, colorDim, inp.Description, colorReset)
+	}
+}
+
+// printInputSummaryLine prints a compact one-liner for the "Agent receives → inputs" section.
+func printInputSummaryLine(inp spec.Input, indent, scope string) {
+	optStr := ""
+	if inp.Optional {
+		optStr = "  optional"
+	}
+	defaultStr := ""
+	if inp.Default != "" {
+		defaultStr = fmt.Sprintf("  =%s", inp.Default)
+	}
+	fmt.Printf("%s%s%s%s%s%s  %s%s%s\n",
+		indent,
+		colorYellow, inp.Name, colorReset,
+		defaultStr,
+		optStr,
+		colorDim, scope, colorReset)
+}
+
+// ── Misc helpers ─────────────────────────────────────────────────────────────
+
+func sectionHeader(title, subtitle string) {
+	fmt.Printf("%s%s%s  %s%s%s\n", colorBold, colorBlue, title, colorDim, subtitle, colorReset)
+}
+
+// providerKind returns a display label for the kind of provider.
+func providerKind(provider, section string, s *spec.AstroSpec) string {
+	if _, isCustom := s.Providers[provider]; isCustom {
+		return "custom provider"
+	}
+	if p, ok := spec.LookupBuiltin(section, provider); ok {
+		if p.Cloud {
+			return "cloud"
+		}
+		return "self-hosted"
+	}
+	return ""
+}
+
+// isSectionCloudProvider returns true if provider is a built-in cloud provider for the given section.
+func isSectionCloudProvider(provider, section string) bool {
+	p, ok := spec.LookupBuiltin(section, provider)
+	return ok && p.Cloud
+}
+
+// referencedCustomProviders returns custom providers actually referenced by components.
+func referencedCustomProviders(s *spec.AstroSpec) map[string]spec.CustomProvider {
+	out := make(map[string]spec.CustomProvider)
+	for _, m := range s.Models {
+		if m.IsProviderMode() {
+			if cp, ok := s.Providers[m.Provider]; ok {
+				out[m.Provider] = cp
+			}
+		}
+	}
+	for _, k := range s.Knowledge {
+		if k.IsProviderMode() {
+			if cp, ok := s.Providers[k.Provider]; ok {
+				out[k.Provider] = cp
+			}
+		}
+	}
+	for _, t := range s.Tools {
+		if t.IsProviderMode() {
+			if cp, ok := s.Providers[t.Provider]; ok {
+				out[t.Provider] = cp
+			}
+		}
+	}
+	return out
+}
+
+// sortedKeys returns alphabetically sorted keys of any map.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// printKeyList prints a labelled list of env var keys, wrapping at maxWidth columns.
+// label is the prefix (including indent and trailing colon).
+// indent is the continuation indent for wrapped lines — should align with where
+// keys start on the first line.
+func printKeyList(label, indent string, keys []string, maxWidth int) {
+	if len(keys) == 0 {
+		return
+	}
+	fmt.Printf("%s%s%s  ", colorDim, label, colorReset)
+	col := len(label) + 2 // visible columns used so far (no ANSI)
+	for i, k := range keys {
+		// ", KEY" width or just "KEY" for the first
+		needed := len(k)
+		if i > 0 {
+			needed += 2 // ", "
+		}
+		if i > 0 && col+needed > maxWidth {
+			fmt.Printf("\n%s", indent)
+			col = len(indent)
+			fmt.Printf("%s%s%s", colorYellow, k, colorReset)
+			col += len(k)
+		} else {
+			if i > 0 {
+				fmt.Printf(", ")
+				col += 2
+			}
+			fmt.Printf("%s%s%s", colorYellow, k, colorReset)
+			col += len(k)
+		}
+	}
+	fmt.Println()
+}
+
+func appendIfMissing(slice []string, item string) []string {
+	for _, v := range slice {
+		if v == item {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
+
+// getInterfaceEnvVars returns the env vars consumed by a given messaging interface sidecar.
 func getInterfaceEnvVars(name string) []string {
 	switch strings.ToLower(name) {
 	case "slack":
 		return []string{"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"}
 	case "web":
-		return []string{"WEB_ENABLED", "WEB_LISTEN_ADDR"}
-	default:
-		return nil
-	}
-}
-
-// getIntegrationSuffixes returns the env var suffixes for a supported provider.
-// Mirrors getProviderCredentialSuffixes in compose/builder.go.
-func getIntegrationSuffixes(provider string) []string {
-	switch strings.ToLower(provider) {
-	case "anthropic", "openai", "google", "gemini", "cohere", "pinecone":
-		return []string{"API_KEY"}
-	case "github", "gitlab":
-		return []string{"TOKEN"}
-	case "slack":
-		return []string{"BOT_TOKEN", "APP_TOKEN"}
+		return []string{"WEB_LISTEN_ADDR"}
 	default:
 		return nil
 	}

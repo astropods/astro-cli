@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -31,6 +32,11 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 }
 
+type validationError struct {
+	message string
+	line    int
+}
+
 func runValidate(cmd *cobra.Command, args []string) error {
 	specFile, _ := cmd.Flags().GetString("file")
 
@@ -48,10 +54,12 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot read %s: %w", specFile, err)
 	}
 
+	lines := strings.Split(string(data), "\n")
+
 	fmt.Println()
 	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, specFile, colorReset)
 
-	var errs []string
+	var errs []validationError
 
 	// YAML parse check
 	var raw interface{}
@@ -60,12 +68,20 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed")
 	}
 
+	var rootNode yaml.Node
+	_ = yaml.Unmarshal(data, &rootNode)
+
 	// JSON schema validation
-	errs = append(errs, schemaValidationErrors(raw)...)
+	errs = append(errs, schemaValidationErrors(raw, &rootNode)...)
 
 	// Semantic validation (required fields, mutual exclusions, etc.)
 	if _, semErr := spec.ParseSpec(specPath); semErr != nil {
-		errs = append(errs, semErr.Error())
+		msg := semErr.Error()
+		line := 0
+		if idx := strings.Index(msg, ": "); idx > 0 {
+			line = findLineForDotPath(&rootNode, msg[:idx])
+		}
+		errs = append(errs, validationError{message: msg, line: line})
 	}
 
 	if len(errs) == 0 {
@@ -74,36 +90,60 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, e := range errs {
-		fmt.Printf("  %s✗%s %s\n", colorRed, colorReset, e)
+		printValidationError(e, lines, specFile)
 	}
-	fmt.Println()
 	fmt.Printf("%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
 	return fmt.Errorf("validation failed")
 }
 
-func schemaValidationErrors(raw interface{}) []string {
+func printValidationError(e validationError, lines []string, filename string) {
+	fmt.Printf("  %s✗%s %s\n", colorRed, colorReset, e.message)
+	if e.line <= 0 || e.line > len(lines) {
+		return
+	}
+	lineIdx := e.line - 1
+	start := lineIdx - 2
+	if start < 0 {
+		start = 0
+	}
+	end := lineIdx + 3
+	if end > len(lines) {
+		end = len(lines)
+	}
+	fmt.Printf("\n    %s%s:%d%s\n", colorCyan, filename, e.line, colorReset)
+	for i := start; i < end; i++ {
+		if i == lineIdx {
+			fmt.Printf("    %s%s> %4d │ %s%s\n", colorBold, colorRed, i+1, lines[i], colorReset)
+		} else {
+			fmt.Printf("    %s  %4d │ %s%s\n", colorDim, i+1, lines[i], colorReset)
+		}
+	}
+	fmt.Println()
+}
+
+func schemaValidationErrors(raw interface{}, rootNode *yaml.Node) []validationError {
 	// YAML → JSON to get standard JSON types expected by the validator
 	jsonBytes, err := json.Marshal(raw)
 	if err != nil {
-		return []string{fmt.Sprintf("failed to convert spec to JSON: %v", err)}
+		return []validationError{{message: fmt.Sprintf("failed to convert spec to JSON: %v", err)}}
 	}
 	var jsonVal interface{}
 	if err := json.Unmarshal(jsonBytes, &jsonVal); err != nil {
-		return []string{fmt.Sprintf("failed to re-parse spec as JSON: %v", err)}
+		return []validationError{{message: fmt.Sprintf("failed to re-parse spec as JSON: %v", err)}}
 	}
 
 	var schemaDoc interface{}
 	if err := json.Unmarshal(spec.Schema(), &schemaDoc); err != nil {
-		return []string{fmt.Sprintf("failed to parse schema: %v", err)}
+		return []validationError{{message: fmt.Sprintf("failed to parse schema: %v", err)}}
 	}
 
 	c := jsonschema.NewCompiler()
 	if err := c.AddResource("astroai.schema.json", schemaDoc); err != nil {
-		return []string{fmt.Sprintf("failed to load schema: %v", err)}
+		return []validationError{{message: fmt.Sprintf("failed to load schema: %v", err)}}
 	}
 	schema, err := c.Compile("astroai.schema.json")
 	if err != nil {
-		return []string{fmt.Sprintf("failed to compile schema: %v", err)}
+		return []validationError{{message: fmt.Sprintf("failed to compile schema: %v", err)}}
 	}
 
 	valErr := schema.Validate(jsonVal)
@@ -113,17 +153,17 @@ func schemaValidationErrors(raw interface{}) []string {
 
 	var ve *jsonschema.ValidationError
 	if !errors.As(valErr, &ve) {
-		return []string{valErr.Error()}
+		return []validationError{{message: valErr.Error()}}
 	}
 
-	return collectSchemaErrors(ve)
+	return collectSchemaErrors(ve, rootNode)
 }
 
 // collectSchemaErrors extracts individual error messages from the flattened basic output.
-func collectSchemaErrors(ve *jsonschema.ValidationError) []string {
+func collectSchemaErrors(ve *jsonschema.ValidationError, rootNode *yaml.Node) []validationError {
 	basic := ve.BasicOutput()
 
-	var results []string
+	var results []validationError
 	for _, unit := range basic.Errors {
 		if unit.Error == nil {
 			continue
@@ -140,12 +180,77 @@ func collectSchemaErrors(ve *jsonschema.ValidationError) []string {
 		if loc == "" || loc == "/" {
 			loc = "(root)"
 		}
-		results = append(results, fmt.Sprintf("%s: %s", loc, msg))
+		line := findLineForJSONPointer(rootNode, unit.InstanceLocation)
+		results = append(results, validationError{
+			message: fmt.Sprintf("%s: %s", loc, msg),
+			line:    line,
+		})
 	}
 
 	// Fall back to the top-level error string if no leaf errors were extracted
 	if len(results) == 0 {
-		results = append(results, ve.Error())
+		results = append(results, validationError{message: ve.Error()})
 	}
 	return results
+}
+
+// findLineForJSONPointer returns the YAML line for a JSON pointer path like "/agent/build/context".
+func findLineForJSONPointer(root *yaml.Node, path string) int {
+	if root == nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return 0
+	}
+	if path == "" || path == "/" {
+		return root.Content[0].Line
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	node := findNodeByPath(root.Content[0], parts)
+	if node == nil {
+		return 0
+	}
+	return node.Line
+}
+
+// findLineForDotPath returns the YAML line for a dot-notation path like "agent.inputs[0].name".
+func findLineForDotPath(root *yaml.Node, dotPath string) int {
+	if root == nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return 0
+	}
+	node := findNodeByPath(root.Content[0], splitDotPath(dotPath))
+	if node == nil {
+		return 0
+	}
+	return node.Line
+}
+
+// splitDotPath converts "agent.inputs[0].name" to ["agent", "inputs", "0", "name"].
+func splitDotPath(path string) []string {
+	path = strings.ReplaceAll(path, "[", ".")
+	path = strings.ReplaceAll(path, "]", "")
+	return strings.Split(path, ".")
+}
+
+// findNodeByPath traverses a yaml.Node tree following the given path segments.
+func findNodeByPath(node *yaml.Node, parts []string) *yaml.Node {
+	if node == nil || len(parts) == 0 {
+		return node
+	}
+	if node.Kind == yaml.AliasNode {
+		node = node.Alias
+	}
+	key := parts[0]
+	rest := parts[1:]
+	switch node.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == key {
+				return findNodeByPath(node.Content[i+1], rest)
+			}
+		}
+	case yaml.SequenceNode:
+		idx, err := strconv.Atoi(key)
+		if err == nil && idx >= 0 && idx < len(node.Content) {
+			return findNodeByPath(node.Content[idx], rest)
+		}
+	}
+	return nil
 }
