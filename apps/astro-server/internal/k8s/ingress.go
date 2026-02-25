@@ -185,17 +185,6 @@ func GenerateExternalURL(agentName, namespace, domain string) string {
 	return fmt.Sprintf("https://%s", host)
 }
 
-// BuildInterceptorIngress creates an Ingress in the keda namespace that routes traffic
-// through the KEDA HTTP interceptor. cfg carries the original service/port for the
-// HTTPScaledObject, but the ingress backend is rewritten to the interceptor.
-func BuildInterceptorIngress(cfg IngressConfig) *networkingv1.Ingress {
-	interceptorCfg := cfg
-	interceptorCfg.Namespace = kedaNamespace
-	interceptorCfg.ServiceName = interceptorService
-	interceptorCfg.ServicePort = int32(interceptorPort) //nolint:gosec
-	return BuildIngress(interceptorCfg)
-}
-
 func stringPtr(s string) *string {
 	return &s
 }

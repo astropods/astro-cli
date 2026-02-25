@@ -6,31 +6,20 @@ import (
 
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/dynamic"
 )
 
 // Deleter handles deletion of Kubernetes resources
 type Deleter struct {
-	client        ClusterClient
-	namespace     string
-	dynamicClient dynamic.Interface
-}
-
-// DeleterOption configures a Deleter.
-type DeleterOption func(*Deleter)
-
-// WithDeleterDynamicClient sets the dynamic client for deleting CRDs (KEDA resources).
-func WithDeleterDynamicClient(dc dynamic.Interface) DeleterOption {
-	return func(d *Deleter) { d.dynamicClient = dc }
+	client    ClusterClient
+	namespace string
 }
 
 // NewDeleter creates a new Deleter
-func NewDeleter(client ClusterClient, namespace string, opts ...DeleterOption) *Deleter {
-	d := &Deleter{client: client, namespace: namespace}
-	for _, opt := range opts {
-		opt(d)
+func NewDeleter(client ClusterClient, namespace string) *Deleter {
+	return &Deleter{
+		client:    client,
+		namespace: namespace,
 	}
-	return d
 }
 
 // DeleteResult holds the result of a delete operation
@@ -58,9 +47,6 @@ func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*Delet
 	d.deleteDeployments(ctx, agentName, result)
 	d.deleteStatefulSets(ctx, agentName, result)
 
-	// KEDA scaling resources
-	d.deleteKEDAResources(ctx, agentName, result)
-
 	// Services
 	d.deleteServices(ctx, agentName, result)
 
@@ -75,64 +61,6 @@ func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*Delet
 	d.deleteNamespace(ctx, result)
 
 	return result, nil
-}
-
-// deleteKEDAResources removes HTTPScaledObjects and ScaledObjects from the agent
-// namespace, and interceptor Ingresses from the keda namespace.
-func (d *Deleter) deleteKEDAResources(ctx context.Context, agentName string, result *DeleteResult) {
-	if d.dynamicClient == nil {
-		return
-	}
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
-	listOpts := metav1.ListOptions{LabelSelector: labelSelector}
-
-	// HTTPScaledObjects in agent namespace
-	httpSOs, err := d.dynamicClient.Resource(httpScaledObjectGVR).Namespace(d.namespace).List(ctx, listOpts)
-	if err == nil {
-		for _, item := range httpSOs.Items {
-			if delErr := d.dynamicClient.Resource(httpScaledObjectGVR).Namespace(d.namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); delErr != nil {
-				result.Errors = append(result.Errors, deployment.DeploymentError{
-					Resource: item.GetName(), Kind: "HTTPScaledObject", Error: delErr.Error(),
-				})
-			} else {
-				result.Resources = append(result.Resources, deployment.ResourceStatus{
-					Kind: "HTTPScaledObject", Name: item.GetName(), Namespace: d.namespace, Status: "deleted",
-				})
-			}
-		}
-	}
-
-	// ScaledObjects in agent namespace
-	scaledObjs, err := d.dynamicClient.Resource(scaledObjectGVR).Namespace(d.namespace).List(ctx, listOpts)
-	if err == nil {
-		for _, item := range scaledObjs.Items {
-			if delErr := d.dynamicClient.Resource(scaledObjectGVR).Namespace(d.namespace).Delete(ctx, item.GetName(), metav1.DeleteOptions{}); delErr != nil {
-				result.Errors = append(result.Errors, deployment.DeploymentError{
-					Resource: item.GetName(), Kind: "ScaledObject", Error: delErr.Error(),
-				})
-			} else {
-				result.Resources = append(result.Resources, deployment.ResourceStatus{
-					Kind: "ScaledObject", Name: item.GetName(), Namespace: d.namespace, Status: "deleted",
-				})
-			}
-		}
-	}
-
-	// Interceptor ingresses in keda namespace
-	kedaIngresses, err := d.client.Clientset().NetworkingV1().Ingresses(kedaNamespace).List(ctx, listOpts)
-	if err == nil {
-		for _, item := range kedaIngresses.Items {
-			if delErr := d.client.Clientset().NetworkingV1().Ingresses(kedaNamespace).Delete(ctx, item.Name, metav1.DeleteOptions{}); delErr != nil {
-				result.Errors = append(result.Errors, deployment.DeploymentError{
-					Resource: item.Name, Kind: "Ingress", Error: delErr.Error(),
-				})
-			} else {
-				result.Resources = append(result.Resources, deployment.ResourceStatus{
-					Kind: "Ingress", Name: item.Name, Namespace: kedaNamespace, Status: "deleted",
-				})
-			}
-		}
-	}
 }
 
 // deleteCronJobs deletes all CronJobs matching the agent

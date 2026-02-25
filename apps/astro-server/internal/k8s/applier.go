@@ -14,9 +14,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -43,8 +40,6 @@ type ApplierConfig struct {
 	// PodSubnetCIDRs are the private subnet CIDRs where cluster pods run.
 	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
 	PodSubnetCIDRs []string
-	// IsEKS enables EKS-only features such as KEDA scale-to-zero.
-	IsEKS bool
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -69,9 +64,6 @@ type Applier struct {
 	namespaceLabels map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
 	podSubnetCIDRs []string
-	// isEKS enables EKS-only features (KEDA scale-to-zero)
-	isEKS         bool
-	dynamicClient dynamic.Interface
 }
 
 // NewApplier creates a new applier
@@ -96,119 +88,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		galileoProject:    cfg.GalileoProject,
 		namespaceLabels:   cfg.NamespaceLabels,
 		podSubnetCIDRs:    cfg.PodSubnetCIDRs,
-		isEKS:             cfg.IsEKS,
-		dynamicClient:     newDynamicClient(client, cfg.IsEKS),
 	}
-}
-
-// newDynamicClient creates a dynamic Kubernetes client when running on EKS.
-// Returns nil on non-EKS clusters — callers must guard with dynamicClient != nil.
-func newDynamicClient(client ClusterClient, isEKS bool) dynamic.Interface {
-	if !isEKS {
-		return nil
-	}
-	dc, err := dynamic.NewForConfig(client.Config())
-	if err != nil {
-		log.Printf("[k8s] failed to create dynamic client: %v", err)
-		return nil
-	}
-	return dc
-}
-
-// applyHTTPScaledObject creates or updates a KEDA HTTPScaledObject CRD.
-func (a *Applier) applyHTTPScaledObject(ctx context.Context, obj *unstructured.Unstructured) (deployment.ResourceStatus, error) {
-	return a.applyUnstructured(ctx, obj, httpScaledObjectGVR)
-}
-
-// applyScaledObject creates or updates a KEDA ScaledObject CRD.
-func (a *Applier) applyScaledObject(ctx context.Context, obj *unstructured.Unstructured) (deployment.ResourceStatus, error) {
-	return a.applyUnstructured(ctx, obj, scaledObjectGVR)
-}
-
-// applyUnstructured creates or updates any CRD using the dynamic client.
-func (a *Applier) applyUnstructured(ctx context.Context, obj *unstructured.Unstructured, gvr schema.GroupVersionResource) (deployment.ResourceStatus, error) {
-	status := deployment.ResourceStatus{
-		Kind:      obj.GetKind(),
-		Name:      obj.GetName(),
-		Namespace: obj.GetNamespace(),
-	}
-	if a.dynamicClient == nil {
-		status.Status = "skipped"
-		return status, nil
-	}
-	ns := obj.GetNamespace()
-	_, err := a.dynamicClient.Resource(gvr).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			existing, getErr := a.dynamicClient.Resource(gvr).Namespace(ns).Get(ctx, obj.GetName(), metav1.GetOptions{})
-			if getErr != nil {
-				status.Status = "failed"
-				status.Message = getErr.Error()
-				return status, getErr
-			}
-			obj.SetResourceVersion(existing.GetResourceVersion())
-			_, err = a.dynamicClient.Resource(gvr).Namespace(ns).Update(ctx, obj, metav1.UpdateOptions{})
-			if err != nil {
-				status.Status = "failed"
-				status.Message = err.Error()
-				return status, err
-			}
-			status.Status = "updated"
-			return status, nil
-		}
-		status.Status = "failed"
-		status.Message = err.Error()
-		return status, err
-	}
-	status.Status = "created"
-	return status, nil
-}
-
-// applyIngressToNamespace applies an ingress to a specific namespace rather than a.namespace.
-// Used to create interceptor ingresses in the keda namespace.
-func (a *Applier) applyIngressToNamespace(ctx context.Context, ing *networkingv1.Ingress, namespace string) (deployment.ResourceStatus, error) {
-	status := deployment.ResourceStatus{
-		Kind:      "Ingress",
-		Name:      ing.Name,
-		Namespace: namespace,
-	}
-	for _, rule := range ing.Spec.Rules {
-		if rule.HTTP == nil {
-			continue
-		}
-		for _, path := range rule.HTTP.Paths {
-			if path.Backend.Service != nil && path.Backend.Service.Port.Number == 0 {
-				status.Status = "failed"
-				status.Message = "refusing to create ingress: backend service port is 0 (container port not exposed)"
-				return status, fmt.Errorf("%s", status.Message)
-			}
-		}
-	}
-	_, err := a.clientset.NetworkingV1().Ingresses(namespace).Create(ctx, ing, metav1.CreateOptions{})
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			existing, getErr := a.clientset.NetworkingV1().Ingresses(namespace).Get(ctx, ing.Name, metav1.GetOptions{})
-			if getErr != nil {
-				status.Status = "failed"
-				status.Message = getErr.Error()
-				return status, getErr
-			}
-			ing.ResourceVersion = existing.ResourceVersion
-			_, err = a.clientset.NetworkingV1().Ingresses(namespace).Update(ctx, ing, metav1.UpdateOptions{})
-			if err != nil {
-				status.Status = "failed"
-				status.Message = err.Error()
-				return status, err
-			}
-			status.Status = "updated"
-			return status, nil
-		}
-		status.Status = "failed"
-		status.Message = err.Error()
-		return status, err
-	}
-	status.Status = "created"
-	return status, nil
 }
 
 // resolveContainerImage resolves a container image reference to its ECR path
@@ -607,45 +487,6 @@ func (a *Applier) cleanupStaleBuildResources(ctx context.Context, agentName, bui
 				log.Printf("[cleanup] deleting stale Secret %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
 				if err := a.clientset.CoreV1().Secrets(a.namespace).Delete(ctx, item.Name, deleteOpts); err != nil {
 					errs = append(errs, fmt.Errorf("delete secret %s: %w", item.Name, err))
-				}
-			}
-		}
-	}
-
-	if a.dynamicClient != nil {
-		// HTTPScaledObjects in agent namespace
-		httpSOs, listErr := a.dynamicClient.Resource(httpScaledObjectGVR).Namespace(a.namespace).List(ctx, listOpts)
-		if listErr == nil {
-			for _, item := range httpSOs.Items {
-				if isStale(item.GetLabels()) {
-					log.Printf("[cleanup] deleting stale HTTPScaledObject %s (build %s)", item.GetName(), item.GetLabels()["app.kubernetes.io/version"])
-					if err := a.dynamicClient.Resource(httpScaledObjectGVR).Namespace(a.namespace).Delete(ctx, item.GetName(), deleteOpts); err != nil {
-						errs = append(errs, fmt.Errorf("delete HTTPScaledObject %s: %w", item.GetName(), err))
-					}
-				}
-			}
-		}
-		// ScaledObjects in agent namespace
-		scaledObjs, listErr := a.dynamicClient.Resource(scaledObjectGVR).Namespace(a.namespace).List(ctx, listOpts)
-		if listErr == nil {
-			for _, item := range scaledObjs.Items {
-				if isStale(item.GetLabels()) {
-					log.Printf("[cleanup] deleting stale ScaledObject %s (build %s)", item.GetName(), item.GetLabels()["app.kubernetes.io/version"])
-					if err := a.dynamicClient.Resource(scaledObjectGVR).Namespace(a.namespace).Delete(ctx, item.GetName(), deleteOpts); err != nil {
-						errs = append(errs, fmt.Errorf("delete ScaledObject %s: %w", item.GetName(), err))
-					}
-				}
-			}
-		}
-		// Interceptor ingresses in keda namespace
-		kedaIngresses, listErr := a.clientset.NetworkingV1().Ingresses(kedaNamespace).List(ctx, listOpts)
-		if listErr == nil {
-			for _, item := range kedaIngresses.Items {
-				if isStale(item.Labels) {
-					log.Printf("[cleanup] deleting stale keda Ingress %s (build %s)", item.Name, item.Labels["app.kubernetes.io/version"])
-					if err := a.clientset.NetworkingV1().Ingresses(kedaNamespace).Delete(ctx, item.Name, deleteOpts); err != nil {
-						errs = append(errs, fmt.Errorf("delete keda ingress %s: %w", item.Name, err))
-					}
 				}
 			}
 		}
