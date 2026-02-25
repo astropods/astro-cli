@@ -834,10 +834,6 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 	}
 
 	// Policy 2: allow-namespace-traffic
-	udpProto := corev1.ProtocolUDP
-	tcpProto := corev1.ProtocolTCP
-	dnsPort := intstr.FromInt(53)
-
 	allowNamespace := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "allow-namespace-traffic",
@@ -867,17 +863,15 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 						{PodSelector: &metav1.LabelSelector{}},
 					},
 				},
-				// Allow to external APIs (0.0.0.0/0 except pod subnets)
+				// Allow to external IPs and the cluster service CIDR (0.0.0.0/0 except
+				// pod subnets). This covers both outbound internet traffic (e.g. OpenAI)
+				// and DNS to the kube-dns service IP. A separate ports-only DNS rule is
+				// intentionally omitted: the AWS VPC CNI PolicyEndpoint controller merges
+				// a To-less egress rule onto the ipBlock rule, which would restrict
+				// internet egress to port 53 only.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{IPBlock: &externalIPBlock},
-					},
-				},
-				// Allow DNS (port 53 UDP/TCP)
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{Protocol: &udpProto, Port: &dnsPort},
-						{Protocol: &tcpProto, Port: &dnsPort},
 					},
 				},
 			},
