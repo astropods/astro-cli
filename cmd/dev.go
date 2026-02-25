@@ -315,10 +315,17 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		return fmt.Errorf("link local packages: %w", err)
 	}
 	// Ensure messaging SDK is built (package main points to dist/index.js)
-	msgSDK := filepath.Join(astroRoot, "packages", "astro-messaging", "sdk", "node")
+	msgSDK := filepath.Join(astroRoot, "packages", "messaging", "sdk", "node")
 	if _, err := os.Stat(filepath.Join(msgSDK, "dist", "index.js")); err != nil {
 		agentCancel()
-		return fmt.Errorf("messaging SDK not built: run 'cd %s && bun run build' first", msgSDK)
+		return fmt.Errorf("messaging SDK not built: run 'moon run messaging:sdk-build' first")
+	}
+	// Ensure SDKs are built
+	adaptersRoot := filepath.Join(astroRoot, "packages", "adapters")
+	adapterCore := filepath.Join(adaptersRoot, "packages", "core")
+	if _, err := os.Stat(filepath.Join(adapterCore, "dist", "index.js")); err != nil {
+		agentCancel()
+		return fmt.Errorf("adapters not built: run 'moon run adapters:build' first")
 	}
 	fmt.Printf("📦 Using local packages from %s\n", astroRoot)
 
@@ -513,7 +520,11 @@ type localPackage struct {
 }
 
 // localAstroPackages are the packages we link in --local and remove in --local-reset.
-var localAstroPackages = []localPackage{}
+var localAstroPackages = []localPackage{
+	{"@astropods", "messaging", "packages/messaging/sdk/node"},
+	{"@astropods", "adapter-core", "packages/adapters/packages/core"},
+	{"@astropods", "adapter-mastra", "packages/adapters/packages/mastra"},
+}
 
 // linkLocalPackages symlinks node_modules/<scope>/<name> to the given Astro repo path
 // so the agent uses local source in --local mode.
