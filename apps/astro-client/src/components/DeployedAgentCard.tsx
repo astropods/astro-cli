@@ -95,7 +95,7 @@ export function DeployedAgentCard({
           />
         )}
         <div className="min-w-0 flex-1 pr-6">
-          <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
+          <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
             {name}
           </p>
           <Badge variant={statusToBadgeVariant[status]} showDot>
