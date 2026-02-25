@@ -7,18 +7,18 @@ tasks:
       runInCI: false
 
   "messaging":
-    command: "cd .. && docker build -t astro-messaging:latest -f packages/astro-messaging/Dockerfile packages/astro-messaging"
+    command: "cd .. && docker build -t astro-messaging:latest -f packages/messaging/Dockerfile packages/messaging"
     options:
       cache: false
       runInCI: false
 
   "playground":
-    command: "cd .. && docker build -t astro-playground:latest -f packages/astro-playground/Dockerfile packages/astro-playground"
+    command: "cd .. && docker build -t astro-playground:latest -f packages/playground/Dockerfile packages/playground"
     options:
       cache: false
       runInCI: false
 
   "clean":
-    command: "docker rmi astro-server:latest astro-registry:latest prod-astro-collector:latest ghcr.io/saswatds/astro-server:latest ghcr.io/saswatds/astro-registry:latest ghcr.io/saswatds/astro-collector:latest 2>/dev/null || true"
+    command: "docker rmi astro-server:latest astro-registry:latest prod-astro-collector:latest astro-messaging:latest astro-playground:latest astropods/astro-server:latest astropods/astro-registry:latest astropods/astro-collector:latest astropods/astro-messaging:latest astropods/astro-playground:latest 2>/dev/null || true"
     options:
       runInCI: false

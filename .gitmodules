@@ -1,9 +1,12 @@
-[submodule "packages/astro-messaging"]
-	path = packages/astro-messaging
+[submodule "messaging"]
+	path = packages/messaging
 	url = git@github.com:astropods/messaging.git
-[submodule "packages/astro-playground"]
-	path = packages/astro-playground
+[submodule "playground"]
+	path = packages/playground
 	url = git@github.com:astropods/playground.git
-[submodule "packages/adapters"]
+[submodule "adapters"]
 	path = packages/adapters
 	url = git@github.com:astropods/adapters.git
+[submodule "agents"]
+	path = agents
+	url = git@github.com:astropods/agents.git
