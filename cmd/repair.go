@@ -39,7 +39,10 @@ type repairFileCheck struct {
 }
 
 func runRepair(cmd *cobra.Command, args []string) error {
-	specFile, _ := cmd.Flags().GetString("file")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -552,7 +555,7 @@ func checkBuildArgsAndSecrets(specPath string, reader *bufio.Reader, yes bool) {
 		fmt.Printf("  %s✗%s failed to encode yaml: %v\n", colorRed, colorReset, err)
 		return
 	}
-	if err := os.WriteFile(specPath, buf.Bytes(), 0644); err != nil { //nolint:gosec
+	if err := os.WriteFile(specPath, buf.Bytes(), 0600); err != nil { //nolint:gosec
 		fmt.Printf("  %s✗%s failed to write %s: %v\n", colorRed, colorReset, filepath.Base(specPath), err)
 		return
 	}
