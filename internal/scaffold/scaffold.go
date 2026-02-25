@@ -6,7 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"text/template"
+
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 // Fs is the filesystem abstraction used by GenerateFiles.
@@ -72,6 +76,85 @@ func (c ScaffoldConfig) IntegrationKey(name string) string {
 		return ""
 	}
 	return c.IntegrationKeys[name]
+}
+
+// EnvVarInfo describes a single environment variable injected into the agent.
+type EnvVarInfo struct {
+	Key         string
+	Description string
+}
+
+// AgentEnvVars returns the sorted list of environment variables that will be
+// injected into the agent container based on the scaffold configuration.
+// Descriptions use the form "injected by <provider> <component-type> [detail]".
+func (c ScaffoldConfig) AgentEnvVars() []EnvVarInfo {
+	vars := map[string]string{
+		"GRPC_SERVER_ADDR": "injected by Astro messaging service",
+	}
+	if s, err := c.specFromTemplate(); err == nil {
+		for k, meta := range spec.AllAgentAutoEnvKeys(s) {
+			vars[k] = agentEnvDesc(k, meta)
+		}
+	}
+
+
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	result := make([]EnvVarInfo, 0, len(keys))
+	for _, k := range keys {
+		result = append(result, EnvVarInfo{Key: k, Description: vars[k]})
+	}
+	return result
+}
+
+// agentEnvDesc builds a human-readable description from AgentEnvMeta.
+// Credential vars: "injected by <provider> <category>".
+// Connection vars: same prefix + the key suffix as a detail (host/port/URL/…).
+func agentEnvDesc(key string, meta spec.AgentEnvMeta) string {
+	label := componentLabel(meta.Category)
+	base := "injected by " + meta.Provider + " " + label
+	if meta.Source != "connection" {
+		return base
+	}
+	for _, s := range []struct{ suffix, detail string }{
+		{"_BASE_URL", "base URL"},
+		{"_HOST", "host"},
+		{"_PORT", "port"},
+		{"_URL", "URL"},
+		{"_MODEL", "model name"},
+	} {
+		if strings.HasSuffix(key, s.suffix) {
+			return base + " " + s.detail
+		}
+	}
+	return base
+}
+
+// componentLabel maps a spec category to a readable component label.
+func componentLabel(category string) string {
+	if category == "knowledge" {
+		return "knowledge store"
+	}
+	return category
+}
+
+// specFromTemplate renders the astroai.yml template and parses it into an
+// AstroSpec. This is the single source of truth for what the spec will look
+// like at runtime, so AgentEnvVars never drifts from the actual generated file.
+func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
+	paths, err := GetTemplatePaths("ts", "mastra")
+	if err != nil {
+		return nil, err
+	}
+	yaml, err := RenderTemplate(paths.AstroYml, c)
+	if err != nil {
+		return nil, err
+	}
+	return spec.ParseString(yaml)
 }
 
 // DefaultConfig returns a ScaffoldConfig with default values.
@@ -158,9 +241,14 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 		}
 	}
 
-	// Copy static Postman collection (no templating)
-	if err := copyStaticFile(fsys, filepath.Join(targetDir, "postman", "collections", "Astro-API.postman_collection.json"), paths.PostmanCollection); err != nil {
+	// Copy static Postman collections (no templating)
+	if err := copyStaticFile(fsys, filepath.Join(targetDir, "postman", "collections", "messaging.postman_collection.json"), paths.PostmanCollection); err != nil {
 		return err
+	}
+	if config.HasIngestion("webhook") {
+		if err := copyStaticFile(fsys, filepath.Join(targetDir, "postman", "collections", "webhook.postman_collection.json"), paths.PostmanWebhookCollection); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -172,7 +260,7 @@ func RenderIngestionDockerfile(templatePath string, config ScaffoldConfig, ingTy
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templatePath, err)
 	}
-	tmpl, err := template.New(filepath.Base(templatePath)).Parse(tmplStr)
+	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(templateFuncs).Parse(tmplStr)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template %s: %w", templatePath, err)
 	}
@@ -183,6 +271,26 @@ func RenderIngestionDockerfile(templatePath string, config ScaffoldConfig, ingTy
 	return buf.String(), nil
 }
 
+// templateFuncs returns the FuncMap available to all scaffold templates.
+var templateFuncs = template.FuncMap{
+	// jsStr escapes a string for safe embedding in a JS/TS single-quoted literal.
+	"jsStr": func(s string) string {
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		s = strings.ReplaceAll(s, `'`, `\'`)
+		return s
+	},
+	// humanName converts a kebab-case name to title-cased words (e.g. "my-agent" → "My Agent").
+	"humanName": func(s string) string {
+		parts := strings.Split(s, "-")
+		for i, p := range parts {
+			if len(p) > 0 {
+				parts[i] = strings.ToUpper(p[:1]) + p[1:]
+			}
+		}
+		return strings.Join(parts, " ")
+	},
+}
+
 // RenderTemplate renders the named template with config and returns the result as a string.
 // This is the same logic used when generating files; tests use it to get content without writing to disk.
 func RenderTemplate(templatePath string, config ScaffoldConfig) (string, error) {
@@ -190,7 +298,7 @@ func RenderTemplate(templatePath string, config ScaffoldConfig) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templatePath, err)
 	}
-	tmpl, err := template.New(filepath.Base(templatePath)).Parse(tmplStr)
+	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(templateFuncs).Parse(tmplStr)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template %s: %w", templatePath, err)
 	}

@@ -35,6 +35,7 @@ func init() {
 type repairFileCheck struct {
 	path         string
 	templatePath string
+	static       bool // copy verbatim, skip template rendering
 }
 
 func runRepair(cmd *cobra.Command, args []string) error {
@@ -111,13 +112,13 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	}
 
 	entries := []fileEntry{
-		{repairFileCheck{filepath.Join(workingDir, "Dockerfile"), paths.Dockerfile}, "Dockerfile", true},
-		{repairFileCheck{filepath.Join(workingDir, "tsconfig.json"), paths.Tsconfig}, "tsconfig.json", true},
-		{repairFileCheck{filepath.Join(workingDir, ".npmrc"), paths.Npmrc}, ".npmrc", true},
-		{repairFileCheck{filepath.Join(workingDir, ".gitignore"), paths.Gitignore}, ".gitignore", true},
-		{repairFileCheck{filepath.Join(workingDir, ".dockerignore"), paths.Dockerignore}, ".dockerignore", true},
-		{repairFileCheck{filepath.Join(workingDir, "CLAUDE.md"), paths.LlmMd}, "CLAUDE.md", true},
-		{repairFileCheck{filepath.Join(workingDir, "AGENTS.md"), paths.LlmMd}, "AGENTS.md", true},
+		{repairFileCheck{filepath.Join(workingDir, "Dockerfile"), paths.Dockerfile, false}, "Dockerfile", true},
+		{repairFileCheck{filepath.Join(workingDir, "tsconfig.json"), paths.Tsconfig, false}, "tsconfig.json", true},
+		{repairFileCheck{filepath.Join(workingDir, ".npmrc"), paths.Npmrc, false}, ".npmrc", true},
+		{repairFileCheck{filepath.Join(workingDir, ".gitignore"), paths.Gitignore, false}, ".gitignore", true},
+		{repairFileCheck{filepath.Join(workingDir, ".dockerignore"), paths.Dockerignore, false}, ".dockerignore", true},
+		{repairFileCheck{filepath.Join(workingDir, "CLAUDE.md"), paths.LlmMd, false}, "CLAUDE.md", true},
+		{repairFileCheck{filepath.Join(workingDir, "AGENTS.md"), paths.LlmMd, false}, "AGENTS.md", true},
 	}
 
 	for _, ing := range config.Ingestions {
@@ -126,8 +127,17 @@ func runRepair(cmd *cobra.Command, args []string) error {
 			ingestionTemplate = paths.IngestionWebhookIndex
 		}
 		entries = append(entries,
-			fileEntry{repairFileCheck{filepath.Join(workingDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion}, filepath.Join("ingestion", ing, "Dockerfile"), true},
-			fileEntry{repairFileCheck{filepath.Join(workingDir, "ingestion", ing, "index.ts"), ingestionTemplate}, filepath.Join("ingestion", ing, "index.ts"), true},
+			fileEntry{repairFileCheck{filepath.Join(workingDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion, false}, filepath.Join("ingestion", ing, "Dockerfile"), true},
+			fileEntry{repairFileCheck{filepath.Join(workingDir, "ingestion", ing, "index.ts"), ingestionTemplate, false}, filepath.Join("ingestion", ing, "index.ts"), true},
+		)
+	}
+
+	entries = append(entries,
+		fileEntry{repairFileCheck{filepath.Join(workingDir, "postman", "collections", "messaging.postman_collection.json"), paths.PostmanCollection, true}, filepath.Join("postman", "collections", "messaging.postman_collection.json"), true},
+	)
+	if config.HasIngestion("webhook") {
+		entries = append(entries,
+			fileEntry{repairFileCheck{filepath.Join(workingDir, "postman", "collections", "webhook.postman_collection.json"), paths.PostmanWebhookCollection, true}, filepath.Join("postman", "collections", "webhook.postman_collection.json"), true},
 		)
 	}
 
@@ -164,7 +174,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	fixed, skipped := 0, 0
 
 	// processIssue shows the diff (if any) and prompts to act, returning true if the file was written.
-	processIssue := func(path, templatePath, relPath, action string) {
+	processIssue := func(check repairFileCheck, relPath, action string) {
 		if !yesFlag {
 			fmt.Printf("  %s%s%s? [Y/n] ", colorBold, relPath, colorReset)
 			line, _ := reader.ReadString('\n')
@@ -175,8 +185,14 @@ func runRepair(cmd *cobra.Command, args []string) error {
 				return
 			}
 		}
-		if err := writeRepairFile(path, templatePath, config); err != nil {
-			fmt.Printf("  %s✗%s failed to %s: %v\n\n", colorRed, colorReset, strings.ToLower(action), err)
+		var writeErr error
+		if check.static {
+			writeErr = writeStaticRepairFile(check.path, check.templatePath)
+		} else {
+			writeErr = writeRepairFile(check.path, check.templatePath, config)
+		}
+		if writeErr != nil {
+			fmt.Printf("  %s✗%s failed to %s: %v\n\n", colorRed, colorReset, strings.ToLower(action), writeErr)
 		} else {
 			fmt.Printf("  %s✓%s %sd\n\n", colorGreen, colorReset, action)
 			fixed++
@@ -187,13 +203,23 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	if specMissing {
 		relPath := filepath.Base(specPath)
 		fmt.Printf("  %s✗%s %s %s(missing)%s\n", colorRed, colorReset, relPath, colorDim, colorReset)
-		processIssue(specPath, paths.AstroYml, relPath, "Create")
+		processIssue(repairFileCheck{specPath, paths.AstroYml, false}, relPath, "Create")
 	}
 
 	for _, check := range checks {
-		rendered, err := renderTemplateString(check.templatePath, config)
-		if err != nil {
-			continue
+		var rendered string
+		if check.static {
+			data, err := scaffold.GetTemplate(check.templatePath)
+			if err != nil {
+				continue
+			}
+			rendered = data
+		} else {
+			var err error
+			rendered, err = renderTemplateString(check.templatePath, config)
+			if err != nil {
+				continue
+			}
 		}
 
 		relPath, _ := filepath.Rel(workingDir, check.path)
@@ -202,14 +228,14 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		switch {
 		case os.IsNotExist(readErr):
 			fmt.Printf("  %s✗%s %s %s(missing)%s\n", colorRed, colorReset, relPath, colorDim, colorReset)
-			processIssue(check.path, check.templatePath, relPath, "Create")
+			processIssue(check, relPath, "Create")
 		case readErr != nil:
 			fmt.Printf("  %s!%s %s %s(unreadable)%s\n\n", colorYellow, colorReset, relPath, colorDim, colorReset)
 		case string(existing) != rendered:
 			fmt.Printf("  %s~%s %s %s(differs from template)%s\n", colorYellow, colorReset, relPath, colorDim, colorReset)
 			printDiff(relPath, string(existing), rendered)
 			fmt.Println()
-			processIssue(check.path, check.templatePath, relPath, "Update")
+			processIssue(check, relPath, "Update")
 		default:
 			fmt.Printf("  %s✓%s %s\n", colorGreen, colorReset, relPath)
 		}
@@ -268,6 +294,17 @@ func renderTemplateString(templatePath string, config scaffold.ScaffoldConfig) (
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+func writeStaticRepairFile(outputPath, embedPath string) error {
+	data, err := scaffold.GetTemplate(embedPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil { //nolint:gosec
+		return err
+	}
+	return os.WriteFile(outputPath, []byte(data), 0644) //nolint:gosec
 }
 
 func writeRepairFile(outputPath, templatePath string, config scaffold.ScaffoldConfig) error {

@@ -685,6 +685,182 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 	}
 }
 
+// TestAgentEnvVars_AlwaysIncludesGRPC verifies GRPC_SERVER_ADDR is always present.
+func TestAgentEnvVars_AlwaysIncludesGRPC(t *testing.T) {
+	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+	found := false
+	for _, v := range cfg.AgentEnvVars() {
+		if v.Key == "GRPC_SERVER_ADDR" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("AgentEnvVars should always include GRPC_SERVER_ADDR")
+	}
+}
+
+// TestAgentEnvVars_CloudCredentials checks that cloud integrations produce credential keys.
+func TestAgentEnvVars_CloudCredentials(t *testing.T) {
+	tests := []struct {
+		name         string
+		integrations []string
+		wantKey      string
+	}{
+		{"anthropic", []string{"anthropic"}, "ANTHROPIC_API_KEY"},
+		{"openai", []string{"openai"}, "OPENAI_API_KEY"},
+		{"github", []string{"github"}, "GITHUB_TOKEN"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ScaffoldConfig{
+				Name:            "a",
+				Integrations:    tt.integrations,
+				IntegrationKeys: map[string]string{},
+			}
+			found := false
+			for _, v := range cfg.AgentEnvVars() {
+				if v.Key == tt.wantKey {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("AgentEnvVars with integrations=%v should include %s", tt.integrations, tt.wantKey)
+			}
+		})
+	}
+}
+
+// TestAgentEnvVars_SelfHostedKnowledgeConnections checks connection keys for self-hosted providers.
+func TestAgentEnvVars_SelfHostedKnowledgeConnections(t *testing.T) {
+	tests := []struct {
+		knowledge []string
+		wantKey   string
+	}{
+		{[]string{"qdrant"}, "QDRANT_HOST"},
+		{[]string{"qdrant"}, "QDRANT_PORT"},
+		{[]string{"redis"}, "REDIS_HOST"},
+		{[]string{"redis"}, "REDIS_PORT"},
+		{[]string{"neo4j"}, "NEO4J_HOST"},
+		{[]string{"neo4j"}, "NEO4J_PORT"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.wantKey, func(t *testing.T) {
+			cfg := ScaffoldConfig{
+				Name:            "a",
+				Knowledge:       tt.knowledge,
+				IntegrationKeys: map[string]string{},
+			}
+			found := false
+			for _, v := range cfg.AgentEnvVars() {
+				if v.Key == tt.wantKey {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("AgentEnvVars with knowledge=%v should include %s", tt.knowledge, tt.wantKey)
+			}
+		})
+	}
+}
+
+// TestAgentEnvVars_OllamaModelProvider checks connection keys for self-hosted model providers.
+func TestAgentEnvVars_OllamaModelProvider(t *testing.T) {
+	cfg := ScaffoldConfig{
+		Name:            "a",
+		ModelProvider:   "ollama",
+		Model:           "llama3",
+		IntegrationKeys: map[string]string{},
+	}
+	wantKeys := []string{"OLLAMA_HOST", "OLLAMA_PORT", "OLLAMA_URL"}
+	for _, wantKey := range wantKeys {
+		found := false
+		for _, v := range cfg.AgentEnvVars() {
+			if v.Key == wantKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("AgentEnvVars with ollama model should include %s", wantKey)
+		}
+	}
+}
+
+// TestAgentEnvVars_AllHaveDescriptions verifies every returned var has a non-empty description.
+func TestAgentEnvVars_AllHaveDescriptions(t *testing.T) {
+	cfg := ScaffoldConfig{
+		Name:            "a",
+		ModelProvider:   "ollama",
+		Model:           "llama3",
+		Integrations:    []string{"anthropic", "openai", "github"},
+		Knowledge:       []string{"qdrant", "redis", "neo4j"},
+		IntegrationKeys: map[string]string{},
+	}
+	for _, v := range cfg.AgentEnvVars() {
+		if v.Description == "" {
+			t.Errorf("env var %q has no description", v.Key)
+		}
+	}
+}
+
+// TestAgentEnvVars_MatchesSpecEnvResolver verifies that AgentEnvVars covers all
+// keys that AllAgentAutoEnvKeys returns for the rendered spec.
+func TestAgentEnvVars_MatchesSpecEnvResolver(t *testing.T) {
+	cfg := ScaffoldConfig{
+		Name:            "a",
+		Integrations:    []string{"anthropic", "openai", "github"},
+		Knowledge:       []string{"qdrant", "redis"},
+		IntegrationKeys: map[string]string{},
+	}
+
+	s, err := cfg.specFromTemplate()
+	if err != nil {
+		t.Fatalf("specFromTemplate: %v", err)
+	}
+
+	vars := cfg.AgentEnvVars()
+	varSet := make(map[string]bool, len(vars))
+	for _, v := range vars {
+		varSet[v.Key] = true
+	}
+
+	for k := range spec.AllAgentAutoEnvKeys(s) {
+		if !varSet[k] {
+			t.Errorf("AgentEnvVars missing key %q from AllAgentAutoEnvKeys", k)
+		}
+	}
+}
+
+// TestMastraTemplate_AgentIndex_EnvVarsInComment checks that the rendered template
+// includes the computed env vars with their descriptions in the JSDoc comment.
+func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
+	paths, _ := GetTemplatePaths("ts", "mastra")
+	cfg := ScaffoldConfig{
+		Name:            "test-agent",
+		Description:     "A test agent",
+		Integrations:    []string{"anthropic"},
+		Knowledge:       []string{"qdrant"},
+		IntegrationKeys: map[string]string{},
+	}
+	content := renderTemplate(t, paths.AgentIndex, cfg)
+
+	// Key and description pairs expected in the comment.
+	wantLines := []string{
+		"GRPC_SERVER_ADDR - injected by Astro messaging service",
+		"ANTHROPIC_API_KEY - injected by anthropic model",
+		"QDRANT_HOST - injected by qdrant knowledge store host",
+		"QDRANT_PORT - injected by qdrant knowledge store port",
+	}
+	for _, want := range wantLines {
+		if !strings.Contains(content, want) {
+			t.Errorf("rendered index.ts comment should contain %q, got:\n%s", want, content)
+		}
+	}
+}
+
 // TestAstroYml_ScheduleIngestion_NoDevSchedules ensures the generated spec does
 // not include a dev.schedules block — triggering is handled via `ast dev trigger`.
 func TestAstroYml_ScheduleIngestion_NoDevSchedules(t *testing.T) {
