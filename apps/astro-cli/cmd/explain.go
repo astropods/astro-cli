@@ -469,15 +469,16 @@ func collectWarnings(s *spec.AstroSpec) []string {
 	// Build the authoritative set of auto-injected agent env vars using the resolver.
 	autoEnv := make(map[string]string) // key → source description
 
-	// Connection keys (self-hosted + container mode)
-	connEnv := spec.AgentConnectionKeys(s, nil)
-	for key := range connEnv {
-		autoEnv[key] = "component connection wiring"
-	}
-
-	// Cloud credential keys
-	for key, meta := range spec.CloudCredentialKeys(s) {
-		desc := fmt.Sprintf("cloud provider %s%s%s", colorCyan, meta.Provider, colorReset)
+	// Connection keys (self-hosted + container mode) and credential keys (cloud +
+	// custom provider secrets) — combined by AllAgentAutoEnvKeys.
+	for key, meta := range spec.AllAgentAutoEnvKeys(s) {
+		var desc string
+		switch meta.Source {
+		case "connection":
+			desc = "component connection wiring"
+		case "credential":
+			desc = fmt.Sprintf("cloud provider %s%s%s", colorCyan, meta.Provider, colorReset)
+		}
 		if prev, ok := autoEnv[key]; ok {
 			warnings = append(warnings, fmt.Sprintf(
 				"Env var %s%s%s is claimed by both %s and %s.",
@@ -486,9 +487,12 @@ func collectWarnings(s *spec.AstroSpec) []string {
 		autoEnv[key] = desc
 	}
 
-	// Custom provider variables
+	// Custom provider non-secret variables (secrets already covered above).
 	for provName, cp := range referencedCustomProviders(s) {
 		for _, v := range cp.Variables {
+			if v.Secret {
+				continue // already in AllAgentAutoEnvKeys via AllCredentialKeys
+			}
 			desc := fmt.Sprintf("provider %s%s%s", colorCyan, provName, colorReset)
 			if prev, ok := autoEnv[v.Name]; ok {
 				warnings = append(warnings, fmt.Sprintf(

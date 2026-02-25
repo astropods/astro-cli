@@ -82,7 +82,7 @@ func renderTemplate(t *testing.T, templatePath string, config ScaffoldConfig) st
 	if err != nil {
 		t.Fatalf("GetTemplate(%q): %v", templatePath, err)
 	}
-	tmpl, err := template.New(filepath.Base(templatePath)).Parse(tmplStr)
+	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(templateFuncs).Parse(tmplStr)
 	if err != nil {
 		t.Fatalf("template.Parse: %v", err)
 	}
@@ -163,13 +163,60 @@ func TestMastraTemplate_PackageJson_DoesNotHaveAstroAgentDeps(t *testing.T) {
 
 // --- Template variable substitution tests ---
 
+func TestMastraTemplate_AgentIndex_IdAndName(t *testing.T) {
+	paths, _ := GetTemplatePaths("ts", "mastra")
+	cases := []struct {
+		name     string
+		wantID   string
+		wantName string
+	}{
+		{"weather-agent", "weather-agent", "Weather Agent"},
+		{"my-cool-bot", "my-cool-bot", "My Cool Bot"},
+		{"simple", "simple", "Simple"},
+	}
+	for _, tc := range cases {
+		config := defaultConfig
+		config.Name = tc.name
+		content := renderTemplate(t, paths.AgentIndex, config)
+		if want := "id: '" + tc.wantID + "'"; !strings.Contains(content, want) {
+			t.Errorf("name=%q: expected %q, got:\n%s", tc.name, want, content)
+		}
+		if want := "name: '" + tc.wantName + "'"; !strings.Contains(content, want) {
+			t.Errorf("name=%q: expected %q, got:\n%s", tc.name, want, content)
+		}
+	}
+}
+
 func TestMastraTemplate_AgentIndex_SubstitutesName(t *testing.T) {
 	paths, _ := GetTemplatePaths("ts", "mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
-	if !strings.Contains(content, `name: 'test-agent'`) {
-		t.Errorf("mastra agent/index.ts should contain agent name, got:\n%s", content)
+	if !strings.Contains(content, `id: 'test-agent'`) {
+		t.Errorf("mastra agent/index.ts should contain agent id, got:\n%s", content)
 	}
+	if !strings.Contains(content, `name: 'Test Agent'`) {
+		t.Errorf("mastra agent/index.ts should contain human-readable agent name, got:\n%s", content)
+	}
+}
+
+func TestMastraTemplate_AgentIndex_EscapesSingleQuotesInDescription(t *testing.T) {
+	paths, _ := GetTemplatePaths("ts", "mastra")
+	config := defaultConfig
+	config.Description = "It's a helper that does O'Brien's work"
+	content := renderTemplate(t, paths.AgentIndex, config)
+
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "instructions:") {
+			if strings.Contains(line, "It's") || strings.Contains(line, "O'Brien") {
+				t.Errorf("unescaped single quote in instructions line would break JS string literal:\n%s", line)
+			}
+			if !strings.Contains(line, `It\'s`) {
+				t.Errorf("expected escaped single quote in instructions line:\n%s", line)
+			}
+			return
+		}
+	}
+	t.Error("instructions: line not found in rendered template")
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesDescription(t *testing.T) {
@@ -270,10 +317,49 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 		}
 	}
 
-	// Verify Postman collection exists
-	postmanPath := filepath.Join(target, "postman", "collections", "Astro-API.postman_collection.json")
-	if _, err := os.Stat(postmanPath); os.IsNotExist(err) {
-		t.Error("expected postman/collections/Astro-API.postman_collection.json to exist")
+	// Verify messaging Postman collection exists and has expected content
+	postmanPath := filepath.Join(target, "postman", "collections", "messaging.postman_collection.json")
+	postmanData, err := os.ReadFile(postmanPath)
+	if err != nil {
+		t.Fatalf("expected postman/collections/messaging.postman_collection.json to exist: %v", err)
+	}
+	if !strings.Contains(string(postmanData), `"name": "Messaging Web API"`) {
+		t.Error("messaging.postman_collection.json should contain Messaging Web API collection name")
+	}
+
+	// Verify webhook Postman collection is NOT generated without webhook ingestion
+	webhookPostmanPath := filepath.Join(target, "postman", "collections", "webhook.postman_collection.json")
+	if _, err := os.Stat(webhookPostmanPath); !os.IsNotExist(err) {
+		t.Error("webhook.postman_collection.json should not be generated without webhook ingestion")
+	}
+}
+
+func TestGenerateFiles_WebhookPostmanCollection(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "my-agent")
+
+	config := defaultConfig
+	config.Ingestions = []string{"webhook"}
+
+	if err := GenerateFiles(target, config, "ts", "mastra"); err != nil {
+		t.Fatalf("GenerateFiles(mastra, webhook): %v", err)
+	}
+
+	// messaging collection should always be present
+	if _, err := os.Stat(filepath.Join(target, "postman", "collections", "messaging.postman_collection.json")); os.IsNotExist(err) {
+		t.Error("expected messaging.postman_collection.json to exist")
+	}
+
+	// webhook collection should be generated when webhook ingestion is selected
+	webhookData, err := os.ReadFile(filepath.Join(target, "postman", "collections", "webhook.postman_collection.json"))
+	if err != nil {
+		t.Fatalf("expected webhook.postman_collection.json to exist: %v", err)
+	}
+	if !strings.Contains(string(webhookData), `"name": "Webhook Ingestion"`) {
+		t.Error("webhook.postman_collection.json should contain Webhook Ingestion collection name")
+	}
+	if !strings.Contains(string(webhookData), `/webhook"`) {
+		t.Error("webhook.postman_collection.json should contain /webhook endpoint")
 	}
 }
 

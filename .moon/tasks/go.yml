@@ -1,0 +1,12 @@
+$schema: "../cache/schemas/tasks.json"
+
+tasks:
+  typecheck:
+    command: "golangci-lint run"
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "/.golangci.yaml"
+    options:
+      mutex: "golangci-lint"
