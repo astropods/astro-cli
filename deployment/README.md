@@ -12,7 +12,8 @@ All instructions assume you are in the repo root.
 ```bash
 bun install
 bun run build
-cd packages/astro-messaging/sdk/node && bun run build
+moon run messaging:sdk-build
+moon run adapters:build
 ```
 
 ## Build images
@@ -24,7 +25,8 @@ cd packages/astro-messaging/sdk/node && bun run build
 | `Dockerfile.astro-server` | astro-server | apps/astro-server |
 | `Dockerfile.astro-client` | astro-client | apps/astro-client (SSR); built by CI |
 
-Build context for collector, registry, server, and client is the workspace root (so `COPY packages/...` works). `astro-messaging` and `astro-playground` are git submodules; run `git submodule update --init --recursive` after clone.
+Build context for collector, registry, server, and client is the workspace root (so `COPY packages/...` works).
+Note that `adapters`, `messaging`, and `playground` are git submodules; run `git submodule update --init --recursive` after clone.
 
 ```bash
 # Messaging sidecar → astro-messaging:latest

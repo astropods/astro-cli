@@ -32,6 +32,7 @@ Or use via bun: `bun x moon run <task>`.
 ## Setup
 
 ```bash
+git submodule update --init --recursive
 bun install
 git config core.hooksPath .githooks
 ```
@@ -41,15 +42,17 @@ The pre-commit hook runs `gofmt` on staged Go files.
 ## Project Structure
 
 ```
+|-- agents/                 # Agent examples
 ├── apps/
 │   ├── astro-client/       # React frontend application
 │   ├── astro-cli/          # ast CLI (Go)
 │   ├── astro-registry/     # Container registry proxy (Go)
 │   └── astro-server/       # Platform backend — agent registry, deployments, auth (Go)
 ├── packages/
-│   ├── astro-identity-gen/ # Identity avatar generation
-│   ├── astro-messaging/    # Messaging adapters (Slack, MCP, etc.)
-│   └── astro-playground/   # Chat UI for agents (used in ast dev)
+│   ├── identity-gen/       # Identity avatar generation
+│   ├── adapters/           # Messaging adapters                    (git submodule)
+│   ├── messaging/          # Messaging adapters (Slack, MCP, etc.) (git submodule)
+│   └── playground/         # Chat UI for agents (used in ast dev)  (git submodule)
 ```
 
 ## Astro AI Service Development
@@ -82,8 +85,9 @@ Run an agent as a local process with hot-reload, using local packages and Docker
 bun install
 bun run build
 
-# 2. Build astro-messaging SDK (required by agents)
-(cd packages/astro-messaging/sdk/node && bun run build)
+# 2. Build SKDs required by agents
+moon run messaging:sdk-build
+moon run adapters:build
 
 # 3. Build Docker images (messaging sidecar, playground)
 moon run deployment:messaging

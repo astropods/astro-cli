@@ -248,7 +248,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s✓%s All files are up to date\n\n", colorGreen, colorReset)
 	}
 
-	// Scan for deprecated astro-messaging references
+	// Scan for deprecated references
 	checkDeprecatedPackages(workingDir, reader, yesFlag)
 
 	// Remove deprecated build args/secrets from astroai.yml
