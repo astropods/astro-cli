@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { generateIdentity } from "@saswatds/astro-identity-gen";
+import { generateIdentity } from "identity-gen";
 
 interface AgentIdentityProps {
   account: string;

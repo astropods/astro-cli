@@ -1,5 +1,5 @@
 {
-  "name": "@saswatds/astro-identity-gen",
+  "name": "identity-gen",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

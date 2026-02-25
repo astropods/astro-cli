@@ -26,7 +26,7 @@
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
     "@heroicons/react": "^2.2.0",
-    "@saswatds/astro-identity-gen": "workspace:*",
+    "identity-gen": "workspace:*",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.90.20",

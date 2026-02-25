@@ -10,6 +10,7 @@ WORKDIR /app
 # Copy package files for dependency installation
 COPY package.json bun.lock ./
 COPY apps/astro-client/package.json ./apps/astro-client/
+COPY packages/astro-identity-gen/package.json ./packages/astro-identity-gen/
 
 # Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.bun/install/cache \
