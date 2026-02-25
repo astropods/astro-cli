@@ -10,9 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//go:embed docs/agent_instructions.md
-var docsAgent string
-
 //go:embed docs/ast.md
 var docsHelp string
 
@@ -23,7 +20,6 @@ var docsCmd = &cobra.Command{
 	Long: `Display documentation in your terminal.
 
 Categories:
-  agent  Agent development guide (LLM, tools, messaging). Default.
   help   CLI help: installation, quick start, commands, spec.`,
 	RunE: runDocs,
 }
@@ -33,19 +29,17 @@ func init() {
 }
 
 func runDocs(cmd *cobra.Command, args []string) error {
-	category := "agent"
+	category := "help"
 	if len(args) > 0 {
 		category = strings.ToLower(strings.TrimSpace(args[0]))
 	}
 
 	var content string
 	switch category {
-	case "agent":
-		content = docsAgent
 	case "help":
 		content = docsHelp
 	default:
-		return fmt.Errorf("unknown category %q (use agent or help)", category)
+		return fmt.Errorf("unknown category %q (use help)", category)
 	}
 
 	renderer, err := glamour.NewTermRenderer(

@@ -27,27 +27,39 @@ type TemplatePaths struct {
 	IngestionWebhookIndex  string
 }
 
-// GetTemplatePaths returns the template paths for the specified language
-func GetTemplatePaths(lang string) (*TemplatePaths, error) {
+// GetTemplatePaths returns the template paths for the specified language and template.
+// The templateName selects which agent scaffold to use ("mastra").
+// Shared files (Dockerfile, astroai.yml, etc.) always come from template-ts/.
+func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) {
 	switch lang {
 	case "ts":
-		return &TemplatePaths{
-			AstroYml:            "templates/template-ts/astroai.yml",
-			Dockerfile:          "templates/template-ts/Dockerfile",
-			DockerfileIngestion: "templates/template-ts/Dockerfile.ingestion",
-			PackageJson:         "templates/template-ts/package.json",
-			Tsconfig:            "templates/template-ts/tsconfig.json",
-			EnvExample:          "templates/template-ts/env.example.tmpl",
-			Gitignore:           "templates/template-ts/gitignore.tmpl",
-			Dockerignore:        "templates/template-ts/dockerignore.tmpl",
-			Npmrc:               "templates/template-ts/npmrc.tmpl",
-			AgentIndex:          "templates/template-ts/agent/index.ts",
-			IngestionIndex:      "templates/template-ts/ingestion/index.ts",
-			LlmMd:               "templates/template-ts/agents.md.tmpl",
-			Readme:              "templates/template-ts/README.md.tmpl",
-			PostmanCollection:      "templates/template-ts/postman/collections/Astro-API.postman_collection.json",
+		// Shared paths used by all templates
+		paths := &TemplatePaths{
+			AstroYml:              "templates/template-ts/astroai.yml",
+			Dockerfile:            "templates/template-ts/Dockerfile",
+			DockerfileIngestion:   "templates/template-ts/Dockerfile.ingestion",
+			Tsconfig:              "templates/template-ts/tsconfig.json",
+			EnvExample:            "templates/template-ts/env.example.tmpl",
+			Gitignore:             "templates/template-ts/gitignore.tmpl",
+			Dockerignore:          "templates/template-ts/dockerignore.tmpl",
+			Npmrc:                 "templates/template-ts/npmrc.tmpl",
+			IngestionIndex:        "templates/template-ts/ingestion/index.ts",
+			LlmMd:                 "templates/template-ts/agents.md.tmpl",
+			Readme:                "templates/template-ts/README.md.tmpl",
+			PostmanCollection:     "templates/template-ts/postman/collections/Astro-API.postman_collection.json",
 			IngestionWebhookIndex: "templates/template-ts/ingestion/webhook.ts",
-		}, nil
+		}
+
+		// Template-specific paths
+		switch templateName {
+		case "mastra":
+			paths.AgentIndex = "templates/template-ts-mastra/agent/index.ts"
+			paths.PackageJson = "templates/template-ts-mastra/package.json"
+		default:
+			return nil, fmt.Errorf("unsupported template: %s (supported: mastra)", templateName)
+		}
+
+		return paths, nil
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", lang)
 	}

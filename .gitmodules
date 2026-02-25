@@ -4,3 +4,6 @@
 [submodule "packages/astro-playground"]
 	path = packages/astro-playground
 	url = git@github.com:astropods/playground.git
+[submodule "packages/adapters"]
+	path = packages/adapters
+	url = git@github.com:astropods/adapters.git

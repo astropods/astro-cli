@@ -47,15 +47,9 @@ The pre-commit hook runs `gofmt` on staged Go files.
 │   ├── astro-registry/     # Container registry proxy (Go)
 │   └── astro-server/       # Platform backend — agent registry, deployments, auth (Go)
 ├── packages/
-│   ├── astro-agent/        # Agent runtime
-│   ├── astro-engine/       # Execution engine
-│   ├── astro-graph/        # Graph data structures
 │   ├── astro-identity-gen/ # Identity avatar generation
 │   ├── astro-messaging/    # Messaging adapters (Slack, MCP, etc.)
-│   ├── astro-nodes/        # Node types
-│   ├── astro-playground/   # Chat UI for agents (used in ast dev)
-│   ├── astro-types/        # Shared TypeScript types
-│   └── astro-workflows/    # Reusable workflow tools
+│   └── astro-playground/   # Chat UI for agents (used in ast dev)
 ```
 
 ## Astro AI Service Development

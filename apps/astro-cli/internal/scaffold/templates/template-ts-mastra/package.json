@@ -11,9 +11,8 @@
   },
   "main": "./agent/index.ts",
   "dependencies": {
-    "@saswatds/astro-agent": "latest",
-    "@saswatds/astro-graph": "latest",
-    "@astropods/messaging": "latest"
+    "@mastra/core": "latest",
+    "@astropods/adapter-mastra": "latest"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
