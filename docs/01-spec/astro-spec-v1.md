@@ -204,7 +204,9 @@ The `datatype` field controls validation and type coercion applied before inject
 
 ## 5. Custom Providers
 
-The `providers` section extends the platform's built-in provider registry with user-defined entries. A custom provider is a **template** — it declares the variables it requires so the platform can prompt for them at deploy time, but does not inject them directly. Injection happens at the entry that references the provider (see [Section 8.4](#84-inputs)).
+The `providers` section extends the platform's built-in provider registry with user-defined entries. A custom provider declares the variables it requires so the platform can prompt for them at deploy time. Custom providers behave like cloud providers (§8.1): they inject credentials into the agent, not connection details.
+
+Each variable's `name` is a **suffix**. The full env var key is formed as `{UPPER(provider)}_{varName}`, following the same rule as §8.1. Duplicate-entry handling also mirrors §8.1: when multiple entries reference the same custom provider, each entry gets a qualified key; the primary entry also gets the bare key.
 
 Custom providers can be referenced by name from the `models`, `knowledge`, and `tools` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider — the platform MUST reject references from sections not listed in `scope`.
 
@@ -350,7 +352,7 @@ Example: `inputs: [{name: OPENAI_API_KEY, datatype: secret}]` → `OPENAI_API_KE
 
 ### 8.5 Name Sanitization
 
-Entry names used in env var keys are sanitized: converted to lowercase, underscores and dots replaced with hyphens, non-alphanumeric characters removed, then uppercased for the env var. For example, entry name `my_model` sanitizes to `my-model`, then uppercases to `MY-MODEL`.
+Entry names used in env var keys are sanitized: converted to lowercase, hyphens, underscores and dots replaced with underscores, non-alphanumeric characters removed, consecutive underscores collapsed, then uppercased. For example, entry name `my-model` sanitizes to `my_model`, then uppercases to `MY_MODEL`.
 
 ---
 
@@ -505,20 +507,20 @@ providers:
   my-jira:
     scope: [tools]
     variables:
-      - name: JIRA_API_KEY
+      - name: API_KEY           # → MY_JIRA_API_KEY
         datatype: string
         secret: true
         description: Jira API key
-      - name: JIRA_BASE_URL
+      - name: BASE_URL          # → MY_JIRA_BASE_URL
         datatype: string
         display-as: short-text
         description: Jira instance URL
-      - name: JIRA_PROJECT
+      - name: PROJECT           # → MY_JIRA_PROJECT
         datatype: string
         display-as: select
         options: [ENG, PLATFORM, INFRA]
         description: Default Jira project
-      - name: JIRA_HMAC_SECRET
+      - name: HMAC_SECRET       # → MY_JIRA_HMAC_SECRET
         datatype: string
         secret: true
         description: Shared secret for HMAC signing

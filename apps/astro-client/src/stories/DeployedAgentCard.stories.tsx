@@ -99,6 +99,16 @@ export const LongName: Story = {
 };
 
 export const AllStatuses: Story = {
+  args: {
+    name: "Incident Command",
+    account: "acme",
+    href: "/agents/incident-command/review/v2",
+    status: "active",
+    requests: 156,
+    lastActive: "2 min ago",
+    installedAt: "Jan 12, 2026",
+    updatedAt: "Feb 17, 2026",
+  },
   decorators: [
     (Story) => (
       <MemoryRouter>

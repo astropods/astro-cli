@@ -111,7 +111,10 @@ func composePath() (string, error) {
 
 func runDevStart(cmd *cobra.Command, args []string) error {
 	// Get spec file path
-	specFile, _ := cmd.Flags().GetString("file")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	workingDir, err := os.Getwd()
@@ -443,7 +446,10 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 }
 
 func runDevTrigger(cmd *cobra.Command, args []string) error {
-	specFile, _ := cmd.Flags().GetString("file")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {

@@ -12,19 +12,29 @@ func TestSanitizeEnvName(t *testing.T) {
 		want string
 	}{
 		{"llm", "LLM"},
-		{"my_model", "MY-MODEL"},
-		{"my.store", "MY-STORE"},
-		{"local_llm", "LOCAL-LLM"},
-		{"my-service", "MY-SERVICE"},
-		{"docs_sync", "DOCS-SYNC"},
-		{"a.b.c", "A-B-C"},
-		{"A_B_C", "A-B-C"},    // already uppercased input still works
+		{"my_model", "MY_MODEL"},
+		{"my.store", "MY_STORE"},
+		{"local_llm", "LOCAL_LLM"},
+		{"my-service", "MY_SERVICE"},
+		{"docs_sync", "DOCS_SYNC"},
+		{"a.b.c", "A_B_C"},
+		{"A_B_C", "A_B_C"},    // already uppercased input still works
 		{"", ""},              // empty
-		{"-leading", "LEADING"},
-		{"trailing-", "TRAILING"},
-		{"double--hyphens", "DOUBLE-HYPHENS"},
+		{"_leading", "LEADING"},
+		{"trailing_", "TRAILING"},
+		{"double--hyphens", "DOUBLE_HYPHENS"},
 		{"hello world", "HELLOWORLD"}, // space removed
-		{"my__model", "MY-MODEL"},     // consecutive underscores → single hyphen
+		{"my__model", "MY_MODEL"},     // consecutive underscores → single underscore
+		// Regression: underscores in raw input must be preserved, not stripped.
+		// Previously the regex [^a-z0-9] would remove underscores; the fix
+		// changed it to [^a-z0-9_] so underscores survive sanitization.
+		{"pre_existing_underscore", "PRE_EXISTING_UNDERSCORE"},
+		{"a_b.c-d", "A_B_C_D"}, // mix of all three separators preserved / normalised
+		// Regression: dots and hyphens must both be replaced with _ in a single
+		// pass. Previously two separate ReplaceAll calls handled them; collapsing
+		// them must not change the output.
+		{"foo.bar-baz", "FOO_BAR_BAZ"},
+		{"foo-bar.baz", "FOO_BAR_BAZ"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -103,8 +113,10 @@ func TestCloudCredentialKeys_DuplicateModelProviders_NameMatchesPrimary(t *testi
 	}
 }
 
-func TestCloudCredentialKeys_DuplicateModelProviders_FirstAlphaIsPrimary(t *testing.T) {
-	// No entry name matches provider; "alpha" < "beta" alphabetically, so "alpha" is primary.
+func TestCloudCredentialKeys_DuplicateModelProviders_NoNameMatch_NoBareKey(t *testing.T) {
+	// Regression: when no entry name matches the provider, bareIdx must remain -1
+	// so no bare key is emitted. Previously bareIdx defaulted to 0, causing the
+	// first-alphabetically entry to incorrectly receive the bare key.
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
@@ -115,13 +127,14 @@ func TestCloudCredentialKeys_DuplicateModelProviders_FirstAlphaIsPrimary(t *test
 	}
 	keys := CloudCredentialKeys(s)
 
-	// "alpha" is first alphabetically → gets bare key + qualified key.
-	assertCredKey(t, keys, "ANTHROPIC_API_KEY", "model", false)
+	// Both entries get only qualified keys; no bare ANTHROPIC_API_KEY.
 	assertCredKey(t, keys, "ANTHROPIC_ALPHA_API_KEY", "model", false)
-	// "beta" gets qualified key only.
 	assertCredKey(t, keys, "ANTHROPIC_BETA_API_KEY", "model", false)
-	if len(keys) != 3 {
-		t.Errorf("expected 3 keys, got %d: %v", len(keys), keys)
+	if _, ok := keys["ANTHROPIC_API_KEY"]; ok {
+		t.Error("bare ANTHROPIC_API_KEY must not be emitted when no entry name matches the provider")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
 	}
 }
 
@@ -150,12 +163,12 @@ func TestCloudCredentialKeys_SkipsCustomProviders(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"myjira": {Scope: []string{"tools"}, Variables: []Input{
-				{Name: "JIRA_API_KEY", Datatype: "string", Secret: true},
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
 		Tools: map[string]Tool{
-			"jira": {Provider: "myjira"},
+			"jira": {Provider: "my-jira"},
 		},
 	}
 	keys := CloudCredentialKeys(s)
@@ -186,45 +199,469 @@ func TestCloudCredentialKeys_OptionalCredential(t *testing.T) {
 // ─── Custom provider credential keys ────────────────────────────────────────
 
 func TestCustomProviderCredentialKeys_SecretVariables(t *testing.T) {
+	// Custom provider variables follow §8.1: {UPPER(provider)}_{varName}.
+	// Variable name is the suffix; provider name is the prefix.
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"myjira": {Scope: []string{"tools"}, Variables: []Input{
-				{Name: "JIRA_API_KEY", Datatype: "string", Secret: true, Description: "Jira key"},
-				{Name: "JIRA_URL", Datatype: "string", Secret: false},     // non-secret: not included
-				{Name: "JIRA_TOKEN", Datatype: "string", Secret: true, Optional: true},
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "Jira key"},
+				{Name: "BASE_URL", Datatype: "string", Secret: false}, // non-secret: not included
+				{Name: "TOKEN", Datatype: "string", Secret: true, Optional: true},
 			}},
 		},
 		Tools: map[string]Tool{
-			"jira": {Provider: "myjira"},
+			"jira": {Provider: "my-jira"},
 		},
 	}
 	keys := CustomProviderCredentialKeys(s)
-	assertCredKey(t, keys, "JIRA_API_KEY", "provider", false)
-	assertCredKey(t, keys, "JIRA_TOKEN", "provider", true)
-	if _, ok := keys["JIRA_URL"]; ok {
-		t.Error("JIRA_URL (non-secret) must not appear in credential keys")
+	assertCredKey(t, keys, "MY_JIRA_API_KEY", "provider", false)
+	assertCredKey(t, keys, "MY_JIRA_TOKEN", "provider", true)
+	if _, ok := keys["MY_JIRA_BASE_URL"]; ok {
+		t.Error("MY_JIRA_BASE_URL (non-secret) must not appear in credential keys")
 	}
 	if len(keys) != 2 {
 		t.Errorf("expected 2 keys, got %d", len(keys))
 	}
 }
 
+func TestCustomProviderCredentialKeys_DuplicateEntries_NoNameMatch_NoBareKey(t *testing.T) {
+	// Regression: when no entry name matches the provider name, bareIdx must remain -1
+	// so no bare key is emitted. Previously bareIdx defaulted to 0, causing the
+	// first-alphabetically entry ("jira-dev") to incorrectly receive the bare key.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"jira-prod": {Provider: "my-jira"},
+			"jira-dev":  {Provider: "my-jira"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	// Both entries get only qualified keys; no bare MY_JIRA_API_KEY.
+	assertCredKey(t, keys, "MY_JIRA_JIRA_DEV_API_KEY", "provider", false)  // qualified
+	assertCredKey(t, keys, "MY_JIRA_JIRA_PROD_API_KEY", "provider", false) // qualified
+	if _, ok := keys["MY_JIRA_API_KEY"]; ok {
+		t.Error("bare MY_JIRA_API_KEY must not be emitted when no entry name matches the provider")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
 func TestCustomProviderCredentialKeys_UnreferencedProviderExcluded(t *testing.T) {
-	// A provider defined but not referenced by any component is excluded.
+	// A provider defined but not referenced by any component produces no keys.
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
 			"unused": {Scope: []string{"tools"}, Variables: []Input{
-				{Name: "UNUSED_KEY", Datatype: "string", Secret: true},
+				{Name: "KEY", Datatype: "string", Secret: true},
 			}},
 		},
 	}
 	keys := CustomProviderCredentialKeys(s)
 	if len(keys) != 0 {
 		t.Errorf("expected 0 keys for unreferenced provider, got %d: %v", len(keys), keys)
+	}
+}
+
+// ─── Custom provider credential keys: exhaustive permutations ────────────────
+
+func TestCustomProviderCredentialKeys_SingleModelEntry(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-llm": {Scope: []string{"models"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Models: map[string]Model{
+			"llm": {Provider: "my-llm"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "MY_LLM_API_KEY", "provider", false)
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_SingleKnowledgeEntry(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-vec": {Scope: []string{"knowledge"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Knowledge: map[string]Knowledge{
+			"store": {Provider: "my-vec"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "MY_VEC_API_KEY", "provider", false)
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_AllNonSecret(t *testing.T) {
+	// No secret variables → no credential keys produced.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "BASE_URL", Datatype: "string", Secret: false},
+				{Name: "PROJECT", Datatype: "string", Secret: false},
+			}},
+		},
+		Tools: map[string]Tool{
+			"jira": {Provider: "my-jira"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	if len(keys) != 0 {
+		t.Errorf("expected 0 keys (no secret variables), got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_MultipleVariables(t *testing.T) {
+	// Multiple secret + non-secret variables: only secret ones appear.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-svc": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+				{Name: "CLIENT_SECRET", Datatype: "string", Secret: true, Optional: true},
+				{Name: "BASE_URL", Datatype: "string", Secret: false},
+				{Name: "REGION", Datatype: "string", Secret: false},
+			}},
+		},
+		Tools: map[string]Tool{
+			"svc": {Provider: "my-svc"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "MY_SVC_API_KEY", "provider", false)
+	assertCredKey(t, keys, "MY_SVC_CLIENT_SECRET", "provider", true)
+	if _, ok := keys["MY_SVC_BASE_URL"]; ok {
+		t.Error("non-secret MY_SVC_BASE_URL must not appear")
+	}
+	if _, ok := keys["MY_SVC_REGION"]; ok {
+		t.Error("non-secret MY_SVC_REGION must not appear")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_ProviderNameSanitized(t *testing.T) {
+	// Provider names with hyphens, underscores, dots all become underscores.
+	cases := []struct {
+		providerName string
+		wantPrefix   string
+	}{
+		{"my-llm", "MY_LLM"},
+		{"my_llm", "MY_LLM"},
+		{"my.llm", "MY_LLM"},
+		{"my-llm-v2", "MY_LLM_V2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.providerName, func(t *testing.T) {
+			s := &AstroSpec{
+				Name:  "agent",
+				Agent: Container{Image: "a:1"},
+				Providers: map[string]CustomProvider{
+					tc.providerName: {Scope: []string{"tools"}, Variables: []Input{
+						{Name: "API_KEY", Datatype: "string", Secret: true},
+					}},
+				},
+				Tools: map[string]Tool{
+					"svc": {Provider: tc.providerName},
+				},
+			}
+			keys := CustomProviderCredentialKeys(s)
+			want := tc.wantPrefix + "_API_KEY"
+			if _, ok := keys[want]; !ok {
+				t.Errorf("expected key %q, got %v", want, keys)
+			}
+		})
+	}
+}
+
+func TestCustomProviderCredentialKeys_DuplicateFirstAlphaIsPrimary(t *testing.T) {
+	// No entry name matches provider; no bare key emitted, only qualified keys.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"beta":  {Provider: "my-jira"},
+			"alpha": {Provider: "my-jira"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "MY_JIRA_ALPHA_API_KEY", "provider", false) // qualified
+	assertCredKey(t, keys, "MY_JIRA_BETA_API_KEY", "provider", false)  // qualified
+	if _, ok := keys["MY_JIRA_API_KEY"]; ok {
+		t.Error("bare MY_JIRA_API_KEY must not be emitted when no entry name matches the provider")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_DuplicateEntryNameMatchesProvider(t *testing.T) {
+	// Entry named "my-jira" matches provider "my-jira" → it is primary, no redundant
+	// qualified key MY_JIRA_MY_JIRA_API_KEY; other entries get qualified keys.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"my-jira": {Provider: "my-jira"}, // name matches provider
+			"staging": {Provider: "my-jira"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "MY_JIRA_API_KEY", "provider", false)         // bare (primary=my-jira)
+	assertCredKey(t, keys, "MY_JIRA_STAGING_API_KEY", "provider", false) // qualified
+	if _, ok := keys["MY_JIRA_MY_JIRA_API_KEY"]; ok {
+		t.Error("redundant MY_JIRA_MY_JIRA_API_KEY must not be produced")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_DuplicateEntryNameSanitized(t *testing.T) {
+	// Entry names with special chars are sanitized in the qualified key.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"jira-prod": {Provider: "my-jira"}, // hyphen in entry name
+			"jira_dev":  {Provider: "my-jira"}, // underscore in entry name
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	// No entry name matches provider → no bare key; both get qualified keys with sanitized names.
+	assertCredKey(t, keys, "MY_JIRA_JIRA_PROD_API_KEY", "provider", false) // sanitized
+	assertCredKey(t, keys, "MY_JIRA_JIRA_DEV_API_KEY", "provider", false)  // sanitized
+	if _, ok := keys["MY_JIRA_API_KEY"]; ok {
+		t.Error("bare MY_JIRA_API_KEY must not be emitted when no entry name matches the provider")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_ThreeEntriesSameProvider(t *testing.T) {
+	// Three entries: "a", "b", "c" — "a" is primary.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"svc": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+				{Name: "SECRET", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"a": {Provider: "svc"},
+			"b": {Provider: "svc"},
+			"c": {Provider: "svc"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	// No entry name matches "svc" → no bare key; all three entries get qualified keys only.
+	assertCredKey(t, keys, "SVC_A_API_KEY", "provider", false)
+	assertCredKey(t, keys, "SVC_A_SECRET", "provider", false)
+	assertCredKey(t, keys, "SVC_B_API_KEY", "provider", false)
+	assertCredKey(t, keys, "SVC_B_SECRET", "provider", false)
+	assertCredKey(t, keys, "SVC_C_API_KEY", "provider", false)
+	assertCredKey(t, keys, "SVC_C_SECRET", "provider", false)
+	if _, ok := keys["SVC_API_KEY"]; ok {
+		t.Error("bare SVC_API_KEY must not be emitted when no entry name matches the provider")
+	}
+	if len(keys) != 6 {
+		t.Errorf("expected 6 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_MultipleDistinctProviders(t *testing.T) {
+	// Two different custom providers, each referenced once.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+			"my-llm": {Scope: []string{"models"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"jira": {Provider: "my-jira"},
+		},
+		Models: map[string]Model{
+			"llm": {Provider: "my-llm"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "MY_JIRA_API_KEY", "provider", false)
+	assertCredKey(t, keys, "MY_LLM_API_KEY", "provider", false)
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_SameProviderCrossSection(t *testing.T) {
+	// Same custom provider referenced in both models and tools (scoped to both).
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-svc": {Scope: []string{"models", "tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Models: map[string]Model{
+			"m": {Provider: "my-svc"},
+		},
+		Tools: map[string]Tool{
+			"t": {Provider: "my-svc"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	// No entry name matches "my-svc" → no bare key; both entries get qualified keys only.
+	assertCredKey(t, keys, "MY_SVC_M_API_KEY", "provider", false) // qualified
+	assertCredKey(t, keys, "MY_SVC_T_API_KEY", "provider", false) // qualified
+	if _, ok := keys["MY_SVC_API_KEY"]; ok {
+		t.Error("bare MY_SVC_API_KEY must not be emitted when no entry name matches the provider")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_MixedWithCloudProvider(t *testing.T) {
+	// Cloud and custom providers coexist; AllCredentialKeys returns both.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+		Models: map[string]Model{
+			"llm": {Provider: "anthropic"},
+		},
+		Tools: map[string]Tool{
+			"jira": {Provider: "my-jira"},
+		},
+	}
+	all := AllCredentialKeys(s)
+	assertCredKey(t, all, "ANTHROPIC_API_KEY", "model", false)
+	assertCredKey(t, all, "MY_JIRA_API_KEY", "provider", false)
+	if len(all) != 2 {
+		t.Errorf("expected 2 total keys, got %d: %v", len(all), all)
+	}
+}
+
+func TestCustomProviderCredentialKeys_OnlyOneEntryHasRedundantNameSkipped(t *testing.T) {
+	// Single entry where entry name == provider name → only bare key, no qualified.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"svc": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "TOKEN", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"svc": {Provider: "svc"}, // name == provider
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "SVC_TOKEN", "provider", false)
+	if _, ok := keys["SVC_SVC_TOKEN"]; ok {
+		t.Error("redundant SVC_SVC_TOKEN must not be produced for single entry")
+	}
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_ProviderWithOnlyOptionalSecret(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"svc": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "OPTIONAL_KEY", Datatype: "string", Secret: true, Optional: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"t": {Provider: "svc"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "SVC_OPTIONAL_KEY", "provider", true) // Optional=true
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key, got %d: %v", len(keys), keys)
+	}
+}
+
+func TestCustomProviderCredentialKeys_DescriptionCarriedThrough(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"svc": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "My service key"},
+			}},
+		},
+		Tools: map[string]Tool{
+			"t": {Provider: "svc"},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	m, ok := keys["SVC_API_KEY"]
+	if !ok {
+		t.Fatal("SVC_API_KEY missing")
+	}
+	if m.Description != "My service key" {
+		t.Errorf("Description = %q, want %q", m.Description, "My service key")
+	}
+	if m.Provider != "svc" {
+		t.Errorf("Provider = %q, want %q", m.Provider, "svc")
 	}
 }
 
@@ -394,7 +831,7 @@ func TestAgentConnectionKeys_ContainerModeModel(t *testing.T) {
 }
 
 func TestAgentConnectionKeys_ContainerModeModel_NameSanitized(t *testing.T) {
-	// Entry name "my_embedder" → key prefix "MODEL_MY-EMBEDDER_*"
+	// Entry name "my_embedder" → key prefix "MODEL_MY_EMBEDDER_*"
 	s := &AstroSpec{
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
@@ -406,7 +843,7 @@ func TestAgentConnectionKeys_ContainerModeModel_NameSanitized(t *testing.T) {
 		"models.my_embedder": {Host: "model-my-embedder", Port: "8000", URL: "http://model-my-embedder:8000"},
 	}
 	env := AgentConnectionKeys(s, addrs)
-	assertEnv(t, env, "MODEL_MY-EMBEDDER_HOST", "model-my-embedder")
+	assertEnv(t, env, "MODEL_MY_EMBEDDER_HOST", "model-my-embedder")
 }
 
 func TestAgentConnectionKeys_ContainerModeKnowledge(t *testing.T) {
@@ -473,12 +910,12 @@ func TestAgentConnectionKeys_CustomProviderToolSkipped(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"myjira": {Scope: []string{"tools"}, Variables: []Input{
-				{Name: "JIRA_API_KEY", Datatype: "string", Secret: true},
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
 		Tools: map[string]Tool{
-			"jira": {Provider: "myjira"},
+			"jira": {Provider: "my-jira"},
 		},
 	}
 	env := AgentConnectionKeys(s, nil)
@@ -712,8 +1149,8 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 			"search": {Container: &ContainerConfig{Image: "search:latest", Port: 3000}},
 		},
 		Providers: map[string]CustomProvider{
-			"myjira": {Scope: []string{"tools"}, Variables: []Input{
-				{Name: "JIRA_API_KEY", Datatype: "string", Secret: true},
+			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
 	}
@@ -872,7 +1309,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeModel_NameUsedAsProvider(t *testing.T)
 		},
 	}
 	meta := AllAgentAutoEnvKeys(s)
-	assertAutoEnvMeta(t, meta, "MODEL_MY-EMBED_HOST", "connection", "my_embed", "model")
+	assertAutoEnvMeta(t, meta, "MODEL_MY_EMBED_HOST", "connection", "my_embed", "model")
 }
 
 func TestAllAgentAutoEnvKeys_SelfHostedKnowledge(t *testing.T) {

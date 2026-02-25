@@ -30,7 +30,10 @@ func init() {
 }
 
 func runExplain(cmd *cobra.Command, args []string) error {
-	specFile, _ := cmd.Flags().GetString("file")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {

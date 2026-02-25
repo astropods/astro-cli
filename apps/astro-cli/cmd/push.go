@@ -90,7 +90,10 @@ func init() {
 
 func runPush(cmd *cobra.Command, args []string) error {
 	// Get spec file path
-	specFile, _ := cmd.Flags().GetString("file")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	// Get server URL: --server flag > build-time default

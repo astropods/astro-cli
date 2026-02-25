@@ -58,3 +58,10 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
 }
+
+// specFilePath returns the value of the --file persistent flag.
+// It returns an error rather than silently producing an empty path if the flag
+// is ever missing (e.g. due to a refactor or typo in the flag name).
+func specFilePath(cmd *cobra.Command) (string, error) {
+	return cmd.Root().PersistentFlags().GetString("file")
+}

@@ -12,7 +12,7 @@ package spec
 //   8.3  Container-mode entries → {SECTION}_{UPPER(name)}_{HOST/PORT/URL}.
 //   8.4  Inputs → name used directly as env var key in the target container.
 //        Top-level inputs → all containers. Component inputs → their container only.
-//   8.5  Name sanitization: lower → replace _ and . with - → strip non-alnum → upper.
+//   8.5  Name sanitization: lower → replace -, _ and . with _ → strip non-alnum → upper.
 
 import (
 	"regexp"
@@ -23,29 +23,29 @@ import (
 // ─── Name sanitization (spec §8.5) ───────────────────────────────────────────
 
 var (
-	sanitizeNonAlnum = regexp.MustCompile(`[^a-z0-9-]`)
-	sanitizeMultiDash = regexp.MustCompile(`-+`)
+	sanitizeNonAlnum      = regexp.MustCompile(`[^a-z0-9_]`)
+	sanitizeMultiUnderscore = regexp.MustCompile(`_+`)
 )
 
 // SanitizeEnvName sanitizes an entry name and returns the uppercased form ready for
 // use inside an env var key. Implements spec section 8.5.
 //
-// Steps: lowercase → replace _ and . with - → remove non-alphanumeric → collapse
-// consecutive hyphens → trim leading/trailing hyphens → uppercase.
+// Steps: lowercase → replace -, _ and . with _ → remove non-alphanumeric →
+// collapse consecutive underscores → trim leading/trailing underscores → uppercase.
 //
 // Examples:
 //
-//	"my_model"  → "MY-MODEL"
-//	"my.store"  → "MY-STORE"
+//	"my_model"  → "MY_MODEL"
+//	"my.store"  → "MY_STORE"
+//	"my-model"  → "MY_MODEL"
 //	"llm"       → "LLM"
-//	"local_llm" → "LOCAL-LLM"
+//	"local_llm" → "LOCAL_LLM"
 func SanitizeEnvName(name string) string {
 	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, "_", "-")
-	s = strings.ReplaceAll(s, ".", "-")
+	s = strings.NewReplacer("-", "_", ".", "_").Replace(s)
 	s = sanitizeNonAlnum.ReplaceAllString(s, "")
-	s = sanitizeMultiDash.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
+	s = sanitizeMultiUnderscore.ReplaceAllString(s, "_")
+	s = strings.Trim(s, "_")
 	return strings.ToUpper(s)
 }
 
@@ -231,8 +231,9 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 		isDup := len(entries) > 1
 		basePrefix := strings.ToUpper(entries[0].provider)
 
-		// Determine primary entry: prefer name that matches provider, else first alphabetically.
-		bareIdx := 0
+		// Determine primary entry: prefer name that matches provider.
+		// -1 means no match found; bare key is only emitted when a match exists.
+		bareIdx := -1
 		if isDup {
 			for i, e := range entries {
 				if strings.EqualFold(e.name, e.provider) {
@@ -275,16 +276,69 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 
 // CustomProviderCredentialKeys returns the env var key names for all custom provider
 // variables that are marked secret=true and are referenced by at least one component.
+//
+// Keys follow §8.1: {UPPER(provider)}_{varName}, where varName is the variable suffix.
+// Duplicate-entry handling mirrors §8.1: multiple entries referencing the same custom
+// provider produce qualified keys; the primary entry also gets the bare key.
 func CustomProviderCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	result := make(map[string]CredentialMeta)
-	for provName, cp := range referencedProviders(s) {
-		for _, v := range cp.Variables {
-			if v.Secret {
-				result[v.Name] = CredentialMeta{
-					Provider:    provName,
-					Category:    "provider",
-					Description: v.Description,
-					Optional:    v.Optional,
+
+	type customEntry struct {
+		entryName string
+		variables []Input
+	}
+	groups := make(map[string][]customEntry) // provider name → entries
+
+	for name, m := range s.Models {
+		if _, ok := s.Providers[m.Provider]; ok {
+			groups[m.Provider] = append(groups[m.Provider], customEntry{name, s.Providers[m.Provider].Variables})
+		}
+	}
+	for name, k := range s.Knowledge {
+		if _, ok := s.Providers[k.Provider]; ok {
+			groups[k.Provider] = append(groups[k.Provider], customEntry{name, s.Providers[k.Provider].Variables})
+		}
+	}
+	for name, t := range s.Tools {
+		if _, ok := s.Providers[t.Provider]; ok {
+			groups[t.Provider] = append(groups[t.Provider], customEntry{name, s.Providers[t.Provider].Variables})
+		}
+	}
+
+	for provName, entries := range groups {
+		sort.Slice(entries, func(i, j int) bool { return entries[i].entryName < entries[j].entryName })
+		isDup := len(entries) > 1
+		basePrefix := SanitizeEnvName(provName)
+
+		// -1 means no match found; bare key is only emitted when a match exists.
+		bareIdx := -1
+		if isDup {
+			for i, e := range entries {
+				if strings.EqualFold(e.entryName, provName) {
+					bareIdx = i
+					break
+				}
+			}
+		}
+
+		for i, e := range entries {
+			for _, v := range e.variables {
+				if !v.Secret {
+					continue
+				}
+				meta := CredentialMeta{
+					Provider: provName, Category: "provider",
+					Description: v.Description, Optional: v.Optional,
+				}
+				if !isDup {
+					result[basePrefix+"_"+v.Name] = meta
+				} else {
+					if !strings.EqualFold(e.entryName, provName) {
+						result[basePrefix+"_"+SanitizeEnvName(e.entryName)+"_"+v.Name] = meta
+					}
+					if i == bareIdx {
+						result[basePrefix+"_"+v.Name] = meta
+					}
 				}
 			}
 		}
@@ -570,24 +624,6 @@ func resolveInputValue(inp Input, provided map[string]string) string {
 	return inp.Default
 }
 
-func referencedProviders(s *AstroSpec) map[string]CustomProvider {
-	out := make(map[string]CustomProvider)
-	add := func(provider string) {
-		if cp, ok := s.Providers[provider]; ok {
-			out[provider] = cp
-		}
-	}
-	for _, m := range s.Models {
-		add(m.Provider)
-	}
-	for _, k := range s.Knowledge {
-		add(k.Provider)
-	}
-	for _, t := range s.Tools {
-		add(t.Provider)
-	}
-	return out
-}
 
 func ensureComponentMap(m map[string]map[string]string, name string) map[string]string {
 	if m[name] == nil {

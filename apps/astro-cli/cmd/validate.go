@@ -38,7 +38,10 @@ type validationError struct {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
-	specFile, _ := cmd.Flags().GetString("file")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {
