@@ -507,17 +507,13 @@ func resolveAstroSourceRoot() (string, error) {
 
 // localPackage describes a package to link in --local mode (scope, name, path relative to astroRoot).
 type localPackage struct {
-	scope string // e.g. "@saswatds" or "@astropods"
-	name  string // e.g. "astro-agent"
-	path  string // relative to astroRoot, e.g. "packages/astro-agent"
+	scope string // e.g. "@astropods"
+	name  string // e.g. "adapter-mastra"
+	path  string // relative to astroRoot, e.g. "packages/adapters/mastra"
 }
 
 // localAstroPackages are the packages we link in --local and remove in --local-reset.
-var localAstroPackages = []localPackage{
-	{"@saswatds", "astro-agent", "packages/astro-agent"},
-	{"@saswatds", "astro-graph", "packages/astro-graph"},
-	{"@astropods", "messaging", "packages/astro-messaging/sdk/node"},
-}
+var localAstroPackages = []localPackage{}
 
 // linkLocalPackages symlinks node_modules/<scope>/<name> to the given Astro repo path
 // so the agent uses local source in --local mode.

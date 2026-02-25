@@ -43,7 +43,7 @@ func (m *MemFs) HasDir(path string) bool {
 // renderAstroYml uses the same rendering path as the CLI (RenderTemplate) so tests assert real behavior.
 func renderAstroYml(t *testing.T, config ScaffoldConfig) string {
 	t.Helper()
-	paths, err := GetTemplatePaths("ts")
+	paths, err := GetTemplatePaths("ts", "mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -365,7 +365,7 @@ func subsets(items []string) [][]string {
 // interfaces, model state, integrations, knowledge, and ingestion selections.
 // This catches stale field references the moment a ScaffoldConfig field is renamed.
 func TestAllTemplatesRender(t *testing.T) {
-	paths, err := GetTemplatePaths("ts")
+	paths, err := GetTemplatePaths("ts", "mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestAllTemplatesRender(t *testing.T) {
 func generateWithMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
 	t.Helper()
 	memfs := newMemFs()
-	if err := generateFiles(memfs, "/proj", config, "ts"); err != nil {
+	if err := generateFiles(memfs, "/proj", config, "ts", "mastra"); err != nil {
 		t.Fatalf("generateFiles: %v", err)
 	}
 	return memfs
@@ -554,7 +554,7 @@ func TestAstroYml_IngestionDockerfilePath(t *testing.T) {
 }
 
 func TestIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
-	paths, err := GetTemplatePaths("ts")
+	paths, err := GetTemplatePaths("ts", "mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}

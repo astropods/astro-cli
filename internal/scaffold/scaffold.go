@@ -90,13 +90,14 @@ func DefaultConfig(name string) ScaffoldConfig {
 }
 
 // GenerateFiles creates all project files in the target directory using the OS filesystem.
-func GenerateFiles(targetDir string, config ScaffoldConfig, lang string) error {
-	return generateFiles(OsFs{}, targetDir, config, lang)
+// The templateName selects which agent scaffold to use ("mastra").
+func GenerateFiles(targetDir string, config ScaffoldConfig, lang string, templateName string) error {
+	return generateFiles(OsFs{}, targetDir, config, lang, templateName)
 }
 
-func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string) error {
-	// Get template paths for the specified language
-	paths, err := GetTemplatePaths(lang)
+func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string, templateName string) error {
+	// Get template paths for the specified language and template
+	paths, err := GetTemplatePaths(lang, templateName)
 	if err != nil {
 		return err
 	}

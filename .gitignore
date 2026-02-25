@@ -17,6 +17,7 @@ go.work
 # Built binary
 astro-cli
 astro
+ast
 /bin/
 /dist/
 
