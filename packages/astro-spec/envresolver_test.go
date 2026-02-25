@@ -830,6 +830,168 @@ func TestAgentConnectionKeys_DeferredPlaceholders(t *testing.T) {
 	assertEnv(t, env, "OLLAMA_BASE_URL", "${models.llm.url}/api")
 }
 
+// ─── connectionKeySource / AllAgentAutoEnvKeys ───────────────────────────────
+
+func TestAllAgentAutoEnvKeys_SelfHostedModel(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"local": {Provider: "ollama", Model: "llama3.2"},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for _, key := range []string{"OLLAMA_HOST", "OLLAMA_PORT", "OLLAMA_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL"} {
+		assertAutoEnvMeta(t, meta, key, "connection", "ollama", "model")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_ContainerModeModel(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"embedder": {Container: &ContainerConfig{Image: "embed:1", Port: 8000}},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for _, key := range []string{"MODEL_EMBEDDER_HOST", "MODEL_EMBEDDER_PORT", "MODEL_EMBEDDER_URL"} {
+		assertAutoEnvMeta(t, meta, key, "connection", "embedder", "model")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_ContainerModeModel_NameUsedAsProvider(t *testing.T) {
+	// Sanitized entry name feeds the provider field, not a builtin provider string.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"my_embed": {Container: &ContainerConfig{Image: "embed:1", Port: 8000}},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+	assertAutoEnvMeta(t, meta, "MODEL_MY-EMBED_HOST", "connection", "my_embed", "model")
+}
+
+func TestAllAgentAutoEnvKeys_SelfHostedKnowledge(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Knowledge: map[string]Knowledge{
+			"docs": {Provider: "qdrant"},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for _, key := range []string{"QDRANT_HOST", "QDRANT_PORT", "QDRANT_URL"} {
+		assertAutoEnvMeta(t, meta, key, "connection", "qdrant", "knowledge")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_ContainerModeKnowledge(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Knowledge: map[string]Knowledge{
+			"custom": {Container: &ContainerConfig{Image: "mydb:1", Port: 5432}},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for _, key := range []string{"KNOWLEDGE_CUSTOM_HOST", "KNOWLEDGE_CUSTOM_PORT"} {
+		assertAutoEnvMeta(t, meta, key, "connection", "custom", "knowledge")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_ContainerModeTool_NoProvider(t *testing.T) {
+	// Tool with only a Container field — entry name is used as provider.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Tools: map[string]Tool{
+			"search": {Container: &ContainerConfig{Image: "search:1", Port: 3000}},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for _, key := range []string{"TOOL_SEARCH_HOST", "TOOL_SEARCH_PORT", "TOOL_SEARCH_URL"} {
+		assertAutoEnvMeta(t, meta, key, "connection", "search", "tool")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_ContainerModeTool_WithProvider(t *testing.T) {
+	// Tool referencing a non-cloud, non-custom provider — t.Provider is used.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Tools: map[string]Tool{
+			"scraper": {Provider: "browserbase"},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for _, key := range []string{"TOOL_SCRAPER_HOST", "TOOL_SCRAPER_PORT", "TOOL_SCRAPER_URL"} {
+		assertAutoEnvMeta(t, meta, key, "connection", "browserbase", "tool")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_CloudCredential(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"ai": {Provider: "anthropic"},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	m, ok := meta["ANTHROPIC_API_KEY"]
+	if !ok {
+		t.Fatal("ANTHROPIC_API_KEY missing from AllAgentAutoEnvKeys result")
+	}
+	if m.Source != "credential" {
+		t.Errorf("Source = %q, want %q", m.Source, "credential")
+	}
+	if m.Provider != "anthropic" {
+		t.Errorf("Provider = %q, want %q", m.Provider, "anthropic")
+	}
+	if m.Category != "model" {
+		t.Errorf("Category = %q, want %q", m.Category, "model")
+	}
+}
+
+func TestAllAgentAutoEnvKeys_NoEmptyProviderOrCategory(t *testing.T) {
+	// All keys produced by a mixed spec must have non-empty Provider and Category.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"llm":      {Provider: "ollama", Model: "llama3.2"},
+			"embedder": {Container: &ContainerConfig{Image: "embed:1", Port: 8000}},
+		},
+		Knowledge: map[string]Knowledge{
+			"docs":   {Provider: "qdrant"},
+			"custom": {Container: &ContainerConfig{Image: "mydb:1", Port: 5432}},
+		},
+		Tools: map[string]Tool{
+			"search":  {Container: &ContainerConfig{Image: "search:1", Port: 3000}},
+			"scraper": {Provider: "browserbase"},
+		},
+	}
+	meta := AllAgentAutoEnvKeys(s)
+
+	for key, m := range meta {
+		if m.Provider == "" {
+			t.Errorf("key %q has empty Provider (source=%q, category=%q)", key, m.Source, m.Category)
+		}
+		if m.Category == "" {
+			t.Errorf("key %q has empty Category (source=%q, provider=%q)", key, m.Source, m.Provider)
+		}
+	}
+}
+
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
 func assertEnv(t *testing.T, env map[string]string, key, want string) {
@@ -841,6 +1003,24 @@ func assertEnv(t *testing.T, env map[string]string, key, want string) {
 	}
 	if got != want {
 		t.Errorf("env[%q] = %q, want %q", key, got, want)
+	}
+}
+
+func assertAutoEnvMeta(t *testing.T, meta map[string]AgentEnvMeta, key, wantSource, wantProvider, wantCategory string) {
+	t.Helper()
+	m, ok := meta[key]
+	if !ok {
+		t.Errorf("AllAgentAutoEnvKeys: key %q missing", key)
+		return
+	}
+	if m.Source != wantSource {
+		t.Errorf("key %q: Source = %q, want %q", key, m.Source, wantSource)
+	}
+	if m.Provider != wantProvider {
+		t.Errorf("key %q: Provider = %q, want %q", key, m.Provider, wantProvider)
+	}
+	if m.Category != wantCategory {
+		t.Errorf("key %q: Category = %q, want %q", key, m.Category, wantCategory)
 	}
 }
 

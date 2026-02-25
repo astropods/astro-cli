@@ -342,6 +342,72 @@ func AllCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	return all
 }
 
+// AgentEnvMeta describes one env var automatically injected into the agent.
+type AgentEnvMeta struct {
+	Source   string // "connection" or "credential"
+	Provider string // originating provider name (lowercase), e.g. "qdrant", "anthropic"
+	Category string // "model", "knowledge", "tool", "provider"
+	Optional bool   // credentials only
+}
+
+// AllAgentAutoEnvKeys returns all env var keys automatically injected into the agent:
+// connection wiring keys (§8.2/§8.3) and credential keys (§8.1, cloud + custom provider
+// secrets). Inputs are not included as they are user-defined.
+func AllAgentAutoEnvKeys(s *AstroSpec) map[string]AgentEnvMeta {
+	result := make(map[string]AgentEnvMeta)
+
+	for k := range AgentConnectionKeys(s, nil) {
+		provider, category := connectionKeySource(s, k)
+		result[k] = AgentEnvMeta{Source: "connection", Provider: provider, Category: category}
+	}
+	for k, meta := range AllCredentialKeys(s) {
+		result[k] = AgentEnvMeta{
+			Source:   "credential",
+			Provider: meta.Provider,
+			Category: meta.Category,
+			Optional: meta.Optional,
+		}
+	}
+	return result
+}
+
+// connectionKeySource returns the provider name and section category for a
+// connection env var key by matching against the spec's self-hosted components.
+func connectionKeySource(s *AstroSpec, key string) (provider, category string) {
+	for name, m := range s.Models {
+		if p, ok := LookupBuiltin("models", m.Provider); ok && p.EnvPrefix != "" {
+			if strings.HasPrefix(key, p.EnvPrefix+"_") {
+				return m.Provider, "model"
+			}
+		}
+		// §8.3 container-mode model (no builtin EnvPrefix).
+		if strings.HasPrefix(key, "MODEL_"+SanitizeEnvName(name)+"_") {
+			return name, "model"
+		}
+	}
+	for name, k := range s.Knowledge {
+		if p, ok := LookupBuiltin("knowledge", k.Provider); ok && p.EnvPrefix != "" {
+			if strings.HasPrefix(key, p.EnvPrefix+"_") {
+				return k.Provider, "knowledge"
+			}
+		}
+		// §8.3 container-mode knowledge (no builtin EnvPrefix).
+		if strings.HasPrefix(key, "KNOWLEDGE_"+SanitizeEnvName(name)+"_") {
+			return name, "knowledge"
+		}
+	}
+	for name, t := range s.Tools {
+		if strings.HasPrefix(key, "TOOL_"+SanitizeEnvName(name)+"_") {
+			prov := t.Provider
+			if prov == "" {
+				prov = name
+			}
+			return prov, "tool"
+		}
+	}
+	return "", ""
+}
+
 // ─── Internal connection resolution ──────────────────────────────────────────
 
 // resolveModelConnections applies §8.2 (self-hosted) and §8.3 (container) rules

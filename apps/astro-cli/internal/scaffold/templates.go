@@ -23,8 +23,9 @@ type TemplatePaths struct {
 	IngestionIndex      string
 	LlmMd                  string
 	Readme                 string
-	PostmanCollection      string
-	IngestionWebhookIndex  string
+	PostmanCollection        string
+	PostmanWebhookCollection string
+	IngestionWebhookIndex    string
 }
 
 // GetTemplatePaths returns the template paths for the specified language and template.
@@ -46,7 +47,8 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			IngestionIndex:        "templates/template-ts/ingestion/index.ts",
 			LlmMd:                 "templates/template-ts/agents.md.tmpl",
 			Readme:                "templates/template-ts/README.md.tmpl",
-			PostmanCollection:     "templates/template-ts/postman/collections/Astro-API.postman_collection.json",
+			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
+			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
 			IngestionWebhookIndex: "templates/template-ts/ingestion/webhook.ts",
 		}
 
