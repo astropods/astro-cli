@@ -514,18 +514,68 @@ func (a *Applier) ApplyDeploymentSpec(
 				host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
 			}
 			if host != "" {
-				ingress := BuildIngress(IngressConfig{
-					Name: ingressName, Namespace: a.namespace, AgentName: agentName,
-					BuildID: buildID, Component: "messaging",
-					ServiceName: resourceName, ServicePort: webPort, Host: host,
-					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
-				})
-				status, err = a.applyIngress(ctx, ingress)
-				result.Resources = append(result.Resources, status)
-				if err != nil {
-					result.Errors = append(result.Errors, deployment.DeploymentError{
-						Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
+				if a.isEKS {
+					// Route through KEDA interceptor: ingress lives in keda namespace,
+					// backend is the interceptor service (not the messaging service directly).
+					interceptorIngress := BuildInterceptorIngress(IngressConfig{
+						Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: "messaging",
+						ServiceName: resourceName, ServicePort: webPort, Host: host,
+						ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
 					})
+					iStatus, iErr := a.applyIngressToNamespace(ctx, interceptorIngress, kedaNamespace)
+					result.Resources = append(result.Resources, iStatus)
+					if iErr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: interceptorIngress.Name, Kind: "Ingress", Error: iErr.Error(),
+						})
+					}
+					// HTTPScaledObject: scales messaging Deployment to 0 when idle.
+					httpSOName := deployment.GenerateAgentResourceName(agentName, "scaler-messaging")
+					httpSO := BuildHTTPScaledObject(HTTPScaledObjectConfig{
+						Name: httpSOName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: "messaging",
+						Host:           host,
+						DeploymentName: resourceName,
+						ServiceName:    resourceName,
+						ServicePort:    webPort,
+					})
+					soStatus, soErr := a.applyHTTPScaledObject(ctx, httpSO)
+					result.Resources = append(result.Resources, soStatus)
+					if soErr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: httpSOName, Kind: "HTTPScaledObject", Error: soErr.Error(),
+						})
+					}
+					// WorkloadScaledObject: scales agent Deployment to 0 when messaging is at 0.
+					agentSOName := deployment.GenerateAgentResourceName(agentName, "scaler-agent")
+					agentSO := BuildWorkloadScaledObject(WorkloadScaledObjectConfig{
+						Name: agentSOName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: "agent",
+						DeploymentName: agentResourceName,
+						PodSelector:    messagingPodSelector(agentName),
+					})
+					agentSOStatus, agentSOErr := a.applyScaledObject(ctx, agentSO)
+					result.Resources = append(result.Resources, agentSOStatus)
+					if agentSOErr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: agentSOName, Kind: "ScaledObject", Error: agentSOErr.Error(),
+						})
+					}
+				} else {
+					ingress := BuildIngress(IngressConfig{
+						Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: "messaging",
+						ServiceName: resourceName, ServicePort: webPort, Host: host,
+						ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
+					})
+					status, err = a.applyIngress(ctx, ingress)
+					result.Resources = append(result.Resources, status)
+					if err != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
+						})
+					}
 				}
 				externalURL := fmt.Sprintf("https://%s", host)
 				result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
@@ -688,18 +738,52 @@ func (a *Applier) ApplyDeploymentSpec(
 			if a.ingestionIngressDomain != "" {
 				ingressName := deployment.GenerateResourceName(agentName, "ingress", name)
 				host := GenerateIngestionIngressHost(agentName, a.namespace, name, a.ingestionIngressDomain)
-				ingress := BuildIngress(IngressConfig{
-					Name: ingressName, Namespace: a.namespace, AgentName: agentName,
-					BuildID: buildID, Component: component,
-					ServiceName: resourceName, ServicePort: port, Host: host,
-					ACMCertificateARN: a.ingestionACMCertARN, ALBGroupName: a.ingestionALBGroupName,
-				})
-				status, err = a.applyIngress(ctx, ingress)
-				result.Resources = append(result.Resources, status)
-				if err != nil {
-					result.Errors = append(result.Errors, deployment.DeploymentError{
-						Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
+				if a.isEKS {
+					// Route through KEDA interceptor.
+					interceptorIngress := BuildInterceptorIngress(IngressConfig{
+						Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: component,
+						ServiceName: resourceName, ServicePort: port, Host: host,
+						ACMCertificateARN: a.ingestionACMCertARN, ALBGroupName: a.ingestionALBGroupName,
 					})
+					iStatus, iErr := a.applyIngressToNamespace(ctx, interceptorIngress, kedaNamespace)
+					result.Resources = append(result.Resources, iStatus)
+					if iErr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: interceptorIngress.Name, Kind: "Ingress", Error: iErr.Error(),
+						})
+					}
+					// HTTPScaledObject: scales webhook Deployment to 0 when idle.
+					httpSOName := deployment.GenerateResourceName(agentName, "scaler", name)
+					httpSO := BuildHTTPScaledObject(HTTPScaledObjectConfig{
+						Name: httpSOName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: component,
+						Host:           host,
+						DeploymentName: resourceName,
+						ServiceName:    resourceName,
+						ServicePort:    port,
+					})
+					soStatus, soErr := a.applyHTTPScaledObject(ctx, httpSO)
+					result.Resources = append(result.Resources, soStatus)
+					if soErr != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: httpSOName, Kind: "HTTPScaledObject", Error: soErr.Error(),
+						})
+					}
+				} else {
+					ingress := BuildIngress(IngressConfig{
+						Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+						BuildID: buildID, Component: component,
+						ServiceName: resourceName, ServicePort: port, Host: host,
+						ACMCertificateARN: a.ingestionACMCertARN, ALBGroupName: a.ingestionALBGroupName,
+					})
+					status, err = a.applyIngress(ctx, ingress)
+					result.Resources = append(result.Resources, status)
+					if err != nil {
+						result.Errors = append(result.Errors, deployment.DeploymentError{
+							Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
+						})
+					}
 				}
 				externalURL := GenerateIngestionExternalURL(agentName, a.namespace, name, a.ingestionIngressDomain)
 				result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
@@ -857,6 +941,18 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 				{
 					From: []networkingv1.NetworkPolicyPeer{
 						{IPBlock: &externalIPBlock},
+					},
+				},
+				// Allow from keda namespace (interceptor proxy for scale-to-zero)
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"kubernetes.io/metadata.name": kedaNamespace,
+								},
+							},
+						},
 					},
 				},
 			},
