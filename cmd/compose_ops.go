@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/cli/cli/command"
@@ -12,7 +14,8 @@ import (
 )
 
 // newComposeService creates a compose API service backed by the local Docker daemon.
-func newComposeService() (api.Compose, error) {
+// When verbose is true, progress events (pulling, creating, starting) are logged to stdout.
+func newComposeService(verbose bool) (api.Compose, error) {
 	dockerCli, err := command.NewDockerCli()
 	if err != nil {
 		return nil, fmt.Errorf("init docker CLI: %w", err)
@@ -20,11 +23,36 @@ func newComposeService() (api.Compose, error) {
 	if err := dockerCli.Initialize(cliflags.NewClientOptions()); err != nil {
 		return nil, fmt.Errorf("init docker CLI: %w", err)
 	}
-	svc, err := compose.NewComposeService(dockerCli)
+	opts := []compose.Option{}
+	if verbose {
+		opts = append(opts, compose.WithEventProcessor(&loggingEventProcessor{}))
+	}
+	svc, err := compose.NewComposeService(dockerCli, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("init compose service: %w", err)
 	}
 	return svc, nil
+}
+
+// loggingEventProcessor implements api.EventProcessor, printing compose SDK events to stdout.
+type loggingEventProcessor struct{}
+
+func (p *loggingEventProcessor) Start(_ context.Context, operation string) {
+	fmt.Fprintf(os.Stdout, "   [compose] %s\n", operation)
+}
+
+func (p *loggingEventProcessor) On(events ...api.Resource) {
+	for _, e := range events {
+		if e.Text != "" {
+			fmt.Fprintf(os.Stdout, "   [compose] %s %s\n", e.ID, e.Text)
+		}
+	}
+}
+
+func (p *loggingEventProcessor) Done(operation string, failed bool) {
+	if failed {
+		fmt.Fprintf(os.Stderr, "   [compose] %s failed\n", operation)
+	}
 }
 
 // projectForUp returns a shallow copy of p with profiled services excluded,

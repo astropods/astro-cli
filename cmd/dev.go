@@ -22,7 +22,6 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
 	composeTypes "github.com/compose-spec/compose-go/v2/types"
-	"github.com/charmbracelet/huh/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/spf13/cobra"
@@ -301,7 +300,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	svc, err := newComposeService()
+	svc, err := newComposeService(verbose)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
@@ -327,10 +326,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	_ = svc.Down(context.Background(), astroSpec.Name, api.DownOptions{RemoveOrphans: true})
 
 	// Start non-profiled services (already built above)
+	upProject := projectForUp(project)
 	if err := withSpinner("Starting services...", verbose, func() error {
-		return svc.Up(context.Background(), projectForUp(project), api.UpOptions{
-			Create: api.CreateOptions{Build: nil}, // --no-build
-			Start:  api.StartOptions{},            // nil Attach = detached
+		return svc.Up(context.Background(), upProject, api.UpOptions{
+			Create: api.CreateOptions{Build: nil},          // --no-build
+			Start:  api.StartOptions{Project: upProject},   // pass project to skip container label lookup
 		})
 	}); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
@@ -431,7 +431,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 
 	// Stream docker compose logs in the background so service failures are visible
 	logsCtx, logsCancel := context.WithCancel(context.Background())
-	logsSvc, err := newComposeService()
+	logsSvc, err := newComposeService(false)
 	if err != nil {
 		agentCancel()
 		return fmt.Errorf("failed to init compose service for logs: %w", err)
@@ -467,7 +467,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	killProcessGroup(agentCmd)
 
 	// Stop all services
-	localSvc, err := newComposeService()
+	localSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
@@ -509,7 +509,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	logsSvc, err := newComposeService()
+	logsSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
@@ -555,7 +555,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	stopSvc, err := newComposeService()
+	stopSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
@@ -639,7 +639,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
 
-	triggerSvc, err := newComposeService()
+	triggerSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
@@ -925,7 +925,7 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 		if ingestion.Trigger.Type != "startup" {
 			continue
 		}
-		startupSvc, err := newComposeService()
+		startupSvc, err := newComposeService(verbose)
 		if err != nil {
 			fmt.Printf("❌ Failed to init compose service for ingestion '%s': %v\n", name, err)
 			continue
@@ -945,22 +945,6 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 			fmt.Fprintf(os.Stderr, "❌ Startup ingestion '%s' exited with code %d\n", name, exitCode)
 		}
 	}
-}
-
-// withSpinner runs fn with an animated spinner title in non-verbose mode, or
-// prints the title and runs fn directly in verbose mode.
-func withSpinner(title string, verbose bool, fn func() error) error {
-	if verbose {
-		fmt.Println(title)
-		return fn()
-	}
-	return spinner.New().
-		Title(" " + title).
-		Style(lipgloss.NewStyle().Foreground(theme.Primary)).
-		ActionWithErr(func(_ context.Context) error {
-			return fn()
-		}).
-		Run()
 }
 
 // printReadyBlock renders the post-start summary using lipgloss.
