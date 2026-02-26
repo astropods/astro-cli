@@ -1,15 +1,19 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
+	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
@@ -45,6 +49,8 @@ func init() {
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+
 	// Color definitions
 	cyan := color.New(color.FgCyan)
 	green := color.New(color.FgGreen)
@@ -158,11 +164,34 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Fetch user accounts from the server
 	serverURL := auth.DefaultServerURL
+	if verbose {
+		fmt.Printf("  %s GET %s\n", cyan.Sprint("→"), dim.Sprint(serverURL+"/api/v1/me")) //nolint:errcheck,gosec
+	}
 	accounts, err := fetchUserAccounts(serverURL, profile.AccessToken)
 	if err == nil && len(accounts) > 0 {
+		if verbose {
+			fmt.Printf("  %s accounts: %s\n", cyan.Sprint("→"), dim.Sprintf("%d found (%s)", len(accounts), accounts[0].Name)) //nolint:errcheck,gosec
+		}
 		profile.Accounts = accounts
 		profile.User.AccountName = accounts[0].Name
 		profile.User.AccountID = accounts[0].ID
+	} else if verbose && err != nil {
+		fmt.Printf("  %s accounts: %s\n", cyan.Sprint("→"), dim.Sprintf("fetch failed: %v", err)) //nolint:errcheck,gosec
+	}
+
+	// If no account exists, prompt the user to claim a username now
+	if len(profile.Accounts) == 0 {
+		fmt.Println()
+		yellow.Println("  No account found. Choose a username to get started.") //nolint:errcheck,gosec
+		account, claimErr := claimUsernameInteractive(serverURL, profile.AccessToken, verbose)
+		if claimErr != nil {
+			fmt.Println()
+			yellow.Println("  Note: Username not set. Visit the dashboard to choose your username before pushing.") //nolint:errcheck,gosec
+		} else {
+			profile.Accounts = []auth.StoredAccount{account}
+			profile.User.AccountName = account.Name
+			profile.User.AccountID = account.ID
+		}
 	}
 
 	if err := storage.SaveProfile("default", profile); err != nil {
@@ -187,12 +216,198 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if len(profile.Accounts) == 0 {
-		fmt.Println()
-		yellow.Println("  Note: No account found. Visit the dashboard to choose your username before pushing.") //nolint:errcheck,gosec
+	return nil
+}
+
+// claimUsernameInteractive prompts the user to pick a username and creates the account.
+func claimUsernameInteractive(serverURL, accessToken string, verbose bool) (auth.StoredAccount, error) {
+	cyan := color.New(color.FgCyan)
+	dim := color.New(color.Faint)
+
+	for {
+		var username string
+		form := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Choose your username").
+					Description("2-39 chars · lowercase letters, digits, hyphens · must start with a letter").
+					Placeholder("your-username").
+					Value(&username).
+					Validate(func(v string) error {
+						if err := validateUsernameLocal(v); err != nil {
+							return err
+						}
+						if verbose {
+							fmt.Printf("  %s GET %s\n", cyan.Sprint("→"), dim.Sprintf("%s/api/v1/accounts/check/%s", serverURL, v)) //nolint:errcheck,gosec
+						}
+						available, reason, err := checkAccountNameAvailability(serverURL, v)
+						if verbose {
+							if err != nil {
+								fmt.Printf("  %s check: %s\n", cyan.Sprint("→"), dim.Sprintf("error: %v", err)) //nolint:errcheck,gosec
+							} else {
+								fmt.Printf("  %s check: %s\n", cyan.Sprint("→"), dim.Sprintf("available=%v reason=%q", available, reason)) //nolint:errcheck,gosec
+							}
+						}
+						if err != nil {
+							return fmt.Errorf("couldn't check availability: %w", err)
+						}
+						if !available {
+							if reason != "" {
+								return fmt.Errorf("%s", reason)
+							}
+							return fmt.Errorf("username is not available")
+						}
+						return nil
+					}),
+			),
+		)
+
+		if err := form.Run(); err != nil {
+			return auth.StoredAccount{}, err
+		}
+
+		cyan.Print("→ ") //nolint:errcheck,gosec
+		fmt.Println("Creating account...")
+		if verbose {
+			fmt.Printf("  %s POST %s\n", cyan.Sprint("→"), dim.Sprintf("%s/api/v1/accounts  name=%q", serverURL, username)) //nolint:errcheck,gosec
+		}
+
+		account, err := createAccount(serverURL, accessToken, username, verbose)
+		if err != nil {
+			fmt.Printf("  Failed to create account: %v. Please try a different username.\n", err)
+			continue
+		}
+
+		return account, nil
+	}
+}
+
+// validateUsernameLocal mirrors the server-side account name validation rules.
+func validateUsernameLocal(name string) error {
+	reserved := map[string]bool{
+		"admin": true, "api": true, "auth": true, "deploy": true, "health": true,
+		"login": true, "logout": true, "new": true, "onboarding": true, "operator": true,
+		"register": true, "settings": true, "status": true, "support": true, "system": true,
+		"www": true, "hire": true, "dev": true, "agents": true, "deployments": true,
 	}
 
+	if len(name) < 2 {
+		return fmt.Errorf("must be at least 2 characters")
+	}
+	if len(name) > 39 {
+		return fmt.Errorf("must be at most 39 characters")
+	}
+	if name != strings.ToLower(name) {
+		return fmt.Errorf("must be lowercase")
+	}
+	if !unicode.IsLetter(rune(name[0])) {
+		return fmt.Errorf("must start with a letter")
+	}
+	if name[len(name)-1] == '-' {
+		return fmt.Errorf("must not end with a hyphen")
+	}
+	prevHyphen := false
+	for _, ch := range name {
+		if ch == '-' {
+			if prevHyphen {
+				return fmt.Errorf("must not contain consecutive hyphens")
+			}
+			prevHyphen = true
+			continue
+		}
+		prevHyphen = false
+		if !unicode.IsLower(ch) && !unicode.IsDigit(ch) {
+			return fmt.Errorf("only lowercase letters, digits, and hyphens allowed")
+		}
+	}
+	if reserved[name] {
+		return fmt.Errorf("%q is a reserved name", name)
+	}
 	return nil
+}
+
+// checkAccountNameAvailability calls GET /api/v1/accounts/check/:name.
+// Returns (available, reason, error).
+func checkAccountNameAvailability(serverURL, name string) (bool, string, error) {
+	reqURL := fmt.Sprintf("%s/api/v1/accounts/check/%s", serverURL, name)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
+	if err != nil {
+		return false, "", err
+	}
+
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec
+	if err != nil {
+		return false, "", err
+	}
+	defer resp.Body.Close() //nolint:errcheck,gosec
+
+	var result struct {
+		Available bool   `json:"available"`
+		Reason    string `json:"reason,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, "", err
+	}
+	return result.Available, result.Reason, nil
+}
+
+// createAccount calls POST /api/v1/accounts to create a personal account.
+func createAccount(serverURL, accessToken, name string, verbose bool) (auth.StoredAccount, error) {
+	cyan := color.New(color.FgCyan)
+	dim := color.New(color.Faint)
+
+	body, err := json.Marshal(map[string]string{"name": name, "type": "personal"})
+	if err != nil {
+		return auth.StoredAccount{}, fmt.Errorf("failed to encode request: %w", err)
+	}
+	reqURL := fmt.Sprintf("%s/api/v1/accounts", serverURL)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewReader(body))
+	if err != nil {
+		return auth.StoredAccount{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec
+	if err != nil {
+		return auth.StoredAccount{}, err
+	}
+	defer resp.Body.Close() //nolint:errcheck,gosec
+
+	if verbose {
+		fmt.Printf("  %s status: %s\n", cyan.Sprint("→"), dim.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode))) //nolint:errcheck,gosec
+		if resp.Request.URL.String() != reqURL {
+			fmt.Printf("  %s redirected to: %s\n", cyan.Sprint("→"), dim.Sprint(resp.Request.URL.String())) //nolint:errcheck,gosec
+		}
+	}
+
+	// Accept 200 or 201 as success; anything else is an error.
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		var errBody struct {
+			Error   string `json:"error"`
+			Details string `json:"details,omitempty"`
+		}
+		if jsonErr := json.NewDecoder(resp.Body).Decode(&errBody); jsonErr == nil && errBody.Error != "" {
+			if errBody.Details != "" {
+				return auth.StoredAccount{}, fmt.Errorf("%s: %s", errBody.Error, errBody.Details)
+			}
+			return auth.StoredAccount{}, fmt.Errorf("%s", errBody.Error)
+		}
+		return auth.StoredAccount{}, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return auth.StoredAccount{}, err
+	}
+	if result.ID == "" {
+		return auth.StoredAccount{}, fmt.Errorf("invalid response from server")
+	}
+	return auth.StoredAccount{ID: result.ID, Name: result.Name, Type: result.Type, Role: "owner"}, nil
 }
 
 // fetchUserAccounts calls GET /api/v1/me on the server to get the user's accounts.

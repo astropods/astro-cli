@@ -19,10 +19,27 @@ tasks:
     outputs:
       - "bin/ast"
 
+  build-preview:
+    command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD) -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=https://astropod.ai" -o bin/ast .'
+    inputs:
+      - "**/*.go"
+      - "internal/scaffold/templates/**"
+      - "go.mod"
+      - "go.sum"
+      - "/packages/astro-spec/**"
+      - "/.git/refs/heads/*"
+    outputs:
+      - "bin/ast"
+
   link:
     command: "ln -sf $(pwd)/bin/ast $HOME/go/bin/ast"
     deps:
       - "build"
+
+  link-preview:
+    command: "ln -sf $(pwd)/bin/ast $HOME/go/bin/ast"
+    deps:
+      - "build-preview"
 
   unlink:
     command: "rm -f $HOME/go/bin/ast"
