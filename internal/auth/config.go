@@ -16,8 +16,9 @@ var (
 	// WorkOSBaseURL is the WorkOS API base URL
 	WorkOSBaseURL = "https://api.workos.com"
 
-	// Default host (used when not set in profile or env)
-	DefaultServerURL = "https://astromode.ai"
+	// Default host (used when not set in profile or env).
+	// Dev builds use localhost; prod/preview override this via ldflags at build time.
+	DefaultServerURL = "http://localhost:8080"
 )
 
 // Environment variable names
