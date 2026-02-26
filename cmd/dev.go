@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
 	composeTypes "github.com/compose-spec/compose-go/v2/types"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/spf13/cobra"
@@ -307,14 +308,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
-	fmt.Println("🔨 Building services...")
+	buildTitle := "Building services..."
 	if rebuild {
-		fmt.Println("   Using --no-cache for clean rebuild...")
+		buildTitle = "Building services (no cache)..."
 	}
-	if err := svc.Build(context.Background(), project, api.BuildOptions{
-		NoCache:  rebuild,
-		Quiet:    !verbose,
-		Services: allServiceNames(project),
+	if err := withSpinner(buildTitle, verbose, func() error {
+		return svc.Build(context.Background(), project, api.BuildOptions{
+			NoCache:  rebuild,
+			Quiet:    !verbose,
+			Services: allServiceNames(project),
+		})
 	}); err != nil {
 		return fmt.Errorf("failed to build services: %w", err)
 	}
@@ -324,10 +327,11 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	_ = svc.Down(context.Background(), astroSpec.Name, api.DownOptions{RemoveOrphans: true})
 
 	// Start non-profiled services (already built above)
-	fmt.Println("🚀 Starting services...")
-	if err := svc.Up(context.Background(), projectForUp(project), api.UpOptions{
-		Create: api.CreateOptions{Build: nil}, // --no-build
-		Start:  api.StartOptions{},            // nil Attach = detached
+	if err := withSpinner("Starting services...", verbose, func() error {
+		return svc.Up(context.Background(), projectForUp(project), api.UpOptions{
+			Create: api.CreateOptions{Build: nil}, // --no-build
+			Start:  api.StartOptions{},            // nil Attach = detached
+		})
 	}); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
@@ -353,7 +357,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
-	runStartupIngestions(astroSpec, project)
+	runStartupIngestions(astroSpec, project, verbose)
 
 	printReadyBlock(astroSpec, hasWebInterface)
 	return nil
@@ -555,7 +559,9 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	if err := stopSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{}); err != nil {
+	if err := withSpinner("Stopping services...", false, func() error {
+		return stopSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{})
+	}); err != nil {
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 	_ = os.Remove(statePath)
@@ -914,28 +920,29 @@ func rewriteDockerHostsToLocalhost(s *spec.AstroSpec, envMap map[string]string) 
 }
 
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
-func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project) {
+func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verbose bool) {
 	for name, ingestion := range s.Ingestion {
 		if ingestion.Trigger.Type != "startup" {
 			continue
 		}
-		fmt.Printf("🚀 Running startup ingestion: %s\n", name)
 		startupSvc, err := newComposeService()
 		if err != nil {
 			fmt.Printf("❌ Failed to init compose service for ingestion '%s': %v\n", name, err)
 			continue
 		}
-		exitCode, err := startupSvc.RunOneOffContainer(context.Background(), project, api.RunOptions{
-			Service:    fmt.Sprintf("ingestion-%s", name),
-			AutoRemove: true,
-			NoDeps:     true,
-		})
-		if err != nil {
-			fmt.Printf("❌ Failed to run startup ingestion '%s': %v\n", name, err)
+		var exitCode int
+		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), verbose, func() error {
+			var runErr error
+			exitCode, runErr = startupSvc.RunOneOffContainer(context.Background(), project, api.RunOptions{
+				Service:    fmt.Sprintf("ingestion-%s", name),
+				AutoRemove: true,
+				NoDeps:     true,
+			})
+			return runErr
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Startup ingestion '%s' failed: %v\n", name, err)
 		} else if exitCode != 0 {
-			fmt.Printf("❌ Startup ingestion '%s' exited with code %d\n", name, exitCode)
-		} else {
-			fmt.Printf("✅ Startup ingestion '%s' completed\n", name)
+			fmt.Fprintf(os.Stderr, "❌ Startup ingestion '%s' exited with code %d\n", name, exitCode)
 		}
 	}
 }
@@ -1010,6 +1017,21 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	fmt.Println()
 	fmt.Println(box)
 	fmt.Println()
+}
+
+// withSpinner runs fn with an animated spinner in non-verbose mode, or prints
+// the title and runs fn directly in verbose mode.
+func withSpinner(title string, verbose bool, fn func() error) error {
+	if verbose {
+		fmt.Println(title)
+		return fn()
+	}
+	return spinner.New().
+		Title(" " + title).
+		ActionWithErr(func(_ context.Context) error {
+			return fn()
+		}).
+		Run()
 }
 
 // openBrowser opens the specified URL in the default browser
