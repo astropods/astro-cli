@@ -1,11 +1,12 @@
 import { Info, ExternalLink } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { VariableField } from "./VariableField";
+
 /** Display-only variable metadata — only the fields the component actually renders. */
 export interface VariableDisplay {
   description?: string;
@@ -14,6 +15,10 @@ export interface VariableDisplay {
   label?: string;
   placeholder?: string;
   helpUrl?: string;
+  datatype?: string;
+  displayAs?: string;
+  options?: string[];
+  defaultValue?: string;
 }
 
 /** Convert "SLACK_BOT_TOKEN" → "Slack Bot Token" */
@@ -22,11 +27,6 @@ function humanizeKey(key: string): string {
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Convert "SLACK_BOT_TOKEN" → "your-slack-bot-token" */
-function placeholderFromKey(key: string): string {
-  return "your-" + key.replace(/_/g, "-").toLowerCase();
 }
 
 export interface VariableFieldsProps {
@@ -49,6 +49,9 @@ export function VariableFields({ variables, values, onChange, errorKeys }: Varia
                 <label htmlFor={key} className="text-sm font-medium text-foreground">
                   {v.label ?? humanizeKey(key)}
                 </label>
+                {v.optional && (
+                  <span className="text-xs text-muted-foreground">Optional</span>
+                )}
                 {v.description && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -60,33 +63,24 @@ export function VariableFields({ variables, values, onChange, errorKeys }: Varia
                   </Tooltip>
                 )}
               </div>
-              <div className="flex items-center gap-3">
-                {v.helpUrl && (
-                  <a
-                    href={v.helpUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"
-                  >
-                    Where do I find this?
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
-                {v.optional && (
-                  <span className="text-xs text-muted-foreground">Optional</span>
-                )}
-              </div>
+              {v.helpUrl && (
+                <a
+                  href={v.helpUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                >
+                  Where do I find this?
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
-            <Input
-              id={key}
-              type={v.secret ? "password" : "text"}
-              autoComplete="off"
-              spellCheck={false}
+            <VariableField
+              fieldKey={key}
+              meta={v}
               value={values[key] || ""}
-              onChange={(e) => onChange({ ...values, [key]: e.target.value })}
-              placeholder={v.placeholder || placeholderFromKey(key)}
-              className="bg-white font-mono"
-              aria-invalid={errorKeys?.includes(key) || undefined}
+              onChange={(val) => onChange({ ...values, [key]: val })}
+              hasError={errorKeys?.includes(key)}
             />
             {errorKeys?.includes(key) && (
               <p className="text-destructive text-xs mt-1">Required</p>

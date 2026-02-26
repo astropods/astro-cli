@@ -105,7 +105,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
         <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto px-6 pt-8 pb-12 md:px-8 md:pt-10">
           {/* Header */}
           <div className="flex items-start gap-4 mb-8">
-            <AgentIdentity account={agent.account} name={agent.name} size={48} className="size-12 shrink-0 rounded-lg overflow-hidden" />
+            <AgentIdentity account={agent.account} name={agent.name} size={48} className="size-12 shrink-0 rounded-sm overflow-hidden mt-[5px]" />
             <div>
               <h1 className="text-2xl font-semibold mb-1">
                 Install <span className="text-muted-foreground font-normal">{agent.account}/</span>{agent.name}

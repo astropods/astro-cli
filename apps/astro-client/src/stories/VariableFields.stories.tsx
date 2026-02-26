@@ -97,3 +97,158 @@ export const Prefilled: Story = {
     onChange: () => {},
   },
 };
+
+export const SecretField: Story = {
+  name: "Secret with Reveal Toggle",
+  args: {
+    variables: [
+      [
+        "OPENAI_API_KEY",
+        {
+          description: "OpenAI API key for the model provider",
+          optional: false,
+          secret: true,
+          label: "OpenAI API Key",
+          helpUrl: "https://platform.openai.com/api-keys",
+        },
+      ],
+      [
+        "DATABASE_PASSWORD",
+        {
+          description: "Password for the database connection",
+          optional: false,
+          secret: true,
+        },
+      ],
+    ],
+    values: { OPENAI_API_KEY: "sk-proj-abc123xyz" },
+    onChange: () => {},
+  },
+};
+
+export const SelectField: Story = {
+  name: "Select Dropdown",
+  args: {
+    variables: [
+      [
+        "MODEL_PROVIDER",
+        {
+          description: "Which model provider to use",
+          optional: false,
+          displayAs: "select",
+          options: ["openai", "anthropic", "google"],
+        },
+      ],
+    ],
+    values: {},
+    onChange: () => {},
+  },
+};
+
+export const BooleanField: Story = {
+  name: "Boolean Toggle",
+  args: {
+    variables: [
+      [
+        "ENABLE_LOGGING",
+        {
+          description: "Enable verbose logging",
+          optional: false,
+          datatype: "boolean",
+        },
+      ],
+    ],
+    values: { ENABLE_LOGGING: "false" },
+    onChange: () => {},
+  },
+};
+
+export const LongTextField: Story = {
+  name: "Long Text",
+  args: {
+    variables: [
+      [
+        "SYSTEM_PROMPT",
+        {
+          description: "System prompt for the agent",
+          optional: true,
+          displayAs: "long-text",
+        },
+      ],
+    ],
+    values: {},
+    onChange: () => {},
+  },
+};
+
+export const NumberField: Story = {
+  name: "Number Input",
+  args: {
+    variables: [
+      [
+        "MAX_RETRIES",
+        {
+          description: "Maximum number of retries",
+          optional: false,
+          datatype: "number",
+        },
+      ],
+    ],
+    values: {},
+    onChange: () => {},
+  },
+};
+
+export const MixedFieldTypes: Story = {
+  name: "Mixed Field Types",
+  args: {
+    variables: [
+      ["OPENAI_API_KEY", { description: "OpenAI API key", optional: false, secret: true }],
+      [
+        "MODEL_NAME",
+        {
+          description: "Model to use for inference",
+          optional: false,
+          displayAs: "select",
+          options: ["gpt-4o", "gpt-4o-mini", "claude-sonnet"],
+        },
+      ],
+      [
+        "SYSTEM_PROMPT",
+        {
+          description: "System prompt for the agent",
+          optional: true,
+          displayAs: "long-text",
+        },
+      ],
+      [
+        "ENABLE_STREAMING",
+        {
+          description: "Enable streaming responses",
+          optional: false,
+          datatype: "boolean",
+        },
+      ],
+      [
+        "MAX_TOKENS",
+        {
+          description: "Maximum tokens per response",
+          optional: true,
+          datatype: "number",
+        },
+      ],
+      [
+        "SLACK_BOT_TOKEN",
+        {
+          description: "Slack bot token for messaging",
+          optional: true,
+          secret: true,
+          label: "Slack Bot Token",
+          helpUrl: "https://docs.slack.dev/authentication/tokens/",
+        },
+      ],
+    ],
+    values: { ENABLE_STREAMING: "true" },
+    onChange: () => {},
+  },
+};

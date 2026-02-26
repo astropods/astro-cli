@@ -4,6 +4,7 @@ import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
+import { getVariableDefault, isVariableFilled } from "./VariableField";
 
 export interface UseDeployFormOptions {
   initialTemplate?: DeploymentTemplate;
@@ -29,6 +30,18 @@ export const ADAPTER_CREDENTIALS: Record<string, { key: string; label: string; d
     { key: "SLACK_APP_TOKEN", label: "Slack App Token", description: "Slack app token for socket mode", secret: true, placeholder: "your-slack-app-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
   ],
 };
+
+function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
+  return {
+    description: v.description,
+    optional: v.optional,
+    secret: v.secret,
+    datatype: v.datatype,
+    displayAs: v['display-as'],
+    options: v.options,
+    defaultValue: v.default,
+  };
+}
 
 function fulfillTemplate(
   template: DeploymentTemplate,
@@ -102,12 +115,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [submitted, setSubmitted] = useState(false);
 
   // Derived variable lists (agent/ingestion-targeting variables)
-  const variableEntries = useMemo(
+  const variableEntries = useMemo<[string, VariableDisplay][]>(
     () =>
       template?.variables
-        ? Object.entries(template.variables).filter(([, v]) =>
-            v.targets.some((t) => t === "agent" || t.startsWith("ingestion")),
-          )
+        ? Object.entries(template.variables)
+            .filter(([, v]) =>
+              v.targets.some((t) => t === "agent" || t.startsWith("ingestion")),
+            )
+            .map(([key, v]): [string, VariableDisplay] => [key, toVariableDisplay(v)])
         : [],
     [template],
   );
@@ -135,10 +150,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         if (derived.length > 0) {
           defs[adapter.id] = derived.map(([key, v]) => {
             const meta = hardcoded.find((c) => c.key === key);
+            const display = toVariableDisplay(v);
             return [key, {
-              description: meta?.description ?? v.description,
-              optional: v.optional,
-              secret: v.secret ?? meta?.secret,
+              ...display,
+              description: meta?.description ?? display.description,
+              secret: display.secret ?? meta?.secret,
               label: meta?.label,
               placeholder: meta?.placeholder,
               helpUrl: meta?.helpUrl,
@@ -166,7 +182,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       setVariableValues((prev) => {
         const initial: Record<string, string> = {};
         for (const [key, v] of variableEntries) {
-          initial[key] = prev[key] ?? v.default ?? "";
+          initial[key] = prev[key] ?? v.defaultValue ?? getVariableDefault(v);
         }
         return initial;
       });
@@ -184,7 +200,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     const emptyRequired = requiredVariables
-      .filter(([key]) => !variableValues[key]?.trim())
+      .filter(([key, v]) => !isVariableFilled(v, variableValues[key]))
       .map(([key]) => key);
     if (emptyRequired.length > 0) {
       result.credentials = emptyRequired;
@@ -213,7 +229,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // Compute validity inline (state update is async, can't rely on `errors` yet)
     const hasAdapter = selectedAdapters.length > 0;
-    const varsValid = requiredVariables.every(([key]) => variableValues[key]?.trim());
+    const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, variableValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
       const creds = allAdapterCredDefs[adapterId] ?? [];
       return creds.every(([key, def]) => def.optional || adapterCredentials[key]?.trim());
