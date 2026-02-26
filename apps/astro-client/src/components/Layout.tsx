@@ -25,7 +25,7 @@ export default function Layout() {
   }, [searchParams, setSearchParams]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex min-h-screen flex-col">
       <AppHeader />
       {error && (
         <div className="m-6 mb-0 md:m-8 md:mb-0 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">

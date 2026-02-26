@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { ProtectedRoute } from "../components/ProtectedRoute";
+import { EmptyState } from "../components/EmptyState";
 import {
   MyAgentsHeader,
   type ViewMode,
@@ -48,7 +49,7 @@ function YourAgentsContent() {
   }, [deployments, filter]);
 
   return (
-    <div className="p-6 md:p-8">
+    <div className="flex flex-1 flex-col p-6 md:p-8">
       <MyAgentsHeader
         filter={filter}
         onFilterChange={setFilter}
@@ -56,21 +57,30 @@ function YourAgentsContent() {
         onViewModeChange={setViewMode}
       />
 
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-        {filtered.map((deployment) => (
-          <DeployedAgentCard
-            key={deployment.name}
-            name={deployment.name}
-            account={userAccount}
-            href={`/${userAccount}/${deployment.name}`}
-            status={mapDeploymentStatus(deployment)}
-            requests={0}
-            lastActive="—"
-            installedAt={formatDate(deployment.created_at)}
-            updatedAt={formatDate(deployment.created_at)}
-          />
-        ))}
-      </div>
+      {filtered.length === 0 ? (
+        <EmptyState
+          title="No agents yet"
+          description="Browse available agents and add one to get started."
+          actionLabel="Browse agents"
+          actionTo="/hire"
+        />
+      ) : (
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          {filtered.map((deployment) => (
+            <DeployedAgentCard
+              key={deployment.name}
+              name={deployment.name}
+              account={userAccount}
+              href={`/${userAccount}/${deployment.name}`}
+              status={mapDeploymentStatus(deployment)}
+              requests={0}
+              lastActive="—"
+              installedAt={formatDate(deployment.created_at)}
+              updatedAt={formatDate(deployment.created_at)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

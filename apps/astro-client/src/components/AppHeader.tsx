@@ -33,10 +33,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const publicNav = [
   { label: "Browse", to: "/hire" },
-  { label: "Pricing", to: "/pricing" },
   { label: "Docs", to: "https://docs.astropod.ai", external: true },
   { label: "Blog", to: "/blog" },
-  { label: "Enterprise", to: "/enterprise" },
 ];
 
 function NavLink({ to, external, children, className }: { to: string; external?: boolean; children: React.ReactNode; className?: string }) {
@@ -61,7 +59,7 @@ export function AppHeader() {
   }, [location.pathname]);
 
   const mobileNavItems = isAuthenticated
-    ? [publicNav[0], { label: "Home", to: "/operator" }, ...publicNav.slice(1)]
+    ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1), { label: "Dashboard", to: "/operator" }]
     : publicNav;
 
   if (isMobile) {
@@ -124,7 +122,7 @@ export function AppHeader() {
   }
 
   const navItems = isAuthenticated
-    ? [publicNav[0], { label: "Home", to: "/operator" }, ...publicNav.slice(1)]
+    ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1), { label: "Dashboard", to: "/operator" }]
     : publicNav;
 
   return (
