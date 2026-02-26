@@ -16,7 +16,11 @@ import (
 // newComposeService creates a compose API service backed by the local Docker daemon.
 // When verbose is true, progress events (pulling, creating, starting) are logged to stdout.
 func newComposeService(verbose bool) (api.Compose, error) {
-	dockerCli, err := command.NewDockerCli()
+	cliOpts := []command.CLIOption{}
+	if !verbose {
+		cliOpts = append(cliOpts, command.WithCombinedStreams(io.Discard))
+	}
+	dockerCli, err := command.NewDockerCli(cliOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("init docker CLI: %w", err)
 	}
@@ -37,21 +41,45 @@ func newComposeService(verbose bool) (api.Compose, error) {
 // loggingEventProcessor implements api.EventProcessor, printing compose SDK events to stdout.
 type loggingEventProcessor struct{}
 
-func (p *loggingEventProcessor) Start(_ context.Context, operation string) {
-	fmt.Fprintf(os.Stdout, "   [compose] %s\n", operation)
-}
+func (p *loggingEventProcessor) Start(_ context.Context, _ string) {}
 
 func (p *loggingEventProcessor) On(events ...api.Resource) {
 	for _, e := range events {
-		if e.Text != "" {
-			fmt.Fprintf(os.Stdout, "   [compose] %s %s\n", e.ID, e.Text)
+		switch e.Status {
+		case api.Done:
+			_, _ = fmt.Fprintf(os.Stdout, "   %s %s\n", composeEventIcon(e.Text), e.ID)
+		case api.Warning:
+			_, _ = fmt.Fprintf(os.Stderr, "   ⚠️  %s\n", e.ID)
+		case api.Error:
+			_, _ = fmt.Fprintf(os.Stderr, "   ❌ %s %s\n", e.ID, e.Text)
 		}
+	}
+}
+
+func composeEventIcon(text string) string {
+	switch text {
+	case api.StatusPulled:
+		return "⬇️ "
+	case api.StatusBuilt:
+		return "🔨"
+	case api.StatusCreated:
+		return "📦"
+	case api.StatusStarted, api.StatusRunning:
+		return "✅"
+	case api.StatusHealthy:
+		return "💚"
+	case api.StatusStopped, api.StatusKilled, api.StatusExited:
+		return "⏹️ "
+	case api.StatusRemoved:
+		return "🗑️ "
+	default:
+		return "✅"
 	}
 }
 
 func (p *loggingEventProcessor) Done(operation string, failed bool) {
 	if failed {
-		fmt.Fprintf(os.Stderr, "   [compose] %s failed\n", operation)
+		_, _ = fmt.Fprintf(os.Stderr, "   ❌ %s failed\n", operation)
 	}
 }
 
@@ -83,6 +111,6 @@ type stdoutLogConsumer struct {
 	err io.Writer
 }
 
-func (c *stdoutLogConsumer) Log(container, msg string)    { fmt.Fprintf(c.out, "%s  | %s\n", container, msg) }
-func (c *stdoutLogConsumer) Err(container, msg string)    { fmt.Fprintf(c.err, "%s  | %s\n", container, msg) }
-func (c *stdoutLogConsumer) Status(container, msg string) { fmt.Fprintf(c.out, "%s %s\n", container, msg) }
+func (c *stdoutLogConsumer) Log(container, msg string)    { _, _ = fmt.Fprintf(c.out, "%s  | %s\n", container, msg) }
+func (c *stdoutLogConsumer) Err(container, msg string)    { _, _ = fmt.Fprintf(c.err, "%s  | %s\n", container, msg) }
+func (c *stdoutLogConsumer) Status(container, msg string) { _, _ = fmt.Fprintf(c.out, "%s %s\n", container, msg) }
