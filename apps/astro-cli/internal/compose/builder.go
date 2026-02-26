@@ -10,6 +10,7 @@ import (
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
+	"github.com/docker/compose/v5/pkg/api"
 )
 
 // buildSecretsConfig converts spec secrets to compose secrets configuration
@@ -607,6 +608,20 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Add agent service last
 	project.Services["agent"] = agentService
+
+	// Set required compose labels on every service so containers are correctly
+	// tagged and discoverable by the SDK. This mirrors what the compose-go YAML
+	// loader does in postProcessProject.
+	for name, svc := range project.Services {
+		svc.CustomLabels = types.Labels{
+			api.ProjectLabel:    project.Name,
+			api.ServiceLabel:    name,
+			api.VersionLabel:    api.ComposeVersion,
+			api.WorkingDirLabel: project.WorkingDir,
+			api.OneoffLabel:     "False",
+		}
+		project.Services[name] = svc
+	}
 
 	return project, nil
 }
