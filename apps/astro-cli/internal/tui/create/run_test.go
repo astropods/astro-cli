@@ -1,239 +1,181 @@
 package create
 
 import (
+	"slices"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
 )
 
-// keyFromString returns a tea.Msg that matches the key comparisons in the create TUI (msg.String()).
-func keyFromString(s string) tea.Msg {
-	switch s {
-	case "enter":
-		return tea.KeyMsg(tea.Key{Type: tea.KeyEnter})
-	case "up":
-		return tea.KeyMsg(tea.Key{Type: tea.KeyUp})
-	case "down":
-		return tea.KeyMsg(tea.Key{Type: tea.KeyDown})
-	case " ":
-		return tea.KeyMsg(tea.Key{Type: tea.KeySpace})
-	default:
-		// Single rune or runes (e.g. "j", "k", "y", "n", "llama3")
-		runes := []rune(s)
-		if len(runes) == 0 {
-			return tea.KeyMsg(tea.Key{Type: tea.KeyEnter})
-		}
-		return tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: runes})
-	}
-}
+// ── buildConfig ───────────────────────────────────────────────────────────────
 
-// runWithKeys drives the create TUI model with a sequence of key strings and returns the final config.
-// Use key names: "enter", "up", "down", " ", and single runes like "j", "k", "y", "n", or type "llama3" as multiple keys.
-// Returns (config, done, quitting). If done is true, user confirmed; if quitting is true, user cancelled.
-func runWithKeys(name string, keys []string) (scaffold.ScaffoldConfig, bool, bool) {
-	m := initialModel(name)
-	for _, k := range keys {
-		var cmd tea.Cmd
-		var next tea.Model
-		next, cmd = m.Update(keyFromString(k))
-		_ = cmd
-		m = next.(model)
-		if m.done || m.quitting {
-			break
-		}
-	}
-	return m.config, m.done, m.quitting
-}
+func TestBuildConfig_OllamaModel(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:        "my-agent",
+		description: "desc",
+		interfaces:  []string{"web"},
+		models:      []string{"ollama"},
+		ollamaModel: "mistral:7b",
+	})
 
-func TestRunWithKeys_DefaultsToOllamaThenConfirm(t *testing.T) {
-	// Flow: description -> interface -> model (Ollama pre-selected) enter -> Ollama model (first = llama3.2) enter -> knowledge -> tools -> ingestion -> y
-	keys := []string{
-		"enter", "enter", // description, interface
-		"enter",           // model (Ollama selected)
-		"enter",           // Ollama model pick (cursor 0 = llama3.2)
-		"enter", "enter", "enter", // knowledge, tools, ingestion (nothing pre-selected; enter with no selection)
-		"y",
-	}
-	cfg, done, quitting := runWithKeys("test-agent", keys)
-	if quitting {
-		t.Fatal("expected done, not quitting")
-	}
-	if !done {
-		t.Fatal("expected done=true")
-	}
-	if cfg.Name != "test-agent" {
-		t.Errorf("config.Name = %q, want test-agent", cfg.Name)
-	}
 	if cfg.ModelProvider != "ollama" {
-		t.Errorf("config.ModelProvider = %q, want ollama", cfg.ModelProvider)
-	}
-	if cfg.Model != "llama3.2:1b" {
-		t.Errorf("config.Model = %q, want llama3.2:1b", cfg.Model)
-	}
-	if len(cfg.Knowledge) != 0 {
-		t.Errorf("config.Knowledge = %v, want []", cfg.Knowledge)
-	}
-	if len(cfg.Integrations) != 0 {
-		t.Errorf("config.Integrations = %v, want []", cfg.Integrations)
-	}
-}
-
-func TestRunWithKeys_ModelNone(t *testing.T) {
-	// Model: unselect Ollama (no selection), enter -> no model, go to Knowledge
-	keys := []string{
-		"enter", "enter",
-		" ", "enter", // unselect Ollama, confirm (nothing selected)
-		"enter", "enter", "enter",
-		"y",
-	}
-	cfg, done, quitting := runWithKeys("no-model-agent", keys)
-	if !done || quitting {
-		t.Fatalf("done=%v quitting=%v", done, quitting)
-	}
-	if cfg.ModelProvider != "" {
-		t.Errorf("config.ModelProvider = %q, want empty", cfg.ModelProvider)
-	}
-	if len(cfg.Integrations) != 0 {
-		t.Errorf("config.Integrations = %v, want []", cfg.Integrations)
-	}
-}
-
-func TestRunWithKeys_ModelAnthropic(t *testing.T) {
-	// Model: unselect Ollama, select Anthropic only (multi-select)
-	keys := []string{
-		"enter", "enter",
-		" ", "down", " ", "enter", // unselect Ollama, select Anthropic, confirm
-		"enter", "enter",
-		"enter", "enter", "y", // skip API key, ingestion, confirm
-	}
-	cfg, done, quitting := runWithKeys("claude-agent", keys)
-	if !done || quitting {
-		t.Fatalf("done=%v quitting=%v", done, quitting)
-	}
-	if cfg.ModelProvider != "" {
-		t.Errorf("config.ModelProvider = %q, want empty", cfg.ModelProvider)
-	}
-	if len(cfg.Integrations) != 1 || cfg.Integrations[0] != "anthropic" {
-		t.Errorf("config.Integrations = %v, want [anthropic]", cfg.Integrations)
-	}
-}
-
-func TestRunWithKeys_ModelOpenAI(t *testing.T) {
-	// Model: unselect Ollama, select OpenAI only
-	keys := []string{
-		"enter", "enter",
-		" ", "down", "down", " ", "enter",
-		"enter", "enter",
-		"enter", "enter", "y",
-	}
-	cfg, done, quitting := runWithKeys("gpt-agent", keys)
-	if !done || quitting {
-		t.Fatalf("done=%v quitting=%v", done, quitting)
-	}
-	if len(cfg.Integrations) != 1 || cfg.Integrations[0] != "openai" {
-		t.Errorf("config.Integrations = %v, want [openai]", cfg.Integrations)
-	}
-}
-
-func TestRunWithKeys_OllamaWithModelName(t *testing.T) {
-	// Model Ollama selected, enter -> Ollama model: unselect first, select mistral:7b (index 2), enter
-	keys := []string{
-		"enter", "enter",
-		"enter",                    // model (Ollama selected)
-		" ", "down", "down", " ", "enter", // Ollama model: toggle off first, toggle mistral:7b, confirm
-		"enter", "enter", "enter",
-		"y",
-	}
-	cfg, done, quitting := runWithKeys("ollama-agent", keys)
-	if !done || quitting {
-		t.Fatalf("done=%v quitting=%v", done, quitting)
-	}
-	if cfg.ModelProvider != "ollama" {
-		t.Errorf("config.ModelProvider = %q, want ollama", cfg.ModelProvider)
+		t.Errorf("ModelProvider = %q, want ollama", cfg.ModelProvider)
 	}
 	if cfg.Model != "mistral:7b" {
-		t.Errorf("config.Model = %q, want mistral:7b", cfg.Model)
+		t.Errorf("Model = %q, want mistral:7b", cfg.Model)
+	}
+	if len(cfg.Integrations) != 0 {
+		t.Errorf("Integrations = %v, want empty", cfg.Integrations)
 	}
 }
 
-func TestRunWithKeys_KnowledgeQdrant(t *testing.T) {
-	// Model Ollama -> Ollama model enter -> Knowledge: select Qdrant (cursor 0), enter
-	keys := []string{
-		"enter", "enter", "enter", "enter", // to knowledge (nothing pre-selected)
-		" ", "enter", // toggle Qdrant, confirm
-		"enter", "enter", "y",
+func TestBuildConfig_NoModel(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:       "my-agent",
+		interfaces: []string{"web"},
+		models:     []string{},
+	})
+
+	if cfg.ModelProvider != "" {
+		t.Errorf("ModelProvider = %q, want empty", cfg.ModelProvider)
 	}
-	cfg, done, quitting := runWithKeys("qdrant-agent", keys)
-	if !done || quitting {
-		t.Fatalf("done=%v quitting=%v", done, quitting)
-	}
-	if len(cfg.Knowledge) != 1 || cfg.Knowledge[0] != "qdrant" {
-		t.Errorf("config.Knowledge = %v, want [qdrant]", cfg.Knowledge)
+	if cfg.Model != "" {
+		t.Errorf("Model = %q, want empty", cfg.Model)
 	}
 }
 
-func TestRunWithKeys_ToolsGitHub(t *testing.T) {
-	// Model: unselect Ollama, enter; then Tools: select GitHub (only option), enter
-	keys := []string{
-		"enter", "enter",
-		" ", "enter", // model: nothing selected
-		"enter",             // knowledge
-		" ", "enter",        // tools: toggle GitHub, confirm
-		"enter", "enter", "y",
+func TestBuildConfig_AnthropicAndOpenAI(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:         "my-agent",
+		interfaces:   []string{"web"},
+		models:       []string{"anthropic", "openai"},
+		anthropicKey: "sk-ant",
+		openaiKey:    "sk-oai",
+	})
+
+	if cfg.ModelProvider != "" {
+		t.Errorf("ModelProvider = %q, want empty (cloud providers are integrations)", cfg.ModelProvider)
 	}
-	cfg, done, quitting := runWithKeys("github-agent", keys)
-	if !done || quitting {
-		t.Fatalf("done=%v quitting=%v", done, quitting)
+	if len(cfg.Integrations) != 2 {
+		t.Fatalf("Integrations = %v, want [anthropic openai]", cfg.Integrations)
+	}
+	if cfg.IntegrationKeys["anthropic"] != "sk-ant" {
+		t.Errorf("anthropic key = %q, want sk-ant", cfg.IntegrationKeys["anthropic"])
+	}
+	if cfg.IntegrationKeys["openai"] != "sk-oai" {
+		t.Errorf("openai key = %q, want sk-oai", cfg.IntegrationKeys["openai"])
+	}
+}
+
+func TestBuildConfig_ToolsAddedToIntegrations(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:        "my-agent",
+		interfaces:  []string{"web"},
+		models:      []string{},
+		tools:       []string{"github"},
+		githubToken: "ghp_tok",
+	})
+
+	if len(cfg.Integrations) != 1 || cfg.Integrations[0] != "github" {
+		t.Errorf("Integrations = %v, want [github]", cfg.Integrations)
+	}
+	if cfg.IntegrationKeys["github"] != "ghp_tok" {
+		t.Errorf("github token = %q, want ghp_tok", cfg.IntegrationKeys["github"])
+	}
+}
+
+func TestBuildConfig_SlackKeys(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:          "my-agent",
+		interfaces:    []string{"slack"},
+		models:        []string{},
+		slackBotToken: "xoxb-bot",
+		slackAppToken: "xapp-app",
+	})
+
+	if cfg.IntegrationKeys["slack_bot_token"] != "xoxb-bot" {
+		t.Errorf("slack_bot_token = %q, want xoxb-bot", cfg.IntegrationKeys["slack_bot_token"])
+	}
+	if cfg.IntegrationKeys["slack_app_token"] != "xapp-app" {
+		t.Errorf("slack_app_token = %q, want xapp-app", cfg.IntegrationKeys["slack_app_token"])
+	}
+}
+
+func TestBuildConfig_EmptyKeysOmitted(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:       "my-agent",
+		interfaces: []string{"web"},
+		models:     []string{"anthropic"},
+		// no anthropicKey set
+	})
+
+	if _, ok := cfg.IntegrationKeys["anthropic"]; ok {
+		t.Error("expected anthropic key to be absent when empty")
+	}
+}
+
+func TestBuildConfig_OllamaAndAnthropicCombined(t *testing.T) {
+	// Ollama → ModelProvider; Anthropic → Integrations. Both can coexist.
+	cfg := buildConfig(formInputs{
+		name:         "my-agent",
+		interfaces:   []string{"web"},
+		models:       []string{"ollama", "anthropic"},
+		ollamaModel:  "llama3.2:1b",
+		anthropicKey: "sk-ant",
+	})
+
+	if cfg.ModelProvider != "ollama" {
+		t.Errorf("ModelProvider = %q, want ollama", cfg.ModelProvider)
+	}
+	if cfg.Model != "llama3.2:1b" {
+		t.Errorf("Model = %q, want llama3.2:1b", cfg.Model)
+	}
+	if !slices.Contains(cfg.Integrations, "anthropic") {
+		t.Errorf("Integrations = %v, want anthropic present", cfg.Integrations)
+	}
+	if cfg.IntegrationKeys["anthropic"] != "sk-ant" {
+		t.Errorf("anthropic key = %q, want sk-ant", cfg.IntegrationKeys["anthropic"])
+	}
+}
+
+func TestBuildConfig_OllamaAndToolsCombined(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:        "my-agent",
+		interfaces:  []string{"web"},
+		models:      []string{"ollama"},
+		ollamaModel: "llama3.2:1b",
+		tools:       []string{"github"},
+	})
+
+	if cfg.ModelProvider != "ollama" {
+		t.Errorf("ModelProvider = %q, want ollama", cfg.ModelProvider)
 	}
 	if len(cfg.Integrations) != 1 || cfg.Integrations[0] != "github" {
-		t.Errorf("config.Integrations = %v, want [github]", cfg.Integrations)
+		t.Errorf("Integrations = %v, want [github]", cfg.Integrations)
 	}
 }
 
-func TestRunWithKeys_CancelWithQ(t *testing.T) {
-	keys := []string{
-		"enter", "enter",
-		"q",
+func TestBuildConfig_BasicFields(t *testing.T) {
+	cfg := buildConfig(formInputs{
+		name:        "agent-x",
+		description: "does things",
+		interfaces:  []string{"web", "slack"},
+		knowledge:   []string{"qdrant"},
+		ingestion:   []string{"schedule", "webhook"},
+		models:      []string{},
+	})
+
+	if cfg.Name != "agent-x" {
+		t.Errorf("Name = %q, want agent-x", cfg.Name)
 	}
-	_, done, quitting := runWithKeys("cancelled", keys)
-	if !quitting || done {
-		t.Errorf("expected quitting=true, done=false; got quitting=%v done=%v", quitting, done)
+	if cfg.Description != "does things" {
+		t.Errorf("Description = %q, want 'does things'", cfg.Description)
 	}
-}
-
-func TestRunWithKeys_InterfaceRequiresSelection(t *testing.T) {
-	// Drive the model manually so we can inspect intermediate state.
-	m := initialModel("test-agent")
-
-	// Advance past description.
-	next, _ := m.Update(keyFromString("enter"))
-	m = next.(model)
-
-	// Now on screenInterface with web pre-selected. Deselect it, then press enter.
-	next, _ = m.Update(keyFromString(" ")) // deselect web
-	m = next.(model)
-	next, _ = m.Update(keyFromString("enter")) // attempt confirm with nothing selected
-	m = next.(model)
-
-	if m.screen != screenInterface {
-		t.Errorf("expected to stay on screenInterface, got screen=%d", m.screen)
+	if len(cfg.Interfaces) != 2 {
+		t.Errorf("Interfaces = %v, want [web slack]", cfg.Interfaces)
 	}
-	if m.err == "" {
-		t.Errorf("expected validation error, got empty err")
+	if len(cfg.Knowledge) != 1 || cfg.Knowledge[0] != "qdrant" {
+		t.Errorf("Knowledge = %v, want [qdrant]", cfg.Knowledge)
 	}
-
-	// Now re-select web and confirm — should advance.
-	next, _ = m.Update(keyFromString(" ")) // select web
-	m = next.(model)
-	next, _ = m.Update(keyFromString("enter"))
-	m = next.(model)
-
-	if m.screen == screenInterface {
-		t.Errorf("expected to advance past screenInterface after valid selection")
-	}
-	if m.err != "" {
-		t.Errorf("expected err to be cleared after valid selection, got %q", m.err)
+	if len(cfg.Ingestions) != 2 {
+		t.Errorf("Ingestions = %v, want [schedule webhook]", cfg.Ingestions)
 	}
 }
