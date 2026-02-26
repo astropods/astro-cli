@@ -41,7 +41,7 @@ export function InterfacesPicker({
         const hasCredentials = isSelected && creds && creds.length > 0;
 
         const credentialEntries: [string, VariableDisplay][] = creds
-          ? creds.map((c) => [c.key, { description: c.description, optional: false, label: c.label, placeholder: c.placeholder, helpUrl: c.helpUrl }])
+          ? creds.map((c) => [c.key, { description: c.description, optional: false, secret: c.secret, label: c.label, placeholder: c.placeholder, helpUrl: c.helpUrl }])
           : [];
 
         return (

@@ -10,6 +10,7 @@ import {
 export interface VariableDisplay {
   description?: string;
   optional?: boolean;
+  secret?: boolean;
   label?: string;
   placeholder?: string;
   helpUrl?: string;
@@ -78,7 +79,7 @@ export function VariableFields({ variables, values, onChange, errorKeys }: Varia
             </div>
             <Input
               id={key}
-              type="password"
+              type={v.secret ? "password" : "text"}
               autoComplete="off"
               spellCheck={false}
               value={values[key] || ""}

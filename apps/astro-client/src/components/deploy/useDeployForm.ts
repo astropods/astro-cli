@@ -22,10 +22,10 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
   { id: "web", label: "Web", description: "Browser-based chat interface" },
 ];
 
-export const ADAPTER_CREDENTIALS: Record<string, { key: string; label: string; description: string; placeholder?: string; helpUrl?: string }[]> = {
+export const ADAPTER_CREDENTIALS: Record<string, { key: string; label: string; description: string; secret?: boolean; placeholder?: string; helpUrl?: string }[]> = {
   slack: [
-    { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", description: "Slack bot token for messaging", placeholder: "your-slack-bot-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
-    { key: "SLACK_APP_TOKEN", label: "Slack App Token", description: "Slack app token for socket mode", placeholder: "your-slack-app-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
+    { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", description: "Slack bot token for messaging", secret: true, placeholder: "your-slack-bot-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
+    { key: "SLACK_APP_TOKEN", label: "Slack App Token", description: "Slack app token for socket mode", secret: true, placeholder: "your-slack-app-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
   ],
 };
 
@@ -38,19 +38,34 @@ function fulfillTemplate(
   const { editable: _editable, ...rest } = template;
 
   // Rebuild variables: keep only runtime fields, fill in user-supplied value
-  const variables: Record<string, DeploymentVariable> | undefined = rest.variables
+  const variables: Record<string, DeploymentVariable> = rest.variables
     ? Object.fromEntries(
         Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => [
           key,
           { value: variableValues[key] ?? '', targets, secret, optional },
         ]),
       )
-    : undefined;
+    : {};
+  // Inject adapter credentials not already declared in template variables
+  for (const adapterId of selectedAdapters) {
+    const creds = ADAPTER_CREDENTIALS[adapterId];
+    if (!creds) continue;
+    for (const cred of creds) {
+      if (!(cred.key in variables)) {
+        variables[cred.key] = {
+          value: variableValues[cred.key] ?? '',
+          targets: [`interface.${adapterId}`],
+          secret: cred.secret ?? false,
+          optional: false,
+        };
+      }
+    }
+  }
 
   return {
     ...rest,
     spec: 'deployment/v1',
-    variables,
+    variables: Object.keys(variables).length > 0 ? variables : undefined,
     interfaces: rest.interfaces
       ? { ...rest.interfaces, adapters: selectedAdapters }
       : rest.interfaces,
@@ -131,8 +146,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (variableEntries.length > 0) {
       setVariableValues((prev) => {
         const initial: Record<string, string> = {};
-        for (const [key] of variableEntries) {
-          initial[key] = prev[key] ?? "";
+        for (const [key, v] of variableEntries) {
+          initial[key] = prev[key] ?? v.default ?? "";
         }
         return initial;
       });

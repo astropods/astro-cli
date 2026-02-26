@@ -37,10 +37,10 @@ const AVAILABLE_ADAPTERS: { id: string; label: string; description: string }[] =
   { id: "slack", label: "Slack", description: "Slack bot via socket mode" },
 ];
 
-const ADAPTER_CREDENTIALS: Record<string, { key: string; description: string }[]> = {
+const ADAPTER_CREDENTIALS: Record<string, { key: string; description: string; secret?: boolean }[]> = {
   slack: [
-    { key: "SLACK_BOT_TOKEN", description: "Slack bot token for messaging" },
-    { key: "SLACK_APP_TOKEN", description: "Slack app token for socket mode" },
+    { key: "SLACK_BOT_TOKEN", description: "Slack bot token for messaging", secret: true },
+    { key: "SLACK_APP_TOKEN", description: "Slack app token for socket mode", secret: true },
   ],
 };
 
@@ -286,17 +286,31 @@ function fulfillTemplate(
   const fulfilled = JSON.parse(JSON.stringify(template)) as Record<string, unknown>;
   fulfilled.spec = 'deployment/v1';
   delete fulfilled.editable;
-  const variables = fulfilled.variables as Record<string, Record<string, unknown>> | undefined;
-  if (variables) {
-    for (const [key, v] of Object.entries(variables)) {
-      v.value = variableValues[key] ?? '';
-      delete v.default;
-      delete v.description;
-      delete v.datatype;
-      delete v['display-as'];
-      delete v.options;
+  const variables = (fulfilled.variables ?? {}) as Record<string, Record<string, unknown>>;
+  for (const [key, v] of Object.entries(variables)) {
+    v.value = variableValues[key] ?? '';
+    delete v.default;
+    delete v.description;
+    delete v.datatype;
+    delete v['display-as'];
+    delete v.options;
+  }
+  // Inject adapter credentials not already declared in template variables
+  for (const adapterId of selectedAdapters) {
+    const creds = ADAPTER_CREDENTIALS[adapterId];
+    if (!creds) continue;
+    for (const cred of creds) {
+      if (!(cred.key in variables)) {
+        variables[cred.key] = {
+          value: variableValues[cred.key] ?? '',
+          targets: [`interface.${adapterId}`],
+          secret: cred.secret ?? false,
+          optional: false,
+        };
+      }
     }
   }
+  fulfilled.variables = variables;
   if (fulfilled.interfaces) {
     (fulfilled.interfaces as Record<string, unknown>).adapters = selectedAdapters;
   }
@@ -321,7 +335,7 @@ function CredentialForm({
       <div key={key}>
         <label className="block text-xs font-medium text-stone-700 mb-1">{key}</label>
         <input
-          type="password"
+          type={variable.secret ? "password" : "text"}
           value={values[key] || ""}
           onChange={(e) => onChange({ ...values, [key]: e.target.value })}
           placeholder={variable.description || key}
@@ -399,8 +413,8 @@ export default function DeployPage() {
     if (variableEntries.length > 0) {
       setCredentialValues((prev) => {
         const initial: Record<string, string> = {};
-        for (const [key] of variableEntries) {
-          initial[key] = prev[key] ?? "";
+        for (const [key, v] of variableEntries) {
+          initial[key] = prev[key] ?? v.default ?? "";
         }
         return initial;
       });
