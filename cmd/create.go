@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,6 +108,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	} else {
 		var err error
 		config, err = create.Run(name)
+		if errors.Is(err, create.ErrCancelled) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/huh/spinner"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -227,29 +230,27 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
-	fmt.Println("🔨 Building services...")
 	buildArgs := []string{"compose", "--profile", "ingestion", "-f", cPath, "build"}
 	if rebuild {
-		fmt.Println("   Using --no-cache for clean rebuild...")
 		buildArgs = append(buildArgs, "--no-cache")
 	}
 	if noPull {
 		buildArgs = append(buildArgs, "--pull=never")
 	}
-	buildCmd := exec.Command("docker", buildArgs...) //nolint:gosec
-	buildCmd.Stdout = verboseWriter(verbose)
-	buildCmd.Stderr = os.Stderr
-	if err := buildCmd.Run(); err != nil {
+	buildTitle := "Building services..."
+	if rebuild {
+		buildTitle = "Building services (no cache)..."
+	}
+	if err := withSpinner(buildTitle, verbose, func() error {
+		return runCmd(exec.Command("docker", buildArgs...), verbose) //nolint:gosec
+	}); err != nil {
 		return fmt.Errorf("failed to build services: %w", err)
 	}
 
 	// Start non-profiled services (already built above)
-	fmt.Println("🚀 Starting services...")
-	upArgs := []string{"compose", "-f", cPath, "up", "-d", "--no-build"}
-	upCmd := exec.Command("docker", upArgs...) //nolint:gosec
-	upCmd.Stdout = verboseWriter(verbose)
-	upCmd.Stderr = os.Stderr
-	if err := upCmd.Run(); err != nil {
+	if err := withSpinner("Starting services...", verbose, func() error {
+		return runCmd(exec.Command("docker", "compose", "-f", cPath, "up", "-d", "--no-build"), verbose) //nolint:gosec
+	}); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
@@ -270,35 +271,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
-	runStartupIngestions(astroSpec, cPath)
+	runStartupIngestions(astroSpec, cPath, verbose)
 
-	// Print unified ready block
-	fmt.Println()
-	fmt.Println("✅ All services running!")
-	fmt.Println()
-	if hasWebInterface {
-		fmt.Println("  Your agent is ready. Open the playground to start chatting:")
-		fmt.Println()
-		fmt.Printf("  %s%s➜  http://localhost:3000%s\n", colorBold, colorGreen, colorReset)
-		fmt.Println()
-		fmt.Printf("  %sAPI  http://localhost:3100%s\n", colorDim, colorReset)
-	}
-	for name, ingestion := range astroSpec.Ingestion {
-		if ingestion.Trigger.Type != "webhook" {
-			continue
-		}
-		port := ingestion.Container.Port
-		if port == 0 {
-			port = 3001
-		}
-		fmt.Printf("  %sWebhook  http://localhost:%d%s  (%s)\n", colorDim, port, colorReset, name)
-	}
-	fmt.Println()
-	fmt.Printf("  %sast dev logs%s         — tail logs\n", colorBold, colorReset)
-	fmt.Printf("  %sast dev stop%s         — stop\n", colorBold, colorReset)
-	printIngestionHints(astroSpec)
-	fmt.Println()
-
+	printReadyBlock(astroSpec, hasWebInterface)
 	return nil
 }
 
@@ -596,30 +571,16 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 }
 
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
-func runStartupIngestions(s *spec.AstroSpec, cPath string) {
+func runStartupIngestions(s *spec.AstroSpec, cPath string, verbose bool) {
 	for name, ingestion := range s.Ingestion {
 		if ingestion.Trigger.Type != "startup" {
 			continue
 		}
-		fmt.Printf("🚀 Running startup ingestion: %s\n", name)
-		runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)) //nolint:gosec
-		runCmd.Stdout = os.Stdout
-		runCmd.Stderr = os.Stderr
-		if err := runCmd.Run(); err != nil {
-			fmt.Printf("❌ Failed to run startup ingestion '%s': %v\n", name, err)
-		} else {
-			fmt.Printf("✅ Startup ingestion '%s' completed\n", name)
+		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), verbose, func() error {
+			return runCmd(exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)), verbose) //nolint:gosec
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Startup ingestion '%s' failed: %v\n", name, err)
 		}
-	}
-}
-
-// printIngestionHints prints manual trigger instructions for schedule and manual ingestions.
-func printIngestionHints(s *spec.AstroSpec) {
-	for name, ingestion := range s.Ingestion {
-		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
-			continue
-		}
-		fmt.Printf("  %sast dev trigger %-8s%s — trigger ingestion\n", colorBold, name, colorReset)
 	}
 }
 
@@ -629,6 +590,92 @@ func verboseWriter(verbose bool) io.Writer {
 		return os.Stdout
 	}
 	return io.Discard
+}
+
+// runCmd runs cmd with stdout routed through verboseWriter.
+// In verbose mode stderr goes directly to os.Stderr.
+// In non-verbose mode stderr is captured; on failure it is flushed to os.Stderr
+// so docker's error output is never silently discarded.
+func runCmd(cmd *exec.Cmd, verbose bool) error {
+	cmd.Stdout = verboseWriter(verbose)
+	if verbose {
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		if errBuf.Len() > 0 {
+			fmt.Fprint(os.Stderr, errBuf.String())
+		}
+		return err
+	}
+	return nil
+}
+
+// withSpinner runs fn with an animated spinner title in non-verbose mode, or
+// prints the title and runs fn directly in verbose mode.
+func withSpinner(title string, verbose bool, fn func() error) error {
+	if verbose {
+		fmt.Println(title)
+		return fn()
+	}
+	return spinner.New().
+		Title(" " + title).
+		ActionWithErr(func(_ context.Context) error {
+			return fn()
+		}).
+		Run()
+}
+
+// printReadyBlock renders the post-start summary using lipgloss.
+func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
+	bold := lipgloss.NewStyle().Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	url := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+
+	var lines []string
+	lines = append(lines, bold.Render("✨ "+s.Name+" is ready"))
+	lines = append(lines, "")
+
+	if hasWebInterface {
+		lines = append(lines, url.Render("➜  http://localhost:3000"))
+		lines = append(lines, dim.Render("   http://localhost:3100  (API)"))
+	}
+
+	// Webhook endpoints
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type != "webhook" {
+			continue
+		}
+		port := ingestion.Container.Port
+		if port == 0 {
+			port = 3001
+		}
+		lines = append(lines, dim.Render(fmt.Sprintf("   http://localhost:%d  (%s webhook)", port, name)))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, bold.Render("ast dev logs")+"  — tail logs")
+	lines = append(lines, bold.Render("ast dev stop")+"  — stop")
+
+	// Manual / schedule ingestion hints
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
+			continue
+		}
+		lines = append(lines, bold.Render(fmt.Sprintf("ast dev trigger %-8s", name))+"— trigger ingestion")
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(0, 2).
+		Render(strings.Join(lines, "\n"))
+
+	fmt.Println()
+	fmt.Println(box)
+	fmt.Println()
 }
 
 // openBrowser opens the specified URL in the default browser
