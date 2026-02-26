@@ -14,15 +14,16 @@ import (
 
 	"bufio"
 
-	"github.com/docker/docker/api/types/build"
-	dockerimage "github.com/docker/docker/api/types/image"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	controlapi "github.com/moby/buildkit/api/services/control"
+	"github.com/moby/moby/api/types/build"
+	"github.com/moby/moby/client"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
-	"github.com/moby/moby/client"
 	"github.com/moby/patternmatcher/ignorefile"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
@@ -330,9 +331,17 @@ func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, doc
 		return
 	}
 
-	pullOpts := dockerimage.PullOptions{}
+	pullOpts := client.ImagePullOptions{}
 	if platform != "" {
-		pullOpts.Platform = platform
+		parts := strings.SplitN(platform, "/", 3)
+		p := ocispec.Platform{OS: parts[0]}
+		if len(parts) > 1 {
+			p.Architecture = parts[1]
+		}
+		if len(parts) > 2 {
+			p.Variant = parts[2]
+		}
+		pullOpts.Platforms = []ocispec.Platform{p}
 	}
 
 	seen := make(map[string]bool)
@@ -396,7 +405,7 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 	}
 
 	// Prepare build options
-	opts := build.ImageBuildOptions{
+	opts := client.ImageBuildOptions{
 		Dockerfile: dockerfile,
 		Tags:       []string{imageName},
 		Remove:     true,
@@ -434,7 +443,15 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 		opts.SessionID = sess.ID()
 
 		if platform != "" {
-			opts.Platform = platform
+			parts := strings.SplitN(platform, "/", 3)
+			p := ocispec.Platform{OS: parts[0]}
+			if len(parts) > 1 {
+				p.Architecture = parts[1]
+			}
+			if len(parts) > 2 {
+				p.Variant = parts[2]
+			}
+			opts.Platforms = []ocispec.Platform{p}
 		}
 	}
 

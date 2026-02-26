@@ -16,7 +16,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	dockerimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/registry"
 	"github.com/moby/moby/client"
 
@@ -50,7 +49,7 @@ func getDockerRegistryAuth() (string, error) {
 func dockerPushWithRetry(ctx context.Context, dockerCli *client.Client, imageRef, authStr string, label string) (int64, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxPushRetries; attempt++ {
-		pushResp, err := dockerCli.ImagePush(ctx, imageRef, dockerimage.PushOptions{
+		pushResp, err := dockerCli.ImagePush(ctx, imageRef, client.ImagePushOptions{
 			RegistryAuth: authStr,
 		})
 		if err != nil {
@@ -99,7 +98,7 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 	defer dockerCli.Close() //nolint:errcheck
 
 	// Tag image for remote registry
-	if err := dockerCli.ImageTag(ctx, localImageName, remoteImageName); err != nil {
+	if _, err := dockerCli.ImageTag(ctx, client.ImageTagOptions{Source: localImageName, Target: remoteImageName}); err != nil {
 		fmt.Println()
 		return 0, fmt.Errorf("failed to tag image %s -> %s: %w", localImageName, remoteImageName, err)
 	}
@@ -167,7 +166,7 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 		platformRemoteTag := fmt.Sprintf("%s-%s", remoteImageName, strings.ReplaceAll(platform, "/", "-"))
 
 		// Tag for remote
-		if err := dockerCli.ImageTag(ctx, localTag, platformRemoteTag); err != nil {
+		if _, err := dockerCli.ImageTag(ctx, client.ImageTagOptions{Source: localTag, Target: platformRemoteTag}); err != nil {
 			return 0, fmt.Errorf("failed to tag %s -> %s: %w", localTag, platformRemoteTag, err)
 		}
 

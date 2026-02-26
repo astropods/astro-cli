@@ -21,9 +21,10 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
+	composeTypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/docker/compose/v5/pkg/api"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
@@ -154,13 +155,13 @@ func checkDockerRunning() error {
 	return nil
 }
 
-// composePath returns the path to the docker-compose.yml for the current working directory.
-func composePath() (string, error) {
+// devStatePath returns the path to the dev-environment marker file.
+func devStatePath() (string, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
-	return filepath.Join(workingDir, ".ast", "docker-compose.yml"), nil
+	return filepath.Join(workingDir, ".ast", ".running"), nil
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
@@ -278,23 +279,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Write docker-compose.yml file
-	cPath := filepath.Join(workingDir, ".ast", "docker-compose.yml")
-	if err := os.MkdirAll(filepath.Dir(cPath), 0755); err != nil { //nolint:gosec
+	astDir := filepath.Join(workingDir, ".ast")
+	if err := os.MkdirAll(astDir, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create .ast directory: %w", err)
-	}
-
-	composeData, err := yaml.Marshal(project)
-	if err != nil {
-		return fmt.Errorf("failed to marshal compose project: %w", err)
-	}
-
-	if err := os.WriteFile(cPath, composeData, 0644); err != nil { //nolint:gosec
-		return fmt.Errorf("failed to write compose file: %w", err)
-	}
-
-	if verbose {
-		fmt.Printf("   Wrote compose file to: %s\n", cPath)
 	}
 
 	// Log services before building
@@ -313,28 +300,41 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	svc, err := newComposeService()
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
-	buildArgs := composeBuildArgs(cPath, rebuild, noPull)
-	buildTitle := "Building services..."
+	fmt.Println("🔨 Building services...")
 	if rebuild {
-		buildTitle = "Building services (no cache)..."
+		fmt.Println("   Using --no-cache for clean rebuild...")
 	}
-	if err := withSpinner(buildTitle, verbose, func() error {
-		return runCmd(exec.Command("docker", buildArgs...), verbose) //nolint:gosec
+	if err := svc.Build(context.Background(), project, api.BuildOptions{
+		NoCache:  rebuild,
+		Quiet:    !verbose,
+		Services: allServiceNames(project),
 	}); err != nil {
 		return fmt.Errorf("failed to build services: %w", err)
 	}
 
 	// Tear down leftover containers from a previous run (e.g. force-killed with Ctrl+C).
 	// This is fast and idempotent when nothing is running.
-	_ = runCmd(exec.Command("docker", "compose", "-f", cPath, "down", "--remove-orphans"), verbose) //nolint:gosec
+	_ = svc.Down(context.Background(), astroSpec.Name, api.DownOptions{RemoveOrphans: true})
 
 	// Start non-profiled services (already built above)
-	if err := withSpinner("Starting services...", verbose, func() error {
-		return runCmd(exec.Command("docker", "compose", "-f", cPath, "up", "-d", "--no-build"), verbose) //nolint:gosec
+	fmt.Println("🚀 Starting services...")
+	if err := svc.Up(context.Background(), projectForUp(project), api.UpOptions{
+		Create: api.CreateOptions{Build: nil}, // --no-build
+		Start:  api.StartOptions{},            // nil Attach = detached
 	}); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
+	}
+
+	// Write marker so subcommands (logs, stop, trigger) know dev is running
+	if err := os.WriteFile(filepath.Join(astDir, ".running"), nil, 0644); err != nil { //nolint:gosec
+		return fmt.Errorf("failed to write dev state: %w", err)
 	}
 
 	fmt.Println()
@@ -349,18 +349,18 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// --local: run agent as local process and block
 	if local {
-		return runLocalAgent(cmd, astroSpec, workingDir, cPath, envVars, hasWebInterface)
+		return runLocalAgent(cmd, astroSpec, workingDir, envVars, hasWebInterface)
 	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
-	runStartupIngestions(astroSpec, cPath, verbose)
+	runStartupIngestions(astroSpec, project)
 
 	printReadyBlock(astroSpec, hasWebInterface)
 	return nil
 }
 
 // runLocalAgent runs the agent as a local bun process and blocks until Ctrl+C.
-func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPath string, envVars map[string]string, hasWebInterface bool) error {
+func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir string, envVars map[string]string, hasWebInterface bool) error {
 	agentCtx, agentCancel := context.WithCancel(context.Background())
 	agentEnv := buildLocalAgentEnv(astroSpec, envVars)
 
@@ -423,14 +423,19 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	}
 	fmt.Printf("%s→%s Agent running as local process %s(%s)%s\n", colorCyan, colorReset, colorDim, startCommand, colorReset)
 
-	checkComposeHealth(cPath)
+	checkComposeHealth(astroSpec.Name)
 
 	// Stream docker compose logs in the background so service failures are visible
 	logsCtx, logsCancel := context.WithCancel(context.Background())
-	composeLogsCmd := exec.CommandContext(logsCtx, "docker", "compose", "-f", cPath, "logs", "-f", "--no-log-prefix") //nolint:gosec
-	composeLogsCmd.Stdout = os.Stdout
-	composeLogsCmd.Stderr = os.Stderr
-	_ = composeLogsCmd.Start()
+	logsSvc, err := newComposeService()
+	if err != nil {
+		agentCancel()
+		return fmt.Errorf("failed to init compose service for logs: %w", err)
+	}
+	go func() { //nolint:errcheck
+		_ = logsSvc.Logs(logsCtx, astroSpec.Name, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
+			api.LogOptions{Follow: true})
+	}()
 
 	if hasWebInterface {
 		go func() {
@@ -454,20 +459,16 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	fmt.Printf("%s→%s Shutting down (Ctrl+C again to force)...\n", colorCyan, colorReset)
 
 	logsCancel()
-	if composeLogsCmd.Process != nil {
-		_ = composeLogsCmd.Wait()
-	}
-
 	agentCancel()
 	killProcessGroup(agentCmd)
 
-	downCtx, downCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer downCancel()
-	downCmd := exec.CommandContext(downCtx, "docker", "compose", "-f", cPath, "down", "--timeout", "15") //nolint:gosec
-	downCmd.Stdout = os.Stdout
-	downCmd.Stderr = os.Stderr
-	if err := downCmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s→%s Warning: docker compose down failed: %v\n", colorCyan, colorReset, err)
+	// Stop all services
+	localSvc, err := newComposeService()
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	if err := localSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{}); err != nil {
+		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
 	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
@@ -477,59 +478,87 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 }
 
 func runDevLogs(cmd *cobra.Command, args []string) error {
-	if err := checkDockerRunning(); err != nil {
-		return err
-	}
-
-	cPath, err := composePath()
+	statePath, err := devStatePath()
 	if err != nil {
 		return err
 	}
 
-	if _, err := os.Stat(cPath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return fmt.Errorf("no dev environment running. Run 'ast dev' first")
 	}
 
-	logsArgs := devLogsArgs(cPath, args, logsAll)
+	service := "agent"
+	if len(args) > 0 {
+		service = args[0]
+	}
 
-	logsCmd := exec.Command("docker", logsArgs...) //nolint:gosec
-	logsCmd.Stdout = os.Stdout
-	logsCmd.Stderr = os.Stderr
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
+	if err != nil {
+		return fmt.Errorf("failed to parse spec: %w", err)
+	}
 
-	// Handle Ctrl+C gracefully
+	logsSvc, err := newComposeService()
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+
+	logsCtx, logsCancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		if logsCmd.Process != nil {
-			_ = logsCmd.Process.Signal(syscall.SIGTERM)
-		}
+		logsCancel()
 	}()
 
-	return logsCmd.Run()
+	err = logsSvc.Logs(logsCtx, astroSpec.Name, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
+		api.LogOptions{Services: []string{service}, Follow: true})
+	logsCancel()
+	if logsCtx.Err() != nil {
+		return nil // cancelled by signal — not an error
+	}
+	return err
 }
 
 func runDevStop(cmd *cobra.Command, args []string) error {
-	if err := checkDockerRunning(); err != nil {
-		return err
-	}
-
-	cPath, err := composePath()
+	statePath, err := devStatePath()
 	if err != nil {
 		return err
 	}
 
-	if _, err := os.Stat(cPath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return fmt.Errorf("no dev environment running. Run 'ast dev' first")
 	}
 
-	fmt.Printf("%s→%s Stopping dev containers...\n", colorCyan, colorReset)
-	downCmd := exec.Command("docker", "compose", "-f", cPath, "down") //nolint:gosec
-	downCmd.Stdout = os.Stdout
-	downCmd.Stderr = os.Stderr
-	if err := downCmd.Run(); err != nil {
+	fmt.Println("🛑 Stopping dev containers...")
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return err
+	}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
+	if err != nil {
+		return fmt.Errorf("failed to parse spec: %w", err)
+	}
+
+	stopSvc, err := newComposeService()
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	if err := stopSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{}); err != nil {
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
+	_ = os.Remove(statePath)
 
 	fmt.Printf("%s→%s Containers stopped\n", colorCyan, colorReset)
 	return nil
@@ -543,6 +572,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
 	astroSpec, err := spec.ParseSpec(specPath)
@@ -577,32 +611,53 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("ingestion job %q not found in %s", name, filepath.Base(specPath))
 	}
 
-	cPath, err := composePath()
+	statePath, err := devStatePath()
 	if err != nil {
 		return err
 	}
 
-	if _, err := os.Stat(cPath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return fmt.Errorf("no dev environment running. Run 'ast dev' first")
 	}
 
-	fmt.Printf("%s→%s Triggering ingestion: %s\n", colorCyan, colorReset, name)
-	runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)) //nolint:gosec
-	runCmd.Stdout = os.Stdout
-	runCmd.Stderr = os.Stderr
-	if err := runCmd.Run(); err != nil {
+	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
+	envVars, err := utils.LoadEnvFile(workingDir, envFile)
+	if err != nil {
+		return fmt.Errorf("failed to read .env file: %w", err)
+	}
+	if envVars == nil {
+		envVars = make(map[string]string)
+	}
+	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
+	if err != nil {
+		return fmt.Errorf("failed to build compose project: %w", err)
+	}
+
+	triggerSvc, err := newComposeService()
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), ingProject, api.RunOptions{
+		Service:    fmt.Sprintf("ingestion-%s", name),
+		AutoRemove: true,
+		NoDeps:     true,
+	})
+	if err != nil {
 		return fmt.Errorf("ingestion '%s' failed: %w", name, err)
 	}
-	fmt.Printf("%s→%s Ingestion '%s' completed\n", colorCyan, colorReset, name)
+	if exitCode != 0 {
+		return fmt.Errorf("ingestion '%s' exited with code %d", name, exitCode)
+	}
+	fmt.Printf("✅ Ingestion '%s' completed\n", name)
 	return nil
 }
 
 // checkComposeHealth waits briefly then prints the status of each compose service.
 // Services that exited or are restarting are flagged so the user knows immediately.
-func checkComposeHealth(composePath string) {
+func checkComposeHealth(projectName string) {
 	time.Sleep(3 * time.Second)
 
-	out, err := exec.Command("docker", "compose", "-f", composePath, "ps", "--format", "{{.Name}}\t{{.State}}\t{{.Status}}").Output() //nolint:gosec
+	out, err := exec.Command("docker", "compose", "-p", projectName, "ps", "--format", "{{.Name}}\t{{.State}}\t{{.Status}}").Output() //nolint:gosec
 	if err != nil {
 		return
 	}
@@ -859,46 +914,30 @@ func rewriteDockerHostsToLocalhost(s *spec.AstroSpec, envMap map[string]string) 
 }
 
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
-func runStartupIngestions(s *spec.AstroSpec, cPath string, verbose bool) {
+func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project) {
 	for name, ingestion := range s.Ingestion {
 		if ingestion.Trigger.Type != "startup" {
 			continue
 		}
-		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), verbose, func() error {
-			return runCmd(exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)), verbose) //nolint:gosec
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "%s✗%s Startup ingestion '%s' failed: %v\n", colorRed, colorReset, name, err)
+		fmt.Printf("🚀 Running startup ingestion: %s\n", name)
+		startupSvc, err := newComposeService()
+		if err != nil {
+			fmt.Printf("❌ Failed to init compose service for ingestion '%s': %v\n", name, err)
+			continue
+		}
+		exitCode, err := startupSvc.RunOneOffContainer(context.Background(), project, api.RunOptions{
+			Service:    fmt.Sprintf("ingestion-%s", name),
+			AutoRemove: true,
+			NoDeps:     true,
+		})
+		if err != nil {
+			fmt.Printf("❌ Failed to run startup ingestion '%s': %v\n", name, err)
+		} else if exitCode != 0 {
+			fmt.Printf("❌ Startup ingestion '%s' exited with code %d\n", name, exitCode)
+		} else {
+			fmt.Printf("✅ Startup ingestion '%s' completed\n", name)
 		}
 	}
-}
-
-// verboseWriter returns stdout when verbose is true, io.Discard otherwise.
-func verboseWriter(verbose bool) io.Writer {
-	if verbose {
-		return os.Stdout
-	}
-	return io.Discard
-}
-
-// runCmd runs cmd with stdout routed through verboseWriter.
-// In verbose mode stderr goes directly to os.Stderr.
-// In non-verbose mode stderr is captured; on failure it is flushed to os.Stderr
-// so docker's error output is never silently discarded.
-func runCmd(cmd *exec.Cmd, verbose bool) error {
-	cmd.Stdout = verboseWriter(verbose)
-	if verbose {
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	}
-	var errBuf bytes.Buffer
-	cmd.Stderr = &errBuf
-	if err := cmd.Run(); err != nil {
-		if errBuf.Len() > 0 {
-			fmt.Fprint(os.Stderr, errBuf.String())
-		}
-		return err
-	}
-	return nil
 }
 
 // withSpinner runs fn with an animated spinner title in non-verbose mode, or
