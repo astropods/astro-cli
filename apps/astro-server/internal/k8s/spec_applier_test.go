@@ -6,6 +6,7 @@ import (
 
 	"github.com/postman/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -886,6 +887,58 @@ func TestApplyDeploymentSpec_UpdateExistingResources(t *testing.T) {
 	for _, r := range result2.Resources {
 		if r.Status != "updated" {
 			t.Errorf("second apply: resource %s/%s: expected status 'updated', got %s", r.Kind, r.Name, r.Status)
+		}
+	}
+}
+
+// TestNetworkPolicies_NoPortlessEgressRule guards against a specific AWS VPC CNI
+// bug: when an egress rule has only Ports and no To field, the PolicyEndpoint
+// controller merges those ports onto the 0.0.0.0/0 ipBlock rule — restricting
+// internet egress to port 53 only and blocking outbound API calls (e.g. OpenAI).
+//
+// This test enforces two invariants on the allow-namespace-traffic policy:
+//  1. No egress rule is To-less with only Ports (the pattern that triggers the merge).
+//  2. The 0.0.0.0/0 ipBlock egress rule carries no port restriction.
+func TestNetworkPolicies_NoPortlessEgressRule(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: []string{"10.3.11.0/24", "10.3.12.0/24"},
+	}
+
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-namespace-traffic", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-namespace-traffic: %v", err)
+	}
+
+	for i, rule := range np.Spec.Egress {
+		// Invariant 1: every egress rule must have a To field.
+		// A To-less ports-only rule is the pattern that causes the AWS VPC CNI
+		// PolicyEndpoint controller to merge port restrictions onto the ipBlock rule.
+		if len(rule.To) == 0 && len(rule.Ports) > 0 {
+			t.Errorf(
+				"egress rule %d has Ports but no To — AWS VPC CNI will merge these ports "+
+					"onto the 0.0.0.0/0 ipBlock rule, blocking internet egress to all ports except those listed",
+				i,
+			)
+		}
+
+		// Invariant 2: the 0.0.0.0/0 internet egress rule must allow all ports.
+		for _, peer := range rule.To {
+			if peer.IPBlock != nil && peer.IPBlock.CIDR == "0.0.0.0/0" && len(rule.Ports) > 0 {
+				t.Errorf(
+					"egress rule %d targets 0.0.0.0/0 but restricts ports to %v — "+
+						"pods will be unable to reach external APIs on unrestricted ports",
+					i, rule.Ports,
+				)
+			}
 		}
 	}
 }
