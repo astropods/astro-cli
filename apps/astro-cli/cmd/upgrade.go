@@ -11,8 +11,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
 )
 
 var upgradeCmd = &cobra.Command{
@@ -34,26 +32,35 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	dim := color.New(color.Faint)
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
-	serverURL := auth.DefaultServerURL
+
+	base := strings.TrimRight(downloadBaseURL, "/")
+	if base == "" {
+		return fmt.Errorf("upgrade not available: download URL not configured in this build")
+	}
+
 	binName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
-	downloadURL := serverURL + "/download/" + binName
+	downloadURL := base + "/" + binName
+	versionURL := base + "/VERSION"
 
 	if verbose {
-		dim.Printf("  server:  %s\n", serverURL) //nolint:errcheck,gosec
 		dim.Printf("  binary:  %s\n", binName) //nolint:errcheck,gosec
 		dim.Printf("  url:     %s\n", downloadURL) //nolint:errcheck,gosec
 	}
 
-	// Check latest version via HEAD request
-	if !forceUpgrade {
-		cyan.Print("→ ") //nolint:errcheck,gosec
-		fmt.Println("Checking for updates...")
+	// Fetch the latest version from the VERSION file.
+	cyan.Print("→ ") //nolint:errcheck,gosec
+	fmt.Println("Checking for updates...")
 
-		latest, err := checkLatestVersion(downloadURL, verbose)
-		if err != nil {
-			return fmt.Errorf("failed to check latest version: %w", err)
+	latestVersion, err := fetchVersionFile(versionURL)
+	if err != nil {
+		return fmt.Errorf("failed to check latest version: %w", err)
+	}
+
+	if !forceUpgrade {
+		if version == "dev" {
+			return fmt.Errorf("cannot upgrade a dev build; use --force to override")
 		}
-		if latest != "" && latest == version {
+		if latestVersion != "" && latestVersion == version {
 			green.Print("✓ ") //nolint:errcheck,gosec
 			fmt.Printf("Already up to date (%s)\n", version)
 			return nil
@@ -61,7 +68,6 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve the install directory: use the directory of the current binary.
-	// This works whether installed via ~/.ast/bin or elsewhere.
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to find executable path: %w", err)
@@ -69,7 +75,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	installDir := filepath.Dir(execPath)
 	symlinkPath := filepath.Join(installDir, binaryName)
 
-	// Download to temp file in the install directory
+	// Download to temp file in the install directory.
 	tmpFile, err := os.CreateTemp(installDir, ".ast-upgrade-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
@@ -92,8 +98,6 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("download failed: server returned %d", resp.StatusCode)
 	}
 
-	newVersion := resp.Header.Get("X-Cli-Version")
-
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
 		_ = tmpFile.Close()
 		return fmt.Errorf("failed to write download: %w", err)
@@ -104,26 +108,23 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	if newVersion != "" {
+	if latestVersion != "" {
 		// Versioned binary + symlink approach
-		versionedName := fmt.Sprintf("%s-%s", binaryName, newVersion)
+		versionedName := fmt.Sprintf("%s-%s", binaryName, latestVersion)
 		versionedPath := filepath.Join(installDir, versionedName)
 
-		// Move temp to versioned path
 		if err := os.Rename(tmpPath, versionedPath); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to install binary: %w", err)
 		}
 
-		// Remove old symlink and create new one
 		_ = os.Remove(symlinkPath)
 		if err := os.Symlink(versionedName, symlinkPath); err != nil {
 			return fmt.Errorf("failed to create symlink: %w", err)
 		}
 
-		// Clean up old versioned binaries
-		cleanOldVersions(installDir, binaryName, newVersion)
+		cleanOldVersions(installDir, binaryName, latestVersion)
 	} else {
-		// No version header — fall back to direct replace
+		// No version info — fall back to direct replace
 		realPath, err := filepath.EvalSymlinks(execPath)
 		if err != nil {
 			realPath = execPath
@@ -137,13 +138,31 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	fmt.Print("Upgraded ")
 	dim.Print(version) //nolint:errcheck,gosec
 	fmt.Print(" → ")
-	if newVersion != "" {
-		green.Println(newVersion) //nolint:errcheck,gosec
+	if latestVersion != "" {
+		green.Println(latestVersion) //nolint:errcheck,gosec
 	} else {
 		green.Println("latest") //nolint:errcheck,gosec
 	}
 
 	return nil
+}
+
+// fetchVersionFile fetches the VERSION file at the given URL and returns its
+// trimmed content.
+func fetchVersionFile(url string) (string, error) {
+	resp, err := http.Get(url) //nolint:gosec
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // cleanOldVersions removes versioned binaries in dir matching {binaryName}-{semver}
@@ -160,30 +179,9 @@ func cleanOldVersions(dir, binaryName, keepVersion string) {
 		if name == keep || !strings.HasPrefix(name, pfx) {
 			continue
 		}
-		// Only remove versioned binaries (start with a digit after binaryName-)
 		rest := strings.TrimPrefix(name, pfx)
 		if len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
 			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
-}
-
-// checkLatestVersion sends a HEAD request and reads the X-Cli-Version header.
-func checkLatestVersion(url string, verbose bool) (string, error) {
-	resp, err := http.Head(url) //nolint:gosec
-	if err != nil {
-		return "", err
-	}
-	_ = resp.Body.Close()
-	if verbose {
-		dim := color.New(color.Faint)
-		dim.Printf("  HEAD %s → %d\n", url, resp.StatusCode) //nolint:errcheck,gosec
-		if v := resp.Header.Get("X-Cli-Version"); v != "" {
-			dim.Printf("  X-Cli-Version: %s\n", v) //nolint:errcheck,gosec
-		}
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("server returned %d", resp.StatusCode)
-	}
-	return resp.Header.Get("X-Cli-Version"), nil
 }

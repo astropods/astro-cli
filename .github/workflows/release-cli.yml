@@ -1,0 +1,152 @@
+name: Release CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options:
+          - preview
+          - prod
+
+concurrency:
+  group: release-cli-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/astro-cli/go.mod
+          cache-dependency-path: apps/astro-cli/go.sum
+
+      - name: Set build variables
+        id: vars
+        run: |
+          echo "version=$(cat apps/astro-cli/VERSION)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.environment }}" == "prod" ]; then
+            echo "binary_name=ast" >> "$GITHUB_OUTPUT"
+            echo "server_url=https://astromode.ai" >> "$GITHUB_OUTPUT"
+            echo "download_url=https://download.astromode.ai/latest" >> "$GITHUB_OUTPUT"
+            echo "s3_bucket=prod-astro-downloads" >> "$GITHUB_OUTPUT"
+          else
+            echo "binary_name=ast-preview" >> "$GITHUB_OUTPUT"
+            echo "server_url=https://astropod.ai" >> "$GITHUB_OUTPUT"
+            echo "download_url=https://download.astropod.ai/latest" >> "$GITHUB_OUTPUT"
+            echo "s3_bucket=preview-astro-downloads" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build CLI binaries
+        working-directory: apps/astro-cli
+        env:
+          BINARY_NAME: ${{ steps.vars.outputs.binary_name }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          COMMIT: ${{ steps.vars.outputs.commit }}
+          SERVER_URL: ${{ steps.vars.outputs.server_url }}
+          DOWNLOAD_URL: ${{ steps.vars.outputs.download_url }}
+          WORKOS_CLIENT_ID: ${{ vars.WORKOS_CLIENT_ID }}
+        run: |
+          mkdir -p bin
+          LDFLAGS="-s -w \
+            -X github.com/postman/astro/apps/astro-cli/cmd.version=${VERSION} \
+            -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} \
+            -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID} \
+            -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${SERVER_URL} \
+            -X github.com/postman/astro/apps/astro-cli/cmd.downloadBaseURL=${DOWNLOAD_URL} \
+            -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=${BINARY_NAME}"
+
+          for OS in darwin linux; do
+            for ARCH in amd64 arm64; do
+              echo "Building ${BINARY_NAME}-${OS}-${ARCH}..."
+              GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build \
+                -ldflags="$LDFLAGS" \
+                -o bin/${BINARY_NAME}-${OS}-${ARCH} .
+            done
+          done
+
+          cp VERSION bin/VERSION
+          cd bin && sha256sum \
+            ${BINARY_NAME}-darwin-amd64 \
+            ${BINARY_NAME}-darwin-arm64 \
+            ${BINARY_NAME}-linux-amd64 \
+            ${BINARY_NAME}-linux-arm64 > checksums.txt
+
+          echo "::notice::Built ${BINARY_NAME} ${VERSION} (${COMMIT}) for all platforms"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ steps.vars.outputs.s3_bucket }}
+          BINARY_NAME: ${{ steps.vars.outputs.binary_name }}
+          VERSION: ${{ steps.vars.outputs.version }}
+        working-directory: apps/astro-cli/bin
+        run: |
+          # Upload binaries and checksums to a versioned prefix for rollback support.
+          # latest/ is updated last — VERSION is the final write and acts as an
+          # implicit commit: if any upload fails before it, clients continue to see
+          # the previous release.
+          for OS in darwin linux; do
+            for ARCH in amd64 arm64; do
+              aws s3 cp ${BINARY_NAME}-${OS}-${ARCH} \
+                s3://${S3_BUCKET}/${VERSION}/${BINARY_NAME}-${OS}-${ARCH} \
+                --content-type application/octet-stream \
+                --cache-control "public, max-age=31536000, immutable"
+              echo "Uploaded ${VERSION}/${BINARY_NAME}-${OS}-${ARCH}"
+            done
+          done
+          aws s3 cp checksums.txt s3://${S3_BUCKET}/${VERSION}/checksums.txt \
+            --content-type text/plain \
+            --cache-control "public, max-age=31536000, immutable"
+
+          # Promote to latest/ only after all versioned uploads succeed.
+          for OS in darwin linux; do
+            for ARCH in amd64 arm64; do
+              aws s3 cp \
+                s3://${S3_BUCKET}/${VERSION}/${BINARY_NAME}-${OS}-${ARCH} \
+                s3://${S3_BUCKET}/latest/${BINARY_NAME}-${OS}-${ARCH} \
+                --content-type application/octet-stream \
+                --cache-control "no-cache, no-store, must-revalidate"
+            done
+          done
+          aws s3 cp s3://${S3_BUCKET}/${VERSION}/checksums.txt \
+            s3://${S3_BUCKET}/latest/checksums.txt \
+            --content-type text/plain \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          # VERSION is written last — updating it is the commit point.
+          # Clients read latest/VERSION to discover the current release.
+          aws s3 cp VERSION s3://${S3_BUCKET}/latest/VERSION \
+            --content-type text/plain \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "::notice::Released ${VERSION} to s3://${S3_BUCKET}"
+
+      - name: Invalidate CloudFront
+        if: vars.CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/latest/*"
+          echo "::notice::Invalidated CloudFront ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} /latest/*"

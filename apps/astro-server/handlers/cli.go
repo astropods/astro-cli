@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"os"
+	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -10,52 +10,48 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/config"
 )
 
-// Allowed CLI download names (no path traversal). Mac only for now.
+// allowedCLINames is the set of valid download filenames (prevents path traversal).
 var allowedCLINames = map[string]bool{
 	"ast-darwin-amd64":         true,
 	"ast-darwin-arm64":         true,
+	"ast-linux-amd64":          true,
+	"ast-linux-arm64":          true,
 	"ast-preview-darwin-amd64": true,
 	"ast-preview-darwin-arm64": true,
+	"ast-preview-linux-amd64":  true,
+	"ast-preview-linux-arm64":  true,
 	"checksums.txt":            true,
 }
 
-// CLIDownload serves CLI binaries from CLIDir. Only allowed filenames are served.
-// It also sets the X-Cli-Version header from the VERSION file in CLIDir.
+// CLIDownload redirects to the configured DownloadBaseURL for backward
+// compatibility with CLI versions that resolve binaries via the server.
 func CLIDownload(cfg *config.Config) gin.HandlerFunc {
-	// Read version once at init time
-	cliVersion := ""
-	if data, err := os.ReadFile(filepath.Join(cfg.Server.CLIDir, "VERSION")); err == nil {
-		cliVersion = strings.TrimSpace(string(data))
-	}
-
+	baseURL := strings.TrimRight(cfg.Server.DownloadBaseURL, "/")
 	return func(c *gin.Context) {
+		if baseURL == "" {
+			c.AbortWithStatus(http.StatusServiceUnavailable)
+			return
+		}
 		name := c.Param("name")
 		if name == "" || name != filepath.Base(name) || strings.Contains(name, "..") {
-			c.AbortWithStatus(400)
+			c.AbortWithStatus(http.StatusBadRequest)
 			return
 		}
 		if !allowedCLINames[name] {
-			c.AbortWithStatus(404)
+			c.AbortWithStatus(http.StatusNotFound)
 			return
 		}
-		if cliVersion != "" {
-			c.Header("X-Cli-Version", cliVersion)
-		}
-		path := filepath.Join(cfg.Server.CLIDir, name)
-		c.FileAttachment(path, name)
+		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("%s/%s", baseURL, name))
 	}
 }
 
 // CLIInstallScript returns a shell script that detects the platform and
-// installs the CLI binary. Usage: curl -fsSL <host>/install | sh
+// installs the CLI binary directly from the configured download CDN.
+// Usage: curl -fsSL <host>/install | sh
 func CLIInstallScript(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		host := c.Request.Host
-		scheme := "https"
-		if c.Request.TLS == nil && (strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.")) {
-			scheme = "http"
-		}
-		base := fmt.Sprintf("%s://%s", scheme, host)
+		downloadBase := strings.TrimRight(cfg.Server.DownloadBaseURL, "/")
 
 		prefix := "ast"
 		if strings.Contains(host, "astropod.ai") {
@@ -65,7 +61,7 @@ func CLIInstallScript(cfg *config.Config) gin.HandlerFunc {
 		script := fmt.Sprintf(`#!/bin/sh
 set -e
 
-BASE="%s"
+DOWNLOAD_BASE="%s"
 PREFIX="%s"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -76,20 +72,27 @@ case "$ARCH" in
   *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
-URL="${BASE}/download/${PREFIX}-${OS}-${ARCH}"
 INSTALL_DIR="${HOME}/.ast/bin"
-HEADER_FILE="$(mktemp)"
-
 mkdir -p "$INSTALL_DIR"
 
+# Fetch VERSION first so the binary URL and checksums are resolved from the
+# same immutable versioned prefix, preventing any race with a concurrent deploy.
+VERSION="$(curl -fsSL "${DOWNLOAD_BASE}/VERSION" | tr -d '[:space:]')"
+if [ -z "$VERSION" ]; then
+  echo "Failed to fetch version from ${DOWNLOAD_BASE}/VERSION" >&2
+  exit 1
+fi
+
 BINARY_NAME="${PREFIX}-${OS}-${ARCH}"
+VERSIONED_BASE="${DOWNLOAD_BASE%%/latest}/${VERSION}"
+URL="${VERSIONED_BASE}/${BINARY_NAME}"
 
-echo "Downloading ${PREFIX} for ${OS}/${ARCH}..."
-curl -fsSL -D "$HEADER_FILE" "$URL" -o "$INSTALL_DIR/${PREFIX}.tmp"
+echo "Downloading ${PREFIX} ${VERSION} for ${OS}/${ARCH}..."
+curl -fsSL "$URL" -o "$INSTALL_DIR/${PREFIX}.tmp"
 
-# Verify checksum
+# Verify checksum against the same versioned prefix
 echo "Verifying checksum..."
-CHECKSUMS="$(curl -fsSL "${BASE}/download/checksums.txt")"
+CHECKSUMS="$(curl -fsSL "${VERSIONED_BASE}/checksums.txt")"
 EXPECTED="$(echo "$CHECKSUMS" | grep "$BINARY_NAME" | awk '{print $1}')"
 if [ -n "$EXPECTED" ]; then
   # Use shasum on macOS, sha256sum on Linux
@@ -99,7 +102,7 @@ if [ -n "$EXPECTED" ]; then
     ACTUAL="$(sha256sum "$INSTALL_DIR/${PREFIX}.tmp" | awk '{print $1}')"
   fi
   if [ "$ACTUAL" != "$EXPECTED" ]; then
-    rm -f "$INSTALL_DIR/${PREFIX}.tmp" "$HEADER_FILE"
+    rm -f "$INSTALL_DIR/${PREFIX}.tmp"
     echo "Checksum verification failed!" >&2
     echo "  Expected: $EXPECTED" >&2
     echo "  Got:      $ACTUAL" >&2
@@ -109,28 +112,18 @@ if [ -n "$EXPECTED" ]; then
 fi
 
 chmod +x "$INSTALL_DIR/${PREFIX}.tmp"
+mv "$INSTALL_DIR/${PREFIX}.tmp" "$INSTALL_DIR/${PREFIX}-${VERSION}"
+ln -sf "${PREFIX}-${VERSION}" "$INSTALL_DIR/${PREFIX}"
 
-# Extract version from response header to create versioned binary
-VERSION=$(grep -i '^X-Cli-Version:' "$HEADER_FILE" | tr -d '\r' | awk '{print $2}')
-rm -f "$HEADER_FILE"
+# Remove old versioned binaries (keep only the new one)
+for f in "$INSTALL_DIR/${PREFIX}"-*; do
+  case "$(basename "$f")" in
+    "${PREFIX}-${VERSION}") ;;
+    "${PREFIX}"-[0-9]*) rm -f "$f" ;;
+  esac
+done
 
-if [ -n "$VERSION" ]; then
-  mv "$INSTALL_DIR/${PREFIX}.tmp" "$INSTALL_DIR/${PREFIX}-${VERSION}"
-  ln -sf "${PREFIX}-${VERSION}" "$INSTALL_DIR/${PREFIX}"
-
-  # Remove old versioned binaries (keep only the new one)
-  for f in "$INSTALL_DIR/${PREFIX}"-*; do
-    case "$(basename "$f")" in
-      "${PREFIX}-${VERSION}"|"${PREFIX}-${OS}-"*) ;; # keep new version + platform binaries won't be here but guard anyway
-      "${PREFIX}"-[0-9]*) rm -f "$f" ;;
-    esac
-  done
-
-  echo "Installed ${PREFIX} ${VERSION} to ${INSTALL_DIR}"
-else
-  mv "$INSTALL_DIR/${PREFIX}.tmp" "$INSTALL_DIR/${PREFIX}"
-  echo "Installed ${PREFIX} to ${INSTALL_DIR}"
-fi
+echo "Installed ${PREFIX} ${VERSION} to ${INSTALL_DIR}"
 
 # Check if INSTALL_DIR is on PATH
 case ":${PATH}:" in
@@ -141,7 +134,7 @@ case ":${PATH}:" in
     echo "  export PATH=\"\$HOME/.ast/bin:\$PATH\""
     ;;
 esac
-`, base, prefix)
+`, downloadBase, prefix)
 
 		c.Data(200, "text/plain; charset=utf-8", []byte(script))
 	}

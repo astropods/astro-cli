@@ -53,7 +53,7 @@ type ServerConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
-	CLIDir string // Path to CLI binaries in container for /download/* (empty to disable)
+	DownloadBaseURL string // Base URL for CLI download CDN, e.g. https://download.astromode.ai (used in /install script)
 }
 
 // LogConfig holds logging configuration
@@ -107,7 +107,7 @@ func Load() (*Config, error) {
 			ReadTimeout:     getEnvDuration("READ_TIMEOUT", 10*time.Second),
 			WriteTimeout:    getEnvDuration("WRITE_TIMEOUT", 10*time.Second),
 			ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
-			CLIDir: getEnv("CLI_DIR", ""),
+			DownloadBaseURL: getEnv("DOWNLOAD_BASE_URL", ""),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
