@@ -3,10 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -18,8 +19,8 @@ const versionCheckTimeout = 2 * time.Second
 
 // overrides for testing
 var (
-	versionCacheDir       string // if non-empty, used instead of auth.ConfigDir
-	versionCheckServerURL string // if non-empty, used instead of auth.DefaultServerURL
+	versionCacheDir        string // if non-empty, used instead of auth.ConfigDir
+	versionCheckDownloadURL string // if non-empty, used instead of downloadBaseURL
 )
 
 type versionCache struct {
@@ -68,15 +69,17 @@ func saveVersionCache(cache *versionCache) {
 }
 
 func fetchLatestVersion() (string, error) {
-	serverURL := versionCheckServerURL
-	if serverURL == "" {
-		serverURL = auth.DefaultServerURL
+	base := versionCheckDownloadURL
+	if base == "" {
+		base = downloadBaseURL
 	}
-	binName := fmt.Sprintf("%s-%s-%s", binaryName, runtime.GOOS, runtime.GOARCH)
-	downloadURL := serverURL + "/download/" + binName
+	if base == "" {
+		return "", fmt.Errorf("download URL not configured")
+	}
+	url := strings.TrimRight(base, "/") + "/VERSION"
 
 	client := &http.Client{Timeout: versionCheckTimeout}
-	resp, err := client.Head(downloadURL)
+	resp, err := client.Get(url) //nolint:gosec
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +88,11 @@ func fetchLatestVersion() (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("server returned %d", resp.StatusCode)
 	}
-	return resp.Header.Get("X-Cli-Version"), nil
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // notifyIfUpdateAvailable checks whether a newer CLI version is available and

@@ -7,11 +7,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// version, commit, and binaryName are set at build time via ldflags.
+// version, commit, binaryName, and downloadBaseURL are set at build time via ldflags.
 var (
-	version    = "dev"
-	commit     = ""
-	binaryName = "ast"
+	version         = "dev"
+	commit          = ""
+	binaryName      = "ast"
+	downloadBaseURL = "" // e.g. https://download.astromode.ai
 )
 
 func fullVersion() string {

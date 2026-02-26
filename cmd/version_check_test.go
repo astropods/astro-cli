@@ -38,26 +38,39 @@ func captureStderr(t *testing.T, f func()) string {
 	return buf.String()
 }
 
-// setupVersionCheckTest wires overrides for cache dir and server URL, and
+// setupVersionCheckTest wires overrides for cache dir and download URL, and
 // restores them when the test ends.
 func setupVersionCheckTest(t *testing.T, srv *httptest.Server) string {
 	t.Helper()
 	dir := t.TempDir()
 	orig := versionCacheDir
-	origURL := versionCheckServerURL
+	origURL := versionCheckDownloadURL
 	origVersion := version
 
 	versionCacheDir = dir
 	if srv != nil {
-		versionCheckServerURL = srv.URL
+		versionCheckDownloadURL = srv.URL
 	}
 
 	t.Cleanup(func() {
 		versionCacheDir = orig
-		versionCheckServerURL = origURL
+		versionCheckDownloadURL = origURL
 		version = origVersion
 	})
 	return dir
+}
+
+// versionHandler returns an http.HandlerFunc that serves GET /VERSION with the
+// given version string in the response body.
+func versionHandler(t *testing.T, v string) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(v))
+	}
 }
 
 // --- cache I/O ---
@@ -113,13 +126,7 @@ func TestLoadVersionCache_Malformed(t *testing.T) {
 // --- fetchLatestVersion ---
 
 func TestFetchLatestVersion_OK(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodHead {
-			t.Errorf("expected HEAD, got %s", r.Method)
-		}
-		w.Header().Set("X-Cli-Version", "1.9.0")
-		w.WriteHeader(http.StatusOK)
-	}))
+	srv := httptest.NewServer(versionHandler(t, "1.9.0"))
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
@@ -147,10 +154,10 @@ func TestFetchLatestVersion_ServerError(t *testing.T) {
 	}
 }
 
-func TestFetchLatestVersion_NoVersionHeader(t *testing.T) {
+func TestFetchLatestVersion_EmptyBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		// No X-Cli-Version header
+		// No body
 	}))
 	defer srv.Close()
 
@@ -178,10 +185,7 @@ func TestNotifyIfUpdateAvailable_DevBuild(t *testing.T) {
 }
 
 func TestNotifyIfUpdateAvailable_AlreadyUpToDate(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Cli-Version", "1.0.0")
-		w.WriteHeader(http.StatusOK)
-	}))
+	srv := httptest.NewServer(versionHandler(t, "1.0.0"))
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
@@ -194,10 +198,7 @@ func TestNotifyIfUpdateAvailable_AlreadyUpToDate(t *testing.T) {
 }
 
 func TestNotifyIfUpdateAvailable_UpdateAvailable(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Cli-Version", "2.0.0")
-		w.WriteHeader(http.StatusOK)
-	}))
+	srv := httptest.NewServer(versionHandler(t, "2.0.0"))
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
@@ -217,8 +218,8 @@ func TestNotifyIfUpdateAvailable_UsesCacheWhenFresh(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		w.Header().Set("X-Cli-Version", "9.9.9")
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("9.9.9"))
 	}))
 	defer srv.Close()
 
@@ -243,10 +244,7 @@ func TestNotifyIfUpdateAvailable_UsesCacheWhenFresh(t *testing.T) {
 }
 
 func TestNotifyIfUpdateAvailable_RefreshesStalCache(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Cli-Version", "3.0.0")
-		w.WriteHeader(http.StatusOK)
-	}))
+	srv := httptest.NewServer(versionHandler(t, "3.0.0"))
 	defer srv.Close()
 
 	setupVersionCheckTest(t, srv)
@@ -276,7 +274,6 @@ func TestNotifyIfUpdateAvailable_RefreshesStalCache(t *testing.T) {
 func TestNotifyIfUpdateAvailable_SilentOnNetworkError(t *testing.T) {
 	// Point at a server that immediately closes connections.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Hijack and close to simulate network failure
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			w.WriteHeader(http.StatusInternalServerError)
