@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
+	"github.com/postman/astro/apps/astro-cli/internal/config"
 	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
@@ -160,7 +161,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	if envVars == nil {
 		envVars = make(map[string]string)
-		fmt.Printf("⚠️  No .env file found at %s (continuing without integration credentials)\n", envFile)
 	} else {
 		fmt.Printf("🔑 Loading environment from: %s\n", envFile)
 		var envKeys []string
@@ -173,6 +173,20 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("failed to set env var %s: %w", key, err)
 			}
 		}
+	}
+
+	// Load stored project config and merge (config store takes priority over .env)
+	storedVars := config.GetProjectVars(binaryName, workingDir)
+	for k, v := range storedVars {
+		envVars[k] = v
+		if err := os.Setenv(k, v); err != nil {
+			return fmt.Errorf("failed to set env var %s: %w", k, err)
+		}
+	}
+	if len(storedVars) > 0 {
+		fmt.Printf("🔑 Loaded %d var(s) from project config store\n", len(storedVars))
+	} else if len(envVars) == 0 {
+		fmt.Printf("⚠️  No .env file found at %s and no project config set. Run 'ast configure' to set up credentials.\n", envFile)
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
