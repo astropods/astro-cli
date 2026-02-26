@@ -90,7 +90,7 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 
 	ctx := context.Background()
 
-	dockerCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
 		fmt.Println()
 		return 0, fmt.Errorf("failed to create Docker client: %w", err)
@@ -132,7 +132,7 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 
 	ctx := context.Background()
 
-	dockerCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerCli, err := client.New(client.FromEnv)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create Docker client: %w", err)
 	}

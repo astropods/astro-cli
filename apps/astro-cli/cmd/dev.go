@@ -311,7 +311,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if rebuild {
 		buildTitle = "Building services (no cache)..."
 	}
-	if err := withSpinner(buildTitle, verbose, func() error {
+	if err := withSpinner(buildTitle, "Build complete", verbose, func() error {
 		return svc.Build(context.Background(), project, api.BuildOptions{
 			NoCache:  rebuild,
 			Quiet:    !verbose,
@@ -327,10 +327,13 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Start non-profiled services (already built above)
 	upProject := projectForUp(project)
-	if err := withSpinner("Starting services...", verbose, func() error {
+	if err := withSpinner("Starting services...", "Services started", verbose, func() error {
 		return svc.Up(context.Background(), upProject, api.UpOptions{
-			Create: api.CreateOptions{Build: nil},          // --no-build
-			Start:  api.StartOptions{Project: upProject},   // pass project to skip container label lookup
+			Create: api.CreateOptions{
+				Build:         nil,   // --no-build (already built above)
+				RemoveOrphans: true,  // remove stale containers from previous runs
+			},
+			Start: api.StartOptions{Project: upProject}, // pass project to skip container label lookup
 		})
 	}); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
@@ -559,7 +562,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	if err := withSpinner("Stopping services...", false, func() error {
+	if err := withSpinner("Stopping services...", "Services stopped", false, func() error {
 		return stopSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{})
 	}); err != nil {
 		return fmt.Errorf("failed to stop services: %w", err)
@@ -931,7 +934,7 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 			continue
 		}
 		var exitCode int
-		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), verbose, func() error {
+		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), fmt.Sprintf("Ingestion %s complete", name), verbose, func() error {
 			var runErr error
 			exitCode, runErr = startupSvc.RunOneOffContainer(context.Background(), project, api.RunOptions{
 				Service:    fmt.Sprintf("ingestion-%s", name),
@@ -1005,17 +1008,21 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 
 // withSpinner runs fn with an animated spinner in non-verbose mode, or prints
 // the title and runs fn directly in verbose mode.
-func withSpinner(title string, verbose bool, fn func() error) error {
+func withSpinner(title, doneMsg string, verbose bool, fn func() error) error {
 	if verbose {
 		fmt.Println(title)
 		return fn()
 	}
-	return spinner.New().
-		Title(" " + title).
+	err := spinner.New().
+		Title(" " + title + " (this may take a moment, use -v for verbose)").
 		ActionWithErr(func(_ context.Context) error {
 			return fn()
 		}).
 		Run()
+	if err == nil {
+		fmt.Printf("✅ %s\n", doneMsg)
+	}
+	return err
 }
 
 // openBrowser opens the specified URL in the default browser
