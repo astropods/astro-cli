@@ -698,11 +698,21 @@ func TestTemplate_VariablesCustomProvider(t *testing.T) {
 	}
 }
 
-func TestTemplate_NoIntegrations_NoVariables(t *testing.T) {
+func TestTemplate_NoIntegrations_AdapterVariablesPresent(t *testing.T) {
 	ds := mustGenerate(t, baseInput())
 
-	if len(ds.Variables) != 0 {
-		t.Errorf("expected 0 variables for spec without integrations, got %d", len(ds.Variables))
+	// Template always includes adapter credential placeholders so users know what to fill in.
+	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; !ok {
+		t.Error("expected SLACK_BOT_TOKEN adapter variable in template")
+	}
+	if _, ok := ds.Variables["SLACK_APP_TOKEN"]; !ok {
+		t.Error("expected SLACK_APP_TOKEN adapter variable in template")
+	}
+	if !ds.Variables["SLACK_BOT_TOKEN"].Optional {
+		t.Error("SLACK_BOT_TOKEN should be optional in template (adapter is disabled by default)")
+	}
+	if !ds.Variables["SLACK_APP_TOKEN"].Optional {
+		t.Error("SLACK_APP_TOKEN should be optional in template (adapter is disabled by default)")
 	}
 }
 

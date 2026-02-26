@@ -203,7 +203,7 @@ func prepareDeployment(
 	if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "server-owned fields were modified",
-			"validation_errors": editErrs,
+			"validation_errors": toValidationErrors(editErrs),
 		})
 		return nil, false
 	}
@@ -220,7 +220,7 @@ func prepareDeployment(
 	if len(resolveResult.Errors) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "deployment spec validation failed",
-			"validation_errors": resolveResult.Errors,
+			"validation_errors": toValidationErrors(resolveResult.Errors),
 		})
 		return nil, false
 	}
@@ -1369,6 +1369,20 @@ func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			"keys":      keys,
 		})
 	}
+}
+
+// toValidationErrors converts a slice of "field: message" error strings into
+// structured {field, message} objects expected by the frontend.
+func toValidationErrors(errs []string) []gin.H {
+	out := make([]gin.H, 0, len(errs))
+	for _, e := range errs {
+		field, message, _ := strings.Cut(e, ": ")
+		if message == "" {
+			field, message = "", e
+		}
+		out = append(out, gin.H{"field": field, "message": message})
+	}
+	return out
 }
 
 // imagePullPolicyForMode returns PullNever for local mode (images must be

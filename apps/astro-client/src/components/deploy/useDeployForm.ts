@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
+import type { VariableDisplay } from "./VariableFields";
 
 export interface UseDeployFormOptions {
   initialTemplate?: DeploymentTemplate;
@@ -119,27 +120,45 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     [variableEntries],
   );
 
-  // Adapter credentials needed for selected adapters, derived from template.variables
-  const selectedAdapterCreds = useMemo(
-    () =>
-      selectedAdapters.flatMap((id) => {
-        if (template?.variables) {
-          // Derive from template variables whose targets include "interface.<id>"
-          const derived = Object.entries(template.variables).filter(([, v]) =>
-            v.targets.some((t) => t === `interface.${id}`),
-          );
-          if (derived.length > 0) return derived;
+  // Per-adapter credential field definitions for ALL available adapters.
+  // Derived from template.variables (interface.* targets), enriched with UI metadata
+  // from ADAPTER_CREDENTIALS. Falls back to ADAPTER_CREDENTIALS when the template
+  // does not include vars for that adapter (e.g. older server versions).
+  const allAdapterCredDefs = useMemo<Record<string, [string, VariableDisplay][]>>(() => {
+    const defs: Record<string, [string, VariableDisplay][]> = {};
+    for (const adapter of AVAILABLE_ADAPTERS) {
+      const hardcoded = ADAPTER_CREDENTIALS[adapter.id] ?? [];
+      if (template?.variables) {
+        const derived = Object.entries(template.variables).filter(([, v]) =>
+          v.targets.some((t) => t === `interface.${adapter.id}`),
+        );
+        if (derived.length > 0) {
+          defs[adapter.id] = derived.map(([key, v]) => {
+            const meta = hardcoded.find((c) => c.key === key);
+            return [key, {
+              description: meta?.description ?? v.description,
+              optional: v.optional,
+              secret: v.secret ?? meta?.secret,
+              label: meta?.label,
+              placeholder: meta?.placeholder,
+              helpUrl: meta?.helpUrl,
+            }];
+          });
+          continue;
         }
-        // Fall back to ADAPTER_CREDENTIALS for UI metadata
-        const creds = ADAPTER_CREDENTIALS[id];
-        if (!creds) return [];
-        return creds.map((c): [string, DeploymentVariable] => [
-          c.key,
-          { targets: [`interface.${id}`], description: c.description, optional: false },
-        ]);
-      }),
-    [selectedAdapters, template],
-  );
+      }
+      // Fallback: use hardcoded definitions
+      defs[adapter.id] = hardcoded.map((c) => [c.key, {
+        description: c.description,
+        optional: false,
+        secret: c.secret,
+        label: c.label,
+        placeholder: c.placeholder,
+        helpUrl: c.helpUrl,
+      }]);
+    }
+    return defs;
+  }, [template]);
 
   // Initialize variable values when template loads
   useEffect(() => {
@@ -172,18 +191,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     const emptyAdapterCreds = selectedAdapters.flatMap((adapterId) => {
-      const creds = ADAPTER_CREDENTIALS[adapterId];
-      if (!creds) return [];
+      const creds = allAdapterCredDefs[adapterId] ?? [];
       return creds
-        .filter((c) => !adapterCredentials[c.key]?.trim())
-        .map((c) => c.key);
+        .filter(([key, def]) => !def.optional && !adapterCredentials[key]?.trim())
+        .map(([key]) => key);
     });
     if (emptyAdapterCreds.length > 0) {
       result.adapterCredentials = emptyAdapterCreds;
     }
 
     return result;
-  }, [submitted, selectedAdapters, requiredVariables, variableValues, adapterCredentials]);
+  }, [submitted, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterCredDefs]);
 
   const isValid = submitted
     ? !errors.adapters && !errors.credentials && !errors.adapterCredentials
@@ -197,9 +215,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const hasAdapter = selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key]) => variableValues[key]?.trim());
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
-      const creds = ADAPTER_CREDENTIALS[adapterId];
-      if (!creds) return true;
-      return creds.every((c) => adapterCredentials[c.key]?.trim());
+      const creds = allAdapterCredDefs[adapterId] ?? [];
+      return creds.every(([key, def]) => def.optional || adapterCredentials[key]?.trim());
     });
 
     return hasAdapter && varsValid && adapterCredsValid;
@@ -247,7 +264,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     selectedAdapters,
     setSelectedAdapters,
-    selectedAdapterCreds,
+    allAdapterCredDefs,
     adapterCredentials,
     setAdapterCredentials,
 

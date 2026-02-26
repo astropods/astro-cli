@@ -1,3 +1,7 @@
+/**
+ * @deprecated Legacy operator overview page (route: operator).
+ * Do not add new features here.
+ */
 import { Link } from "react-router";
 import {
   RefreshCw,
@@ -5,8 +9,8 @@ import {
   AlertCircle,
   ChevronRight,
 } from "lucide-react";
-import { useAuth } from "../lib/auth";
-import { useProfile } from "../api/queries/accounts";
+import { useAuth } from "../../lib/auth";
+import { useProfile } from "../../api/queries/accounts";
 
 export default function OperatorOverview() {
   const { isAuthenticated, login } = useAuth();

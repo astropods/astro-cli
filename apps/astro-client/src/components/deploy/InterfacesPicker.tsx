@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertCircle, Check, Globe } from "lucide-react";
 import { Slack } from "@/components/ui/svgs/slack";
-import { AVAILABLE_ADAPTERS, ADAPTER_CREDENTIALS } from "./useDeployForm";
+import { AVAILABLE_ADAPTERS } from "./useDeployForm";
 import { VariableFields } from "./VariableFields";
 import type { VariableDisplay } from "./VariableFields";
 
@@ -13,6 +13,8 @@ const ADAPTER_ICONS: Record<string, ReactNode> = {
 export interface InterfacesPickerProps {
   selected: string[];
   onChange: (adapters: string[]) => void;
+  /** Per-adapter credential field definitions, keyed by adapter id. */
+  adapterCredDefs: Record<string, [string, VariableDisplay][]>;
   adapterCredentials: Record<string, string>;
   onAdapterCredentialsChange: (values: Record<string, string>) => void;
   showError?: boolean;
@@ -22,6 +24,7 @@ export interface InterfacesPickerProps {
 export function InterfacesPicker({
   selected,
   onChange,
+  adapterCredDefs,
   adapterCredentials,
   onAdapterCredentialsChange,
   showError,
@@ -37,12 +40,8 @@ export function InterfacesPicker({
       {AVAILABLE_ADAPTERS.map((adapter) => {
         const isSelected = selected.includes(adapter.id);
         const icon = ADAPTER_ICONS[adapter.id];
-        const creds = ADAPTER_CREDENTIALS[adapter.id];
-        const hasCredentials = isSelected && creds && creds.length > 0;
-
-        const credentialEntries: [string, VariableDisplay][] = creds
-          ? creds.map((c) => [c.key, { description: c.description, optional: false, secret: c.secret, label: c.label, placeholder: c.placeholder, helpUrl: c.helpUrl }])
-          : [];
+        const credentialEntries = adapterCredDefs[adapter.id] ?? [];
+        const hasCredentials = isSelected && credentialEntries.length > 0;
 
         return (
           <div key={adapter.id}>
@@ -74,7 +73,7 @@ export function InterfacesPicker({
                   values={adapterCredentials}
                   onChange={onAdapterCredentialsChange}
                   errorKeys={adapterErrorKeys}
-                />
+                  />
               </div>
             )}
           </div>

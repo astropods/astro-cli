@@ -129,6 +129,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                 <InterfacesPicker
                   selected={form.selectedAdapters}
                   onChange={form.setSelectedAdapters}
+                  adapterCredDefs={form.allAdapterCredDefs}
                   adapterCredentials={form.adapterCredentials}
                   onAdapterCredentialsChange={form.setAdapterCredentials}
                   showError={!!form.errors.adapters}

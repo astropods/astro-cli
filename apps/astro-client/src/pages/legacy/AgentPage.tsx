@@ -1,3 +1,7 @@
+/**
+ * @deprecated Legacy agent management page (route: u/:account/:agent).
+ * Do not add new features here.
+ */
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router";
 import type { Route } from "./+types/AgentPage";
@@ -17,16 +21,16 @@ import {
   Package,
   BookOpen,
 } from "lucide-react";
-import type { DeployResponse } from "../lib/api";
-import { useAuth } from "../lib/auth";
-import { usePublishAgent, useAgent } from "../api/queries/agents";
-import { useDeployments, useUndeployAgent } from "../api/queries/deployments";
-import { AgentBuildsSection } from "../components/operator/AgentBuildsSection";
-import { DeploymentCard } from "../components/operator/DeploymentCard";
-import { DeployResultModal } from "../components/operator/DeployResultModal";
-import { PublishModal } from "../components/operator/PublishModal";
-import { PlaygroundChat } from "../components/operator/PlaygroundChat";
-import { ObservabilityTab } from "../components/operator/ObservabilityTab";
+import type { DeployResponse } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { usePublishAgent, useAgent } from "../../api/queries/agents";
+import { useDeployments, useUndeployAgent } from "../../api/queries/deployments";
+import { AgentBuildsSection } from "../../components/operator/AgentBuildsSection";
+import { DeploymentCard } from "../../components/operator/DeploymentCard";
+import { DeployResultModal } from "../../components/operator/DeployResultModal";
+import { PublishModal } from "../../components/operator/PublishModal";
+import { PlaygroundChat } from "../../components/operator/PlaygroundChat";
+import { ObservabilityTab } from "../../components/operator/ObservabilityTab";
 import { createServerApi } from "@/lib/api.server";
 
 export async function loader({ params, request }: Route.LoaderArgs) {

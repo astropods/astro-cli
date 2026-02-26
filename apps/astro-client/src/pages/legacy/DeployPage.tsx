@@ -1,3 +1,8 @@
+/**
+ * @deprecated Legacy operator deploy page (route: operator/deploy/:account/:name).
+ * Superseded by InstallAgent (route: deploy/:account/:agentSlug).
+ * Do not add new features here.
+ */
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import {
@@ -25,10 +30,10 @@ import type {
   DeploymentVariable,
   DeploymentSpec,
   ApiError,
-} from "../lib/api";
-import { useAuth } from "../lib/auth";
-import { useDeploymentTemplate, useDeployAgent, useValidateDeployment } from "../api/queries/agents";
-import { useDeployments } from "../api/queries/deployments";
+} from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { useDeploymentTemplate, useDeployAgent, useValidateDeployment } from "../../api/queries/agents";
+import { useDeployments } from "../../api/queries/deployments";
 
 // --- Available adapters (server validates against this same set) ---
 
@@ -44,8 +49,9 @@ const ADAPTER_CREDENTIALS: Record<string, { key: string; description: string; se
   ],
 };
 
-// --- Helpers ---
+// --- Legacy helpers ---
 
+/** @deprecated */
 function formatResources(resources: Record<string, unknown> | undefined): string {
   if (!resources) return "";
   const parts: string[] = [];
@@ -55,6 +61,7 @@ function formatResources(resources: Record<string, unknown> | undefined): string
   return parts.join(" / ");
 }
 
+/** @deprecated */
 function KV({ label, value }: { label: string; value: string | number | undefined | null }) {
   if (value === undefined || value === null || value === "") return null;
   return (
@@ -65,8 +72,9 @@ function KV({ label, value }: { label: string; value: string | number | undefine
   );
 }
 
-// --- Component Card ---
+// --- Legacy components ---
 
+/** @deprecated */
 function ComponentCard({ name, config }: { name: string; config: Record<string, unknown> }) {
   const image = config.image as string | undefined;
   const port = config.port as number | undefined;
@@ -115,8 +123,7 @@ function ComponentCard({ name, config }: { name: string; config: Record<string, 
   );
 }
 
-// --- Flat section (no accordion) ---
-
+/** @deprecated */
 function Section({ icon, title, items }: { icon: React.ReactNode; title: string; items: Record<string, unknown> | undefined }) {
   if (!items || Object.keys(items).length === 0) return null;
 
@@ -136,16 +143,17 @@ function Section({ icon, title, items }: { icon: React.ReactNode; title: string;
   );
 }
 
-// --- Interfaces Picker ---
-
+/** @deprecated */
 function InterfacesPicker({
   selected,
   onChange,
+  adapterCredDefs,
   adapterCredentials,
   onCredentialChange,
 }: {
   selected: string[];
   onChange: (adapters: string[]) => void;
+  adapterCredDefs: Record<string, { key: string; description: string; secret?: boolean }[]>;
   adapterCredentials: Record<string, string>;
   onCredentialChange: (values: Record<string, string>) => void;
 }) {
@@ -195,8 +203,8 @@ function InterfacesPicker({
       </div>
 
       {selected.map((adapterId) => {
-        const creds = ADAPTER_CREDENTIALS[adapterId];
-        if (!creds) return null;
+        const creds = adapterCredDefs[adapterId];
+        if (!creds || creds.length === 0) return null;
         return (
           <div key={adapterId} className="mt-3 p-3 bg-stone-50 border border-stone-200">
             <h4 className="text-xs font-medium text-stone-700 mb-2 flex items-center gap-1">
@@ -225,8 +233,7 @@ function InterfacesPicker({
   );
 }
 
-// --- Observability Toggle ---
-
+/** @deprecated */
 function ObservabilityToggle({
   enabled,
   onToggle,
@@ -430,9 +437,32 @@ export default function DeployPage() {
 
   const requiredVariables = variableEntries.filter(([, v]) => !v.optional);
 
+  // Per-adapter credential field definitions derived from template, falling back to hardcoded.
+  const adapterCredDefs: Record<string, { key: string; description: string; secret?: boolean }[]> = {};
+  for (const adapter of AVAILABLE_ADAPTERS) {
+    const hardcoded = ADAPTER_CREDENTIALS[adapter.id] ?? [];
+    if (template?.variables) {
+      const derived = Object.entries(template.variables).filter(([, v]) => {
+        const variable = v as { targets?: string[] };
+        return variable.targets?.some((t: string) => t === `interface.${adapter.id}`);
+      });
+      if (derived.length > 0) {
+        adapterCredDefs[adapter.id] = derived.map(([key, v]) => {
+          const variable = v as { description?: string; secret?: boolean };
+          return {
+            key,
+            description: hardcoded.find((c) => c.key === key)?.description ?? variable.description ?? key,
+            secret: variable.secret ?? true,
+          };
+        });
+        continue;
+      }
+    }
+    adapterCredDefs[adapter.id] = hardcoded;
+  }
+
   const adapterCredsValid = selectedAdapters.every((adapterId) => {
-    const creds = ADAPTER_CREDENTIALS[adapterId];
-    if (!creds) return true;
+    const creds = adapterCredDefs[adapterId] ?? [];
     return creds.every((c) => adapterCredentials[c.key]?.trim());
   });
 
@@ -500,7 +530,7 @@ export default function DeployPage() {
       } else {
         setValidationResult({
           valid: false,
-          errors: result.validation_errors?.map((e) => `${e.field}: ${e.message}`) ?? ["Validation failed"],
+          errors: result.validation_errors?.map((e: { field: string; message: string }) => `${e.field}: ${e.message}`) ?? ["Validation failed"],
         });
       }
     } catch (err) {
@@ -624,6 +654,7 @@ export default function DeployPage() {
               <InterfacesPicker
                 selected={selectedAdapters}
                 onChange={setSelectedAdapters}
+                adapterCredDefs={adapterCredDefs}
                 adapterCredentials={adapterCredentials}
                 onCredentialChange={setAdapterCredentials}
               />
