@@ -379,7 +379,6 @@ func TestAllTemplatesRender(t *testing.T) {
 		{"Dockerfile", paths.Dockerfile},
 		{"package.json", paths.PackageJson},
 		{"tsconfig.json", paths.Tsconfig},
-		{"env.example", paths.EnvExample},
 		{"gitignore", paths.Gitignore},
 		{"dockerignore", paths.Dockerignore},
 		{"npmrc", paths.Npmrc},

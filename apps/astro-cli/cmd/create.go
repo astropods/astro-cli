@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
@@ -122,15 +124,45 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
 
-	printSuccess(name, targetDir)
+	printSuccess(name, targetDir, yesFlag)
 	return nil
 }
 
-func printSuccess(name, targetDir string) {
-	fmt.Printf("\n%s%s✓ Created agent %s%s\n\n", colorGreen, colorBold, name, colorReset)
-	fmt.Printf("  %s$ cd %s%s\n\n", colorYellow, targetDir, colorReset)
-	fmt.Printf("  %s%-12s%s  captures everything you configured — infrastructure, models, and integrations.\n", colorBold, "astropods.yml", colorReset)
-	fmt.Printf("  %s%-12s%s  holds the secrets you provided. Add any missing ones before starting.\n\n", colorBold, ".env", colorReset)
-	fmt.Printf("  When ready, run %s%sast dev%s to start your agent locally.\n\n", colorBold, colorCyan, colorReset)
-	fmt.Printf("  %sTip:%s run %sast explain%s for a plain-English breakdown of your agent spec.\n\n", colorDim, colorReset, colorCyan, colorReset)
+func printSuccess(name, targetDir string, usedDefaults bool) {
+	bold := lipgloss.NewStyle().Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	cmd := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+	step := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	heading := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+
+	var lines []string
+	lines = append(lines, heading.Render("✓ Created "+name))
+	lines = append(lines, "")
+	lines = append(lines, bold.Render("Next steps"))
+	lines = append(lines, "")
+
+	n := 1
+	addStep := func(command, desc string) {
+		lines = append(lines, fmt.Sprintf("  %s  %s   %s", step.Render(fmt.Sprintf("%d", n)), cmd.Render(command), dim.Render(desc)))
+		n++
+	}
+
+	addStep("cd "+targetDir, "enter the project directory")
+	if usedDefaults {
+		addStep("ast configure", "set your API keys")
+	}
+	addStep("ast dev", "start your agent locally")
+
+	lines = append(lines, "")
+	lines = append(lines, dim.Render("Tip: run ")+cmd.Render("ast explain")+dim.Render(" for a plain-English breakdown of your spec."))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(0, 2).
+		Render(strings.Join(lines, "\n"))
+
+	fmt.Println()
+	fmt.Println(box)
+	fmt.Println()
 }

@@ -54,7 +54,7 @@ func TestGetTemplatePaths_AllEmbeddedFilesExist(t *testing.T) {
 
 	allPaths := []string{
 		paths.AstroYml, paths.Dockerfile, paths.DockerfileIngestion,
-		paths.PackageJson, paths.Tsconfig, paths.EnvExample,
+		paths.PackageJson, paths.Tsconfig,
 		paths.Gitignore, paths.Dockerignore, paths.Npmrc,
 		paths.AgentIndex, paths.IngestionIndex, paths.LlmMd,
 		paths.Readme, paths.PostmanCollection, paths.IngestionWebhookIndex,
