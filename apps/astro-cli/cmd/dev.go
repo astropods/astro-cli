@@ -164,6 +164,32 @@ func devStatePath() (string, error) {
 	return filepath.Join(workingDir, ".ast", ".running"), nil
 }
 
+// readDevProjectName returns the project name stored in the .running marker file.
+// Falls back to spec parsing if the file is empty (older format).
+func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read dev state: %w", err)
+	}
+	if name := strings.TrimSpace(string(data)); name != "" {
+		return name, nil
+	}
+	// Fallback: parse spec for the project name
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+	specFile, err := specFilePath(cmd)
+	if err != nil {
+		return "", err
+	}
+	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse spec: %w", err)
+	}
+	return astroSpec.Name, nil
+}
+
 func runDevStart(cmd *cobra.Command, args []string) error {
 	if err := checkDockerRunning(); err != nil {
 		return err
@@ -339,8 +365,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
-	// Write marker so subcommands (logs, stop, trigger) know dev is running
-	if err := os.WriteFile(filepath.Join(astDir, ".running"), nil, 0644); err != nil { //nolint:gosec
+	// Write marker so subcommands (logs, stop, trigger) know dev is running.
+	// The file contains the project name so subcommands can avoid re-parsing the spec.
+	if err := os.WriteFile(filepath.Join(astDir, ".running"), []byte(astroSpec.Name), 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write dev state: %w", err)
 	}
 
@@ -467,7 +494,10 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 
 	logsCancel()
 	agentCancel()
-	killProcessGroup(agentCmd)
+	if agentCmd.Process != nil {
+		_ = agentCmd.Process.Kill()
+		_ = agentCmd.Wait() // reap the process to avoid leaving a zombie
+	}
 
 	// Stop all services
 	localSvc, err := newComposeService(false)
@@ -499,17 +529,9 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		service = args[0]
 	}
 
-	specFile, err := specFilePath(cmd)
+	projectName, err := readDevProjectName(statePath, cmd)
 	if err != nil {
 		return err
-	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
-	if err != nil {
-		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
 	logsSvc, err := newComposeService(false)
@@ -525,7 +547,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		logsCancel()
 	}()
 
-	err = logsSvc.Logs(logsCtx, astroSpec.Name, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
+	err = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr},
 		api.LogOptions{Services: []string{service}, Follow: true})
 	logsCancel()
 	if logsCtx.Err() != nil {
@@ -545,29 +567,22 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("🛑 Stopping dev containers...")
-	specFile, err := specFilePath(cmd)
+	projectName, err := readDevProjectName(statePath, cmd)
 	if err != nil {
 		return err
-	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
-	if err != nil {
-		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
 	stopSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	if err := withSpinner("Stopping services...", "Services stopped", false, func() error {
-		return stopSvc.Down(context.Background(), astroSpec.Name, api.DownOptions{})
-	}); err != nil {
+	err = withSpinner("Stopping services...", "Services stopped", false, func() error {
+		return stopSvc.Down(context.Background(), projectName, api.DownOptions{})
+	})
+	_ = os.Remove(statePath) // always remove — containers may be gone even on error
+	if err != nil {
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
-	_ = os.Remove(statePath)
 
 	fmt.Printf("%s→%s Containers stopped\n", colorCyan, colorReset)
 	return nil
@@ -636,6 +651,10 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	}
 	if envVars == nil {
 		envVars = make(map[string]string)
+	}
+	// Merge stored project vars (same as runDevStart — takes priority over .env)
+	for k, v := range config.GetProjectVars(binaryName, workingDir) {
+		envVars[k] = v
 	}
 	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
 	if err != nil {
@@ -1011,7 +1030,11 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 func withSpinner(title, doneMsg string, verbose bool, fn func() error) error {
 	if verbose {
 		fmt.Println(title)
-		return fn()
+		if err := fn(); err != nil {
+			return err
+		}
+		fmt.Printf("✅ %s\n", doneMsg)
+		return nil
 	}
 	err := spinner.New().
 		Title(" " + title + " (this may take a moment, use -v for verbose)").
