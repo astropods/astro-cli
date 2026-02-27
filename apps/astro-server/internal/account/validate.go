@@ -81,5 +81,10 @@ func ValidateAccountName(name string) error {
 		return fmt.Errorf("account name %q is reserved", name)
 	}
 
+	// Check denied names (popular brands and companies)
+	if deniedNames[name] {
+		return fmt.Errorf("account name %q is reserved for brand use — contact support to request it", name)
+	}
+
 	return nil
 }
