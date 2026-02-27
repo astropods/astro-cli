@@ -176,7 +176,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		profile.User.AccountName = accounts[0].Name
 		profile.User.AccountID = accounts[0].ID
 	} else if verbose && err != nil {
-		fmt.Printf("  %s accounts: %s\n", cyan.Sprint("→"), dim.Sprintf("fetch failed: %v", err)) //nolint:errcheck,gosec
+		red := color.New(color.FgRed)
+		fmt.Printf("  %s accounts: %s\n", red.Sprint("✗"), dim.Sprintf("fetch failed: %v", err)) //nolint:errcheck,gosec
 	}
 
 	// If no account exists, prompt the user to claim a username now
@@ -243,7 +244,8 @@ func claimUsernameInteractive(serverURL, accessToken string, verbose bool) (auth
 						available, reason, err := checkAccountNameAvailability(serverURL, v)
 						if verbose {
 							if err != nil {
-								fmt.Printf("  %s check: %s\n", cyan.Sprint("→"), dim.Sprintf("error: %v", err)) //nolint:errcheck,gosec
+								red := color.New(color.FgRed)
+								fmt.Printf("  %s check: %s\n", red.Sprint("✗"), dim.Sprintf("error: %v", err)) //nolint:errcheck,gosec
 							} else {
 								fmt.Printf("  %s check: %s\n", cyan.Sprint("→"), dim.Sprintf("available=%v reason=%q", available, reason)) //nolint:errcheck,gosec
 							}
