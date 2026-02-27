@@ -165,7 +165,7 @@ func (k Knowledge) ResolvedContainer() ContainerConfig {
 type Tool struct {
 	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Platform provider (e.g. github) or custom provider name"`
 	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty"`
-	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the tool container"`
+	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the integration container"`
 }
 
 // IsProviderMode returns true when the tool entry uses a cloud provider.

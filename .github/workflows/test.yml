@@ -39,6 +39,8 @@ jobs:
     strategy:
       matrix:
         app:
+          - name: astro-spec
+            path: packages/astro-spec
           - name: astro-server
             path: apps/astro-server
           - name: astro-registry
