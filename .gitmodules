@@ -13,3 +13,6 @@
 [submodule "ast-cli"]
 	path = apps/cli-public
 	url = git@github.com:astropods/ast-cli.git
+[submodule "website"]
+	path = website
+	url = git@github.com:postman-eng/astro-website.git
