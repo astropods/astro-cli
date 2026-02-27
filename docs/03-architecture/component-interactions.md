@@ -270,7 +270,7 @@ Response 200:
 
 | Context | Storage | Notes |
 |---------|---------|-------|
-| CLI | System keyring or `~/.astro/credentials.json` | Keyring preferred, file fallback |
+| CLI | System keyring or `~/.ast/credentials.json` | Keyring preferred, file fallback |
 | Server (web) | Encrypted session cookie | httpOnly, SameSite |
 | CI/CD | `ASTRO_ACCESS_TOKEN` env var | Override for automation |
 

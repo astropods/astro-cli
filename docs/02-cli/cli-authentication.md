@@ -62,7 +62,7 @@ Keys use format: `{profile}_{token_type}` (e.g., `default_access_token`)
 
 ### Fallback: File Storage
 
-When keyring is unavailable, credentials are stored in `~/.astro/credentials.json` with permissions `0600`.
+When keyring is unavailable, credentials are stored in `~/.ast/credentials.json` with permissions `0600`.
 
 ```
 ~/.astro/
