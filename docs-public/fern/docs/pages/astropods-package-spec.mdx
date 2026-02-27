@@ -1,9 +1,11 @@
-# AstroAI Spec (package/v1)
+---
+title: Astropods Spec
+subtitle: Declarative YAML format for AI agent topology
+slug: astropods-package-spec
+---
 
-**Version:** 1.0
-**Date:** 2026-02-17
-**Status:** Draft
-
+<Versions>
+<Version version="v1.0 (Draft) - 2026-02-27" default>
 ## Abstract
 
 The AstroAI Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, tool services, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
@@ -57,7 +59,7 @@ A conforming document MUST contain the following top-level fields:
 | `ingestion` | map\<string, Ingestion\> | OPTIONAL     | Data ingestion pipeline entries.                                   |
 | `dev`       | object                   | OPTIONAL     | Local development overrides.                                       |
 
-Map keys serve as entry names and are used in credential injection (see [Section 8](#8-credential-injection-model)).
+Map keys serve as entry names and are used in credential injection (see [Section 8](#8-environment-variable-injection-model)).
 
 ### 2.1 Meta
 
@@ -210,11 +212,11 @@ Each variable's `name` is a **suffix**. The full env var key is formed as `{UPPE
 
 Custom providers can be referenced by name from the `models`, `knowledge`, and `tools` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider — the platform MUST reject references from sections not listed in `scope`.
 
-| Field     | Type               | Required     | Description                                                                                             |
-| --------- | ------------------ | ------------ | ------------------------------------------------------------------------------------------------------- |
-| `scope`   | string[]           | **REQUIRED** | Sections that may reference this provider. MUST contain one or more of: `models`, `knowledge`, `tools`. |
-| `variables` | Input[]          | **REQUIRED** | Variables this provider requires from the user. MUST contain at least one entry.                        |
-| `config`  | map\<string, any\> | OPTIONAL     | Provider-specific configuration.                                                                        |
+| Field       | Type               | Required     | Description                                                                                             |
+| ----------- | ------------------ | ------------ | ------------------------------------------------------------------------------------------------------- |
+| `scope`     | string[]           | **REQUIRED** | Sections that may reference this provider. MUST contain one or more of: `models`, `knowledge`, `tools`. |
+| `variables` | Input[]            | **REQUIRED** | Variables this provider requires from the user. MUST contain at least one entry.                        |
+| `config`    | map\<string, any\> | OPTIONAL     | Provider-specific configuration.                                                                        |
 
 ---
 
@@ -236,7 +238,7 @@ The `ingestion` section declares data ingestion pipelines. Each entry is a conta
 
 Trigger type semantics:
 
-- **`schedule`** — runs on a cron schedule. The cron expression is supplied at deploy time or via `dev.schedules` for local development.
+- **`schedule`** — runs on a cron schedule. The cron expression is supplied at deploy time.
 - **`startup`** — runs once automatically at deploy time.
 - **`manual`** — runs on demand via API invocation.
 - **`webhook`** — deploys as a long-running service that receives incoming HTTP requests. The container SHOULD declare a `port` when using this trigger type.
@@ -250,7 +252,6 @@ The `dev` section provides local development overrides consumed by `astro dev`. 
 | Field        | Type                  | Required | Description                                                                        |
 | ------------ | --------------------- | -------- | ---------------------------------------------------------------------------------- |
 | `interfaces` | string[]              | OPTIONAL | Messaging interfaces to enable locally (e.g. `slack`, `web`).                      |
-| `schedules`  | map\<string, string\> | OPTIONAL | Map of ingestion entry name to cron expression for local `schedule`-type triggers. |
 | `command`    | string                | OPTIONAL | Custom start command for the agent. Default: `bun --watch run start`.              |
 | `overrides`  | DevOverrides          | OPTIONAL | Image overrides for local dev services.                                            |
 
@@ -549,7 +550,8 @@ ingestion:
 
 dev:
   interfaces: [slack, web]
-  schedules:
-    docs_sync: "0 */6 * * *"
   command: bun --watch run start
 ```
+
+</Version>
+</Versions>

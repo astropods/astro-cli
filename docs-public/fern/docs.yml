@@ -50,7 +50,7 @@ navigation:
       - section: Reference
         contents:
           - page: Astropods Spec
-            path: docs/pages/understanding-astropods-spec.mdx
+            path: docs/pages/astropods-package-spec.mdx
             icon: fa-duotone fa-file-lines
   #     - section: Changelog
   #       contents:
