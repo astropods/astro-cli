@@ -107,7 +107,7 @@ func init() {
 // checkDockerRunning verifies Docker is installed and the daemon is accessible.
 func checkDockerRunning() error {
 	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows is not supported. Please use macOS or Linux.")
+		return fmt.Errorf("Windows is not supported — please use macOS or Linux")
 	}
 
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -124,12 +124,20 @@ func checkDockerRunning() error {
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
-		msg := "Docker is not running. Please start Docker and try again."
+		red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+		dim := lipgloss.NewStyle().Faint(true)
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+
+		var hint2 string
 		if runtime.GOOS == "darwin" {
-			msg += "\n  → Open Docker Desktop from your Applications folder or system tray."
+			hint2 = hint.Render("→ Open Docker Desktop from your Applications folder or system tray")
 		} else {
-			msg += "\n  → Run: sudo systemctl start docker"
+			hint2 = hint.Render("→ Run: sudo systemctl start docker")
 		}
+
+		msg := red.Render("🐳 Docker is not running") + "\n" +
+			dim.Render("Start Docker and re-run your command.") + "\n\n" +
+			hint2
 		return fmt.Errorf("%s", msg)
 	}
 	return nil
