@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	promptStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
 	hintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 )
 
 // Credential describes a single credential to collect.

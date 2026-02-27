@@ -27,7 +27,14 @@ func fullVersion() string {
 var rootCmd = &cobra.Command{
 	Use:   binaryName,
 	Short: "Astro CLI - Build, push, and develop AI agents",
-	Long: `Astro CLI is a tool for building, pushing, and developing AI agents.
+	Long: "\033[36m" + `
+  ⠉⠛⠿⣿⣿⣿⣿⡿ ⣸⢿⡄  ⣀⣀⡀ ⣀⣷⣀⡀⢀⣀⡀⣀⡀ ⣀⣀⡀ ⣀⣀⣀⡀ ⢀⣀⡀  ⣀⣀⣿  ⣀⣀⡀
+⡀⣤⣶⣿⣿⣿⣿⣿⣿⠁ ⣿ ⣿ ⢸⣏⠉⠿⠈⠉⣿⠉⠁⠈⢹⡟⠉ ⣿⠉⠉⣿ ⣿⠉⠙⣷⢠⡟⠉⢻⣆⣾⠋⠉⣿ ⢾⡏⠉⠿
+     ⣿⡿⣿⡟ ⢸⡟⠛⢿⡄⣠⡉⠛⣿  ⣿   ⢸⡇  ⣿  ⣿ ⣿  ⣿⠸⣇ ⢰⡟⣿  ⣿ ⣤⡉⠛⣿
+    ⣼⠟ ⣿  ⠛  ⠈⠛ ⠛⠛⠋ ⠙⠛⠃ ⠛⠛⠛  ⠈⠛⠛⠁ ⣿⠛⠛⠁ ⠙⠛⠋  ⠛⠛⠙  ⠛⠛⠋
+    ⠃  ⠇                          ` + "\033[0m" + `
+
+Build, push, and develop AI agents.
 
 It reads an astropods.yml specification file that declares:
 - Self-hosted components (models, knowledge stores, tools)

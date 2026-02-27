@@ -33,7 +33,7 @@ var supportedTemplates = map[string]bool{
 }
 
 var createCmd = &cobra.Command{
-	Use:   "create <name>",
+	Use:   "create [name]",
 	Short: "Create a new Astro agent project",
 	Long: `Create a new Astro agent project with scaffolded files.
 
@@ -43,17 +43,20 @@ The create command generates a new agent project with the specified language:
 - ingestion source files for data pipelines
 - Dockerfile for the runtime
 
+If no name is provided, you will be prompted for one interactively.
+
 Supported languages: ts (TypeScript/Bun)
 Supported templates: mastra (default)
 
 Example:
+  ast create
   ast create my-agent
   ast create my-agent --yes
   ast create my-agent --template mastra
   ast create my-agent --lang ts
   ast create my-agent --path /path/to/projects
   ast create my-agent --force`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: runCreate,
 }
 
@@ -67,7 +70,10 @@ func init() {
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
-	name := args[0]
+	var name string
+	if len(args) > 0 {
+		name = args[0]
+	}
 
 	// Validate language
 	if !supportedLangs[langFlag] {
@@ -79,9 +85,30 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported template: %s (supported: mastra)", templateFlag)
 	}
 
-	// Validate name
-	if err := scaffold.ValidateName(name); err != nil {
-		return fmt.Errorf("invalid name: %w", err)
+	// If name was provided as arg, validate it upfront
+	if name != "" {
+		if err := scaffold.ValidateName(name); err != nil {
+			return fmt.Errorf("invalid name: %w", err)
+		}
+	}
+
+	// Get config
+	var config scaffold.ScaffoldConfig
+	if yesFlag {
+		if name == "" {
+			return fmt.Errorf("agent name is required with --yes flag")
+		}
+		config = scaffold.DefaultConfig(name)
+	} else {
+		var err error
+		config, err = create.Run(name)
+		if errors.Is(err, create.ErrCancelled) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		name = config.Name
 	}
 
 	// Determine target directory
@@ -101,21 +128,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	} else if err := scaffold.ValidateDirectory(targetDir); err != nil {
 		return err
-	}
-
-	// Get config
-	var config scaffold.ScaffoldConfig
-	if yesFlag {
-		config = scaffold.DefaultConfig(name)
-	} else {
-		var err error
-		config, err = create.Run(name)
-		if errors.Is(err, create.ErrCancelled) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
 	}
 
 	// Generate files
