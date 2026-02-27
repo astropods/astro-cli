@@ -9,7 +9,7 @@ const handler = createRequestHandler(build, mode);
 const port = Number(process.env.PORT) || 3000;
 const API_URL = process.env.API_URL || "http://localhost:8080";
 const CLIENT_BUILD_DIR = path.resolve("./build/client");
-const PROXY_PREFIXES = ["/auth", "/api", "/download", "/install"];
+const PROXY_PREFIXES = ["/auth", "/api", "/download", "/install", "/schema"];
 
 Bun.serve({
   port,
