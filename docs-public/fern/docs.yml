@@ -2,7 +2,7 @@
 
 instances:
   - url: astro-061127.docs.buildwithfern.com
-    custom-domain: docs.astropod.ai
+    custom-domain: docs.astropods.ai
     audiences:
       - internal
 
