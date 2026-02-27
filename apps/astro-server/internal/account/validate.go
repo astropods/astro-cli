@@ -31,15 +31,16 @@ var reservedNames = map[string]bool{
 }
 
 // ValidateAccountName validates an account name follows the rules:
-// - 2-39 characters
+// - 4-39 characters
 // - lowercase alphanumeric + hyphens only
 // - must start with a letter
 // - must not end with a hyphen
 // - no consecutive hyphens
 // - not a reserved name
+// - not a denied name (popular brands and companies)
 func ValidateAccountName(name string) error {
-	if len(name) < 2 {
-		return fmt.Errorf("account name must be at least 2 characters")
+	if len(name) < 4 {
+		return fmt.Errorf("account name must be at least 4 characters")
 	}
 	if len(name) > 39 {
 		return fmt.Errorf("account name must be at most 39 characters")
