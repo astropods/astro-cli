@@ -145,6 +145,9 @@ func (m *configureApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if f, ok := newForm.(*huh.Form); ok {
 		m.form = f
 	}
+	if m.form.State == huh.StateCompleted || m.form.State == huh.StateAborted {
+		return m, tea.Quit
+	}
 	return m, cmd
 }
 

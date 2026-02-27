@@ -165,7 +165,7 @@ func DefaultConfig(name string) ScaffoldConfig {
 		ModelProvider:   "",
 		Model:           "",
 		Knowledge:       []string{},
-		Integrations:    []string{},
+		Integrations:    []string{"anthropic"},
 		IntegrationKeys: map[string]string{},
 		Ingestions:      []string{},
 	}
@@ -209,7 +209,6 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 		{filepath.Join(targetDir, "Dockerfile"), paths.Dockerfile},
 		{filepath.Join(targetDir, "package.json"), paths.PackageJson},
 		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
-		{filepath.Join(targetDir, ".env"), paths.EnvExample},
 		{filepath.Join(targetDir, ".gitignore"), paths.Gitignore},
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
 		{filepath.Join(targetDir, ".npmrc"), paths.Npmrc},

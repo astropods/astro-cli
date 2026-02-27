@@ -15,7 +15,6 @@ type TemplatePaths struct {
 	DockerfileIngestion      string
 	PackageJson              string
 	Tsconfig                 string
-	EnvExample               string
 	Gitignore                string
 	Dockerignore             string
 	Npmrc                    string
@@ -40,7 +39,6 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			Dockerfile:               "templates/template-ts/Dockerfile",
 			DockerfileIngestion:      "templates/template-ts/Dockerfile.ingestion",
 			Tsconfig:                 "templates/template-ts/tsconfig.json",
-			EnvExample:               "templates/template-ts/env.example.tmpl",
 			Gitignore:                "templates/template-ts/gitignore.tmpl",
 			Dockerignore:             "templates/template-ts/dockerignore.tmpl",
 			Npmrc:                    "templates/template-ts/npmrc.tmpl",
