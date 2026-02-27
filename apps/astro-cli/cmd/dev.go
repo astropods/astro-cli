@@ -167,7 +167,7 @@ func devStatePath() (string, error) {
 // readDevProjectName returns the project name stored in the .running marker file.
 // Falls back to spec parsing if the file is empty (older format).
 func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
-	data, err := os.ReadFile(statePath)
+	data, err := os.ReadFile(statePath) //nolint:gosec // path is constructed from os.Getwd() + hardcoded suffix
 	if err != nil {
 		return "", fmt.Errorf("failed to read dev state: %w", err)
 	}
