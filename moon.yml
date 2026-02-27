@@ -8,7 +8,7 @@ tasks:
       cache: false
 
   build:
-    command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD)" -o bin/ast .'
+    command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD)" -o bin/ast .'
     inputs:
       - "**/*.go"
       - "cmd/docs/**"
