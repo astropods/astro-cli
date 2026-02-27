@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
 )
@@ -57,7 +58,7 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 		slackBotToken string
 		slackAppToken string
 
-		confirm bool
+		confirm = true
 	)
 
 	hasOllama    := func() bool { return slices.Contains(models, "ollama") }
@@ -66,12 +67,23 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 	hasGitHub    := func() bool { return slices.Contains(tools, "github") }
 	hasSlack     := func() bool { return slices.Contains(interfaces, "slack") }
 
+	needsName := name == ""
+
 	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Agent name").
+				Description("Lowercase letters, numbers, and hyphens. Must start with a letter.").
+				Placeholder("my-agent").
+				Value(&name).
+				Validate(scaffold.ValidateName),
+		).WithHideFunc(func() bool { return !needsName }),
+
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Description").
 				Description("A short summary of what your agent does.").
-				Placeholder("An AI-powered agent").
+				Placeholder("Summarizes weekly workspace activity and highlights projects that need attention.").
 				Value(&description),
 		),
 
@@ -194,12 +206,27 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 
 		huh.NewGroup(
 			huh.NewConfirm().
-				Title(fmt.Sprintf("Create agent %q?", name)).
+				TitleFunc(func() string { return fmt.Sprintf("Create agent %q?", name) }, &name).
 				Value(&confirm),
 		),
 	)
 
-	if err := form.Run(); err != nil {
+	teal := lipgloss.Color("6")
+	theme := huh.ThemeCharm()
+	theme.Focused.Title = theme.Focused.Title.Foreground(teal)
+	theme.Focused.SelectedOption = theme.Focused.SelectedOption.Foreground(teal)
+	theme.Focused.SelectedPrefix = theme.Focused.SelectedPrefix.Foreground(teal)
+	theme.Focused.FocusedButton = theme.Focused.FocusedButton.Background(teal)
+	theme.Focused.SelectSelector = theme.Focused.SelectSelector.Foreground(teal)
+	theme.Focused.MultiSelectSelector = theme.Focused.MultiSelectSelector.Foreground(teal)
+	theme.Focused.TextInput.Cursor = theme.Focused.TextInput.Cursor.Foreground(teal)
+	theme.Focused.TextInput.Prompt = theme.Focused.TextInput.Prompt.Foreground(teal)
+	theme.Focused.Next = theme.Focused.Next.Foreground(teal)
+	theme.Blurred.Title = theme.Blurred.Title.Foreground(teal)
+	theme.Blurred.SelectedOption = theme.Blurred.SelectedOption.Foreground(teal)
+	theme.Blurred.SelectedPrefix = theme.Blurred.SelectedPrefix.Foreground(teal)
+
+	if err := form.WithTheme(theme).Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
 			return scaffold.ScaffoldConfig{}, ErrCancelled
 		}

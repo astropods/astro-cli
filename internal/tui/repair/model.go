@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	hintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 )

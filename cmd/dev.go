@@ -630,6 +630,7 @@ func withSpinner(title string, verbose bool, fn func() error) error {
 	}
 	return spinner.New().
 		Title(" " + title).
+		Style(lipgloss.NewStyle().Foreground(lipgloss.Color("6"))).
 		ActionWithErr(func(_ context.Context) error {
 			return fn()
 		}).
