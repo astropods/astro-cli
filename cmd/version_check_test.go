@@ -172,6 +172,38 @@ func TestFetchLatestVersion_EmptyBody(t *testing.T) {
 	}
 }
 
+// --- semver helpers ---
+
+func TestIsNewerVersion(t *testing.T) {
+	tests := []struct {
+		latest  string
+		current string
+		want    bool
+	}{
+		{"2.0.0", "1.0.0", true},
+		{"1.1.0", "1.0.0", true},
+		{"1.0.1", "1.0.0", true},
+		{"1.0.0", "1.0.0", false},
+		{"1.0.0", "2.0.0", false},            // downgrade — should NOT notify
+		{"1.9.0", "2.0.0", false},            // downgrade — should NOT notify
+		{"v2.0.0", "1.0.0", true},            // leading v on latest
+		{"2.0.0", "v1.0.0", true},            // leading v on current
+		{"1.0.0", "1.0.0-rc.1", true},        // release > pre-release (per semver spec)
+		{"1.0.0-rc.2", "1.0.0-rc.1", true},   // pre-release ordering
+		{"1.0.0-rc.1", "1.0.0", false},       // pre-release < release — no notification
+		{"1.0.0-alpha", "1.0.0-beta", false}, // alpha < beta — no notification
+		{"not-a-version", "1.0.0", true},     // unparseable falls back to string inequality
+		{"1.0.0", "not-a-version", true},
+		{"same", "same", false},
+	}
+	for _, tc := range tests {
+		got := isNewerVersion(tc.latest, tc.current)
+		if got != tc.want {
+			t.Errorf("isNewerVersion(%q, %q) = %v, want %v", tc.latest, tc.current, got, tc.want)
+		}
+	}
+}
+
 // --- notifyIfUpdateAvailable ---
 
 func TestNotifyIfUpdateAvailable_DevBuild(t *testing.T) {
@@ -194,6 +226,20 @@ func TestNotifyIfUpdateAvailable_AlreadyUpToDate(t *testing.T) {
 	out := captureStderr(t, notifyIfUpdateAvailable)
 	if out != "" {
 		t.Errorf("expected no output when already up to date, got %q", out)
+	}
+}
+
+func TestNotifyIfUpdateAvailable_CurrentNewer(t *testing.T) {
+	// current version is ahead of latest (e.g. pre-release build) — no notification
+	srv := httptest.NewServer(versionHandler(t, "1.0.0"))
+	defer srv.Close()
+
+	setupVersionCheckTest(t, srv)
+	version = "2.0.0"
+
+	out := captureStderr(t, notifyIfUpdateAvailable)
+	if out != "" {
+		t.Errorf("expected no output when current version is newer, got %q", out)
 	}
 }
 

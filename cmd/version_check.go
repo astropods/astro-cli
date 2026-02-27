@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/fatih/color"
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
 )
@@ -19,7 +20,7 @@ const versionCheckTimeout = 2 * time.Second
 
 // overrides for testing
 var (
-	versionCacheDir        string // if non-empty, used instead of auth.ConfigDir
+	versionCacheDir         string // if non-empty, used instead of auth.ConfigDir
 	versionCheckDownloadURL string // if non-empty, used instead of downloadBaseURL
 )
 
@@ -95,6 +96,21 @@ func fetchLatestVersion() (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
+// isNewerVersion reports whether latest is a strictly higher semver than
+// current. Falls back to string inequality when either version cannot be
+// parsed.
+func isNewerVersion(latest, current string) bool {
+	lv, err := semver.NewVersion(latest)
+	if err != nil {
+		return latest != current
+	}
+	cv, err := semver.NewVersion(current)
+	if err != nil {
+		return latest != current
+	}
+	return lv.GreaterThan(cv)
+}
+
 // notifyIfUpdateAvailable checks whether a newer CLI version is available and
 // prints an update notice if so. It caches the result for 24 hours to avoid
 // making a network request on every command invocation.
@@ -121,7 +137,7 @@ func notifyIfUpdateAvailable() {
 		}
 	}
 
-	if cache.LatestVersion == "" || cache.LatestVersion == version {
+	if cache.LatestVersion == "" || !isNewerVersion(cache.LatestVersion, version) {
 		return
 	}
 
