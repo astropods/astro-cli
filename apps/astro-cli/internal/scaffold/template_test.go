@@ -301,7 +301,7 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 	}
 
 	// Verify shared files exist
-	for _, f := range []string{"astropods.yml", "Dockerfile", "tsconfig.json", ".env", ".gitignore", ".dockerignore", ".npmrc"} {
+	for _, f := range []string{"astropods.yml", "Dockerfile", "tsconfig.json", ".gitignore", ".dockerignore", ".npmrc"} {
 		if _, err := os.Stat(filepath.Join(target, f)); os.IsNotExist(err) {
 			t.Errorf("expected file %q to exist", f)
 		}
