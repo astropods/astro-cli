@@ -107,7 +107,7 @@ func init() {
 // checkDockerRunning verifies Docker is installed and the daemon is accessible.
 func checkDockerRunning() error {
 	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows is not supported — please use macOS or Linux")
+		return fmt.Errorf("Windows is not supported — please use macOS or Linux") //nolint:staticcheck
 	}
 
 	if _, err := exec.LookPath("docker"); err != nil {
