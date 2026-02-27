@@ -130,7 +130,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if err := unlinkLocalPackages(workingDir); err != nil {
 			return fmt.Errorf("local-reset: %w", err)
 		}
-		fmt.Println("📦 Removed local packages. Run 'bun install' to restore dependencies.")
+		fmt.Printf("%s→%s Removed local packages. Run 'bun install' to restore dependencies.\n", colorCyan, colorReset)
 		return nil
 	}
 
@@ -142,8 +142,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("🚀 Starting Astro dev mode...\n")
-	fmt.Printf("📄 Loading spec from: %s\n", filepath.Base(specPath))
+	fmt.Printf("%s→%s Loading spec: %s\n", colorCyan, colorReset, filepath.Base(specPath))
 
 	// Parse Astro spec
 	astroSpec, err := spec.ParseSpec(specPath)
@@ -151,7 +150,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	fmt.Printf("✅ Loaded spec for agent: %s\n", astroSpec.Name)
+	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 
 	// Load .env file
 	envVars, err := utils.LoadEnvFile(workingDir, envFile)
@@ -161,12 +160,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if envVars == nil {
 		envVars = make(map[string]string)
 	} else {
-		fmt.Printf("🔑 Loading environment from: %s\n", envFile)
-		var envKeys []string
-		for key := range envVars {
-			envKeys = append(envKeys, key)
-		}
-		fmt.Printf("   Loaded %d environment variables: %s\n", len(envKeys), strings.Join(envKeys, ", "))
+		fmt.Printf("%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, len(envVars), envFile)
 		for key, val := range envVars {
 			if err := os.Setenv(key, val); err != nil {
 				return fmt.Errorf("failed to set env var %s: %w", key, err)
@@ -183,9 +177,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if len(storedVars) > 0 {
-		fmt.Printf("🔑 Loaded %d var(s) from project config store\n", len(storedVars))
+		fmt.Printf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, len(storedVars))
 	} else if len(envVars) == 0 {
-		fmt.Printf("⚠️  No .env file found at %s and no project config set. Run 'ast configure' to set up credentials.\n", envFile)
+		fmt.Printf("%s→%s %sNo credentials found. Run 'ast configure' to set up.%s\n", colorCyan, colorReset, colorDim, colorReset)
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
@@ -239,7 +233,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		serviceNames = append(serviceNames, name)
 	}
 	sort.Strings(serviceNames)
-	fmt.Printf("📦 %d service(s): %s\n", len(serviceNames), strings.Join(serviceNames, ", "))
+	fmt.Printf("%s→%s Services: %s\n", colorCyan, colorReset, strings.Join(serviceNames, ", "))
 
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
@@ -318,7 +312,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("adapters not built: run 'moon run adapters:build' first")
 	}
-	fmt.Printf("📦 Using local packages from %s\n", astroRoot)
+	fmt.Printf("%s→%s Using local packages from %s\n", colorCyan, colorReset, astroRoot)
 
 	// Resolve start command from spec (default: "bun --watch run start")
 	startCommand := "bun --watch run start"
@@ -336,7 +330,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("failed to start agent: %w", err)
 	}
-	fmt.Printf("🤖 Agent running as local process (%s)\n", startCommand)
+	fmt.Printf("%s→%s Agent running as local process %s(%s)%s\n", colorCyan, colorReset, colorDim, startCommand, colorReset)
 
 	if hasWebInterface {
 		// Open playground in browser
@@ -351,13 +345,13 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	fmt.Println()
-	fmt.Println("✨ Ready! Press Ctrl+C to stop")
+	fmt.Printf("%s→%s %sReady! Press Ctrl+C to stop%s\n", colorCyan, colorReset, colorBold, colorReset)
 	fmt.Println()
 
 	<-sigChan
 
 	fmt.Println()
-	fmt.Println("🛑 Shutting down...")
+	fmt.Printf("%s→%s Shutting down...\n", colorCyan, colorReset)
 
 	agentCancel()
 	if agentCmd.Process != nil {
@@ -372,8 +366,8 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
-	fmt.Println("✅ Cleanup complete")
-	fmt.Println("💡 Tip: run 'ast dev --local-reset' to remove injected local dependencies")
+	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
+	fmt.Printf("  %sTip: run 'ast dev --local-reset' to remove injected local dependencies%s\n", colorDim, colorReset)
 
 	return nil
 }
@@ -421,7 +415,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
 	}
 
-	fmt.Println("🛑 Stopping dev containers...")
+	fmt.Printf("%s→%s Stopping dev containers...\n", colorCyan, colorReset)
 	downCmd := exec.Command("docker", "compose", "-f", cPath, "down") //nolint:gosec
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
@@ -429,7 +423,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
-	fmt.Println("✅ Containers stopped")
+	fmt.Printf("%s→%s Containers stopped\n", colorCyan, colorReset)
 	return nil
 }
 
@@ -480,14 +474,14 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
 	}
 
-	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
+	fmt.Printf("%s→%s Triggering ingestion: %s\n", colorCyan, colorReset, name)
 	runCmd := exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)) //nolint:gosec
 	runCmd.Stdout = os.Stdout
 	runCmd.Stderr = os.Stderr
 	if err := runCmd.Run(); err != nil {
 		return fmt.Errorf("ingestion '%s' failed: %w", name, err)
 	}
-	fmt.Printf("✅ Ingestion '%s' completed\n", name)
+	fmt.Printf("%s→%s Ingestion '%s' completed\n", colorCyan, colorReset, name)
 	return nil
 }
 
@@ -587,7 +581,7 @@ func runStartupIngestions(s *spec.AstroSpec, cPath string, verbose bool) {
 		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), verbose, func() error {
 			return runCmd(exec.Command("docker", "compose", "-f", cPath, "run", "--rm", fmt.Sprintf("ingestion-%s", name)), verbose) //nolint:gosec
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Startup ingestion '%s' failed: %v\n", name, err)
+			fmt.Fprintf(os.Stderr, "%s✗%s Startup ingestion '%s' failed: %v\n", colorRed, colorReset, name, err)
 		}
 	}
 }
@@ -639,16 +633,17 @@ func withSpinner(title string, verbose bool, fn func() error) error {
 
 // printReadyBlock renders the post-start summary using lipgloss.
 func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
+	teal := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	bold := lipgloss.NewStyle().Bold(true)
+	boldTeal := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	dim := lipgloss.NewStyle().Faint(true)
-	url := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 
 	var lines []string
-	lines = append(lines, bold.Render("✨ "+s.Name+" is ready"))
+	lines = append(lines, "✨ "+bold.Render(s.Name)+" is ready")
 	lines = append(lines, "")
 
 	if hasWebInterface {
-		lines = append(lines, url.Render("➜  http://localhost:3000"))
+		lines = append(lines, teal.Render("➜")+"  "+boldTeal.Render("http://localhost:3000"))
 		lines = append(lines, dim.Render("   http://localhost:3100  (API)"))
 	}
 
@@ -677,8 +672,8 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(lipgloss.Color("6")).
 		Padding(0, 2).
 		Render(strings.Join(lines, "\n"))
 
@@ -698,10 +693,10 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec
 	default:
-		fmt.Printf("⚠️  Unable to open browser automatically on %s\n", runtime.GOOS)
+		fmt.Printf("%s→%s %sUnable to open browser automatically on %s%s\n", colorCyan, colorReset, colorDim, runtime.GOOS, colorReset)
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("⚠️  Failed to open browser: %v\n", err)
+		fmt.Printf("%s→%s %sFailed to open browser: %v%s\n", colorCyan, colorReset, colorDim, err, colorReset)
 	}
 }
