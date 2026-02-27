@@ -46,7 +46,7 @@ func (m model) View() string {
 	case screenName:
 		b.WriteString(promptStyle.Render("  Name"))
 		b.WriteString("\n")
-		b.WriteString(hintStyle.Render(fmt.Sprintf("  Reference name for this %s in astroai.yml.", m.domain)))
+		b.WriteString(hintStyle.Render(fmt.Sprintf("  Reference name for this %s in astropods.yml.", m.domain)))
 		b.WriteString("\n\n")
 		b.WriteString("  " + m.nameInput.View())
 		b.WriteString("\n\n")

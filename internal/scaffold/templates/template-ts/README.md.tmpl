@@ -26,7 +26,7 @@ ast dev
 │   │   └── Dockerfile
 {{- end}}
 {{- end}}
-├── astroai.yml             # Agent specification
+├── astropods.yml             # Agent specification
 ├── Dockerfile            # Agent container
 ├── .env                  # Environment variables (not committed)
 └── package.json
@@ -34,7 +34,7 @@ ast dev
 
 ## Configuration
 
-The agent is configured in `astroai.yml`. Key sections:
+The agent is configured in `astropods.yml`. Key sections:
 {{- if ne .ModelProvider ""}}
 
 ### Model

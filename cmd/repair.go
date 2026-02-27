@@ -39,18 +39,19 @@ type repairFileCheck struct {
 }
 
 func runRepair(cmd *cobra.Command, args []string) error {
-	specFile, err := specFilePath(cmd)
-	if err != nil {
-		return err
-	}
-
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath := filepath.Join(workingDir, specFile)
-	astroSpec, specErr := spec.ParseSpec(specPath)
+	specPath, resolveErr := resolveSpecPath(cmd, workingDir)
+	var astroSpec *spec.AstroSpec
+	var specErr error
+	if resolveErr == nil {
+		astroSpec, specErr = spec.ParseSpec(specPath)
+	} else {
+		specErr = resolveErr
+	}
 
 	var config scaffold.ScaffoldConfig
 	var specMissing bool
@@ -59,14 +60,16 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		// Check if the old astro.yml filename is present and offer to rename it.
 		oldSpecPath := filepath.Join(workingDir, "astro.yml")
 		if oldSpec, oldErr := spec.ParseSpec(oldSpecPath); oldErr == nil {
+			targetName := SpecFileAliases[0]
+			targetPath := filepath.Join(workingDir, targetName)
 			fmt.Println()
-			fmt.Printf("%s!%s Found %sastro.yml%s — this file has been renamed to %sastroai.yml%s\n",
-				colorYellow, colorReset, colorBold, colorReset, colorBold, colorReset)
+			fmt.Printf("%s!%s Found %sastro.yml%s — this file has been renamed to %s%s%s\n",
+				colorYellow, colorReset, colorBold, colorReset, colorBold, targetName, colorReset)
 
 			rename := true
 			if !yesFlag {
 				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("  Rename astro.yml → astroai.yml? [Y/n] ")
+				fmt.Printf("  Rename astro.yml → %s? [Y/n] ", targetName)
 				line, _ := reader.ReadString('\n')
 				trimmed := strings.TrimSpace(strings.ToLower(line))
 				if trimmed != "" && trimmed != "y" {
@@ -76,16 +79,18 @@ func runRepair(cmd *cobra.Command, args []string) error {
 			}
 
 			if rename {
-				if renameErr := os.Rename(oldSpecPath, specPath); renameErr != nil {
+				if renameErr := os.Rename(oldSpecPath, targetPath); renameErr != nil {
 					fmt.Printf("  %s✗%s failed to rename: %v\n", colorRed, colorReset, renameErr)
 				} else {
-					fmt.Printf("  %s✓%s Renamed astro.yml → astroai.yml\n", colorGreen, colorReset)
+					fmt.Printf("  %s✓%s Renamed astro.yml → %s\n", colorGreen, colorReset, targetName)
 					astroSpec = oldSpec
+					specPath = targetPath
 					specErr = nil
 				}
 			} else {
 				// Use the old spec for config even without renaming
 				astroSpec = oldSpec
+				specPath = oldSpecPath
 				specErr = nil
 			}
 		}
@@ -94,7 +99,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 			specMissing = true
 			config = inferConfigFallback(workingDir)
 			fmt.Println()
-			fmt.Printf("%s!%s astroai.yml is missing or invalid — using inferred config (name: %s%s%s)\n",
+			fmt.Printf("%s!%s spec file is missing or invalid — using inferred config (name: %s%s%s)\n",
 				colorYellow, colorReset, colorBold, config.Name, colorReset)
 		}
 	}

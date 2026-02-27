@@ -114,16 +114,16 @@ func composePath() (string, error) {
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
-	// Get spec file path
-	specFile, err := specFilePath(cmd)
-	if err != nil {
-		return err
-	}
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	specPath, err := resolveSpecPath(cmd, workingDir)
+	if err != nil {
+		return err
 	}
 
 	if localReset {
@@ -143,10 +143,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("🚀 Starting Astro dev mode...\n")
-	fmt.Printf("📄 Loading spec from: %s\n", specFile)
+	fmt.Printf("📄 Loading spec from: %s\n", filepath.Base(specPath))
 
-	// Parse astroai.yml
-	specPath := filepath.Join(workingDir, specFile)
+	// Parse Astro spec
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
@@ -435,17 +434,12 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 }
 
 func runDevTrigger(cmd *cobra.Command, args []string) error {
-	specFile, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	astroSpec, err := spec.ParseSpec(filepath.Join(workingDir, specFile))
+	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
@@ -453,7 +447,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	// No name given — list available ingestion jobs and exit
 	if len(args) == 0 {
 		if len(astroSpec.Ingestion) == 0 {
-			return fmt.Errorf("no ingestion jobs defined in %s", specFile)
+			return fmt.Errorf("no ingestion jobs defined in %s", filepath.Base(specPath))
 		}
 		fmt.Println("Available ingestion jobs:")
 		fmt.Println()
@@ -474,7 +468,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "  %s\n", n)
 		}
 		fmt.Fprintln(os.Stderr)
-		return fmt.Errorf("ingestion job %q not found in %s", name, specFile)
+		return fmt.Errorf("ingestion job %q not found in %s", name, filepath.Base(specPath))
 	}
 
 	cPath, err := composePath()

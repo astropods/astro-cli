@@ -11,49 +11,49 @@ import (
 
 	"github.com/spf13/cobra"
 
-	spec "github.com/postman/astro/packages/astro-spec"
 	"github.com/postman/astro/apps/astro-cli/internal/specwriter"
 	"github.com/postman/astro/apps/astro-cli/internal/tui/add"
 	"github.com/postman/astro/apps/astro-cli/internal/tui/credentials"
+	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 var addCmd = &cobra.Command{
 	Use:   "add",
-	Short: "Add a resource to astroai.yml",
-	Long:  "Add a model, knowledge store, tool, or ingestion pipeline to astroai.yml interactively.",
+	Short: "Add a resource to astropods.yml",
+	Long:  "Add a model, knowledge store, tool, or ingestion pipeline to astropods.yml interactively.",
 }
 
 var addModelCmd = &cobra.Command{
 	Use:   "model <provider>",
-	Short: "Add a model to astroai.yml",
+	Short: "Add a model to astropods.yml",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runAddModel,
 }
 
 var addKnowledgeCmd = &cobra.Command{
 	Use:   "knowledge <provider>",
-	Short: "Add a knowledge store to astroai.yml",
+	Short: "Add a knowledge store to astropods.yml",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runAddKnowledge,
 }
 
 var addToolCmd = &cobra.Command{
 	Use:   "tool <provider>",
-	Short: "Add a tool integration to astroai.yml",
+	Short: "Add a tool integration to astropods.yml",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runAddTool,
 }
 
 var addIngestionCmd = &cobra.Command{
 	Use:   "ingestion",
-	Short: "Add an ingestion pipeline to astroai.yml",
+	Short: "Add an ingestion pipeline to astropods.yml",
 	Args:  cobra.NoArgs,
 	RunE:  runAddIngestion,
 }
 
 var addProviderCmd = &cobra.Command{
 	Use:   "provider <name>",
-	Short: "Add a custom provider to astroai.yml",
+	Short: "Add a custom provider to astropods.yml",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runAddProvider,
 }
@@ -64,7 +64,7 @@ func init() {
 }
 
 func runAddDomain(cmd *cobra.Command, domain, provider string) error {
-	specPath, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func runAddModel(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	provider := args[0]
-	specPath, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func runAddKnowledge(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	provider := args[0]
-	specPath, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func runAddTool(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	provider := args[0]
-	specPath, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func runAddProvider(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	name := args[0]
-	specPath, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
@@ -298,4 +298,3 @@ func writeEnv(path, providerName string, creds []credentials.Credential, values 
 
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600) //nolint:gosec
 }
-

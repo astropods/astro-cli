@@ -10,19 +10,19 @@ var templateFS embed.FS
 
 // TemplatePaths holds the paths to template files for a specific language
 type TemplatePaths struct {
-	AstroYml            string
-	Dockerfile          string
-	DockerfileIngestion string
-	PackageJson         string
-	Tsconfig            string
-	EnvExample          string
-	Gitignore           string
-	Dockerignore        string
-	Npmrc               string
-	AgentIndex          string
-	IngestionIndex      string
-	LlmMd                  string
-	Readme                 string
+	AstroYml                 string
+	Dockerfile               string
+	DockerfileIngestion      string
+	PackageJson              string
+	Tsconfig                 string
+	EnvExample               string
+	Gitignore                string
+	Dockerignore             string
+	Npmrc                    string
+	AgentIndex               string
+	IngestionIndex           string
+	LlmMd                    string
+	Readme                   string
 	PostmanCollection        string
 	PostmanWebhookCollection string
 	IngestionWebhookIndex    string
@@ -30,26 +30,26 @@ type TemplatePaths struct {
 
 // GetTemplatePaths returns the template paths for the specified language and template.
 // The templateName selects which agent scaffold to use ("mastra").
-// Shared files (Dockerfile, astroai.yml, etc.) always come from template-ts/.
+// Shared files (Dockerfile, astropods.yml, etc.) always come from template-ts/.
 func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) {
 	switch lang {
 	case "ts":
 		// Shared paths used by all templates
 		paths := &TemplatePaths{
-			AstroYml:              "templates/template-ts/astroai.yml",
-			Dockerfile:            "templates/template-ts/Dockerfile",
-			DockerfileIngestion:   "templates/template-ts/Dockerfile.ingestion",
-			Tsconfig:              "templates/template-ts/tsconfig.json",
-			EnvExample:            "templates/template-ts/env.example.tmpl",
-			Gitignore:             "templates/template-ts/gitignore.tmpl",
-			Dockerignore:          "templates/template-ts/dockerignore.tmpl",
-			Npmrc:                 "templates/template-ts/npmrc.tmpl",
-			IngestionIndex:        "templates/template-ts/ingestion/index.ts",
-			LlmMd:                 "templates/template-ts/agents.md.tmpl",
-			Readme:                "templates/template-ts/README.md.tmpl",
+			AstroYml:                 "templates/template-ts/astropods.yml",
+			Dockerfile:               "templates/template-ts/Dockerfile",
+			DockerfileIngestion:      "templates/template-ts/Dockerfile.ingestion",
+			Tsconfig:                 "templates/template-ts/tsconfig.json",
+			EnvExample:               "templates/template-ts/env.example.tmpl",
+			Gitignore:                "templates/template-ts/gitignore.tmpl",
+			Dockerignore:             "templates/template-ts/dockerignore.tmpl",
+			Npmrc:                    "templates/template-ts/npmrc.tmpl",
+			IngestionIndex:           "templates/template-ts/ingestion/index.ts",
+			LlmMd:                    "templates/template-ts/agents.md.tmpl",
+			Readme:                   "templates/template-ts/README.md.tmpl",
 			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
-			IngestionWebhookIndex: "templates/template-ts/ingestion/webhook.ts",
+			IngestionWebhookIndex:    "templates/template-ts/ingestion/webhook.ts",
 		}
 
 		// Template-specific paths

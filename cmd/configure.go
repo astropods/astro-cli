@@ -24,7 +24,7 @@ var configureCmd = &cobra.Command{
 	Short:   "Configure project credentials and inputs",
 	Long: `Interactively set credentials and input values for your agent project.
 
-Reads astroai.yml to determine required variables, presents an interactive
+Reads astropods.yml to determine required variables, presents an interactive
 form to fill them in, and stores values in ~/.ast/project-configs.json.
 
 Stored values are automatically loaded by 'ast dev', removing the need for
@@ -168,17 +168,16 @@ func (m *configureApp) View() string {
 }
 
 func runConfigure(cmd *cobra.Command, args []string) error {
-	specFile, err := specFilePath(cmd)
-	if err != nil {
-		return err
-	}
-
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath := filepath.Join(workingDir, specFile)
+	specPath, err := resolveSpecPath(cmd, workingDir)
+	if err != nil {
+		return err
+	}
+
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
@@ -354,17 +353,16 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 func runConfigureSet(cmd *cobra.Command, args []string) error {
 	key, value := args[0], args[1]
 
-	specFile, err := specFilePath(cmd)
-	if err != nil {
-		return err
-	}
-
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath := filepath.Join(workingDir, specFile)
+	specPath, err := resolveSpecPath(cmd, workingDir)
+	if err != nil {
+		return err
+	}
+
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)

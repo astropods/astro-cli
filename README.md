@@ -89,7 +89,7 @@ Spec types and parsing live in `packages/astro-spec` (shared with server).
 
 ## Architecture
 
-1. **Spec** — `astroai.yml` is parsed by `packages/astro-spec` into structured types.
+1. **Spec** — `astropods.yml` is parsed by `packages/astro-spec` into structured types.
 2. **Dev** — `compose` builder turns the spec into a Docker Compose project; `dev` runs it and optionally runs the agent process locally with a watcher.
 3. **Build** — For each component with `container.build`, the CLI invokes Docker/BuildKit with the right context, Dockerfile, secrets (e.g. npm token from env or injected), and platform.
 4. **Push** — Each push generates a random 8-character build ID used as the image tag. Images are tagged and pushed (single or multi-platform); spec is pushed as OCI artifact and optionally sent to Astro server for registration.

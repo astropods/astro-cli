@@ -89,8 +89,11 @@ func init() {
 }
 
 func runPush(cmd *cobra.Command, args []string) error {
-	// Get spec file path
-	specFile, err := specFilePath(cmd)
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	specPath, err := resolveSpecPath(cmd, workingDir)
 	if err != nil {
 		return err
 	}
@@ -129,15 +132,8 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("server URL required for registration: run 'ast login', use --server, or use --skip-register")
 	}
 
-	// Parse astroai.yml
-	fmt.Printf("%s→%s Parsing %s\n", colorCyan, colorReset, specFile)
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	specPath := filepath.Join(workingDir, specFile)
+	// Parse Astro spec
+	fmt.Printf("%s→%s Parsing %s\n", colorCyan, colorReset, filepath.Base(specPath))
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)

@@ -18,8 +18,8 @@ import (
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
-	Short: "Validate astroai.yml against the spec schema",
-	Long: `Validate the astroai.yml spec file strictly against the JSON schema.
+	Short: "Validate astropods.yml against the spec schema",
+	Long: `Validate the astropods.yml spec file strictly against the JSON schema.
 Reports all schema violations and semantic errors.
 
 Example:
@@ -38,29 +38,20 @@ type validationError struct {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
-	specFile, err := specFilePath(cmd)
+	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
 	}
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	specPath := specFile
-	if !filepath.IsAbs(specFile) {
-		specPath = filepath.Join(workingDir, specFile)
-	}
 	data, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", specFile, err)
+		return fmt.Errorf("cannot read %s: %w", filepath.Base(specPath), err)
 	}
 
 	lines := strings.Split(string(data), "\n")
 
 	fmt.Println()
-	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, specFile, colorReset)
+	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, filepath.Base(specPath), colorReset)
 
 	var errs []validationError
 
@@ -88,12 +79,12 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(errs) == 0 {
-		fmt.Printf("%s✓%s %s is valid\n\n", colorGreen, colorReset, specFile)
+		fmt.Printf("%s✓%s %s is valid\n\n", colorGreen, colorReset, filepath.Base(specPath))
 		return nil
 	}
 
 	for _, e := range errs {
-		printValidationError(e, lines, specFile)
+		printValidationError(e, lines, filepath.Base(specPath))
 	}
 	fmt.Printf("%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
 	return fmt.Errorf("validation failed")
@@ -141,10 +132,10 @@ func schemaValidationErrors(raw interface{}, rootNode *yaml.Node) []validationEr
 	}
 
 	c := jsonschema.NewCompiler()
-	if err := c.AddResource("astroai.schema.json", schemaDoc); err != nil {
+	if err := c.AddResource("astropods.schema.json", schemaDoc); err != nil {
 		return []validationError{{message: fmt.Sprintf("failed to load schema: %v", err)}}
 	}
-	schema, err := c.Compile("astroai.schema.json")
+	schema, err := c.Compile("astropods.schema.json")
 	if err != nil {
 		return []validationError{{message: fmt.Sprintf("failed to compile schema: %v", err)}}
 	}

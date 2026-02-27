@@ -36,10 +36,10 @@ var createCmd = &cobra.Command{
 	Long: `Create a new Astro agent project with scaffolded files.
 
 The create command generates a new agent project with the specified language:
-- astroai.yml specification file
-- Dockerfile for the runtime
+- astropods.yml specification file
 - agent source files for your agent logic
 - ingestion source files for data pipelines
+- Dockerfile for the runtime
 
 Supported languages: ts (TypeScript/Bun)
 Supported templates: mastra (default)
@@ -129,7 +129,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 func printSuccess(name, targetDir string) {
 	fmt.Printf("\n%s%s✓ Created agent %s%s\n\n", colorGreen, colorBold, name, colorReset)
 	fmt.Printf("  %s$ cd %s%s\n\n", colorYellow, targetDir, colorReset)
-	fmt.Printf("  %s%-12s%s  captures everything you configured — infrastructure, models, and integrations.\n", colorBold, "astroai.yml", colorReset)
+	fmt.Printf("  %s%-12s%s  captures everything you configured — infrastructure, models, and integrations.\n", colorBold, "astropods.yml", colorReset)
 	fmt.Printf("  %s%-12s%s  holds the secrets you provided. Add any missing ones before starting.\n\n", colorBold, ".env", colorReset)
 	fmt.Printf("  When ready, run %s%sast dev%s to start your agent locally.\n\n", colorBold, colorCyan, colorReset)
 	fmt.Printf("  %sTip:%s run %sast explain%s for a plain-English breakdown of your agent spec.\n\n", colorDim, colorReset, colorCyan, colorReset)
