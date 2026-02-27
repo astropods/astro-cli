@@ -196,34 +196,6 @@ By default, `push` builds containers, pushes images to the Astro registry, and r
 
 ---
 
-## schema
-
-Print the JSON Schema for `astropods.yml` to stdout.
-
-```bash
-ast schema
-```
-
-Redirect to a file for use with editor YAML validation:
-
-```bash
-ast schema > .ast/schema.json
-```
-
-**VS Code** — add to `.vscode/settings.json`:
-
-```json
-{ "yaml.schemas": { ".ast/schema.json": "astropods.yml" } }
-```
-
-**Inline** — add to the top of `astropods.yml`:
-
-```yaml
-# yaml-language-server: $schema=https://<your-server>/schema/package.json
-```
-
----
-
 ## upgrade
 
 Upgrade the CLI to the latest version.
