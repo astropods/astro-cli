@@ -170,7 +170,7 @@ ast dev trigger schedule   # runs ingestion-schedule container and exits
 ```
 
 **Integration credentials:**
-- Reads from .env (or `--env`)
+- Use `ast configure` to set credentials (or `--env` to specify a file)
 - Injects into all containers as environment variables
 
 ---
@@ -193,7 +193,7 @@ All commands read from astropods.yml in current directory by default.
 # Scaffold a new agent
 astro create my-agent
 cd my-agent
-cp .env.example .env
+ast configure   # set API keys
 
 # Start local development
 astro dev

@@ -27,6 +27,18 @@ Creates a new directory named `<name>` with a scaffolded agent project including
 
 ---
 
+## configure
+
+Set API keys and credentials for the current project.
+
+```bash
+ast configure [flags]
+```
+
+Interactive wizard to add or update credentials (LLM keys, Slack tokens, etc.) required by `astropods.yml`. Use this instead of editing `.env` directly.
+
+---
+
 ## dev
 
 Manage the local development environment.
@@ -53,7 +65,7 @@ ast dev start [flags]
 | `--rebuild` | Force rebuild all containers without cache |
 | `--no-pull` | Use only local images; skip pulling |
 
-Edit your agent source and it restarts automatically. Add API keys to `.env` (e.g. `ANTHROPIC_API_KEY`).
+Edit your agent source and it restarts automatically. Run `ast configure` to set API keys (e.g. `ANTHROPIC_API_KEY`).
 
 #### logs
 

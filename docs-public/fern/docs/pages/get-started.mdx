@@ -24,7 +24,7 @@ Start a local dev environment with hot-reload:
 cd hello-astro && ast dev
 ```
 
-Edit code and the agent restarts automatically. Add API keys to `.env` as needed (e.g. `ANTHROPIC_API_KEY`).
+Edit code and the agent restarts automatically. Run `ast configure` to set API keys as needed (e.g. `ANTHROPIC_API_KEY`).
 
 ## 3. Next step
 
@@ -43,7 +43,7 @@ We have built and shared several agents in the [astropods/agents](https://github
 ```bash
 git clone git@github.com:astropods/agents.git
 cd agents/github-issue-analyzer
-ast configure   # update required API keys (or edit .env directly)
+ast configure   # set required API keys
 ast dev
 ```
 
