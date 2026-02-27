@@ -42,17 +42,19 @@ The pre-commit hook runs `gofmt` on staged Go files.
 ## Project Structure
 
 ```
-|-- agents/                 # Agent examples
+├── agents/                 # Agent examples                         (git submodule)
 ├── apps/
 │   ├── astro-client/       # React frontend application
 │   ├── astro-cli/          # ast CLI (Go)
+│   ├── cli-public/         # Public ast CLI repo                    (git submodule)
 │   ├── astro-registry/     # Container registry proxy (Go)
 │   └── astro-server/       # Platform backend — agent registry, deployments, auth (Go)
 ├── packages/
 │   ├── identity-gen/       # Identity avatar generation
-│   ├── adapters/           # Messaging adapters                    (git submodule)
-│   ├── messaging/          # Messaging adapters (Slack, MCP, etc.) (git submodule)
-│   └── playground/         # Chat UI for agents (used in ast dev)  (git submodule)
+│   ├── adapters/           # Messaging adapters                     (git submodule)
+│   ├── messaging/          # Messaging adapters (Slack, MCP, etc.)  (git submodule)
+│   └── playground/         # Chat UI for agents (used in ast dev)   (git submodule)
+├── website/                # Astro marketing website                 (git submodule)
 ```
 
 ## Astro AI Service Development
