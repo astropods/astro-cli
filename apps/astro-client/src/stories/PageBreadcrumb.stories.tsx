@@ -22,7 +22,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     items: [
-      { label: "Browse Agents", to: "/hire" },
+      { label: "Browse Agents", to: "/browse" },
       { label: "acme / support-bot", to: "/acme/support-bot" },
       { label: "Install" },
     ],

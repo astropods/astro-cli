@@ -10,11 +10,11 @@ import Hire from './Hire';
 // RTL auto-cleanup requires vitest globals — run it explicitly.
 afterEach(cleanup);
 
-function renderHire({ initialEntries = ['/hire'] } = {}) {
+function renderHire({ initialEntries = ['/browse'] } = {}) {
   return renderRoute(
     [
       {
-        path: '/hire',
+        path: '/browse',
         // @ts-expect-error: `matches` won't align between test code and app code
         Component: Hire,
       },

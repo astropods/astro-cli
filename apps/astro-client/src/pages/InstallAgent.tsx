@@ -65,7 +65,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
             The agent you're looking for doesn't exist or has been removed.
           </p>
           <Button asChild>
-            <Link to="/hire">Browse Agents</Link>
+            <Link to="/browse">Browse Agents</Link>
           </Button>
         </div>
       </div>
@@ -88,7 +88,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
       <div className="flex flex-col flex-1 bg-white">
         <PageBreadcrumb
           items={[
-            { label: "Browse Agents", to: "/hire" },
+            { label: "Browse Agents", to: "/browse" },
             {
               label: (
                 <>

@@ -48,7 +48,7 @@ export function MyAgentsHeader({
         </ToggleGroup>
 
         <Button asChild>
-          <Link to="/hire">
+          <Link to="/browse">
             Browse agents
           </Link>
         </Button>

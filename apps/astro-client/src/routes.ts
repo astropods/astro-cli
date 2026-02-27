@@ -2,8 +2,8 @@ import { type RouteConfig, route, layout, index } from "@react-router/dev/routes
 
 export default [
   layout("components/Layout.tsx", [
-    index("pages/Home.tsx"),
-    route("hire", "pages/Hire.tsx"),
+    index("pages/RedirectToBrowse.tsx"),
+    route("browse", "pages/Hire.tsx"),
     route("request-agent", "pages/RequestAgent.tsx"),
     route("agents", "pages/YourAgents.tsx"),
     route("operator", "pages/legacy/OperatorOverview.tsx"),

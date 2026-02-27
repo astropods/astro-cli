@@ -24,6 +24,6 @@ export const Default: Story = {
     title: "No agents yet",
     description: "Browse available agents and add one to get started.",
     actionLabel: "Browse agents",
-    actionTo: "/hire",
+    actionTo: "/browse",
   },
 };

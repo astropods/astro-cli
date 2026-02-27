@@ -72,7 +72,7 @@ describe('InstallAgent page', () => {
       await waitFor(() => {
         expect(screen.getByText('Agent not found')).toBeInTheDocument();
       });
-      expect(screen.getByRole('link', { name: /browse agents/i })).toHaveAttribute('href', '/hire');
+      expect(screen.getByRole('link', { name: /browse agents/i })).toHaveAttribute('href', '/browse');
     });
 
     it('renders breadcrumb with correct links', async () => {
@@ -81,7 +81,7 @@ describe('InstallAgent page', () => {
 
       const links = screen.getAllByRole('link');
       const hrefs = links.map((l) => l.getAttribute('href'));
-      expect(hrefs).toContain('/hire');
+      expect(hrefs).toContain('/browse');
       expect(hrefs).toContain(`/${ACCOUNT}/${AGENT}`);
     });
   });

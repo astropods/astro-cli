@@ -35,7 +35,7 @@ export function AgentDetailBreadcrumb({
   return (
     <PageBreadcrumb
       items={[
-        { label: "Browse Agents", to: "/hire" },
+        { label: "Browse Agents", to: "/browse" },
         {
           label: (
             <>

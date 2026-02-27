@@ -62,7 +62,7 @@ function YourAgentsContent() {
           title="No agents yet"
           description="Browse available agents and add one to get started."
           actionLabel="Browse agents"
-          actionTo="/hire"
+          actionTo="/browse"
         />
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
