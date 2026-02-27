@@ -75,6 +75,7 @@ export const mockAuthContext: AuthContextType = {
   error: null,
   accounts: [{ id: 'acct-1', name: 'testuser', type: 'personal' }],
   needsOnboarding: false,
+  refreshVersion: 0,
   login: () => {},
   logout: () => {},
   refresh: async () => {},
