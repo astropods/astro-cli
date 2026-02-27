@@ -8,7 +8,7 @@ slug: astropods-package-spec
 <Version version="v1.0 (Draft) - 2026-02-27" default>
 ## Abstract
 
-The AstroAI Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, tool services, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
+The AstroAI Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
 
 ## Conventions
 
@@ -21,12 +21,12 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 An AstroAI Spec file (`astropods.yml`) is a YAML document that declares:
 
 - The agent's container image (pre-built or build-from-source).
-- Components the agent depends on — models, knowledge stores, and tools — each supplied by either a platform-managed provider or a user-managed container.
+- Components the agent depends on — models, knowledge stores, and integrations — each supplied by either a platform-managed provider or a user-managed container.
 - Custom providers for external API services that require credential injection.
 - Data ingestion pipelines with trigger semantics.
 - Local development overrides.
 
-A central concept is **provider binding**. Components that an agent depends on — models, knowledge stores, and tools — are each declared as either a **provider** reference or a **container** definition:
+A central concept is **provider binding**. Components that an agent depends on — models, knowledge stores, and integrations — are each declared as either a **provider** reference or a **container** definition:
 
 - A **provider** is a named, platform-known service (e.g. `ollama`, `anthropic`, `qdrant`). The platform resolves each provider to one of two kinds:
   - **Self-hosted** — the platform deploys and manages a container on the agent's behalf.
@@ -53,7 +53,7 @@ A conforming document MUST contain the following top-level fields:
 | `agent`     | object                   | **REQUIRED** | Agent definition.                                                  |
 | `models`    | map\<string, Model\>     | OPTIONAL     | Model entries (LLMs, embedding models, etc).                       |
 | `knowledge` | map\<string, Knowledge\> | OPTIONAL     | Knowledge store entries.                                           |
-| `tools`     | map\<string, Tool\>      | OPTIONAL     | Tool service entries.                                              |
+| `integrations` | map\<string, Integration\> | OPTIONAL     | Integration entries.                                               |
 | `providers` | map\<string, Provider\>  | OPTIONAL     | Custom provider entries.                                           |
 | `inputs`    | map\<string, Input\>     | OPTIONAL     | User-supplied inputs injected into every container at deploy time. |
 | `ingestion` | map\<string, Ingestion\> | OPTIONAL     | Data ingestion pipeline entries.                                   |
@@ -117,9 +117,9 @@ Implementations SHOULD support both `test` (exec-based) and `path` (HTTP-based) 
 
 ---
 
-## 4. Component Sections: Models, Knowledge, Tools
+## 4. Component Sections: Models, Knowledge, Integrations
 
-Models, knowledge stores, and tools share a unified provider binding scheme. Each entry operates in exactly one of two modes:
+Models, knowledge stores, and integrations share a unified provider binding scheme. Each entry operates in exactly one of two modes:
 
 - **Provider mode** — the entry specifies a `provider` string. The platform resolves this to either a self-hosted provider (deploys a container from its registry) or a cloud provider (injects credentials).
 - **Container mode** — the entry specifies a `container` object. The user manages the image, port, and configuration.
@@ -150,15 +150,15 @@ Each entry in the `knowledge` map:
 
 When `persistent` is `true`, the platform SHOULD provision durable storage for the entry regardless of mode.
 
-### 4.3 Tools
+### 4.3 Integrations
 
-The `tools` section declares services the agent invokes to perform actions or retrieve data. Tools can be HTTP APIs, MCP (Model Context Protocol) servers, or any service exposed over a network port. Each entry in the `tools` map:
+The `integrations` section declares services the agent invokes to perform actions or retrieve data. Integrations can be HTTP APIs, MCP (Model Context Protocol) servers, or any service exposed over a network port. Each entry in the `integrations` map:
 
 | Field       | Type            | Required    | Description                                               |
 | ----------- | --------------- | ----------- | --------------------------------------------------------- |
 | `provider`  | string          | Conditional | Platform-managed provider name (e.g. `github`, `gitlab`). |
 | `container` | ContainerConfig | Conditional | Custom container configuration.                           |
-| `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the tool's container.  |
+| `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the integration's container. |
 
 For external API services that need credentials but no platform-managed container, define a custom provider in the `providers` section (see [Section 5](#5-custom-providers)) instead.
 
@@ -210,11 +210,11 @@ The `providers` section extends the platform's built-in provider registry with u
 
 Each variable's `name` is a **suffix**. The full env var key is formed as `{UPPER(provider)}_{varName}`, following the same rule as §8.1. Duplicate-entry handling also mirrors §8.1: when multiple entries reference the same custom provider, each entry gets a qualified key; the primary entry also gets the bare key.
 
-Custom providers can be referenced by name from the `models`, `knowledge`, and `tools` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider — the platform MUST reject references from sections not listed in `scope`.
+Custom providers can be referenced by name from the `models`, `knowledge`, and `integrations` sections, just like built-in providers. The `scope` field controls which sections are allowed to reference the provider — the platform MUST reject references from sections not listed in `scope`.
 
 | Field       | Type               | Required     | Description                                                                                             |
 | ----------- | ------------------ | ------------ | ------------------------------------------------------------------------------------------------------- |
-| `scope`     | string[]           | **REQUIRED** | Sections that may reference this provider. MUST contain one or more of: `models`, `knowledge`, `tools`. |
+| `scope`     | string[]           | **REQUIRED** | Sections that may reference this provider. MUST contain one or more of: `models`, `knowledge`, `integrations`. |
 | `variables` | Input[]            | **REQUIRED** | Variables this provider requires from the user. MUST contain at least one entry.                        |
 | `config`    | map\<string, any\> | OPTIONAL     | Provider-specific configuration.                                                                        |
 
@@ -270,7 +270,7 @@ The platform automatically injects environment variables into the agent to wire 
 
 ### 8.1 Cloud Provider Credentials
 
-Cloud providers (in `models`, `knowledge`, `tools`) require user-provided credentials at deploy time. The env var key is derived from the **provider name**, not the entry name:
+Cloud providers (in `models`, `knowledge`, `integrations`) require user-provided credentials at deploy time. The env var key is derived from the **provider name**, not the entry name:
 
 **Single entry for a provider:**
 
@@ -294,7 +294,7 @@ When the entry name equals the provider name, the redundant qualified form (e.g.
 
 Examples (single entry):
 - `models.primary` with `provider: anthropic` → `ANTHROPIC_API_KEY`
-- `tools.github` with `provider: github` → `GITHUB_TOKEN`
+- `integrations.github` with `provider: github` → `GITHUB_TOKEN`
 - `knowledge.vectors` with `provider: pinecone` → `PINECONE_API_KEY`
 
 Examples (duplicate entries, two anthropic models):
@@ -332,7 +332,7 @@ Container-mode entries (no provider) receive generic section-prefixed env vars:
 
 - **Models:** `MODEL_{UPPER(name)}_HOST`, `MODEL_{UPPER(name)}_PORT`, `MODEL_{UPPER(name)}_URL`
 - **Knowledge:** `KNOWLEDGE_{UPPER(name)}_HOST`, `KNOWLEDGE_{UPPER(name)}_PORT`
-- **Tools:** `TOOL_{UPPER(name)}_HOST`, `TOOL_{UPPER(name)}_PORT`, `TOOL_{UPPER(name)}_URL`
+- **Integrations:** `INTEGRATION_{UPPER(name)}_HOST`, `INTEGRATION_{UPPER(name)}_PORT`, `INTEGRATION_{UPPER(name)}_URL`
 
 ### 8.4 Inputs
 
@@ -344,7 +344,7 @@ Inputs are user-supplied values prompted at deploy time. Each input's `name` is 
 | `agent.inputs`       | Agent container     |
 | `models[].inputs`    | Model container     |
 | `knowledge[].inputs` | Knowledge container |
-| `tools[].inputs`     | Tool container      |
+| `integrations[].inputs` | Integration container |
 | `ingestion[].inputs` | Ingestion container |
 
 `providers[].variables` is a template only — it declares what variables a provider requires so the platform can prompt for them at deploy time.
@@ -366,8 +366,8 @@ Implementations MUST enforce the following validation rules:
 3. `agent` MUST specify exactly one of `image` or `build`. If `build` is present, `build.context` and `build.dockerfile` are REQUIRED.
 4. For each entry in `models`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
 5. For each entry in `knowledge`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
-6. For each entry in `tools`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
-7. For each entry in `providers`: `scope` MUST be present and contain one or more of `models`, `knowledge`, `tools`. `variables` MUST be present and MUST contain at least one element. Each variable MUST have a non-empty `name` and a valid `datatype`.
+6. For each entry in `integrations`: `provider` and `container` are mutually exclusive. Exactly one MUST be present.
+7. For each entry in `providers`: `scope` MUST be present and contain one or more of `models`, `knowledge`, `integrations`. `variables` MUST be present and MUST contain at least one element. Each variable MUST have a non-empty `name` and a valid `datatype`.
 7a. When a component entry references a custom provider by name, the referencing section MUST be listed in that provider's `scope`.
 8. For each entry in `ingestion`: both `container` and `trigger` are REQUIRED. `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
 9. When a `BuildConfig` is provided (in `agent.build`, `container.build`), `context` and `dockerfile` are REQUIRED.
@@ -418,7 +418,7 @@ When `model` is specified for a self-hosted provider, the platform sets `{ENV_PR
 | ---------- | ----------------- | ------------------------------------ |
 | `pinecone` | `API_KEY`         | Pinecone API key for vector database |
 
-### A.3 Tool Providers
+### A.3 Integration Providers
 
 #### Cloud
 
@@ -497,7 +497,7 @@ knowledge:
   cache:
     provider: redis
 
-tools:
+integrations:
   github:
     provider: github
 
@@ -506,7 +506,7 @@ tools:
 
 providers:
   my-jira:
-    scope: [tools]
+    scope: [integrations]
     variables:
       - name: API_KEY           # → MY_JIRA_API_KEY
         datatype: string
