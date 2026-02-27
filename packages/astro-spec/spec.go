@@ -1,20 +1,20 @@
-// Package spec provides shared type definitions for the Astro platform spec (astroai.yml).
+// Package spec provides shared type definitions for the Astro platform spec (astropods.yml).
 // This package is used by both astro-cli and astro-server to ensure consistent parsing.
 package spec
 
-// AstroSpec represents the complete astroai.yml specification
+// AstroSpec represents the complete Astro specification
 type AstroSpec struct {
-	Spec      string                  `json:"spec" yaml:"spec" jsonschema:"description=Spec version. Must be package/v1"`
-	Name      string                  `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`
-	Meta      Meta                    `json:"meta" yaml:"meta"`
-	Agent     Container               `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
-	Models    map[string]Model        `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
-	Knowledge map[string]Knowledge    `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`
-	Tools     map[string]Tool         `json:"tools,omitempty" yaml:"tools,omitempty" jsonschema:"description=Tool sidecar containers"`
+	Spec      string                    `json:"spec" yaml:"spec" jsonschema:"description=Spec version. Must be package/v1"`
+	Name      string                    `json:"name" yaml:"name" jsonschema:"description=Unique agent name"`
+	Meta      Meta                      `json:"meta" yaml:"meta"`
+	Agent     Container                 `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
+	Models    map[string]Model          `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
+	Knowledge map[string]Knowledge      `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`
+	Tools     map[string]Tool           `json:"tools,omitempty" yaml:"tools,omitempty" jsonschema:"description=Tool sidecar containers"`
 	Providers map[string]CustomProvider `json:"providers,omitempty" yaml:"providers,omitempty" jsonschema:"description=Custom provider definitions"`
-	Inputs    map[string]Input        `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into every container"`
-	Ingestion map[string]Ingestion    `json:"ingestion,omitempty" yaml:"ingestion,omitempty" jsonschema:"description=Data ingestion pipelines"`
-	Dev       *Dev                    `json:"dev,omitempty" yaml:"dev,omitempty" jsonschema:"description=Local development overrides"`
+	Inputs    map[string]Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into every container"`
+	Ingestion map[string]Ingestion      `json:"ingestion,omitempty" yaml:"ingestion,omitempty" jsonschema:"description=Data ingestion pipelines"`
+	Dev       *Dev                      `json:"dev,omitempty" yaml:"dev,omitempty" jsonschema:"description=Local development overrides"`
 }
 
 type Meta struct {
@@ -67,9 +67,9 @@ type Input struct {
 // CustomProvider extends the platform's built-in provider registry.
 // It declares the variables it requires so the platform can prompt at deploy time.
 type CustomProvider struct {
-	Scope     []string           `json:"scope" yaml:"scope" jsonschema:"description=Sections that may reference this provider"`
-	Variables []Input            `json:"variables" yaml:"variables" jsonschema:"description=Variables this provider requires from the user"`
-	Config    map[string]any     `json:"config,omitempty" yaml:"config,omitempty" jsonschema:"description=Provider-specific configuration"`
+	Scope     []string       `json:"scope" yaml:"scope" jsonschema:"description=Sections that may reference this provider"`
+	Variables []Input        `json:"variables" yaml:"variables" jsonschema:"description=Variables this provider requires from the user"`
+	Config    map[string]any `json:"config,omitempty" yaml:"config,omitempty" jsonschema:"description=Provider-specific configuration"`
 }
 
 type Model struct {

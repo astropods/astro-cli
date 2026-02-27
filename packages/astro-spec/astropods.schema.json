@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://astro.postman.com/schema/astroai.json",
+  "$id": "https://astropods.ai/schema/package.json",
   "properties": {
     "spec": {
       "type": "string",
@@ -1099,6 +1099,6 @@
     "meta",
     "agent"
   ],
-  "title": "AstroAI Spec",
-  "description": "Schema for astroai.yml agent specification"
+  "title": "Astro AI Spec",
+  "description": "Schema for Astro AI agent specification"
 }

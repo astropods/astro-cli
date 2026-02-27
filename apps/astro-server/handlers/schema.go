@@ -7,7 +7,7 @@ import (
 	spec "github.com/postman/astro/packages/astro-spec"
 )
 
-// AstroAISpecSchema returns the JSON Schema for astroai.yml.
+// AstroAISpecSchema returns the JSON Schema for the Astro Spec.
 func AstroAISpecSchema() gin.HandlerFunc {
 	schema := spec.Schema()
 	return func(c *gin.Context) {

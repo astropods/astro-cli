@@ -54,6 +54,7 @@ func CLIInstallScript(cfg *config.Config) gin.HandlerFunc {
 		downloadBase := strings.TrimRight(cfg.Server.DownloadBaseURL, "/")
 
 		prefix := "ast"
+		// this is the preview domain
 		if strings.Contains(host, "astropod.ai") {
 			prefix = "ast-preview"
 		}

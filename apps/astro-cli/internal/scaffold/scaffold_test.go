@@ -198,11 +198,11 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 // models block for each model selection (ollama+name, anthropic, openai, combined).
 func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 	tests := []struct {
-		name              string
-		config            ScaffoldConfig
-		wantModels        []string // expected keys under models: (e.g. "default", "anthropic")
-		wantDefault       string   // if non-empty, default model provider
-		wantDefaultModel  string   // if non-empty, default model name (e.g. "llama3")
+		name             string
+		config           ScaffoldConfig
+		wantModels       []string // expected keys under models: (e.g. "default", "anthropic")
+		wantDefault      string   // if non-empty, default model provider
+		wantDefaultModel string   // if non-empty, default model name (e.g. "llama3")
 	}{
 		{
 			name: "ollama with model name",
@@ -375,7 +375,7 @@ func TestAllTemplatesRender(t *testing.T) {
 		name string
 		path string
 	}{
-		{"astroai.yml", paths.AstroYml},
+		{"astropods.yml", paths.AstroYml},
 		{"Dockerfile", paths.Dockerfile},
 		{"package.json", paths.PackageJson},
 		{"tsconfig.json", paths.Tsconfig},
@@ -394,9 +394,9 @@ func TestAllTemplatesRender(t *testing.T) {
 	ingestionDockerfileTypes := []string{"schedule", "webhook", "manual", "startup"}
 
 	// All subsets of each multi-valued field.
-	interfaceSubsets := subsets([]string{"web", "slack"})                          // 2^2 = 4
-	integrationSubsets := subsets([]string{"anthropic", "openai", "github"})       // 2^3 = 8
-	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})              // 2^3 = 8
+	interfaceSubsets := subsets([]string{"web", "slack"})                             // 2^2 = 4
+	integrationSubsets := subsets([]string{"anthropic", "openai", "github"})          // 2^3 = 8
+	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})                 // 2^3 = 8
 	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"}) // 2^4 = 16
 
 	// Model states: none, provider-only, provider+model.
@@ -449,7 +449,6 @@ func TestAllTemplatesRender(t *testing.T) {
 		}
 	})
 }
-
 
 // generateWithMemFs runs generateFiles with an in-memory filesystem and returns it.
 func generateWithMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
@@ -616,7 +615,7 @@ func TestAstroYml_MultipleIngestions_DockerfilePaths(t *testing.T) {
 // spec.ParseString silently ignores (missing required fields, mutual exclusions, etc.).
 func validateWithParseSpec(t *testing.T, yaml string) {
 	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "astroai-*.yml")
+	f, err := os.CreateTemp(t.TempDir(), "astropods-*.yml")
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
@@ -632,7 +631,7 @@ func validateWithParseSpec(t *testing.T, yaml string) {
 	}
 }
 
-// TestAstroYml_PassesSpecValidate checks that the generated astroai.yml passes
+// TestAstroYml_PassesSpecValidate checks that the generated spec passes
 // the same semantic validation run by `ast validate` for representative configs.
 func TestAstroYml_PassesSpecValidate(t *testing.T) {
 	tests := []struct {
@@ -651,8 +650,8 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 			name: "full infrastructure",
 			config: ScaffoldConfig{
 				Name: "full-agent", Description: "full",
-				Interfaces:      []string{"web", "slack"},
-				ModelProvider:   "ollama", Model: "mistral",
+				Interfaces:    []string{"web", "slack"},
+				ModelProvider: "ollama", Model: "mistral",
 				Integrations:    []string{"anthropic", "openai", "github"},
 				IntegrationKeys: map[string]string{},
 				Knowledge:       []string{"qdrant", "redis", "neo4j"},

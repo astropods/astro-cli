@@ -11,8 +11,8 @@ import (
 
 var schemaCmd = &cobra.Command{
 	Use:   "schema",
-	Short: "Print the JSON Schema for astroai.yml",
-	Long: `Print the JSON Schema for astroai.yml to stdout.
+	Short: "Print the JSON Schema for astropods.yml",
+	Long: `Print the JSON Schema for astropods.yml to stdout.
 
 Use this to enable IDE autocomplete and validation:
 
@@ -20,11 +20,11 @@ Use this to enable IDE autocomplete and validation:
 
 Then in VS Code settings (settings.json):
 
-  { "yaml.schemas": { ".ast/schema.json": "astroai.yml" } }
+  { "yaml.schemas": { ".ast/schema.json": "astropods.yml" } }
 
-Or add a comment to the top of your astroai.yml:
+Or add a comment to the top of your astropods.yml:
 
-  # yaml-language-server: $schema=https://your-server/schema/astroai.json`,
+  # yaml-language-server: $schema=https://your-server/schema/package.json`,
 	RunE: runSchema,
 }
 

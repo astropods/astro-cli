@@ -173,8 +173,8 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	router.GET("/readyz", probeHandler.Readyz())
 	router.GET("/healthz", probeHandler.Healthz())
 
-	// JSON Schema for astroai.yml (public, no auth)
-	router.GET("/schema/astroai.json", handlers.AstroAISpecSchema())
+	// JSON Schema for astropods.yml (public, no auth)
+	router.GET("/schema/package.json", handlers.AstroAISpecSchema())
 
 	// CLI install script (no files needed — just returns a shell script)
 	router.GET("/install", handlers.CLIInstallScript(cfg))

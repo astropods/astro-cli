@@ -22,7 +22,7 @@ ast build [flags]
 | `--no-cache` | Build without cache |
 | `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64,linux/arm64`) |
 
-Builds the agent container and any custom component images (models, knowledge bases, tools) defined in `astroai.yml`. Use `ast push` to build and push in one step.
+Builds the agent container and any custom component images (models, knowledge bases, tools) defined in `astropods.yml`. Use `ast push` to build and push in one step.
 
 ---
 
@@ -41,7 +41,7 @@ ast create <name> [flags]
 | `-l, --lang <lang>` | Language template (default: `ts`) |
 | `--force` | Overwrite existing directory |
 
-Creates a new directory named `<name>` with a scaffolded agent project including `astroai.yml`, `Dockerfile`, and starter source code.
+Creates a new directory named `<name>` with a scaffolded agent project including `astropods.yml`, `Dockerfile`, and starter source code.
 
 ---
 
@@ -112,7 +112,7 @@ Alias: `ast doc`
 
 ## explain
 
-Print a human-readable explanation of the agent defined in `astroai.yml`.
+Print a human-readable explanation of the agent defined in `astropods.yml`.
 
 ```bash
 ast explain [flags]
@@ -198,7 +198,7 @@ By default, `push` builds containers, pushes images to the Astro registry, and r
 
 ## schema
 
-Print the JSON Schema for `astroai.yml` to stdout.
+Print the JSON Schema for `astropods.yml` to stdout.
 
 ```bash
 ast schema
@@ -213,13 +213,13 @@ ast schema > .ast/schema.json
 **VS Code** — add to `.vscode/settings.json`:
 
 ```json
-{ "yaml.schemas": { ".ast/schema.json": "astroai.yml" } }
+{ "yaml.schemas": { ".ast/schema.json": "astropods.yml" } }
 ```
 
-**Inline** — add to the top of `astroai.yml`:
+**Inline** — add to the top of `astropods.yml`:
 
 ```yaml
-# yaml-language-server: $schema=https://<your-server>/schema/astroai.json
+# yaml-language-server: $schema=https://<your-server>/schema/package.json
 ```
 
 ---
@@ -242,7 +242,7 @@ Downloads the latest binary from the Astro AI server and replaces the current in
 
 ## validate
 
-Validate `astroai.yml` against the spec schema.
+Validate `astropods.yml` against the spec schema.
 
 ```bash
 ast validate [flags]

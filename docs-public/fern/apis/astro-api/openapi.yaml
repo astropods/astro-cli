@@ -1,6 +1,6 @@
 openapi: 3.1.0
 servers:
-  - url: https://api.astropod.ai/api/v1
+  - url: https://api.astropods.ai/api/v1
     description: Astro AI API server
 info:
   title: Astro AI API
@@ -11,7 +11,7 @@ info:
   version: 1.0.0
   contact:
     name: Astro AI Support
-    url: https://astropod.ai
+    url: https://astropods.ai
 
 tags:
   - name: agents
@@ -1049,7 +1049,7 @@ components:
           description: OCI registry URL
         spec_content:
           type: string
-          description: YAML content of astroai.yml
+          description: YAML content of astropods.yml
         readme:
           type: string
 

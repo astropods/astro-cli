@@ -97,7 +97,6 @@ func (c ScaffoldConfig) AgentEnvVars() []EnvVarInfo {
 		}
 	}
 
-
 	keys := make([]string, 0, len(vars))
 	for k := range vars {
 		keys = append(keys, k)
@@ -142,7 +141,7 @@ func componentLabel(category string) string {
 	return category
 }
 
-// specFromTemplate renders the astroai.yml template and parses it into an
+// specFromTemplate renders the spec template and parses it into an
 // AstroSpec. This is the single source of truth for what the spec will look
 // like at runtime, so AgentEnvVars never drifts from the actual generated file.
 func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
@@ -206,7 +205,7 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 		path         string
 		templatePath string
 	}{
-		{filepath.Join(targetDir, "astroai.yml"), paths.AstroYml},
+		{filepath.Join(targetDir, "astropods.yml"), paths.AstroYml},
 		{filepath.Join(targetDir, "Dockerfile"), paths.Dockerfile},
 		{filepath.Join(targetDir, "package.json"), paths.PackageJson},
 		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},

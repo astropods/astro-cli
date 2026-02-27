@@ -29,7 +29,7 @@ type TemplateInput struct {
 	Account           string
 	BuildID           string
 	RegistryURL       string
-	ProxyRegistryHost string // Host of the tenant's private image registry (e.g. "registry.astropod.ai")
+	ProxyRegistryHost string // Host of the tenant's private image registry (e.g. "registry.astropods.ai")
 	Environment       string // Environment prefix for ECR tenant repos (e.g. "prod", "preview")
 }
 
@@ -420,7 +420,7 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 		}
 	}
 
-	// Container-mode GPU (explicit gpu block in astroai.yml)
+	// Container-mode GPU (explicit gpu block in the spec)
 	if container.HasGPU() {
 		dm.Resources = spec.GPUResources
 		dm.GPU = &spec.DeploymentGPU{

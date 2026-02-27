@@ -17,7 +17,7 @@ The app will be available at `http://localhost:5173`.
 
 ### Remote Backend Development
 
-To develop the frontend against a deployed backend (e.g., `https://astromode.ai`), you need to set up local HTTPS with a same-site domain. This is required for authentication cookies to work properly.
+To develop the frontend against a deployed backend (e.g., `https://astropods.ai`), you need to set up local HTTPS with a same-site domain. This is required for authentication cookies to work properly.
 
 **One-time setup (macOS):**
 
@@ -26,7 +26,7 @@ bun run setup
 ```
 
 This interactive script will:
-1. Add `local.astromode.ai` to your `/etc/hosts` (requires sudo)
+1. Add `local.astropods.ai` to your `/etc/hosts` (requires sudo)
 2. Install [mkcert](https://github.com/FiloSottile/mkcert) for local certificate generation
 3. Generate trusted HTTPS certificates
 4. Configure `.env` for the remote backend
@@ -37,7 +37,7 @@ This interactive script will:
 bun run dev
 ```
 
-Open `https://local.astromode.ai:5173` in your browser.
+Open `https://local.astropods.ai:5173` in your browser.
 
 ### Manual Setup (Linux/Other)
 
@@ -45,7 +45,7 @@ If the setup script doesn't work for your OS:
 
 1. **Add hosts entry:**
    ```bash
-   echo "127.0.0.1 local.astromode.ai" | sudo tee -a /etc/hosts
+   echo "127.0.0.1 local.astropods.ai" | sudo tee -a /etc/hosts
    ```
 
 2. **Install mkcert:**
@@ -56,12 +56,12 @@ If the setup script doesn't work for your OS:
    ```bash
    mkdir -p .certs
    cd .certs
-   mkcert local.astromode.ai
+   mkcert local.astropods.ai
    ```
 
 4. **Configure environment:**
    ```bash
-   echo "VITE_API_URL=https://astromode.ai" > .env
+   echo "VITE_API_URL=https://astropods.ai" > .env
    ```
 
 5. **Start the dev server:**
@@ -75,9 +75,9 @@ If the setup script doesn't work for your OS:
 
 When developing against a remote backend, authentication uses a same-site subdomain approach:
 
-1. Your local frontend runs at `https://local.astromode.ai:5173`
-2. The backend runs at `https://astromode.ai`
-3. Both share the same registrable domain (`astromode.ai`)
+1. Your local frontend runs at `https://local.astropods.ai:5173`
+2. The backend runs at `https://astropods.ai`
+3. Both share the same registrable domain (`astropods.ai`)
 4. Session cookies set by the backend work on your local domain
 
 This avoids `SameSite` cookie restrictions without compromising security.
@@ -145,7 +145,7 @@ To override a handler for a specific test, use `server.use()` inside the test â€
 ### "State parameter mismatch" error
 
 This happens when cookies aren't being shared properly. Make sure:
-- You're accessing the app via `https://local.astromode.ai:5173` (not `localhost`)
+- You're accessing the app via `https://local.astropods.ai:5173` (not `localhost`)
 - The setup script completed successfully
 - Your browser trusts the local certificate (check for HTTPS errors)
 
@@ -156,6 +156,6 @@ Run `mkcert -install` to install the local CA in your system trust store.
 ### "No session found" after login
 
 Ensure:
-1. The backend has `http://localhost:5173` and `https://local.astromode.ai:5173` in `ALLOWED_ORIGINS`
-2. The backend has `AUTH_COOKIE_DOMAIN=.astromode.ai` set
+1. The backend has `http://localhost:5173` and `https://local.astropods.ai:5173` in `ALLOWED_ORIGINS`
+2. The backend has `AUTH_COOKIE_DOMAIN=.astropods.ai` set
 3. You're using the HTTPS local domain URL

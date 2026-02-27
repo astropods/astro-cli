@@ -14,7 +14,7 @@ Guide for testing an Astro registry deployment.
 
 ```bash
 # V2 API endpoint
-curl -I https://registry.astromode.ai/v2/
+curl -I https://registry.astropods.ai/v2/
 
 # Expected: 200 OK with Docker-Distribution-API-Version header
 ```
@@ -22,7 +22,7 @@ curl -I https://registry.astromode.ai/v2/
 ### Check Namespace Endpoint (requires auth)
 
 ```bash
-curl -H "Authorization: Bearer <token>" https://registry.astromode.ai/api/namespace
+curl -H "Authorization: Bearer <token>" https://registry.astropods.ai/api/namespace
 
 # Expected: {"user_id": "...", "organization_id": "..."}
 ```
@@ -32,8 +32,8 @@ curl -H "Authorization: Bearer <token>" https://registry.astromode.ai/api/namesp
 ### Environment Setup
 
 ```bash
-export ASTRO_REGISTRY_URL=https://registry.astromode.ai
-export ASTRO_SERVER_URL=https://astromode.ai
+export ASTRO_REGISTRY_URL=https://registry.astropods.ai
+export ASTRO_SERVER_URL=https://astropods.ai
 ```
 
 ### Authentication
@@ -61,7 +61,7 @@ astro publish --tag v1.0.0 --no-auth --skip-register
 
 ## Minimal Test Agent
 
-Create `astroai.yml`:
+Create `astropods.yml`:
 
 ```yaml
 name: test-agent
@@ -76,7 +76,7 @@ Run:
 astro publish --tag test --skip-register
 ```
 
-Image pushes to: `registry.astromode.ai/<namespace>/test-agent:test`
+Image pushes to: `registry.astropods.ai/<namespace>/test-agent:test`
 
 ## Troubleshooting
 

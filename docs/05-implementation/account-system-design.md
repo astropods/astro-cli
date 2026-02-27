@@ -91,7 +91,7 @@ Account claiming happens on the **web dashboard only**. CLI reads account info f
 
 CLI equivalent: `ast login` calls `GET /auth/me`. If `accounts: []`, prints:
 ```
-Login successful. Visit https://app.astromode.ai to choose your username before publishing.
+Login successful. Visit https://app.astropods.ai to choose your username before publishing.
 ```
 
 ### Org creation flow
@@ -116,7 +116,7 @@ Deferred. The data model supports orgs (account type + members table) but no UI/
 4. `ast whoami` — shows username + available accounts
 5. If user has no personal account yet, CLI prints:
    ```
-   Login successful. Visit https://app.astromode.ai to set up your account before publishing.
+   Login successful. Visit https://app.astropods.ai to set up your account before publishing.
    ```
 
 ## API

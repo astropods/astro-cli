@@ -18,7 +18,7 @@ export function PublishCTA() {
         </div>
       </div>
       <Button variant="outline" asChild className="w-full hover:bg-primary/5">
-        <a href="https://docs.astromode.ai" target="_blank" rel="noopener noreferrer">
+        <a href="https://docs.astropods.ai" target="_blank" rel="noopener noreferrer">
           Create agent
           <ArrowRight className="size-4" />
         </a>

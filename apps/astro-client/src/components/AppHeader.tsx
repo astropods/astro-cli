@@ -33,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const publicNav = [
   { label: "Browse", to: "/browse" },
-  { label: "Docs", to: "https://docs.astropod.ai", external: true },
+  { label: "Docs", to: "https://docs.astropods.ai", external: true },
   { label: "Blog", to: "/blog" },
 ];
 

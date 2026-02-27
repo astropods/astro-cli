@@ -3,8 +3,8 @@
 # Local Development Setup Script for astro-client
 #
 # This script configures your machine for local frontend development against
-# a remote backend (e.g., https://astromode.ai). It sets up:
-#   - Local subdomain (local.astromode.ai) for same-site cookie sharing
+# a remote backend (e.g., https://astropods.ai). It sets up:
+#   - Local subdomain (local.astropods.ai) for same-site cookie sharing
 #   - HTTPS certificates for secure cookie handling
 #
 # Usage: bun run setup
@@ -13,8 +13,8 @@
 set -e
 
 # Configuration
-DOMAIN="local.astromode.ai"
-BACKEND_URL="https://astromode.ai"
+DOMAIN="local.astropods.ai"
+BACKEND_URL="https://astropods.ai"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 CERT_DIR="$PROJECT_DIR/.certs"
@@ -89,7 +89,7 @@ setup_hosts() {
     fi
 
     print_info "To share cookies with the backend, we need to add a local domain"
-    print_info "that's on the same site as the backend (astromode.ai)."
+    print_info "that's on the same site as the backend (astropods.ai)."
     echo ""
     print_step "Adding '$DOMAIN' to /etc/hosts..."
     echo ""

@@ -24,7 +24,6 @@ func TestGetTemplatePaths_MastraUsesOverridePaths(t *testing.T) {
 	}
 }
 
-
 func TestGetTemplatePaths_UnsupportedTemplate(t *testing.T) {
 	_, err := GetTemplatePaths("ts", "nonexistent")
 	if err == nil {
@@ -135,7 +134,6 @@ func TestMastraTemplate_AgentIndex_DoesNotUseAstroAgent(t *testing.T) {
 	}
 }
 
-
 func TestMastraTemplate_PackageJson_HasMastraDeps(t *testing.T) {
 	paths, _ := GetTemplatePaths("ts", "mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)
@@ -159,7 +157,6 @@ func TestMastraTemplate_PackageJson_DoesNotHaveAstroAgentDeps(t *testing.T) {
 		t.Error("mastra package.json should not depend on @astropods/messaging")
 	}
 }
-
 
 // --- Template variable substitution tests ---
 
@@ -304,7 +301,7 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 	}
 
 	// Verify shared files exist
-	for _, f := range []string{"astroai.yml", "Dockerfile", "tsconfig.json", ".env", ".gitignore", ".dockerignore", ".npmrc"} {
+	for _, f := range []string{"astropods.yml", "Dockerfile", "tsconfig.json", ".env", ".gitignore", ".dockerignore", ".npmrc"} {
 		if _, err := os.Stat(filepath.Join(target, f)); os.IsNotExist(err) {
 			t.Errorf("expected file %q to exist", f)
 		}
@@ -394,7 +391,6 @@ func TestMastraTemplate_PackageJson_SubstitutesDescription(t *testing.T) {
 	}
 }
 
-
 func TestGenerateFiles_UnsupportedTemplate(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "my-agent")
@@ -407,4 +403,3 @@ func TestGenerateFiles_UnsupportedTemplate(t *testing.T) {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
 	}
 }
-

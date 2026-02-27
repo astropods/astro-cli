@@ -16,7 +16,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## 1. Introduction
 
-An AstroAI Spec file (`astroai.yml`) is a YAML document that declares:
+An AstroAI Spec file (`astropods.yml`) is a YAML document that declares:
 
 - The agent's container image (pre-built or build-from-source).
 - Components the agent depends on — models, knowledge stores, and tools — each supplied by either a platform-managed provider or a user-managed container.
@@ -35,7 +35,7 @@ This design lets authors mix managed and custom components freely within a singl
 
 The spec does **not** cover: resource limits (CPU/memory), observability, rate limits, budgets, security policies, deployment region, or interface routing (Slack, web). These are deployment-time concerns configured separately.
 
-The document format is YAML. Implementations MUST accept files named `astroai.yml` or `astroai.yaml`.
+The document format is YAML. Implementations MUST accept files named `astropods.yml`.
 
 ---
 
@@ -430,9 +430,9 @@ When `model` is specified for a self-hosted provider, the platform sets `{ENV_PR
 
 ## Appendix B: JSON Schema
 
-A machine-readable JSON Schema for this specification is maintained at `astroai.schema.json` in the `astro-spec` package. The schema is generated from the normative type definitions and MAY be used for editor autocompletion and pre-validation.
+A machine-readable JSON Schema for this specification is maintained at `astropods.schema.json` in the `astro-spec` package. The schema is generated from the normative type definitions and MAY be used for editor autocompletion and pre-validation.
 
-Schema ID: `https://astromode.ai/schema/astroai.json`
+Schema ID: `https://astropods.ai/schema/package.json`
 
 ---
 

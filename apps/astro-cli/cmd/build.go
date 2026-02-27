@@ -15,11 +15,11 @@ import (
 	"github.com/docker/docker/api/types/build"
 	controlapi "github.com/moby/buildkit/api/services/control"
 
-	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/client"
+	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 
@@ -29,7 +29,7 @@ import (
 var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build agent and custom component containers from spec",
-	Long: `Build container images defined in astroai.yml.
+	Long: `Build container images defined in astropods.yml.
 
 This command builds:
 - The agent container (container.build)
@@ -62,25 +62,24 @@ func init() {
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	// Get spec file path
-	specFile, err := specFilePath(cmd)
-	if err != nil {
-		return err
-	}
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	quiet, _ := cmd.Flags().GetBool("quiet")
 
-	if !quiet {
-		fmt.Printf("%s→%s Parsing spec: %s\n", colorCyan, colorReset, specFile)
-	}
-
-	// Parse astroai.yml
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	specPath := filepath.Join(workingDir, specFile)
+	specPath, err := resolveSpecPath(cmd, workingDir)
+	if err != nil {
+		return err
+	}
+
+	if !quiet {
+		fmt.Printf("%s→%s Parsing spec: %s\n", colorCyan, colorReset, filepath.Base(specPath))
+	}
+
+	// Parse Astro spec
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)

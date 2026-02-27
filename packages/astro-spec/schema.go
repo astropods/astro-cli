@@ -4,7 +4,7 @@ import _ "embed"
 
 //go:generate go run ./cmd/generate-schema
 
-//go:embed astroai.schema.json
+//go:embed astropods.schema.json
 var astroSchema []byte
 
 // Schema returns the embedded JSON Schema for AstroSpec.

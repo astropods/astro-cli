@@ -53,7 +53,7 @@ type ServerConfig struct {
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
-	DownloadBaseURL string // Base URL for CLI download CDN, e.g. https://download.astromode.ai (used in /install script)
+	DownloadBaseURL string // Base URL for CLI download CDN, e.g. https://download.astropods.ai (used in /install script)
 }
 
 // LogConfig holds logging configuration
@@ -80,12 +80,12 @@ type DeploymentConfig struct {
 	K8sClientMode  string // K8S_CLIENT_MODE
 	KubeconfigPath string // KUBECONFIG path (local mode, defaults to ~/.kube/config)
 	KubeContext    string // KUBE_CONTEXT (local mode, defaults to current-context)
-	// Ingress configuration for agent workloads (agents.astromode.ai)
-	IngressDomain     string // Domain for agent ingress (e.g., agents.astromode.ai)
+	// Ingress configuration for agent workloads (agents.astropods.ai)
+	IngressDomain     string // Domain for agent ingress (e.g., agents.astropods.ai)
 	ACMCertificateARN string // ACM certificate ARN for HTTPS
 	ALBGroupName      string // ALB group name for agent ALB
-	// Ingress configuration for ingestion workloads (ingestion.astromode.ai)
-	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astromode.ai)
+	// Ingress configuration for ingestion workloads (ingestion.astropods.ai)
+	IngestionIngressDomain string // Domain for ingestion webhook ingress (e.g., ingestion.astropods.ai)
 	IngestionACMCertARN    string // ACM certificate ARN for ingestion wildcard cert
 	IngestionALBGroupName  string // ALB group name for ingestion ALB (separate from agents)
 	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
@@ -118,15 +118,15 @@ func Load() (*Config, error) {
 			TrustedProxies: getEnvSlice("TRUSTED_PROXIES", []string{}),
 		},
 		Deployment: DeploymentConfig{
-			RegistryURL:       getEnv("REGISTRY_URL", ""),
-			ProxyRegistryHost: getEnv("PROXY_REGISTRY_HOST", ""),
-			Environment:       getEnv("ENVIRONMENT", ""),
-			EKSClusterName:    getEnv("EKS_CLUSTER_NAME", ""),
-			K8sMasterURL:      getEnv("K8S_MASTER_URL", ""),
-			AWSRegion:         getEnv("AWS_REGION", ""),
-			K8sClientMode:     getEnv("K8S_CLIENT_MODE", "eks"),
-			KubeconfigPath:    getEnv("KUBECONFIG", ""),
-			KubeContext:       getEnv("KUBE_CONTEXT", ""),
+			RegistryURL:            getEnv("REGISTRY_URL", ""),
+			ProxyRegistryHost:      getEnv("PROXY_REGISTRY_HOST", ""),
+			Environment:            getEnv("ENVIRONMENT", ""),
+			EKSClusterName:         getEnv("EKS_CLUSTER_NAME", ""),
+			K8sMasterURL:           getEnv("K8S_MASTER_URL", ""),
+			AWSRegion:              getEnv("AWS_REGION", ""),
+			K8sClientMode:          getEnv("K8S_CLIENT_MODE", "eks"),
+			KubeconfigPath:         getEnv("KUBECONFIG", ""),
+			KubeContext:            getEnv("KUBE_CONTEXT", ""),
 			IngressDomain:          getEnv("INGRESS_DOMAIN", ""),
 			ACMCertificateARN:      getEnv("ACM_CERTIFICATE_ARN", ""),
 			ALBGroupName:           getEnv("ALB_GROUP_NAME", "astro-agents"),
@@ -134,10 +134,10 @@ func Load() (*Config, error) {
 			IngestionACMCertARN:    getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
 			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
 			PodSubnetCIDRs:         getEnvSlice("POD_SUBNET_CIDRS", nil),
-			GalileoAPIKey:      getEnv("GALILEO_API_KEY", ""),
-			GalileoProject:     getEnv("GALILEO_PROJECT", ""),
-			GalileoProjectID:   getEnv("GALILEO_PROJECT_ID", ""),
-			GalileoAPIEndpoint: getEnv("GALILEO_API_ENDPOINT", "https://api.galileo.ai"),
+			GalileoAPIKey:          getEnv("GALILEO_API_KEY", ""),
+			GalileoProject:         getEnv("GALILEO_PROJECT", ""),
+			GalileoProjectID:       getEnv("GALILEO_PROJECT_ID", ""),
+			GalileoAPIEndpoint:     getEnv("GALILEO_API_ENDPOINT", "https://api.galileo.ai"),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
@@ -268,4 +268,3 @@ func getEnvSlice(key string, defaultValue []string) []string {
 	}
 	return defaultValue
 }
-
