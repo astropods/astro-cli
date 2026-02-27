@@ -66,13 +66,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const response = await api.refreshSession();
       updateFromResponse(response);
-    } catch (err) {
-      const error = err as ApiError;
-      // If refresh fails, user needs to re-authenticate
+    } catch {
+      // If refresh fails for any reason, silently mark as unauthenticated so
+      // ProtectedRoute redirects to login without flashing an error banner.
       setState({
         ...initialAuthState,
         isLoading: false,
-        error: error.error_description || 'Session expired',
       });
     }
   }, [updateFromResponse]);
