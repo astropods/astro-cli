@@ -9,7 +9,10 @@ import (
 // through JSON.  Used to snapshot the server-generated template before user
 // values are applied, enabling Rule 19 editable enforcement.
 func CloneDeploymentSpec(ds *AstroDeploymentSpec) *AstroDeploymentSpec {
-	data, _ := json.Marshal(ds)
+	data, err := json.Marshal(ds)
+	if err != nil {
+		panic(fmt.Sprintf("CloneDeploymentSpec: %v", err))
+	}
 	var clone AstroDeploymentSpec
 	_ = json.Unmarshal(data, &clone)
 	return &clone

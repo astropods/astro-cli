@@ -28,11 +28,14 @@ func main() {
 	}
 
 	// Write to package root (two levels up from cmd/generate-schema/)
-	_, thisFile, _, _ := runtime.Caller(0)
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("runtime.Caller failed")
+	}
 	pkgRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 	outPath := filepath.Join(pkgRoot, "astropods.schema.json")
 
-	if err := os.WriteFile(outPath, append(data, '\n'), 0644); err != nil {
+	if err := os.WriteFile(outPath, append(data, '\n'), 0600); err != nil {
 		panic(err)
 	}
 }

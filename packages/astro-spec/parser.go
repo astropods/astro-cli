@@ -17,7 +17,7 @@ var validDisplayAs = map[string]bool{
 
 // ParseFile reads and parses an spec file from the given path
 func ParseFile(path string) (*AstroSpec, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spec file: %w", err)
 	}
@@ -42,7 +42,7 @@ func ParseString(content string) (*AstroSpec, error) {
 
 // ParseSpec reads and parses an spec file with validation
 func ParseSpec(path string) (*AstroSpec, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spec file: %w", err)
 	}
