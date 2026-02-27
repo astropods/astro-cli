@@ -90,6 +90,40 @@ jobs:
 
           echo "::notice::Built ${BINARY_NAME} ${VERSION} (${COMMIT}) for all platforms"
 
+      - name: Verify build flags
+        working-directory: apps/astro-cli
+        env:
+          BINARY_NAME: ${{ steps.vars.outputs.binary_name }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          COMMIT: ${{ steps.vars.outputs.commit }}
+          SERVER_URL: ${{ steps.vars.outputs.server_url }}
+          DOWNLOAD_URL: ${{ steps.vars.outputs.download_url }}
+          WORKOS_CLIENT_ID: ${{ vars.WORKOS_CLIENT_ID }}
+        run: |
+          [ -n "$WORKOS_CLIENT_ID" ] || { echo "WORKOS_CLIENT_ID is not set"; exit 1; }
+
+          BIN=bin/${BINARY_NAME}-linux-amd64
+          FAIL=0
+
+          check() {
+            local label=$1 expected=$2
+            if strings "$BIN" | grep -qF "$expected"; then
+              echo "✓ $label: $expected"
+            else
+              echo "✗ $label not found: $expected"
+              FAIL=1
+            fi
+          }
+
+          check "version"         "$VERSION"
+          check "commit"          "$COMMIT"
+          check "binaryName"      "$BINARY_NAME"
+          check "downloadBaseURL" "$DOWNLOAD_URL"
+          check "serverURL"       "$SERVER_URL"
+          check "workosClientID"  "$WORKOS_CLIENT_ID"
+
+          [ $FAIL -eq 0 ] || { echo "One or more build flags missing from binary"; exit 1; }
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

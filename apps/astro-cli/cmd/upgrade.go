@@ -33,6 +33,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
+	if version == "dev" && !forceUpgrade {
+		return fmt.Errorf("cannot upgrade a dev build; use --force to override")
+	}
+
 	base := strings.TrimRight(downloadBaseURL, "/")
 	if base == "" {
 		return fmt.Errorf("upgrade not available: download URL not configured in this build")
@@ -43,7 +47,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	versionURL := base + "/VERSION"
 
 	if verbose {
-		dim.Printf("  binary:  %s\n", binName) //nolint:errcheck,gosec
+		dim.Printf("  binary:  %s\n", binName)     //nolint:errcheck,gosec
 		dim.Printf("  url:     %s\n", downloadURL) //nolint:errcheck,gosec
 	}
 
@@ -57,9 +61,6 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	if !forceUpgrade {
-		if version == "dev" {
-			return fmt.Errorf("cannot upgrade a dev build; use --force to override")
-		}
 		if latestVersion != "" && latestVersion == version {
 			green.Print("✓ ") //nolint:errcheck,gosec
 			fmt.Printf("Already up to date (%s)\n", version)
