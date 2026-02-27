@@ -66,6 +66,7 @@ export interface ApiError {
   error_description?: string;
   code?: string;
   details?: string;
+  status?: number;
   validation_errors?: ValidationError[];
   missing_variables?: string[];
 }
@@ -102,6 +103,7 @@ class ApiClient {
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
+      error.status = response.status;
       throw error;
     }
 
@@ -126,6 +128,7 @@ class ApiClient {
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
+      error.status = response.status;
       throw error;
     }
     return response.json();
@@ -143,6 +146,7 @@ class ApiClient {
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
+      error.status = response.status;
       throw error;
     }
     return response.json();
@@ -278,10 +282,11 @@ class ApiClient {
       headers: { ...this.defaultHeaders },
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({
+      const error: ApiError = await response.json().catch(() => ({
         error: 'request_failed',
         details: `Request failed with status ${response.status}`,
       }));
+      error.status = response.status;
       throw error;
     }
     return response.text();
@@ -384,6 +389,7 @@ class ApiClient {
         error: 'request_failed',
         error_description: `Request failed with status ${response.status}`,
       }));
+      error.status = response.status;
       throw error;
     }
     return response.json();

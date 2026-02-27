@@ -13,6 +13,7 @@ import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { queryClientConfig } from "./lib/queryClient";
+import { QueryAuthSync } from "./lib/QueryAuthSync";
 
 export const meta: Route.MetaFunction = () => [
   { charSet: "utf-8" },
@@ -85,6 +86,7 @@ export default function Root() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
+        <QueryAuthSync />
         <AuthGuard>
           <OnboardingGuard>
             <Outlet />

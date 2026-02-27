@@ -9,10 +9,10 @@ export const queryClientConfig: QueryClientConfig = {
       retry: (failureCount, error) => {
         // Don't retry on 4xx errors (auth failures, not found, validation, etc.)
         const apiError = error as unknown as ApiError;
-        if (apiError?.code?.startsWith('4')) return false;
+        if (apiError?.status && apiError.status >= 400 && apiError.status < 500) return false;
         return failureCount < 2;
       },
-      refetchOnWindowFocus: true,
+      refetchOnWindowFocus: false,
     },
     mutations: {
       retry: false,

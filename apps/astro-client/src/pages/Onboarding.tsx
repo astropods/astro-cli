@@ -54,14 +54,22 @@ export default function Onboarding() {
 
       try {
         await createAccount.mutateAsync({ name, type: 'personal' });
-        await checkAuth();
-        navigate('/');
       } catch (err: unknown) {
         const apiErr = err as { error?: string; error_description?: string };
         setError(
           apiErr.error_description || apiErr.error || 'Failed to create account'
         );
+        return;
       }
+
+      // Account created — refresh auth state then navigate regardless.
+      // If checkAuth fails the next page load will reconcile auth state.
+      try {
+        await checkAuth();
+      } catch {
+        // ignore — account was created successfully
+      }
+      navigate('/');
     },
     [name, isAvailable, createAccount, checkAuth, navigate]
   );

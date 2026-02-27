@@ -12,6 +12,7 @@ export interface AuthState {
   error: string | null;
   accounts: Account[];
   needsOnboarding: boolean;
+  refreshVersion: number;
 }
 
 export interface AuthContextType extends AuthState {
@@ -32,6 +33,7 @@ export const initialAuthState: AuthState = {
   error: null,
   accounts: [],
   needsOnboarding: false,
+  refreshVersion: 0,
 };
 
 export const AuthContext = createContext<AuthContextType | null>(null);

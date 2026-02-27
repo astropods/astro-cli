@@ -18,7 +18,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const updateFromResponse = useCallback((response: AuthResponse) => {
     const accounts = response.accounts || [];
 
-    setState({
+    setState((prev) => ({
       user: response.user,
       sessionId: response.session_id,
       organizationId: response.organization_id || null,
@@ -29,7 +29,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       error: null,
       accounts,
       needsOnboarding: accounts.length === 0,
-    });
+      refreshVersion: prev.refreshVersion + 1,
+    }));
   }, []);
 
   const checkAuth = useCallback(async () => {
@@ -66,9 +67,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const response = await api.refreshSession();
       updateFromResponse(response);
-    } catch {
-      // If refresh fails for any reason, silently mark as unauthenticated so
-      // ProtectedRoute redirects to login without flashing an error banner.
+    } catch (err) {
+      // Network failures (e.g. offline) — don't log the user out, the next
+      // visibility/focus event will retry.
+      if (err instanceof TypeError) return;
+
+      // Server-confirmed errors — mark as unauthenticated so ProtectedRoute
+      // redirects to login without flashing an error banner.
       setState({
         ...initialAuthState,
         isLoading: false,
