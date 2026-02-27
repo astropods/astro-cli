@@ -104,6 +104,37 @@ func init() {
 	}
 }
 
+// checkDockerRunning verifies Docker is installed and the daemon is accessible.
+func checkDockerRunning() error {
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("Windows is not supported. Please use macOS or Linux.")
+	}
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		msg := "Docker is not installed."
+		if runtime.GOOS == "darwin" {
+			msg += "\n  → Download Docker Desktop for Mac: https://docs.docker.com/desktop/install/mac-install/"
+		} else {
+			msg += "\n  → Install Docker Engine: https://docs.docker.com/engine/install/"
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	cmd := exec.Command("docker", "info")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		msg := "Docker is not running. Please start Docker and try again."
+		if runtime.GOOS == "darwin" {
+			msg += "\n  → Open Docker Desktop from your Applications folder or system tray."
+		} else {
+			msg += "\n  → Run: sudo systemctl start docker"
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
 // composePath returns the path to the docker-compose.yml for the current working directory.
 func composePath() (string, error) {
 	workingDir, err := os.Getwd()
@@ -114,6 +145,10 @@ func composePath() (string, error) {
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
+	if err := checkDockerRunning(); err != nil {
+		return err
+	}
+
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	workingDir, err := os.Getwd()
@@ -373,6 +408,10 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 }
 
 func runDevLogs(cmd *cobra.Command, args []string) error {
+	if err := checkDockerRunning(); err != nil {
+		return err
+	}
+
 	cPath, err := composePath()
 	if err != nil {
 		return err
@@ -406,6 +445,10 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 }
 
 func runDevStop(cmd *cobra.Command, args []string) error {
+	if err := checkDockerRunning(); err != nil {
+		return err
+	}
+
 	cPath, err := composePath()
 	if err != nil {
 		return err
@@ -428,6 +471,10 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 }
 
 func runDevTrigger(cmd *cobra.Command, args []string) error {
+	if err := checkDockerRunning(); err != nil {
+		return err
+	}
+
 	specPath, err := resolveSpecPathFromCwd(cmd)
 	if err != nil {
 		return err
