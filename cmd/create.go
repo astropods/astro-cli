@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	projectconfig "github.com/postman/astro/apps/astro-cli/internal/config"
 	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
 	"github.com/postman/astro/apps/astro-cli/internal/tui/create"
 )
@@ -135,6 +136,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err := scaffold.GenerateFiles(targetDir, config, langFlag, templateFlag); err != nil {
 		_ = os.RemoveAll(targetDir)
 		return fmt.Errorf("failed to generate files: %w", err)
+	}
+
+	// Save any API keys collected during the interactive form
+	if vars := config.CollectEnvVars(); len(vars) > 0 {
+		if absDir, err := filepath.Abs(targetDir); err == nil {
+			_ = projectconfig.MergeProjectVars(binaryName, absDir, config.Name, vars)
+		}
 	}
 
 	printSuccess(name, targetDir, yesFlag)
