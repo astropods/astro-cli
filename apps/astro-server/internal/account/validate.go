@@ -28,6 +28,11 @@ var reservedNames = map[string]bool{
 	"dev":         true,
 	"agents":      true,
 	"deployments": true,
+	"accounts":    true,
+	"me":          true,
+	"ready":       true,
+	"undeploy":    true,
+	"schema":      true,
 }
 
 // ValidateAccountName validates an account name follows the rules:
