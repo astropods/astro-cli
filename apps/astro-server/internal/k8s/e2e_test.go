@@ -182,7 +182,7 @@ func requireNoErrors(t *testing.T, r *e2eResult) {
 
 func TestE2E_MinimalAgent(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -220,7 +220,7 @@ agent:
 
 func TestE2E_SelfHostedModel_Ollama(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -260,7 +260,7 @@ models:
 
 func TestE2E_CloudModelCredentials(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -301,7 +301,7 @@ models:
 
 func TestE2E_KnowledgeStore_Qdrant_Persistent(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -336,7 +336,7 @@ knowledge:
 
 func TestE2E_KnowledgeStore_Redis_NonPersistent(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -369,7 +369,7 @@ knowledge:
 
 func TestE2E_CloudTool_GitHub(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -456,7 +456,7 @@ integrations:
 
 func TestE2E_Ingestion_Schedule(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -481,7 +481,7 @@ ingestion:
 
 func TestE2E_Ingestion_Startup(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -502,7 +502,7 @@ ingestion:
 
 func TestE2E_FullStack(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -714,7 +714,7 @@ func serviceDNS(name, ns string) string {
 
 func TestE2E_ProviderEnv_OllamaModel(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -739,7 +739,7 @@ models:
 func TestE2E_ProviderEnv_OllamaNoModel(t *testing.T) {
 	// Ollama without a model name — still gets HOST/PORT/URL but no MODEL
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -765,7 +765,7 @@ models:
 func TestE2E_ProviderEnv_ContainerModel(t *testing.T) {
 	// Container-mode model (no provider) → generic MODEL_{NAME}_ prefix
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -791,7 +791,7 @@ models:
 
 func TestE2E_ProviderEnv_CloudModelOpenAI(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -828,7 +828,7 @@ models:
 func TestE2E_ProviderEnv_CloudModelMultiple(t *testing.T) {
 	// Multiple cloud model providers → each gets its own provider-prefixed credential key
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -866,7 +866,7 @@ models:
 
 func TestE2E_ProviderEnv_KnowledgeQdrant(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -888,7 +888,7 @@ knowledge:
 
 func TestE2E_ProviderEnv_KnowledgeRedis(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -909,7 +909,7 @@ knowledge:
 
 func TestE2E_ProviderEnv_KnowledgePostgres(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -933,7 +933,7 @@ knowledge:
 
 func TestE2E_ProviderEnv_KnowledgeNeo4j(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -956,7 +956,7 @@ knowledge:
 func TestE2E_ProviderEnv_KnowledgeContainer(t *testing.T) {
 	// Container-mode knowledge (no provider) → generic KNOWLEDGE_{NAME}_ prefix
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -981,7 +981,7 @@ knowledge:
 
 func TestE2E_ProviderEnv_CloudKnowledgePinecone(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1016,7 +1016,7 @@ knowledge:
 func TestE2E_ProviderEnv_ContainerTool(t *testing.T) {
 	// Container-mode tool → TOOL_{NAME}_ prefix
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1039,7 +1039,7 @@ integrations:
 
 func TestE2E_ProviderEnv_CloudToolGitLab(t *testing.T) {
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1073,7 +1073,7 @@ integrations:
 func TestE2E_ProviderEnv_PlatformMetadata(t *testing.T) {
 	// Every deployment gets ASTRO_AGENT_NAME, ASTRO_AGENT_BUILD, AGENT_URL, OTEL endpoint
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1095,7 +1095,7 @@ agent:
 func TestE2E_ProviderEnv_MixedModelAndKnowledge(t *testing.T) {
 	// Ollama model + qdrant knowledge + redis cache — all env vars coexist
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1199,7 +1199,7 @@ func TestE2E_ProviderEnv_TwoQdrantKnowledge(t *testing.T) {
 	// Service + StatefulSet. The bare QDRANT_* prefix points to the first entry
 	// alphabetically ("primary"), and name-qualified vars exist for all entries.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1251,7 +1251,7 @@ func TestE2E_ProviderEnv_TwoOllamaModels(t *testing.T) {
 	// Two models using the same provider (ollama). Both get containers.
 	// Bare OLLAMA_* points to first alphabetically ("big"), name-qualified vars for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1309,7 +1309,7 @@ func TestE2E_ProviderEnv_TwoCloudModelsSameProvider(t *testing.T) {
 	// Two models using the same cloud provider (anthropic). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1360,7 +1360,7 @@ func TestE2E_ProviderEnv_TwoCloudToolsSameProvider(t *testing.T) {
 	// Two tools using the same cloud provider (github). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1403,7 +1403,7 @@ func TestE2E_ProviderEnv_TwoCloudModelsSameProviderNameMatch(t *testing.T) {
 	// When one entry's name matches the provider, it becomes the natural primary:
 	// bare key only (no redundant ANTHROPIC_ANTHROPIC_API_KEY), others get name-qualified.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1451,7 +1451,7 @@ func TestE2E_ProviderEnv_TwoCloudModelsOpenAI(t *testing.T) {
 	// Two models using the same cloud provider (openai). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1499,7 +1499,7 @@ func TestE2E_ProviderEnv_TwoCloudModelsGoogle(t *testing.T) {
 	// Two models using the same cloud provider (google). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1547,7 +1547,7 @@ func TestE2E_ProviderEnv_TwoCloudModelsCohere(t *testing.T) {
 	// Two models using the same cloud provider (cohere). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1595,7 +1595,7 @@ func TestE2E_ProviderEnv_TwoCloudKnowledgePinecone(t *testing.T) {
 	// Two knowledge stores using the same cloud provider (pinecone). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1650,7 +1650,7 @@ func TestE2E_ProviderEnv_TwoCloudToolsGitLab(t *testing.T) {
 	// Two tools using the same cloud provider (gitlab). Gets bare provider key
 	// for first alphabetically + name-qualified keys for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1699,7 +1699,7 @@ func TestE2E_ProviderEnv_SameProviderMixedPersistence(t *testing.T) {
 	// Two redis knowledge stores: one persistent, one not.
 	// Bare REDIS_* points to first alphabetically ("durable"), name-qualified vars for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1758,7 +1758,7 @@ func TestE2E_ProviderEnv_TwoPostgresKnowledge(t *testing.T) {
 	// Two knowledge stores using the same provider (postgres). Bare POSTGRES_*
 	// points to the first entry alphabetically ("analytics"), name-qualified vars for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1812,7 +1812,7 @@ func TestE2E_ProviderEnv_TwoNeo4jKnowledge(t *testing.T) {
 	// Two knowledge stores using the same provider (neo4j). Bare NEO4J_*
 	// points to the first entry alphabetically ("friends"), name-qualified vars for all.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1864,7 +1864,7 @@ func TestE2E_ProviderEnv_ProviderAndContainerSameCategory(t *testing.T) {
 	// Provider-mode gets provider-prefixed env (QDRANT_*), container-mode gets
 	// generic KNOWLEDGE_{NAME}_* — no collision.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest
@@ -1913,7 +1913,7 @@ knowledge:
 func TestE2E_ProviderEnv_TwoContainerTools(t *testing.T) {
 	// Two container-mode tools — each gets distinct TOOL_{NAME}_* env vars, no collision.
 	r := runE2E(t, `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 agent:
   image: my-agent:latest

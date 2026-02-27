@@ -557,7 +557,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("JSON round-trip preserves cloud providers in models and tools", func(t *testing.T) {
 		rawSpec := map[string]interface{}{
-			"spec": "astro/v1",
+			"spec": "package/v1",
 			"name": "my-agent",
 			"meta": map[string]interface{}{"version": "1.0"},
 			"agent": map[string]interface{}{

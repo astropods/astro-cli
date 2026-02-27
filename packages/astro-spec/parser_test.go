@@ -16,7 +16,7 @@ func TestParse(t *testing.T) {
 		{
 			name: "minimal valid spec",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -25,8 +25,8 @@ agent:
 `,
 			wantErr: false,
 			check: func(t *testing.T, s *AstroSpec) {
-				if s.Spec != "astro/v1" {
-					t.Errorf("Spec = %q, want %q", s.Spec, "astro/v1")
+				if s.Spec != "package/v1" {
+					t.Errorf("Spec = %q, want %q", s.Spec, "package/v1")
 				}
 				if s.Name != "test-agent" {
 					t.Errorf("Name = %q, want %q", s.Name, "test-agent")
@@ -39,7 +39,7 @@ agent:
 		{
 			name: "spec with build config",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: my-agent
 meta:
   version: 0.1.0
@@ -64,7 +64,7 @@ agent:
 		{
 			name: "spec with cloud providers in models and tools",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -110,7 +110,7 @@ integrations:
 		{
 			name: "spec with knowledge stores - provider mode",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -160,7 +160,7 @@ knowledge:
 		{
 			name: "spec with knowledge stores - container mode",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -198,7 +198,7 @@ knowledge:
 		{
 			name: "spec with models - provider mode",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -235,7 +235,7 @@ models:
 		{
 			name: "spec with models - container mode",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -283,7 +283,7 @@ models:
 		{
 			name: "spec with ingestion",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -321,7 +321,7 @@ ingestion:
 		{
 			name: "spec with dev section",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -444,7 +444,7 @@ agent:
 		{
 			name: "missing agent name",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 meta:
   version: 1.0.0
 agent:
@@ -455,7 +455,7 @@ agent:
 		{
 			name: "missing container config",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -465,7 +465,7 @@ meta:
 		{
 			name: "valid spec passes validation",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -477,7 +477,7 @@ agent:
 		{
 			name: "knowledge with both provider and container",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -494,7 +494,7 @@ knowledge:
 		{
 			name: "knowledge with neither provider nor container",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -508,7 +508,7 @@ knowledge:
 		{
 			name: "model with both provider and container",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -525,7 +525,7 @@ models:
 		{
 			name: "model with neither provider nor container",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -539,7 +539,7 @@ models:
 		{
 			name: "valid model with provider",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -554,7 +554,7 @@ models:
 		{
 			name: "tool with both provider and container",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -571,7 +571,7 @@ integrations:
 		{
 			name: "tool with neither provider nor container",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -601,7 +601,7 @@ providers:
 		{
 			name: "valid cloud model provider",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -616,7 +616,7 @@ models:
 		{
 			name: "valid cloud tool provider",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -632,7 +632,7 @@ integrations:
 		{
 			name: "agent with both image and build rejected",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -648,7 +648,7 @@ agent:
 		{
 			name: "tool container build missing context",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -665,7 +665,7 @@ integrations:
 		{
 			name: "tool container build missing dockerfile",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -682,7 +682,7 @@ integrations:
 		{
 			name: "tool container build valid",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -701,7 +701,7 @@ integrations:
 		{
 			name: "tool container invalid gpu runtime",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -719,7 +719,7 @@ integrations:
 		{
 			name: "tool container valid gpu runtime rocm",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -737,7 +737,7 @@ integrations:
 		{
 			name: "knowledge container invalid gpu runtime",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -755,7 +755,7 @@ knowledge:
 		{
 			name: "knowledge container valid gpu runtime cuda",
 			yaml: `
-spec: astro/v1
+spec: package/v1
 name: test-agent
 meta:
   version: 1.0.0
@@ -799,7 +799,7 @@ knowledge:
 
 func TestParseFile(t *testing.T) {
 	yaml := `
-spec: astro/v1
+spec: package/v1
 name: file-test
 meta:
   version: 1.0.0
@@ -830,7 +830,7 @@ func TestParseFile_NotFound(t *testing.T) {
 
 func TestParseString(t *testing.T) {
 	yaml := `
-spec: astro/v1
+spec: package/v1
 name: string-test
 meta:
   version: 1.0.0

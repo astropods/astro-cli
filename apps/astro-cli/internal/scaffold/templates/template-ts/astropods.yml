@@ -1,4 +1,4 @@
-spec: astro/v1
+spec: package/v1
 name: {{.Name}}
 
 meta:
