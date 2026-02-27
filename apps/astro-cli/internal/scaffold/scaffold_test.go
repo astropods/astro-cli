@@ -683,6 +683,86 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 	}
 }
 
+func TestCollectEnvVars(t *testing.T) {
+	tests := []struct {
+		name            string
+		integrations    []string
+		integrationKeys map[string]string
+		wantVars        map[string]string
+	}{
+		{
+			name:            "anthropic key",
+			integrations:    []string{"anthropic"},
+			integrationKeys: map[string]string{"anthropic": "sk-ant-test"},
+			wantVars:        map[string]string{"ANTHROPIC_API_KEY": "sk-ant-test"},
+		},
+		{
+			name:            "openai key",
+			integrations:    []string{"openai"},
+			integrationKeys: map[string]string{"openai": "sk-oai-test"},
+			wantVars:        map[string]string{"OPENAI_API_KEY": "sk-oai-test"},
+		},
+		{
+			name:            "github token",
+			integrations:    []string{"github"},
+			integrationKeys: map[string]string{"github": "ghp_test"},
+			wantVars:        map[string]string{"GITHUB_TOKEN": "ghp_test"},
+		},
+		{
+			name:         "slack tokens",
+			integrations: []string{},
+			integrationKeys: map[string]string{
+				"slack_bot_token": "xoxb-test",
+				"slack_app_token": "xapp-test",
+			},
+			wantVars: map[string]string{
+				"SLACK_BOT_TOKEN": "xoxb-test",
+				"SLACK_APP_TOKEN": "xapp-test",
+			},
+		},
+		{
+			name:            "empty keys are skipped",
+			integrations:    []string{"anthropic"},
+			integrationKeys: map[string]string{},
+			wantVars:        map[string]string{},
+		},
+		{
+			name:         "multiple integrations",
+			integrations: []string{"anthropic", "openai", "github"},
+			integrationKeys: map[string]string{
+				"anthropic": "sk-ant",
+				"openai":    "sk-oai",
+				"github":    "ghp",
+			},
+			wantVars: map[string]string{
+				"ANTHROPIC_API_KEY": "sk-ant",
+				"OPENAI_API_KEY":    "sk-oai",
+				"GITHUB_TOKEN":      "ghp",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ScaffoldConfig{
+				Name:            "a",
+				Integrations:    tt.integrations,
+				IntegrationKeys: tt.integrationKeys,
+			}
+			got := cfg.CollectEnvVars()
+			for k, v := range tt.wantVars {
+				if got[k] != v {
+					t.Errorf("CollectEnvVars()[%q] = %q, want %q", k, got[k], v)
+				}
+			}
+			for k := range got {
+				if _, expected := tt.wantVars[k]; !expected {
+					t.Errorf("CollectEnvVars() has unexpected key %q = %q", k, got[k])
+				}
+			}
+		})
+	}
+}
+
 // TestAgentEnvVars_AlwaysIncludesGRPC verifies GRPC_SERVER_ADDR is always present.
 func TestAgentEnvVars_AlwaysIncludesGRPC(t *testing.T) {
 	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}

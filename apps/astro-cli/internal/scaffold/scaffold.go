@@ -141,6 +141,30 @@ func componentLabel(category string) string {
 	return category
 }
 
+// CollectEnvVars returns the user-provided API keys from IntegrationKeys mapped to
+// their proper env var names (e.g. "anthropic" → "ANTHROPIC_API_KEY"). The mapping
+// is derived from the spec that would be generated for this config, keeping it in
+// sync with AllCredentialKeys automatically. Empty values are omitted.
+func (c ScaffoldConfig) CollectEnvVars() map[string]string {
+	vars := make(map[string]string)
+	s, err := c.specFromTemplate()
+	if err != nil {
+		return vars
+	}
+	for envKey, meta := range spec.AllCredentialKeys(s) {
+		if val := c.IntegrationKey(meta.Provider); val != "" {
+			vars[envKey] = val
+		}
+	}
+	if v := c.IntegrationKey("slack_bot_token"); v != "" {
+		vars["SLACK_BOT_TOKEN"] = v
+	}
+	if v := c.IntegrationKey("slack_app_token"); v != "" {
+		vars["SLACK_APP_TOKEN"] = v
+	}
+	return vars
+}
+
 // specFromTemplate renders the spec template and parses it into an
 // AstroSpec. This is the single source of truth for what the spec will look
 // like at runtime, so AgentEnvVars never drifts from the actual generated file.
