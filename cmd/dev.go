@@ -185,6 +185,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	printBanner()
 	fmt.Printf("%s→%s Loading spec: %s\n", colorCyan, colorReset, filepath.Base(specPath))
 
 	// Parse Astro spec

@@ -98,6 +98,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		if name == "" {
 			return fmt.Errorf("agent name is required with --yes flag")
 		}
+		printBanner()
 		config = scaffold.DefaultConfig(name)
 	} else {
 		var err error
