@@ -693,10 +693,10 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec
 	default:
-		fmt.Printf("%s→%s %sUnable to open browser automatically on %s%s\n", colorCyan, colorReset, colorDim, runtime.GOOS, colorReset)
+		fmt.Printf("%s!%s %sUnable to open browser automatically on %s%s\n", colorYellow, colorReset, colorDim, runtime.GOOS, colorReset)
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("%s→%s %sFailed to open browser: %v%s\n", colorCyan, colorReset, colorDim, err, colorReset)
+		fmt.Printf("%s✗%s %sFailed to open browser: %v%s\n", colorRed, colorReset, colorDim, err, colorReset)
 	}
 }
