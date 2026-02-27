@@ -49,12 +49,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
 // true on the server, so the guard short-circuits and never renders <Navigate>.
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, login } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      login();
+      if (location.pathname === "/") {
+        window.location.href = "https://blog.astropods.ai/waitlist";
+      } else {
+        login();
+      }
     }
-  }, [isLoading, isAuthenticated, login]);
+  }, [isLoading, isAuthenticated, login, location.pathname]);
 
   if (isLoading || !isAuthenticated) return null;
 
