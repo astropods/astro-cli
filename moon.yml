@@ -11,6 +11,7 @@ tasks:
     command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD)" -o bin/ast .'
     inputs:
       - "**/*.go"
+      - "cmd/docs/**"
       - "internal/scaffold/templates/**"
       - "go.mod"
       - "go.sum"
@@ -23,6 +24,7 @@ tasks:
     command: sh -c 'go build -ldflags="-X github.com/postman/astro/apps/astro-cli/cmd.version=$(cat VERSION) -X github.com/postman/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD) -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=https://astropod.ai" -o bin/ast .'
     inputs:
       - "**/*.go"
+      - "cmd/docs/**"
       - "internal/scaffold/templates/**"
       - "go.mod"
       - "go.sum"
