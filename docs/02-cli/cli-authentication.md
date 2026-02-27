@@ -103,15 +103,6 @@ Server and registry URLs are stored per profile. Registry is derived as `registr
 
 Tokens are refreshed automatically when within 5 minutes of expiry. The CLI checks token validity on each authenticated request and refreshes if needed.
 
-## Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| `ASTRO_SERVER_URL` | Override server URL |
-| `ASTRO_ACCESS_TOKEN` | Direct token auth (bypasses stored credentials) |
-
-**Security Note**: `ASTRO_ACCESS_TOKEN` is read once and cleared from the environment to prevent child processes from inheriting it.
-
 ## CLI Commands
 
 | Command | Description |

@@ -128,7 +128,7 @@ ast login [flags]
 |------|-------------|
 | `--no-browser` | Print the verification URL instead of opening it |
 
-Initiates an OAuth 2.0 Device Authorization Flow. After completing the browser flow, credentials are stored in the system keyring or `~/.ast/credentials.json`. See [Authentication](/authentication) for details.
+Initiates Authorization Flow. After completing the browser flow, credentials are stored in the system keyring or `~/.ast/credentials.json`. See [Authentication](/authentication) for details.
 
 ---
 
@@ -228,4 +228,4 @@ Display the currently authenticated user.
 ast whoami
 ```
 
-Prints the user name, email, account, user ID, and token expiration. If the environment variable `ASTRO_ACCESS_TOKEN` is set, that is reported instead of the stored credential.
+Prints the user name, email, account, user ID, and token expiration.
