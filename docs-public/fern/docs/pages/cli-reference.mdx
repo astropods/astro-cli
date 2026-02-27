@@ -10,7 +10,7 @@ Full reference for the `ast` CLI. See [CLI overview](/cli) for global flags and 
 
 ## create
 
-Scaffold a new Astro AI agent project.
+Scaffold a new Astropods agent project.
 
 ```bash
 ast create <name> [flags]
@@ -77,7 +77,7 @@ ast dev stop
 
 ## docs
 
-Display Astro documentation in the terminal.
+Display Astro AI documentation in the terminal.
 
 ```bash
 ast docs [category]
@@ -138,7 +138,7 @@ Without `--all`, clears credentials for the current profile only.
 
 ## playground
 
-Open the Astro playground UI connected to a running agent.
+Open the Astropods playground UI connected to a running agent.
 
 ```bash
 ast playground <url> [flags]
@@ -158,7 +158,7 @@ Starts a local playground container and opens it in the browser, connected to th
 
 ## push
 
-Build and push the agent to the Astro AI platform.
+Build and push the agent to the Astropods registry.
 
 ```bash
 ast push [flags]
@@ -169,12 +169,12 @@ ast push [flags]
 | `--skip-build` | Skip building containers before pushing |
 | `--skip-push` | Skip pushing images to the registry |
 | `--skip-register` | Skip registering the spec with the server |
-| `--server <url>` | Override the Astro server URL |
+| `--server <url>` | Override the Astro AI server URL |
 | `--registry <url>` | Override the registry URL |
 | `--no-auth` | Skip authentication (not recommended) |
 | `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64`) |
 
-By default, `push` builds containers, pushes images to the Astro registry, and registers the agent spec with the server. Requires an account and [`ast login`](/authentication) first.
+By default, `push` builds containers, pushes images to the Astropods registry, and registers the agent spec with the server. Requires an account and [`ast login`](/authentication) first.
 
 ---
 
