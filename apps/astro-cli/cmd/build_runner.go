@@ -26,40 +26,11 @@ import (
 	spec "github.com/postman/astro/packages/astro-spec"
 )
 
-var buildCmd = &cobra.Command{
-	Use:   "build",
-	Short: "Build agent and custom component containers from spec",
-	Long: `Build container images defined in astropods.yml.
-
-This command builds:
-- The agent container (container.build)
-- Custom-built models (models.*.container.build)
-- Custom-built knowledge stores (knowledge.*.container.build)
-- Custom-built tools (tools.*.container.build)
-- Custom interface services (interfaces.*.service.build)
-
-Components with pre-built images (container.image) are skipped and will be
-pulled at deployment time by the deployment server.
-
-Example:
-  ast build
-  ast build --tag v1.0.0
-  ast build --no-cache`,
-	RunE: runBuild,
-}
-
 var (
 	buildTag      string
 	buildNoCache  bool
 	buildPlatform string
 )
-
-func init() {
-	rootCmd.AddCommand(buildCmd)
-	buildCmd.Flags().StringVarP(&buildTag, "tag", "t", "latest", "Tag for the images")
-	buildCmd.Flags().BoolVar(&buildNoCache, "no-cache", false, "Build without using cache")
-	buildCmd.Flags().StringVar(&buildPlatform, "platform", "linux/amd64,linux/arm64", "Target platform(s) for the build (comma-separated)")
-}
 
 func runBuild(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
@@ -426,7 +397,6 @@ func streamBuildOutput(reader io.Reader, _, quiet bool) error {
 			// Print logs (command output)
 			for _, l := range status.Logs {
 				if len(l.Msg) > 0 {
-					// Print each line with indentation
 					lines := strings.Split(string(l.Msg), "\n")
 					for _, line := range lines {
 						if line != "" {

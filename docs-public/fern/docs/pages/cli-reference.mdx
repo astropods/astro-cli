@@ -8,24 +8,6 @@ Full reference for the `ast` CLI. See [CLI overview](/cli) for global flags and 
 
 ---
 
-## build
-
-Build agent and component containers from the spec.
-
-```bash
-ast build [flags]
-```
-
-| Flag | Description |
-|------|-------------|
-| `-t, --tag <tag>` | Image tag (default: `latest`) |
-| `--no-cache` | Build without cache |
-| `--platform <platforms>` | Target platforms, comma-separated (default: `linux/amd64,linux/arm64`) |
-
-Builds the agent container and any custom component images (models, knowledge bases, tools) defined in `astropods.yml`. Use `ast push` to build and push in one step.
-
----
-
 ## create
 
 Scaffold a new Astro AI agent project.
