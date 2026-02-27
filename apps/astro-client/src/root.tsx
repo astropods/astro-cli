@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Links,
   Meta,
@@ -46,6 +46,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
 // OnboardingGuard redirects are client-only (<Navigate> doesn't produce HTTP
 // redirects during SSR). This is safe because useAuth().isLoading is always
 // true on the server, so the guard short-circuits and never renders <Navigate>.
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, login } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      login();
+    }
+  }, [isLoading, isAuthenticated, login]);
+
+  if (isLoading || !isAuthenticated) return null;
+
+  return <>{children}</>;
+}
+
 function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, needsOnboarding } = useAuth();
   const location = useLocation();
@@ -71,9 +85,11 @@ export default function Root() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
-        <OnboardingGuard>
-          <Outlet />
-        </OnboardingGuard>
+        <AuthGuard>
+          <OnboardingGuard>
+            <Outlet />
+          </OnboardingGuard>
+        </AuthGuard>
       </QueryClientProvider>
     </AuthProvider>
   );

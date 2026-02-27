@@ -2,7 +2,7 @@ import { type RouteConfig, route, layout, index } from "@react-router/dev/routes
 
 export default [
   layout("components/Layout.tsx", [
-    index("pages/RedirectToBrowse.tsx"),
+    index("pages/Index.tsx"),
     route("browse", "pages/Hire.tsx"),
     route("request-agent", "pages/RequestAgent.tsx"),
     route("agents", "pages/YourAgents.tsx"),
