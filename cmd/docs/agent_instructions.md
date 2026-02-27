@@ -62,7 +62,7 @@ Variables you need to run your agent, such as your API keys:
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Required for the examples (Claude). |
 
-Add them to `.env`. `ast dev` injects them into the agent container.
+Run `ast configure` to set them. `ast dev` injects them into the agent container.
 
 ## Project Structure
 
@@ -71,7 +71,7 @@ Add them to `.env`. `ast dev` injects them into the agent container.
 ├── astropods.yml       # Spec (schema: https://astropods.ai/schema/package.json)
 ├── Dockerfile          # Agent container
 ├── package.json
-└── .env                # API keys (not committed)
+└── .env                # API keys (set via ast configure; not committed)
 ```
 
 You can optionally add ingestion pipelines. Add an `ingestion/` directory with `Dockerfile` and `index.ts`, then declare each pipeline in `astropods.yml`:
