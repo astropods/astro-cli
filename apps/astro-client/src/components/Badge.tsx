@@ -24,7 +24,7 @@ export interface BadgeProps {
 const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
   default: {
     dot: "bg-stone-600 border-[3px] border-stone-300",
-    badge: "bg-white/10 text-foreground border border-border",
+    badge: "bg-white/10 text-muted-foreground border border-tertiary-foreground",
   },
   active: {
     dot: "bg-green-700 border-[3px] border-green-200 dark:bg-green-400 dark:border-green-800",
@@ -54,12 +54,12 @@ const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
 
 const sizeStyles: Record<BadgeSize, { badge: string; dot: string; icon: string }> = {
   default: {
-    badge: "gap-1.5 rounded-full py-0.5 pr-2 text-xs",
+    badge: "gap-1.5 rounded-full py-0.5 pr-2",
     dot: "size-3",
     icon: "size-3.5",
   },
   lg: {
-    badge: "gap-2 rounded-lg py-1.5 pr-3 text-sm",
+    badge: "gap-2 rounded-lg py-1.5 pr-3",
     dot: "size-3",
     icon: "size-4",
   },
@@ -73,7 +73,7 @@ export function Badge({ variant = "default", size = "default", showDot = false, 
   return (
     <span
       className={cn(
-        "inline-flex items-center font-medium",
+        "inline-flex items-center font-mono font-normal text-[12px]",
         sz.badge,
         hasLeadingElement ? (size === "lg" ? "pl-2.5" : "pl-1.5") : (size === "lg" ? "pl-3" : "pl-2"),
         varStyles.badge,
