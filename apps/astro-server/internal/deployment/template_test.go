@@ -673,7 +673,7 @@ func TestTemplate_VariablesCustomProvider(t *testing.T) {
 	input := baseInput()
 	input.Spec.Providers = map[string]spec.CustomProvider{
 		"myapi": {
-			Scope: []string{"tools"},
+			Scope: []string{"integrations"},
 			Variables: []spec.Input{
 				{Name: "MYAPI_API_KEY", Datatype: "string", Secret: true, Description: "main key"},
 				{Name: "MYAPI_SECRET", Datatype: "string", Secret: true, Description: "optional secret", Optional: true},
@@ -814,7 +814,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 		t.Error("knowledge.cache.persistent: expected false")
 	}
 
-	// Tools — only self-hosted (websearch), not cloud (github)
+	// Integrations — only self-hosted (websearch), not cloud (github)
 	if len(ds.Tools) != 1 {
 		t.Errorf("tools: expected 1 (websearch only), got %d", len(ds.Tools))
 	}
@@ -883,7 +883,7 @@ func TestTemplate_EmptySpec(t *testing.T) {
 		t.Errorf("knowledge: expected 0 for empty spec, got %d", len(ds.Knowledge))
 	}
 	if len(ds.Tools) != 0 {
-		t.Errorf("tools: expected 0 for empty spec, got %d", len(ds.Tools))
+		t.Errorf("integrations: expected 0 for empty spec, got %d", len(ds.Tools))
 	}
 	if len(ds.Ingestion) != 0 {
 		t.Errorf("ingestion: expected 0 for empty spec, got %d", len(ds.Ingestion))

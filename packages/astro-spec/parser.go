@@ -88,14 +88,14 @@ func ParseSpec(path string) (*AstroSpec, error) {
 	}
 
 	// Validate custom providers
-	validScopeValues := map[string]bool{"models": true, "knowledge": true, "tools": true}
+	validScopeValues := map[string]bool{"models": true, "knowledge": true, "integrations": true}
 	for name, provider := range spec.Providers {
 		if len(provider.Scope) == 0 {
-			return nil, fmt.Errorf("providers.%s: scope is required and must contain at least one of: models, knowledge, tools", name)
+			return nil, fmt.Errorf("providers.%s: scope is required and must contain at least one of: models, knowledge, integrations", name)
 		}
 		for _, s := range provider.Scope {
 			if !validScopeValues[s] {
-				return nil, fmt.Errorf("providers.%s: invalid scope value %q (must be one of: models, knowledge, tools)", name, s)
+				return nil, fmt.Errorf("providers.%s: invalid scope value %q (must be one of: models, knowledge, integrations)", name, s)
 			}
 		}
 		if len(provider.Variables) == 0 {
@@ -185,23 +185,23 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		// Validate custom provider scope
 		if t.Provider != "" {
 			if cp, ok := spec.Providers[t.Provider]; ok {
-				if !scopeContains(cp.Scope, "tools") {
-					return nil, fmt.Errorf("tool %q: provider %q does not allow scope %q", name, t.Provider, "tools")
+				if !scopeContains(cp.Scope, "integrations") {
+					return nil, fmt.Errorf("tool %q: provider %q does not allow scope %q", name, t.Provider, "integrations")
 				}
 			}
 		}
 		if t.Container != nil && t.Container.Build != nil {
-			if err := validateBuildConfig(fmt.Sprintf("tools.%s.container.build", name), t.Container.Build); err != nil {
+			if err := validateBuildConfig(fmt.Sprintf("integrations.%s.container.build", name), t.Container.Build); err != nil {
 				return nil, err
 			}
 		}
 		if t.Container != nil && t.Container.GPU != nil {
 			if t.Container.GPU.Runtime != "" && t.Container.GPU.Runtime != "cuda" && t.Container.GPU.Runtime != "rocm" {
-				return nil, fmt.Errorf("tools.%s.container.gpu.runtime: must be one of cuda or rocm", name)
+				return nil, fmt.Errorf("integrations.%s.container.gpu.runtime: must be one of cuda or rocm", name)
 			}
 		}
 		for i, input := range t.Inputs {
-			if err := validateInput(fmt.Sprintf("tools.%s.inputs[%d]", name, i), input); err != nil {
+			if err := validateInput(fmt.Sprintf("integrations.%s.inputs[%d]", name, i), input); err != nil {
 				return nil, err
 			}
 		}

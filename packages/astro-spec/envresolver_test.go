@@ -18,8 +18,8 @@ func TestSanitizeEnvName(t *testing.T) {
 		{"my-service", "MY_SERVICE"},
 		{"docs_sync", "DOCS_SYNC"},
 		{"a.b.c", "A_B_C"},
-		{"A_B_C", "A_B_C"},    // already uppercased input still works
-		{"", ""},              // empty
+		{"A_B_C", "A_B_C"}, // already uppercased input still works
+		{"", ""},           // empty
 		{"_leading", "LEADING"},
 		{"trailing_", "TRAILING"},
 		{"double--hyphens", "DOUBLE_HYPHENS"},
@@ -163,7 +163,7 @@ func TestCloudCredentialKeys_SkipsCustomProviders(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -205,7 +205,7 @@ func TestCustomProviderCredentialKeys_SecretVariables(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "Jira key"},
 				{Name: "BASE_URL", Datatype: "string", Secret: false}, // non-secret: not included
 				{Name: "TOKEN", Datatype: "string", Secret: true, Optional: true},
@@ -234,7 +234,7 @@ func TestCustomProviderCredentialKeys_DuplicateEntries_NoNameMatch_NoBareKey(t *
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -261,7 +261,7 @@ func TestCustomProviderCredentialKeys_UnreferencedProviderExcluded(t *testing.T)
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"unused": {Scope: []string{"tools"}, Variables: []Input{
+			"unused": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -320,7 +320,7 @@ func TestCustomProviderCredentialKeys_AllNonSecret(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "BASE_URL", Datatype: "string", Secret: false},
 				{Name: "PROJECT", Datatype: "string", Secret: false},
 			}},
@@ -341,7 +341,7 @@ func TestCustomProviderCredentialKeys_MultipleVariables(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-svc": {Scope: []string{"tools"}, Variables: []Input{
+			"my-svc": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 				{Name: "CLIENT_SECRET", Datatype: "string", Secret: true, Optional: true},
 				{Name: "BASE_URL", Datatype: "string", Secret: false},
@@ -383,7 +383,7 @@ func TestCustomProviderCredentialKeys_ProviderNameSanitized(t *testing.T) {
 				Name:  "agent",
 				Agent: Container{Image: "a:1"},
 				Providers: map[string]CustomProvider{
-					tc.providerName: {Scope: []string{"tools"}, Variables: []Input{
+					tc.providerName: {Scope: []string{"integrations"}, Variables: []Input{
 						{Name: "API_KEY", Datatype: "string", Secret: true},
 					}},
 				},
@@ -406,7 +406,7 @@ func TestCustomProviderCredentialKeys_DuplicateFirstAlphaIsPrimary(t *testing.T)
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -433,7 +433,7 @@ func TestCustomProviderCredentialKeys_DuplicateEntryNameMatchesProvider(t *testi
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -459,7 +459,7 @@ func TestCustomProviderCredentialKeys_DuplicateEntryNameSanitized(t *testing.T) 
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -486,7 +486,7 @@ func TestCustomProviderCredentialKeys_ThreeEntriesSameProvider(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"svc": {Scope: []string{"tools"}, Variables: []Input{
+			"svc": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 				{Name: "SECRET", Datatype: "string", Secret: true},
 			}},
@@ -519,7 +519,7 @@ func TestCustomProviderCredentialKeys_MultipleDistinctProviders(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 			"my-llm": {Scope: []string{"models"}, Variables: []Input{
@@ -547,7 +547,7 @@ func TestCustomProviderCredentialKeys_SameProviderCrossSection(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-svc": {Scope: []string{"models", "tools"}, Variables: []Input{
+			"my-svc": {Scope: []string{"models", "integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -576,7 +576,7 @@ func TestCustomProviderCredentialKeys_MixedWithCloudProvider(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -601,7 +601,7 @@ func TestCustomProviderCredentialKeys_OnlyOneEntryHasRedundantNameSkipped(t *tes
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"svc": {Scope: []string{"tools"}, Variables: []Input{
+			"svc": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "TOKEN", Datatype: "string", Secret: true},
 			}},
 		},
@@ -624,7 +624,7 @@ func TestCustomProviderCredentialKeys_ProviderWithOnlyOptionalSecret(t *testing.
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"svc": {Scope: []string{"tools"}, Variables: []Input{
+			"svc": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "OPTIONAL_KEY", Datatype: "string", Secret: true, Optional: true},
 			}},
 		},
@@ -644,7 +644,7 @@ func TestCustomProviderCredentialKeys_DescriptionCarriedThrough(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"svc": {Scope: []string{"tools"}, Variables: []Input{
+			"svc": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "My service key"},
 			}},
 		},
@@ -722,9 +722,9 @@ func TestAgentConnectionKeys_DuplicateSelfHostedModelProvider(t *testing.T) {
 	env := AgentConnectionKeys(s, addrs)
 
 	// "large" < "small" alphabetically → "large" is first → gets bare + qualified.
-	assertEnv(t, env, "OLLAMA_HOST", "model-large")           // bare, first
-	assertEnv(t, env, "OLLAMA_LARGE_HOST", "model-large")     // qualified
-	assertEnv(t, env, "OLLAMA_SMALL_HOST", "model-small")     // qualified only
+	assertEnv(t, env, "OLLAMA_HOST", "model-large")       // bare, first
+	assertEnv(t, env, "OLLAMA_LARGE_HOST", "model-large") // qualified
+	assertEnv(t, env, "OLLAMA_SMALL_HOST", "model-small") // qualified only
 	assertEnv(t, env, "OLLAMA_LARGE_MODEL", "llama3.2:70b")
 	assertEnv(t, env, "OLLAMA_SMALL_MODEL", "llama3.2")
 	// Bare MODEL key goes to the first (alphabetically) entry — "large".
@@ -910,7 +910,7 @@ func TestAgentConnectionKeys_CustomProviderToolSkipped(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
@@ -954,8 +954,8 @@ func TestResolveEnvVars_TopLevelInputs(t *testing.T) {
 
 func TestResolveEnvVars_TopLevelInputs_UserOverridesDefault(t *testing.T) {
 	s := &AstroSpec{
-		Name:   "agent",
-		Agent:  Container{Image: "a:1"},
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
 		Inputs: map[string]Input{
 			"LOG_LEVEL": {Name: "LOG_LEVEL", Datatype: "string", Default: "info"},
 		},
@@ -967,8 +967,8 @@ func TestResolveEnvVars_TopLevelInputs_UserOverridesDefault(t *testing.T) {
 func TestResolveEnvVars_TopLevelInputs_EmptyDefaultAndNoValue(t *testing.T) {
 	// When default is empty and no user value, the key must not appear.
 	s := &AstroSpec{
-		Name:   "agent",
-		Agent:  Container{Image: "a:1"},
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
 		Inputs: map[string]Input{
 			"OPTIONAL_KEY": {Name: "OPTIONAL_KEY", Datatype: "string"},
 		},
@@ -1149,18 +1149,18 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 			"search": {Container: &ContainerConfig{Image: "search:latest", Port: 3000}},
 		},
 		Providers: map[string]CustomProvider{
-			"my-jira": {Scope: []string{"tools"}, Variables: []Input{
+			"my-jira": {Scope: []string{"integrations"}, Variables: []Input{
 				{Name: "API_KEY", Datatype: "string", Secret: true},
 			}},
 		},
 	}
 
 	addrs := map[string]ConnectionAddress{
-		"models.llm":       {Host: "model-llm", Port: "11434", URL: "http://model-llm:11434", BaseURL: "http://model-llm:11434/api"},
-		"models.embedder":  {Host: "model-embedder", Port: "8000", URL: "http://model-embedder:8000"},
-		"knowledge.docs":   {Host: "knowledge-docs", Port: "6333", URL: "http://knowledge-docs:6333"},
-		"knowledge.cache":  {Host: "knowledge-cache", Port: "6379"},
-		"tools.search":     {Host: "tool-search", Port: "3000", URL: "http://tool-search:3000"},
+		"models.llm":      {Host: "model-llm", Port: "11434", URL: "http://model-llm:11434", BaseURL: "http://model-llm:11434/api"},
+		"models.embedder": {Host: "model-embedder", Port: "8000", URL: "http://model-embedder:8000"},
+		"knowledge.docs":  {Host: "knowledge-docs", Port: "6333", URL: "http://knowledge-docs:6333"},
+		"knowledge.cache": {Host: "knowledge-cache", Port: "6379"},
+		"tools.search":    {Host: "tool-search", Port: "3000", URL: "http://tool-search:3000"},
 	}
 	creds := map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-test",

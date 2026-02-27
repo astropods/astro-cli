@@ -129,7 +129,9 @@ type CredentialInfo struct {
 // validates custom provider references are within scope.
 func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *ValidationResult) {
 	// validateEntry checks a single provider reference and appends errors as needed.
-	validateEntry := func(section, entryName, provider string) {
+	// section is the external-facing YAML section name (e.g. "integrations").
+	// registrySection is the internal provider registry key (e.g. "tools").
+	validateEntry := func(section, registrySection, entryName, provider string) {
 		// Custom provider — validate scope.
 		if cp, ok := astroSpec.Providers[provider]; ok {
 			if !scopeContains(cp.Scope, section) {
@@ -142,7 +144,7 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 			return
 		}
 		// Built-in provider — must be known.
-		if p, ok := spec.LookupBuiltin(section, provider); !ok || p.Name == "" {
+		if p, ok := spec.LookupBuiltin(registrySection, provider); !ok || p.Name == "" {
 			result.Valid = false
 			result.Errors = append(result.Errors, ValidationError{
 				Field:   fmt.Sprintf("%s.%s.provider", section, entryName),
@@ -153,17 +155,17 @@ func (v *Validator) validateProviders(astroSpec *spec.AstroSpec, result *Validat
 
 	for name, model := range astroSpec.Models {
 		if model.IsProviderMode() && model.Container == nil {
-			validateEntry("models", name, model.Provider)
+			validateEntry("models", "models", name, model.Provider)
 		}
 	}
 	for name, knowledge := range astroSpec.Knowledge {
 		if knowledge.IsProviderMode() && knowledge.Container == nil {
-			validateEntry("knowledge", name, knowledge.Provider)
+			validateEntry("knowledge", "knowledge", name, knowledge.Provider)
 		}
 	}
 	for name, tool := range astroSpec.Tools {
 		if tool.IsProviderMode() && tool.Container == nil {
-			validateEntry("tools", name, tool.Provider)
+			validateEntry("integrations", "tools", name, tool.Provider)
 		}
 	}
 }

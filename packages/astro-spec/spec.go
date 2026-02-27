@@ -10,7 +10,7 @@ type AstroSpec struct {
 	Agent     Container                 `json:"agent" yaml:"agent" jsonschema:"description=Main agent container"`
 	Models    map[string]Model          `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model sidecar containers"`
 	Knowledge map[string]Knowledge      `json:"knowledge,omitempty" yaml:"knowledge,omitempty" jsonschema:"description=Knowledge store containers"`
-	Tools     map[string]Tool           `json:"tools,omitempty" yaml:"tools,omitempty" jsonschema:"description=Tool sidecar containers"`
+	Tools     map[string]Tool           `json:"integrations,omitempty" yaml:"integrations,omitempty" jsonschema:"description=Integration sidecar containers"`
 	Providers map[string]CustomProvider `json:"providers,omitempty" yaml:"providers,omitempty" jsonschema:"description=Custom provider definitions"`
 	Inputs    map[string]Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into every container"`
 	Ingestion map[string]Ingestion      `json:"ingestion,omitempty" yaml:"ingestion,omitempty" jsonschema:"description=Data ingestion pipelines"`

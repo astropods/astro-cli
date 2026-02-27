@@ -25,8 +25,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "valid minimal spec",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 			},
 			creds:     map[string]string{},
@@ -35,7 +35,7 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "missing agent name",
 			spec: &spec.AstroSpec{
-				Meta:      spec.Meta{},
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 			},
 			creds:          map[string]string{},
@@ -76,8 +76,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "invalid trigger type",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"bad-trigger": {
@@ -93,8 +93,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "schedule trigger without schedule expression",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"sync": {
@@ -110,8 +110,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "invalid cron expression",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"sync": {
@@ -128,8 +128,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "valid cron expression",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 				Ingestion: map[string]spec.Ingestion{
 					"sync": {
@@ -145,8 +145,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "missing credentials for anthropic model",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 				Models: map[string]spec.Model{
 					"anthropic": {Provider: "anthropic"},
@@ -159,8 +159,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "credentials provided for anthropic model",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 				Models: map[string]spec.Model{
 					"anthropic": {Provider: "anthropic"},
@@ -177,7 +177,7 @@ func TestValidateSpec(t *testing.T) {
 				Agent: spec.Container{Image: "agent:latest"},
 				Providers: map[string]spec.CustomProvider{
 					"my-service": {
-						Scope: []string{"tools"},
+						Scope: []string{"integrations"},
 						Variables: []spec.Input{
 							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
 							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
@@ -199,7 +199,7 @@ func TestValidateSpec(t *testing.T) {
 				Agent: spec.Container{Image: "agent:latest"},
 				Providers: map[string]spec.CustomProvider{
 					"my-service": {
-						Scope: []string{"tools"},
+						Scope: []string{"integrations"},
 						Variables: []spec.Input{
 							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
 							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
@@ -222,7 +222,7 @@ func TestValidateSpec(t *testing.T) {
 				Agent: spec.Container{Image: "agent:latest"},
 				Providers: map[string]spec.CustomProvider{
 					"my-service": {
-						Scope: []string{"tools"},
+						Scope: []string{"integrations"},
 						Variables: []spec.Input{
 							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
 							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Optional secret", Optional: true},
@@ -240,8 +240,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "slack interface requires tokens",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 			},
 			interfaces:  []string{"slack"},
@@ -252,8 +252,8 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "no interfaces means no interface creds",
 			spec: &spec.AstroSpec{
-				Name:      "my-agent",
-				Meta:      spec.Meta{},
+				Name:  "my-agent",
+				Meta:  spec.Meta{},
 				Agent: spec.Container{Image: "agent:latest"},
 			},
 			creds:     map[string]string{},
@@ -300,8 +300,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("cloud providers in models knowledge tools", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
 				"anthropic": {Provider: "anthropic"},
@@ -337,8 +337,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("gemini alias", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
 				"gemini": {Provider: "gemini"},
@@ -353,8 +353,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("unsupported model provider rejected", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
 				"mistral": {Provider: "mistral"},
@@ -378,8 +378,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("name-derived env vars from model", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
 				"fallback": {Provider: "anthropic"},
@@ -394,8 +394,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("slack interface credentials", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 		}
 
@@ -412,8 +412,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("different names same provider produce different keys", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
 				"primary":  {Provider: "anthropic"},
@@ -436,8 +436,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 
 	t.Run("name matching provider is primary and skips redundant key", func(t *testing.T) {
 		s := &spec.AstroSpec{
-			Name:      "my-agent",
-			Meta:      spec.Meta{},
+			Name:  "my-agent",
+			Meta:  spec.Meta{},
 			Agent: spec.Container{Image: "agent:latest"},
 			Models: map[string]spec.Model{
 				"anthropic": {Provider: "anthropic"},
@@ -470,7 +470,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 			Agent: spec.Container{Image: "agent:latest"},
 			Providers: map[string]spec.CustomProvider{
 				"my-service": {
-					Scope: []string{"tools"},
+					Scope: []string{"integrations"},
 					Variables: []spec.Input{
 						{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key for my-service"},
 						{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret", Optional: true},
@@ -515,14 +515,14 @@ func TestGetRequiredCredentials(t *testing.T) {
 			},
 			"providers": map[string]interface{}{
 				"my-service": map[string]interface{}{
-					"scope": []interface{}{"tools"},
+					"scope": []interface{}{"integrations"},
 					"variables": []interface{}{
 						map[string]interface{}{"name": "MY_SERVICE_API_KEY", "datatype": "string", "secret": true, "description": "API key"},
 						map[string]interface{}{"name": "MY_SERVICE_SECRET", "datatype": "string", "secret": true, "description": "Shared secret"},
 					},
 				},
 			},
-			"tools": map[string]interface{}{
+			"integrations": map[string]interface{}{
 				"jira": map[string]interface{}{"provider": "my-service"},
 			},
 		}
@@ -568,7 +568,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 					"provider": "anthropic",
 				},
 			},
-			"tools": map[string]interface{}{
+			"integrations": map[string]interface{}{
 				"github": map[string]interface{}{
 					"provider": "github",
 				},

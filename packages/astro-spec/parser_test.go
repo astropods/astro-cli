@@ -75,7 +75,7 @@ models:
     provider: anthropic
   backup:
     provider: openai
-tools:
+integrations:
   github:
     provider: github
 `,
@@ -365,7 +365,7 @@ agent:
   image: test:latest
 providers:
   my-service:
-    scope: [tools]
+    scope: [integrations]
     variables:
       - name: MY_SERVICE_API_KEY
         datatype: string
@@ -386,8 +386,8 @@ providers:
 				if !ok {
 					t.Fatal("Providers[my-service] not found")
 				}
-				if len(prov.Scope) != 1 || prov.Scope[0] != "tools" {
-					t.Errorf("Scope = %v, want [tools]", prov.Scope)
+				if len(prov.Scope) != 1 || prov.Scope[0] != "integrations" {
+					t.Errorf("Scope = %v, want [integrations]", prov.Scope)
 				}
 				if len(prov.Variables) != 2 {
 					t.Fatalf("len(Variables) = %d, want 2", len(prov.Variables))
@@ -560,7 +560,7 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   gh:
     provider: github
     container:
@@ -577,7 +577,7 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   empty: {}
 `,
 			wantErr: "either provider or container is required",
@@ -593,7 +593,7 @@ agent:
   image: test:latest
 providers:
   my-service:
-    scope: [tools]
+    scope: [integrations]
     variables: []
 `,
 			wantErr: "variables is required and must contain at least one entry",
@@ -622,7 +622,7 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   github:
     provider: github
 `,
@@ -644,7 +644,7 @@ agent:
 `,
 			wantErr: "image and build are mutually exclusive",
 		},
-		// Fix 2: tools container.build must have context and dockerfile
+		// Fix 2: integrations container.build must have context and dockerfile
 		{
 			name: "tool container build missing context",
 			yaml: `
@@ -654,13 +654,13 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   mytool:
     container:
       build:
         dockerfile: Dockerfile
 `,
-			wantErr: "tools.mytool.container.build.context is required",
+			wantErr: "integrations.mytool.container.build.context is required",
 		},
 		{
 			name: "tool container build missing dockerfile",
@@ -671,13 +671,13 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   mytool:
     container:
       build:
         context: .
 `,
-			wantErr: "tools.mytool.container.build.dockerfile is required",
+			wantErr: "integrations.mytool.container.build.dockerfile is required",
 		},
 		{
 			name: "tool container build valid",
@@ -688,7 +688,7 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   mytool:
     container:
       build:
@@ -697,7 +697,7 @@ tools:
 `,
 			wantErr: "",
 		},
-		// Fix 3: gpu.runtime must be cuda or rocm — tools and knowledge
+		// Fix 3: gpu.runtime must be cuda or rocm — integrations and knowledge
 		{
 			name: "tool container invalid gpu runtime",
 			yaml: `
@@ -707,14 +707,14 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   mytool:
     container:
       image: tool:latest
       gpu:
         runtime: metal
 `,
-			wantErr: "tools.mytool.container.gpu.runtime: must be one of cuda or rocm",
+			wantErr: "integrations.mytool.container.gpu.runtime: must be one of cuda or rocm",
 		},
 		{
 			name: "tool container valid gpu runtime rocm",
@@ -725,7 +725,7 @@ meta:
   version: 1.0.0
 agent:
   image: test:latest
-tools:
+integrations:
   mytool:
     container:
       image: tool:latest

@@ -530,7 +530,7 @@
       "type": "object",
       "description": "Knowledge store containers"
     },
-    "tools": {
+    "integrations": {
       "additionalProperties": {
         "properties": {
           "provider": {
@@ -700,14 +700,14 @@
               ]
             },
             "type": "array",
-            "description": "User-supplied inputs injected into the tool container"
+            "description": "User-supplied inputs injected into the integration container"
           }
         },
         "additionalProperties": false,
         "type": "object"
       },
       "type": "object",
-      "description": "Tool sidecar containers"
+      "description": "Integration sidecar containers"
     },
     "providers": {
       "additionalProperties": {

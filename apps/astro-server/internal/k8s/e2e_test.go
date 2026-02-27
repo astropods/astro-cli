@@ -373,7 +373,7 @@ spec: astro/v1
 name: my-agent
 agent:
   image: my-agent:latest
-tools:
+integrations:
   github:
     provider: github
 `, e2eOpts{
@@ -412,7 +412,7 @@ agent:
   image: my-agent:latest
 providers:
   jira:
-    scope: [tools]
+    scope: [integrations]
     variables:
       - name: JIRA_API_TOKEN
         datatype: string
@@ -422,7 +422,7 @@ providers:
         datatype: string
         secret: true
         description: "Jira account email"
-tools:
+integrations:
   jira:
     provider: jira
 `, e2eOpts{
@@ -518,14 +518,14 @@ knowledge:
     persistent: true
   cache:
     provider: redis
-tools:
+integrations:
   github:
     provider: github
   jira:
     provider: jira
 providers:
   jira:
-    scope: [tools]
+    scope: [integrations]
     variables:
       - name: JIRA_TOKEN
         datatype: string
@@ -545,8 +545,8 @@ ingestion:
 `, e2eOpts{
 		Credentials: map[string]string{
 			"ANTHROPIC_API_KEY": "sk-ant-123",
-			"GITHUB_TOKEN":     "ghp_456",
-			"JIRA_TOKEN":       "jira-789",
+			"GITHUB_TOKEN":      "ghp_456",
+			"JIRA_TOKEN":        "jira-789",
 		},
 		Schedules: map[string]string{
 			"daily": "0 2 * * *",
@@ -1020,7 +1020,7 @@ spec: astro/v1
 name: my-agent
 agent:
   image: my-agent:latest
-tools:
+integrations:
   search:
     container:
       image: my-search:latest
@@ -1043,7 +1043,7 @@ spec: astro/v1
 name: my-agent
 agent:
   image: my-agent:latest
-tools:
+integrations:
   gitlab:
     provider: gitlab
 `, e2eOpts{
@@ -1084,11 +1084,11 @@ agent:
 	agentHost := serviceDNS("my-agent-agent", "test-ns")
 	collectorHost := serviceDNS("my-agent-collector", "test-ns")
 	assertConfigMapValues(t, r, map[string]string{
-		"ASTRO_AGENT_NAME":              "my-agent",
-		"ASTRO_AGENT_BUILD":             "build-001",
-		"AGENT_URL":                     "http://" + agentHost + ":8080",
-		"AGENT_HOST":                    agentHost,
-		"OTEL_EXPORTER_OTLP_ENDPOINT":  "http://" + collectorHost + ":4318",
+		"ASTRO_AGENT_NAME":            "my-agent",
+		"ASTRO_AGENT_BUILD":           "build-001",
+		"AGENT_URL":                   "http://" + agentHost + ":8080",
+		"AGENT_HOST":                  agentHost,
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + collectorHost + ":4318",
 	})
 }
 
@@ -1145,14 +1145,14 @@ agent:
 models:
   claude:
     provider: anthropic
-tools:
+integrations:
   github:
     provider: github
   slack:
     provider: slack-provider
 providers:
   slack-provider:
-    scope: [tools]
+    scope: [integrations]
     variables:
       - name: SLACK_WEBHOOK_URL
         datatype: string
@@ -1161,7 +1161,7 @@ providers:
 `, e2eOpts{
 		Credentials: map[string]string{
 			"ANTHROPIC_API_KEY": "sk-ant-real",
-			"GITHUB_TOKEN":     "ghp_real",
+			"GITHUB_TOKEN":      "ghp_real",
 			"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test",
 		},
 	})
@@ -1175,7 +1175,7 @@ providers:
 	secret := r.getSecret(t, ns, secretName)
 	wantSecret := map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-real",
-		"GITHUB_TOKEN":     "ghp_real",
+		"GITHUB_TOKEN":      "ghp_real",
 		"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test",
 	}
 	for key, val := range wantSecret {
@@ -1187,7 +1187,7 @@ providers:
 	// Resolved values should also appear in ConfigMap (credential refs resolve to actual values)
 	assertConfigMapValues(t, r, map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-real",
-		"GITHUB_TOKEN":     "ghp_real",
+		"GITHUB_TOKEN":      "ghp_real",
 		"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test",
 	})
 }
@@ -1287,16 +1287,16 @@ models:
 	// Bare prefix points to first alphabetically ("big")
 	// Name-qualified vars exist for all entries
 	assertConfigMapValues(t, r, map[string]string{
-		"OLLAMA_HOST":         bigDNS,
-		"OLLAMA_PORT":         "11434",
-		"OLLAMA_URL":          "http://" + bigDNS + ":11434",
-		"OLLAMA_BASE_URL":     "http://" + bigDNS + ":11434/api",
-		"OLLAMA_MODEL":        "deepseek-r1",
-		"OLLAMA_BIG_HOST":     bigDNS,
-		"OLLAMA_BIG_PORT":     "11434",
-		"OLLAMA_BIG_URL":      "http://" + bigDNS + ":11434",
-		"OLLAMA_BIG_BASE_URL": "http://" + bigDNS + ":11434/api",
-		"OLLAMA_BIG_MODEL":    "deepseek-r1",
+		"OLLAMA_HOST":          bigDNS,
+		"OLLAMA_PORT":          "11434",
+		"OLLAMA_URL":           "http://" + bigDNS + ":11434",
+		"OLLAMA_BASE_URL":      "http://" + bigDNS + ":11434/api",
+		"OLLAMA_MODEL":         "deepseek-r1",
+		"OLLAMA_BIG_HOST":      bigDNS,
+		"OLLAMA_BIG_PORT":      "11434",
+		"OLLAMA_BIG_URL":       "http://" + bigDNS + ":11434",
+		"OLLAMA_BIG_BASE_URL":  "http://" + bigDNS + ":11434/api",
+		"OLLAMA_BIG_MODEL":     "deepseek-r1",
 		"OLLAMA_FAST_HOST":     fastDNS,
 		"OLLAMA_FAST_PORT":     "11434",
 		"OLLAMA_FAST_URL":      "http://" + fastDNS + ":11434",
@@ -1364,7 +1364,7 @@ spec: astro/v1
 name: my-agent
 agent:
   image: my-agent:latest
-tools:
+integrations:
   gh-main:
     provider: github
   gh-secondary:
@@ -1462,7 +1462,7 @@ models:
     provider: openai
 `, e2eOpts{
 		Credentials: map[string]string{
-			"OPENAI_API_KEY":          "sk-bare",
+			"OPENAI_API_KEY":           "sk-bare",
 			"OPENAI_GPT-FAST_API_KEY":  "sk-fast",
 			"OPENAI_GPT-SMART_API_KEY": "sk-smart",
 		},
@@ -1489,7 +1489,7 @@ models:
 	}
 
 	assertConfigMapValues(t, r, map[string]string{
-		"OPENAI_API_KEY":          "sk-bare",
+		"OPENAI_API_KEY":           "sk-bare",
 		"OPENAI_GPT-FAST_API_KEY":  "sk-fast",
 		"OPENAI_GPT-SMART_API_KEY": "sk-smart",
 	})
@@ -1558,7 +1558,7 @@ models:
     provider: cohere
 `, e2eOpts{
 		Credentials: map[string]string{
-			"COHERE_API_KEY":       "co-bare",
+			"COHERE_API_KEY":        "co-bare",
 			"COHERE_EMBED_API_KEY":  "co-embed",
 			"COHERE_RERANK_API_KEY": "co-rerank",
 		},
@@ -1585,7 +1585,7 @@ models:
 	}
 
 	assertConfigMapValues(t, r, map[string]string{
-		"COHERE_API_KEY":       "co-bare",
+		"COHERE_API_KEY":        "co-bare",
 		"COHERE_EMBED_API_KEY":  "co-embed",
 		"COHERE_RERANK_API_KEY": "co-rerank",
 	})
@@ -1654,7 +1654,7 @@ spec: astro/v1
 name: my-agent
 agent:
   image: my-agent:latest
-tools:
+integrations:
   gl-main:
     provider: gitlab
   gl-deploy:
@@ -1917,7 +1917,7 @@ spec: astro/v1
 name: my-agent
 agent:
   image: my-agent:latest
-tools:
+integrations:
   search:
     container:
       image: my-search:latest
@@ -1968,4 +1968,3 @@ func keysOf(m map[string][]byte) []string {
 	}
 	return keys
 }
-

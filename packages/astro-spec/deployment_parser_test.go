@@ -275,7 +275,7 @@ knowledge:
       access_mode: ReadWriteOnce
     update:
       strategy: recreate
-tools:
+integrations:
   search:
     image: search:latest
     endpoints:
