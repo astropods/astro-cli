@@ -1,22 +1,12 @@
 ---
 title: Your first Astro AI project
-subtitle: Deploy your first agent in four steps
+subtitle: Create and run your first agent locally
 slug: get-started
 ---
 
-Go from zero to a running agent in four steps. Have the [CLI installed](/install-cli) and Docker ready.
+Go from zero to a running agent in three steps. Have the [CLI installed](/install-cli) and Docker ready. You can also [try a pre-built agent](#try-a-pre-built-agent).
 
-## 1. Log in
-
-Authenticate with your Astro AI account:
-
-```bash
-ast login
-```
-
-Complete the browser flow to link the CLI to your account.
-
-## 2. Create an agent
+## 1. Create an agent
 
 Scaffold a new project:
 
@@ -26,7 +16,7 @@ ast create hello-astro
 
 Use `--yes` to skip prompts and use defaults (HTTP interface, Anthropic model, no knowledge or tools).
 
-## 3. Run locally
+## 2. Run locally
 
 Start a local dev environment with hot-reload:
 
@@ -36,15 +26,26 @@ cd hello-astro && ast dev
 
 Edit code and the agent restarts automatically. Add API keys to `.env` as needed (e.g. `ANTHROPIC_API_KEY`).
 
-## 4. Push
+## 3. Next step
 
-Push your agent to the Astro AI registry:
+When you're ready to publish your agent to the Astro AI registry, see [Publish to registry](/publish-to-registry). Pushing requires an account and `ast login`.
+
+---
+
+<div id="try-a-pre-built-agent" style="scroll-margin-top: 100px;"></div>
+
+## Try a pre-built agent
+
+We have built and shared several agents in the [astropods/agents](https://github.com/astropods/agents) open-source repo. You can try any of them with <code>ast dev</code>. Here's an example:
+
+**GitHub Issue Analyzer** — Ingests GitHub issues from a repo into a Neo4j knowledge graph, enriches them with OpenAI analysis (categories, solutions, workarounds), and answers questions via Cypher queries and comment summarization. Requires `GITHUB_TOKEN` and `OPENAI_API_KEY`.
 
 ```bash
-ast push
+git clone git@github.com:astropods/agents.git
+cd agents/github-issue-analyzer
+ast configure   # update required API keys (or edit .env directly)
+ast dev
 ```
-
-Your agent is then available in your account. You can use `ast push --build` to build first, then push to your OCI registry and register with the Astro AI server.
 
 ---
 

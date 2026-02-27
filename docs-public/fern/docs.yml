@@ -23,9 +23,9 @@ tabs:
   CLI:
     display-name: CLI
     icon: terminal
-  API Reference:
-    display-name: API Reference
-    icon: puzzle
+  # API Reference:
+  #   display-name: API Reference
+  #   icon: puzzle
 
 navigation:
   - tab: home
@@ -41,12 +41,20 @@ navigation:
           - page: Your first project
             path: docs/pages/get-started.mdx
             icon: fa-duotone fa-rocket
+          - page: Publish to registry
+            path: docs/pages/publish-to-registry.mdx
+            icon: fa-duotone fa-cloud-arrow-up
           - page: Authentication
             path: docs/pages/authentication.mdx
             icon: fa-duotone fa-key
-      - section: Changelog
+      - section: Reference
         contents:
-          - changelog: docs/changelog
+          - page: Astropods Spec
+            path: docs/pages/understanding-astropods-spec.mdx
+            icon: fa-duotone fa-file-lines
+  #     - section: Changelog
+  #       contents:
+  #         - changelog: docs/changelog
   - tab: CLI
     layout:
       - section: Overview
@@ -59,17 +67,17 @@ navigation:
           - page: Reference
             path: docs/pages/cli-reference.mdx
             icon: fa-duotone fa-list
-  - tab: API Reference
-    layout:
-      - section: Overview
-        contents:
-          - page: API reference
-            path: docs/pages/api-reference-overview.mdx
-            icon: fa-duotone fa-book
-      - section: Endpoints
-        contents:
-          - api: Astro AI API
-            api-name: astro-api
+  # - tab: API Reference
+  #   layout:
+  #     - section: Overview
+  #       contents:
+  #         - page: API reference
+  #           path: docs/pages/api-reference-overview.mdx
+  #           icon: fa-duotone fa-book
+  #     - section: Endpoints
+  #       contents:
+  #         - api: Astro AI API
+  #           api-name: astro-api
 
 colors:
   accent-primary:

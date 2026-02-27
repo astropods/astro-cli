@@ -21,7 +21,14 @@ Astro AI is a platform for deploying and running AI agents. It provides agent-na
     icon="duotone rocket"
     href="/get-started"
   >
-    Install the CLI, log in, create an agent, run locally, and push in five steps
+    Install the CLI, create an agent, and run locally in three steps
+  </Card>
+  <Card
+    title="Publish to registry"
+    icon="duotone cloud-arrow-up"
+    href="/publish-to-registry"
+  >
+    Log in and push your agent to the Astro AI registry (requires account)
   </Card>
   <Card
     title="Authentication"
@@ -30,21 +37,13 @@ Astro AI is a platform for deploying and running AI agents. It provides agent-na
   >
     Log in with `ast login` and manage credentials
   </Card>
-  <Card
-    title="API reference"
-    icon="duotone code"
-    href="/api-reference"
-  >
-    List agents, register and push builds, and manage deployments via the API
-  </Card>
 </CardGroup>
 
 ## Concepts
 
-- **Agent** — A deployable unit defined by an `astro.yml` spec: container image, models, knowledge stores, tools, and integrations.
-- **Registry** — OCI registry where agent images and spec artifacts are published (e.g. ghcr.io).
-- **Account** — Your team or org on Astro AI; agents are scoped to an account (`account/agent-name`).
-- **Push** — Pushing an agent (and optionally assigning a semver version) makes it available in your account and the public catalog.
+- **Astropods Spec** — Declarative YAML format (<code>astropods.yml</code>) that describes an agent's topology: container, models, knowledge stores, tools, and ingestion. See [Astropods Spec](/understanding-astropods-spec).
+- **Agent** — A deployable unit defined by an <code>astropods.yml</code> spec: container image, models, knowledge stores, tools, and integrations.
+- **Registry** — Astro AI registry where agent images and spec artifacts are published.
 
 ## Next steps
 
@@ -52,13 +51,7 @@ Astro AI is a platform for deploying and running AI agents. It provides agent-na
   <Step title="Install the CLI">
     Run <code>curl -fsSL https://astropods.ai/install | sh</code> or see [Install the CLI](/install-cli).
   </Step>
-  <Step title="Log in">
-    Run <code>ast login</code> and complete the browser flow to authenticate.
-  </Step>
   <Step title="Create and run an agent">
     Follow [Your first project](/get-started): <code>ast create hello-astro</code>, then <code>cd hello-astro && ast dev</code>.
-  </Step>
-  <Step title="Push">
-    Run <code>ast push</code> to push your agent to the Astro AI registry.
   </Step>
 </Steps>

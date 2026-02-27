@@ -4,13 +4,13 @@ subtitle: Log in and manage credentials for the Astro AI CLI and API
 slug: authentication
 ---
 
-The Astro AI CLI and API use OAuth 2.0 Device Authorization Flow (RFC 8628) via WorkOS. You authenticate once in the browser; the CLI stores tokens and uses them for API calls.
+Authentication links the CLI and API to your Astro AI account. You need it to push agents to the registry, access private deployments, and call protected endpoints. Sign in with <code>ast login</code> — an account is required. If you don't have one, [join the waitlist](https://blog.astromode.ai/waitlist).
 
 ## How it works
 
 1. You run `ast login`.
-2. The CLI requests a device code from WorkOS and shows you a short code (e.g. `ABCD-EFGH`) and a verification URL.
-3. You open the URL, enter the code, and sign in with your identity provider (e.g. Google, GitHub).
+2. The CLI shows you a short code (e.g. `ABCD-EFGH`) and a verification URL.
+3. You open the URL, enter the code, and sign in.
 4. The CLI polls until authentication completes, then stores the tokens.
 
 Tokens are stored in the system keyring when available (macOS Keychain, Linux Secret Service, Windows Credential Manager). Otherwise they are stored in `~/.astro/credentials.json` with restricted permissions.
