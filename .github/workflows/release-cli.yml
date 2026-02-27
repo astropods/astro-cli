@@ -178,7 +178,6 @@ jobs:
           echo "::notice::Released ${VERSION} to s3://${S3_BUCKET}"
 
       - name: Invalidate CloudFront
-        if: vars.CLOUDFRONT_DISTRIBUTION_ID != ''
         run: |
           aws cloudfront create-invalidation \
             --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} \
