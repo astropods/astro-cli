@@ -47,7 +47,7 @@ knowledge:
 {{- end}}
 {{- if .HasIntegration "github"}}
 
-tools:
+integrations:
   github:
     provider: github
 {{- end}}

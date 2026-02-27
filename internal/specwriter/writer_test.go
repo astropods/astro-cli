@@ -19,7 +19,7 @@ models:
   claude:
     provider: anthropic
 
-tools:
+integrations:
   gh:
     provider: github
 `
@@ -45,11 +45,11 @@ func TestAddEntry_preservesFormatting(t *testing.T) {
 	t.Log("\n" + result)
 
 	checks := []string{
-		"spec: package/v1",             // top-level keys preserved
-		"meta:\n  description:",        // nested structure preserved
-		"  claude:\n    provider:",     // existing model entry preserved
+		"spec: package/v1",         // top-level keys preserved
+		"meta:\n  description:",    // nested structure preserved
+		"  claude:\n    provider:", // existing model entry preserved
 		"  llama:\n    model: llama3.2:1b\n    provider: ollama", // new entry added
-		"tools:\n  gh:",               // subsequent section preserved
+		"integrations:\n  gh:", // subsequent section preserved
 	}
 	for _, want := range checks {
 		if !strings.Contains(result, want) {
@@ -58,7 +58,7 @@ func TestAddEntry_preservesFormatting(t *testing.T) {
 	}
 
 	// Blank lines between top-level sections must be preserved.
-	if strings.Contains(result, "anthropic\ntools:") {
-		t.Error("blank line between models and tools was removed")
+	if strings.Contains(result, "anthropic\nintegrations:") {
+		t.Error("blank line between models and integrations was removed")
 	}
 }
