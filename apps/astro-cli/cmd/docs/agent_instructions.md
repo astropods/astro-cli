@@ -21,7 +21,7 @@ serve(agent);
 
 The adapter connects to the messaging service, registers the agent, and handles incoming messages. Run with `ast dev`.
 
-You don't need to use Mastra — you can choose a different agent framework. In that case, implement the `AgentAdapter` interface from `@astropods/adapter-core` and call `serve(adapter)` explicitly, or use the `@astropods/messaging` SDK directly. The Mastra adapter is the reference implementation.
+You don't need to use Mastra, and can choose a different agent framework. In that case, implement the `AgentAdapter` interface from `@astropods/adapter-core` and call `serve(adapter)` explicitly, or use the `@astropods/messaging` SDK directly. The Mastra adapter is the reference implementation.
 
 ## Adding Tools
 

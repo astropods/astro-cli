@@ -28,7 +28,7 @@ A typical project created by `ast create` looks like:
 
 | Path | Purpose |
 |------|--------|
-| `astropods.yml` | Declarative spec: agent name, container build, integrations (LLM, tools), interfaces (web, Slack), optional knowledge and ingestion. |
+| `astropods.yml` | Declarative spec: agent name, agent build, integrations (LLM, tools), interfaces (web, Slack), optional knowledge and ingestion. |
 | `agent/` | Agent source code (e.g. `index.ts`). This is the main process that runs when you `ast dev`. |
 | `ingestion/<type>/` | One folder per ingestion type (`schedule`, `webhook`, etc.), each with its own `Dockerfile` and `index.ts`. |
 | `Dockerfile` | Builds the agent container. |
@@ -65,7 +65,7 @@ ast create hello-astropods -p /path/to/project
 Sample output:
 
 ```
-✓ Created agent my-astroid
+✓ Created agent hello-astropods
 
 Next steps:
   → cd /path/to/project/hello-astropods
@@ -86,11 +86,11 @@ ast dev stop                   # stop and remove containers
 ast dev trigger <name>         # manually trigger an ingestion job
 ```
 
-**Ingestion behaviour:**
+**Ingestion behavior:**
 
 | Trigger type | What `ast dev` does |
 |---|---|
-| `startup` | Runs the ingestion container once before exiting |
+| `startup` | Runs the ingestion container once at startup |
 | `schedule` | Prints `ast dev trigger <name>` — run it manually on demand |
 | `webhook` | Started alongside the agent; port exposed (default 3001) |
 | `manual` | Prints `ast dev trigger <name>` |
