@@ -27,12 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// isAccountMember checks whether the user has access to the account.
-// Admin users (authenticated via admin Basic Auth) bypass the membership check.
-func isAccountMember(c *gin.Context, accountStore *account.AccountStore, acctID, userID string) bool {
-	if middleware.IsAdmin(c) {
-		return true
-	}
+// isAccountMember checks whether the user is a member of the account.
+func isAccountMember(_ *gin.Context, accountStore *account.AccountStore, acctID, userID string) bool {
 	isMember, err := accountStore.IsMember(acctID, userID)
 	return err == nil && isMember
 }
@@ -98,10 +94,10 @@ func parseDeploySpec(c *gin.Context) (*spec.AstroDeploymentSpec, error) {
 // the registered agent build, regenerates the server's template, enforces Rule 19,
 // and returns everything needed to proceed with deployment or validation.
 type deployContext struct {
-	acct        *account.Account
-	agentName   string
-	buildID     string
-	k8sNS       string
+	acct          *account.Account
+	agentName     string
+	buildID       string
+	k8sNS         string
 	resolveResult *deployment.ResolveResult
 }
 
@@ -510,7 +506,7 @@ type PodDetail struct {
 // JobDetail represents details about a single K8s Job (e.g. ingestion run)
 type JobDetail struct {
 	Name        string `json:"name"`
-	Status      string `json:"status"`      // "Running", "Succeeded", "Failed", "Pending"
+	Status      string `json:"status"` // "Running", "Succeeded", "Failed", "Pending"
 	Component   string `json:"component"`
 	Age         string `json:"age"`
 	StartTime   string `json:"start_time,omitempty"`
@@ -519,18 +515,18 @@ type JobDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	Name              string               `json:"name"`
-	BuildID           string               `json:"build_id"`
-	Namespace         string               `json:"namespace"`
-	Status            string               `json:"status"`
-	Replicas          int32                `json:"replicas"`
-	Ready             int32                `json:"ready"`
-	CreatedAt         string               `json:"created_at"`
-	Components        []string             `json:"components"`
-	ManualIngestions  []string             `json:"manual_ingestions,omitempty"`
-	ExternalURLs      []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	Pods              []PodDetail          `json:"pods,omitempty"`
-	Jobs              []JobDetail          `json:"jobs,omitempty"`
+	Name             string                `json:"name"`
+	BuildID          string                `json:"build_id"`
+	Namespace        string                `json:"namespace"`
+	Status           string                `json:"status"`
+	Replicas         int32                 `json:"replicas"`
+	Ready            int32                 `json:"ready"`
+	CreatedAt        string                `json:"created_at"`
+	Components       []string              `json:"components"`
+	ManualIngestions []string              `json:"manual_ingestions,omitempty"`
+	ExternalURLs     []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	Pods             []PodDetail           `json:"pods,omitempty"`
+	Jobs             []JobDetail           `json:"jobs,omitempty"`
 }
 
 // ListDeployments returns a handler for listing deployed agents

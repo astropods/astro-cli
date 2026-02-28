@@ -1,0 +1,18 @@
+layer: "application"
+language: "go"
+
+tasks:
+  build:
+    command: "go build -o bin/astro-queen ."
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "/packages/astro-proto/**"
+    outputs:
+      - "bin/astro-queen"
+
+  link:
+    command: "ln -sf $(pwd)/bin/astro-queen $HOME/go/bin/astro-queen"
+    deps:
+      - "build"

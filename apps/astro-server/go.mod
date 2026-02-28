@@ -14,17 +14,22 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
+	github.com/postman/astro/packages/astro-proto v0.0.0
 	github.com/postman/astro/packages/astro-spec v0.0.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/workos/workos-go/v4 v4.46.1
 	golang.org/x/crypto v0.47.0
+	google.golang.org/grpc v1.75.1
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
 )
 
-replace github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
+replace (
+	github.com/postman/astro/packages/astro-proto => ../../packages/astro-proto
+	github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
+)
 
 require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7 // indirect
@@ -86,6 +91,7 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
 	golang.org/x/tools v0.40.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect

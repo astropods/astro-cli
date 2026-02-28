@@ -1,0 +1,14 @@
+layer: "library"
+language: "go"
+
+tasks:
+  generate:
+    command: "buf generate"
+    inputs:
+      - "proto/**/*.proto"
+      - "buf.gen.yaml"
+    outputs:
+      - "admin/v1/admin.pb.go"
+      - "admin/v1/admin_grpc.pb.go"
+    options:
+      cache: false

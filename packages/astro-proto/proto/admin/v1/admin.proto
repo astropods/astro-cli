@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package admin.v1;
+
+option go_package = "github.com/postman/astro/packages/astro-proto/admin/v1;adminv1";
+
+service AdminService {
+  rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  rpc GetClusterStatus(GetClusterStatusRequest) returns (GetClusterStatusResponse);
+  rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
+  rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
+  rpc RestartDeployment(RestartDeploymentRequest) returns (RestartDeploymentResponse);
+  rpc QueryDatabase(QueryDatabaseRequest) returns (QueryDatabaseResponse);
+}
+
+message ListDeploymentsRequest {
+  string namespace = 1; // optional filter
+}
+
+message AdminDeployment {
+  string name = 1;
+  string build_id = 2;
+  string namespace = 3;
+  string status = 4;
+  string created_at = 5;
+  string account_name = 6;
+  repeated string components = 7;
+}
+
+message ListDeploymentsResponse {
+  repeated AdminDeployment deployments = 1;
+  int32 count = 2;
+}
+
+message GetClusterStatusRequest {
+  string namespace = 1; // empty = all namespaces
+}
+
+message K8sDeploymentInfo {
+  string name = 1;
+  string namespace = 2;
+  int32 replicas = 3;
+  int32 ready_replicas = 4;
+  int32 available_replicas = 5;
+  map<string, string> labels = 6;
+  string created_at = 7;
+}
+
+message K8sPodInfo {
+  string name = 1;
+  string namespace = 2;
+  string phase = 3;
+  string node_name = 4;
+  string pod_ip = 5;
+  map<string, string> labels = 6;
+  string created_at = 7;
+}
+
+message K8sServicePort {
+  string name = 1;
+  int32 port = 2;
+  string target_port = 3;
+  string protocol = 4;
+}
+
+message K8sServiceInfo {
+  string name = 1;
+  string namespace = 2;
+  string type = 3;
+  string cluster_ip = 4;
+  repeated string external_ip = 5;
+  repeated K8sServicePort ports = 6;
+  map<string, string> labels = 7;
+  string created_at = 8;
+}
+
+message ClusterSummary {
+  int32 total_deployments = 1;
+  int32 total_pods = 2;
+  int32 running_pods = 3;
+  int32 pending_pods = 4;
+  int32 failed_pods = 5;
+  int32 total_services = 6;
+}
+
+message GetClusterStatusResponse {
+  string timestamp = 1;
+  string namespace = 2;
+  repeated K8sDeploymentInfo deployments = 3;
+  repeated K8sPodInfo pods = 4;
+  repeated K8sServiceInfo services = 5;
+  ClusterSummary summary = 6;
+}
+
+message ListImagesRequest {}
+
+message ImageInfo {
+  string repository = 1;
+  string namespace = 2;
+  string name = 3;
+  repeated string tags = 4;
+}
+
+message ListImagesResponse {
+  repeated ImageInfo images = 1;
+  int32 count = 2;
+}
+
+message DeleteDeploymentRequest {
+  string namespace = 1;
+}
+
+message DeleteDeploymentResponse {
+  string status = 1;
+}
+
+message RestartDeploymentRequest {
+  string namespace = 1;
+  string pod = 2;
+}
+
+message RestartDeploymentResponse {
+  string status = 1;
+}
+
+message QueryDatabaseRequest {
+  string query = 1;
+}
+
+message Row {
+  repeated string values = 1;
+}
+
+message QueryDatabaseResponse {
+  repeated string columns = 1;
+  repeated Row rows = 2;
+}

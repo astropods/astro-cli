@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,8 +14,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/postman/astro/apps/astro-server/handlers"
 	"github.com/postman/astro/apps/astro-server/internal/account"
+	"github.com/postman/astro/apps/astro-server/internal/admingrpc"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
@@ -125,6 +131,13 @@ func main() {
 	// Register routes
 	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, cfg, probeHandler, k8sClient)
 
+	// Start admin gRPC server
+	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, deploymentStore, k8sClient, db)
+	if grpcErr != nil {
+		log.Error("Failed to start admin gRPC server", "error", grpcErr)
+		os.Exit(1)
+	}
+
 	// Create HTTP server with timeouts
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
@@ -134,7 +147,7 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Start server in a goroutine
+	// Start HTTP server in a goroutine
 	go func() {
 		log.Info("Server listening", "address", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -153,11 +166,16 @@ func main() {
 	// Mark as not ready to stop receiving new traffic
 	probeHandler.SetReady(false)
 
+	// Graceful shutdown of gRPC server
+	if grpcServer != nil {
+		grpcServer.GracefulStop()
+	}
+
 	// Create shutdown context with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer shutdownCancel()
 
-	// Attempt graceful shutdown
+	// Attempt graceful shutdown of HTTP server
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("Server forced to shutdown", "error", err)
 		os.Exit(1)
@@ -276,20 +294,62 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.GET("/agents/:account/:name/observability/traces", handlers.GetObservabilityTraces(log, cfg, deploymentStore, accountStore))
 		}
 
-		// Admin endpoints (require basic auth)
-		admin := v1.Group("/admin")
-		if cfg.Admin.Enabled {
-			admin.Use(middleware.BasicAuth(middleware.BasicAuthConfig{
-				Username: cfg.Admin.Username,
-				Password: cfg.Admin.Password,
-				Realm:    "Astro Admin",
-			}))
-			log.Info("Admin API enabled with basic auth")
-		}
-		{
-			admin.GET("/cluster/status", handlers.ClusterStatus(log, k8sClient))
-			admin.GET("/images", handlers.ListImages(log, cfg.Deployment.AWSRegion, cfg.Deployment.Environment))
-			admin.GET("/deployments", handlers.AdminListDeployments(log, deploymentStore, k8sClient))
-		}
 	}
+}
+
+// startAdminGRPCServer starts the admin gRPC server and returns it for graceful shutdown.
+// Returns nil, nil if the port is empty (disabled).
+func startAdminGRPCServer(
+	log *logger.Logger,
+	cfg *config.Config,
+	deployStore *deploymentstore.Store,
+	k8sClient k8s.ClusterClient,
+	db *sql.DB,
+) (*grpc.Server, error) {
+	port := cfg.AdminGRPC.Port
+	if port == "" {
+		return nil, nil
+	}
+
+	// Build TLS credentials (nil = insecure, certs not configured)
+	creds, err := admingrpc.ServerCredentials(admingrpc.TLSConfig{
+		CertFile: cfg.AdminGRPC.CertFile,
+		KeyFile:  cfg.AdminGRPC.KeyFile,
+		CAFile:   cfg.AdminGRPC.CAFile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("admin gRPC TLS: %w", err)
+	}
+
+	var opts []grpc.ServerOption
+	if creds != nil {
+		opts = append(opts, grpc.Creds(creds))
+	} else {
+		opts = append(opts, grpc.Creds(insecure.NewCredentials()))
+		log.Warn("Admin gRPC server starting without TLS — not suitable for production")
+	}
+
+	grpcSrv := grpc.NewServer(opts...)
+	adminv1.RegisterAdminServiceServer(grpcSrv, admingrpc.New(
+		log,
+		deployStore,
+		k8sClient,
+		db,
+		cfg.Deployment.AWSRegion,
+		cfg.Deployment.Environment,
+	))
+
+	lis, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return nil, fmt.Errorf("admin gRPC listen: %w", err)
+	}
+
+	go func() {
+		log.Info("Admin gRPC server listening", "port", port)
+		if err := grpcSrv.Serve(lis); err != nil {
+			log.Error("Admin gRPC server error", "error", err)
+		}
+	}()
+
+	return grpcSrv, nil
 }
