@@ -26,6 +26,7 @@ type AdminServiceClient interface {
 	GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error)
 	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
 	ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error)
+	GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error)
 }
 
 type adminServiceClient struct {
@@ -140,6 +141,14 @@ func (c *adminServiceClient) ListAgents(ctx context.Context, in *ListAgentsReque
 	return out, nil
 }
 
+func (c *adminServiceClient) GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error) {
+	out := new(GetAgentBuildsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAgentBuilds", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -156,6 +165,7 @@ type AdminServiceServer interface {
 	GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error)
 	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
 	ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error)
+	GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -212,6 +222,10 @@ func (UnimplementedAdminServiceServer) GetPodEnv(context.Context, *GetPodEnvRequ
 
 func (UnimplementedAdminServiceServer) ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAgents not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAgentBuilds not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -421,6 +435,21 @@ func _AdminService_ListAgents_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetAgentBuilds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAgentBuildsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetAgentBuilds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetAgentBuilds"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetAgentBuilds(ctx, req.(*GetAgentBuildsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -439,6 +468,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetPodLogs", Handler: _AdminService_GetPodLogs_Handler},
 		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},
 		{MethodName: "ListAgents", Handler: _AdminService_ListAgents_Handler},
+		{MethodName: "GetAgentBuilds", Handler: _AdminService_GetAgentBuilds_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

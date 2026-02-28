@@ -12,6 +12,7 @@ service AdminService {
   rpc RestartDeployment(RestartDeploymentRequest) returns (RestartDeploymentResponse);
   rpc QueryDatabase(QueryDatabaseRequest) returns (QueryDatabaseResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc GetAgentBuilds(GetAgentBuildsRequest) returns (GetAgentBuildsResponse);
 }
 
 message ListDeploymentsRequest {
@@ -142,15 +143,31 @@ message ListAgentsRequest {}
 message AdminAgent {
   string account_name = 1;
   string name = 2;
-  string registry = 3;
-  int32 build_count = 4;
-  int32 published_build_count = 5;
-  string latest_build_id = 6;
-  string created_at = 7;
-  string updated_at = 8;
+  int32 build_count = 3;
+  int32 published_build_count = 4;
+  string latest_build_id = 5;
+  string created_at = 6;
+  string updated_at = 7;
 }
 
 message ListAgentsResponse {
   repeated AdminAgent agents = 1;
+  int32 count = 2;
+}
+
+message GetAgentBuildsRequest {
+  string account_name = 1;
+  string agent_name = 2;
+}
+
+message AgentBuild {
+  string build_id = 1;
+  string published_at = 2;
+  string updated_at = 3;
+  string tagged_version = 4;
+}
+
+message GetAgentBuildsResponse {
+  repeated AgentBuild builds = 1;
   int32 count = 2;
 }

@@ -299,7 +299,6 @@ type ListAgentsRequest struct{}
 type AdminAgent struct {
 	AccountName         string `json:"account_name,omitempty"`
 	Name                string `json:"name,omitempty"`
-	Registry            string `json:"registry,omitempty"`
 	BuildCount          int32  `json:"build_count,omitempty"`
 	PublishedBuildCount int32  `json:"published_build_count,omitempty"`
 	LatestBuildID       string `json:"latest_build_id,omitempty"`
@@ -309,6 +308,23 @@ type AdminAgent struct {
 
 type ListAgentsResponse struct {
 	Agents []*AdminAgent `json:"agents,omitempty"`
+	Count  int32         `json:"count,omitempty"`
+}
+
+type GetAgentBuildsRequest struct {
+	AccountName string `json:"account_name,omitempty"`
+	AgentName   string `json:"agent_name,omitempty"`
+}
+
+type AgentBuild struct {
+	BuildID       string `json:"build_id,omitempty"`
+	PublishedAt   string `json:"published_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+	TaggedVersion string `json:"tagged_version,omitempty"`
+}
+
+type GetAgentBuildsResponse struct {
+	Builds []*AgentBuild `json:"builds,omitempty"`
 	Count  int32         `json:"count,omitempty"`
 }
 
