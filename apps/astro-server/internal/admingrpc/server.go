@@ -684,10 +684,10 @@ func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (
 		SELECT
 			ac.name AS account_name,
 			a.name,
-			COALESCE(a.registry, '') AS registry,
-			(SELECT COUNT(*) FROM agent_versions WHERE agent_id = a.id) AS version_count,
-			(SELECT COUNT(*) FROM agent_published_versions WHERE agent_id = a.id) AS published_version_count,
-			COALESCE((SELECT build_id FROM agent_versions WHERE agent_id = a.id ORDER BY created_at DESC LIMIT 1), '') AS latest_build_id,
+			a.registry,
+			(SELECT COUNT(*) FROM agent_versions av WHERE av.account_id = a.account_id AND av.name = a.name) AS version_count,
+			(SELECT COUNT(*) FROM agent_published_versions apv WHERE apv.account_id = a.account_id AND apv.name = a.name) AS published_version_count,
+			COALESCE((SELECT av2.build_id FROM agent_versions av2 WHERE av2.account_id = a.account_id AND av2.name = a.name ORDER BY av2.published_at DESC LIMIT 1), '') AS latest_build_id,
 			a.created_at,
 			a.updated_at
 		FROM agents a
