@@ -19,12 +19,19 @@ type deploymentFocus int
 
 const (
 	depFocusList deploymentFocus = iota
-	depFocusDetail
-	depFocusResourcePicker
-	depFocusResourceList
-	depFocusResourceDetail
+	depFocusBrowser
 	depFocusLogs
 	depFocusEnv
+)
+
+// ─── browser panes ───────────────────────────────────────────────────────────
+
+type browserPane int
+
+const (
+	paneTypes browserPane = iota
+	paneItems
+	paneDetail
 )
 
 // ─── resource types ───────────────────────────────────────────────────────────
@@ -114,13 +121,17 @@ type deploymentsModel struct {
 	width  int
 	height int
 
-	focus        deploymentFocus
-	detail       *adminv1.GetDeploymentResponse
-	detailLines  []string
-	detailScroll int
+	focus  deploymentFocus
+	detail *adminv1.GetDeploymentResponse
 
 	selectedResourceType resourceType
 	selectedResource     int
+
+	// browser pane state
+	browserPane browserPane
+	rightLines  []string
+	rightScroll int
+	leftWidth   int
 }
 
 func newDeploymentsModel(client adminv1.AdminServiceClient) *deploymentsModel {
@@ -157,10 +168,13 @@ func (m *deploymentsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			m.status = statusErr.Render("Error: " + msg.err.Error())
 			return m, nil
 		}
-		m.focus = depFocusDetail
 		m.detail = msg.resp
-		m.detailScroll = 0
-		m.detailLines = m.buildDetailLines()
+		m.focus = depFocusBrowser
+		m.browserPane = paneTypes
+		m.selectedResourceType = resTypePods
+		m.selectedResource = 0
+		m.rightLines = m.buildDetailLines()
+		m.rightScroll = 0
 		if msg.resp.Deployment != nil {
 			m.status = statusOK.Render(msg.resp.Deployment.Name + " — " + msg.resp.Deployment.Namespace)
 		}
@@ -189,8 +203,8 @@ func (m *deploymentsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			return m, nil
 		}
 		m.focus = depFocusLogs
-		m.detailScroll = 0
-		m.detailLines = strings.Split(msg.logs, "\n")
+		m.rightLines = strings.Split(msg.logs, "\n")
+		m.rightScroll = 0
 		m.status = statusOK.Render("Pod logs")
 		return m, nil
 
@@ -200,21 +214,15 @@ func (m *deploymentsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			return m, nil
 		}
 		m.focus = depFocusEnv
-		m.detailScroll = 0
-		m.detailLines = m.buildEnvLines(msg.containers)
+		m.rightLines = m.buildEnvLines(msg.containers)
+		m.rightScroll = 0
 		m.status = statusOK.Render("Pod environment")
 		return m, nil
 
 	case tea.KeyMsg:
 		switch m.focus {
-		case depFocusDetail:
-			return m.updateDetail(msg)
-		case depFocusResourcePicker:
-			return m.updateResourcePicker(msg)
-		case depFocusResourceList:
-			return m.updateResourceList(msg)
-		case depFocusResourceDetail:
-			return m.updateResourceDetail(msg)
+		case depFocusBrowser:
+			return m.updateBrowser(msg)
 		case depFocusLogs, depFocusEnv:
 			return m.updateOverlay(msg)
 		default:
@@ -298,100 +306,106 @@ func (m *deploymentsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *deploymentsModel) updateDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	maxScroll := len(m.detailLines) - m.detailViewHeight()
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+// ─── browser update ───────────────────────────────────────────────────────────
 
+func (m *deploymentsModel) updateBrowser(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	switch msg.String() {
 	case "backspace", "esc":
 		m.focus = depFocusList
 		m.detail = nil
-		m.detailLines = nil
-		m.detailScroll = 0
+		m.rightLines = nil
+		m.rightScroll = 0
 		return m, nil
-	case "b":
-		if m.detail != nil && m.detail.ClusterStatus != nil {
-			m.focus = depFocusResourcePicker
-			m.selectedResourceType = resTypePods
+
+	case "tab":
+		switch m.browserPane {
+		case paneTypes:
+			m.browserPane = paneItems
 			m.selectedResource = 0
-			return m, nil
+			m.refreshRightPane()
+		case paneItems:
+			m.browserPane = paneDetail
+		case paneDetail:
+			m.browserPane = paneTypes
 		}
-	case "up", "k":
-		if m.detailScroll > 0 {
-			m.detailScroll--
+		return m, nil
+
+	case "shift+tab":
+		switch m.browserPane {
+		case paneTypes:
+			m.browserPane = paneDetail
+		case paneItems:
+			m.browserPane = paneTypes
+			m.rightLines = m.buildDetailLines()
+			m.rightScroll = 0
+		case paneDetail:
+			m.browserPane = paneItems
 		}
-	case "down", "j":
-		if m.detailScroll < maxScroll {
-			m.detailScroll++
+		return m, nil
+
+	case "enter":
+		switch m.browserPane {
+		case paneTypes:
+			if m.resourceCount(m.selectedResourceType) > 0 {
+				m.browserPane = paneItems
+				m.selectedResource = 0
+				m.refreshRightPane()
+			}
+		case paneItems:
+			m.browserPane = paneDetail
 		}
-	case "home", "g":
-		m.detailScroll = 0
-	case "end", "G":
-		m.detailScroll = maxScroll
-	case "pgup":
-		m.detailScroll -= m.detailViewHeight()
-		if m.detailScroll < 0 {
-			m.detailScroll = 0
-		}
-	case "pgdown":
-		m.detailScroll += m.detailViewHeight()
-		if m.detailScroll > maxScroll {
-			m.detailScroll = maxScroll
-		}
+		return m, nil
+	}
+
+	// Pane-specific keys
+	switch m.browserPane {
+	case paneTypes:
+		return m.updateBrowserTypes(msg)
+	case paneItems:
+		return m.updateBrowserItems(msg)
+	case paneDetail:
+		return m.updateBrowserDetail(msg)
 	}
 	return m, nil
 }
 
-func (m *deploymentsModel) updateResourcePicker(msg tea.KeyMsg) (Tab, tea.Cmd) {
+func (m *deploymentsModel) updateBrowserTypes(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	switch msg.String() {
-	case "backspace", "esc":
-		m.focus = depFocusDetail
-		m.detailScroll = 0
-		m.detailLines = m.buildDetailLines()
-		return m, nil
 	case "j", "down":
 		for next := m.selectedResourceType + 1; next < resTypeCount; next++ {
 			m.selectedResourceType = next
+			m.selectedResource = 0
+			m.rightLines = m.buildDetailLines()
+			m.rightScroll = 0
 			return m, nil
 		}
 	case "k", "up":
 		for prev := m.selectedResourceType - 1; prev >= 0; prev-- {
 			m.selectedResourceType = prev
-			return m, nil
-		}
-	case "enter":
-		if m.resourceCount(m.selectedResourceType) > 0 {
-			m.focus = depFocusResourceList
 			m.selectedResource = 0
+			m.rightLines = m.buildDetailLines()
+			m.rightScroll = 0
 			return m, nil
 		}
 	}
 	return m, nil
 }
 
-func (m *deploymentsModel) updateResourceList(msg tea.KeyMsg) (Tab, tea.Cmd) {
+func (m *deploymentsModel) updateBrowserItems(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	count := m.resourceCount(m.selectedResourceType)
 	switch msg.String() {
-	case "backspace", "esc":
-		m.focus = depFocusResourcePicker
-		return m, nil
 	case "j", "down":
 		if m.selectedResource < count-1 {
 			m.selectedResource++
+			m.refreshRightPane()
 		}
 	case "k", "up":
 		if m.selectedResource > 0 {
 			m.selectedResource--
+			m.refreshRightPane()
 		}
-	case "enter":
-		m.focus = depFocusResourceDetail
-		m.detailScroll = 0
-		m.detailLines = m.buildResourceDescribeLines()
-		return m, nil
 	case "l":
-		if m.selectedResourceType == resTypePods {
+		if m.selectedResourceType == resTypePods && count > 0 {
 			p := m.detail.ClusterStatus.Pods[m.selectedResource]
 			m.status = statusWIP.Render("Loading logs…")
 			return m, func() tea.Msg {
@@ -405,7 +419,7 @@ func (m *deploymentsModel) updateResourceList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 			}
 		}
 	case "e":
-		if m.selectedResourceType == resTypePods {
+		if m.selectedResourceType == resTypePods && count > 0 {
 			p := m.detail.ClusterStatus.Pods[m.selectedResource]
 			m.status = statusWIP.Render("Loading env…")
 			return m, func() tea.Msg {
@@ -419,7 +433,7 @@ func (m *deploymentsModel) updateResourceList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 			}
 		}
 	case "r":
-		if m.selectedResourceType == resTypePods {
+		if m.selectedResourceType == resTypePods && count > 0 {
 			p := m.detail.ClusterStatus.Pods[m.selectedResource]
 			ns := p.Namespace
 			name := p.Name
@@ -442,73 +456,79 @@ func (m *deploymentsModel) updateResourceList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	return m, nil
 }
 
-func (m *deploymentsModel) updateResourceDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	maxScroll := len(m.detailLines) - m.detailViewHeight()
+func (m *deploymentsModel) updateBrowserDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	_, rightH := m.browserContentSize()
+	maxScroll := len(m.rightLines) - rightH
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
 	switch msg.String() {
-	case "backspace", "esc":
-		m.focus = depFocusResourceList
-		m.detailScroll = 0
-		return m, nil
 	case "up", "k":
-		if m.detailScroll > 0 {
-			m.detailScroll--
+		if m.rightScroll > 0 {
+			m.rightScroll--
 		}
 	case "down", "j":
-		if m.detailScroll < maxScroll {
-			m.detailScroll++
+		if m.rightScroll < maxScroll {
+			m.rightScroll++
 		}
 	case "home", "g":
-		m.detailScroll = 0
+		m.rightScroll = 0
 	case "end", "G":
-		m.detailScroll = maxScroll
+		m.rightScroll = maxScroll
 	case "pgup":
-		m.detailScroll -= m.detailViewHeight()
-		if m.detailScroll < 0 {
-			m.detailScroll = 0
+		m.rightScroll -= rightH
+		if m.rightScroll < 0 {
+			m.rightScroll = 0
 		}
 	case "pgdown":
-		m.detailScroll += m.detailViewHeight()
-		if m.detailScroll > maxScroll {
-			m.detailScroll = maxScroll
+		m.rightScroll += rightH
+		if m.rightScroll > maxScroll {
+			m.rightScroll = maxScroll
 		}
 	}
 	return m, nil
 }
 
+func (m *deploymentsModel) refreshRightPane() {
+	m.rightLines = m.buildResourceDescribeLines()
+	m.rightScroll = 0
+}
+
+// ─── overlay update (logs/env) ────────────────────────────────────────────────
+
 func (m *deploymentsModel) updateOverlay(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	maxScroll := len(m.detailLines) - m.detailViewHeight()
+	_, rightH := m.browserContentSize()
+	maxScroll := len(m.rightLines) - rightH
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
 	switch msg.String() {
 	case "backspace", "esc":
-		m.focus = depFocusResourceList
-		m.detailScroll = 0
+		m.focus = depFocusBrowser
+		m.browserPane = paneItems
+		m.refreshRightPane()
 		return m, nil
 	case "up", "k":
-		if m.detailScroll > 0 {
-			m.detailScroll--
+		if m.rightScroll > 0 {
+			m.rightScroll--
 		}
 	case "down", "j":
-		if m.detailScroll < maxScroll {
-			m.detailScroll++
+		if m.rightScroll < maxScroll {
+			m.rightScroll++
 		}
 	case "home", "g":
-		m.detailScroll = 0
+		m.rightScroll = 0
 	case "end", "G":
-		m.detailScroll = maxScroll
+		m.rightScroll = maxScroll
 	case "pgup":
-		m.detailScroll -= m.detailViewHeight()
-		if m.detailScroll < 0 {
-			m.detailScroll = 0
+		m.rightScroll -= rightH
+		if m.rightScroll < 0 {
+			m.rightScroll = 0
 		}
 	case "pgdown":
-		m.detailScroll += m.detailViewHeight()
-		if m.detailScroll > maxScroll {
-			m.detailScroll = maxScroll
+		m.rightScroll += rightH
+		if m.rightScroll > maxScroll {
+			m.rightScroll = maxScroll
 		}
 	}
 	return m, nil
@@ -517,7 +537,7 @@ func (m *deploymentsModel) updateOverlay(msg tea.KeyMsg) (Tab, tea.Cmd) {
 func (m *deploymentsModel) buildEnvLines(containers []*adminv1.ContainerEnv) []string {
 	var lines []string
 	for _, c := range containers {
-		lines = append(lines, detailHeading.Render("── "+c.Container+" ──────────────────────────"))
+		lines = append(lines, m.sectionHeader(c.Container))
 		for _, v := range c.Vars {
 			if v.ValueFrom != "" {
 				lines = append(lines, detailLabel.Render(v.Name+"=")+"  "+detailDim.Render(v.ValueFrom))
@@ -535,16 +555,8 @@ func (m *deploymentsModel) View(w, h int) string {
 		m.SetSize(w, h)
 	}
 	switch m.focus {
-	case depFocusDetail:
-		return m.renderDetail()
-	case depFocusResourcePicker:
-		return m.renderResourcePicker()
-	case depFocusResourceList:
-		return m.renderResourceList()
-	case depFocusResourceDetail:
-		return m.renderDetail()
-	case depFocusLogs, depFocusEnv:
-		return m.renderDetail() // reuse scrollable view for overlay content
+	case depFocusBrowser, depFocusLogs, depFocusEnv:
+		return m.renderBrowser()
 	}
 	return m.t.View()
 }
@@ -552,6 +564,15 @@ func (m *deploymentsModel) View(w, h int) string {
 func (m *deploymentsModel) SetSize(w, h int) {
 	m.width, m.height = w, h
 	m.t.SetSize(w, h)
+	// Compute left pane inner width (borders add 2+2=4 cols total for both boxes)
+	lw := (w - 4) * 30 / 100
+	if lw < 20 {
+		lw = 20
+	}
+	if lw > w-14 { // leave room for right box (min 10 inner + 2 border + 2 left border)
+		lw = w - 14
+	}
+	m.leftWidth = lw
 }
 
 func (m *deploymentsModel) Status() string { return m.status }
@@ -565,42 +586,21 @@ func (m *deploymentsModel) Hints(navMode bool) []KeyHint {
 		}
 	}
 	switch m.focus {
-	case depFocusDetail:
-		return []KeyHint{
-			{"↑↓/jk", "scroll"},
-			{"b", "browse resources"},
-			{"PgUp/Dn", "page"},
-			{"Backspace", "back to list"},
-			{"Esc", "nav mode"},
-		}
-	case depFocusResourcePicker:
-		return []KeyHint{
-			{"↑↓/jk", "select type"},
-			{"Enter", "browse"},
-			{"Backspace", "back"},
-			{"Esc", "nav mode"},
-		}
-	case depFocusResourceList:
-		hints := []KeyHint{
-			{"↑↓/jk", "select"},
-			{"Enter", "describe"},
-		}
-		if m.selectedResourceType == resTypePods {
-			hints = append(hints,
-				KeyHint{"l", "logs"},
-				KeyHint{"e", "env"},
-				KeyHint{"r", "restart"},
-			)
+	case depFocusBrowser:
+		hints := []KeyHint{{"Tab", "switch pane"}}
+		switch m.browserPane {
+		case paneTypes:
+			hints = append(hints, KeyHint{"↑↓/jk", "select type"}, KeyHint{"Enter", "items"})
+		case paneItems:
+			hints = append(hints, KeyHint{"↑↓/jk", "select"}, KeyHint{"Enter", "detail"})
+			if m.selectedResourceType == resTypePods {
+				hints = append(hints, KeyHint{"l", "logs"}, KeyHint{"e", "env"}, KeyHint{"r", "restart"})
+			}
+		case paneDetail:
+			hints = append(hints, KeyHint{"↑↓/jk", "scroll"}, KeyHint{"PgUp/Dn", "page"})
 		}
 		hints = append(hints, KeyHint{"Backspace", "back"}, KeyHint{"Esc", "nav mode"})
 		return hints
-	case depFocusResourceDetail:
-		return []KeyHint{
-			{"↑↓/jk", "scroll"},
-			{"PgUp/Dn", "page"},
-			{"Backspace", "back"},
-			{"Esc", "nav mode"},
-		}
 	case depFocusLogs, depFocusEnv:
 		return []KeyHint{
 			{"↑↓/jk", "scroll"},
@@ -660,156 +660,238 @@ var (
 
 var resourceSelected = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220")).Background(lipgloss.Color("236"))
 
-func (m *deploymentsModel) detailViewHeight() int {
-	if m.height > 2 {
-		return m.height - 2
+// Border styles for panes — active pane gets a bright border, inactive gets dim.
+var (
+	activeBorder = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62"))
+
+	inactiveBorder = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240"))
+
+	headerBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("220")).
+			Padding(0, 1)
+)
+
+// browserContentSize returns the inner width available for the right pane and
+// the inner height available for pane content (total height minus header box).
+func (m *deploymentsModel) browserContentSize() (rightW, contentH int) {
+	// Each bordered box adds 2 cols (left+right border) and 2 rows (top+bottom).
+	// Left box inner width = leftWidth, right box inner width = remainder.
+	leftOuter := m.leftWidth + 2
+	rightW = m.width - leftOuter - 2 // right box borders
+	if rightW < 10 {
+		rightW = 10
 	}
-	return 1
+	// Header box takes 3 rows (top border + 2 content lines + bottom border = 4,
+	// but we pack 2 content lines so outer = 4). Content area = height - 4.
+	contentH = m.height - 4
+	if contentH < 1 {
+		contentH = 1
+	}
+	return
 }
 
-func (m *deploymentsModel) renderDetail() string {
-	vh := m.detailViewHeight()
-	if len(m.detailLines) == 0 {
-		return detailDim.Render("(no detail)")
-	}
+func (m *deploymentsModel) renderBrowser() string {
+	rightW, contentH := m.browserContentSize()
+	leftW := m.leftWidth
 
-	end := m.detailScroll + vh
-	if end > len(m.detailLines) {
-		end = len(m.detailLines)
+	// ── Header bar (full width, bordered) ──
+	var headerContent string
+	if d := m.detail.Deployment; d != nil {
+		title := detailHeading.Render(fmt.Sprintf("Deployment: %s", d.Name))
+		statusStr := d.Status
+		if statusStr == "running" || statusStr == "active" {
+			statusStr = statusGood.Render(statusStr)
+		}
+		meta := fmt.Sprintf("%s  %s  %s  %s",
+			kv("Agent", d.Name),
+			kv("Account", d.AccountName),
+			kv("NS", d.Namespace),
+			detailLabel.Render("Status: ")+statusStr,
+		)
+		headerContent = title + "\n" + meta
 	}
-	start := m.detailScroll
-	if start > len(m.detailLines) {
-		start = len(m.detailLines)
-	}
+	header := headerBox.Width(m.width - 2).Render(headerContent)
 
-	visible := m.detailLines[start:end]
-	return strings.Join(visible, "\n")
-}
+	// ── Build left pane lines ──
+	var leftLines []string
 
-func (m *deploymentsModel) renderResourcePicker() string {
-	var lines []string
-	lines = append(lines, detailHeading.Render("── Select Resource Type ────────────────"))
-	lines = append(lines, "")
+	// Resource type list
 	for i := resourceType(0); i < resTypeCount; i++ {
 		count := m.resourceCount(i)
 		countStr := fmt.Sprintf("(%d)", count)
 		if count == 0 {
 			countStr = detailDim.Render("(0)")
 		}
-		line := fmt.Sprintf("  %s  %s", i.label(), countStr)
+
+		isActive := m.browserPane == paneTypes
 		if i == m.selectedResourceType {
-			line = resourceSelected.Render(fmt.Sprintf("> %s", i.label())) + "  " + countStr
+			if isActive {
+				leftLines = append(leftLines, resourceSelected.Render("> "+i.label())+"  "+countStr)
+			} else {
+				leftLines = append(leftLines, detailLabel.Render("> "+i.label())+"  "+countStr)
+			}
+		} else {
+			leftLines = append(leftLines, "  "+detailDim.Render(i.label())+"  "+countStr)
 		}
-		lines = append(lines, line)
 	}
-	lines = append(lines, "")
-	lines = append(lines, detailDim.Render("  Enter=browse  Backspace=back"))
-	vh := m.detailViewHeight()
-	if len(lines) > vh {
-		lines = lines[:vh]
+
+	// Separator between types and items
+	sep := strings.Repeat("─", leftW)
+	leftLines = append(leftLines, detailDim.Render(sep))
+
+	// Resource items for selected type
+	itemLines := m.buildLeftItemLines(leftW)
+	leftLines = append(leftLines, itemLines...)
+
+	leftContent := strings.Join(leftLines, "\n")
+
+	// ── Build right pane lines ──
+	rightSrc := m.rightLines
+	if len(rightSrc) == 0 {
+		rightSrc = []string{detailDim.Render("(no content)")}
 	}
-	return strings.Join(lines, "\n")
+
+	// Apply scroll
+	start := m.rightScroll
+	if start > len(rightSrc) {
+		start = len(rightSrc)
+	}
+	end := start + contentH
+	if end > len(rightSrc) {
+		end = len(rightSrc)
+	}
+	rightContent := strings.Join(rightSrc[start:end], "\n")
+
+	// ── Determine which pane is active for border highlight ──
+	leftStyle := inactiveBorder
+	rightStyle := inactiveBorder
+
+	switch m.focus {
+	case depFocusLogs, depFocusEnv:
+		// Overlay: right pane is active
+		rightStyle = activeBorder
+	default:
+		switch m.browserPane {
+		case paneTypes, paneItems:
+			leftStyle = activeBorder
+		case paneDetail:
+			rightStyle = activeBorder
+		}
+	}
+
+	leftBox := leftStyle.Width(leftW).Height(contentH).Render(leftContent)
+	rightBox := rightStyle.Width(rightW).Height(contentH).Render(rightContent)
+
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, panes)
 }
 
-func (m *deploymentsModel) renderResourceList() string {
+func (m *deploymentsModel) buildLeftItemLines(maxW int) []string {
 	cs := m.detail.ClusterStatus
 	if cs == nil {
-		return detailDim.Render("(no resources)")
+		return []string{detailDim.Render("  (no resources)")}
 	}
 
+	isActive := m.browserPane == paneItems
 	var lines []string
-	lines = append(lines, detailHeading.Render("── "+m.selectedResourceType.label()+" ────────────────────────────"))
-	lines = append(lines, "")
 
 	switch m.selectedResourceType {
 	case resTypePods:
 		for i, p := range cs.Pods {
-			phase := p.Phase
-			if phase == "Running" {
-				phase = statusGood.Render(phase)
-			} else if phase == "Failed" {
-				phase = statusErr.Render(phase)
-			} else {
-				phase = statusWIP.Render(phase)
-			}
-			line := fmt.Sprintf("  %s  %s", p.Name, phase)
+			name := truncStr(p.Name, maxW-4)
 			if i == m.selectedResource {
-				line = resourceSelected.Render("> "+p.Name) + "  " + phase
+				if isActive {
+					lines = append(lines, resourceSelected.Render("> "+name))
+				} else {
+					lines = append(lines, detailLabel.Render("> "+name))
+				}
+			} else {
+				lines = append(lines, "  "+detailDim.Render(name))
 			}
-			lines = append(lines, line)
 		}
 	case resTypeServices:
 		for i, svc := range cs.Services {
-			line := fmt.Sprintf("  %s  %s", svc.Name, detailDim.Render(svc.Type))
+			name := truncStr(svc.Name, maxW-4)
 			if i == m.selectedResource {
-				line = resourceSelected.Render("> "+svc.Name) + "  " + detailDim.Render(svc.Type)
+				if isActive {
+					lines = append(lines, resourceSelected.Render("> "+name))
+				} else {
+					lines = append(lines, detailLabel.Render("> "+name))
+				}
+			} else {
+				lines = append(lines, "  "+detailDim.Render(name))
 			}
-			lines = append(lines, line)
 		}
 	case resTypeIngresses:
 		for i, ing := range cs.Ingresses {
-			cls := ing.IngressClassName
-			if cls == "" {
-				cls = "-"
-			}
-			line := fmt.Sprintf("  %s  %s", ing.Name, detailDim.Render(cls))
+			name := truncStr(ing.Name, maxW-4)
 			if i == m.selectedResource {
-				line = resourceSelected.Render("> "+ing.Name) + "  " + detailDim.Render(cls)
+				if isActive {
+					lines = append(lines, resourceSelected.Render("> "+name))
+				} else {
+					lines = append(lines, detailLabel.Render("> "+name))
+				}
+			} else {
+				lines = append(lines, "  "+detailDim.Render(name))
 			}
-			lines = append(lines, line)
 		}
 	case resTypeNetworkPolicies:
 		for i, np := range cs.NetworkPolicies {
-			types := strings.Join(np.PolicyTypes, ",")
-			if types == "" {
-				types = "-"
-			}
-			line := fmt.Sprintf("  %s  %s", np.Name, detailDim.Render(types))
+			name := truncStr(np.Name, maxW-4)
 			if i == m.selectedResource {
-				line = resourceSelected.Render("> "+np.Name) + "  " + detailDim.Render(types)
+				if isActive {
+					lines = append(lines, resourceSelected.Render("> "+name))
+				} else {
+					lines = append(lines, detailLabel.Render("> "+name))
+				}
+			} else {
+				lines = append(lines, "  "+detailDim.Render(name))
 			}
-			lines = append(lines, line)
 		}
 	case resTypeK8sDeployments:
 		for i, dep := range cs.Deployments {
-			ready := fmt.Sprintf("%d/%d", dep.ReadyReplicas, dep.Replicas)
-			line := fmt.Sprintf("  %s  %s", dep.Name, detailDim.Render(ready))
+			name := truncStr(dep.Name, maxW-4)
 			if i == m.selectedResource {
-				line = resourceSelected.Render("> "+dep.Name) + "  " + detailDim.Render(ready)
+				if isActive {
+					lines = append(lines, resourceSelected.Render("> "+name))
+				} else {
+					lines = append(lines, detailLabel.Render("> "+name))
+				}
+			} else {
+				lines = append(lines, "  "+detailDim.Render(name))
 			}
-			lines = append(lines, line)
 		}
 	case resTypeEvents:
 		for i, ev := range cs.Events {
-			typeStyle := detailDim
-			if ev.Type == "Warning" {
-				typeStyle = statusErr
+			summary := ev.Reason
+			if len(summary) > maxW-4 {
+				summary = summary[:maxW-7] + "..."
 			}
-			summary := ev.Reason + ": " + ev.Message
-			if len(summary) > 80 {
-				summary = summary[:77] + "..."
-			}
-			line := fmt.Sprintf("  %s  %s", typeStyle.Render(ev.Type), summary)
 			if i == m.selectedResource {
-				line = resourceSelected.Render("> "+ev.Type) + "  " + summary
+				if isActive {
+					lines = append(lines, resourceSelected.Render("> "+summary))
+				} else {
+					lines = append(lines, detailLabel.Render("> "+summary))
+				}
+			} else {
+				lines = append(lines, "  "+detailDim.Render(summary))
 			}
-			lines = append(lines, line)
 		}
 	}
 
-	lines = append(lines, "")
-	hint := "  Enter=describe"
-	if m.selectedResourceType == resTypePods {
-		hint += "  l=logs  e=env  r=restart"
+	if len(lines) == 0 {
+		lines = append(lines, detailDim.Render("  (empty)"))
 	}
-	hint += "  Backspace=back"
-	lines = append(lines, detailDim.Render(hint))
-	vh := m.detailViewHeight()
-	if len(lines) > vh {
-		lines = lines[:vh]
-	}
-	return strings.Join(lines, "\n")
+	return lines
 }
+
+// ─── resource describe lines (reused for right pane) ──────────────────────────
 
 func (m *deploymentsModel) buildResourceDescribeLines() []string {
 	cs := m.detail.ClusterStatus
@@ -847,7 +929,7 @@ func (m *deploymentsModel) buildResourceDescribeLines() []string {
 
 func (m *deploymentsModel) buildPodDetailLines(p *adminv1.K8sPodInfo) []string {
 	var lines []string
-	lines = append(lines, detailHeading.Render("── Pod: "+p.Name+" ──────────────────"))
+	lines = append(lines, m.sectionHeader("Pod: "+p.Name))
 	lines = append(lines, kv("Namespace", p.Namespace))
 	lines = append(lines, kv("Phase", p.Phase))
 	lines = append(lines, kv("Node", p.NodeName))
@@ -860,7 +942,7 @@ func (m *deploymentsModel) buildPodDetailLines(p *adminv1.K8sPodInfo) []string {
 
 	if len(p.ContainerStatuses) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, detailHeading.Render("── Container Statuses ──────────────────"))
+		lines = append(lines, m.sectionHeader("Container Statuses"))
 		for _, cs := range p.ContainerStatuses {
 			readyStr := statusErr.Render("Not Ready")
 			if cs.Ready {
@@ -875,7 +957,7 @@ func (m *deploymentsModel) buildPodDetailLines(p *adminv1.K8sPodInfo) []string {
 
 	if len(p.Containers) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, detailHeading.Render("── Resources ───────────────────────────"))
+		lines = append(lines, m.sectionHeader("Resources"))
 		for _, c := range p.Containers {
 			lines = append(lines, detailLabel.Render(c.Name))
 			req := formatResourcePair(c.RequestCPU, c.RequestMemory)
@@ -910,7 +992,7 @@ func formatResourcePair(cpu, mem string) string {
 
 func (m *deploymentsModel) buildServiceDetailLines(svc *adminv1.K8sServiceInfo) []string {
 	var lines []string
-	lines = append(lines, detailHeading.Render("── Service: "+svc.Name+" ──────────────"))
+	lines = append(lines, m.sectionHeader("Service: "+svc.Name))
 	lines = append(lines, kv("Namespace", svc.Namespace))
 	lines = append(lines, kv("Type", svc.Type))
 	lines = append(lines, kv("ClusterIP", svc.ClusterIP))
@@ -943,7 +1025,7 @@ func (m *deploymentsModel) buildServiceDetailLines(svc *adminv1.K8sServiceInfo) 
 
 func (m *deploymentsModel) buildIngressDetailLines(ing *adminv1.K8sIngressInfo) []string {
 	var lines []string
-	lines = append(lines, detailHeading.Render("── Ingress: "+ing.Name+" ─────────────"))
+	lines = append(lines, m.sectionHeader("Ingress: "+ing.Name))
 	lines = append(lines, kv("Namespace", ing.Namespace))
 	lines = append(lines, kv("Class", ing.IngressClassName))
 	lines = append(lines, kv("Created", ing.CreatedAt))
@@ -988,7 +1070,7 @@ func (m *deploymentsModel) buildIngressDetailLines(ing *adminv1.K8sIngressInfo) 
 
 func (m *deploymentsModel) buildNetworkPolicyDetailLines(np *adminv1.K8sNetworkPolicyInfo) []string {
 	var lines []string
-	lines = append(lines, detailHeading.Render("── NetworkPolicy: "+np.Name+" ────────"))
+	lines = append(lines, m.sectionHeader("NetworkPolicy: "+np.Name))
 	lines = append(lines, kv("Namespace", np.Namespace))
 	if len(np.PolicyTypes) > 0 {
 		lines = append(lines, kv("Policy Types", strings.Join(np.PolicyTypes, ", ")))
@@ -1015,7 +1097,7 @@ func (m *deploymentsModel) buildNetworkPolicyDetailLines(np *adminv1.K8sNetworkP
 
 func (m *deploymentsModel) buildK8sDeploymentDetailLines(dep *adminv1.K8sDeploymentInfo) []string {
 	var lines []string
-	lines = append(lines, detailHeading.Render("── K8s Deployment: "+dep.Name+" ──────"))
+	lines = append(lines, m.sectionHeader("K8s Deployment: "+dep.Name))
 	lines = append(lines, kv("Namespace", dep.Namespace))
 	lines = append(lines, kv("Replicas", fmt.Sprintf("%d", dep.Replicas)))
 	lines = append(lines, kv("Ready", fmt.Sprintf("%d", dep.ReadyReplicas)))
@@ -1033,7 +1115,7 @@ func (m *deploymentsModel) buildK8sDeploymentDetailLines(dep *adminv1.K8sDeploym
 
 func (m *deploymentsModel) buildEventDetailLines(ev *adminv1.K8sEventInfo) []string {
 	var lines []string
-	lines = append(lines, detailHeading.Render("── Event: "+ev.Name+" ──────────────────"))
+	lines = append(lines, m.sectionHeader("Event: "+ev.Name))
 	lines = append(lines, kv("Namespace", ev.Namespace))
 	typeStr := ev.Type
 	if ev.Type == "Warning" {
@@ -1057,7 +1139,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	d := m.detail.Deployment
 	if d != nil {
-		lines = append(lines, detailHeading.Render("── Deployment ──────────────────────────"))
+		lines = append(lines, m.sectionHeader("Deployment"))
 		lines = append(lines, kv("Agent", d.Name))
 		lines = append(lines, kv("Account", d.AccountName))
 		lines = append(lines, kv("Namespace", d.Namespace))
@@ -1069,7 +1151,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	// Spec JSON
 	if m.detail.SpecJSON != "" {
-		lines = append(lines, detailHeading.Render("── Spec ────────────────────────────────"))
+		lines = append(lines, m.sectionHeader("Spec"))
 		lines = append(lines, formatSpecJSON(m.detail.SpecJSON)...)
 		lines = append(lines, "")
 	}
@@ -1081,7 +1163,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	// K8s Deployments
 	if len(cs.Deployments) > 0 {
-		lines = append(lines, detailHeading.Render("── K8s Deployments ─────────────────────"))
+		lines = append(lines, m.sectionHeader("K8s Deployments"))
 		for _, dep := range cs.Deployments {
 			lines = append(lines, detailLabel.Render(dep.Name))
 			lines = append(lines, kv("  Replicas", fmt.Sprintf("%d/%d ready", dep.ReadyReplicas, dep.Replicas)))
@@ -1093,7 +1175,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	// Pods
 	if len(cs.Pods) > 0 {
-		lines = append(lines, detailHeading.Render("── Pods ────────────────────────────────"))
+		lines = append(lines, m.sectionHeader("Pods"))
 		for _, p := range cs.Pods {
 			phase := p.Phase
 			if phase == "Running" {
@@ -1113,7 +1195,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	// Services
 	if len(cs.Services) > 0 {
-		lines = append(lines, detailHeading.Render("── Services ────────────────────────────"))
+		lines = append(lines, m.sectionHeader("Services"))
 		for _, svc := range cs.Services {
 			lines = append(lines, detailLabel.Render(svc.Name))
 			lines = append(lines, kv("  Type", svc.Type))
@@ -1131,7 +1213,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	// Ingresses
 	if len(cs.Ingresses) > 0 {
-		lines = append(lines, detailHeading.Render("── Ingresses ───────────────────────────"))
+		lines = append(lines, m.sectionHeader("Ingresses"))
 		for _, ing := range cs.Ingresses {
 			lines = append(lines, detailLabel.Render(ing.Name))
 			lines = append(lines, kv("  Class", ing.IngressClassName))
@@ -1151,7 +1233,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 
 	// Network Policies
 	if len(cs.NetworkPolicies) > 0 {
-		lines = append(lines, detailHeading.Render("── Network Policies ────────────────────"))
+		lines = append(lines, m.sectionHeader("Network Policies"))
 		for _, np := range cs.NetworkPolicies {
 			lines = append(lines, detailLabel.Render(np.Name))
 			if len(np.PolicyTypes) > 0 {
@@ -1173,7 +1255,7 @@ func (m *deploymentsModel) buildDetailLines() []string {
 			}
 		}
 		if len(warnings) > 0 {
-			lines = append(lines, detailHeading.Render("── Warning Events ──────────────────────"))
+			lines = append(lines, m.sectionHeader("Warning Events"))
 			show := warnings
 			if len(show) > 5 {
 				show = show[len(show)-5:]
@@ -1205,4 +1287,27 @@ func formatSpecJSON(raw string) []string {
 		return []string{detailDim.Render(raw)}
 	}
 	return strings.Split(buf.String(), "\n")
+}
+
+// sectionHeader builds "── Title ────────…" filling to the right pane width.
+func (m *deploymentsModel) sectionHeader(title string) string {
+	rightW, _ := m.browserContentSize()
+	prefix := "── " + title + " "
+	pad := rightW - len(prefix)
+	if pad < 1 {
+		pad = 1
+	}
+	return detailHeading.Render(prefix + strings.Repeat("─", pad))
+}
+
+// ─── string helpers ───────────────────────────────────────────────────────────
+
+func truncStr(s string, max int) string {
+	if max < 4 {
+		max = 4
+	}
+	if len(s) > max {
+		return s[:max-3] + "..."
+	}
+	return s
 }
