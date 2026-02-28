@@ -6,9 +6,8 @@ STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || tr
 if [ -n "$STAGED_GO" ]; then
   UNFORMATTED=$(echo "$STAGED_GO" | xargs gofmt -l 2>/dev/null || true)
   if [ -n "$UNFORMATTED" ]; then
-    echo "gofmt: the following files need formatting:"
-    echo "$UNFORMATTED"
-    echo "Run: gofmt -w <files>"
-    exit 1
+    echo "gofmt: auto-fixing formatting..."
+    echo "$UNFORMATTED" | xargs gofmt -w
+    echo "$UNFORMATTED" | xargs git add
   fi
 fi

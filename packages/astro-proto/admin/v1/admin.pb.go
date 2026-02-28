@@ -63,14 +63,45 @@ type K8sDeploymentInfo struct {
 	CreatedAt         string            `json:"created_at,omitempty"`
 }
 
+type K8sContainerStatus struct {
+	Name         string `json:"name,omitempty"`
+	Ready        bool   `json:"ready,omitempty"`
+	RestartCount int32  `json:"restart_count,omitempty"`
+	State        string `json:"state,omitempty"` // e.g. "Running", "Waiting: CrashLoopBackOff", "Terminated: OOMKilled"
+	Image        string `json:"image,omitempty"`
+}
+
+type K8sContainerResources struct {
+	Name          string `json:"name,omitempty"`
+	RequestCPU    string `json:"request_cpu,omitempty"`
+	RequestMemory string `json:"request_memory,omitempty"`
+	LimitCPU      string `json:"limit_cpu,omitempty"`
+	LimitMemory   string `json:"limit_memory,omitempty"`
+}
+
+type K8sEventInfo struct {
+	Name           string `json:"name,omitempty"`
+	Namespace      string `json:"namespace,omitempty"`
+	Type           string `json:"type,omitempty"` // Normal or Warning
+	Reason         string `json:"reason,omitempty"`
+	Message        string `json:"message,omitempty"`
+	InvolvedObject string `json:"involved_object,omitempty"` // "Kind/Name"
+	Count          int32  `json:"count,omitempty"`
+	FirstSeen      string `json:"first_seen,omitempty"`
+	LastSeen       string `json:"last_seen,omitempty"`
+}
+
 type K8sPodInfo struct {
-	Name      string            `json:"name,omitempty"`
-	Namespace string            `json:"namespace,omitempty"`
-	Phase     string            `json:"phase,omitempty"`
-	NodeName  string            `json:"node_name,omitempty"`
-	PodIP     string            `json:"pod_ip,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	CreatedAt string            `json:"created_at,omitempty"`
+	Name              string                   `json:"name,omitempty"`
+	Namespace         string                   `json:"namespace,omitempty"`
+	Phase             string                   `json:"phase,omitempty"`
+	NodeName          string                   `json:"node_name,omitempty"`
+	PodIP             string                   `json:"pod_ip,omitempty"`
+	Labels            map[string]string        `json:"labels,omitempty"`
+	CreatedAt         string                   `json:"created_at,omitempty"`
+	ContainerStatuses []*K8sContainerStatus    `json:"container_statuses,omitempty"`
+	Containers        []*K8sContainerResources `json:"containers,omitempty"`
+	Conditions        []string                 `json:"conditions,omitempty"`
 }
 
 type K8sServicePort struct {
@@ -91,22 +122,67 @@ type K8sServiceInfo struct {
 	CreatedAt  string            `json:"created_at,omitempty"`
 }
 
+type K8sIngressPath struct {
+	Path           string `json:"path,omitempty"`
+	PathType       string `json:"path_type,omitempty"`
+	BackendService string `json:"backend_service,omitempty"`
+	BackendPort    string `json:"backend_port,omitempty"`
+}
+
+type K8sIngressRule struct {
+	Host  string            `json:"host,omitempty"`
+	Paths []*K8sIngressPath `json:"paths,omitempty"`
+}
+
+type K8sIngressTLS struct {
+	Hosts      []string `json:"hosts,omitempty"`
+	SecretName string   `json:"secret_name,omitempty"`
+}
+
+type K8sIngressInfo struct {
+	Name             string            `json:"name,omitempty"`
+	Namespace        string            `json:"namespace,omitempty"`
+	IngressClassName string            `json:"ingress_class_name,omitempty"`
+	Rules            []*K8sIngressRule `json:"rules,omitempty"`
+	TLS              []*K8sIngressTLS  `json:"tls,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	CreatedAt        string            `json:"created_at,omitempty"`
+}
+
+type K8sNetworkPolicyInfo struct {
+	Name              string            `json:"name,omitempty"`
+	Namespace         string            `json:"namespace,omitempty"`
+	PolicyTypes       []string          `json:"policy_types,omitempty"`
+	IngressRuleCount  int32             `json:"ingress_rule_count,omitempty"`
+	EgressRuleCount   int32             `json:"egress_rule_count,omitempty"`
+	PodSelectorLabels map[string]string `json:"pod_selector_labels,omitempty"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	CreatedAt         string            `json:"created_at,omitempty"`
+}
+
 type ClusterSummary struct {
-	TotalDeployments int32 `json:"total_deployments,omitempty"`
-	TotalPods        int32 `json:"total_pods,omitempty"`
-	RunningPods      int32 `json:"running_pods,omitempty"`
-	PendingPods      int32 `json:"pending_pods,omitempty"`
-	FailedPods       int32 `json:"failed_pods,omitempty"`
-	TotalServices    int32 `json:"total_services,omitempty"`
+	TotalDeployments     int32 `json:"total_deployments,omitempty"`
+	TotalPods            int32 `json:"total_pods,omitempty"`
+	RunningPods          int32 `json:"running_pods,omitempty"`
+	PendingPods          int32 `json:"pending_pods,omitempty"`
+	FailedPods           int32 `json:"failed_pods,omitempty"`
+	TotalServices        int32 `json:"total_services,omitempty"`
+	TotalIngresses       int32 `json:"total_ingresses,omitempty"`
+	TotalNetworkPolicies int32 `json:"total_network_policies,omitempty"`
+	TotalEvents          int32 `json:"total_events,omitempty"`
+	WarningEvents        int32 `json:"warning_events,omitempty"`
 }
 
 type GetClusterStatusResponse struct {
-	Timestamp   string               `json:"timestamp,omitempty"`
-	Namespace   string               `json:"namespace,omitempty"`
-	Deployments []*K8sDeploymentInfo `json:"deployments,omitempty"`
-	Pods        []*K8sPodInfo        `json:"pods,omitempty"`
-	Services    []*K8sServiceInfo    `json:"services,omitempty"`
-	Summary     *ClusterSummary      `json:"summary,omitempty"`
+	Timestamp       string                  `json:"timestamp,omitempty"`
+	Namespace       string                  `json:"namespace,omitempty"`
+	Deployments     []*K8sDeploymentInfo    `json:"deployments,omitempty"`
+	Pods            []*K8sPodInfo           `json:"pods,omitempty"`
+	Services        []*K8sServiceInfo       `json:"services,omitempty"`
+	Ingresses       []*K8sIngressInfo       `json:"ingresses,omitempty"`
+	NetworkPolicies []*K8sNetworkPolicyInfo `json:"network_policies,omitempty"`
+	Events          []*K8sEventInfo         `json:"events,omitempty"`
+	Summary         *ClusterSummary         `json:"summary,omitempty"`
 }
 
 type ListImagesRequest struct{}

@@ -137,12 +137,15 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 
 	clientset := s.k8sClient.Clientset()
 	resp := &adminv1.GetClusterStatusResponse{
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Namespace:   namespace,
-		Deployments: []*adminv1.K8sDeploymentInfo{},
-		Pods:        []*adminv1.K8sPodInfo{},
-		Services:    []*adminv1.K8sServiceInfo{},
-		Summary:     &adminv1.ClusterSummary{},
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		Namespace:       namespace,
+		Deployments:     []*adminv1.K8sDeploymentInfo{},
+		Pods:            []*adminv1.K8sPodInfo{},
+		Services:        []*adminv1.K8sServiceInfo{},
+		Ingresses:       []*adminv1.K8sIngressInfo{},
+		NetworkPolicies: []*adminv1.K8sNetworkPolicyInfo{},
+		Events:          []*adminv1.K8sEventInfo{},
+		Summary:         &adminv1.ClusterSummary{},
 	}
 
 	// Deployments
@@ -173,7 +176,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 		s.log.Warn("Failed to list pods", "error", err)
 	} else {
 		for _, p := range pods.Items {
-			resp.Pods = append(resp.Pods, &adminv1.K8sPodInfo{
+			pi := &adminv1.K8sPodInfo{
 				Name:      p.Name,
 				Namespace: p.Namespace,
 				Phase:     string(p.Status.Phase),
@@ -181,7 +184,64 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 				PodIP:     p.Status.PodIP,
 				Labels:    p.Labels,
 				CreatedAt: p.CreationTimestamp.Format(time.RFC3339),
-			})
+			}
+
+			// Container statuses
+			for _, cs := range p.Status.ContainerStatuses {
+				state := "Unknown"
+				switch {
+				case cs.State.Running != nil:
+					state = "Running"
+				case cs.State.Waiting != nil:
+					state = "Waiting"
+					if cs.State.Waiting.Reason != "" {
+						state = "Waiting: " + cs.State.Waiting.Reason
+					}
+				case cs.State.Terminated != nil:
+					state = "Terminated"
+					if cs.State.Terminated.Reason != "" {
+						state = "Terminated: " + cs.State.Terminated.Reason
+					}
+				}
+				pi.ContainerStatuses = append(pi.ContainerStatuses, &adminv1.K8sContainerStatus{
+					Name:         cs.Name,
+					Ready:        cs.Ready,
+					RestartCount: cs.RestartCount,
+					State:        state,
+					Image:        cs.Image,
+				})
+			}
+
+			// Container resources
+			for _, c := range p.Spec.Containers {
+				cr := &adminv1.K8sContainerResources{Name: c.Name}
+				if req := c.Resources.Requests; req != nil {
+					if v, ok := req[corev1.ResourceCPU]; ok {
+						cr.RequestCPU = v.String()
+					}
+					if v, ok := req[corev1.ResourceMemory]; ok {
+						cr.RequestMemory = v.String()
+					}
+				}
+				if lim := c.Resources.Limits; lim != nil {
+					if v, ok := lim[corev1.ResourceCPU]; ok {
+						cr.LimitCPU = v.String()
+					}
+					if v, ok := lim[corev1.ResourceMemory]; ok {
+						cr.LimitMemory = v.String()
+					}
+				}
+				pi.Containers = append(pi.Containers, cr)
+			}
+
+			// Conditions (only true ones)
+			for _, cond := range p.Status.Conditions {
+				if cond.Status == corev1.ConditionTrue {
+					pi.Conditions = append(pi.Conditions, string(cond.Type))
+				}
+			}
+
+			resp.Pods = append(resp.Pods, pi)
 		}
 	}
 
@@ -219,11 +279,109 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 		}
 	}
 
+	// Ingresses
+	ings, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		s.log.Warn("Failed to list ingresses", "error", err)
+	} else {
+		for _, ing := range ings.Items {
+			ii := &adminv1.K8sIngressInfo{
+				Name:      ing.Name,
+				Namespace: ing.Namespace,
+				Labels:    ing.Labels,
+				CreatedAt: ing.CreationTimestamp.Format(time.RFC3339),
+			}
+			if ing.Spec.IngressClassName != nil {
+				ii.IngressClassName = *ing.Spec.IngressClassName
+			}
+			for _, rule := range ing.Spec.Rules {
+				r := &adminv1.K8sIngressRule{Host: rule.Host}
+				if rule.HTTP != nil {
+					for _, path := range rule.HTTP.Paths {
+						p := &adminv1.K8sIngressPath{
+							Path:     path.Path,
+							PathType: string(*path.PathType),
+						}
+						if path.Backend.Service != nil {
+							p.BackendService = path.Backend.Service.Name
+							port := path.Backend.Service.Port
+							if port.Name != "" {
+								p.BackendPort = port.Name
+							} else {
+								p.BackendPort = fmt.Sprintf("%d", port.Number)
+							}
+						}
+						r.Paths = append(r.Paths, p)
+					}
+				}
+				ii.Rules = append(ii.Rules, r)
+			}
+			for _, tls := range ing.Spec.TLS {
+				ii.TLS = append(ii.TLS, &adminv1.K8sIngressTLS{
+					Hosts:      tls.Hosts,
+					SecretName: tls.SecretName,
+				})
+			}
+			resp.Ingresses = append(resp.Ingresses, ii)
+		}
+	}
+
+	// NetworkPolicies
+	netpols, err := clientset.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		s.log.Warn("Failed to list network policies", "error", err)
+	} else {
+		for _, np := range netpols.Items {
+			policyTypes := make([]string, len(np.Spec.PolicyTypes))
+			for i, pt := range np.Spec.PolicyTypes {
+				policyTypes[i] = string(pt)
+			}
+			resp.NetworkPolicies = append(resp.NetworkPolicies, &adminv1.K8sNetworkPolicyInfo{
+				Name:              np.Name,
+				Namespace:         np.Namespace,
+				PolicyTypes:       policyTypes,
+				IngressRuleCount:  int32(len(np.Spec.Ingress)), //nolint:gosec // bounded by cluster size
+				EgressRuleCount:   int32(len(np.Spec.Egress)),  //nolint:gosec // bounded by cluster size
+				PodSelectorLabels: np.Spec.PodSelector.MatchLabels,
+				Labels:            np.Labels,
+				CreatedAt:         np.CreationTimestamp.Format(time.RFC3339),
+			})
+		}
+	}
+
+	// Events
+	events, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		s.log.Warn("Failed to list events", "error", err)
+	} else {
+		for _, ev := range events.Items {
+			resp.Events = append(resp.Events, &adminv1.K8sEventInfo{
+				Name:           ev.Name,
+				Namespace:      ev.Namespace,
+				Type:           ev.Type,
+				Reason:         ev.Reason,
+				Message:        ev.Message,
+				InvolvedObject: ev.InvolvedObject.Kind + "/" + ev.InvolvedObject.Name,
+				Count:          ev.Count,
+				FirstSeen:      ev.FirstTimestamp.Format(time.RFC3339),
+				LastSeen:       ev.LastTimestamp.Format(time.RFC3339),
+			})
+		}
+	}
+
 	// Summary
 	resp.Summary = &adminv1.ClusterSummary{
-		TotalDeployments: int32(len(resp.Deployments)), //nolint:gosec // bounded by cluster size
-		TotalPods:        int32(len(resp.Pods)),        //nolint:gosec // bounded by cluster size
-		TotalServices:    int32(len(resp.Services)),    //nolint:gosec // bounded by cluster size
+		TotalDeployments:     int32(len(resp.Deployments)),     //nolint:gosec // bounded by cluster size
+		TotalPods:            int32(len(resp.Pods)),            //nolint:gosec // bounded by cluster size
+		TotalServices:        int32(len(resp.Services)),        //nolint:gosec // bounded by cluster size
+		TotalIngresses:       int32(len(resp.Ingresses)),       //nolint:gosec // bounded by cluster size
+		TotalNetworkPolicies: int32(len(resp.NetworkPolicies)), //nolint:gosec // bounded by cluster size
+		TotalEvents:          int32(len(resp.Events)),          //nolint:gosec // bounded by cluster size
+	}
+	for _, ev := range resp.Events {
+		if ev.Type == "Warning" {
+			resp.Summary.WarningEvents++
+		}
 	}
 	for _, p := range resp.Pods {
 		switch p.Phase {
