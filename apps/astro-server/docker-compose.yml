@@ -16,19 +16,22 @@ services:
       retries: 5
 
   migrate:
-    image: postgres:16-alpine
+    image: arigaio/atlas:latest
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./migrations:/migrations
-    entrypoint: ["sh", "-c"]
+      - ./schema.sql:/schema.sql
     command:
-      - |
-        for f in /migrations/*.sql; do
-          echo "Applying $$f..."
-          PGPASSWORD=postgres psql -h postgres -U postgres -d astro -f "$$f"
-        done
+      - schema
+      - apply
+      - --url
+      - postgres://postgres:postgres@postgres:5432/astro?sslmode=disable
+      - --to
+      - file://schema.sql
+      - --dev-url
+      - postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+      - --auto-approve
 
 volumes:
   postgres_data:

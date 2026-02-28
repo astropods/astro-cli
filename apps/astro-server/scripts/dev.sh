@@ -34,8 +34,8 @@ trap cleanup EXIT INT TERM
 echo "==> Starting Postgres..."
 docker compose up -d --wait postgres
 
-# Run migrations (idempotent — safe to re-run)
-echo "==> Running migrations..."
+# Apply schema via Atlas (idempotent — safe to re-run)
+echo "==> Applying schema..."
 docker compose run --rm migrate
 
 # Start the server with hot reload

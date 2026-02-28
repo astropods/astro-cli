@@ -1,31 +1,37 @@
-name: SQL Review
+name: Schema Migration
 
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
       - "apps/astro-server/schema.sql"
+
+permissions:
+  contents: read
 
 env:
   BYTEBASE_URL: https://bytebase.astroids.ai/
   BYTEBASE_SERVICE_ACCOUNT: github-bot@service.bytebase.com
   BYTEBASE_SERVICE_ACCOUNT_SECRET: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT_SECRET }}
   BYTEBASE_PROJECT: "projects/astro"
+  FILE_PATTERN: "apps/astro-server/schema.sql"
 
 jobs:
-  sql-review:
-    permissions:
-      contents: read
-      pull-requests: write
+  rollout:
     runs-on: ubuntu-latest
     container:
-      image: docker://bytebase/bytebase-action:latest
+      image: bytebase/bytebase-action:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Review against test and prod
+
+      - name: Create and execute rollout
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BYTEBASE_TARGETS: "instances/preview/databases/astro,instances/prod-postgresql/databases/astro"
-          FILE_PATTERN: "apps/astro-server/schema.sql"
         run: |
-          bytebase-action check --url=${{ env.BYTEBASE_URL }} --project=${{ env.BYTEBASE_PROJECT }} --targets=${{ env.BYTEBASE_TARGETS }} --file-pattern=${{ env.FILE_PATTERN }} --declarative
+          bytebase-action rollout \
+            --url=${{ env.BYTEBASE_URL }} \
+            --project=${{ env.BYTEBASE_PROJECT }} \
+            --file-pattern=${{ env.FILE_PATTERN }} \
+            --targets=${{ env.BYTEBASE_TARGETS }} \
+            --declarative
