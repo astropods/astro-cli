@@ -282,30 +282,6 @@ func (m *deploymentsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 			}
 		}
 
-	case "r":
-		row := m.t.SelectedRow()
-		if len(row) < 3 || row[2] == "" {
-			return m, nil
-		}
-		ns := row[2]
-		return m, func() tea.Msg {
-			return showInputMsg{
-				title:       fmt.Sprintf("Restart pod in %s", statusWIP.Render(ns)),
-				placeholder: "pod-name-xxxxx",
-				fn: func(pod string) tea.Cmd {
-					if pod == "" {
-						return nil
-					}
-					return func() tea.Msg {
-						_, err := m.client.RestartDeployment(
-							context.Background(),
-							&adminv1.RestartDeploymentRequest{Namespace: ns, Pod: pod},
-						)
-						return deploymentRestartedMsg{err}
-					}
-				},
-			}
-		}
 	}
 
 	cmd := m.t.Update(msg)
@@ -620,7 +596,6 @@ func (m *deploymentsModel) Hints(navMode bool) []KeyHint {
 		{"/", "search"},
 		{"Enter", "detail"},
 		{"d", "delete"},
-		{"r", "restart"},
 		{"R", "refresh"},
 		{"Esc", "nav mode"},
 	}
