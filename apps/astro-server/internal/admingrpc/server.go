@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
 
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
@@ -361,6 +362,73 @@ func (s *Server) GetSchema(ctx context.Context, _ *adminv1.GetSchemaRequest) (*a
 	}
 
 	return &adminv1.GetSchemaResponse{Columns: cols}, nil
+}
+
+// ListAccounts returns all accounts with owner and member count.
+func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsRequest) (*adminv1.ListAccountsResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			a.id,
+			a.name,
+			a.type,
+			COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id AND role = 'owner' LIMIT 1), '') AS owner_user_id,
+			(SELECT COUNT(*) FROM account_members WHERE account_id = a.id) AS member_count,
+			a.created_at,
+			a.updated_at
+		FROM accounts a
+		ORDER BY a.created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var accounts []*adminv1.AdminAccount
+	for rows.Next() {
+		var acct adminv1.AdminAccount
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		acct.CreatedAt = createdAt.Format(time.RFC3339)
+		acct.UpdatedAt = updatedAt.Format(time.RFC3339)
+		accounts = append(accounts, &acct)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("accounts rows error: %w", err)
+	}
+
+	return &adminv1.ListAccountsResponse{
+		Accounts: accounts,
+		Count:    int32(len(accounts)), //nolint:gosec // bounded by DB rows
+	}, nil
+}
+
+// RenameAccount validates and updates an account's name.
+func (s *Server) RenameAccount(ctx context.Context, req *adminv1.RenameAccountRequest) (*adminv1.RenameAccountResponse, error) {
+	if req.AccountID == "" {
+		return nil, fmt.Errorf("account_id is required")
+	}
+	if req.NewName == "" {
+		return nil, fmt.Errorf("new_name is required")
+	}
+	if err := account.ValidateAccountName(req.NewName); err != nil {
+		return nil, fmt.Errorf("invalid name: %w", err)
+	}
+
+	result, err := s.db.ExecContext(ctx, "UPDATE accounts SET name = $1, updated_at = NOW() WHERE id = $2", req.NewName, req.AccountID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			return nil, fmt.Errorf("account name %q is already taken", req.NewName)
+		}
+		return nil, fmt.Errorf("rename account: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return nil, fmt.Errorf("account %q not found", req.AccountID)
+	}
+
+	return &adminv1.RenameAccountResponse{Status: "renamed"}, nil
 }
 
 // ecrImage is an internal type for ECR image data.

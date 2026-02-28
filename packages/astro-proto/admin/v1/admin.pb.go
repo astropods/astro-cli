@@ -152,6 +152,32 @@ type GetSchemaResponse struct {
 	Columns []*ColumnInfo `json:"columns,omitempty"`
 }
 
+type ListAccountsRequest struct{}
+
+type AdminAccount struct {
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Type        string `json:"type,omitempty"`
+	OwnerUserID string `json:"owner_user_id,omitempty"`
+	MemberCount int32  `json:"member_count,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
+type ListAccountsResponse struct {
+	Accounts []*AdminAccount `json:"accounts,omitempty"`
+	Count    int32           `json:"count,omitempty"`
+}
+
+type RenameAccountRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+	NewName   string `json:"new_name,omitempty"`
+}
+
+type RenameAccountResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
 type QueryDatabaseRequest struct {
 	Query string `json:"query,omitempty"`
 }

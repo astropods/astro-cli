@@ -65,6 +65,7 @@ func newAppModel(tabs []Tab, cfg *config.Config) appModel {
 // Run starts the bubbletea program.
 func Run(client adminv1.AdminServiceClient, cfg *config.Config) error {
 	tabs := []Tab{
+		newAccountsModel(client),
 		newDeploymentsModel(client),
 		newQueryModel(client),
 	}
@@ -258,9 +259,8 @@ func (m appModel) updateLoading(msg tea.Msg) (appModel, tea.Cmd) {
 		m.overlay = overlayNone
 		return m, nil
 
-	case deploymentsLoadedMsg:
+	case accountsLoadedMsg:
 		if msg.err != nil {
-			// Stay on loading overlay but show the error — no way to dismiss into main UI.
 			m.loadingErr = fmt.Sprintf("Connection failed: %s", msg.err)
 			return m, nil
 		}
