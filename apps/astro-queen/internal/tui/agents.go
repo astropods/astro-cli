@@ -28,7 +28,7 @@ type agentsModel struct {
 }
 
 func newAgentsModel(client adminv1.AdminServiceClient) *agentsModel {
-	t := newTableModel([]string{"Account", "Name", "Registry", "Versions", "Published", "Latest Build", "Updated At"})
+	t := newTableModel([]string{"Account", "Name", "Registry", "Builds", "Published", "Latest Build", "Updated At"})
 	t.SetFocused(true)
 	return &agentsModel{
 		client: client,
@@ -117,8 +117,8 @@ func (m *agentsModel) load() tea.Cmd {
 				a.AccountName,
 				a.Name,
 				a.Registry,
-				fmt.Sprintf("%d", a.VersionCount),
-				fmt.Sprintf("%d", a.PublishedVersionCount),
+				fmt.Sprintf("%d", a.BuildCount),
+				fmt.Sprintf("%d", a.PublishedBuildCount),
 				trunc(a.LatestBuildID, 12),
 				a.UpdatedAt,
 			}

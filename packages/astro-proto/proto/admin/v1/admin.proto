@@ -143,8 +143,8 @@ message AdminAgent {
   string account_name = 1;
   string name = 2;
   string registry = 3;
-  int32 version_count = 4;
-  int32 published_version_count = 5;
+  int32 build_count = 4;
+  int32 published_build_count = 5;
   string latest_build_id = 6;
   string created_at = 7;
   string updated_at = 8;

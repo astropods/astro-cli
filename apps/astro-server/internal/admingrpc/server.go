@@ -685,8 +685,8 @@ func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (
 			ac.name AS account_name,
 			a.name,
 			a.registry,
-			(SELECT COUNT(*) FROM agent_versions av WHERE av.account_id = a.account_id AND av.name = a.name) AS version_count,
-			(SELECT COUNT(*) FROM agent_published_versions apv WHERE apv.account_id = a.account_id AND apv.name = a.name) AS published_version_count,
+			(SELECT COUNT(*) FROM agent_versions av WHERE av.account_id = a.account_id AND av.name = a.name) AS build_count,
+			(SELECT COUNT(*) FROM agent_published_versions apv WHERE apv.account_id = a.account_id AND apv.name = a.name) AS published_build_count,
 			COALESCE((SELECT av2.build_id FROM agent_versions av2 WHERE av2.account_id = a.account_id AND av2.name = a.name ORDER BY av2.published_at DESC LIMIT 1), '') AS latest_build_id,
 			a.created_at,
 			a.updated_at
@@ -705,7 +705,7 @@ func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(
 			&agent.AccountName, &agent.Name, &agent.Registry,
-			&agent.VersionCount, &agent.PublishedVersionCount, &agent.LatestBuildID,
+			&agent.BuildCount, &agent.PublishedBuildCount, &agent.LatestBuildID,
 			&createdAt, &updatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
