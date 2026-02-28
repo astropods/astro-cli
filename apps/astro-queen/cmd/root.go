@@ -34,7 +34,7 @@ var rootCmd = &cobra.Command{
 		}
 		defer c.Close() //nolint:errcheck
 
-		return tui.Run(c.AdminService())
+		return tui.Run(c.AdminService(), cfg)
 	},
 }
 

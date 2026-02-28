@@ -3,10 +3,13 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/postman/astro/apps/astro-queen/internal/config"
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
 )
 
@@ -19,6 +22,7 @@ const (
 	overlayConfirm             // y/n prompt
 	overlayInput               // single text input
 	overlayError               // dismissable error
+	overlayLoading             // startup loading card
 )
 
 type appModel struct {
@@ -33,25 +37,37 @@ type appModel struct {
 	inputField  textinput.Model
 	inputFn     func(string) tea.Cmd
 	errText     string
+
+	// Loading overlay state.
+	spinner     spinner.Model
+	loadingLogs []string
+	loadingErr  string
+	cfg         *config.Config
 }
 
-func newAppModel(tabs []Tab) appModel {
+func newAppModel(tabs []Tab, cfg *config.Config) appModel {
 	ti := textinput.New()
 	ti.CharLimit = 200
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	return appModel{
 		tabs:       tabs,
 		active:     0,
 		inputField: ti,
+		spinner:    s,
+		overlay:    overlayLoading,
+		cfg:        cfg,
 	}
 }
 
 // Run starts the bubbletea program.
-func Run(client adminv1.AdminServiceClient) error {
+func Run(client adminv1.AdminServiceClient, cfg *config.Config) error {
 	tabs := []Tab{
 		newDeploymentsModel(client),
 		newQueryModel(client),
 	}
-	p := tea.NewProgram(newAppModel(tabs), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(newAppModel(tabs, cfg), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
@@ -59,12 +75,61 @@ func Run(client adminv1.AdminServiceClient) error {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 func (m appModel) Init() tea.Cmd {
-	return tea.Batch(tea.ClearScreen, m.tabs[0].Init())
+	return tea.Batch(
+		tea.ClearScreen,
+		m.spinner.Tick,
+		m.emitLoadingLogs(),
+	)
+}
+
+// emitLoadingLogs sends config/connection info as sequential log messages, then inits the first tab.
+func (m appModel) emitLoadingLogs() tea.Cmd {
+	cfg := m.cfg
+	return func() tea.Msg {
+		return loadingLogBatchMsg{cfg: cfg}
+	}
+}
+
+// loadingLogBatchMsg triggers the sequential log emission inside Update.
+type loadingLogBatchMsg struct{ cfg *config.Config }
+
+func buildLoadingSteps(cfg *config.Config) []string {
+	cfgPath := config.DefaultPath()
+	steps := []string{
+		fmt.Sprintf("Config loaded from %s", cfgPath),
+		fmt.Sprintf("Server: %s", cfg.Server),
+	}
+	if cfg.CertFile != "" {
+		steps = append(steps, fmt.Sprintf("TLS: mTLS (cert: %s, ca: %s)", cfg.CertFile, cfg.CAFile))
+	} else {
+		steps = append(steps, "TLS: insecure")
+	}
+	steps = append(steps, "Connecting to server...")
+	return steps
+}
+
+func emitStepsSequentially(steps []string, initTab tea.Cmd) tea.Cmd {
+	if len(steps) == 0 {
+		return initTab
+	}
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
+		return loadingStepMsg{steps: steps, initTab: initTab}
+	})
+}
+
+type loadingStepMsg struct {
+	steps   []string
+	initTab tea.Cmd
 }
 
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Loading overlay handles its own messages but also forwards some through.
+	if m.overlay == overlayLoading {
+		return m.updateLoading(msg)
+	}
+
 	if m.overlay != overlayNone {
 		return m.updateOverlay(msg)
 	}
@@ -143,6 +208,61 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m appModel) updateLoading(msg tea.Msg) (appModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		inner := m.innerHeight()
+		for _, tab := range m.tabs {
+			tab.SetSize(m.width, inner)
+		}
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "Q":
+			return m, tea.Quit
+		}
+		return m, nil
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case loadingLogBatchMsg:
+		steps := buildLoadingSteps(msg.cfg)
+		return m, emitStepsSequentially(steps, m.tabs[0].Init())
+
+	case loadingStepMsg:
+		m.loadingLogs = append(m.loadingLogs, msg.steps[0])
+		remaining := msg.steps[1:]
+		return m, emitStepsSequentially(remaining, msg.initTab)
+
+	case loadingLogMsg:
+		m.loadingLogs = append(m.loadingLogs, string(msg))
+		return m, nil
+
+	case loadingDoneMsg:
+		m.overlay = overlayNone
+		return m, nil
+
+	case deploymentsLoadedMsg:
+		if msg.err != nil {
+			// Stay on loading overlay but show the error — no way to dismiss into main UI.
+			m.loadingErr = fmt.Sprintf("Connection failed: %s", msg.err)
+			return m, nil
+		}
+		// First data arrived — dismiss loading overlay and forward to tab.
+		m.overlay = overlayNone
+		var cmd tea.Cmd
+		m.tabs[m.active], cmd = m.tabs[m.active].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 func (m appModel) switchTab(tab int) (appModel, tea.Cmd) {
 	m.active = tab
 	return m, m.tabs[tab].Init()
@@ -197,12 +317,15 @@ func (m appModel) updateOverlay(msg tea.Msg) (appModel, tea.Cmd) {
 // ─── View ─────────────────────────────────────────────────────────────────────
 
 func (m appModel) View() string {
-	if m.width == 0 {
-		return statusWIP.Render("Loading…")
+	if m.overlay != overlayNone {
+		if m.width == 0 {
+			return statusWIP.Render("Loading…")
+		}
+		return m.renderOverlay()
 	}
 
-	if m.overlay != overlayNone {
-		return m.renderOverlay()
+	if m.width == 0 {
+		return statusWIP.Render("Loading…")
 	}
 
 	header := m.renderHeader()
@@ -312,6 +435,39 @@ func (m appModel) renderOverlay() string {
 			m.errText + "\n\n" +
 			descStyle.Render("Press any key to dismiss")
 		boxStr = errModalStyle.Width(min(m.width-6, 60)).Render(content)
+
+	case overlayLoading:
+		failed := m.loadingErr != ""
+		var title string
+		if failed {
+			title = statusErr.Render("Connection Failed")
+		} else {
+			title = brandStyle.Render("Connecting")
+		}
+		var lines []string
+		checkmark := statusGood.Render("✓")
+		crossmark := statusErr.Render("✗")
+		for i, line := range m.loadingLogs {
+			if i < len(m.loadingLogs)-1 || failed {
+				lines = append(lines, checkmark+" "+line)
+			} else {
+				lines = append(lines, m.spinner.View()+" "+line)
+			}
+		}
+		if len(lines) == 0 {
+			lines = append(lines, m.spinner.View()+" Initializing...")
+		}
+		if failed {
+			lines = append(lines, crossmark+" "+m.loadingErr)
+			lines = append(lines, "")
+			lines = append(lines, descStyle.Render("Press q to quit"))
+		}
+		content = title + "\n\n" + strings.Join(lines, "\n")
+		style := modalStyle
+		if failed {
+			style = errModalStyle
+		}
+		boxStr = style.Width(min(m.width-6, 60)).Render(content)
 	}
 
 	return lipgloss.Place(

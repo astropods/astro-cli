@@ -43,6 +43,12 @@ type showInputMsg struct {
 // showErrMsg requests a dismissable error overlay.
 type showErrMsg struct{ text string }
 
+// loadingLogMsg appends a line to the loading overlay log.
+type loadingLogMsg string
+
+// loadingDoneMsg dismisses the loading overlay.
+type loadingDoneMsg struct{}
+
 // ─── styles ──────────────────────────────────────────────────────────────────
 
 var (
