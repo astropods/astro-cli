@@ -17,7 +17,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "astro-queen",
+	Use:   "queen",
 	Short: "k9s-style TUI for the Astro admin gRPC API",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load(cfgFile)

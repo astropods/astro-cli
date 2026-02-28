@@ -3,43 +3,22 @@ language: "go"
 
 tasks:
   build:
-    command: "go build -o bin/astro-queen ."
+    command: "go build -o bin/queen ."
     inputs:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
       - "/packages/astro-proto/**"
     outputs:
-      - "bin/astro-queen"
-
-  # Run the TUI against a local astro-server (no TLS).
-  # Override: ASTRO_QUEEN_SERVER=host:9091 moon run astro-queen:run
-  run:
-    command: "./bin/astro-queen --server $ASTRO_QUEEN_SERVER"
-    deps:
-      - "build"
-    env:
-      ASTRO_QUEEN_SERVER: "localhost:9091"
-    options:
-      persistent: true
-      cache: false
-
-  # Run with mTLS using ~/.astro-queen/config.yaml (written by astro-server:gen-admin-certs).
-  # Override config path: ASTRO_QUEEN_CONFIG=~/other.yaml moon run astro-queen:run-tls
-  run-tls:
-    command: "./bin/astro-queen --config $ASTRO_QUEEN_CONFIG"
-    deps:
-      - "build"
-    env:
-      ASTRO_QUEEN_CONFIG: "~/.astro-queen/config.yaml"
-    options:
-      persistent: true
-      cache: false
+      - "bin/queen"
 
   link:
-    command: "ln -sf $(pwd)/bin/astro-queen $HOME/go/bin/astro-queen"
+    command: "ln -sf $(pwd)/bin/queen $HOME/go/bin/queen"
     deps:
       - "build"
+
+  unlink:
+    command: "rm -f $HOME/go/bin/queen"
 
   fmt:
     command: "go fmt ./..."
