@@ -179,7 +179,7 @@ func (m *tableModel) View() string {
 	return b.String()
 }
 
-// columnWidths distributes m.width proportionally across columns.
+// columnWidths sizes columns to fit their content, then distributes leftover space.
 func (m *tableModel) columnWidths() []int {
 	n := len(m.headers)
 	gap := 2 * (n - 1) // 2-char gap between columns
@@ -187,15 +187,63 @@ func (m *tableModel) columnWidths() []int {
 	if avail < n {
 		avail = n
 	}
-	widths := make([]int, n)
-	each := avail / n
-	remainder := avail - each*n
-	for i := range widths {
-		widths[i] = each
-		if i < remainder {
-			widths[i]++
+
+	// Measure natural width of each column (max of header + all visible data).
+	natural := make([]int, n)
+	for i, h := range m.headers {
+		natural[i] = len(h)
+	}
+	for _, row := range m.rows {
+		for i := range natural {
+			if i < len(row) && len(row[i]) > natural[i] {
+				natural[i] = len(row[i])
+			}
 		}
 	}
+
+	// Start with natural widths, capped at available space.
+	widths := make([]int, n)
+	total := 0
+	for i, w := range natural {
+		widths[i] = w
+		total += w
+	}
+
+	if total <= avail {
+		// All columns fit — distribute leftover space proportionally.
+		leftover := avail - total
+		for leftover > 0 {
+			for i := range widths {
+				if leftover <= 0 {
+					break
+				}
+				widths[i]++
+				leftover--
+			}
+		}
+	} else {
+		// Columns don't fit — shrink proportionally but keep a minimum of 4.
+		for i := range widths {
+			widths[i] = max(4, natural[i]*avail/total)
+		}
+		// Correct rounding errors.
+		sum := 0
+		for _, w := range widths {
+			sum += w
+		}
+		for sum > avail && sum > 0 {
+			// Shrink the widest column.
+			widest := 0
+			for i, w := range widths {
+				if w > widths[widest] {
+					widest = i
+				}
+			}
+			widths[widest]--
+			sum--
+		}
+	}
+
 	return widths
 }
 

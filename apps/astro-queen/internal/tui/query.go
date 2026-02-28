@@ -71,9 +71,7 @@ func (m *queryModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	case queryResultMsg:
 		if msg.err != nil {
 			m.status = statusErr.Render("Error: " + msg.err.Error())
-			m.focus = focusInput
-			m.input.Focus()
-			return m, textinput.Blink
+			return m, nil
 		}
 		resp := msg.resp
 		rows := make([][]string, len(resp.Rows))
@@ -90,7 +88,8 @@ func (m *queryModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "tab", "esc":
+		case "tab":
+			// Toggle focus between input and results.
 			if m.focus == focusInput {
 				m.focus = focusTable
 				m.input.Blur()
@@ -101,7 +100,6 @@ func (m *queryModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			m.input.Focus()
 			m.t.SetFocused(false)
 			return m, textinput.Blink
-
 		case "i":
 			if m.focus == focusTable {
 				m.focus = focusInput
@@ -109,21 +107,23 @@ func (m *queryModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 				m.t.SetFocused(false)
 				return m, textinput.Blink
 			}
-
 		case "enter":
 			if m.focus == focusInput {
 				m.status = statusWIP.Render("Running…")
 				return m, m.runQuery()
 			}
 		}
+
+		// When input is focused, forward all other keys to the text input.
+		if m.focus == focusInput {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
 	}
 
-	var cmd tea.Cmd
-	if m.focus == focusInput {
-		m.input, cmd = m.input.Update(msg)
-	} else {
-		cmd = m.t.Update(msg)
-	}
+	// Table navigation.
+	cmd := m.t.Update(msg)
 	return m, cmd
 }
 
@@ -131,10 +131,10 @@ func (m *queryModel) View(w, _ int) string {
 	var inputHeader string
 	if m.focus == focusInput {
 		inputHeader = activeTabStyle.Render("SQL Query") +
-			descStyle.Render("  Enter to run  •  Tab/Esc to focus results")
+			descStyle.Render("  Enter to run  •  Tab to results")
 	} else {
 		inputHeader = inactiveTabStyle.Render("SQL Query") +
-			descStyle.Render("  i/Tab/Esc to edit")
+			descStyle.Render("  i to edit  •  Tab to switch")
 	}
 	inputHeader = barBg.Width(w).Render(inputHeader)
 
@@ -184,29 +184,27 @@ func (m *queryModel) SetSize(w, h int) {
 
 func (m *queryModel) Status() string { return m.status }
 
-func (m *queryModel) Hints() []KeyHint {
+func (m *queryModel) Hints(navMode bool) []KeyHint {
+	if navMode {
+		return []KeyHint{
+			{"1-9/Tab", "switch tab"},
+			{"q", "quit"},
+			{"Esc", "back"},
+		}
+	}
 	if m.focus == focusInput {
 		return []KeyHint{
 			{"Enter", "run query"},
-			{"Tab/Esc", "focus results"},
-			{"q", "quit"},
+			{"Tab", "results"},
+			{"Esc", "nav mode"},
 		}
 	}
 	return []KeyHint{
-		{"↑↓", "navigate results"},
-		{"i/Tab/Esc", "edit query"},
-		{"q", "quit"},
+		{"i", "edit query"},
+		{"↑↓/jk", "navigate"},
+		{"Tab", "input"},
+		{"Esc", "nav mode"},
 	}
-}
-
-func (m *queryModel) ConsumesKey(key string) bool {
-	switch key {
-	case "tab", "esc":
-		return true
-	case "q", "Q":
-		return m.focus == focusInput
-	}
-	return false
 }
 
 // ─── commands ─────────────────────────────────────────────────────────────────

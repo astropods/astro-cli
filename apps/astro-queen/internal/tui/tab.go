@@ -15,8 +15,7 @@ type Tab interface {
 	View(width, height int) string     // Elm view
 	SetSize(width, height int)         // resize
 	Status() string                    // rendered status string for header bar
-	Hints() []KeyHint                  // footer key hints
-	ConsumesKey(key string) bool       // e.g. query tab consumes "q", "tab"
+	Hints(navMode bool) []KeyHint      // footer key hints (navMode=true when in navigate mode)
 }
 
 // KeyHint describes a key binding shown in the footer.

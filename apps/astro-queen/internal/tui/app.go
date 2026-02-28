@@ -29,6 +29,7 @@ type appModel struct {
 	width, height int
 	tabs          []Tab
 	active        int
+	navMode       bool
 
 	overlay     overlayKind
 	confirmText string
@@ -184,25 +185,35 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Check if active tab consumes this key before handling globals.
-		if !m.tabs[m.active].ConsumesKey(key) {
+		if m.navMode {
+			// Navigate mode: app owns keys for tab switching and quitting.
 			switch key {
 			case "q", "Q":
 				return m, tea.Quit
 			case "tab":
 				return m.switchTab((m.active + 1) % len(m.tabs))
+			case "esc":
+				m.navMode = false
+				return m, nil
 			}
+			// Number keys switch tabs (1-9).
+			if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+				idx := int(key[0] - '1')
+				if idx < len(m.tabs) && idx != m.active {
+					return m.switchTab(idx)
+				}
+			}
+			return m, nil
 		}
 
-		// Number keys switch tabs (1-9).
-		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-			idx := int(key[0] - '1')
-			if idx < len(m.tabs) && idx != m.active {
-				return m.switchTab(idx)
-			}
+		// Tab-focused mode: Esc enters navigate mode. Everything else → tab.
+		if key == "esc" {
+			m.navMode = true
+			return m, nil
 		}
 	}
 
+	// Forward non-intercepted messages to the active tab.
 	var cmd tea.Cmd
 	m.tabs[m.active], cmd = m.tabs[m.active].Update(msg)
 	return m, cmd
@@ -264,6 +275,7 @@ func (m appModel) updateLoading(msg tea.Msg) (appModel, tea.Cmd) {
 }
 
 func (m appModel) switchTab(tab int) (appModel, tea.Cmd) {
+	m.navMode = false
 	m.active = tab
 	return m, m.tabs[tab].Init()
 }
@@ -391,11 +403,17 @@ func (m appModel) headerTabAtX(x int) int {
 func (m appModel) renderFooter() string {
 	tab := m.tabs[m.active]
 
-	// Left: tab status.
-	left := " " + tab.Status()
+	// Left: mode indicator + tab status.
+	var mode string
+	if m.navMode {
+		mode = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("62")).Render(" NAV ")
+	} else {
+		mode = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("82")).Render(" ● ")
+	}
+	left := mode + " " + tab.Status()
 
 	// Right: key hints.
-	hints := tab.Hints()
+	hints := tab.Hints(m.navMode)
 	parts := make([]string, len(hints))
 	for i, h := range hints {
 		parts[i] = hint(h.Key, h.Desc)

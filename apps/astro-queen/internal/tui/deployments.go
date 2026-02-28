@@ -147,18 +147,22 @@ func (m *deploymentsModel) SetSize(w, h int) {
 
 func (m *deploymentsModel) Status() string { return m.status }
 
-func (m *deploymentsModel) Hints() []KeyHint {
+func (m *deploymentsModel) Hints(navMode bool) []KeyHint {
+	if navMode {
+		return []KeyHint{
+			{"1-9/Tab", "switch tab"},
+			{"q", "quit"},
+			{"Esc", "back"},
+		}
+	}
 	return []KeyHint{
-		{"↑↓", "navigate"},
+		{"↑↓/jk", "navigate"},
 		{"d", "delete"},
 		{"r", "restart"},
 		{"R", "refresh"},
-		{"Tab", "next tab"},
-		{"q", "quit"},
+		{"Esc", "nav mode"},
 	}
 }
-
-func (m *deploymentsModel) ConsumesKey(_ string) bool { return false }
 
 // ─── commands ─────────────────────────────────────────────────────────────────
 
