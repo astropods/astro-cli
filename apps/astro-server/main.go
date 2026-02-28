@@ -16,7 +16,6 @@ import (
 	_ "github.com/lib/pq"
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/postman/astro/apps/astro-server/handlers"
 	"github.com/postman/astro/apps/astro-server/internal/account"
@@ -321,13 +320,12 @@ func startAdminGRPCServer(
 		return nil, fmt.Errorf("admin gRPC TLS: %w", err)
 	}
 
-	var opts []grpc.ServerOption
-	if creds != nil {
-		opts = append(opts, grpc.Creds(creds))
-	} else {
-		opts = append(opts, grpc.Creds(insecure.NewCredentials()))
-		log.Warn("Admin gRPC server starting without TLS — not suitable for production")
+	if creds == nil {
+		log.Warn("Admin gRPC disabled — mTLS not configured (set ADMIN_GRPC_CERT_FILE, ADMIN_GRPC_KEY_FILE, ADMIN_GRPC_CA_FILE)")
+		return nil, nil
 	}
+	var opts []grpc.ServerOption
+	opts = append(opts, grpc.Creds(creds))
 
 	grpcSrv := grpc.NewServer(opts...)
 	adminv1.RegisterAdminServiceServer(grpcSrv, admingrpc.New(

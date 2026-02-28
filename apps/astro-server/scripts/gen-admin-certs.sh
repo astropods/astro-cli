@@ -24,10 +24,10 @@ openssl x509 -req -days 365 \
   -CA "$CERTS_DIR/ca.crt" -CAkey "$CERTS_DIR/ca.key" -CAcreateserial \
   -out "$CERTS_DIR/server.crt" 2>/dev/null
 
-echo "==> Generating client cert..."
+echo "==> Generating client cert (CN=$(whoami))..."
 openssl genrsa -out "$CERTS_DIR/client.key" 2048 2>/dev/null
 openssl req -new -key "$CERTS_DIR/client.key" \
-  -out "$CERTS_DIR/client.csr" -subj "/CN=astro-queen" 2>/dev/null
+  -out "$CERTS_DIR/client.csr" -subj "/CN=$(whoami)" 2>/dev/null
 openssl x509 -req -days 365 \
   -in "$CERTS_DIR/client.csr" \
   -CA "$CERTS_DIR/ca.crt" -CAkey "$CERTS_DIR/ca.key" -CAcreateserial \

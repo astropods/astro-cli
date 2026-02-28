@@ -18,11 +18,12 @@ type Config struct {
 }
 
 // AdminGRPCConfig holds admin gRPC server configuration.
+// Cert/Key/CA values accept file paths or inline PEM (auto-detected by "-----BEGIN" prefix).
 type AdminGRPCConfig struct {
-	Port     string // ADMIN_GRPC_PORT, default "9091"
-	CertFile string // ADMIN_GRPC_CERT_FILE (server cert, optional — no TLS if empty)
-	KeyFile  string // ADMIN_GRPC_KEY_FILE
-	CAFile   string // ADMIN_GRPC_CA_FILE
+	Port     string // ADMIN_GRPC_PORT, default "9091" (optional — gRPC server disabled if empty)
+	CertFile string // ADMIN_GRPC_CERT_FILE — file path or inline PEM (optional — no TLS if empty)
+	KeyFile  string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
+	CAFile   string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
 }
 
 // DatabaseConfig holds database configuration

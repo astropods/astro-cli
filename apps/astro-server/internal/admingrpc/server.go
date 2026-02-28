@@ -73,7 +73,7 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 
 	return &adminv1.ListDeploymentsResponse{
 		Deployments: results,
-		Count:       int32(len(results)),
+		Count:       int32(len(results)), //nolint:gosec // bounded by cluster size
 	}, nil
 }
 
@@ -173,9 +173,9 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 
 	// Summary
 	resp.Summary = &adminv1.ClusterSummary{
-		TotalDeployments: int32(len(resp.Deployments)),
-		TotalPods:        int32(len(resp.Pods)),
-		TotalServices:    int32(len(resp.Services)),
+		TotalDeployments: int32(len(resp.Deployments)), //nolint:gosec // bounded by cluster size
+		TotalPods:        int32(len(resp.Pods)),        //nolint:gosec // bounded by cluster size
+		TotalServices:    int32(len(resp.Services)),    //nolint:gosec // bounded by cluster size
 	}
 	for _, p := range resp.Pods {
 		switch p.Phase {
@@ -227,7 +227,7 @@ func (s *Server) ListImages(ctx context.Context, _ *adminv1.ListImagesRequest) (
 
 	return &adminv1.ListImagesResponse{
 		Images: result,
-		Count:  int32(len(result)),
+		Count:  int32(len(result)), //nolint:gosec // bounded by registry response
 	}, nil
 }
 

@@ -9,11 +9,12 @@ import (
 )
 
 // Config holds astro-queen connection settings loaded from ~/.astro-queen/config.yaml.
+// Cert/Key/CA values accept file paths or inline PEM (auto-detected by "-----BEGIN" prefix).
 type Config struct {
 	Server   string `yaml:"server"`    // e.g. "localhost:9091"
-	CertFile string `yaml:"cert_file"` // client cert (mTLS)
-	KeyFile  string `yaml:"key_file"`  // client key (mTLS)
-	CAFile   string `yaml:"ca_file"`   // CA cert (mTLS)
+	CertFile string `yaml:"cert_file"` // client cert — file path or inline PEM (mTLS)
+	KeyFile  string `yaml:"key_file"`  // client key  — file path or inline PEM (mTLS)
+	CAFile   string `yaml:"ca_file"`   // CA cert     — file path or inline PEM (mTLS)
 }
 
 // DefaultPath returns the default config file path.

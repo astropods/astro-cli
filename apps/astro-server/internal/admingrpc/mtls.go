@@ -5,32 +5,54 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 
 	"google.golang.org/grpc/credentials"
 )
 
-// TLSConfig holds paths to TLS certificate files for the gRPC server.
+// TLSConfig holds TLS certificate material for the gRPC server.
+// Each field accepts either a file path or inline PEM content
+// (detected by a "-----BEGIN" prefix).
 type TLSConfig struct {
 	CertFile string
 	KeyFile  string
 	CAFile   string
 }
 
-// ServerCredentials builds mTLS server credentials from cert/key/CA files.
-// If any file path is empty, returns nil (no TLS — for development only).
+// loadPEM returns PEM bytes from val. If val starts with "-----BEGIN" it is
+// treated as inline PEM; otherwise it is read as a file path.
+func loadPEM(val string) ([]byte, error) {
+	if strings.HasPrefix(val, "-----BEGIN") {
+		return []byte(val), nil
+	}
+	return os.ReadFile(val) //nolint:gosec // path comes from server config, not user input
+}
+
+// ServerCredentials builds mTLS server credentials from cert/key/CA.
+// Values can be file paths or inline PEM. Returns nil when any value is empty
+// (no TLS — for development only).
 func ServerCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
 	if cfg.CertFile == "" || cfg.KeyFile == "" || cfg.CAFile == "" {
 		return nil, nil
 	}
 
-	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	certPEM, err := loadPEM(cfg.CertFile)
 	if err != nil {
-		return nil, fmt.Errorf("load server key pair: %w", err)
+		return nil, fmt.Errorf("load server cert: %w", err)
+	}
+	keyPEM, err := loadPEM(cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load server key: %w", err)
 	}
 
-	caBytes, err := os.ReadFile(cfg.CAFile)
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("read CA file: %w", err)
+		return nil, fmt.Errorf("parse server key pair: %w", err)
+	}
+
+	caBytes, err := loadPEM(cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("load CA: %w", err)
 	}
 
 	caPool := x509.NewCertPool()
@@ -48,21 +70,31 @@ func ServerCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) 
 	return credentials.NewTLS(tlsCfg), nil
 }
 
-// ClientCredentials builds mTLS client credentials from cert/key/CA files.
-// If any file path is empty, returns nil (insecure — for development only).
+// ClientCredentials builds mTLS client credentials from cert/key/CA.
+// Values can be file paths or inline PEM. Returns nil when any value is empty
+// (insecure — for development only).
 func ClientCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
 	if cfg.CertFile == "" || cfg.KeyFile == "" || cfg.CAFile == "" {
 		return nil, nil
 	}
 
-	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	certPEM, err := loadPEM(cfg.CertFile)
 	if err != nil {
-		return nil, fmt.Errorf("load client key pair: %w", err)
+		return nil, fmt.Errorf("load client cert: %w", err)
+	}
+	keyPEM, err := loadPEM(cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load client key: %w", err)
 	}
 
-	caBytes, err := os.ReadFile(cfg.CAFile)
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("read CA file: %w", err)
+		return nil, fmt.Errorf("parse client key pair: %w", err)
+	}
+
+	caBytes, err := loadPEM(cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("load CA: %w", err)
 	}
 
 	caPool := x509.NewCertPool()
