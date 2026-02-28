@@ -1,0 +1,198 @@
+name: Deploy (Prod)
+
+on:
+  workflow_dispatch:
+    inputs:
+      astro-server:
+        description: "Build astro-server"
+        type: boolean
+        default: false
+      astro-client:
+        description: "Build astro-client"
+        type: boolean
+        default: false
+      astro-registry:
+        description: "Build astro-registry"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-prod-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Prepare: determine which services to build
+  # ---------------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          services='[]'
+
+          if [ "${{ inputs.astro-server }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["astro-server"]')
+          fi
+          if [ "${{ inputs.astro-client }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["astro-client"]')
+          fi
+          if [ "${{ inputs.astro-registry }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["astro-registry"]')
+          fi
+
+          count=$(echo "$services" | jq length)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No services selected. Please select at least one service to build."
+            exit 1
+          fi
+
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          echo "::notice::Services: $services | Environment: prod"
+
+  # ---------------------------------------------------------------------------
+  # Build: multi-arch images, push by digest to prod ECR
+  # ---------------------------------------------------------------------------
+  build:
+    needs: [prepare]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    environment: prod
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.prepare.outputs.services) }}
+        platform:
+          - linux/amd64
+          - linux/arm64
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare platform pair
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployment/Dockerfile.${{ matrix.service }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_PREFIX }}-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ env.PLATFORM_PAIR }}-prod
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ env.PLATFORM_PAIR }}-prod
+          build-args: |
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests/${{ matrix.service }}
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${{ matrix.service }}/${digest#sha256:}"
+
+      - name: Upload digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.service }}-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Deploy to prod
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.prepare.outputs.services) }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.service }}-*
+          merge-multiple: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create manifest and push
+        working-directory: ${{ runner.temp }}/digests/${{ matrix.service }}
+        run: |
+          IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_PREFIX }}-${{ matrix.service }}"
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+          echo "::notice::ECR: $IMAGE:${{ github.sha }}"
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name prod-primary-eks --region ${{ env.AWS_REGION }}
+
+      - name: Deploy ConfigMap
+        run: |
+          CONFIG_FILE="config/${{ matrix.service }}/prod.env"
+          if [ -f "$CONFIG_FILE" ]; then
+            kubectl create configmap ${{ matrix.service }}-config \
+              --from-env-file="$CONFIG_FILE" \
+              --namespace=${{ matrix.service }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "::notice::ConfigMap updated for ${{ matrix.service }}"
+          else
+            echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
+          fi

@@ -1,29 +1,13 @@
-name: Deploy
+name: Deploy (Preview)
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      astro-server:
-        description: "Build astro-server"
-        type: boolean
-        default: false
-      astro-client:
-        description: "Build astro-client"
-        type: boolean
-        default: false
-      astro-registry:
-        description: "Build astro-registry"
-        type: boolean
-        default: false
-      environment:
-        description: "Target environment"
-        type: choice
-        options:
-          - preview
-          - prod
 
 concurrency:
-  group: deploy-${{ inputs.environment }}-${{ github.ref }}
+  group: deploy-preview-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -31,49 +15,44 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Prepare: determine which services to build
+  # Changes: detect which services were modified
   # ---------------------------------------------------------------------------
-  prepare:
+  changes:
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.set-matrix.outputs.services }}
+      services: ${{ github.event_name == 'workflow_dispatch' && '["astro-server","astro-client","astro-registry"]' || steps.filter.outputs.changes }}
     steps:
-      - name: Set matrix
-        id: set-matrix
-        run: |
-          services='[]'
-
-          if [ "${{ inputs.astro-server }}" == "true" ]; then
-            services=$(echo "$services" | jq -c '. + ["astro-server"]')
-          fi
-          if [ "${{ inputs.astro-client }}" == "true" ]; then
-            services=$(echo "$services" | jq -c '. + ["astro-client"]')
-          fi
-          if [ "${{ inputs.astro-registry }}" == "true" ]; then
-            services=$(echo "$services" | jq -c '. + ["astro-registry"]')
-          fi
-
-          count=$(echo "$services" | jq length)
-          if [ "$count" -eq 0 ]; then
-            echo "::error::No services selected. Please select at least one service to build."
-            exit 1
-          fi
-
-          echo "services=$services" >> "$GITHUB_OUTPUT"
-          echo "::notice::Services: $services | Environment: ${{ inputs.environment }}"
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'push'
+        id: filter
+        with:
+          filters: |
+            astro-server:
+              - 'apps/astro-server/**'
+              - 'deployment/Dockerfile.astro-server'
+              - 'packages/astro-spec/**'
+            astro-client:
+              - 'apps/astro-client/**'
+              - 'deployment/Dockerfile.astro-client'
+              - 'packages/astro-identity-gen/**'
+            astro-registry:
+              - 'apps/astro-registry/**'
+              - 'deployment/Dockerfile.astro-registry'
 
   # ---------------------------------------------------------------------------
-  # Build: multi-arch images, push by digest to target environment ECR
+  # Build: multi-arch images, push by digest to preview ECR
   # ---------------------------------------------------------------------------
   build:
-    needs: [prepare]
+    needs: [changes]
+    if: needs.changes.outputs.services != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    environment: ${{ inputs.environment }}
+    environment: preview
     strategy:
       fail-fast: false
       matrix:
-        service: ${{ fromJson(needs.prepare.outputs.services) }}
+        service: ${{ fromJson(needs.changes.outputs.services) }}
         platform:
           - linux/amd64
           - linux/arm64
@@ -116,8 +95,8 @@ jobs:
           file: deployment/Dockerfile.${{ matrix.service }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_PREFIX }}-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.service }}-${{ env.PLATFORM_PAIR }}-${{ inputs.environment }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ env.PLATFORM_PAIR }}-${{ inputs.environment }}
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ env.PLATFORM_PAIR }}-preview
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ env.PLATFORM_PAIR }}-preview
           build-args: |
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
@@ -139,16 +118,16 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy to preview
   # ---------------------------------------------------------------------------
-  deploy-preview:
-    if: inputs.environment == 'preview'
-    needs: [prepare, build]
+  deploy:
+    needs: [changes, build]
+    if: needs.changes.outputs.services != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: preview
     strategy:
       fail-fast: false
       matrix:
-        service: ${{ fromJson(needs.prepare.outputs.services) }}
+        service: ${{ fromJson(needs.changes.outputs.services) }}
     permissions:
       id-token: write
       contents: read
@@ -194,74 +173,6 @@ jobs:
       - name: Deploy ConfigMap
         run: |
           CONFIG_FILE="config/${{ matrix.service }}/${{ vars.ENV_NAME }}.env"
-          if [ -f "$CONFIG_FILE" ]; then
-            kubectl create configmap ${{ matrix.service }}-config \
-              --from-env-file="$CONFIG_FILE" \
-              --namespace=${{ matrix.service }} \
-              --dry-run=client -o yaml | kubectl apply -f -
-            echo "::notice::ConfigMap updated for ${{ matrix.service }}"
-          else
-            echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
-          fi
-
-  # ---------------------------------------------------------------------------
-  # Deploy to prod
-  # ---------------------------------------------------------------------------
-  deploy-prod:
-    if: inputs.environment == 'prod'
-    needs: [prepare, build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: prod
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJson(needs.prepare.outputs.services) }}
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: ${{ runner.temp }}/digests
-          pattern: digests-${{ matrix.service }}-*
-          merge-multiple: true
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Create manifest and push
-        working-directory: ${{ runner.temp }}/digests/${{ matrix.service }}
-        run: |
-          IMAGE="${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_PREFIX }}-${{ matrix.service }}"
-          docker buildx imagetools create \
-            -t "$IMAGE:${{ github.sha }}" \
-            -t "$IMAGE:latest" \
-            $(printf "$IMAGE@sha256:%s " *)
-          echo "::notice::ECR: $IMAGE:${{ github.sha }}"
-
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --name prod-primary-eks --region ${{ env.AWS_REGION }}
-
-      - name: Deploy ConfigMap
-        run: |
-          CONFIG_FILE="config/${{ matrix.service }}/prod.env"
           if [ -f "$CONFIG_FILE" ]; then
             kubectl create configmap ${{ matrix.service }}-config \
               --from-env-file="$CONFIG_FILE" \
