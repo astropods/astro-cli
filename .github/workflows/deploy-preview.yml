@@ -20,25 +20,35 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ github.event_name == 'workflow_dispatch' && '["astro-server","astro-client","astro-registry"]' || steps.filter.outputs.changes }}
+      services: ${{ steps.filter.outputs.services }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        if: github.event_name == 'push'
-        id: filter
         with:
-          filters: |
-            astro-server:
-              - 'apps/astro-server/**'
-              - 'deployment/Dockerfile.astro-server'
-              - 'packages/astro-spec/**'
-            astro-client:
-              - 'apps/astro-client/**'
-              - 'deployment/Dockerfile.astro-client'
-              - 'packages/astro-identity-gen/**'
-            astro-registry:
-              - 'apps/astro-registry/**'
-              - 'deployment/Dockerfile.astro-registry'
+          fetch-depth: 2
+
+      - name: Detect changed services
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo 'services=["astro-server","astro-client","astro-registry"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only HEAD^ HEAD)
+          services='[]'
+
+          if echo "$changed" | grep -qE '^(apps/astro-server|deployment/Dockerfile\.astro-server|packages/astro-spec)/'; then
+            services=$(echo "$services" | jq -c '. + ["astro-server"]')
+          fi
+          if echo "$changed" | grep -qE '^(apps/astro-client|deployment/Dockerfile\.astro-client|packages/astro-identity-gen)/'; then
+            services=$(echo "$services" | jq -c '. + ["astro-client"]')
+          fi
+          if echo "$changed" | grep -qE '^(apps/astro-registry|deployment/Dockerfile\.astro-registry)/'; then
+            services=$(echo "$services" | jq -c '. + ["astro-registry"]')
+          fi
+
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          echo "::notice::Changed services: $services"
 
   # ---------------------------------------------------------------------------
   # Build: multi-arch images, push by digest to preview ECR
