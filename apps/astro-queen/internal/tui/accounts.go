@@ -68,6 +68,12 @@ func (m *accountsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		return m, m.load()
 
 	case tea.KeyMsg:
+		// While the table is filtering, let it consume all keys.
+		if m.t.filtering {
+			cmd := m.t.Update(msg)
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "R":
 			m.status = statusWIP.Render("Refreshing…")
@@ -75,7 +81,7 @@ func (m *accountsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 
 		case "e":
 			row := m.t.SelectedRow()
-			idx := m.t.selected
+			idx := m.t.selectedRealIndex()
 			if len(row) == 0 || idx < 0 || idx >= len(m.ids) {
 				return m, nil
 			}
@@ -133,6 +139,7 @@ func (m *accountsModel) Hints(navMode bool) []KeyHint {
 	}
 	return []KeyHint{
 		{"↑↓/jk", "navigate"},
+		{"/", "search"},
 		{"e", "edit name"},
 		{"R", "refresh"},
 		{"Esc", "nav mode"},

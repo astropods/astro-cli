@@ -238,6 +238,12 @@ func (m *deploymentsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 }
 
 func (m *deploymentsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	// While the table is filtering, let it consume all keys.
+	if m.t.filtering {
+		cmd := m.t.Update(msg)
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "enter":
 		row := m.t.SelectedRow()
@@ -611,6 +617,7 @@ func (m *deploymentsModel) Hints(navMode bool) []KeyHint {
 	}
 	return []KeyHint{
 		{"↑↓/jk", "navigate"},
+		{"/", "search"},
 		{"Enter", "detail"},
 		{"d", "delete"},
 		{"r", "restart"},
