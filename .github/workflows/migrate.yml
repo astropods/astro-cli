@@ -6,6 +6,10 @@ on:
     paths:
       - "apps/astro-server/schema.sql"
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -17,21 +21,47 @@ env:
   FILE_PATTERN: "apps/astro-server/schema.sql"
 
 jobs:
-  rollout:
+  create-rollout:
     runs-on: ubuntu-latest
     container:
       image: bytebase/bytebase-action:latest
+    outputs:
+      plan: ${{ steps.set-output.outputs.plan }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Create and execute rollout
+      - name: Create rollout plan
         env:
           BYTEBASE_TARGETS: "instances/preview/databases/astro,instances/prod-postgresql/databases/astro"
+          BYTEBASE_OUTPUT: ${{ runner.temp }}/bytebase-metadata.json
         run: |
           bytebase-action rollout \
             --url=${{ env.BYTEBASE_URL }} \
             --project=${{ env.BYTEBASE_PROJECT }} \
             --file-pattern=${{ env.FILE_PATTERN }} \
             --targets=${{ env.BYTEBASE_TARGETS }} \
-            --declarative
+            --declarative \
+            --output=${{ env.BYTEBASE_OUTPUT }}
+      - name: Set output
+        id: set-output
+        run: |
+          PLAN=$(jq -r .plan ${{ runner.temp }}/bytebase-metadata.json)
+          echo "plan=$PLAN" >> $GITHUB_OUTPUT
+
+  deploy-to-preview:
+    needs: create-rollout
+    runs-on: ubuntu-latest
+    environment: preview
+    container:
+      image: bytebase/bytebase-action:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Roll out to preview
+        run: |
+          bytebase-action rollout \
+            --url=${{ env.BYTEBASE_URL }} \
+            --project=${{ env.BYTEBASE_PROJECT }} \
+            --target-stage=environments/preview \
+            --plan=${{ needs.create-rollout.outputs.plan }}
+
