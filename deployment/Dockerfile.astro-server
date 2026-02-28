@@ -14,6 +14,7 @@ WORKDIR /app
 # Copy go.mod files for dependency caching
 COPY apps/astro-server/go.mod apps/astro-server/go.sum ./apps/astro-server/
 COPY packages/astro-spec/go.mod ./packages/astro-spec/
+COPY packages/astro-proto/go.mod ./packages/astro-proto/
 
 # Download dependencies with cache mount
 WORKDIR /app/apps/astro-server
@@ -24,6 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 WORKDIR /app
 COPY apps/astro-server ./apps/astro-server
 COPY packages/astro-spec ./packages/astro-spec
+COPY packages/astro-proto ./packages/astro-proto
 
 # Build with cache mounts for faster compilation
 WORKDIR /app/apps/astro-server
