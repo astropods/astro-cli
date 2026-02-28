@@ -140,6 +140,18 @@ type RestartDeploymentResponse struct {
 	Status string `json:"status,omitempty"`
 }
 
+type GetSchemaRequest struct{}
+
+type ColumnInfo struct {
+	TableName  string `json:"table_name,omitempty"`
+	ColumnName string `json:"column_name,omitempty"`
+	DataType   string `json:"data_type,omitempty"`
+}
+
+type GetSchemaResponse struct {
+	Columns []*ColumnInfo `json:"columns,omitempty"`
+}
+
 type QueryDatabaseRequest struct {
 	Query string `json:"query,omitempty"`
 }

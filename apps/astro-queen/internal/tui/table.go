@@ -11,6 +11,7 @@ import (
 
 type tableModel struct {
 	headers  []string
+	colTypes []string // optional: aligned with headers (e.g. "uuid", "jsonb", "timestamp")
 	rows     [][]string
 	selected int
 	offset   int
@@ -112,6 +113,30 @@ func (m *tableModel) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+// fitCell truncates or pads a string to exactly width characters.
+// For UUID columns, shows only the first 8 characters.
+func fitCell(s string, width int, colType string) string {
+	// Strip newlines — JSON values can contain them.
+	s = strings.ReplaceAll(s, "\n", " ")
+
+	// UUID: show short form (first 8 chars + "…").
+	if colType == "uuid" && len(s) == 36 && s[8] == '-' {
+		s = s[:8] + "…"
+	}
+
+	r := []rune(s)
+	if len(r) > width {
+		if width > 1 {
+			return string(r[:width-1]) + "…"
+		}
+		return string(r[:width])
+	}
+	if len(r) < width {
+		return s + strings.Repeat(" ", width-len(r))
+	}
+	return s
+}
+
 func (m *tableModel) View() string {
 	if m.width == 0 || len(m.headers) == 0 {
 		return ""
@@ -128,7 +153,7 @@ func (m *tableModel) View() string {
 		if i > 0 {
 			b.WriteString("  ")
 		}
-		b.WriteString(headerStyle.Width(colWidths[i]).MaxWidth(colWidths[i]).Render(h))
+		b.WriteString(headerStyle.Render(fitCell(h, colWidths[i], "")))
 	}
 
 	// Data rows.
@@ -157,7 +182,11 @@ func (m *tableModel) View() string {
 			if ci < len(row) {
 				val = row[ci]
 			}
-			b.WriteString(style.Width(colWidths[ci]).MaxWidth(colWidths[ci]).Render(val))
+			ct := ""
+			if ci < len(m.colTypes) {
+				ct = m.colTypes[ci]
+			}
+			b.WriteString(style.Render(fitCell(val, colWidths[ci], ct)))
 		}
 
 		// For selected row, fill remaining width with background.
@@ -179,7 +208,10 @@ func (m *tableModel) View() string {
 	return b.String()
 }
 
-// columnWidths sizes columns to fit their content, then distributes leftover space.
+const maxColWidth = 30
+
+// columnWidths sizes columns to fit their content (capped at maxColWidth),
+// then distributes leftover space.
 func (m *tableModel) columnWidths() []int {
 	n := len(m.headers)
 	gap := 2 * (n - 1) // 2-char gap between columns
@@ -188,20 +220,23 @@ func (m *tableModel) columnWidths() []int {
 		avail = n
 	}
 
-	// Measure natural width of each column (max of header + all visible data).
+	// Measure natural width of each column (max of header + all data), capped.
 	natural := make([]int, n)
 	for i, h := range m.headers {
-		natural[i] = len(h)
+		natural[i] = min(len(h), maxColWidth)
 	}
 	for _, row := range m.rows {
 		for i := range natural {
-			if i < len(row) && len(row[i]) > natural[i] {
-				natural[i] = len(row[i])
+			if i < len(row) {
+				w := min(len(row[i]), maxColWidth)
+				if w > natural[i] {
+					natural[i] = w
+				}
 			}
 		}
 	}
 
-	// Start with natural widths, capped at available space.
+	// Start with natural widths.
 	widths := make([]int, n)
 	total := 0
 	for i, w := range natural {
@@ -210,7 +245,7 @@ func (m *tableModel) columnWidths() []int {
 	}
 
 	if total <= avail {
-		// All columns fit — distribute leftover space proportionally.
+		// All columns fit — distribute leftover evenly.
 		leftover := avail - total
 		for leftover > 0 {
 			for i := range widths {
@@ -222,17 +257,15 @@ func (m *tableModel) columnWidths() []int {
 			}
 		}
 	} else {
-		// Columns don't fit — shrink proportionally but keep a minimum of 4.
+		// Columns don't fit — shrink proportionally, minimum 4.
 		for i := range widths {
 			widths[i] = max(4, natural[i]*avail/total)
 		}
-		// Correct rounding errors.
 		sum := 0
 		for _, w := range widths {
 			sum += w
 		}
 		for sum > avail && sum > 0 {
-			// Shrink the widest column.
 			widest := 0
 			for i, w := range widths {
 				if w > widths[widest] {

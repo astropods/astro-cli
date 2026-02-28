@@ -19,6 +19,7 @@ type AdminServiceClient interface {
 	DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error)
 	RestartDeployment(ctx context.Context, in *RestartDeploymentRequest, opts ...grpc.CallOption) (*RestartDeploymentResponse, error)
 	QueryDatabase(ctx context.Context, in *QueryDatabaseRequest, opts ...grpc.CallOption) (*QueryDatabaseResponse, error)
+	GetSchema(ctx context.Context, in *GetSchemaRequest, opts ...grpc.CallOption) (*GetSchemaResponse, error)
 }
 
 type adminServiceClient struct {
@@ -77,6 +78,14 @@ func (c *adminServiceClient) QueryDatabase(ctx context.Context, in *QueryDatabas
 	return out, nil
 }
 
+func (c *adminServiceClient) GetSchema(ctx context.Context, in *GetSchemaRequest, opts ...grpc.CallOption) (*GetSchemaResponse, error) {
+	out := new(GetSchemaResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetSchema", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -86,6 +95,7 @@ type AdminServiceServer interface {
 	DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error)
 	RestartDeployment(context.Context, *RestartDeploymentRequest) (*RestartDeploymentResponse, error)
 	QueryDatabase(context.Context, *QueryDatabaseRequest) (*QueryDatabaseResponse, error)
+	GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -114,6 +124,10 @@ func (UnimplementedAdminServiceServer) RestartDeployment(context.Context, *Resta
 
 func (UnimplementedAdminServiceServer) QueryDatabase(context.Context, *QueryDatabaseRequest) (*QueryDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryDatabase not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSchema not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -218,6 +232,21 @@ func _AdminService_QueryDatabase_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSchemaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetSchema(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetSchema"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetSchema(ctx, req.(*GetSchemaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -229,6 +258,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "DeleteDeployment", Handler: _AdminService_DeleteDeployment_Handler},
 		{MethodName: "RestartDeployment", Handler: _AdminService_RestartDeployment_Handler},
 		{MethodName: "QueryDatabase", Handler: _AdminService_QueryDatabase_Handler},
+		{MethodName: "GetSchema", Handler: _AdminService_GetSchema_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

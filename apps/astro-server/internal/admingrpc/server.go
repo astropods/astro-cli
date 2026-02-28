@@ -317,10 +317,13 @@ func (s *Server) QueryDatabase(ctx context.Context, req *adminv1.QueryDatabaseRe
 		}
 		row := &adminv1.Row{Values: make([]string, len(cols))}
 		for i, v := range vals {
-			if v == nil {
+			switch val := v.(type) {
+			case nil:
 				row.Values[i] = "NULL"
-			} else {
-				row.Values[i] = fmt.Sprintf("%v", v)
+			case []byte:
+				row.Values[i] = string(val)
+			default:
+				row.Values[i] = fmt.Sprintf("%v", val)
 			}
 		}
 		resultRows = append(resultRows, row)
@@ -333,6 +336,31 @@ func (s *Server) QueryDatabase(ctx context.Context, req *adminv1.QueryDatabaseRe
 		Columns: cols,
 		Rows:    resultRows,
 	}, nil
+}
+
+// GetSchema returns column type information for all public tables.
+func (s *Server) GetSchema(ctx context.Context, _ *adminv1.GetSchemaRequest) (*adminv1.GetSchemaResponse, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query schema: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var cols []*adminv1.ColumnInfo
+	for rows.Next() {
+		var c adminv1.ColumnInfo
+		if err := rows.Scan(&c.TableName, &c.ColumnName, &c.DataType); err != nil {
+			return nil, fmt.Errorf("scan schema row: %w", err)
+		}
+		cols = append(cols, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("schema rows error: %w", err)
+	}
+
+	return &adminv1.GetSchemaResponse{Columns: cols}, nil
 }
 
 // ecrImage is an internal type for ECR image data.
