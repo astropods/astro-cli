@@ -16,8 +16,8 @@ import (
 type agentFocus int
 
 const (
-	agentFocusList   agentFocus = iota
-	agentFocusDetail            // two-pane: table left, builds right
+	agentFocusLeft  agentFocus = iota // table pane active
+	agentFocusRight                   // builds pane active
 )
 
 // ─── messages ─────────────────────────────────────────────────────────────────
@@ -29,6 +29,7 @@ type agentsLoadedMsg struct {
 }
 
 type agentBuildsMsg struct {
+	agent  string // "account/name" that was requested
 	builds []*adminv1.AgentBuild
 	err    error
 }
@@ -47,7 +48,7 @@ type agentsModel struct {
 	rightLines    []string
 	rightScroll   int
 	leftWidth     int
-	selectedAgent string // "account/name"
+	selectedAgent string // "account/name" currently loaded in right pane
 }
 
 func newAgentsModel(client adminv1.AdminServiceClient) *agentsModel {
@@ -71,71 +72,94 @@ func (m *agentsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	case agentsLoadedMsg:
 		if msg.err != nil {
 			m.status = statusErr.Render("Error: " + msg.err.Error())
-		} else {
-			m.t.SetRows(msg.rows)
-			m.status = statusOK.Render(fmt.Sprintf(
-				"%d agents  —  %s", len(msg.rows), msg.at.Format("15:04:05"),
-			))
+			return m, nil
 		}
-		return m, nil
+		m.t.SetRows(msg.rows)
+		m.status = statusOK.Render(fmt.Sprintf(
+			"%d agents  —  %s", len(msg.rows), msg.at.Format("15:04:05"),
+		))
+		// Auto-load builds for first row
+		return m, m.loadBuildsForSelected()
 
 	case agentBuildsMsg:
 		if msg.err != nil {
 			m.status = statusErr.Render("Error: " + msg.err.Error())
 			return m, nil
 		}
+		// Only apply if this response matches the currently selected agent
+		if msg.agent != m.currentAgentKey() {
+			return m, nil
+		}
 		m.builds = msg.builds
-		m.focus = agentFocusDetail
+		m.selectedAgent = msg.agent
 		m.rightLines = m.buildRightLines()
 		m.rightScroll = 0
-		m.computeLeftWidth()
-		m.t.SetSize(m.leftWidth, m.height)
 		m.status = statusOK.Render(fmt.Sprintf("%s — %d builds", m.selectedAgent, len(msg.builds)))
 		return m, nil
 
 	case tea.KeyMsg:
 		switch m.focus {
-		case agentFocusDetail:
-			return m.updateDetail(msg)
+		case agentFocusRight:
+			return m.updateRight(msg)
 		default:
-			return m.updateList(msg)
+			return m.updateLeft(msg)
 		}
-	}
-
-	if m.focus == agentFocusList {
-		cmd := m.t.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
-func (m *agentsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	if m.t.filtering {
-		cmd := m.t.Update(msg)
-		return m, cmd
-	}
-
-	switch msg.String() {
-	case "enter":
-		row := m.t.SelectedRow()
-		if len(row) < 2 {
-			return m, nil
-		}
-		acct, name := row[0], row[1]
-		m.selectedAgent = acct + "/" + name
-		m.status = statusWIP.Render("Loading builds…")
-		return m, m.loadBuilds(acct, name)
-
-	case "R":
-		m.status = statusWIP.Render("Refreshing…")
-		return m, m.load()
 	}
 
 	cmd := m.t.Update(msg)
 	return m, cmd
 }
 
-func (m *agentsModel) updateDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
+// currentAgentKey returns "account/name" for the currently highlighted table row.
+func (m *agentsModel) currentAgentKey() string {
+	row := m.t.SelectedRow()
+	if len(row) < 2 {
+		return ""
+	}
+	return row[0] + "/" + row[1]
+}
+
+// loadBuildsForSelected fires a builds load if the highlighted row changed.
+func (m *agentsModel) loadBuildsForSelected() tea.Cmd {
+	row := m.t.SelectedRow()
+	if len(row) < 2 {
+		return nil
+	}
+	key := row[0] + "/" + row[1]
+	if key == m.selectedAgent {
+		return nil
+	}
+	return m.loadBuilds(row[0], row[1])
+}
+
+func (m *agentsModel) updateLeft(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	if m.t.filtering {
+		cmd := m.t.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "enter", "tab":
+		// Switch focus to right pane
+		m.focus = agentFocusRight
+		return m, nil
+
+	case "R":
+		m.status = statusWIP.Render("Refreshing…")
+		return m, m.load()
+	}
+
+	// Let table handle navigation, then check if selection changed
+	prevKey := m.currentAgentKey()
+	cmd := m.t.Update(msg)
+	newKey := m.currentAgentKey()
+	if newKey != "" && newKey != prevKey {
+		return m, tea.Batch(cmd, m.loadBuilds(m.t.SelectedRow()[0], m.t.SelectedRow()[1]))
+	}
+	return m, cmd
+}
+
+func (m *agentsModel) updateRight(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	rightH := m.rightPaneHeight()
 	maxScroll := len(m.rightLines) - rightH
 	if maxScroll < 0 {
@@ -143,12 +167,8 @@ func (m *agentsModel) updateDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "backspace":
-		m.focus = agentFocusList
-		m.builds = nil
-		m.rightLines = nil
-		m.rightScroll = 0
-		m.t.SetSize(m.width, m.height)
+	case "backspace", "tab":
+		m.focus = agentFocusLeft
 		return m, nil
 	case "up", "k":
 		if m.rightScroll > 0 {
@@ -176,24 +196,19 @@ func (m *agentsModel) updateDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	return m, nil
 }
 
+// ─── view ─────────────────────────────────────────────────────────────────────
+
 func (m *agentsModel) View(w, h int) string {
 	if m.width == 0 {
 		m.SetSize(w, h)
 	}
-	if m.focus == agentFocusDetail {
-		return m.renderDetail()
-	}
-	return m.t.View()
+	return m.renderTwoPanes()
 }
 
 func (m *agentsModel) SetSize(w, h int) {
 	m.width, m.height = w, h
 	m.computeLeftWidth()
-	if m.focus == agentFocusDetail {
-		m.t.SetSize(m.leftWidth, h)
-	} else {
-		m.t.SetSize(w, h)
-	}
+	m.t.SetSize(m.leftWidth, h)
 }
 
 func (m *agentsModel) computeLeftWidth() {
@@ -225,18 +240,19 @@ func (m *agentsModel) Hints(navMode bool) []KeyHint {
 		}
 	}
 	switch m.focus {
-	case agentFocusDetail:
+	case agentFocusRight:
 		return []KeyHint{
 			{"↑↓/jk", "scroll"},
 			{"PgUp/Dn", "page"},
-			{"Backspace", "back"},
+			{"Tab", "table"},
+			{"Backspace", "table"},
 			{"Esc", "nav mode"},
 		}
 	}
 	return []KeyHint{
 		{"↑↓/jk", "navigate"},
 		{"/", "search"},
-		{"Enter", "builds"},
+		{"Enter/Tab", "builds pane"},
 		{"R", "refresh"},
 		{"Esc", "nav mode"},
 	}
@@ -272,9 +288,9 @@ func (m *agentsModel) loadBuilds(accountName, agentName string) tea.Cmd {
 			AgentName:   agentName,
 		})
 		if err != nil {
-			return agentBuildsMsg{err: err}
+			return agentBuildsMsg{agent: accountName + "/" + agentName, err: err}
 		}
-		return agentBuildsMsg{builds: resp.Builds}
+		return agentBuildsMsg{agent: accountName + "/" + agentName, builds: resp.Builds}
 	}
 }
 
@@ -306,7 +322,7 @@ func (m *agentsModel) buildRightLines() []string {
 	return lines
 }
 
-func (m *agentsModel) renderDetail() string {
+func (m *agentsModel) renderTwoPanes() string {
 	leftW := m.leftWidth
 	rightW := m.width - leftW - 4 // borders take 4 cols total
 	if rightW < 10 {
@@ -316,12 +332,18 @@ func (m *agentsModel) renderDetail() string {
 
 	// Left pane: table
 	leftContent := m.t.View()
-	leftBox := inactiveBorder.Width(leftW).Height(contentH).Render(leftContent)
+	leftStyle := activeBorder
+	rightStyle := inactiveBorder
+	if m.focus == agentFocusRight {
+		leftStyle = inactiveBorder
+		rightStyle = activeBorder
+	}
+	leftBox := leftStyle.Width(leftW).Height(contentH).Render(leftContent)
 
 	// Right pane: builds
 	rightSrc := m.rightLines
 	if len(rightSrc) == 0 {
-		rightSrc = []string{detailDim.Render("(no content)")}
+		rightSrc = []string{detailDim.Render("Select an agent to view builds")}
 	}
 
 	start := m.rightScroll
@@ -333,7 +355,7 @@ func (m *agentsModel) renderDetail() string {
 		end = len(rightSrc)
 	}
 	rightContent := strings.Join(rightSrc[start:end], "\n")
-	rightBox := activeBorder.Width(rightW).Height(contentH).Render(rightContent)
+	rightBox := rightStyle.Width(rightW).Height(contentH).Render(rightContent)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 }
