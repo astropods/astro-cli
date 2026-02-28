@@ -39,6 +39,26 @@ jobs:
           echo "download_url=https://download.astropods.ai/latest" >> "$GITHUB_OUTPUT"
           echo "s3_bucket=prod-astro-downloads" >> "$GITHUB_OUTPUT"
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check version not already released
+        env:
+          S3_BUCKET: ${{ steps.vars.outputs.s3_bucket }}
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          if aws s3api head-object \
+              --bucket "$S3_BUCKET" \
+              --key "${VERSION}/checksums.txt" \
+              > /dev/null 2>&1; then
+            echo "::error::Version ${VERSION} is already released to s3://${S3_BUCKET}. Bump the VERSION file before releasing."
+            exit 1
+          fi
+          echo "::notice::Version ${VERSION} not yet released, proceeding."
+
       - name: Build CLI binaries
         working-directory: apps/astro-cli
         env:
@@ -109,12 +129,6 @@ jobs:
           check "workosClientID"  "$WORKOS_CLIENT_ID"
 
           [ $FAIL -eq 0 ] || { echo "One or more build flags missing from binary"; exit 1; }
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload to S3
         env:
