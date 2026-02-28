@@ -67,6 +67,7 @@ func Run(client adminv1.AdminServiceClient, cfg *config.Config) error {
 	tabs := []Tab{
 		newAccountsModel(client),
 		newDeploymentsModel(client),
+		newAgentsModel(client),
 		newQueryModel(client),
 	}
 	p := tea.NewProgram(newAppModel(tabs, cfg), tea.WithAltScreen())

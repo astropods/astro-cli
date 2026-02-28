@@ -25,6 +25,7 @@ type AdminServiceClient interface {
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
 	GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error)
 	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
+	ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error)
 }
 
 type adminServiceClient struct {
@@ -131,6 +132,14 @@ func (c *adminServiceClient) GetPodEnv(ctx context.Context, in *GetPodEnvRequest
 	return out, nil
 }
 
+func (c *adminServiceClient) ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error) {
+	out := new(ListAgentsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListAgents", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -146,6 +155,7 @@ type AdminServiceServer interface {
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
 	GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error)
 	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
+	ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -198,6 +208,10 @@ func (UnimplementedAdminServiceServer) GetPodLogs(context.Context, *GetPodLogsRe
 
 func (UnimplementedAdminServiceServer) GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPodEnv not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAgents not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -392,6 +406,21 @@ func _AdminService_GetPodEnv_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListAgents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAgentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAgents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListAgents"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAgents(ctx, req.(*ListAgentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -409,6 +438,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},
 		{MethodName: "GetPodLogs", Handler: _AdminService_GetPodLogs_Handler},
 		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},
+		{MethodName: "ListAgents", Handler: _AdminService_ListAgents_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

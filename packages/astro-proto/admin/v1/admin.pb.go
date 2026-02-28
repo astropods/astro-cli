@@ -294,6 +294,24 @@ type GetPodEnvResponse struct {
 	Containers []*ContainerEnv `json:"containers,omitempty"`
 }
 
+type ListAgentsRequest struct{}
+
+type AdminAgent struct {
+	AccountName           string `json:"account_name,omitempty"`
+	Name                  string `json:"name,omitempty"`
+	Registry              string `json:"registry,omitempty"`
+	VersionCount          int32  `json:"version_count,omitempty"`
+	PublishedVersionCount int32  `json:"published_version_count,omitempty"`
+	LatestBuildID         string `json:"latest_build_id,omitempty"`
+	CreatedAt             string `json:"created_at,omitempty"`
+	UpdatedAt             string `json:"updated_at,omitempty"`
+}
+
+type ListAgentsResponse struct {
+	Agents []*AdminAgent `json:"agents,omitempty"`
+	Count  int32         `json:"count,omitempty"`
+}
+
 type QueryDatabaseRequest struct {
 	Query string `json:"query,omitempty"`
 }

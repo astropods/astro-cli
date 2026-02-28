@@ -678,6 +678,52 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 	}, nil
 }
 
+// ListAgents returns all agents across accounts with version counts.
+func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (*adminv1.ListAgentsResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			ac.name AS account_name,
+			a.name,
+			COALESCE(a.registry, '') AS registry,
+			(SELECT COUNT(*) FROM agent_versions WHERE agent_id = a.id) AS version_count,
+			(SELECT COUNT(*) FROM agent_published_versions WHERE agent_id = a.id) AS published_version_count,
+			COALESCE((SELECT build_id FROM agent_versions WHERE agent_id = a.id ORDER BY created_at DESC LIMIT 1), '') AS latest_build_id,
+			a.created_at,
+			a.updated_at
+		FROM agents a
+		JOIN accounts ac ON ac.id = a.account_id
+		ORDER BY a.updated_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var agents []*adminv1.AdminAgent
+	for rows.Next() {
+		var agent adminv1.AdminAgent
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(
+			&agent.AccountName, &agent.Name, &agent.Registry,
+			&agent.VersionCount, &agent.PublishedVersionCount, &agent.LatestBuildID,
+			&createdAt, &updatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		agent.CreatedAt = createdAt.Format(time.RFC3339)
+		agent.UpdatedAt = updatedAt.Format(time.RFC3339)
+		agents = append(agents, &agent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("agents rows error: %w", err)
+	}
+
+	return &adminv1.ListAgentsResponse{
+		Agents: agents,
+		Count:  int32(len(agents)), //nolint:gosec // bounded by DB rows
+	}, nil
+}
+
 // RenameAccount validates and updates an account's name.
 func (s *Server) RenameAccount(ctx context.Context, req *adminv1.RenameAccountRequest) (*adminv1.RenameAccountResponse, error) {
 	if req.AccountID == "" {

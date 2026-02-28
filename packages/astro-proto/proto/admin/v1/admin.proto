@@ -11,6 +11,7 @@ service AdminService {
   rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
   rpc RestartDeployment(RestartDeploymentRequest) returns (RestartDeploymentResponse);
   rpc QueryDatabase(QueryDatabaseRequest) returns (QueryDatabaseResponse);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
 }
 
 message ListDeploymentsRequest {
@@ -134,4 +135,22 @@ message Row {
 message QueryDatabaseResponse {
   repeated string columns = 1;
   repeated Row rows = 2;
+}
+
+message ListAgentsRequest {}
+
+message AdminAgent {
+  string account_name = 1;
+  string name = 2;
+  string registry = 3;
+  int32 version_count = 4;
+  int32 published_version_count = 5;
+  string latest_build_id = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+message ListAgentsResponse {
+  repeated AdminAgent agents = 1;
+  int32 count = 2;
 }
