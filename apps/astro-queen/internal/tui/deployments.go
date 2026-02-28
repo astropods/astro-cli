@@ -3,201 +3,182 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
+	tea "github.com/charmbracelet/bubbletea"
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
-	"github.com/rivo/tview"
 )
 
-type deploymentsView struct {
-	app    *App
-	table  *tview.Table
-	status *tview.TextView
-	flex   *tview.Flex
+// ─── messages ─────────────────────────────────────────────────────────────────
+
+type deploymentsLoadedMsg struct {
+	rows [][]string
+	err  error
+	at   time.Time
 }
 
-func newDeploymentsView(a *App) *deploymentsView {
-	v := &deploymentsView{app: a}
+type deploymentDeletedMsg struct{ err error }
+type deploymentRestartedMsg struct{ err error }
 
-	v.status = tview.NewTextView().SetDynamicColors(true)
+// ─── model ────────────────────────────────────────────────────────────────────
 
-	v.table = tview.NewTable().
-		SetFixed(1, 0).
-		SetSelectable(true, false).
-		SetBorders(false)
+type deploymentsModel struct {
+	client adminv1.AdminServiceClient
+	t      tableModel
+	status string
+	width  int
+	height int
+}
 
-	v.table.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		switch ev.Rune() {
-		case 'd':
-			v.handleDelete()
-			return nil
-		case 'r':
-			v.handleRestart()
-			return nil
-		case 'R':
-			go v.load()
-			return nil
+func newDeploymentsModel(client adminv1.AdminServiceClient) *deploymentsModel {
+	t := newTableModel([]string{"Account", "Name", "Namespace", "Status", "Build ID", "Deployed At"})
+	t.SetFocused(true)
+	return &deploymentsModel{
+		client: client,
+		t:      t,
+		status: statusWIP.Render("Loading…"),
+	}
+}
+
+// ─── Tab interface ────────────────────────────────────────────────────────────
+
+func (m *deploymentsModel) Name() string { return "Deployments" }
+
+func (m *deploymentsModel) Init() tea.Cmd { return m.load() }
+
+func (m *deploymentsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
+	switch msg := msg.(type) {
+	case deploymentsLoadedMsg:
+		if msg.err != nil {
+			m.status = statusErr.Render("Error: " + msg.err.Error())
+		} else {
+			m.t.SetRows(msg.rows)
+			m.status = statusOK.Render(fmt.Sprintf(
+				"%d deployments  —  %s", len(msg.rows), msg.at.Format("15:04:05"),
+			))
 		}
-		return ev
-	})
+		return m, nil
 
-	v.flex = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(v.status, 1, 0, false).
-		AddItem(v.table, 0, 1, true)
+	case deploymentDeletedMsg:
+		if msg.err != nil {
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
+		}
+		return m, m.load()
 
-	return v
-}
+	case deploymentRestartedMsg:
+		if msg.err != nil {
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
+		}
+		m.status = statusGood.Render("Pod deleted — Kubernetes will recreate it.")
+		return m, nil
 
-func (v *deploymentsView) root() tview.Primitive { return v.flex }
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "R":
+			m.status = statusWIP.Render("Refreshing…")
+			return m, m.load()
 
-func (v *deploymentsView) load() {
-	v.app.update(func() { v.status.SetText("[yellow]Loading…[-]") })
+		case "d":
+			row := m.t.SelectedRow()
+			if len(row) < 3 || row[2] == "" {
+				return m, nil
+			}
+			ns := row[2]
+			return m, func() tea.Msg {
+				return showConfirmMsg{
+					text: fmt.Sprintf(
+						"Delete all resources in namespace\n%s",
+						statusErr.Render(ns),
+					),
+					fn: func() tea.Cmd {
+						return func() tea.Msg {
+							_, err := m.client.DeleteDeployment(
+								context.Background(),
+								&adminv1.DeleteDeploymentRequest{Namespace: ns},
+							)
+							return deploymentDeletedMsg{err}
+						}
+					},
+				}
+			}
 
-	resp, err := v.app.client.ListDeployments(context.Background(), &adminv1.ListDeploymentsRequest{})
-	if err != nil {
-		v.app.update(func() { v.status.SetText(fmt.Sprintf("[red]Error: %s[-]", err)) })
-		return
+		case "r":
+			row := m.t.SelectedRow()
+			if len(row) < 3 || row[2] == "" {
+				return m, nil
+			}
+			ns := row[2]
+			return m, func() tea.Msg {
+				return showInputMsg{
+					title:       fmt.Sprintf("Restart pod in %s", statusWIP.Render(ns)),
+					placeholder: "pod-name-xxxxx",
+					fn: func(pod string) tea.Cmd {
+						if pod == "" {
+							return nil
+						}
+						return func() tea.Msg {
+							_, err := m.client.RestartDeployment(
+								context.Background(),
+								&adminv1.RestartDeploymentRequest{Namespace: ns, Pod: pod},
+							)
+							return deploymentRestartedMsg{err}
+						}
+					},
+				}
+			}
+		}
 	}
 
-	v.app.update(func() {
-		v.table.Clear()
-		headers := []string{"Account", "Name", "Namespace", "Status", "Build ID", "Deployed At"}
-		for col, h := range headers {
-			v.table.SetCell(0, col, headerCell(h))
+	cmd := m.t.Update(msg)
+	return m, cmd
+}
+
+func (m *deploymentsModel) View(w, h int) string {
+	if m.width == 0 {
+		m.SetSize(w, h)
+	}
+	return m.t.View()
+}
+
+func (m *deploymentsModel) SetSize(w, h int) {
+	m.width, m.height = w, h
+	m.t.SetSize(w, h)
+}
+
+func (m *deploymentsModel) Status() string { return m.status }
+
+func (m *deploymentsModel) Hints() []KeyHint {
+	return []KeyHint{
+		{"↑↓", "navigate"},
+		{"d", "delete"},
+		{"r", "restart"},
+		{"R", "refresh"},
+		{"Tab", "next tab"},
+		{"q", "quit"},
+	}
+}
+
+func (m *deploymentsModel) ConsumesKey(_ string) bool { return false }
+
+// ─── commands ─────────────────────────────────────────────────────────────────
+
+func (m *deploymentsModel) load() tea.Cmd {
+	return func() tea.Msg {
+		resp, err := m.client.ListDeployments(context.Background(), &adminv1.ListDeploymentsRequest{})
+		if err != nil {
+			return deploymentsLoadedMsg{err: err, at: time.Now()}
 		}
-		for row, d := range resp.Deployments {
-			cols := []string{
+		rows := make([][]string, len(resp.Deployments))
+		for i, d := range resp.Deployments {
+			rows[i] = []string{
 				d.AccountName,
 				d.Name,
 				d.Namespace,
-				statusColor(d.Status),
-				trunc(d.BuildID, 14),
+				d.Status,
+				trunc(d.BuildID, 12),
 				d.CreatedAt,
 			}
-			for col, val := range cols {
-				cell := tview.NewTableCell(val).SetExpansion(1)
-				if col == 3 { // status column already has color markup
-					cell.SetMaxWidth(14)
-				}
-				v.table.SetCell(row+1, col, cell)
-			}
 		}
-		v.status.SetText(fmt.Sprintf(
-			"[gray]%d deployments — last updated %s[-]",
-			len(resp.Deployments),
-			time.Now().Format("15:04:05"),
-		))
-	})
-}
-
-func (v *deploymentsView) selectedNamespace() string {
-	row, _ := v.table.GetSelection()
-	if row < 1 {
-		return ""
+		return deploymentsLoadedMsg{rows: rows, at: time.Now()}
 	}
-	cell := v.table.GetCell(row, 2)
-	if cell == nil {
-		return ""
-	}
-	return strings.TrimSpace(cell.Text)
-}
-
-func (v *deploymentsView) handleDelete() {
-	ns := v.selectedNamespace()
-	if ns == "" {
-		return
-	}
-	v.app.confirm(fmt.Sprintf("Delete deployment in namespace\n[red]%s[-]?", ns), func() {
-		_, err := v.app.client.DeleteDeployment(
-			context.Background(),
-			&adminv1.DeleteDeploymentRequest{Namespace: ns},
-		)
-		if err != nil {
-			v.app.showError(err.Error())
-			return
-		}
-		go v.load()
-	})
-}
-
-func (v *deploymentsView) handleRestart() {
-	ns := v.selectedNamespace()
-	if ns == "" {
-		return
-	}
-	// Declare form first so the button closure can reference it.
-	var form *tview.Form
-	form = tview.NewForm().
-		AddInputField("Pod name", "", 40, nil, nil).
-		AddButton("Restart", func() {
-			pod := form.GetFormItemByLabel("Pod name").(*tview.InputField).GetText()
-			v.app.pages.RemovePage("restart-form")
-			v.app.tv.SetFocus(v.app.pages)
-			if pod == "" {
-				return
-			}
-			go func() {
-				_, err := v.app.client.RestartDeployment(
-					context.Background(),
-					&adminv1.RestartDeploymentRequest{Namespace: ns, Pod: pod},
-				)
-				if err != nil {
-					v.app.showError(err.Error())
-					return
-				}
-				go v.load()
-			}()
-		}).
-		AddButton("Cancel", func() {
-			v.app.pages.RemovePage("restart-form")
-			v.app.tv.SetFocus(v.app.pages)
-		})
-	form.SetBorder(true).SetTitle(fmt.Sprintf(" Restart pod in %s ", ns)).SetTitleAlign(tview.AlignLeft)
-
-	modal := centered(form, 50, 9)
-	v.app.pages.AddPage("restart-form", modal, true, true)
-	v.app.tv.SetFocus(form)
-}
-
-// helpers
-
-func headerCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).
-		SetTextColor(tcell.ColorYellow).
-		SetAttributes(tcell.AttrBold).
-		SetSelectable(false).
-		SetExpansion(1)
-}
-
-func statusColor(s string) string {
-	switch s {
-	case "active", "running":
-		return "[green]" + s + "[-]"
-	case "failed", "error":
-		return "[red]" + s + "[-]"
-	case "pending":
-		return "[yellow]" + s + "[-]"
-	default:
-		return s
-	}
-}
-
-func trunc(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-1] + "…"
-}
-
-// centered wraps a primitive in a centered flex box of fixed size.
-func centered(p tview.Primitive, width, height int) tview.Primitive {
-	return tview.NewFlex().
-		AddItem(tview.NewBox(), 0, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
-			AddItem(tview.NewBox(), 0, 1, false).
-			AddItem(p, height, 1, true).
-			AddItem(tview.NewBox(), 0, 1, false), width, 1, true).
-		AddItem(tview.NewBox(), 0, 1, false)
 }
