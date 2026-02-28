@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
 	"google.golang.org/grpc"
@@ -23,19 +24,27 @@ type Client struct {
 // New creates a new gRPC client from config.
 // Uses mTLS if cert/key/CA files are configured, otherwise connects insecurely.
 func New(cfg *config.Config) (*Client, error) {
-	var dialOpts []grpc.DialOption
+	var opts []grpc.DialOption
 
 	if cfg.CertFile != "" && cfg.KeyFile != "" && cfg.CAFile != "" {
 		creds, err := loadClientTLS(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("load TLS: %w", err)
 		}
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
+		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	cc, err := grpc.NewClient(cfg.Server, dialOpts...)
+	// grpc.NewClient defaults to the "dns" resolver, which can produce zero
+	// addresses for bare host:port targets on some systems. Use passthrough
+	// to connect directly without service discovery.
+	target := cfg.Server
+	if !strings.Contains(target, "://") {
+		target = "passthrough:///" + target
+	}
+
+	cc, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", cfg.Server, err)
 	}

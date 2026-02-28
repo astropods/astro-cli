@@ -2,6 +2,7 @@ layer: "library"
 language: "go"
 
 tasks:
+  # Regenerate Go code from proto definitions (requires buf CLI).
   generate:
     command: "buf generate"
     inputs:
@@ -12,3 +13,10 @@ tasks:
       - "admin/v1/admin_grpc.pb.go"
     options:
       cache: false
+
+  deps:
+    script: "go mod download && go mod tidy"
+    inputs:
+      - "go.mod"
+    outputs:
+      - "go.sum"
