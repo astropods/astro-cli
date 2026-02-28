@@ -178,6 +178,46 @@ type RenameAccountResponse struct {
 	Status string `json:"status,omitempty"`
 }
 
+type GetDeploymentRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type GetDeploymentResponse struct {
+	Deployment    *AdminDeployment          `json:"deployment,omitempty"`
+	SpecJSON      string                    `json:"spec_json,omitempty"`
+	ClusterStatus *GetClusterStatusResponse `json:"cluster_status,omitempty"`
+}
+
+type GetPodLogsRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+	Pod       string `json:"pod,omitempty"`
+	TailLines int32  `json:"tail_lines,omitempty"`
+}
+
+type GetPodLogsResponse struct {
+	Logs string `json:"logs,omitempty"`
+}
+
+type GetPodEnvRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+	Pod       string `json:"pod,omitempty"`
+}
+
+type EnvVar struct {
+	Name      string `json:"name,omitempty"`
+	Value     string `json:"value,omitempty"`
+	ValueFrom string `json:"value_from,omitempty"`
+}
+
+type ContainerEnv struct {
+	Container string    `json:"container,omitempty"`
+	Vars      []*EnvVar `json:"vars,omitempty"`
+}
+
+type GetPodEnvResponse struct {
+	Containers []*ContainerEnv `json:"containers,omitempty"`
+}
+
 type QueryDatabaseRequest struct {
 	Query string `json:"query,omitempty"`
 }

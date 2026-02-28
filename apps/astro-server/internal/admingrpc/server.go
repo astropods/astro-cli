@@ -1,6 +1,7 @@
 package admingrpc
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -75,6 +77,51 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 	return &adminv1.ListDeploymentsResponse{
 		Deployments: results,
 		Count:       int32(len(results)), //nolint:gosec // bounded by cluster size
+	}, nil
+}
+
+// GetDeployment returns a single deployment with its spec and cluster status.
+func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRequest) (*adminv1.GetDeploymentResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+
+	dbDeps, err := s.deployStore.ListAllActive()
+	if err != nil {
+		return nil, fmt.Errorf("list deployments: %w", err)
+	}
+
+	var found *adminv1.AdminDeployment
+	var specJSON string
+	for _, d := range dbDeps {
+		if d.Namespace == req.Namespace {
+			found = &adminv1.AdminDeployment{
+				Name:        d.AgentName,
+				BuildID:     d.BuildID,
+				Namespace:   d.Namespace,
+				Status:      d.Status,
+				CreatedAt:   d.DeployedAt.Format(time.RFC3339),
+				AccountName: d.AccountName,
+				Components:  []string{},
+			}
+			specJSON = d.DeploymentSpecJSON
+			break
+		}
+	}
+	if found == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+
+	clusterStatus, err := s.GetClusterStatus(ctx, &adminv1.GetClusterStatusRequest{Namespace: req.Namespace})
+	if err != nil {
+		s.log.Warn("Failed to get cluster status for deployment detail", "namespace", req.Namespace, "error", err)
+		clusterStatus = &adminv1.GetClusterStatusResponse{}
+	}
+
+	return &adminv1.GetDeploymentResponse{
+		Deployment:    found,
+		SpecJSON:      specJSON,
+		ClusterStatus: clusterStatus,
 	}, nil
 }
 
@@ -287,6 +334,75 @@ func (s *Server) RestartDeployment(ctx context.Context, req *adminv1.RestartDepl
 	}
 
 	return &adminv1.RestartDeploymentResponse{Status: "restarting"}, nil
+}
+
+// GetPodLogs returns the tail of a pod's logs.
+func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest) (*adminv1.GetPodLogsResponse, error) {
+	if s.k8sClient == nil {
+		return nil, fmt.Errorf("kubernetes client not configured")
+	}
+	if req.Namespace == "" || req.Pod == "" {
+		return nil, fmt.Errorf("namespace and pod are required")
+	}
+
+	tailLines := int64(req.TailLines)
+	if tailLines <= 0 {
+		tailLines = 100
+	}
+
+	stream, err := s.k8sClient.Clientset().CoreV1().Pods(req.Namespace).GetLogs(req.Pod, &corev1.PodLogOptions{
+		TailLines: &tailLines,
+	}).Stream(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get pod logs: %w", err)
+	}
+	defer stream.Close() //nolint:errcheck
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(stream); err != nil {
+		return nil, fmt.Errorf("read pod logs: %w", err)
+	}
+
+	return &adminv1.GetPodLogsResponse{Logs: buf.String()}, nil
+}
+
+// GetPodEnv returns environment variables for all containers in a pod.
+func (s *Server) GetPodEnv(ctx context.Context, req *adminv1.GetPodEnvRequest) (*adminv1.GetPodEnvResponse, error) {
+	if s.k8sClient == nil {
+		return nil, fmt.Errorf("kubernetes client not configured")
+	}
+	if req.Namespace == "" || req.Pod == "" {
+		return nil, fmt.Errorf("namespace and pod are required")
+	}
+
+	pod, err := s.k8sClient.Clientset().CoreV1().Pods(req.Namespace).Get(ctx, req.Pod, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get pod: %w", err)
+	}
+
+	var containers []*adminv1.ContainerEnv
+	for _, c := range pod.Spec.Containers {
+		ce := &adminv1.ContainerEnv{Container: c.Name}
+		for _, e := range c.Env {
+			ev := &adminv1.EnvVar{Name: e.Name, Value: e.Value}
+			if e.ValueFrom != nil {
+				switch {
+				case e.ValueFrom.SecretKeyRef != nil:
+					ev.ValueFrom = fmt.Sprintf("secret:%s/%s", e.ValueFrom.SecretKeyRef.Name, e.ValueFrom.SecretKeyRef.Key)
+				case e.ValueFrom.ConfigMapKeyRef != nil:
+					ev.ValueFrom = fmt.Sprintf("configmap:%s/%s", e.ValueFrom.ConfigMapKeyRef.Name, e.ValueFrom.ConfigMapKeyRef.Key)
+				case e.ValueFrom.FieldRef != nil:
+					ev.ValueFrom = fmt.Sprintf("fieldRef:%s", e.ValueFrom.FieldRef.FieldPath)
+				default:
+					ev.ValueFrom = "ref"
+				}
+			}
+			ce.Vars = append(ce.Vars, ev)
+		}
+		containers = append(containers, ce)
+	}
+
+	return &adminv1.GetPodEnvResponse{Containers: containers}, nil
 }
 
 // QueryDatabase executes a raw SQL query and returns columns and rows.

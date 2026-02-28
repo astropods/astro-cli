@@ -14,6 +14,7 @@ import (
 // AdminServiceClient is the client API for AdminService.
 type AdminServiceClient interface {
 	ListDeployments(ctx context.Context, in *ListDeploymentsRequest, opts ...grpc.CallOption) (*ListDeploymentsResponse, error)
+	GetDeployment(ctx context.Context, in *GetDeploymentRequest, opts ...grpc.CallOption) (*GetDeploymentResponse, error)
 	GetClusterStatus(ctx context.Context, in *GetClusterStatusRequest, opts ...grpc.CallOption) (*GetClusterStatusResponse, error)
 	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 	DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error)
@@ -22,6 +23,8 @@ type AdminServiceClient interface {
 	GetSchema(ctx context.Context, in *GetSchemaRequest, opts ...grpc.CallOption) (*GetSchemaResponse, error)
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
+	GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error)
+	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
 }
 
 type adminServiceClient struct {
@@ -35,6 +38,14 @@ func NewAdminServiceClient(cc grpc.ClientConnInterface) AdminServiceClient {
 func (c *adminServiceClient) ListDeployments(ctx context.Context, in *ListDeploymentsRequest, opts ...grpc.CallOption) (*ListDeploymentsResponse, error) {
 	out := new(ListDeploymentsResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListDeployments", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetDeployment(ctx context.Context, in *GetDeploymentRequest, opts ...grpc.CallOption) (*GetDeploymentResponse, error) {
+	out := new(GetDeploymentResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetDeployment", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -104,10 +115,27 @@ func (c *adminServiceClient) RenameAccount(ctx context.Context, in *RenameAccoun
 	return out, nil
 }
 
+func (c *adminServiceClient) GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error) {
+	out := new(GetPodLogsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetPodLogs", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error) {
+	out := new(GetPodEnvResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetPodEnv", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
 	ListDeployments(context.Context, *ListDeploymentsRequest) (*ListDeploymentsResponse, error)
+	GetDeployment(context.Context, *GetDeploymentRequest) (*GetDeploymentResponse, error)
 	GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error)
 	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
 	DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error)
@@ -116,6 +144,8 @@ type AdminServiceServer interface {
 	GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error)
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
+	GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error)
+	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -124,6 +154,10 @@ type UnimplementedAdminServiceServer struct{}
 
 func (UnimplementedAdminServiceServer) ListDeployments(context.Context, *ListDeploymentsRequest) (*ListDeploymentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDeployments not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetDeployment(context.Context, *GetDeploymentRequest) (*GetDeploymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeployment not implemented")
 }
 
 func (UnimplementedAdminServiceServer) GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error) {
@@ -158,6 +192,14 @@ func (UnimplementedAdminServiceServer) RenameAccount(context.Context, *RenameAcc
 	return nil, status.Errorf(codes.Unimplemented, "method RenameAccount not implemented")
 }
 
+func (UnimplementedAdminServiceServer) GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPodLogs not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPodEnv not implemented")
+}
+
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 
 // UnsafeAdminServiceServer may be embedded to opt out of forward compatibility.
@@ -181,6 +223,21 @@ func _AdminService_ListDeployments_Handler(srv interface{}, ctx context.Context,
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListDeployments"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).ListDeployments(ctx, req.(*ListDeploymentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetDeployment"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetDeployment(ctx, req.(*GetDeploymentRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -305,12 +362,43 @@ func _AdminService_RenameAccount_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetPodLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPodLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetPodLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetPodLogs"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetPodLogs(ctx, req.(*GetPodLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetPodEnv_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPodEnvRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetPodEnv(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetPodEnv"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetPodEnv(ctx, req.(*GetPodEnvRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
 	HandlerType: (*AdminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{MethodName: "ListDeployments", Handler: _AdminService_ListDeployments_Handler},
+		{MethodName: "GetDeployment", Handler: _AdminService_GetDeployment_Handler},
 		{MethodName: "GetClusterStatus", Handler: _AdminService_GetClusterStatus_Handler},
 		{MethodName: "ListImages", Handler: _AdminService_ListImages_Handler},
 		{MethodName: "DeleteDeployment", Handler: _AdminService_DeleteDeployment_Handler},
@@ -319,6 +407,8 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetSchema", Handler: _AdminService_GetSchema_Handler},
 		{MethodName: "ListAccounts", Handler: _AdminService_ListAccounts_Handler},
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},
+		{MethodName: "GetPodLogs", Handler: _AdminService_GetPodLogs_Handler},
+		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",
