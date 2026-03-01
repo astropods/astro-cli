@@ -69,8 +69,9 @@ func newAppModel(tabs []Tab, cfg *config.Config) appModel {
 func Run(client *openmeter.Client, cfg *config.Config) error {
 	tabs := []Tab{
 		newMetersModel(client),
-		newEventsModel(client),
+		newFeaturesModel(client),
 		newCustomersModel(client),
+		newEventsModel(client),
 	}
 	p := tea.NewProgram(newAppModel(tabs, cfg), tea.WithAltScreen())
 	_, err := p.Run()

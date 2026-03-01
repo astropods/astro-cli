@@ -104,10 +104,6 @@ func (c *Client) ListCustomers() (json.RawMessage, error) {
 	return c.get("/api/v1/customers")
 }
 
-func (c *Client) CreateCustomer(body json.RawMessage) (json.RawMessage, error) {
-	return c.post("/api/v1/customers", body)
-}
-
 func (c *Client) GetCustomer(id string) (json.RawMessage, error) {
 	return c.get("/api/v1/customers/" + id)
 }
@@ -118,6 +114,64 @@ func (c *Client) UpdateCustomer(id string, body json.RawMessage) (json.RawMessag
 
 func (c *Client) DeleteCustomer(id string) error {
 	return c.del("/api/v1/customers/" + id)
+}
+
+func (c *Client) GetCustomerAccess(id string) (json.RawMessage, error) {
+	return c.get("/api/v1/customers/" + id + "/access")
+}
+
+func (c *Client) ListCustomerApps(id string) (json.RawMessage, error) {
+	return c.get("/api/v1/customers/" + id + "/apps")
+}
+
+func (c *Client) ListCustomerEntitlements(id string) (json.RawMessage, error) {
+	return c.get("/api/v2/customers/" + id + "/entitlements")
+}
+
+func (c *Client) CreateCustomerEntitlement(id string, body json.RawMessage) (json.RawMessage, error) {
+	return c.post("/api/v2/customers/"+id+"/entitlements", body)
+}
+
+func (c *Client) DeleteCustomerEntitlement(custID, entID string) error {
+	return c.del("/api/v2/customers/" + custID + "/entitlements/" + entID)
+}
+
+func (c *Client) GetEntitlementValue(custID, entID string) (json.RawMessage, error) {
+	return c.get("/api/v2/customers/" + custID + "/entitlements/" + entID + "/value")
+}
+
+func (c *Client) ListEntitlementGrants(custID, entID string) (json.RawMessage, error) {
+	return c.get("/api/v2/customers/" + custID + "/entitlements/" + entID + "/grants")
+}
+
+func (c *Client) CreateEntitlementGrant(custID, entID string, body json.RawMessage) (json.RawMessage, error) {
+	return c.post("/api/v2/customers/"+custID+"/entitlements/"+entID+"/grants", body)
+}
+
+func (c *Client) ResetEntitlement(custID, entID string, body json.RawMessage) (json.RawMessage, error) {
+	return c.post("/api/v2/customers/"+custID+"/entitlements/"+entID+"/reset", body)
+}
+
+// ─── Features ────────────────────────────────────────────────────────────────
+
+func (c *Client) ListFeatures(includeArchived bool) (json.RawMessage, error) {
+	path := "/api/v1/features"
+	if includeArchived {
+		path += "?includeArchived=true"
+	}
+	return c.get(path)
+}
+
+func (c *Client) CreateFeature(body json.RawMessage) (json.RawMessage, error) {
+	return c.post("/api/v1/features", body)
+}
+
+func (c *Client) GetFeature(id string) (json.RawMessage, error) {
+	return c.get("/api/v1/features/" + id)
+}
+
+func (c *Client) DeleteFeature(id string) error {
+	return c.del("/api/v1/features/" + id)
 }
 
 // ─── internal helpers ────────────────────────────────────────────────────────
