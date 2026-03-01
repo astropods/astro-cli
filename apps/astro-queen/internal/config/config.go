@@ -15,6 +15,9 @@ type Config struct {
 	CertFile string `yaml:"cert_file"` // client cert — file path or inline PEM (mTLS)
 	KeyFile  string `yaml:"key_file"`  // client key  — file path or inline PEM (mTLS)
 	CAFile   string `yaml:"ca_file"`   // CA cert     — file path or inline PEM (mTLS)
+
+	OpenMeterAPIKey string `yaml:"openmeter_api_key"` // Bearer token for OpenMeter API
+	OpenMeterServer string `yaml:"openmeter_server"`  // base URL (default https://meter.astropod.ai)
 }
 
 // DefaultPath returns the default config file path.
@@ -49,6 +52,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Server == "" {
 		cfg.Server = "localhost:9091"
+	}
+	if cfg.OpenMeterServer == "" {
+		cfg.OpenMeterServer = "https://meter.astropod.ai"
 	}
 
 	return &cfg, nil
