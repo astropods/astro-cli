@@ -51,6 +51,7 @@ type appModel struct {
 func newAppModel(tabs []Tab, cfg *config.Config) appModel {
 	ti := textinput.New()
 	ti.CharLimit = 200
+	ti.Prompt = ""
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(colAccent)

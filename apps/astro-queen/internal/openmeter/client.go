@@ -32,6 +32,17 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	// Try to parse RFC 7807 problem detail JSON.
+	var problem struct {
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
+	}
+	if json.Unmarshal([]byte(e.Body), &problem) == nil && problem.Title != "" {
+		if problem.Detail != "" {
+			return fmt.Sprintf("%d %s: %s", e.Status, problem.Title, problem.Detail)
+		}
+		return fmt.Sprintf("%d %s", e.Status, problem.Title)
+	}
 	return fmt.Sprintf("openmeter: %d — %s", e.Status, e.Body)
 }
 
@@ -71,9 +82,20 @@ func (c *Client) ListMeterGroupByValues(idOrSlug, groupByKey, params string) (js
 
 // ─── Events ──────────────────────────────────────────────────────────────────
 
-func (c *Client) IngestEvents(body json.RawMessage) error {
-	_, err := c.post("/api/v1/events", body)
-	return err
+func (c *Client) ListEvents(params string) (json.RawMessage, error) {
+	path := "/api/v1/events"
+	if params != "" {
+		path += "?" + params
+	}
+	return c.get(path)
+}
+
+func (c *Client) ListEventsV2(params string) (json.RawMessage, error) {
+	path := "/api/v2/events"
+	if params != "" {
+		path += "?" + params
+	}
+	return c.get(path)
 }
 
 // ─── Customers ───────────────────────────────────────────────────────────────

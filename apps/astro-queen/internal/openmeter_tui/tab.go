@@ -1,6 +1,8 @@
 package openmeter_tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -97,4 +99,28 @@ func trunc(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// ─── inline form helpers ─────────────────────────────────────────────────────
+
+// formField renders a labeled input field as a fixed-width lipgloss block.
+// The label is padded to a fixed 10-char width for alignment.
+func formField(label string, content string, focused bool, width int) string {
+	marker := " "
+	if focused {
+		marker = focusStyle.Render("▸")
+	}
+	lbl := labelStyle.Width(10).Render(label)
+	inner := marker + lbl + content
+	return lipgloss.NewStyle().Width(width).Render(inner)
+}
+
+// formLine joins multiple field blocks horizontally on one line.
+func formLine(fields ...string) string {
+	return lipgloss.JoinHorizontal(lipgloss.Top, fields...)
+}
+
+// formSeparator renders a full-width horizontal rule.
+func formSeparator(width int) string {
+	return lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", width))
 }

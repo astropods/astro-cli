@@ -53,7 +53,8 @@ func (m *customersModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
 	case customersLoadedMsg:
 		if msg.err != nil {
-			m.status = statusErr.Render("Error: " + msg.err.Error())
+			m.status = statusOK.Render("—")
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
 		} else {
 			m.t.SetRows(msg.rows)
 			m.ids = msg.ids

@@ -134,76 +134,40 @@ func newMetersModel(client *openmeter.Client) *metersModel {
 	t := newTableModel([]string{"Slug", "Name", "Event Type", "Aggregation", "Value Property", "Group By"})
 	t.SetFocused(true)
 
-	// Create form inputs
-	slugInput := textinput.New()
-	slugInput.Placeholder = "tokens_total"
-	slugInput.CharLimit = 64
-
-	nameInput := textinput.New()
-	nameInput.Placeholder = "Tokens Total (defaults to slug)"
-	nameInput.CharLimit = 256
-
-	descInput := textinput.New()
-	descInput.Placeholder = "AI Token Usage"
-	descInput.CharLimit = 1024
-
-	eventTypeInput := textinput.New()
-	eventTypeInput.Placeholder = "prompt"
-	eventTypeInput.CharLimit = 200
-
-	valuePropInput := textinput.New()
-	valuePropInput.Placeholder = "$.tokens"
-	valuePropInput.CharLimit = 200
-
-	groupByInput := textinput.New()
-	groupByInput.Placeholder = "model=$.model,type=$.type"
-	groupByInput.CharLimit = 500
-
-	eventFromInput := textinput.New()
-	eventFromInput.Placeholder = "2024-01-01T00:00:00Z (optional)"
-	eventFromInput.CharLimit = 30
-
-	// Update form inputs
-	uName := textinput.New()
-	uName.Placeholder = "display name"
-	uName.CharLimit = 256
-
-	uDesc := textinput.New()
-	uDesc.Placeholder = "description"
-	uDesc.CharLimit = 1024
-
-	uGroupBy := textinput.New()
-	uGroupBy.Placeholder = "model=$.model,type=$.type"
-	uGroupBy.CharLimit = 500
-
-	// Query form inputs
-	qSubject := textinput.New()
-	qSubject.Placeholder = "subject-1 (blank=all)"
-	qSubject.CharLimit = 200
-
-	qFrom := textinput.New()
-	qFrom.Placeholder = "2024-01-01T00:00:00Z"
-	qFrom.CharLimit = 30
-
-	qTo := textinput.New()
-	qTo.Placeholder = "2025-01-01T00:00:00Z"
-	qTo.CharLimit = 30
-
-	qWindowTZ := textinput.New()
-	qWindowTZ.Placeholder = "UTC"
-	qWindowTZ.CharLimit = 50
-
-	qGroupBy := textinput.New()
-	qGroupBy.Placeholder = "model,type (blank=all)"
-	qGroupBy.CharLimit = 200
+	// Helper to create a textinput with no prompt
+	mkInput := func(placeholder string, charLimit int) textinput.Model {
+		ti := textinput.New()
+		ti.Placeholder = placeholder
+		ti.CharLimit = charLimit
+		ti.Prompt = ""
+		return ti
+	}
 
 	return &metersModel{
-		client:       client,
-		t:            t,
-		status:       statusWIP.Render("Loading…"),
-		createFields: [7]textinput.Model{slugInput, nameInput, descInput, eventTypeInput, valuePropInput, groupByInput, eventFromInput},
-		updateFields: [3]textinput.Model{uName, uDesc, uGroupBy},
-		queryFields:  [5]textinput.Model{qSubject, qFrom, qTo, qWindowTZ, qGroupBy},
+		client: client,
+		t:      t,
+		status: statusWIP.Render("Loading…"),
+		createFields: [7]textinput.Model{
+			mkInput("tokens_total", 64),
+			mkInput("Tokens Total", 256),
+			mkInput("AI Token Usage", 1024),
+			mkInput("prompt", 200),
+			mkInput("$.tokens", 200),
+			mkInput("model=$.model,type=$.type", 500),
+			mkInput("2024-01-01T00:00:00Z", 30),
+		},
+		updateFields: [3]textinput.Model{
+			mkInput("display name", 256),
+			mkInput("description", 1024),
+			mkInput("model=$.model,type=$.type", 500),
+		},
+		queryFields: [5]textinput.Model{
+			mkInput("subject-1", 200),
+			mkInput("2024-01-01T00:00:00Z", 30),
+			mkInput("2025-01-01T00:00:00Z", 30),
+			mkInput("UTC", 50),
+			mkInput("model,type", 200),
+		},
 	}
 }
 
@@ -217,7 +181,8 @@ func (m *metersModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 	switch msg := msg.(type) {
 	case metersLoadedMsg:
 		if msg.err != nil {
-			m.status = statusErr.Render("Error: " + msg.err.Error())
+			m.status = statusOK.Render("—")
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
 		} else {
 			m.t.SetRows(msg.rows)
 			m.slugs = msg.slugs
@@ -255,7 +220,8 @@ func (m *metersModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 
 	case meterQueryResultMsg:
 		if msg.err != nil {
-			m.queryStatus = statusErr.Render("Query error: " + msg.err.Error())
+			m.queryStatus = statusOK.Render("—")
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
 		} else {
 			m.queryHeader = msg.header
 			m.queryRows = msg.rows
@@ -478,51 +444,30 @@ func (m *metersModel) viewDetail() string {
 	b.WriteString(lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", m.width)) + "\n")
 
 	// ─── inline query form ───
-	formLabel := labelStyle.Width(14)
-	for i := 0; i < queryFieldCount; i++ {
-		marker := "  "
-		if m.queryFocused == i {
-			marker = focusStyle.Render("▸ ")
-		}
-		switch i {
-		case queryFieldSubject:
-			m.queryFields[0].Width = m.width - 18
-			b.WriteString(marker + formLabel.Render("Subject:") + " " + m.queryFields[0].View() + "\n")
-		case queryFieldFrom:
-			m.queryFields[1].Width = 28
-			m.queryFields[2].Width = 28
-			// From and To on same line
-			fromMarker := "  "
-			toMarker := "  "
-			if m.queryFocused == queryFieldFrom {
-				fromMarker = focusStyle.Render("▸ ")
-			}
-			if m.queryFocused == queryFieldTo {
-				toMarker = focusStyle.Render("▸ ")
-			}
-			b.WriteString(fromMarker + formLabel.Render("From:") + " " + m.queryFields[1].View())
-			b.WriteString("  " + toMarker + formLabel.Render("To:") + " " + m.queryFields[2].View() + "\n")
-		case queryFieldTo:
-			continue // rendered with From
-		case queryFieldWindowSize:
-			b.WriteString(marker + formLabel.Render("Window:") + " " + renderWindowSizeSelector(m.queryWinIdx) + "\n")
-		case queryFieldWindowTZ:
-			m.queryFields[3].Width = 24
-			m.queryFields[4].Width = m.width - 18 - 28 - 16
-			tzMarker := "  "
-			gbMarker := "  "
-			if m.queryFocused == queryFieldWindowTZ {
-				tzMarker = focusStyle.Render("▸ ")
-			}
-			if m.queryFocused == queryFieldGroupBy {
-				gbMarker = focusStyle.Render("▸ ")
-			}
-			b.WriteString(tzMarker + formLabel.Render("Timezone:") + " " + m.queryFields[3].View())
-			b.WriteString("  " + gbMarker + formLabel.Render("Group By:") + " " + m.queryFields[4].View() + "\n")
-		case queryFieldGroupBy:
-			continue // rendered with Timezone
-		}
-	}
+	fieldW := 37 // input(24) + marker(1) + label(10) + pad(2)
+
+	m.queryFields[0].Width = 24
+	m.queryFields[1].Width = 24
+	m.queryFields[2].Width = 24
+	m.queryFields[3].Width = 20
+	m.queryFields[4].Width = 24
+
+	qRow1 := formLine(
+		formField("Subject:", m.queryFields[0].View(), m.queryFocused == queryFieldSubject, fieldW),
+		formField("Window:", renderWindowSizeSelector(m.queryWinIdx), m.queryFocused == queryFieldWindowSize, 0),
+	)
+	qRow2 := formLine(
+		formField("From:", m.queryFields[1].View(), m.queryFocused == queryFieldFrom, fieldW),
+		formField("To:", m.queryFields[2].View(), m.queryFocused == queryFieldTo, fieldW),
+	)
+	qRow3 := formLine(
+		formField("Timezone:", m.queryFields[3].View(), m.queryFocused == queryFieldWindowTZ, 33),
+		formField("Group By:", m.queryFields[4].View(), m.queryFocused == queryFieldGroupBy, fieldW),
+	)
+
+	b.WriteString(qRow1 + "\n")
+	b.WriteString(qRow2 + "\n")
+	b.WriteString(qRow3 + "\n")
 
 	b.WriteString(lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", m.width)) + "\n")
 
