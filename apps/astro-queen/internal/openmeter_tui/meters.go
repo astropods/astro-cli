@@ -3,7 +3,6 @@ package openmeter_tui
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -24,6 +23,12 @@ type metersLoadedMsg struct {
 
 type meterDeletedMsg struct{ err error }
 type meterCreatedMsg struct{ err error }
+type meterUpdatedMsg struct{ err error }
+
+type meterDetailMsg struct {
+	info meterInfo
+	err  error
+}
 
 type meterQueryResultMsg struct {
 	header string
@@ -31,12 +36,17 @@ type meterQueryResultMsg struct {
 	err    error
 }
 
-type meterSubjectsMsg struct {
-	rows [][]string
-	err  error
+type meterInfo struct {
+	Slug          string
+	Name          string
+	Description   string
+	EventType     string
+	Aggregation   string
+	ValueProperty string
+	GroupBy       map[string]string
 }
 
-// ─── aggregation & windowSize enums (from OpenMeter OpenAPI spec) ────────────
+// ─── enums (from OpenMeter OpenAPI spec) ─────────────────────────────────────
 
 var aggregations = []string{"SUM", "COUNT", "UNIQUE_COUNT", "AVG", "MIN", "MAX", "LATEST"}
 var windowSizes = []string{"", "MINUTE", "HOUR", "DAY", "MONTH"}
@@ -48,10 +58,9 @@ type meterFocus int
 const (
 	meterFocusList meterFocus = iota
 	meterFocusDetail
-	meterFocusQuery
 )
 
-// create form field indices (logical fields, not all are text inputs)
+// create form field indices
 const (
 	createFieldSlug = iota
 	createFieldName
@@ -61,7 +70,26 @@ const (
 	createFieldValueProp
 	createFieldGroupBy
 	createFieldEventFrom
-	createFieldCount // sentinel
+	createFieldCount
+)
+
+// update form field indices
+const (
+	updateFieldName = iota
+	updateFieldDescription
+	updateFieldGroupBy
+	updateFieldCount
+)
+
+// query form field indices (inline in detail view)
+const (
+	queryFieldSubject = iota
+	queryFieldFrom
+	queryFieldTo
+	queryFieldWindowSize // cycle selector
+	queryFieldWindowTZ
+	queryFieldGroupBy
+	queryFieldCount
 )
 
 type metersModel struct {
@@ -73,27 +101,40 @@ type metersModel struct {
 	height int
 	focus  meterFocus
 
-	// Create form — 7 text inputs (slug, name, description, eventType, valueProp, groupBy, eventFrom)
+	// Create form — 7 text inputs
 	createFields  [7]textinput.Model
 	createFocused int
 	createAggIdx  int
 	createStatus  string
 
-	// Detail sub-view
-	detailJSON   string
-	detailSlug   string
-	detailScroll int
+	// Update form — 3 text inputs
+	updateFields  [3]textinput.Model
+	updateFocused int
+	updateStatus  string
 
-	// Query sub-view
-	queryHeader string
-	queryRows   [][]string
-	queryStatus string
+	// Detail view — meter info + inline query form + results
+	detailSlug   string
+	detailInfo   meterInfo
+	detailLoaded bool
+
+	// Inline query form fields
+	queryFields     [5]textinput.Model
+	queryFocused    int
+	queryWinIdx     int
+	queryFormStatus string
+
+	// Query results
+	queryHeader  string
+	queryRows    [][]string
+	queryStatus  string
+	resultScroll int
 }
 
 func newMetersModel(client *openmeter.Client) *metersModel {
 	t := newTableModel([]string{"Slug", "Name", "Event Type", "Aggregation", "Value Property", "Group By"})
 	t.SetFocused(true)
 
+	// Create form inputs
 	slugInput := textinput.New()
 	slugInput.Placeholder = "tokens_total"
 	slugInput.CharLimit = 64
@@ -122,11 +163,47 @@ func newMetersModel(client *openmeter.Client) *metersModel {
 	eventFromInput.Placeholder = "2024-01-01T00:00:00Z (optional)"
 	eventFromInput.CharLimit = 30
 
+	// Update form inputs
+	uName := textinput.New()
+	uName.Placeholder = "display name"
+	uName.CharLimit = 256
+
+	uDesc := textinput.New()
+	uDesc.Placeholder = "description"
+	uDesc.CharLimit = 1024
+
+	uGroupBy := textinput.New()
+	uGroupBy.Placeholder = "model=$.model,type=$.type"
+	uGroupBy.CharLimit = 500
+
+	// Query form inputs
+	qSubject := textinput.New()
+	qSubject.Placeholder = "subject-1 (blank=all)"
+	qSubject.CharLimit = 200
+
+	qFrom := textinput.New()
+	qFrom.Placeholder = "2024-01-01T00:00:00Z"
+	qFrom.CharLimit = 30
+
+	qTo := textinput.New()
+	qTo.Placeholder = "2025-01-01T00:00:00Z"
+	qTo.CharLimit = 30
+
+	qWindowTZ := textinput.New()
+	qWindowTZ.Placeholder = "UTC"
+	qWindowTZ.CharLimit = 50
+
+	qGroupBy := textinput.New()
+	qGroupBy.Placeholder = "model,type (blank=all)"
+	qGroupBy.CharLimit = 200
+
 	return &metersModel{
 		client:       client,
 		t:            t,
 		status:       statusWIP.Render("Loading…"),
 		createFields: [7]textinput.Model{slugInput, nameInput, descInput, eventTypeInput, valuePropInput, groupByInput, eventFromInput},
+		updateFields: [3]textinput.Model{uName, uDesc, uGroupBy},
+		queryFields:  [5]textinput.Model{qSubject, qFrom, qTo, qWindowTZ, qGroupBy},
 	}
 }
 
@@ -162,6 +239,20 @@ func (m *metersModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		}
 		return m, m.load()
 
+	case meterDetailMsg:
+		if msg.err != nil {
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
+		}
+		m.detailInfo = msg.info
+		m.detailLoaded = true
+		return m, nil
+
+	case meterUpdatedMsg:
+		if msg.err != nil {
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
+		}
+		return m, tea.Batch(m.load(), m.loadDetail(m.detailSlug))
+
 	case meterQueryResultMsg:
 		if msg.err != nil {
 			m.queryStatus = statusErr.Render("Query error: " + msg.err.Error())
@@ -169,16 +260,7 @@ func (m *metersModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			m.queryHeader = msg.header
 			m.queryRows = msg.rows
 			m.queryStatus = statusOK.Render(fmt.Sprintf("%d rows", len(msg.rows)))
-		}
-		return m, nil
-
-	case meterSubjectsMsg:
-		if msg.err != nil {
-			m.queryStatus = statusErr.Render("Error: " + msg.err.Error())
-		} else {
-			m.queryStatus = statusOK.Render(fmt.Sprintf("%d subjects", len(msg.rows)))
-			m.queryRows = msg.rows
-			m.queryHeader = ""
+			m.resultScroll = 0
 		}
 		return m, nil
 
@@ -188,8 +270,6 @@ func (m *metersModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			return m.updateList(msg)
 		case meterFocusDetail:
 			return m.updateDetail(msg)
-		case meterFocusQuery:
-			return m.updateQuery(msg)
 		}
 	}
 
@@ -217,11 +297,21 @@ func (m *metersModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 		slug := m.slugs[idx]
 		m.focus = meterFocusDetail
 		m.detailSlug = slug
-		m.detailScroll = 0
+		m.detailLoaded = false
 		m.queryRows = nil
 		m.queryHeader = ""
 		m.queryStatus = ""
-		return m, m.loadDetail(slug)
+		m.resultScroll = 0
+		// Reset and focus query form
+		m.queryFocused = queryFieldSubject
+		m.queryWinIdx = 0
+		m.queryFormStatus = ""
+		for i := range m.queryFields {
+			m.queryFields[i].Reset()
+			m.queryFields[i].Blur()
+		}
+		m.queryFields[0].Focus()
+		return m, tea.Batch(m.loadDetail(slug), textinput.Blink)
 
 	case "c":
 		m.createFocused = createFieldSlug
@@ -262,10 +352,267 @@ func (m *metersModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	return m, cmd
 }
 
+// ─── detail view (meter info + inline query form + results) ──────────────────
+
+func (m *metersModel) updateDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "backspace":
+		m.focus = meterFocusList
+		return m, nil
+	case "e":
+		return m, m.openUpdateForm()
+	case "enter":
+		return m, m.submitQuery()
+	case "tab", "down":
+		return m, m.queryMoveFocus((m.queryFocused + 1) % queryFieldCount)
+	case "shift+tab", "up":
+		return m, m.queryMoveFocus((m.queryFocused + queryFieldCount - 1) % queryFieldCount)
+	}
+
+	// WindowSize cycle selector
+	if m.queryFocused == queryFieldWindowSize {
+		switch key {
+		case "left", "h":
+			m.queryWinIdx = (m.queryWinIdx + len(windowSizes) - 1) % len(windowSizes)
+			return m, nil
+		case "right", "l":
+			m.queryWinIdx = (m.queryWinIdx + 1) % len(windowSizes)
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// Forward to active text input
+	ti := queryTextFieldIdx(m.queryFocused)
+	if ti >= 0 {
+		var cmd tea.Cmd
+		m.queryFields[ti], cmd = m.queryFields[ti].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+func queryTextFieldIdx(logical int) int {
+	switch logical {
+	case queryFieldSubject:
+		return 0
+	case queryFieldFrom:
+		return 1
+	case queryFieldTo:
+		return 2
+	case queryFieldWindowTZ:
+		return 3
+	case queryFieldGroupBy:
+		return 4
+	default:
+		return -1
+	}
+}
+
+func (m *metersModel) queryMoveFocus(next int) tea.Cmd {
+	if ti := queryTextFieldIdx(m.queryFocused); ti >= 0 {
+		m.queryFields[ti].Blur()
+	}
+	m.queryFocused = next
+	if ti := queryTextFieldIdx(next); ti >= 0 {
+		m.queryFields[ti].Focus()
+		return textinput.Blink
+	}
+	return nil
+}
+
+func (m *metersModel) View(w, h int) string {
+	if m.width == 0 {
+		m.SetSize(w, h)
+	}
+	switch m.focus {
+	case meterFocusDetail:
+		return m.viewDetail()
+	default:
+		tip := tipStyle.Render("Meters define how events are aggregated. Select a meter and press Enter to inspect or query it.")
+		return tip + "\n" + m.t.View()
+	}
+}
+
+func (m *metersModel) viewDetail() string {
+	if !m.detailLoaded {
+		return statusWIP.Render("Loading meter…")
+	}
+
+	var b strings.Builder
+	info := m.detailInfo
+	kvStyle := lipgloss.NewStyle().Foreground(colDimmed)
+	valStyle := lipgloss.NewStyle().Foreground(colFg)
+
+	// ─── header: meter summary ───
+	b.WriteString(titleStyle.Render(info.Slug))
+	if info.Name != "" && info.Name != info.Slug {
+		b.WriteString("  " + valStyle.Render(info.Name))
+	}
+	b.WriteString("\n")
+
+	summaryParts := []string{
+		kvStyle.Render("event: ") + valStyle.Render(info.EventType),
+		kvStyle.Render("agg: ") + valStyle.Render(info.Aggregation),
+	}
+	if info.ValueProperty != "" {
+		summaryParts = append(summaryParts, kvStyle.Render("value: ")+valStyle.Render(info.ValueProperty))
+	}
+	if len(info.GroupBy) > 0 {
+		gb := ""
+		for k, v := range info.GroupBy {
+			if gb != "" {
+				gb += ", "
+			}
+			gb += k + "=" + v
+		}
+		summaryParts = append(summaryParts, kvStyle.Render("groupBy: ")+valStyle.Render(gb))
+	}
+	if info.Description != "" {
+		summaryParts = append(summaryParts, kvStyle.Render("desc: ")+valStyle.Render(info.Description))
+	}
+	b.WriteString(strings.Join(summaryParts, "  ") + "\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", m.width)) + "\n")
+
+	// ─── inline query form ───
+	formLabel := labelStyle.Width(14)
+	for i := 0; i < queryFieldCount; i++ {
+		marker := "  "
+		if m.queryFocused == i {
+			marker = focusStyle.Render("▸ ")
+		}
+		switch i {
+		case queryFieldSubject:
+			m.queryFields[0].Width = m.width - 18
+			b.WriteString(marker + formLabel.Render("Subject:") + " " + m.queryFields[0].View() + "\n")
+		case queryFieldFrom:
+			m.queryFields[1].Width = 28
+			m.queryFields[2].Width = 28
+			// From and To on same line
+			fromMarker := "  "
+			toMarker := "  "
+			if m.queryFocused == queryFieldFrom {
+				fromMarker = focusStyle.Render("▸ ")
+			}
+			if m.queryFocused == queryFieldTo {
+				toMarker = focusStyle.Render("▸ ")
+			}
+			b.WriteString(fromMarker + formLabel.Render("From:") + " " + m.queryFields[1].View())
+			b.WriteString("  " + toMarker + formLabel.Render("To:") + " " + m.queryFields[2].View() + "\n")
+		case queryFieldTo:
+			continue // rendered with From
+		case queryFieldWindowSize:
+			b.WriteString(marker + formLabel.Render("Window:") + " " + renderWindowSizeSelector(m.queryWinIdx) + "\n")
+		case queryFieldWindowTZ:
+			m.queryFields[3].Width = 24
+			m.queryFields[4].Width = m.width - 18 - 28 - 16
+			tzMarker := "  "
+			gbMarker := "  "
+			if m.queryFocused == queryFieldWindowTZ {
+				tzMarker = focusStyle.Render("▸ ")
+			}
+			if m.queryFocused == queryFieldGroupBy {
+				gbMarker = focusStyle.Render("▸ ")
+			}
+			b.WriteString(tzMarker + formLabel.Render("Timezone:") + " " + m.queryFields[3].View())
+			b.WriteString("  " + gbMarker + formLabel.Render("Group By:") + " " + m.queryFields[4].View() + "\n")
+		case queryFieldGroupBy:
+			continue // rendered with Timezone
+		}
+	}
+
+	b.WriteString(lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", m.width)) + "\n")
+
+	// ─── query results ───
+	if m.queryFormStatus != "" {
+		b.WriteString(m.queryFormStatus + "\n")
+	}
+	if m.queryStatus != "" {
+		b.WriteString(m.queryStatus)
+		if m.queryHeader != "" {
+			b.WriteString("  " + descStyle.Render(m.queryHeader))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(m.queryRows) > 0 {
+		b.WriteString(headerStyle.Render("Window Start          Window End            Value         Subject       Group By") + "\n")
+		// Show results with scroll
+		visibleH := m.height - strings.Count(b.String(), "\n") - 2
+		if visibleH < 1 {
+			visibleH = 1
+		}
+		end := m.resultScroll + visibleH
+		if end > len(m.queryRows) {
+			end = len(m.queryRows)
+		}
+		start := m.resultScroll
+		if start > len(m.queryRows) {
+			start = len(m.queryRows)
+		}
+		for _, row := range m.queryRows[start:end] {
+			b.WriteString(strings.Join(row, "  ") + "\n")
+		}
+	} else if m.queryStatus == "" {
+		b.WriteString(descStyle.Render("Press Enter to query this meter") + "\n")
+	}
+
+	return b.String()
+}
+
+func (m *metersModel) SetSize(w, h int) {
+	m.width, m.height = w, h
+	m.t.SetSize(w, h)
+}
+
+func (m *metersModel) Status() string {
+	switch m.focus {
+	case meterFocusDetail:
+		if m.queryStatus != "" {
+			return m.queryStatus
+		}
+		return statusOK.Render("meter: " + m.detailSlug)
+	default:
+		return m.status
+	}
+}
+
+func (m *metersModel) Hints(navMode bool) []KeyHint {
+	if navMode {
+		return []KeyHint{
+			{"1-9/Tab", "switch tab"},
+			{"q", "quit"},
+			{"Esc", "back"},
+		}
+	}
+	switch m.focus {
+	case meterFocusDetail:
+		return []KeyHint{
+			{"↑↓/Tab", "fields"},
+			{"←→", "window size"},
+			{"Enter", "query"},
+			{"e", "edit"},
+			{"Bksp", "back"},
+		}
+	default:
+		return []KeyHint{
+			{"↑↓/jk", "navigate"},
+			{"/", "search"},
+			{"Enter", "detail"},
+			{"c", "create"},
+			{"d", "delete"},
+			{"R", "refresh"},
+			{"Esc", "nav mode"},
+		}
+	}
+}
+
 // ─── create form ─────────────────────────────────────────────────────────────
 
-// textFieldIdx maps logical field index → textinput array index, or -1 for aggregation.
-func textFieldIdx(logical int) int {
+func createTextFieldIdx(logical int) int {
 	switch logical {
 	case createFieldSlug:
 		return 0
@@ -282,7 +629,7 @@ func textFieldIdx(logical int) int {
 	case createFieldEventFrom:
 		return 6
 	default:
-		return -1 // aggregation
+		return -1
 	}
 }
 
@@ -292,13 +639,10 @@ func (m *metersModel) updateCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 	switch key {
 	case "esc":
 		return true, nil
-
 	case "tab", "down":
 		return false, m.createMoveFocus((m.createFocused + 1) % createFieldCount)
-
 	case "shift+tab", "up":
 		return false, m.createMoveFocus((m.createFocused + createFieldCount - 1) % createFieldCount)
-
 	case "enter":
 		cmd := m.submitCreate()
 		if cmd == nil {
@@ -319,7 +663,7 @@ func (m *metersModel) updateCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 		return false, nil
 	}
 
-	ti := textFieldIdx(m.createFocused)
+	ti := createTextFieldIdx(m.createFocused)
 	if ti >= 0 {
 		var cmd tea.Cmd
 		m.createFields[ti], cmd = m.createFields[ti].Update(msg)
@@ -330,11 +674,11 @@ func (m *metersModel) updateCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 }
 
 func (m *metersModel) createMoveFocus(next int) tea.Cmd {
-	if ti := textFieldIdx(m.createFocused); ti >= 0 {
+	if ti := createTextFieldIdx(m.createFocused); ti >= 0 {
 		m.createFields[ti].Blur()
 	}
 	m.createFocused = next
-	if ti := textFieldIdx(next); ti >= 0 {
+	if ti := createTextFieldIdx(next); ti >= 0 {
 		m.createFields[ti].Focus()
 		return textinput.Blink
 	}
@@ -399,7 +743,6 @@ func (m *metersModel) submitCreate() tea.Cmd {
 	}
 }
 
-// parseGroupBy parses "key=$.path,key2=$.path2" or "key1,key2" (shorthand: key=$.<key>).
 func parseGroupBy(s string) map[string]string {
 	gb := make(map[string]string)
 	for _, part := range strings.Split(s, ",") {
@@ -416,103 +759,363 @@ func parseGroupBy(s string) map[string]string {
 	return gb
 }
 
-// ─── field help (right pane of create form) ──────────────────────────────────
-
-func (m *metersModel) fieldHelp() (string, string) {
+func (m *metersModel) createFieldHelp() (string, string) {
 	switch m.createFocused {
 	case createFieldSlug:
 		return "Slug (required)",
-			"Unique identifier for the meter.\n" +
-				"Alphanumeric + underscores only.\n" +
-				"Used in API paths.\n\n" +
-				"  Example: tokens_total\n" +
-				"  Example: api_requests_total\n" +
-				"  Example: gpu_execution_time"
+			"Unique identifier for the meter.\nAlphanumeric + underscores only.\nUsed in API paths.\n\n  Example: tokens_total\n  Example: api_requests_total"
 	case createFieldName:
 		return "Display Name",
-			"Human-readable name (1-256 chars).\n" +
-				"Defaults to the slug if omitted.\n\n" +
-				"  Example: Tokens Total\n" +
-				"  Example: API Requests"
+			"Human-readable name (1-256 chars).\nDefaults to the slug if omitted.\n\n  Example: Tokens Total"
 	case createFieldDescription:
 		return "Description",
-			"Optional description (max 1024).\n\n" +
-				"  Example: AI Token Usage\n" +
-				"  Example: Total API calls"
+			"Optional description (max 1024).\n\n  Example: AI Token Usage"
 	case createFieldEventType:
 		return "Event Type (required)",
-			"The CloudEvents type to match.\n" +
-				"Only events with this exact type\n" +
-				"are aggregated by the meter.\n\n" +
-				"  Example: prompt\n" +
-				"  Example: request\n" +
-				"  Example: gpu_time"
+			"The CloudEvents type to match.\nOnly events with this exact type\nare aggregated by the meter.\n\n  Example: prompt\n  Example: request"
 	case createFieldAggregation:
 		agg := aggregations[m.createAggIdx]
 		base := "How matched events are combined.\n\n"
 		switch agg {
 		case "SUM":
-			base += "Sums a numeric value property.\n" +
-				"Use for: tokens, bytes, duration.\n" +
-				"Requires: valueProperty"
+			base += "Sums a numeric value property.\nRequires: valueProperty"
 		case "COUNT":
-			base += "Counts the number of events.\n" +
-				"No value property needed."
+			base += "Counts the number of events.\nNo value property needed."
 		case "UNIQUE_COUNT":
-			base += "Counts distinct values of the\n" +
-				"value property (must be string).\n" +
-				"Requires: valueProperty"
+			base += "Counts distinct values (string).\nRequires: valueProperty"
 		case "AVG":
-			base += "Averages the value property.\n" +
-				"Requires: valueProperty"
+			base += "Averages the value property.\nRequires: valueProperty"
 		case "MIN":
-			base += "Minimum value in the window.\n" +
-				"Requires: valueProperty"
+			base += "Minimum value in the window.\nRequires: valueProperty"
 		case "MAX":
-			base += "Maximum value in the window.\n" +
-				"Requires: valueProperty"
+			base += "Maximum value in the window.\nRequires: valueProperty"
 		case "LATEST":
-			base += "Most recent value in the period.\n" +
-				"Useful for resource tracking.\n" +
-				"Requires: valueProperty"
+			base += "Most recent value in period.\nRequires: valueProperty"
 		}
 		return "Aggregation: " + agg, base
 	case createFieldValueProp:
 		return "Value Property",
-			"JSONPath to extract the value from\n" +
-				"ingested event data.\n\n" +
-				"Required for: SUM, AVG, MIN, MAX,\n" +
-				"UNIQUE_COUNT, LATEST.\n" +
-				"Ignored for COUNT.\n\n" +
-				"SUM/AVG/MIN/MAX: must be number.\n" +
-				"UNIQUE_COUNT: must be string.\n\n" +
-				"  Example: $.tokens\n" +
-				"  Example: $.duration_seconds\n" +
-				"  Example: $.session_id"
+			"JSONPath to extract value from\nevent data.\n\nRequired for: SUM, AVG, MIN, MAX,\nUNIQUE_COUNT, LATEST.\nIgnored for COUNT.\n\n  Example: $.tokens\n  Example: $.duration_seconds"
 	case createFieldGroupBy:
 		return "Group By",
-			"Named JSONPath expressions to group\n" +
-				"results by. Format: key=$.path\n\n" +
-				"Shorthand: key (expands to key=$.key)\n\n" +
-				"  Example: model=$.model,type=$.type\n" +
-				"  Example: method=$.method,route=$.route\n" +
-				"  Example: region,gpu_type"
+			"Named JSONPath expressions.\nFormat: key=$.path\nShorthand: key (→ key=$.key)\n\n  Example: model=$.model,type=$.type\n  Example: region,gpu_type"
 	case createFieldEventFrom:
 		return "Event From",
-			"Only include events after this date.\n" +
-				"RFC 3339 format. Optional.\n\n" +
-				"Useful to skip old historical events\n" +
-				"when creating a new meter.\n\n" +
-				"  Example: 2024-01-01T00:00:00Z\n" +
-				"  Example: 2025-06-15T12:00:00Z"
+			"Only include events after this date.\nRFC 3339 format. Optional.\n\n  Example: 2024-01-01T00:00:00Z"
 	}
 	return "", ""
 }
 
 func (m *metersModel) viewCreateForm(width int) string {
+	return m.viewTwoPaneForm(width, "Create Meter", m.createFocused, func() ([]formRow, string) {
+		rows := []formRow{
+			{"Slug:", createFieldSlug, true},
+			{"Name:", createFieldName, false},
+			{"Description:", createFieldDescription, false},
+			{"Event Type:", createFieldEventType, true},
+			{"Aggregation:", createFieldAggregation, true},
+			{"Value Prop:", createFieldValueProp, false},
+			{"Group By:", createFieldGroupBy, false},
+			{"Event From:", createFieldEventFrom, false},
+		}
+		title, body := m.createFieldHelp()
+		return rows, helpTitleRender(title) + "\n\n" + helpBodyRender(body)
+	}, func(r formRow, inputW int) string {
+		if r.logical == createFieldAggregation {
+			return renderAggSelector(m.createAggIdx)
+		}
+		ti := createTextFieldIdx(r.logical)
+		m.createFields[ti].Width = inputW
+		return m.createFields[ti].View()
+	}, m.createStatus)
+}
+
+// ─── update form ─────────────────────────────────────────────────────────────
+
+func (m *metersModel) openUpdateForm() tea.Cmd {
+	m.updateFocused = updateFieldName
+	m.updateStatus = ""
+	for i := range m.updateFields {
+		m.updateFields[i].Reset()
+		m.updateFields[i].Blur()
+	}
+	// Pre-fill from detail info
+	if m.detailLoaded {
+		m.updateFields[0].SetValue(m.detailInfo.Name)
+		m.updateFields[1].SetValue(m.detailInfo.Description)
+		gb := ""
+		for k, v := range m.detailInfo.GroupBy {
+			if gb != "" {
+				gb += ","
+			}
+			gb += k + "=" + v
+		}
+		m.updateFields[2].SetValue(gb)
+	}
+	m.updateFields[0].Focus()
+	return func() tea.Msg {
+		return showFormMsg{
+			view:   m.viewUpdateForm,
+			update: m.updateUpdateForm,
+		}
+	}
+}
+
+func (m *metersModel) updateUpdateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "esc":
+		return true, nil
+	case "tab", "down":
+		next := (m.updateFocused + 1) % updateFieldCount
+		m.updateFields[m.updateFocused].Blur()
+		m.updateFocused = next
+		m.updateFields[next].Focus()
+		return false, textinput.Blink
+	case "shift+tab", "up":
+		next := (m.updateFocused + updateFieldCount - 1) % updateFieldCount
+		m.updateFields[m.updateFocused].Blur()
+		m.updateFocused = next
+		m.updateFields[next].Focus()
+		return false, textinput.Blink
+	case "enter":
+		cmd := m.submitUpdate()
+		if cmd == nil {
+			return false, nil
+		}
+		return true, cmd
+	}
+
+	var cmd tea.Cmd
+	m.updateFields[m.updateFocused], cmd = m.updateFields[m.updateFocused].Update(msg)
+	return false, cmd
+}
+
+func (m *metersModel) submitUpdate() tea.Cmd {
+	name := m.updateFields[0].Value()
+	desc := m.updateFields[1].Value()
+	groupByStr := m.updateFields[2].Value()
+
+	body := map[string]any{}
+	if name != "" {
+		body["name"] = name
+	}
+	if desc != "" {
+		body["description"] = desc
+	}
+	if groupByStr != "" {
+		gb := parseGroupBy(groupByStr)
+		if len(gb) > 0 {
+			body["groupBy"] = gb
+		}
+	}
+
+	if len(body) == 0 {
+		m.updateStatus = statusErr.Render("Nothing to update")
+		return nil
+	}
+
+	slug := m.detailSlug
+	m.updateStatus = statusWIP.Render("Updating…")
+	return func() tea.Msg {
+		raw, _ := json.Marshal(body)
+		_, err := m.client.UpdateMeter(slug, raw)
+		return meterUpdatedMsg{err}
+	}
+}
+
+func (m *metersModel) updateFieldHelp() (string, string) {
+	switch m.updateFocused {
+	case updateFieldName:
+		return "Display Name",
+			"Human-readable name (1-256 chars).\n\nUpdating the name does not\naffect the slug or API paths."
+	case updateFieldDescription:
+		return "Description",
+			"Optional description (max 1024).\n\nDescribe what this meter tracks."
+	case updateFieldGroupBy:
+		return "Group By",
+			"Named JSONPath expressions.\nFormat: key=$.path\n\nThis replaces the current groupBy.\nLeave blank to keep existing.\n\n  Example: model=$.model,type=$.type"
+	}
+	return "", ""
+}
+
+func (m *metersModel) viewUpdateForm(width int) string {
+	return m.viewTwoPaneForm(width, "Update Meter: "+m.detailSlug, m.updateFocused, func() ([]formRow, string) {
+		rows := []formRow{
+			{"Name:", updateFieldName, false},
+			{"Description:", updateFieldDescription, false},
+			{"Group By:", updateFieldGroupBy, false},
+		}
+		title, body := m.updateFieldHelp()
+		return rows, helpTitleRender(title) + "\n\n" + helpBodyRender(body)
+	}, func(r formRow, inputW int) string {
+		m.updateFields[r.logical].Width = inputW
+		return m.updateFields[r.logical].View()
+	}, m.updateStatus)
+}
+
+// ─── query submit ────────────────────────────────────────────────────────────
+
+func (m *metersModel) submitQuery() tea.Cmd {
+	subject := m.queryFields[0].Value()
+	from := m.queryFields[1].Value()
+	to := m.queryFields[2].Value()
+	windowTZ := m.queryFields[3].Value()
+	groupBy := m.queryFields[4].Value()
+	winSize := windowSizes[m.queryWinIdx]
+
+	slug := m.detailSlug
+	m.queryStatus = statusWIP.Render("Querying…")
+	return func() tea.Msg {
+		body := map[string]any{}
+		if subject != "" {
+			body["subject"] = []string{subject}
+		}
+		if from != "" {
+			body["from"] = from
+		}
+		if to != "" {
+			body["to"] = to
+		}
+		if winSize != "" {
+			body["windowSize"] = winSize
+		}
+		if windowTZ != "" {
+			body["windowTimeZone"] = windowTZ
+		}
+		if groupBy != "" {
+			var groups []string
+			for _, g := range strings.Split(groupBy, ",") {
+				g = strings.TrimSpace(g)
+				if g != "" {
+					groups = append(groups, g)
+				}
+			}
+			if len(groups) > 0 {
+				body["groupBy"] = groups
+			}
+		}
+
+		reqBody, _ := json.Marshal(body)
+		raw, err := m.client.QueryMeter(slug, reqBody)
+		if err != nil {
+			return meterQueryResultMsg{err: err}
+		}
+
+		var result struct {
+			From       string `json:"from"`
+			To         string `json:"to"`
+			WindowSize string `json:"windowSize"`
+			Data       []struct {
+				WindowStart string            `json:"windowStart"`
+				WindowEnd   string            `json:"windowEnd"`
+				Value       json.Number       `json:"value"`
+				Subject     *string           `json:"subject"`
+				CustomerID  string            `json:"customerId"`
+				GroupBy     map[string]string `json:"groupBy"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return meterQueryResultMsg{rows: [][]string{{string(raw)}}}
+		}
+
+		header := ""
+		if result.From != "" || result.To != "" || result.WindowSize != "" {
+			var parts []string
+			if result.From != "" {
+				parts = append(parts, "from: "+result.From)
+			}
+			if result.To != "" {
+				parts = append(parts, "to: "+result.To)
+			}
+			if result.WindowSize != "" {
+				parts = append(parts, "window: "+result.WindowSize)
+			}
+			header = strings.Join(parts, "  ")
+		}
+
+		rows := make([][]string, len(result.Data))
+		for i, d := range result.Data {
+			subj := ""
+			if d.Subject != nil {
+				subj = *d.Subject
+			}
+			gbStr := ""
+			for k, v := range d.GroupBy {
+				if gbStr != "" {
+					gbStr += ", "
+				}
+				gbStr += k + "=" + v
+			}
+			rows[i] = []string{
+				trunc(d.WindowStart, 22),
+				trunc(d.WindowEnd, 22),
+				d.Value.String(),
+				subj,
+				gbStr,
+			}
+		}
+		return meterQueryResultMsg{header: header, rows: rows}
+	}
+}
+
+// ─── shared two-pane form renderer (for create/update modals) ────────────────
+
+type formRow struct {
+	label    string
+	logical  int
+	required bool
+}
+
+var (
+	helpTitleRender = lipgloss.NewStyle().Bold(true).Foreground(colPurple).Render
+	helpBodyRender  = lipgloss.NewStyle().Foreground(colFg).Render
+)
+
+func renderAggSelector(activeIdx int) string {
+	aggActive := lipgloss.NewStyle().Background(colAccent).Foreground(colBg).Padding(0, 1)
+	aggInactive := lipgloss.NewStyle().Foreground(colMuted)
+	var opts []string
+	for i, a := range aggregations {
+		if i == activeIdx {
+			opts = append(opts, aggActive.Render(a))
+		} else {
+			opts = append(opts, aggInactive.Render(a))
+		}
+	}
+	return strings.Join(opts, " ")
+}
+
+func renderWindowSizeSelector(activeIdx int) string {
+	wsActive := lipgloss.NewStyle().Background(colAccent).Foreground(colBg).Padding(0, 1)
+	wsInactive := lipgloss.NewStyle().Foreground(colMuted)
+	var opts []string
+	for i, w := range windowSizes {
+		label := w
+		if label == "" {
+			label = "TOTAL"
+		}
+		if i == activeIdx {
+			opts = append(opts, wsActive.Render(label))
+		} else {
+			opts = append(opts, wsInactive.Render(label))
+		}
+	}
+	return strings.Join(opts, " ")
+}
+
+func (m *metersModel) viewTwoPaneForm(
+	width int,
+	title string,
+	focused int,
+	buildRows func() ([]formRow, string),
+	renderField func(formRow, int) string,
+	status string,
+) string {
 	rightW := 40
-	borderW := 1                          // right border on left pane acts as divider
-	leftW := width - rightW - borderW - 2 // 2 for padding
+	borderW := 1
+	leftW := width - rightW - borderW - 2
 	if leftW < 35 {
 		leftW = 35
 		rightW = width - leftW - borderW - 2
@@ -520,72 +1123,36 @@ func (m *metersModel) viewCreateForm(width int) string {
 
 	requiredLabel := labelStyle.Bold(true).Width(16)
 	optionalLabel := labelStyle.Width(16)
-	aggActive := lipgloss.NewStyle().Background(colAccent).Foreground(colBg).Padding(0, 1)
-	aggInactive := lipgloss.NewStyle().Foreground(colMuted)
-	helpTitleStyle := lipgloss.NewStyle().Bold(true).Foreground(colPurple)
-	helpBodyStyle := lipgloss.NewStyle().Foreground(colFg)
 
 	inputW := leftW - 20
 	if inputW < 10 {
 		inputW = 10
 	}
-	for i := range m.createFields {
-		m.createFields[i].Width = inputW
-	}
 
-	type formRow struct {
-		label    string
-		logical  int
-		required bool
-	}
-	formRows := []formRow{
-		{"Slug:", createFieldSlug, true},
-		{"Name:", createFieldName, false},
-		{"Description:", createFieldDescription, false},
-		{"Event Type:", createFieldEventType, true},
-		{"Aggregation:", createFieldAggregation, true},
-		{"Value Prop:", createFieldValueProp, false},
-		{"Group By:", createFieldGroupBy, false},
-		{"Event From:", createFieldEventFrom, false},
-	}
+	rows, helpContent := buildRows()
 
 	var leftLines []string
-	leftLines = append(leftLines, titleStyle.Render("Create Meter"))
+	leftLines = append(leftLines, titleStyle.Render(title))
 	leftLines = append(leftLines, "")
 
-	for _, r := range formRows {
+	for _, r := range rows {
 		marker := "  "
-		if m.createFocused == r.logical {
+		if focused == r.logical {
 			marker = focusStyle.Render("▸ ")
 		}
 		lbl := optionalLabel
 		if r.required {
 			lbl = requiredLabel
 		}
-
-		if r.logical == createFieldAggregation {
-			var opts []string
-			for i, a := range aggregations {
-				if i == m.createAggIdx {
-					opts = append(opts, aggActive.Render(a))
-				} else {
-					opts = append(opts, aggInactive.Render(a))
-				}
-			}
-			leftLines = append(leftLines, marker+lbl.Render(r.label)+" "+strings.Join(opts, " "))
-		} else {
-			ti := textFieldIdx(r.logical)
-			leftLines = append(leftLines, marker+lbl.Render(r.label)+" "+m.createFields[ti].View())
-		}
+		leftLines = append(leftLines, marker+lbl.Render(r.label)+" "+renderField(r, inputW))
 	}
 
 	leftLines = append(leftLines, "")
-	if m.createStatus != "" {
-		leftLines = append(leftLines, m.createStatus)
+	if status != "" {
+		leftLines = append(leftLines, status)
 	}
-	leftLines = append(leftLines, descStyle.Render("↑↓/Tab • ←→ agg • Enter submit • Esc cancel"))
+	leftLines = append(leftLines, descStyle.Render("↑↓/Tab fields • ←→ selector • Enter submit • Esc cancel"))
 
-	// Left pane: fixed width with a right border as divider
 	leftPane := lipgloss.NewStyle().
 		Width(leftW).
 		BorderRight(true).
@@ -594,180 +1161,12 @@ func (m *metersModel) viewCreateForm(width int) string {
 		PaddingRight(1).
 		Render(strings.Join(leftLines, "\n"))
 
-	// Right pane: help content
-	helpTitleStr, helpBodyStr := m.fieldHelp()
-	rightContent := helpTitleStyle.Render(helpTitleStr) + "\n\n" + helpBodyStyle.Render(helpBodyStr)
 	rightPane := lipgloss.NewStyle().
 		Width(rightW).
 		PaddingLeft(1).
-		Render(rightContent)
+		Render(helpContent)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
-}
-
-// ─── detail / query sub-views ────────────────────────────────────────────────
-
-func (m *metersModel) updateDetail(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	switch msg.String() {
-	case "backspace", "esc":
-		m.focus = meterFocusList
-		return m, nil
-	case "q":
-		return m, func() tea.Msg {
-			return showInputMsg{
-				title:       fmt.Sprintf("Query %s — subject filter (blank=all), or subject,from,to,windowSize", statusWIP.Render(m.detailSlug)),
-				placeholder: "subject1 or subject1,2024-01-01T00:00:00Z,2024-02-01T00:00:00Z,DAY",
-				fn: func(val string) tea.Cmd {
-					return m.queryMeter(m.detailSlug, val)
-				},
-			}
-		}
-	case "s":
-		return m, m.loadSubjects(m.detailSlug)
-	case "up", "k":
-		if m.detailScroll > 0 {
-			m.detailScroll--
-		}
-	case "down", "j":
-		m.detailScroll++
-	case "home", "g":
-		m.detailScroll = 0
-	}
-	return m, nil
-}
-
-func (m *metersModel) updateQuery(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	switch msg.String() {
-	case "backspace", "esc":
-		m.focus = meterFocusDetail
-		m.queryRows = nil
-		m.queryHeader = ""
-		return m, nil
-	}
-	return m, nil
-}
-
-func (m *metersModel) View(w, h int) string {
-	if m.width == 0 {
-		m.SetSize(w, h)
-	}
-	switch m.focus {
-	case meterFocusDetail:
-		return m.viewDetail()
-	case meterFocusQuery:
-		return m.viewQuery()
-	default:
-		tip := tipStyle.Render("Meters define how events are aggregated. Select a meter and press Enter to inspect or query it.")
-		return tip + "\n" + m.t.View()
-	}
-}
-
-func (m *metersModel) viewDetail() string {
-	if m.detailJSON == "" {
-		return statusWIP.Render("Loading meter detail…")
-	}
-
-	lines := strings.Split(m.detailJSON, "\n")
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Meter: "+m.detailSlug) + "\n\n")
-
-	end := m.detailScroll + m.height - 4
-	if end > len(lines) {
-		end = len(lines)
-	}
-	start := m.detailScroll
-	if start > len(lines) {
-		start = len(lines)
-	}
-
-	for _, line := range lines[start:end] {
-		b.WriteString(line + "\n")
-	}
-
-	b.WriteString("\n" + descStyle.Render("q query  •  s subjects  •  backspace back"))
-	return b.String()
-}
-
-func (m *metersModel) viewQuery() string {
-	if m.queryStatus == "" && len(m.queryRows) == 0 {
-		return statusWIP.Render("Running query…")
-	}
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("Query Results: "+m.detailSlug) + "\n")
-
-	if m.queryHeader != "" {
-		b.WriteString(descStyle.Render(m.queryHeader) + "\n")
-	}
-	b.WriteString("\n")
-
-	if m.queryStatus != "" {
-		b.WriteString(m.queryStatus + "\n\n")
-	}
-
-	// Header for data rows
-	if len(m.queryRows) > 0 {
-		b.WriteString(headerStyle.Render("Window Start          Window End            Value         Subject       Group By") + "\n")
-	}
-	for _, row := range m.queryRows {
-		b.WriteString(strings.Join(row, "  ") + "\n")
-	}
-
-	b.WriteString("\n" + descStyle.Render("backspace back"))
-	return b.String()
-}
-
-func (m *metersModel) SetSize(w, h int) {
-	m.width, m.height = w, h
-	m.t.SetSize(w, h)
-}
-
-func (m *metersModel) Status() string {
-	switch m.focus {
-	case meterFocusDetail:
-		return statusOK.Render("meter: " + m.detailSlug)
-	case meterFocusQuery:
-		if m.queryStatus != "" {
-			return m.queryStatus
-		}
-		return statusWIP.Render("querying…")
-	default:
-		return m.status
-	}
-}
-
-func (m *metersModel) Hints(navMode bool) []KeyHint {
-	if navMode {
-		return []KeyHint{
-			{"1-9/Tab", "switch tab"},
-			{"q", "quit"},
-			{"Esc", "back"},
-		}
-	}
-	switch m.focus {
-	case meterFocusDetail:
-		return []KeyHint{
-			{"↑↓/jk", "scroll"},
-			{"q", "query"},
-			{"s", "subjects"},
-			{"Bksp", "back"},
-		}
-	case meterFocusQuery:
-		return []KeyHint{
-			{"Bksp", "back"},
-		}
-	default:
-		return []KeyHint{
-			{"↑↓/jk", "navigate"},
-			{"/", "search"},
-			{"Enter", "detail"},
-			{"c", "create"},
-			{"d", "delete"},
-			{"R", "refresh"},
-			{"Esc", "nav mode"},
-		}
-	}
 }
 
 // ─── commands ─────────────────────────────────────────────────────────────────
@@ -829,125 +1228,28 @@ func (m *metersModel) loadDetail(slug string) tea.Cmd {
 	return func() tea.Msg {
 		raw, err := m.client.GetMeter(slug)
 		if err != nil {
-			return showErrMsg{err.Error()}
+			return meterDetailMsg{err: err}
 		}
-		var pretty json.RawMessage
-		if err := json.Unmarshal(raw, &pretty); err != nil {
-			m.detailJSON = string(raw)
-		} else {
-			indented, _ := json.MarshalIndent(pretty, "", "  ")
-			m.detailJSON = string(indented)
+		var meter struct {
+			Slug          string            `json:"slug"`
+			Name          string            `json:"name"`
+			Description   string            `json:"description"`
+			EventType     string            `json:"eventType"`
+			Aggregation   string            `json:"aggregation"`
+			ValueProperty string            `json:"valueProperty"`
+			GroupBy       map[string]string `json:"groupBy"`
 		}
-		return nil
-	}
-}
-
-// queryMeter parses user input as "subject" or "subject,from,to,windowSize" and queries.
-func (m *metersModel) queryMeter(slug, input string) tea.Cmd {
-	return func() tea.Msg {
-		params := url.Values{}
-		parts := strings.Split(input, ",")
-		for i, p := range parts {
-			parts[i] = strings.TrimSpace(p)
+		if err := json.Unmarshal(raw, &meter); err != nil {
+			return meterDetailMsg{err: fmt.Errorf("parse meter: %w", err)}
 		}
-
-		if len(parts) >= 1 && parts[0] != "" {
-			params.Add("subject", parts[0])
-		}
-		if len(parts) >= 2 && parts[1] != "" {
-			params.Set("from", parts[1])
-		}
-		if len(parts) >= 3 && parts[2] != "" {
-			params.Set("to", parts[2])
-		}
-		if len(parts) >= 4 && parts[3] != "" {
-			params.Set("windowSize", strings.ToUpper(parts[3]))
-		}
-
-		raw, err := m.client.QueryMeter(slug, params.Encode())
-		if err != nil {
-			return meterQueryResultMsg{err: err}
-		}
-
-		// Parse MeterQueryResult per OpenMeter spec
-		var result struct {
-			From       string `json:"from"`
-			To         string `json:"to"`
-			WindowSize string `json:"windowSize"`
-			Data       []struct {
-				WindowStart string            `json:"windowStart"`
-				WindowEnd   string            `json:"windowEnd"`
-				Value       json.Number       `json:"value"`
-				Subject     *string           `json:"subject"`
-				CustomerID  string            `json:"customerId"`
-				GroupBy     map[string]string `json:"groupBy"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &result); err != nil {
-			m.focus = meterFocusQuery
-			return meterQueryResultMsg{rows: [][]string{{string(raw)}}}
-		}
-
-		// Build header summary
-		header := ""
-		if result.From != "" || result.To != "" || result.WindowSize != "" {
-			var parts []string
-			if result.From != "" {
-				parts = append(parts, "from: "+result.From)
-			}
-			if result.To != "" {
-				parts = append(parts, "to: "+result.To)
-			}
-			if result.WindowSize != "" {
-				parts = append(parts, "window: "+result.WindowSize)
-			}
-			header = strings.Join(parts, "  ")
-		}
-
-		rows := make([][]string, len(result.Data))
-		for i, d := range result.Data {
-			subj := ""
-			if d.Subject != nil {
-				subj = *d.Subject
-			}
-			gbStr := ""
-			for k, v := range d.GroupBy {
-				if gbStr != "" {
-					gbStr += ", "
-				}
-				gbStr += k + "=" + v
-			}
-			rows[i] = []string{
-				trunc(d.WindowStart, 22),
-				trunc(d.WindowEnd, 22),
-				d.Value.String(),
-				subj,
-				gbStr,
-			}
-		}
-		m.focus = meterFocusQuery
-		return meterQueryResultMsg{header: header, rows: rows}
-	}
-}
-
-func (m *metersModel) loadSubjects(slug string) tea.Cmd {
-	return func() tea.Msg {
-		raw, err := m.client.ListMeterSubjects(slug, "")
-		if err != nil {
-			return meterSubjectsMsg{err: err}
-		}
-
-		var subjects []string
-		if err := json.Unmarshal(raw, &subjects); err != nil {
-			return meterSubjectsMsg{err: fmt.Errorf("parse: %w", err)}
-		}
-
-		rows := make([][]string, len(subjects))
-		for i, s := range subjects {
-			rows[i] = []string{s}
-		}
-		m.focus = meterFocusQuery
-		m.queryStatus = statusOK.Render(fmt.Sprintf("%d subjects", len(subjects)))
-		return meterSubjectsMsg{rows: rows}
+		return meterDetailMsg{info: meterInfo{
+			Slug:          meter.Slug,
+			Name:          meter.Name,
+			Description:   meter.Description,
+			EventType:     meter.EventType,
+			Aggregation:   meter.Aggregation,
+			ValueProperty: meter.ValueProperty,
+			GroupBy:       meter.GroupBy,
+		}}
 	}
 }

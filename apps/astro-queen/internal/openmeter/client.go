@@ -53,24 +53,12 @@ func (c *Client) DeleteMeter(idOrSlug string) error {
 	return c.del("/api/v1/meters/" + idOrSlug)
 }
 
-func (c *Client) QueryMeter(idOrSlug string, params string) (json.RawMessage, error) {
-	path := "/api/v1/meters/" + idOrSlug + "/query"
-	if params != "" {
-		path += "?" + params
-	}
-	return c.get(path)
+func (c *Client) QueryMeter(idOrSlug string, body json.RawMessage) (json.RawMessage, error) {
+	return c.post("/api/v1/meters/"+idOrSlug+"/query", body)
 }
 
 func (c *Client) UpdateMeter(idOrSlug string, body json.RawMessage) (json.RawMessage, error) {
 	return c.put("/api/v1/meters/"+idOrSlug, body)
-}
-
-func (c *Client) ListMeterSubjects(idOrSlug string, params string) (json.RawMessage, error) {
-	path := "/api/v1/meters/" + idOrSlug + "/subjects"
-	if params != "" {
-		path += "?" + params
-	}
-	return c.get(path)
 }
 
 func (c *Client) ListMeterGroupByValues(idOrSlug, groupByKey, params string) (json.RawMessage, error) {
@@ -108,12 +96,6 @@ func (c *Client) UpdateCustomer(id string, body json.RawMessage) (json.RawMessag
 
 func (c *Client) DeleteCustomer(id string) error {
 	return c.del("/api/v1/customers/" + id)
-}
-
-// ─── Subjects ────────────────────────────────────────────────────────────────
-
-func (c *Client) ListSubjects() (json.RawMessage, error) {
-	return c.get("/api/v1/subjects")
 }
 
 // ─── internal helpers ────────────────────────────────────────────────────────
