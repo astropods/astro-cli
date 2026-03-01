@@ -578,8 +578,12 @@ func createTextFieldIdx(logical int) int {
 	}
 }
 
-func (m *metersModel) updateCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
-	key := msg.String()
+func (m *metersModel) updateCreateForm(msg tea.Msg) (bool, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	key := keyMsg.String()
 
 	switch key {
 	case "esc":
@@ -611,7 +615,7 @@ func (m *metersModel) updateCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 	ti := createTextFieldIdx(m.createFocused)
 	if ti >= 0 {
 		var cmd tea.Cmd
-		m.createFields[ti], cmd = m.createFields[ti].Update(msg)
+		m.createFields[ti], cmd = m.createFields[ti].Update(keyMsg)
 		return false, cmd
 	}
 
@@ -806,8 +810,12 @@ func (m *metersModel) openUpdateForm() tea.Cmd {
 	}
 }
 
-func (m *metersModel) updateUpdateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
-	key := msg.String()
+func (m *metersModel) updateUpdateForm(msg tea.Msg) (bool, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	key := keyMsg.String()
 
 	switch key {
 	case "esc":
@@ -833,7 +841,7 @@ func (m *metersModel) updateUpdateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	m.updateFields[m.updateFocused], cmd = m.updateFields[m.updateFocused].Update(msg)
+	m.updateFields[m.updateFocused], cmd = m.updateFields[m.updateFocused].Update(keyMsg)
 	return false, cmd
 }
 

@@ -42,10 +42,10 @@ type showInputMsg struct {
 type showErrMsg struct{ text string }
 
 // showFormMsg requests a multi-field form overlay. The app delegates rendering
-// and key handling to the callbacks so any tab can present a rich modal form.
+// and message handling to the callbacks so any tab can present a rich modal form.
 type showFormMsg struct {
 	view   func(width int) string
-	update func(tea.KeyMsg) (done bool, cmd tea.Cmd)
+	update func(tea.Msg) (done bool, cmd tea.Cmd)
 }
 
 type loadingLogMsg string

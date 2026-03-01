@@ -932,8 +932,12 @@ func (m *customersModel) openUpdateForm() tea.Cmd {
 	}
 }
 
-func (m *customersModel) updateUpdateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
-	key := msg.String()
+func (m *customersModel) updateUpdateForm(msg tea.Msg) (bool, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	key := keyMsg.String()
 	switch key {
 	case "esc":
 		return true, nil
@@ -958,7 +962,7 @@ func (m *customersModel) updateUpdateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	m.updateFields[m.updateFocused], cmd = m.updateFields[m.updateFocused].Update(msg)
+	m.updateFields[m.updateFocused], cmd = m.updateFields[m.updateFocused].Update(keyMsg)
 	return false, cmd
 }
 
@@ -1101,8 +1105,12 @@ func (m *customersModel) openEntitlementCreateForm() tea.Cmd {
 	}
 }
 
-func (m *customersModel) updateEntCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
-	key := msg.String()
+func (m *customersModel) updateEntCreateForm(msg tea.Msg) (bool, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	key := keyMsg.String()
 	switch key {
 	case "esc":
 		return true, nil
@@ -1133,7 +1141,7 @@ func (m *customersModel) updateEntCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 	ti := m.entCreateTextFieldIdx(m.entCreateFocused)
 	if ti >= 0 {
 		var cmd tea.Cmd
-		m.entCreateFields[ti], cmd = m.entCreateFields[ti].Update(msg)
+		m.entCreateFields[ti], cmd = m.entCreateFields[ti].Update(keyMsg)
 		return false, cmd
 	}
 	return false, nil
@@ -1298,8 +1306,12 @@ func (m *customersModel) openGrantForm() tea.Cmd {
 	}
 }
 
-func (m *customersModel) updateGrantForm(msg tea.KeyMsg) (bool, tea.Cmd) {
-	key := msg.String()
+func (m *customersModel) updateGrantForm(msg tea.Msg) (bool, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	key := keyMsg.String()
 	switch key {
 	case "esc":
 		return true, nil
@@ -1324,7 +1336,7 @@ func (m *customersModel) updateGrantForm(msg tea.KeyMsg) (bool, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	m.grantFields[m.grantFocused], cmd = m.grantFields[m.grantFocused].Update(msg)
+	m.grantFields[m.grantFocused], cmd = m.grantFields[m.grantFocused].Update(keyMsg)
 	return false, cmd
 }
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/postman/astro/apps/astro-queen/internal/openmeter"
 )
@@ -29,18 +29,24 @@ type featureDetailMsg struct {
 	err  error
 }
 
+type featureMeterSlugsMsg struct {
+	slugs []string
+	err   error
+}
+
 // ─── data types ──────────────────────────────────────────────────────────────
 
 type featureInfo struct {
-	ID                 string
-	Key                string
-	Name               string
-	MeterSlug          string
-	MeterGroupByFilter map[string]string
-	Metadata           map[string]string
-	CreatedAt          string
-	UpdatedAt          string
-	ArchivedAt         string
+	ID                   string
+	Key                  string
+	Name                 string
+	MeterSlug            string
+	MeterGroupByFilters  map[string]string
+	AdvancedMeterGroupBy map[string]json.RawMessage
+	Metadata             map[string]string
+	CreatedAt            string
+	UpdatedAt            string
+	ArchivedAt           string
 }
 
 // ─── focus ───────────────────────────────────────────────────────────────────
@@ -50,17 +56,6 @@ type featureFocus int
 const (
 	featureFocusList featureFocus = iota
 	featureFocusDetail
-)
-
-// ─── create form field indices ──────────────────────────────────────────────
-
-const (
-	featFieldKey = iota
-	featFieldName
-	featFieldMeterSlug
-	featFieldGroupByFilters
-	featFieldMetadata
-	featFieldCount
 )
 
 // ─── model ────────────────────────────────────────────────────────────────────
@@ -80,35 +75,23 @@ type featuresModel struct {
 	detailInfo   featureInfo
 	detailLoaded bool
 
-	// Create form
-	createFields  [5]textinput.Model
-	createFocused int
-	createStatus  string
+	// Create form (huh)
+	huhForm    *huh.Form
+	formKey    string
+	formName   string
+	formMeter  string
+	formFilter string
+	formMeta   string
 }
 
 func newFeaturesModel(client *openmeter.Client) *featuresModel {
 	t := newTableModel([]string{"Key", "Name", "Meter Slug", "Group By Filters", "Archived", "Created"})
 	t.SetFocused(true)
 
-	mkInput := func(placeholder string, charLimit int) textinput.Model {
-		ti := textinput.New()
-		ti.Placeholder = placeholder
-		ti.CharLimit = charLimit
-		ti.Prompt = ""
-		return ti
-	}
-
 	return &featuresModel{
 		client: client,
 		t:      t,
 		status: statusWIP.Render("Loading…"),
-		createFields: [5]textinput.Model{
-			mkInput("api_requests", 64),
-			mkInput("API Requests", 256),
-			mkInput("tokens_total", 64),
-			mkInput("model=gpt-4,type=input", 500),
-			mkInput("key=value,env=prod", 500),
-		},
 	}
 }
 
@@ -157,6 +140,14 @@ func (m *featuresModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		m.detailLoaded = true
 		return m, nil
 
+	case featureMeterSlugsMsg:
+		// Rebuild the huh form with the meter options now available.
+		if msg.err == nil && m.huhForm != nil {
+			m.rebuildFormWithMeters(msg.slugs)
+			return m, m.huhForm.Init()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.focus {
 		case featureFocusList:
@@ -200,19 +191,10 @@ func (m *featuresModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 		return m, m.loadDetail(id)
 
 	case "c":
-		m.createFocused = featFieldKey
-		m.createStatus = ""
-		for i := range m.createFields {
-			m.createFields[i].Reset()
-			m.createFields[i].Blur()
-		}
-		m.createFields[0].Focus()
-		return m, func() tea.Msg {
-			return showFormMsg{
-				view:   m.viewCreateForm,
-				update: m.updateCreateForm,
-			}
-		}
+		return m, tea.Batch(
+			m.openCreateForm(),
+			m.loadMeterSlugs(),
+		)
 
 	case "d":
 		idx := m.t.selectedRealIndex()
@@ -290,14 +272,12 @@ func (m *featuresModel) viewDetail() string {
 	kvStyle := lipgloss.NewStyle().Foreground(colDimmed)
 	valStyle := lipgloss.NewStyle().Foreground(colFg)
 
-	// Header
 	b.WriteString(titleStyle.Render(info.Key))
 	if info.Name != "" && info.Name != info.Key {
 		b.WriteString("  " + valStyle.Render(info.Name))
 	}
 	b.WriteString("\n")
 
-	// Archived badge
 	if info.ArchivedAt != "" {
 		b.WriteString(statusErr.Render("ARCHIVED") + "  " + kvStyle.Render("at ") + valStyle.Render(info.ArchivedAt) + "\n")
 	}
@@ -314,9 +294,14 @@ func (m *featuresModel) viewDetail() string {
 		b.WriteString(kvStyle.Render("Meter Slug:   ") + dimStyle.Render("(static — no meter)") + "\n")
 	}
 
-	if len(info.MeterGroupByFilter) > 0 {
+	if len(info.AdvancedMeterGroupBy) > 0 {
+		b.WriteString(kvStyle.Render("Group By:     ") + "\n")
+		for k, raw := range info.AdvancedMeterGroupBy {
+			b.WriteString("  " + valStyle.Render(k) + kvStyle.Render(": ") + valStyle.Render(formatFilterString(raw)) + "\n")
+		}
+	} else if len(info.MeterGroupByFilters) > 0 {
 		var parts []string
-		for k, v := range info.MeterGroupByFilter {
+		for k, v := range info.MeterGroupByFilters {
 			parts = append(parts, k+"="+v)
 		}
 		b.WriteString(kvStyle.Render("Group By:     ") + valStyle.Render(strings.Join(parts, ", ")) + "\n")
@@ -388,53 +373,161 @@ func (m *featuresModel) Hints(navMode bool) []KeyHint {
 	}
 }
 
-// ─── create form ────────────────────────────────────────────────────────────
+// ─── create form (huh) ─────────────────────────────────────────────────────
 
-func (m *featuresModel) updateCreateForm(msg tea.KeyMsg) (bool, tea.Cmd) {
-	key := msg.String()
-	switch key {
-	case "esc":
+var huhTheme = func() *huh.Theme {
+	t := huh.ThemeBase()
+	t.Focused.Title = t.Focused.Title.Foreground(colAccent)
+	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(colAccent)
+	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(colOrange)
+	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(colOrange)
+	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(colGreen)
+	t.Focused.Base = t.Focused.Base.BorderForeground(colAccent)
+	t.Blurred.TextInput.Prompt = t.Blurred.TextInput.Prompt.Foreground(colDimmed)
+	return t
+}()
+
+func (m *featuresModel) buildHuhForm(meterOpts []huh.Option[string]) *huh.Form {
+	m.formKey = ""
+	m.formName = ""
+	m.formMeter = ""
+	m.formFilter = ""
+	m.formMeta = ""
+
+	meterSelect := huh.NewSelect[string]().
+		Key("meter").
+		Title("Meter Slug").
+		Description("Link to an existing meter. Leave as (none) for static features.").
+		Options(meterOpts...).
+		Value(&m.formMeter)
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("key").
+				Title("Key").
+				Description("Unique identifier. Lowercase alphanumeric + underscores.").
+				Placeholder("api_requests").
+				Validate(func(s string) error {
+					if s == "" {
+						return fmt.Errorf("key is required")
+					}
+					return nil
+				}).
+				Value(&m.formKey),
+
+			huh.NewInput().
+				Key("name").
+				Title("Name").
+				Description("Human-readable name for the feature.").
+				Placeholder("API Requests").
+				Validate(func(s string) error {
+					if s == "" {
+						return fmt.Errorf("name is required")
+					}
+					return nil
+				}).
+				Value(&m.formName),
+
+			meterSelect,
+
+			huh.NewInput().
+				Key("filter").
+				Title("Group By Filters").
+				Description("key=val or key=$in:a|b  (comma-separated)").
+				Placeholder("model=gpt-4,type=$in:input|output").
+				Value(&m.formFilter),
+
+			huh.NewInput().
+				Key("meta").
+				Title("Metadata").
+				Description("Key-value pairs (comma-separated).").
+				Placeholder("env=prod,tier=enterprise").
+				Value(&m.formMeta),
+
+			huh.NewConfirm().
+				Key("confirm").
+				Title("Create this feature?").
+				Description("Features cannot be updated after creation.").
+				Affirmative("Create").
+				Negative("Cancel"),
+		),
+	).WithTheme(huhTheme).WithWidth(80)
+
+	return form
+}
+
+func (m *featuresModel) openCreateForm() tea.Cmd {
+	// Build with a placeholder meter option; will be rebuilt when slugs arrive
+	meterOpts := []huh.Option[string]{
+		huh.NewOption("(none — static feature)", ""),
+		huh.NewOption("Loading meters…", ""),
+	}
+	m.huhForm = m.buildHuhForm(meterOpts)
+	initCmd := m.huhForm.Init()
+
+	return tea.Batch(
+		initCmd,
+		func() tea.Msg {
+			return showFormMsg{
+				view:   m.viewHuhForm,
+				update: m.updateHuhForm,
+			}
+		},
+	)
+}
+
+func (m *featuresModel) rebuildFormWithMeters(slugs []string) {
+	meterOpts := []huh.Option[string]{
+		huh.NewOption("(none — static feature)", ""),
+	}
+	for _, s := range slugs {
+		meterOpts = append(meterOpts, huh.NewOption(s, s))
+	}
+	m.huhForm = m.buildHuhForm(meterOpts)
+}
+
+func (m *featuresModel) viewHuhForm(width int) string {
+	if m.huhForm == nil {
+		return ""
+	}
+	return m.huhForm.View()
+}
+
+func (m *featuresModel) updateHuhForm(msg tea.Msg) (bool, tea.Cmd) {
+	if m.huhForm == nil {
 		return true, nil
-	case "tab", "down":
-		next := (m.createFocused + 1) % featFieldCount
-		m.createFields[m.createFocused].Blur()
-		m.createFocused = next
-		m.createFields[next].Focus()
-		return false, textinput.Blink
-	case "shift+tab", "up":
-		next := (m.createFocused + featFieldCount - 1) % featFieldCount
-		m.createFields[m.createFocused].Blur()
-		m.createFocused = next
-		m.createFields[next].Focus()
-		return false, textinput.Blink
-	case "enter":
-		cmd := m.submitCreate()
-		if cmd == nil {
-			return false, nil
-		}
-		return true, cmd
 	}
 
-	var cmd tea.Cmd
-	m.createFields[m.createFocused], cmd = m.createFields[m.createFocused].Update(msg)
+	form, cmd := m.huhForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.huhForm = f
+	}
+
+	if m.huhForm.State == huh.StateCompleted {
+		// Check the confirm field — if user selected "Cancel", just close
+		confirm := m.huhForm.GetBool("confirm")
+		m.huhForm = nil
+		if !confirm {
+			return true, nil
+		}
+		return true, m.submitCreate()
+	}
+
+	if m.huhForm.State == huh.StateAborted {
+		m.huhForm = nil
+		return true, nil
+	}
+
 	return false, cmd
 }
 
 func (m *featuresModel) submitCreate() tea.Cmd {
-	key := m.createFields[featFieldKey].Value()
-	name := m.createFields[featFieldName].Value()
-	meterSlug := m.createFields[featFieldMeterSlug].Value()
-	groupByStr := m.createFields[featFieldGroupByFilters].Value()
-	metadataStr := m.createFields[featFieldMetadata].Value()
-
-	if key == "" {
-		m.createStatus = statusErr.Render("Key is required")
-		return nil
-	}
-	if name == "" {
-		m.createStatus = statusErr.Render("Name is required")
-		return nil
-	}
+	key := m.formKey
+	name := m.formName
+	meterSlug := m.formMeter
+	groupByStr := m.formFilter
+	metadataStr := m.formMeta
 
 	body := map[string]any{
 		"key":  key,
@@ -444,9 +537,9 @@ func (m *featuresModel) submitCreate() tea.Cmd {
 		body["meterSlug"] = meterSlug
 	}
 	if groupByStr != "" {
-		gb := parseKVPairs(groupByStr)
+		gb := parseAdvancedGroupBy(groupByStr)
 		if len(gb) > 0 {
-			body["meterGroupByFilters"] = gb
+			body["advancedMeterGroupByFilters"] = gb
 		}
 	}
 	if metadataStr != "" {
@@ -456,116 +549,13 @@ func (m *featuresModel) submitCreate() tea.Cmd {
 		}
 	}
 
-	m.createStatus = statusWIP.Render("Creating…")
+	client := m.client
+	rawBody, _ := json.Marshal(body)
+
 	return func() tea.Msg {
-		raw, _ := json.Marshal(body)
-		_, err := m.client.CreateFeature(raw)
+		_, err := client.CreateFeature(rawBody)
 		return featureCreatedMsg{err}
 	}
-}
-
-func (m *featuresModel) createFieldHelp() (string, string) {
-	switch m.createFocused {
-	case featFieldKey:
-		return "Key (required)",
-			"Unique identifier for the feature.\nLowercase alphanumeric + underscores.\nPattern: ^[a-z0-9]+(?:_[a-z0-9]+)*$\n\n  Example: api_requests\n  Example: tokens_total"
-	case featFieldName:
-		return "Name (required)",
-			"Human-readable name.\n\n  Example: API Requests\n  Example: Tokens Total"
-	case featFieldMeterSlug:
-		return "Meter Slug",
-			"Link to an existing meter.\nLeave blank for a static feature.\n\nMetered features track usage against\na meter. Supported aggregations:\nSUM, COUNT, UNIQUE_COUNT, LATEST.\n\n  Example: tokens_total"
-	case featFieldGroupByFilters:
-		return "Meter Group By Filters",
-			"Filter meter data by groupBy fields.\nFormat: key=value,key2=value2\n\nUseful when the meter scope is\nbroader than the feature.\n\n  Example: model=gpt-4,type=input"
-	case featFieldMetadata:
-		return "Metadata",
-			"Key-value pairs for metadata.\nFormat: key=value,key2=value2\n\n  Example: env=prod,tier=enterprise"
-	}
-	return "", ""
-}
-
-func (m *featuresModel) viewCreateForm(width int) string {
-	return m.viewTwoPaneForm(width, "Create Feature", m.createFocused, func() ([]formRow, string) {
-		rows := []formRow{
-			{"Key:", featFieldKey, true},
-			{"Name:", featFieldName, true},
-			{"Meter Slug:", featFieldMeterSlug, false},
-			{"Group By:", featFieldGroupByFilters, false},
-			{"Metadata:", featFieldMetadata, false},
-		}
-		title, body := m.createFieldHelp()
-		return rows, helpTitleRender(title) + "\n\n" + helpBodyRender(body)
-	}, func(r formRow, inputW int) string {
-		m.createFields[r.logical].Width = inputW
-		return m.createFields[r.logical].View()
-	}, m.createStatus)
-}
-
-// ─── two-pane form (same pattern as meters/customers) ───────────────────────
-
-func (m *featuresModel) viewTwoPaneForm(
-	width int,
-	title string,
-	focused int,
-	buildRows func() ([]formRow, string),
-	renderField func(formRow, int) string,
-	status string,
-) string {
-	rightW := 40
-	borderW := 1
-	leftW := width - rightW - borderW - 2
-	if leftW < 35 {
-		leftW = 35
-		rightW = width - leftW - borderW - 2
-	}
-
-	requiredLabel := labelStyle.Bold(true).Width(16)
-	optionalLabel := labelStyle.Width(16)
-
-	inputW := leftW - 20
-	if inputW < 10 {
-		inputW = 10
-	}
-
-	rows, helpContent := buildRows()
-
-	var leftLines []string
-	leftLines = append(leftLines, titleStyle.Render(title))
-	leftLines = append(leftLines, "")
-
-	for _, r := range rows {
-		marker := "  "
-		if focused == r.logical {
-			marker = focusStyle.Render("▸ ")
-		}
-		lbl := optionalLabel
-		if r.required {
-			lbl = requiredLabel
-		}
-		leftLines = append(leftLines, marker+lbl.Render(r.label)+" "+renderField(r, inputW))
-	}
-
-	leftLines = append(leftLines, "")
-	if status != "" {
-		leftLines = append(leftLines, status)
-	}
-	leftLines = append(leftLines, descStyle.Render("↑↓/Tab fields • Enter submit • Esc cancel"))
-
-	leftPane := lipgloss.NewStyle().
-		Width(leftW).
-		BorderRight(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colBorder).
-		PaddingRight(1).
-		Render(strings.Join(leftLines, "\n"))
-
-	rightPane := lipgloss.NewStyle().
-		Width(rightW).
-		PaddingLeft(1).
-		Render(helpContent)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 }
 
 // ─── commands ─────────────────────────────────────────────────────────────────
@@ -577,7 +567,6 @@ func (m *featuresModel) load() tea.Cmd {
 			return featuresLoadedMsg{err: err, at: time.Now()}
 		}
 
-		// ListFeaturesResult is oneOf: plain array or paginated {items:[...]}
 		features, err := parseFeaturesResponse(raw)
 		if err != nil {
 			return featuresLoadedMsg{err: err, at: time.Now()}
@@ -587,11 +576,19 @@ func (m *featuresModel) load() tea.Cmd {
 		ids := make([]string, len(features))
 		for i, f := range features {
 			gbStr := ""
-			for k, v := range f.MeterGroupByFilters {
-				if gbStr != "" {
-					gbStr += ", "
+			if len(f.AdvancedMeterGroupBy) > 0 {
+				var parts []string
+				for k, raw := range f.AdvancedMeterGroupBy {
+					parts = append(parts, k+":"+formatFilterString(raw))
 				}
-				gbStr += k + "=" + v
+				gbStr = strings.Join(parts, ", ")
+			} else {
+				for k, v := range f.MeterGroupByFilters {
+					if gbStr != "" {
+						gbStr += ", "
+					}
+					gbStr += k + "=" + v
+				}
 			}
 			archived := ""
 			if f.ArchivedAt != "" {
@@ -605,22 +602,21 @@ func (m *featuresModel) load() tea.Cmd {
 }
 
 type featureListItem struct {
-	ID                  string            `json:"id"`
-	Key                 string            `json:"key"`
-	Name                string            `json:"name"`
-	MeterSlug           string            `json:"meterSlug"`
-	MeterGroupByFilters map[string]string `json:"meterGroupByFilters"`
-	CreatedAt           string            `json:"createdAt"`
-	ArchivedAt          string            `json:"archivedAt"`
+	ID                   string                     `json:"id"`
+	Key                  string                     `json:"key"`
+	Name                 string                     `json:"name"`
+	MeterSlug            string                     `json:"meterSlug"`
+	MeterGroupByFilters  map[string]string          `json:"meterGroupByFilters"`
+	AdvancedMeterGroupBy map[string]json.RawMessage `json:"advancedMeterGroupByFilters"`
+	CreatedAt            string                     `json:"createdAt"`
+	ArchivedAt           string                     `json:"archivedAt"`
 }
 
 func parseFeaturesResponse(raw json.RawMessage) ([]featureListItem, error) {
-	// Try plain array first
 	var items []featureListItem
 	if err := json.Unmarshal(raw, &items); err == nil {
 		return items, nil
 	}
-	// Try paginated response
 	var paginated struct {
 		Items []featureListItem `json:"items"`
 	}
@@ -637,45 +633,137 @@ func (m *featuresModel) loadDetail(id string) tea.Cmd {
 			return featureDetailMsg{err: err}
 		}
 		var f struct {
-			ID                  string            `json:"id"`
-			Key                 string            `json:"key"`
-			Name                string            `json:"name"`
-			MeterSlug           string            `json:"meterSlug"`
-			MeterGroupByFilters map[string]string `json:"meterGroupByFilters"`
-			Metadata            map[string]string `json:"metadata"`
-			CreatedAt           string            `json:"createdAt"`
-			UpdatedAt           string            `json:"updatedAt"`
-			ArchivedAt          string            `json:"archivedAt"`
+			ID                   string                     `json:"id"`
+			Key                  string                     `json:"key"`
+			Name                 string                     `json:"name"`
+			MeterSlug            string                     `json:"meterSlug"`
+			MeterGroupByFilters  map[string]string          `json:"meterGroupByFilters"`
+			AdvancedMeterGroupBy map[string]json.RawMessage `json:"advancedMeterGroupByFilters"`
+			Metadata             map[string]string          `json:"metadata"`
+			CreatedAt            string                     `json:"createdAt"`
+			UpdatedAt            string                     `json:"updatedAt"`
+			ArchivedAt           string                     `json:"archivedAt"`
 		}
 		if err := json.Unmarshal(raw, &f); err != nil {
 			return featureDetailMsg{err: fmt.Errorf("parse feature: %w", err)}
 		}
 		return featureDetailMsg{info: featureInfo{
-			ID:                 f.ID,
-			Key:                f.Key,
-			Name:               f.Name,
-			MeterSlug:          f.MeterSlug,
-			MeterGroupByFilter: f.MeterGroupByFilters,
-			Metadata:           f.Metadata,
-			CreatedAt:          f.CreatedAt,
-			UpdatedAt:          f.UpdatedAt,
-			ArchivedAt:         f.ArchivedAt,
+			ID:                   f.ID,
+			Key:                  f.Key,
+			Name:                 f.Name,
+			MeterSlug:            f.MeterSlug,
+			MeterGroupByFilters:  f.MeterGroupByFilters,
+			AdvancedMeterGroupBy: f.AdvancedMeterGroupBy,
+			Metadata:             f.Metadata,
+			CreatedAt:            f.CreatedAt,
+			UpdatedAt:            f.UpdatedAt,
+			ArchivedAt:           f.ArchivedAt,
 		}}
+	}
+}
+
+func (m *featuresModel) loadMeterSlugs() tea.Cmd {
+	return func() tea.Msg {
+		raw, err := m.client.ListMeters()
+		if err != nil {
+			return featureMeterSlugsMsg{err: err}
+		}
+		var meters []struct {
+			Slug string `json:"slug"`
+			ID   string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &meters); err != nil {
+			return featureMeterSlugsMsg{err: fmt.Errorf("parse meters: %w", err)}
+		}
+		slugs := make([]string, len(meters))
+		for i, meter := range meters {
+			if meter.Slug != "" {
+				slugs[i] = meter.Slug
+			} else {
+				slugs[i] = meter.ID
+			}
+		}
+		return featureMeterSlugsMsg{slugs: slugs}
 	}
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 func parseKVPairs(s string) map[string]string {
-	m := make(map[string]string)
+	result := make(map[string]string)
 	for _, part := range strings.Split(s, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
 		if k, v, ok := strings.Cut(part, "="); ok {
-			m[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			result[strings.TrimSpace(k)] = strings.TrimSpace(v)
 		}
 	}
-	return m
+	return result
+}
+
+func parseAdvancedGroupBy(s string) map[string]any {
+	result := make(map[string]any)
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if key == "" {
+			continue
+		}
+
+		if strings.HasPrefix(val, "$") {
+			op, opVal, hasColon := strings.Cut(val, ":")
+			if hasColon {
+				switch op {
+				case "$in", "$nin":
+					items := strings.Split(opVal, "|")
+					for i := range items {
+						items[i] = strings.TrimSpace(items[i])
+					}
+					result[key] = map[string]any{op: items}
+				default:
+					result[key] = map[string]any{op: opVal}
+				}
+				continue
+			}
+		}
+
+		result[key] = map[string]any{"$eq": val}
+	}
+	return result
+}
+
+func formatFilterString(raw json.RawMessage) string {
+	var filter map[string]any
+	if err := json.Unmarshal(raw, &filter); err != nil {
+		return string(raw)
+	}
+	var parts []string
+	for op, val := range filter {
+		switch v := val.(type) {
+		case string:
+			parts = append(parts, op+" "+v)
+		case []any:
+			var items []string
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					items = append(items, s)
+				}
+			}
+			parts = append(parts, op+" ["+strings.Join(items, ", ")+"]")
+		default:
+			b, _ := json.Marshal(val)
+			parts = append(parts, op+" "+string(b))
+		}
+	}
+	return strings.Join(parts, ", ")
 }

@@ -40,7 +40,7 @@ type appModel struct {
 	inputFn     func(string) tea.Cmd
 	errText     string
 	formView    func(width int) string
-	formUpdate  func(tea.KeyMsg) (bool, tea.Cmd)
+	formUpdate  func(tea.Msg) (bool, tea.Cmd)
 
 	spinner     spinner.Model
 	loadingLogs []string
@@ -276,6 +276,22 @@ func (m appModel) switchTab(tab int) (appModel, tea.Cmd) {
 }
 
 func (m appModel) updateOverlay(msg tea.Msg) (appModel, tea.Cmd) {
+	// Form overlays receive all messages (needed for huh forms and async data).
+	if m.overlay == overlayForm {
+		done, cmd := m.formUpdate(msg)
+		if done {
+			m.overlay = overlayNone
+		}
+		// Also forward non-key messages to the active tab so async data
+		// (e.g. meter slug lists) can update the tab's closure state.
+		if _, isKey := msg.(tea.KeyMsg); !isKey {
+			var tabCmd tea.Cmd
+			m.tabs[m.active], tabCmd = m.tabs[m.active].Update(msg)
+			cmd = tea.Batch(cmd, tabCmd)
+		}
+		return m, cmd
+	}
+
 	key, isKey := msg.(tea.KeyMsg)
 	if !isKey {
 		if m.overlay == overlayInput {
@@ -283,8 +299,6 @@ func (m appModel) updateOverlay(msg tea.Msg) (appModel, tea.Cmd) {
 			m.inputField, cmd = m.inputField.Update(msg)
 			return m, cmd
 		}
-		// Form overlays with text inputs need blink/cursor msgs forwarded.
-		// The form's update handles these internally via its closure state.
 		return m, nil
 	}
 
@@ -319,13 +333,6 @@ func (m appModel) updateOverlay(msg tea.Msg) (appModel, tea.Cmd) {
 			m.inputField, cmd = m.inputField.Update(msg)
 			return m, cmd
 		}
-
-	case overlayForm:
-		done, cmd := m.formUpdate(key)
-		if done {
-			m.overlay = overlayNone
-		}
-		return m, cmd
 	}
 	return m, nil
 }
