@@ -35,7 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 const publicNav = [
   { label: "Browse", to: "/browse" },
   { label: "Docs", to: "https://docs.astropods.ai", external: true },
-  { label: "Blog", to: "/blog" },
+  { label: "Blog", to: "https://blog.astropods.ai", external: true },
 ];
 
 function NavLink({ to, external, children, className }: { to: string; external?: boolean; children: React.ReactNode; className?: string }) {
