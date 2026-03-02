@@ -274,7 +274,7 @@ func (m *tableModel) View() string {
 	}
 
 	normalStyle := lipgloss.NewStyle().Foreground(colFg)
-	selectedStyle := lipgloss.NewStyle().Background(colAccent).Foreground(colBg)
+	selectedStyle := lipgloss.NewStyle().Background(colBgLight).Foreground(colAccent).Bold(true)
 
 	visRows := m.visibleRows()
 	selectedIdx := m.selected - m.offset
@@ -293,7 +293,7 @@ func (m *tableModel) View() string {
 
 		for ci := range m.headers {
 			if ci > 0 {
-				b.WriteString("  ")
+				b.WriteString(style.Render("  "))
 			}
 			val := ""
 			if ci < len(row) {

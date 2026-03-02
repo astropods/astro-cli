@@ -76,12 +76,13 @@ type featuresModel struct {
 	detailLoaded bool
 
 	// Create form (huh)
-	huhForm    *huh.Form
-	formKey    string
-	formName   string
-	formMeter  string
-	formFilter string
-	formMeta   string
+	huhForm     *huh.Form
+	formFocused int
+	formKey     string
+	formName    string
+	formMeter   string
+	formFilter  string
+	formMeta    string
 }
 
 func newFeaturesModel(client *openmeter.Client) *featuresModel {
@@ -397,7 +398,8 @@ func (m *featuresModel) buildHuhForm(meterOpts []huh.Option[string]) *huh.Form {
 	meterSelect := huh.NewSelect[string]().
 		Key("meter").
 		Title("Meter Slug").
-		Description("Link to an existing meter. Leave as (none) for static features.").
+		Description("Link to an existing meter. Leave as (none) for static features. Press / to search.").
+		Height(12).
 		Options(meterOpts...).
 		Value(&m.formMeter)
 
@@ -405,50 +407,40 @@ func (m *featuresModel) buildHuhForm(meterOpts []huh.Option[string]) *huh.Form {
 		huh.NewGroup(
 			huh.NewInput().
 				Key("key").
-				Title("Key").
-				Description("Unique identifier. Lowercase alphanumeric + underscores.").
+				Title("Key *").
+				Description("Unique identifier for this feature.").
 				Placeholder("api_requests").
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("key is required")
-					}
-					return nil
-				}).
 				Value(&m.formKey),
 
 			huh.NewInput().
 				Key("name").
-				Title("Name").
-				Description("Human-readable name for the feature.").
+				Title("Name *").
+				Description("Human-readable display name.").
 				Placeholder("API Requests").
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("name is required")
-					}
-					return nil
-				}).
 				Value(&m.formName),
 
 			meterSelect,
 
-			huh.NewInput().
+			huh.NewText().
 				Key("filter").
 				Title("Group By Filters").
-				Description("key=val or key=$in:a|b  (comma-separated)").
-				Placeholder("model=gpt-4,type=$in:input|output").
+				Description("One filter per line.").
+				Placeholder("model=gpt-4\ntype=$in:input|output").
+				Lines(4).
+				CharLimit(500).
 				Value(&m.formFilter),
 
 			huh.NewInput().
 				Key("meta").
 				Title("Metadata").
-				Description("Key-value pairs (comma-separated).").
+				Description("Comma-separated key=value pairs.").
 				Placeholder("env=prod,tier=enterprise").
 				Value(&m.formMeta),
 
 			huh.NewConfirm().
 				Key("confirm").
 				Title("Create this feature?").
-				Description("Features cannot be updated after creation.").
+				Description("Cannot be updated after creation.").
 				Affirmative("Create").
 				Negative("Cancel"),
 		),
@@ -458,6 +450,7 @@ func (m *featuresModel) buildHuhForm(meterOpts []huh.Option[string]) *huh.Form {
 }
 
 func (m *featuresModel) openCreateForm() tea.Cmd {
+	m.formFocused = 0
 	// Build with a placeholder meter option; will be rebuilt when slugs arrive
 	meterOpts := []huh.Option[string]{
 		huh.NewOption("(none — static feature)", ""),
@@ -487,16 +480,70 @@ func (m *featuresModel) rebuildFormWithMeters(slugs []string) {
 	m.huhForm = m.buildHuhForm(meterOpts)
 }
 
+// formFieldCount is the number of fields in the create form.
+const formFieldCount = 6
+
 func (m *featuresModel) viewHuhForm(width int) string {
 	if m.huhForm == nil {
 		return ""
 	}
-	return m.huhForm.View()
+
+	rightW := 38
+	borderW := 1
+	leftW := width - rightW - borderW - 2
+	if leftW < 40 {
+		leftW = 40
+		rightW = width - leftW - borderW - 2
+	}
+	if rightW < 10 {
+		rightW = 0
+	}
+
+	m.huhForm = m.huhForm.WithWidth(leftW - 2)
+	formView := m.huhForm.View()
+
+	if rightW < 10 {
+		return formView
+	}
+
+	leftPane := lipgloss.NewStyle().
+		Width(leftW).
+		BorderRight(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(colBorder).
+		PaddingRight(1).
+		Render(formView)
+
+	rightPane := lipgloss.NewStyle().
+		Width(rightW).
+		PaddingLeft(1).
+		Render(m.featureFieldHelp())
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 }
 
 func (m *featuresModel) updateHuhForm(msg tea.Msg) (bool, tea.Cmd) {
 	if m.huhForm == nil {
 		return true, nil
+	}
+
+	// Track field focus for the help pane.
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.Type {
+		case tea.KeyTab:
+			if m.formFocused < formFieldCount-1 {
+				m.formFocused++
+			}
+		case tea.KeyShiftTab:
+			if m.formFocused > 0 {
+				m.formFocused--
+			}
+		case tea.KeyEnter:
+			// Enter advances in input/select fields but not textarea (3) or confirm (5).
+			if m.formFocused != 3 && m.formFocused != 5 && m.formFocused < formFieldCount-1 {
+				m.formFocused++
+			}
+		}
 	}
 
 	form, cmd := m.huhForm.Update(msg)
@@ -522,9 +569,72 @@ func (m *featuresModel) updateHuhForm(msg tea.Msg) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// featureFieldHelp returns contextual help text for the right pane
+// based on which form field is currently focused.
+func (m *featuresModel) featureFieldHelp() string {
+	var title, body string
+	switch m.formFocused {
+	case 0:
+		title = "Key (required)"
+		body = "Unique identifier for the feature.\nLowercase alphanumeric + underscores.\nUsed to reference this feature in\nAPI calls and entitlements.\n\n  Example: api_requests\n  Example: token_usage"
+	case 1:
+		title = "Name (required)"
+		body = "Human-readable display name shown\nin dashboards and entitlement UIs.\n\n  Example: API Requests\n  Example: Token Usage"
+	case 2:
+		title = "Meter Slug"
+		body = "Link this feature to an existing\nmeter for usage-based tracking.\nLeave as (none) for static features\nthat don't track consumption.\n\nPress / to search through meters.\nUse ↑↓ to navigate options."
+	case 3:
+		title = "Group By Filters"
+		body = "Filter meter data by group-by keys.\nOne filter per line.\n\nSimple equality:\n  model=gpt-4\n\nSet membership ($in):\n  type=$in:input|output\n\nNegation ($nin):\n  region=$nin:us-east|us-west"
+	case 4:
+		title = "Metadata"
+		body = "Arbitrary key-value pairs attached\nto the feature. Comma-separated.\n\nUseful for tagging features by\nenvironment, tier, or team.\n\n  Example: env=prod,tier=enterprise"
+	case 5:
+		title = "Request Body"
+		body = m.buildCreatePreview()
+	}
+	return helpTitleRender(title) + "\n\n" + helpBodyRender(body)
+}
+
+func (m *featuresModel) buildCreatePreview() string {
+	body := map[string]any{
+		"key":  strings.TrimSpace(m.formKey),
+		"name": strings.TrimSpace(m.formName),
+	}
+	if m.formMeter != "" {
+		body["meterSlug"] = m.formMeter
+	}
+	groupByStr := m.formFilter
+	if groupByStr != "" {
+		groupByStr = strings.ReplaceAll(groupByStr, "\n", ",")
+		if gb := parseAdvancedGroupBy(groupByStr); len(gb) > 0 {
+			body["advancedMeterGroupByFilters"] = gb
+		}
+	}
+	if m.formMeta != "" {
+		if md := parseKVPairs(m.formMeta); len(md) > 0 {
+			body["metadata"] = md
+		}
+	}
+	b, _ := json.MarshalIndent(body, "", "  ")
+	return string(b)
+}
+
 func (m *featuresModel) submitCreate() tea.Cmd {
-	key := m.formKey
-	name := m.formName
+	key := strings.TrimSpace(m.formKey)
+	name := strings.TrimSpace(m.formName)
+	if key == "" || name == "" {
+		missing := "key and name are"
+		if key == "" && name != "" {
+			missing = "key is"
+		} else if key != "" && name == "" {
+			missing = "name is"
+		}
+		return func() tea.Msg {
+			return showErrMsg{missing + " required"}
+		}
+	}
+
 	meterSlug := m.formMeter
 	groupByStr := m.formFilter
 	metadataStr := m.formMeta
@@ -537,6 +647,8 @@ func (m *featuresModel) submitCreate() tea.Cmd {
 		body["meterSlug"] = meterSlug
 	}
 	if groupByStr != "" {
+		// Support both newline and comma separation
+		groupByStr = strings.ReplaceAll(groupByStr, "\n", ",")
 		gb := parseAdvancedGroupBy(groupByStr)
 		if len(gb) > 0 {
 			body["advancedMeterGroupByFilters"] = gb
