@@ -2,15 +2,43 @@ layer: "application"
 language: "go"
 
 tasks:
+  web-install:
+    command: "cd web && bun install"
+    inputs:
+      - "web/package.json"
+    outputs:
+      - "web/node_modules"
+
+  web-build:
+    command: "cd web && bun run build"
+    deps:
+      - "web-install"
+    inputs:
+      - "web/src/**"
+      - "web/index.html"
+      - "web/vite.config.ts"
+      - "web/tsconfig.json"
+    outputs:
+      - "web/dist/**"
+
   build:
     command: "go build -o bin/queen ."
+    deps:
+      - "web-build"
     inputs:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
       - "/packages/astro-proto/**"
+      - "web/dist/**"
     outputs:
       - "bin/queen"
+
+  start:
+    command: "./bin/queen server"
+    deps:
+      - "build"
+    local: true
 
   link:
     command: "ln -sf $(pwd)/bin/queen $HOME/go/bin/queen"

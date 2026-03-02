@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"embed"
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -12,6 +12,9 @@ var (
 	cfgFile    string
 	serverAddr string
 )
+
+// WebFS is set by main.go from the embedded filesystem.
+var WebFS embed.FS
 
 const beeArt = `
         \     /
@@ -27,14 +30,11 @@ const beeArt = `
 
 var rootCmd = &cobra.Command{
 	Use:   "queen",
-	Short: "🐝 queen – Astro admin CLI & TUI toolkit",
+	Short: "queen - Astro admin toolkit",
 	Run: func(cmd *cobra.Command, args []string) {
-		bee := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render(beeArt)
-		title := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render("queen 🐝")
-		subtitle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("Astro admin CLI & TUI toolkit")
-
-		fmt.Println(bee)
-		fmt.Printf("  %s  %s\n\n", title, subtitle)
+		fmt.Print(beeArt)
+		fmt.Println("  queen - Astro admin toolkit")
+		fmt.Println()
 		fmt.Println("  Available commands:")
 		fmt.Println()
 
@@ -42,8 +42,7 @@ var rootCmd = &cobra.Command{
 			if c.Hidden || !c.IsAvailableCommand() {
 				continue
 			}
-			name := lipgloss.NewStyle().Foreground(lipgloss.Color("79")).Bold(true).Render(c.Name())
-			fmt.Printf("    %-28s %s\n", name, c.Short)
+			fmt.Printf("    %-20s %s\n", c.Name(), c.Short)
 		}
 
 		fmt.Println()
