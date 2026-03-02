@@ -572,8 +572,21 @@ func (m *customersModel) View(w, h int) string {
 	case customerFocusDetail:
 		return m.viewDetail()
 	default:
-		return m.t.View()
+		return m.viewList()
 	}
+}
+
+func (m *customersModel) viewList() string {
+	boxW := m.width - 2
+	innerW := boxW - 2
+	m.t.SetSize(innerW, m.height-2)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colAccent).
+		Width(boxW).
+		Padding(0, 1).
+		Render(m.t.View())
+	return borderLabel(box, "Customers", colAccent)
 }
 
 func (m *customersModel) viewDetail() string {
@@ -871,14 +884,7 @@ func (m *customersModel) Status() string {
 	}
 }
 
-func (m *customersModel) Hints(navMode bool) []KeyHint {
-	if navMode {
-		return []KeyHint{
-			{"1-9/Tab", "switch tab"},
-			{"q", "quit"},
-			{"Esc", "back"},
-		}
-	}
+func (m *customersModel) Hints() []KeyHint {
 	switch m.focus {
 	case customerFocusDetail:
 		base := []KeyHint{
@@ -903,7 +909,6 @@ func (m *customersModel) Hints(navMode bool) []KeyHint {
 			{"Enter", "detail"},
 			{"d", "delete"},
 			{"R", "refresh"},
-			{"C-n", "nav mode"},
 		}
 	}
 }

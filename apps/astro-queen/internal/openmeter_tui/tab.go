@@ -19,7 +19,7 @@ type Tab interface {
 	SetSize(width, height int)
 	Status() string
 	Tip() string
-	Hints(navMode bool) []KeyHint
+	Hints() []KeyHint
 }
 
 // KeyHint describes a key binding shown in the footer.

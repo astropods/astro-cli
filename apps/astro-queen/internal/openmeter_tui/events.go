@@ -59,11 +59,12 @@ const (
 	advCount
 )
 
-// ─── pane constants ──────────────────────────────────────────────────────────
+// ─── focus constants ─────────────────────────────────────────────────────────
 
 const (
-	paneFilter = 0
-	paneEmit   = 1
+	focusFilter = 0 // left pane, filter fields (text inputs)
+	focusEmit   = 1 // left pane, emit fields (text inputs)
+	focusTable  = 2 // right pane, table (no text input)
 )
 
 // ─── emit field indices ─────────────────────────────────────────────────────
@@ -114,8 +115,8 @@ type eventsModel struct {
 	detailLines  []string
 	detailScroll int
 
-	// Emit form
-	pane            int // 0=filter, 1=emit
+	// Focus state: 0=filter, 1=emit, 2=table
+	focus           int
 	emitTypeSelect  SearchSelect
 	emitFocused     int // 0=type, 1..3=subject/source/data
 	emitFields      [emitFieldCount]textinput.Model
@@ -275,47 +276,14 @@ func (m *eventsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 }
 
 func (m *eventsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
-	key := msg.String()
-
-	// Global keys (work regardless of pane)
-	switch key {
-	case "ctrl+e":
-		if m.pane == paneFilter {
-			m.pane = paneEmit
-			m.blurFilterFields()
-		} else {
-			m.pane = paneFilter
-			m.focusFilterField()
-		}
-		return m, textinput.Blink
-
-	case "ctrl+d":
-		idx := m.t.selectedRealIndex()
-		if idx >= 0 && idx < len(m.rawEvents) {
-			m.mode = eventModeDetail
-			m.detailScroll = 0
-			var pretty json.RawMessage
-			if err := json.Unmarshal(m.rawEvents[idx], &pretty); err == nil {
-				indented, _ := json.MarshalIndent(pretty, "", "  ")
-				m.detailLines = strings.Split(string(indented), "\n")
-			} else {
-				m.detailLines = strings.Split(string(m.rawEvents[idx]), "\n")
-			}
-			return m, nil
-		}
-
-	case "alt+n":
-		if m.advanced && m.nextCursor != "" {
-			m.status = statusWIP.Render("Next page…")
-			return m, m.load(m.nextCursor)
-		}
-	}
-
-	// Pane-specific keys
-	if m.pane == paneEmit {
+	switch m.focus {
+	case focusTable:
+		return m.updateTablePane(msg)
+	case focusEmit:
 		return m.updateEmitPane(msg)
+	default:
+		return m.updateFilterPane(msg)
 	}
-	return m.updateFilterPane(msg)
 }
 
 func (m *eventsModel) updateFilterPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
@@ -326,6 +294,11 @@ func (m *eventsModel) updateFilterPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
 		m.status = statusWIP.Render("Searching…")
 		m.nextCursor = ""
 		return m, m.load("")
+
+	case "ctrl+e":
+		m.focus = focusEmit
+		m.blurFilterFields()
+		return m, textinput.Blink
 
 	case "ctrl+a":
 		m.advanced = !m.advanced
@@ -343,6 +316,13 @@ func (m *eventsModel) updateFilterPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
 			}
 		}
 		return m, textinput.Blink
+
+	case "ctrl+d":
+		return m, m.openDetail()
+
+	case "right":
+		m.switchToTable()
+		return m, nil
 
 	case "tab", "down":
 		return m, m.moveFocus(1)
@@ -372,19 +352,28 @@ func (m *eventsModel) updateEmitPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
 
 	key := msg.String()
 
-	// Ctrl+S submits from anywhere in the emit form.
-	if key == "ctrl+s" || key == "enter" {
+	switch key {
+	case "enter":
 		emitCmd := m.submitEmit()
 		m.buildEmitForm()
 		return m, emitCmd
-	}
 
-	// Esc returns to filter pane.
-	if key == "esc" {
+	case "esc":
 		m.blurEmitFields()
-		m.pane = paneFilter
+		m.focus = focusFilter
 		m.focusFilterField()
 		return m, textinput.Blink
+
+	case "ctrl+e":
+		m.blurEmitFields()
+		m.focus = focusFilter
+		m.focusFilterField()
+		return m, textinput.Blink
+
+	case "right":
+		m.blurEmitFields()
+		m.switchToTable()
+		return m, nil
 	}
 
 	// Focus on SearchSelect (type field).
@@ -448,6 +437,46 @@ func (m *eventsModel) updateEmitPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *eventsModel) updateTablePane(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	// If the table is in filtering mode, forward to table.
+	if m.t.filtering {
+		cmd := m.t.Update(msg)
+		return m, cmd
+	}
+
+	key := msg.String()
+	switch key {
+	case "enter", "d":
+		return m, m.openDetail()
+
+	case "e":
+		m.focus = focusEmit
+		m.t.SetFocused(false)
+		return m, textinput.Blink
+
+	case "left", "h":
+		m.focus = focusFilter
+		m.t.SetFocused(false)
+		m.focusFilterField()
+		return m, textinput.Blink
+
+	case "R":
+		m.status = statusWIP.Render("Refreshing…")
+		m.nextCursor = ""
+		return m, m.load("")
+
+	case "alt+n":
+		if m.advanced && m.nextCursor != "" {
+			m.status = statusWIP.Render("Next page…")
+			return m, m.load(m.nextCursor)
+		}
+	}
+
+	// Forward navigation keys (j/k/up/down/pgup/pgdown/home/end//) to table
+	cmd := m.t.Update(msg)
+	return m, cmd
+}
+
 func (m *eventsModel) blurEmitFields() {
 	for i := emitFieldSubject; i < emitFieldCount; i++ {
 		m.emitFields[i].Blur()
@@ -469,6 +498,29 @@ func (m *eventsModel) focusFilterField() {
 	} else {
 		m.simpleFields[m.simpleFocused].Focus()
 	}
+}
+
+func (m *eventsModel) switchToTable() {
+	m.focus = focusTable
+	m.blurFilterFields()
+	m.blurEmitFields()
+	m.t.SetFocused(true)
+}
+
+func (m *eventsModel) openDetail() tea.Cmd {
+	idx := m.t.selectedRealIndex()
+	if idx >= 0 && idx < len(m.rawEvents) {
+		m.mode = eventModeDetail
+		m.detailScroll = 0
+		var pretty json.RawMessage
+		if err := json.Unmarshal(m.rawEvents[idx], &pretty); err == nil {
+			indented, _ := json.MarshalIndent(pretty, "", "  ")
+			m.detailLines = strings.Split(string(indented), "\n")
+		} else {
+			m.detailLines = strings.Split(string(m.rawEvents[idx]), "\n")
+		}
+	}
+	return nil
 }
 
 func (m *eventsModel) moveFocus(dir int) tea.Cmd {
@@ -517,11 +569,23 @@ func (m *eventsModel) View(w, h int) string {
 
 func (m *eventsModel) viewList() string {
 	leftW := 48
-	borderW := 1
-	rightW := m.width - leftW - borderW
+	gap := 1
+	rightW := m.width - leftW - gap
 	if rightW < 30 {
 		rightW = 30
-		leftW = m.width - rightW - borderW
+		leftW = m.width - rightW - gap
+	}
+
+	boxFor := func(focused bool, w int) lipgloss.Style {
+		col := colBorder
+		if focused {
+			col = colAccent
+		}
+		return lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(col).
+			Width(w).
+			Padding(0, 1)
 	}
 
 	// ── left pane ──
@@ -529,54 +593,56 @@ func (m *eventsModel) viewList() string {
 	filterSection := m.viewFilterSection(innerW)
 	emitSection := m.viewEmitSection(innerW)
 
-	activeBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colAccent).
-		Width(leftW-2).
-		Padding(0, 1)
-	inactiveBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colBorder).
-		Width(leftW-2).
-		Padding(0, 1)
+	filterFocused := m.focus == focusFilter
+	emitFocused := m.focus == focusEmit
 
-	if m.pane == paneFilter {
-		filterSection = borderLabel(activeBox.Render(filterSection), "Filter", colAccent)
-		emitSection = borderLabel(inactiveBox.Render(emitSection), "C-e Emit", colBorder)
-	} else {
-		filterSection = borderLabel(inactiveBox.Render(filterSection), "C-e Filter", colBorder)
-		emitSection = borderLabel(activeBox.Render(emitSection), "Emit", colAccent)
+	filterSection = borderLabel(
+		boxFor(filterFocused, leftW-2).Render(filterSection),
+		"Filter", boolColor(filterFocused),
+	)
+	emitLabel := "Emit"
+	if !emitFocused {
+		emitLabel = "C-e Emit"
 	}
+	emitSection = borderLabel(
+		boxFor(emitFocused, leftW-2).Render(emitSection),
+		emitLabel, boolColor(emitFocused),
+	)
 
 	leftContent := filterSection + "\n" + emitSection
 
 	leftPane := lipgloss.NewStyle().
 		Width(leftW).
 		Height(m.height).
-		BorderRight(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colBorder).
 		Render(leftContent)
 
-	// ── right pane ──
-	var rb strings.Builder
-	if m.status != "" {
-		rb.WriteString(m.status + "\n")
-	}
-	statusLines := strings.Count(rb.String(), "\n")
-	tableH := m.height - statusLines
+	// ── right pane (table) ──
+	tableFocused := m.focus == focusTable
+	m.t.SetFocused(tableFocused)
+
+	tableBoxOverhead := 2 // border top + bottom
+	tableH := m.height - tableBoxOverhead
 	if tableH < 3 {
 		tableH = 3
 	}
-	m.t.SetSize(rightW, tableH)
-	rb.WriteString(m.t.View())
+	tableInnerW := rightW - 4 // border + padding
+	m.t.SetSize(tableInnerW, tableH)
 
-	rightPane := lipgloss.NewStyle().
-		Width(rightW).
-		PaddingLeft(1).
-		Render(rb.String())
+	tableBox := boxFor(tableFocused, rightW-2).Render(m.t.View())
+	tableLabel := "Table"
+	if !tableFocused {
+		tableLabel = "→ Table"
+	}
+	rightPane := borderLabel(tableBox, tableLabel, boolColor(tableFocused))
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
+}
+
+func boolColor(active bool) lipgloss.Color {
+	if active {
+		return colAccent
+	}
+	return colBorder
 }
 
 func (m *eventsModel) viewFilterSection(w int) string {
@@ -596,7 +662,7 @@ func (m *eventsModel) viewFilterSection(w int) string {
 		m.advFields[i].Width = inputW
 	}
 
-	active := m.pane == paneFilter
+	active := m.focus == focusFilter
 	var b strings.Builder
 
 	modeLabel := descStyle.Render("Simple (v1)")
@@ -660,7 +726,7 @@ func (m *eventsModel) viewEmitSection(w int) string {
 		m.emitFields[i].Width = inputW
 	}
 
-	active := m.pane == paneEmit
+	active := m.focus == focusEmit
 	var b strings.Builder
 
 	fields := []struct {
@@ -716,25 +782,22 @@ func (m *eventsModel) SetSize(w, h int) {
 }
 
 func (m *eventsModel) Tip() string {
-	if m.pane == paneEmit {
+	switch m.focus {
+	case focusEmit:
 		return tipStyle.Render("Fill required fields and confirm to emit a CloudEvent")
+	case focusTable:
+		return tipStyle.Render("Navigate events • Enter or d to view detail")
+	default:
+		if m.advanced {
+			return tipStyle.Render("v2 filter supports %, time ranges, and cursor pagination")
+		}
+		return tipStyle.Render("Enter to search • C-e to switch to emit form")
 	}
-	if m.advanced {
-		return tipStyle.Render("v2 filter supports %, time ranges, and cursor pagination")
-	}
-	return tipStyle.Render("Enter to search • C-e to switch to emit form")
 }
 
 func (m *eventsModel) Status() string { return m.status }
 
-func (m *eventsModel) Hints(navMode bool) []KeyHint {
-	if navMode {
-		return []KeyHint{
-			{"1-9/Tab", "switch tab"},
-			{"q", "quit"},
-			{"Esc", "back"},
-		}
-	}
+func (m *eventsModel) Hints() []KeyHint {
 	switch m.mode {
 	case eventModeDetail:
 		return []KeyHint{
@@ -742,24 +805,42 @@ func (m *eventsModel) Hints(navMode bool) []KeyHint {
 			{"Bksp", "back"},
 		}
 	default:
-		hints := []KeyHint{
-			{"C-e", "filter/emit"},
+		switch m.focus {
+		case focusFilter:
+			hints := []KeyHint{
+				{"C-e", "emit"},
+				{"C-a", "mode"},
+				{"C-d", "detail"},
+				{"→", "table"},
+				{"Enter", "search"},
+			}
+			if m.advanced && m.nextCursor != "" {
+				hints = append(hints, KeyHint{"⌥n", "next page"})
+			}
+			return hints
+
+		case focusEmit:
+			return []KeyHint{
+				{"/", "type"},
+				{"Enter", "emit"},
+				{"Esc", "back"},
+				{"→", "table"},
+			}
+
+		case focusTable:
+			hints := []KeyHint{
+				{"Enter", "detail"},
+				{"e", "emit"},
+				{"←", "filter"},
+				{"R", "refresh"},
+				{"/", "search"},
+			}
+			if m.advanced && m.nextCursor != "" {
+				hints = append(hints, KeyHint{"⌥n", "next page"})
+			}
+			return hints
 		}
-		if m.pane == paneFilter {
-			hints = append(hints,
-				KeyHint{"↑↓/Tab", "fields"},
-				KeyHint{"Enter", "search"},
-				KeyHint{"C-a", "simple/adv"},
-			)
-		} else {
-			hints = append(hints, KeyHint{"/", "search type"}, KeyHint{"C-s", "emit"})
-		}
-		hints = append(hints, KeyHint{"C-d", "detail"})
-		if m.advanced && m.nextCursor != "" {
-			hints = append(hints, KeyHint{"M-n", "next page"})
-		}
-		hints = append(hints, KeyHint{"C-n", "nav mode"})
-		return hints
+		return nil
 	}
 }
 

@@ -369,8 +369,21 @@ func (m *metersModel) View(w, h int) string {
 	case meterFocusDetail:
 		return m.viewDetail()
 	default:
-		return m.t.View()
+		return m.viewList()
 	}
+}
+
+func (m *metersModel) viewList() string {
+	boxW := m.width - 2 // border
+	innerW := boxW - 2  // padding
+	m.t.SetSize(innerW, m.height-2)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colAccent).
+		Width(boxW).
+		Padding(0, 1).
+		Render(m.t.View())
+	return borderLabel(box, "Meters", colAccent)
 }
 
 func (m *metersModel) viewDetail() string {
@@ -504,14 +517,7 @@ func (m *metersModel) Status() string {
 	}
 }
 
-func (m *metersModel) Hints(navMode bool) []KeyHint {
-	if navMode {
-		return []KeyHint{
-			{"1-9/Tab", "switch tab"},
-			{"q", "quit"},
-			{"Esc", "back"},
-		}
-	}
+func (m *metersModel) Hints() []KeyHint {
 	switch m.focus {
 	case meterFocusDetail:
 		return []KeyHint{
@@ -529,7 +535,6 @@ func (m *metersModel) Hints(navMode bool) []KeyHint {
 			{"c", "create"},
 			{"d", "delete"},
 			{"R", "refresh"},
-			{"C-n", "nav mode"},
 		}
 	}
 }

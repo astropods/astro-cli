@@ -30,7 +30,6 @@ type appModel struct {
 	width, height int
 	tabs          []Tab
 	active        int
-	navMode       bool
 
 	overlay      overlayKind
 	confirmText  string
@@ -188,28 +187,15 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		if m.navMode {
-			switch key {
-			case "q", "Q":
-				return m, tea.Quit
-			case "tab":
-				return m.switchTab((m.active + 1) % len(m.tabs))
-			case "esc":
-				m.navMode = false
-				return m, nil
-			}
-			if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-				idx := int(key[0] - '1')
+		// alt+1..9 switches tabs
+		// macOS Option+N sends special Unicode runes instead of alt sequences
+		if len(msg.Runes) == 1 {
+			if idx, ok := optNumIndex[msg.Runes[0]]; ok {
 				if idx < len(m.tabs) && idx != m.active {
 					return m.switchTab(idx)
 				}
+				return m, nil
 			}
-			return m, nil
-		}
-
-		if key == "ctrl+n" {
-			m.navMode = true
-			return m, nil
 		}
 	}
 
@@ -272,9 +258,14 @@ func (m appModel) updateLoading(msg tea.Msg) (appModel, tea.Cmd) {
 }
 
 func (m appModel) switchTab(tab int) (appModel, tea.Cmd) {
-	m.navMode = false
 	m.active = tab
 	return m, m.tabs[tab].Init()
+}
+
+// macOS Option+1..9 produces these runes (no Alt flag set).
+var optNumIndex = map[rune]int{
+	'¡': 0, '™': 1, '£': 2, '¢': 3,
+	'∞': 4, '§': 5, '¶': 6, '•': 7, 'ª': 8,
 }
 
 func (m appModel) updateOverlay(msg tea.Msg) (appModel, tea.Cmd) {
@@ -416,15 +407,11 @@ func (m appModel) headerTabAtX(x int) int {
 func (m appModel) renderFooter() string {
 	tab := m.tabs[m.active]
 
-	var mode string
-	if m.navMode {
-		mode = lipgloss.NewStyle().Bold(true).Foreground(colAccent).Render(" NAV ")
-	} else {
-		mode = lipgloss.NewStyle().Bold(true).Foreground(colGreen).Render(" ● ")
-	}
-	left := mode + " " + tab.Status()
+	now := time.Now().Format("15:04:05")
+	left := " " + statusOK.Render(now) + "  " + tab.Status()
 
-	hints := tab.Hints(m.navMode)
+	hints := tab.Hints()
+	hints = append(hints, KeyHint{"⌥N", "tab"})
 	parts := make([]string, len(hints))
 	for i, h := range hints {
 		parts[i] = hint(h.Key, h.Desc)
