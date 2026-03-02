@@ -903,7 +903,7 @@ func (m *customersModel) Hints(navMode bool) []KeyHint {
 			{"Enter", "detail"},
 			{"d", "delete"},
 			{"R", "refresh"},
-			{"n", "nav mode"},
+			{"C-n", "nav mode"},
 		}
 	}
 }

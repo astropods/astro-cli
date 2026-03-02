@@ -32,15 +32,16 @@ type appModel struct {
 	active        int
 	navMode       bool
 
-	overlay     overlayKind
-	confirmText string
-	confirmFn   func() tea.Cmd
-	inputTitle  string
-	inputField  textinput.Model
-	inputFn     func(string) tea.Cmd
-	errText     string
-	formView    func(width int) string
-	formUpdate  func(tea.Msg) (bool, tea.Cmd)
+	overlay      overlayKind
+	confirmText  string
+	confirmFn    func() tea.Cmd
+	inputTitle   string
+	inputField   textinput.Model
+	inputFn      func(string) tea.Cmd
+	errText      string
+	formView     func(width int) string
+	formUpdate   func(tea.Msg) (bool, tea.Cmd)
+	formMaxWidth int
 
 	spinner     spinner.Model
 	loadingLogs []string
@@ -164,6 +165,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay = overlayForm
 		m.formView = msg.view
 		m.formUpdate = msg.update
+		m.formMaxWidth = msg.maxWidth
 		return m, nil
 
 	case tea.MouseMsg:
@@ -205,7 +207,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if key == "n" {
+		if key == "ctrl+n" {
 			m.navMode = true
 			return m, nil
 		}
@@ -496,7 +498,11 @@ func (m appModel) renderOverlay() string {
 		boxStr = style.Width(min(m.width-6, 60)).Render(content)
 
 	case overlayForm:
-		formW := min(m.width-4, 130)
+		maxW := 130
+		if m.formMaxWidth > 0 {
+			maxW = m.formMaxWidth
+		}
+		formW := min(m.width-4, maxW)
 		content = m.formView(formW - 6) // account for modal padding+border
 		boxStr = modalStyle.Width(formW).Render(content)
 	}

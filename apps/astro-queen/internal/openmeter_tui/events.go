@@ -1,6 +1,7 @@
 package openmeter_tui
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/postman/astro/apps/astro-queen/internal/openmeter"
 )
 
@@ -20,6 +22,13 @@ type eventsLoadedMsg struct {
 	nextCursor string // v2 only
 	err        error
 	at         time.Time
+}
+
+type eventEmittedMsg struct{ err error }
+
+type meterTypesLoadedMsg struct {
+	types []string
+	err   error
 }
 
 // ─── simple mode fields (v1 API) ────────────────────────────────────────────
@@ -48,6 +57,23 @@ const (
 	advIngestedTo
 	advLimit
 	advCount
+)
+
+// ─── pane constants ──────────────────────────────────────────────────────────
+
+const (
+	paneFilter = 0
+	paneEmit   = 1
+)
+
+// ─── emit field indices ─────────────────────────────────────────────────────
+
+const (
+	emitFieldType    = 0 // handled by SearchSelect, not textinput
+	emitFieldSubject = 1
+	emitFieldSource  = 2
+	emitFieldData    = 3
+	emitFieldCount   = 4
 )
 
 // ─── model ────────────────────────────────────────────────────────────────────
@@ -87,6 +113,13 @@ type eventsModel struct {
 	// Detail view
 	detailLines  []string
 	detailScroll int
+
+	// Emit form
+	pane            int // 0=filter, 1=emit
+	emitTypeSelect  SearchSelect
+	emitFocused     int // 0=type, 1..3=subject/source/data
+	emitFields      [emitFieldCount]textinput.Model
+	meterEventTypes []string // fetched from meters for the type selector
 }
 
 func newEventsModel(client *openmeter.Client) *eventsModel {
@@ -126,9 +159,67 @@ func newEventsModel(client *openmeter.Client) *eventsModel {
 			mkInput("2025-01-01", 30),
 			mkInput("100", 3),
 		},
+		emitFields: [emitFieldCount]textinput.Model{
+			mkInput("", 0),                   // placeholder for type (handled by SearchSelect)
+			mkInput("customer-1", 200),       // subject
+			mkInput("my-service", 200),       // source
+			mkInput(`{"tokens": 500}`, 2000), // data (JSON)
+		},
 	}
 	m.simpleFields[0].Focus()
+	m.buildEmitForm()
 	return m
+}
+
+// ─── emit form ───────────────────────────────────────────────────────────────
+
+func (m *eventsModel) buildEmitForm() {
+	m.emitFocused = 0
+
+	// Build SearchSelect for type field
+	opts := m.buildTypeOptions()
+	m.emitTypeSelect = NewSearchSelect("select event type…", opts)
+
+	// Reset text fields
+	for i := emitFieldSubject; i < emitFieldCount; i++ {
+		m.emitFields[i].SetValue("")
+		m.emitFields[i].Blur()
+	}
+}
+
+func (m *eventsModel) buildTypeOptions() []SearchSelectOption {
+	seen := map[string]bool{}
+	var opts []SearchSelectOption
+	for _, t := range m.meterEventTypes {
+		if !seen[t] {
+			opts = append(opts, SearchSelectOption{Label: t, Value: t})
+			seen[t] = true
+		}
+	}
+	return opts
+}
+
+func (m *eventsModel) loadMeterTypes() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		raw, err := client.ListMeters()
+		if err != nil {
+			return meterTypesLoadedMsg{err: err}
+		}
+		var meters []struct {
+			EventType string `json:"eventType"`
+		}
+		if err := json.Unmarshal(raw, &meters); err != nil {
+			return meterTypesLoadedMsg{err: fmt.Errorf("parse meters: %w", err)}
+		}
+		types := make([]string, 0, len(meters))
+		for _, m := range meters {
+			if m.EventType != "" {
+				types = append(types, m.EventType)
+			}
+		}
+		return meterTypesLoadedMsg{types: types}
+	}
 }
 
 // ─── Tab interface ────────────────────────────────────────────────────────────
@@ -136,7 +227,7 @@ func newEventsModel(client *openmeter.Client) *eventsModel {
 func (m *eventsModel) Name() string { return "Events" }
 
 func (m *eventsModel) Init() tea.Cmd {
-	return tea.Batch(m.load(""), textinput.Blink)
+	return tea.Batch(m.load(""), textinput.Blink, m.loadMeterTypes())
 }
 
 func (m *eventsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
@@ -154,6 +245,22 @@ func (m *eventsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		))
 		return m, nil
 
+	case meterTypesLoadedMsg:
+		if msg.err == nil && len(msg.types) > 0 {
+			m.meterEventTypes = msg.types
+			opts := m.buildTypeOptions()
+			m.emitTypeSelect.SetOptions(opts)
+		}
+		return m, nil
+
+	case eventEmittedMsg:
+		if msg.err != nil {
+			return m, func() tea.Msg { return showErrMsg{msg.err.Error()} }
+		}
+		m.status = statusGood.Render("Event emitted!")
+		m.buildEmitForm()
+		return m, m.load("")
+
 	case tea.KeyMsg:
 		switch m.mode {
 		case eventModeList:
@@ -170,6 +277,50 @@ func (m *eventsModel) Update(msg tea.Msg) (Tab, tea.Cmd) {
 func (m *eventsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	key := msg.String()
 
+	// Global keys (work regardless of pane)
+	switch key {
+	case "ctrl+e":
+		if m.pane == paneFilter {
+			m.pane = paneEmit
+			m.blurFilterFields()
+		} else {
+			m.pane = paneFilter
+			m.focusFilterField()
+		}
+		return m, textinput.Blink
+
+	case "ctrl+d":
+		idx := m.t.selectedRealIndex()
+		if idx >= 0 && idx < len(m.rawEvents) {
+			m.mode = eventModeDetail
+			m.detailScroll = 0
+			var pretty json.RawMessage
+			if err := json.Unmarshal(m.rawEvents[idx], &pretty); err == nil {
+				indented, _ := json.MarshalIndent(pretty, "", "  ")
+				m.detailLines = strings.Split(string(indented), "\n")
+			} else {
+				m.detailLines = strings.Split(string(m.rawEvents[idx]), "\n")
+			}
+			return m, nil
+		}
+
+	case "alt+n":
+		if m.advanced && m.nextCursor != "" {
+			m.status = statusWIP.Render("Next page…")
+			return m, m.load(m.nextCursor)
+		}
+	}
+
+	// Pane-specific keys
+	if m.pane == paneEmit {
+		return m.updateEmitPane(msg)
+	}
+	return m.updateFilterPane(msg)
+}
+
+func (m *eventsModel) updateFilterPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	key := msg.String()
+
 	switch key {
 	case "enter":
 		m.status = statusWIP.Render("Searching…")
@@ -177,7 +328,6 @@ func (m *eventsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 		return m, m.load("")
 
 	case "ctrl+a":
-		// Toggle simple/advanced
 		m.advanced = !m.advanced
 		if m.advanced {
 			m.advFields[0].Focus()
@@ -199,27 +349,6 @@ func (m *eventsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 
 	case "shift+tab", "up":
 		return m, m.moveFocus(-1)
-
-	case "ctrl+n":
-		if m.advanced && m.nextCursor != "" {
-			m.status = statusWIP.Render("Next page…")
-			return m, m.load(m.nextCursor)
-		}
-
-	case "ctrl+d":
-		idx := m.t.selectedRealIndex()
-		if idx >= 0 && idx < len(m.rawEvents) {
-			m.mode = eventModeDetail
-			m.detailScroll = 0
-			var pretty json.RawMessage
-			if err := json.Unmarshal(m.rawEvents[idx], &pretty); err == nil {
-				indented, _ := json.MarshalIndent(pretty, "", "  ")
-				m.detailLines = strings.Split(string(indented), "\n")
-			} else {
-				m.detailLines = strings.Split(string(m.rawEvents[idx]), "\n")
-			}
-			return m, nil
-		}
 	}
 
 	// Forward to active text input
@@ -231,6 +360,115 @@ func (m *eventsModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 	var cmd tea.Cmd
 	m.simpleFields[m.simpleFocused], cmd = m.simpleFields[m.simpleFocused].Update(msg)
 	return m, cmd
+}
+
+func (m *eventsModel) updateEmitPane(msg tea.KeyMsg) (Tab, tea.Cmd) {
+	// If the SearchSelect modal is open, forward everything to it.
+	if m.emitTypeSelect.IsOpen() {
+		ss, cmd := m.emitTypeSelect.Update(msg)
+		m.emitTypeSelect = ss
+		return m, cmd
+	}
+
+	key := msg.String()
+
+	// Ctrl+S submits from anywhere in the emit form.
+	if key == "ctrl+s" || key == "enter" {
+		emitCmd := m.submitEmit()
+		m.buildEmitForm()
+		return m, emitCmd
+	}
+
+	// Esc returns to filter pane.
+	if key == "esc" {
+		m.blurEmitFields()
+		m.pane = paneFilter
+		m.focusFilterField()
+		return m, textinput.Blink
+	}
+
+	// Focus on SearchSelect (type field).
+	if m.emitFocused == emitFieldType {
+		switch key {
+		case "tab", "down":
+			m.emitFocused = emitFieldSubject
+			m.emitFields[emitFieldSubject].Focus()
+			return m, textinput.Blink
+		default:
+			ss, cmd := m.emitTypeSelect.Update(msg)
+			m.emitTypeSelect = ss
+			// If the modal just opened, show it as a form overlay.
+			if ss.IsOpen() {
+				return m, tea.Batch(cmd, func() tea.Msg {
+					return showFormMsg{
+						maxWidth: 50,
+						view: func(width int) string {
+							return m.emitTypeSelect.ModalView()
+						},
+						update: func(msg tea.Msg) (bool, tea.Cmd) {
+							ss, cmd := m.emitTypeSelect.Update(msg)
+							m.emitTypeSelect = ss
+							return !ss.IsOpen(), cmd
+						},
+					}
+				})
+			}
+			return m, cmd
+		}
+	}
+
+	// Text field navigation.
+	switch key {
+	case "tab", "down":
+		m.emitFields[m.emitFocused].Blur()
+		m.emitFocused++
+		if m.emitFocused >= emitFieldCount {
+			m.emitFocused = emitFieldCount - 1
+		}
+		m.emitFields[m.emitFocused].Focus()
+		return m, textinput.Blink
+
+	case "shift+tab", "up":
+		m.emitFields[m.emitFocused].Blur()
+		m.emitFocused--
+		if m.emitFocused < emitFieldType {
+			m.emitFocused = emitFieldType
+		}
+		if m.emitFocused == emitFieldType {
+			// Back to SearchSelect row — no textinput to focus.
+			return m, nil
+		}
+		m.emitFields[m.emitFocused].Focus()
+		return m, textinput.Blink
+	}
+
+	// Forward to active text input.
+	var cmd tea.Cmd
+	m.emitFields[m.emitFocused], cmd = m.emitFields[m.emitFocused].Update(msg)
+	return m, cmd
+}
+
+func (m *eventsModel) blurEmitFields() {
+	for i := emitFieldSubject; i < emitFieldCount; i++ {
+		m.emitFields[i].Blur()
+	}
+}
+
+func (m *eventsModel) blurFilterFields() {
+	for i := range m.simpleFields {
+		m.simpleFields[i].Blur()
+	}
+	for i := range m.advFields {
+		m.advFields[i].Blur()
+	}
+}
+
+func (m *eventsModel) focusFilterField() {
+	if m.advanced {
+		m.advFields[m.advFocused].Focus()
+	} else {
+		m.simpleFields[m.simpleFocused].Focus()
+	}
 }
 
 func (m *eventsModel) moveFocus(dir int) tea.Cmd {
@@ -278,80 +516,172 @@ func (m *eventsModel) View(w, h int) string {
 }
 
 func (m *eventsModel) viewList() string {
-	fieldW := 37
-	timeW := 37
+	leftW := 48
+	borderW := 1
+	rightW := m.width - leftW - borderW
+	if rightW < 30 {
+		rightW = 30
+		leftW = m.width - rightW - borderW
+	}
+
+	// ── left pane ──
+	innerW := leftW - 4 // account for border + padding
+	filterSection := m.viewFilterSection(innerW)
+	emitSection := m.viewEmitSection(innerW)
+
+	activeBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colAccent).
+		Width(leftW-2).
+		Padding(0, 1)
+	inactiveBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colBorder).
+		Width(leftW-2).
+		Padding(0, 1)
+
+	if m.pane == paneFilter {
+		filterSection = borderLabel(activeBox.Render(filterSection), "Filter", colAccent)
+		emitSection = borderLabel(inactiveBox.Render(emitSection), "C-e Emit", colBorder)
+	} else {
+		filterSection = borderLabel(inactiveBox.Render(filterSection), "C-e Filter", colBorder)
+		emitSection = borderLabel(activeBox.Render(emitSection), "Emit", colAccent)
+	}
+
+	leftContent := filterSection + "\n" + emitSection
+
+	leftPane := lipgloss.NewStyle().
+		Width(leftW).
+		Height(m.height).
+		BorderRight(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(colBorder).
+		Render(leftContent)
+
+	// ── right pane ──
+	var rb strings.Builder
+	if m.status != "" {
+		rb.WriteString(m.status + "\n")
+	}
+	statusLines := strings.Count(rb.String(), "\n")
+	tableH := m.height - statusLines
+	if tableH < 3 {
+		tableH = 3
+	}
+	m.t.SetSize(rightW, tableH)
+	rb.WriteString(m.t.View())
+
+	rightPane := lipgloss.NewStyle().
+		Width(rightW).
+		PaddingLeft(1).
+		Render(rb.String())
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+}
+
+func (m *eventsModel) viewFilterSection(w int) string {
+	fieldW := w - 4
+	if fieldW < 20 {
+		fieldW = 20
+	}
+	inputW := fieldW - 12 // label width + marker
+	if inputW < 8 {
+		inputW = 8
+	}
 
 	for i := range m.simpleFields {
-		m.simpleFields[i].Width = 24
+		m.simpleFields[i].Width = inputW
 	}
 	for i := range m.advFields {
-		m.advFields[i].Width = 24
+		m.advFields[i].Width = inputW
 	}
 
+	active := m.pane == paneFilter
 	var b strings.Builder
 
-	// Mode indicator
 	modeLabel := descStyle.Render("Simple (v1)")
 	if m.advanced {
 		modeLabel = descStyle.Render("Advanced (v2)")
 	}
-	b.WriteString(titleStyle.Render("Events") + "  " + modeLabel + "  " + dimStyle.Render("C-a toggle") + "\n")
+	b.WriteString(modeLabel + "\n")
 
 	if m.advanced {
-		// Advanced: 3 rows
-		row1 := formLine(
-			formField("ID:", m.advFields[advID].View(), m.advFocused == advID, fieldW),
-			formField("Subject:", m.advFields[advSubject].View(), m.advFocused == advSubject, fieldW),
-			formField("Type:", m.advFields[advType].View(), m.advFocused == advType, fieldW),
-		)
-		row2 := formLine(
-			formField("Source:", m.advFields[advSource].View(), m.advFocused == advSource, fieldW),
-			formField("Customer:", m.advFields[advCustomerID].View(), m.advFocused == advCustomerID, fieldW),
-		)
-		row3 := formLine(
-			formField("From:", m.advFields[advFrom].View(), m.advFocused == advFrom, timeW),
-			formField("To:", m.advFields[advTo].View(), m.advFocused == advTo, timeW),
-			formField("Ing From:", m.advFields[advIngestedFrom].View(), m.advFocused == advIngestedFrom, timeW),
-		)
-		m.advFields[advLimit].Width = 4
-		row4 := formLine(
-			formField("Ing To:", m.advFields[advIngestedTo].View(), m.advFocused == advIngestedTo, timeW),
-			formField("Limit:", m.advFields[advLimit].View(), m.advFocused == advLimit, 18),
-		)
-		b.WriteString(row1 + "\n")
-		b.WriteString(row2 + "\n")
-		b.WriteString(row3 + "\n")
-		b.WriteString(row4 + "\n")
+		fields := []struct {
+			label string
+			idx   int
+		}{
+			{"ID:", advID},
+			{"Subject:", advSubject},
+			{"Type:", advType},
+			{"Source:", advSource},
+			{"Customer:", advCustomerID},
+			{"From:", advFrom},
+			{"To:", advTo},
+			{"Ing From:", advIngestedFrom},
+			{"Ing To:", advIngestedTo},
+			{"Limit:", advLimit},
+		}
+		for _, f := range fields {
+			focused := active && m.advFocused == f.idx
+			b.WriteString(formField(f.label, m.advFields[f.idx].View(), focused, fieldW) + "\n")
+		}
 	} else {
-		// Simple: 2 rows
-		row1 := formLine(
-			formField("ID:", m.simpleFields[simpleID].View(), m.simpleFocused == simpleID, fieldW),
-			formField("Subject:", m.simpleFields[simpleSubject].View(), m.simpleFocused == simpleSubject, fieldW),
-			formField("Customer:", m.simpleFields[simpleCustomerID].View(), m.simpleFocused == simpleCustomerID, fieldW),
-		)
-		m.simpleFields[simpleLimit].Width = 4
-		row2 := formLine(
-			formField("From:", m.simpleFields[simpleFrom].View(), m.simpleFocused == simpleFrom, timeW),
-			formField("To:", m.simpleFields[simpleTo].View(), m.simpleFocused == simpleTo, timeW),
-			formField("Limit:", m.simpleFields[simpleLimit].View(), m.simpleFocused == simpleLimit, 18),
-		)
-		b.WriteString(row1 + "\n")
-		b.WriteString(row2 + "\n")
+		fields := []struct {
+			label string
+			idx   int
+		}{
+			{"ID:", simpleID},
+			{"Subject:", simpleSubject},
+			{"Customer:", simpleCustomerID},
+			{"From:", simpleFrom},
+			{"To:", simpleTo},
+			{"Limit:", simpleLimit},
+		}
+		for _, f := range fields {
+			focused := active && m.simpleFocused == f.idx
+			b.WriteString(formField(f.label, m.simpleFields[f.idx].View(), focused, fieldW) + "\n")
+		}
 	}
 
-	b.WriteString(formSeparator(m.width) + "\n")
+	return b.String()
+}
 
-	if m.status != "" {
-		b.WriteString(m.status + "\n")
+func (m *eventsModel) viewEmitSection(w int) string {
+	fieldW := w - 4
+	if fieldW < 20 {
+		fieldW = 20
+	}
+	inputW := fieldW - 12
+	if inputW < 8 {
+		inputW = 8
 	}
 
-	formLines := strings.Count(b.String(), "\n")
-	tableH := m.height - formLines
-	if tableH < 3 {
-		tableH = 3
+	for i := emitFieldSubject; i < emitFieldCount; i++ {
+		m.emitFields[i].Width = inputW
 	}
-	m.t.SetSize(m.width, tableH)
-	b.WriteString(m.t.View())
+
+	active := m.pane == paneEmit
+	var b strings.Builder
+
+	fields := []struct {
+		label string
+		idx   int
+	}{
+		{"Type:", emitFieldType},
+		{"Subject:", emitFieldSubject},
+		{"Source:", emitFieldSource},
+		{"Data:", emitFieldData},
+	}
+	for _, f := range fields {
+		focused := active && m.emitFocused == f.idx
+		var content string
+		if f.idx == emitFieldType {
+			content = m.emitTypeSelect.View()
+		} else {
+			content = m.emitFields[f.idx].View()
+		}
+		b.WriteString(formField(f.label, content, focused, fieldW) + "\n")
+	}
 
 	return b.String()
 }
@@ -385,7 +715,15 @@ func (m *eventsModel) SetSize(w, h int) {
 	m.width, m.height = w, h
 }
 
-func (m *eventsModel) Tip() string { return "" }
+func (m *eventsModel) Tip() string {
+	if m.pane == paneEmit {
+		return tipStyle.Render("Fill required fields and confirm to emit a CloudEvent")
+	}
+	if m.advanced {
+		return tipStyle.Render("v2 filter supports %, time ranges, and cursor pagination")
+	}
+	return tipStyle.Render("Enter to search • C-e to switch to emit form")
+}
 
 func (m *eventsModel) Status() string { return m.status }
 
@@ -405,16 +743,64 @@ func (m *eventsModel) Hints(navMode bool) []KeyHint {
 		}
 	default:
 		hints := []KeyHint{
-			{"↑↓/Tab", "fields"},
-			{"Enter", "search"},
-			{"C-a", "simple/adv"},
-			{"C-d", "detail"},
+			{"C-e", "filter/emit"},
 		}
+		if m.pane == paneFilter {
+			hints = append(hints,
+				KeyHint{"↑↓/Tab", "fields"},
+				KeyHint{"Enter", "search"},
+				KeyHint{"C-a", "simple/adv"},
+			)
+		} else {
+			hints = append(hints, KeyHint{"/", "search type"}, KeyHint{"C-s", "emit"})
+		}
+		hints = append(hints, KeyHint{"C-d", "detail"})
 		if m.advanced && m.nextCursor != "" {
-			hints = append(hints, KeyHint{"C-n", "next page"})
+			hints = append(hints, KeyHint{"M-n", "next page"})
 		}
-		hints = append(hints, KeyHint{"n", "nav mode"})
+		hints = append(hints, KeyHint{"C-n", "nav mode"})
 		return hints
+	}
+}
+
+// ─── emit submission ─────────────────────────────────────────────────────────
+
+func (m *eventsModel) submitEmit() tea.Cmd {
+	evType := strings.TrimSpace(m.emitTypeSelect.Value())
+	subject := strings.TrimSpace(m.emitFields[emitFieldSubject].Value())
+	source := strings.TrimSpace(m.emitFields[emitFieldSource].Value())
+	data := strings.TrimSpace(m.emitFields[emitFieldData].Value())
+
+	if evType == "" || subject == "" || source == "" {
+		return func() tea.Msg {
+			return eventEmittedMsg{err: fmt.Errorf("type, subject, and source are required")}
+		}
+	}
+
+	// Build CloudEvents JSON
+	ev := map[string]any{
+		"specversion": "1.0",
+		"id":          newUUID(),
+		"type":        evType,
+		"source":      source,
+		"subject":     subject,
+		"time":        time.Now().UTC().Format(time.RFC3339),
+	}
+	if data != "" {
+		ev["data"] = json.RawMessage(data)
+	}
+
+	body, err := json.Marshal(ev)
+	if err != nil {
+		return func() tea.Msg {
+			return eventEmittedMsg{err: fmt.Errorf("marshal: %w", err)}
+		}
+	}
+
+	client := m.client
+	return func() tea.Msg {
+		err := client.IngestEvent(json.RawMessage(body))
+		return eventEmittedMsg{err: err}
 	}
 }
 
@@ -602,4 +988,14 @@ func normalizeTime(s string) string {
 		return s + "T00:00:00Z"
 	}
 	return ""
+}
+
+// newUUID generates a v4 UUID without external dependencies.
+func newUUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 2
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

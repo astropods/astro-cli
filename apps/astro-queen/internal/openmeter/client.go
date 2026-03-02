@@ -82,6 +82,29 @@ func (c *Client) ListMeterGroupByValues(idOrSlug, groupByKey, params string) (js
 
 // ─── Events ──────────────────────────────────────────────────────────────────
 
+// IngestEvent sends a CloudEvents-formatted event via POST /api/v1/events.
+func (c *Client) IngestEvent(body json.RawMessage) error {
+	reader := bytes.NewReader(body)
+	req, err := http.NewRequest("POST", c.base+"/api/v1/events", reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/cloudevents+json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return &APIError{Status: resp.StatusCode, Body: string(respBody)}
+	}
+	return nil
+}
+
 func (c *Client) ListEvents(params string) (json.RawMessage, error) {
 	path := "/api/v1/events"
 	if params != "" {

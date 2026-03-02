@@ -46,8 +46,9 @@ type showErrMsg struct{ text string }
 // showFormMsg requests a multi-field form overlay. The app delegates rendering
 // and message handling to the callbacks so any tab can present a rich modal form.
 type showFormMsg struct {
-	view   func(width int) string
-	update func(tea.Msg) (done bool, cmd tea.Cmd)
+	view     func(width int) string
+	update   func(tea.Msg) (done bool, cmd tea.Cmd)
+	maxWidth int // 0 = default (130)
 }
 
 type loadingLogMsg string
@@ -139,4 +140,32 @@ func formLine(fields ...string) string {
 // formSeparator renders a full-width horizontal rule.
 func formSeparator(width int) string {
 	return lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", width))
+}
+
+// borderLabel replaces the top border of a rendered rounded-border box with
+// "╭ label ───…───╮", colored to match the border. Works with any content
+// previously rendered with lipgloss.RoundedBorder().
+func borderLabel(rendered, label string, color lipgloss.Color) string {
+	lines := strings.SplitN(rendered, "\n", 2)
+	if len(lines) == 0 {
+		return rendered
+	}
+	totalW := lipgloss.Width(lines[0])
+	if totalW < 4 {
+		return rendered
+	}
+
+	s := lipgloss.NewStyle().Foreground(color)
+	labelText := s.Bold(true).Render(" " + label + " ")
+	labelW := len([]rune(" " + label + " ")) // visual width (no wide chars)
+	fillW := totalW - 2 - labelW             // minus corners
+	if fillW < 0 {
+		fillW = 0
+	}
+
+	newTop := s.Render("╭") + labelText + s.Render(strings.Repeat("─", fillW)+"╮")
+	if len(lines) > 1 {
+		return newTop + "\n" + lines[1]
+	}
+	return newTop
 }

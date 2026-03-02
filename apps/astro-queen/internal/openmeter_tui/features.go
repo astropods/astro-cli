@@ -377,7 +377,7 @@ func (m *featuresModel) Hints(navMode bool) []KeyHint {
 			{"d", "archive"},
 			{"A", "toggle archived"},
 			{"R", "refresh"},
-			{"n", "nav mode"},
+			{"C-n", "nav mode"},
 		}
 	}
 }

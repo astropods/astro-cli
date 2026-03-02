@@ -529,7 +529,7 @@ func (m *metersModel) Hints(navMode bool) []KeyHint {
 			{"c", "create"},
 			{"d", "delete"},
 			{"R", "refresh"},
-			{"n", "nav mode"},
+			{"C-n", "nav mode"},
 		}
 	}
 }
