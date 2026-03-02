@@ -419,16 +419,13 @@ func (m *metersModel) viewDetail() string {
 	innerW := leftW - 4
 	var left strings.Builder
 
-	// Meter summary
-	left.WriteString(titleStyle.Render(info.Slug))
-	if info.Name != "" && info.Name != info.Slug {
-		left.WriteString("  " + valStyle.Render(info.Name))
-	}
-	left.WriteString("\n")
-
+	// Meter summary (slug is already shown as border label)
 	summaryParts := []string{
 		kvStyle.Render("event: ") + valStyle.Render(info.EventType),
 		kvStyle.Render("agg: ") + valStyle.Render(info.Aggregation),
+	}
+	if info.Name != "" {
+		summaryParts = append([]string{kvStyle.Render("name: ") + valStyle.Render(info.Name)}, summaryParts...)
 	}
 	if info.ValueProperty != "" {
 		summaryParts = append(summaryParts, kvStyle.Render("value: ")+valStyle.Render(info.ValueProperty))
