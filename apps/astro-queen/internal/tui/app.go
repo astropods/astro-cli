@@ -25,6 +25,8 @@ const (
 	overlayLoading             // startup loading card
 )
 
+const brandLabel = " queen 🐝"
+
 type appModel struct {
 	width, height int
 	tabs          []Tab
@@ -366,7 +368,7 @@ func (m appModel) innerHeight() int {
 
 func (m appModel) renderHeader() string {
 	tabs := make([]string, 0, len(m.tabs)+1)
-	tabs = append(tabs, brandStyle.Render(" astro-queen")+"  ")
+	tabs = append(tabs, brandStyle.Render(brandLabel)+"  ")
 	for i, tab := range m.tabs {
 		label := fmt.Sprintf("[%d] %s", i+1, tab.Name())
 		if i == m.active {
@@ -383,7 +385,7 @@ func (m appModel) renderHeader() string {
 // headerTabAtX returns the tab index at column x in the header, or -1.
 func (m appModel) headerTabAtX(x int) int {
 	// Calculate the width of the brand section.
-	brandWidth := lipgloss.Width(brandStyle.Render(" astro-queen") + "  ")
+	brandWidth := lipgloss.Width(brandStyle.Render(brandLabel) + "  ")
 	pos := brandWidth
 	for i, tab := range m.tabs {
 		label := fmt.Sprintf("[%d] %s", i+1, tab.Name())
