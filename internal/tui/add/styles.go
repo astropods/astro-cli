@@ -1,11 +1,14 @@
 package add
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
+)
 
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("6"))
+			Foreground(theme.Primary)
 
 	promptStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -16,7 +19,7 @@ var (
 			Italic(true)
 
 	selectedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("6")).
+			Foreground(theme.Primary).
 			Bold(true)
 
 	dimStyle = lipgloss.NewStyle().

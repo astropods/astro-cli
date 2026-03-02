@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var whoamiCmd = &cobra.Command{
@@ -29,7 +30,7 @@ func init() {
 
 func runWhoami(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
-	cyan := color.New(color.FgCyan)
+	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 	bold := color.New(color.Bold)
 

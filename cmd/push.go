@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
 
@@ -659,8 +660,10 @@ const (
 	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
 	colorBlue   = "\033[34m"
-	colorCyan   = "\033[36m"
 )
+
+// colorCyan uses the primary accent color from the theme (teal in prod, pink in preview).
+var colorCyan = theme.PrimaryANSI
 
 // transformSpecForRegistry replaces build sections with actual image references
 func transformSpecForRegistry(specObj map[string]interface{}, registry, agentName, tag string) map[string]interface{} {

@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/postman/astro/apps/astro-cli/internal/auth"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var loginCmd = &cobra.Command{
@@ -52,7 +53,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	// Color definitions
-	cyan := color.New(color.FgCyan)
+	cyan := color.New(theme.PrimaryFatihAttr)
 	green := color.New(color.FgGreen)
 	yellow := color.New(color.FgYellow, color.Bold)
 	bold := color.New(color.Bold)
@@ -222,7 +223,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 // claimUsernameInteractive prompts the user to pick a username and creates the account.
 func claimUsernameInteractive(serverURL, accessToken string, verbose bool) (auth.StoredAccount, error) {
-	cyan := color.New(color.FgCyan)
+	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
 	for {
@@ -355,7 +356,7 @@ func checkAccountNameAvailability(serverURL, name string) (bool, string, error) 
 
 // createAccount calls POST /api/v1/accounts to create a personal account.
 func createAccount(serverURL, accessToken, name string, verbose bool) (auth.StoredAccount, error) {
-	cyan := color.New(color.FgCyan)
+	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
 	body, err := json.Marshal(map[string]string{"name": name, "type": "personal"})
