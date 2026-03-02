@@ -4,11 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-
-	"github.com/postman/astro/apps/astro-queen/internal/client"
-	"github.com/postman/astro/apps/astro-queen/internal/config"
-	"github.com/postman/astro/apps/astro-queen/internal/tui"
 )
 
 var (
@@ -16,25 +13,42 @@ var (
 	serverAddr string
 )
 
+const beeArt = `
+        \     /
+     \  .\---./  /
+      \/ o   o \/
+      ( _  ^  _ )
+       |/ \Y/ \|
+       ()  |  ()
+        |  |  |
+       _|  |  |_
+      (___/ \___)
+`
+
 var rootCmd = &cobra.Command{
 	Use:   "queen",
-	Short: "k9s-style TUI for the Astro admin gRPC API",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load(cfgFile)
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-		if serverAddr != "" {
-			cfg.Server = serverAddr
+	Short: "🐝 queen – Astro admin CLI & TUI toolkit",
+	Run: func(cmd *cobra.Command, args []string) {
+		bee := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render(beeArt)
+		title := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true).Render("queen 🐝")
+		subtitle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("Astro admin CLI & TUI toolkit")
+
+		fmt.Println(bee)
+		fmt.Printf("  %s  %s\n\n", title, subtitle)
+		fmt.Println("  Available commands:")
+		fmt.Println()
+
+		for _, c := range cmd.Commands() {
+			if c.Hidden || !c.IsAvailableCommand() {
+				continue
+			}
+			name := lipgloss.NewStyle().Foreground(lipgloss.Color("79")).Bold(true).Render(c.Name())
+			fmt.Printf("    %-28s %s\n", name, c.Short)
 		}
 
-		c, err := client.New(cfg)
-		if err != nil {
-			return fmt.Errorf("connect to %s: %w", cfg.Server, err)
-		}
-		defer c.Close() //nolint:errcheck
-
-		return tui.Run(c.AdminService(), cfg)
+		fmt.Println()
+		fmt.Println("  Use \"queen <command> --help\" for more information about a command.")
+		fmt.Println()
 	},
 }
 
