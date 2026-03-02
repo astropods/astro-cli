@@ -560,6 +560,10 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		url.PathEscape(accountName),
 		url.PathEscape(agentName),
 	)
+	if verbose {
+		log.Printf("   Register URL: %s", reqURL)
+	}
+
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
