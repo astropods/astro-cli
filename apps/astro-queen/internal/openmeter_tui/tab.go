@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -17,6 +18,7 @@ type Tab interface {
 	View(width, height int) string
 	SetSize(width, height int)
 	Status() string
+	Tip() string
 	Hints(navMode bool) []KeyHint
 }
 
@@ -100,6 +102,20 @@ func trunc(s string, n int) string {
 	}
 	return s[:n-1] + "…"
 }
+
+// ─── shared huh theme ────────────────────────────────────────────────────────
+
+var huhTheme = func() *huh.Theme {
+	t := huh.ThemeBase()
+	t.Focused.Title = t.Focused.Title.Foreground(colAccent)
+	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(colAccent)
+	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(colOrange)
+	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(colOrange)
+	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(colGreen)
+	t.Focused.Base = t.Focused.Base.BorderForeground(colAccent)
+	t.Blurred.TextInput.Prompt = t.Blurred.TextInput.Prompt.Foreground(colDimmed)
+	return t
+}()
 
 // ─── inline form helpers ─────────────────────────────────────────────────────
 

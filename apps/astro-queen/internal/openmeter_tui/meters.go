@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/postman/astro/apps/astro-queen/internal/openmeter"
 )
@@ -60,19 +61,6 @@ const (
 	meterFocusDetail
 )
 
-// create form field indices
-const (
-	createFieldSlug = iota
-	createFieldName
-	createFieldDescription
-	createFieldEventType
-	createFieldAggregation // cycle selector
-	createFieldValueProp
-	createFieldGroupBy
-	createFieldEventFrom
-	createFieldCount
-)
-
 // update form field indices
 const (
 	updateFieldName = iota
@@ -101,11 +89,17 @@ type metersModel struct {
 	height int
 	focus  meterFocus
 
-	// Create form — 7 text inputs
-	createFields  [7]textinput.Model
-	createFocused int
-	createAggIdx  int
-	createStatus  string
+	// Create form (huh)
+	huhCreateForm     *huh.Form
+	createFormFocused int
+	formSlug          string
+	formName          string
+	formDesc          string
+	formEventType     string
+	formAgg           string
+	formValueProp     string
+	formGroupBy       string
+	formEventFrom     string
 
 	// Update form — 3 text inputs
 	updateFields  [3]textinput.Model
@@ -134,7 +128,6 @@ func newMetersModel(client *openmeter.Client) *metersModel {
 	t := newTableModel([]string{"Slug", "Name", "Event Type", "Aggregation", "Value Property", "Group By"})
 	t.SetFocused(true)
 
-	// Helper to create a textinput with no prompt
 	mkInput := func(placeholder string, charLimit int) textinput.Model {
 		ti := textinput.New()
 		ti.Placeholder = placeholder
@@ -147,15 +140,6 @@ func newMetersModel(client *openmeter.Client) *metersModel {
 		client: client,
 		t:      t,
 		status: statusWIP.Render("Loading…"),
-		createFields: [7]textinput.Model{
-			mkInput("tokens_total", 64),
-			mkInput("Tokens Total", 256),
-			mkInput("AI Token Usage", 1024),
-			mkInput("prompt", 200),
-			mkInput("$.tokens", 200),
-			mkInput("model=$.model,type=$.type", 500),
-			mkInput("2024-01-01T00:00:00Z", 30),
-		},
 		updateFields: [3]textinput.Model{
 			mkInput("display name", 256),
 			mkInput("description", 1024),
@@ -280,20 +264,7 @@ func (m *metersModel) updateList(msg tea.KeyMsg) (Tab, tea.Cmd) {
 		return m, tea.Batch(m.loadDetail(slug), textinput.Blink)
 
 	case "c":
-		m.createFocused = createFieldSlug
-		m.createAggIdx = 0
-		m.createStatus = ""
-		for i := range m.createFields {
-			m.createFields[i].Reset()
-			m.createFields[i].Blur()
-		}
-		m.createFields[0].Focus()
-		return m, func() tea.Msg {
-			return showFormMsg{
-				view:   m.viewCreateForm,
-				update: m.updateCreateForm,
-			}
-		}
+		return m, m.openMeterCreateForm()
 
 	case "d":
 		idx := m.t.selectedRealIndex()
@@ -398,8 +369,7 @@ func (m *metersModel) View(w, h int) string {
 	case meterFocusDetail:
 		return m.viewDetail()
 	default:
-		tip := tipStyle.Render("Meters define how events are aggregated. Select a meter and press Enter to inspect or query it.")
-		return tip + "\n" + m.t.View()
+		return m.t.View()
 	}
 }
 
@@ -513,6 +483,15 @@ func (m *metersModel) SetSize(w, h int) {
 	m.t.SetSize(w, h)
 }
 
+func (m *metersModel) Tip() string {
+	switch m.focus {
+	case meterFocusDetail:
+		return ""
+	default:
+		return "Meters define how events are aggregated. Select a meter and press Enter to inspect or query it."
+	}
+}
+
 func (m *metersModel) Status() string {
 	switch m.focus {
 	case meterFocusDetail:
@@ -550,113 +529,311 @@ func (m *metersModel) Hints(navMode bool) []KeyHint {
 			{"c", "create"},
 			{"d", "delete"},
 			{"R", "refresh"},
-			{"Esc", "nav mode"},
+			{"n", "nav mode"},
 		}
 	}
 }
 
-// ─── create form ─────────────────────────────────────────────────────────────
+// ─── create form (huh) ───────────────────────────────────────────────────────
 
-func createTextFieldIdx(logical int) int {
-	switch logical {
-	case createFieldSlug:
-		return 0
-	case createFieldName:
-		return 1
-	case createFieldDescription:
-		return 2
-	case createFieldEventType:
-		return 3
-	case createFieldValueProp:
-		return 4
-	case createFieldGroupBy:
-		return 5
-	case createFieldEventFrom:
-		return 6
-	default:
-		return -1
+const meterCreateFieldCount = 9
+
+func (m *metersModel) buildMeterCreateForm() *huh.Form {
+	m.formSlug = ""
+	m.formName = ""
+	m.formDesc = ""
+	m.formEventType = ""
+	m.formAgg = "SUM"
+	m.formValueProp = ""
+	m.formGroupBy = ""
+	m.formEventFrom = ""
+
+	aggOpts := make([]huh.Option[string], len(aggregations))
+	for i, a := range aggregations {
+		aggOpts[i] = huh.NewOption(a, a)
 	}
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("slug").
+				Title("Slug *").
+				Description("Unique meter identifier (alphanumeric + underscores).").
+				Placeholder("tokens_total").
+				Value(&m.formSlug),
+
+			huh.NewInput().
+				Key("name").
+				Title("Name").
+				Description("Human-readable display name.").
+				Placeholder("Tokens Total").
+				Value(&m.formName),
+
+			huh.NewInput().
+				Key("desc").
+				Title("Description").
+				Description("Optional description (max 1024).").
+				Placeholder("AI Token Usage").
+				Value(&m.formDesc),
+
+			huh.NewInput().
+				Key("eventType").
+				Title("Event Type *").
+				Description("CloudEvents type to match.").
+				Placeholder("prompt").
+				Value(&m.formEventType),
+
+			huh.NewSelect[string]().
+				Key("agg").
+				Title("Aggregation *").
+				Description("How matched events are combined.").
+				Options(aggOpts...).
+				Height(8).
+				Value(&m.formAgg),
+
+			huh.NewInput().
+				Key("valueProp").
+				Title("Value Property").
+				Description("JSONPath to extract value. Required for non-COUNT aggregations.").
+				Placeholder("$.tokens").
+				Value(&m.formValueProp),
+
+			huh.NewText().
+				Key("groupBy").
+				Title("Group By").
+				Description("One entry per line: key=$.path").
+				Placeholder("model=$.model\ntype=$.type").
+				Lines(3).
+				CharLimit(500).
+				Value(&m.formGroupBy),
+
+			huh.NewInput().
+				Key("eventFrom").
+				Title("Event From").
+				Description("Only include events after this date (RFC 3339).").
+				Placeholder("2024-01-01T00:00:00Z").
+				Value(&m.formEventFrom),
+
+			huh.NewConfirm().
+				Key("confirm").
+				Title("Create this meter?").
+				Affirmative("Create").
+				Negative("Cancel"),
+		),
+	).WithTheme(huhTheme).WithWidth(80)
 }
 
-func (m *metersModel) updateCreateForm(msg tea.Msg) (bool, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return false, nil
-	}
-	key := keyMsg.String()
+func (m *metersModel) openMeterCreateForm() tea.Cmd {
+	m.createFormFocused = 0
+	m.huhCreateForm = m.buildMeterCreateForm()
+	initCmd := m.huhCreateForm.Init()
 
-	switch key {
-	case "esc":
+	return tea.Batch(
+		initCmd,
+		func() tea.Msg {
+			return showFormMsg{
+				view:   m.viewMeterCreateForm,
+				update: m.updateMeterCreateForm,
+			}
+		},
+	)
+}
+
+func (m *metersModel) viewMeterCreateForm(width int) string {
+	if m.huhCreateForm == nil {
+		return ""
+	}
+
+	rightW := 38
+	borderW := 1
+	leftW := width - rightW - borderW - 2
+	if leftW < 40 {
+		leftW = 40
+		rightW = width - leftW - borderW - 2
+	}
+	if rightW < 10 {
+		rightW = 0
+	}
+
+	m.huhCreateForm = m.huhCreateForm.WithWidth(leftW - 2)
+	formView := m.huhCreateForm.View()
+
+	if rightW < 10 {
+		return formView
+	}
+
+	leftPane := lipgloss.NewStyle().
+		Width(leftW).
+		BorderRight(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(colBorder).
+		PaddingRight(1).
+		Render(formView)
+
+	rightPane := lipgloss.NewStyle().
+		Width(rightW).
+		PaddingLeft(1).
+		Render(m.meterCreateFieldHelp())
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+}
+
+func (m *metersModel) updateMeterCreateForm(msg tea.Msg) (bool, tea.Cmd) {
+	if m.huhCreateForm == nil {
 		return true, nil
-	case "tab", "down":
-		return false, m.createMoveFocus((m.createFocused + 1) % createFieldCount)
-	case "shift+tab", "up":
-		return false, m.createMoveFocus((m.createFocused + createFieldCount - 1) % createFieldCount)
-	case "enter":
-		cmd := m.submitCreate()
-		if cmd == nil {
-			return false, nil
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.Type {
+		case tea.KeyTab:
+			if m.createFormFocused < meterCreateFieldCount-1 {
+				m.createFormFocused++
+			}
+		case tea.KeyShiftTab:
+			if m.createFormFocused > 0 {
+				m.createFormFocused--
+			}
+		case tea.KeyEnter:
+			// Enter advances on input/select fields but not textarea (6) or confirm (8).
+			if m.createFormFocused != 6 && m.createFormFocused != 8 && m.createFormFocused < meterCreateFieldCount-1 {
+				m.createFormFocused++
+			}
 		}
-		return true, cmd
 	}
 
-	if m.createFocused == createFieldAggregation {
-		switch key {
-		case "left", "h":
-			m.createAggIdx = (m.createAggIdx + len(aggregations) - 1) % len(aggregations)
-			return false, nil
-		case "right", "l":
-			m.createAggIdx = (m.createAggIdx + 1) % len(aggregations)
-			return false, nil
+	form, cmd := m.huhCreateForm.Update(msg)
+	if f, ok := form.(*huh.Form); ok {
+		m.huhCreateForm = f
+	}
+
+	if m.huhCreateForm.State == huh.StateCompleted {
+		confirm := m.huhCreateForm.GetBool("confirm")
+		m.huhCreateForm = nil
+		if !confirm {
+			return true, nil
 		}
-		return false, nil
+		return true, m.submitMeterCreate()
 	}
 
-	ti := createTextFieldIdx(m.createFocused)
-	if ti >= 0 {
-		var cmd tea.Cmd
-		m.createFields[ti], cmd = m.createFields[ti].Update(keyMsg)
-		return false, cmd
+	if m.huhCreateForm.State == huh.StateAborted {
+		m.huhCreateForm = nil
+		return true, nil
 	}
 
-	return false, nil
+	return false, cmd
 }
 
-func (m *metersModel) createMoveFocus(next int) tea.Cmd {
-	if ti := createTextFieldIdx(m.createFocused); ti >= 0 {
-		m.createFields[ti].Blur()
+func (m *metersModel) meterCreateFieldHelp() string {
+	var title, body string
+	switch m.createFormFocused {
+	case 0:
+		title = "Slug (required)"
+		body = "Unique identifier for the meter.\nAlphanumeric + underscores only.\nUsed in API paths.\n\n  Example: tokens_total\n  Example: api_requests_total"
+	case 1:
+		title = "Display Name"
+		body = "Human-readable name (1-256 chars).\nDefaults to the slug if omitted.\n\n  Example: Tokens Total"
+	case 2:
+		title = "Description"
+		body = "Optional description (max 1024).\n\n  Example: AI Token Usage"
+	case 3:
+		title = "Event Type (required)"
+		body = "The CloudEvents type to match.\nOnly events with this exact type\nare aggregated by the meter.\n\n  Example: prompt\n  Example: request"
+	case 4:
+		agg := m.formAgg
+		if agg == "" {
+			agg = "SUM"
+		}
+		body = "How matched events are combined.\n\n"
+		switch agg {
+		case "SUM":
+			body += "Sums a numeric value property.\nRequires: valueProperty"
+		case "COUNT":
+			body += "Counts the number of events.\nNo value property needed."
+		case "UNIQUE_COUNT":
+			body += "Counts distinct values (string).\nRequires: valueProperty"
+		case "AVG":
+			body += "Averages the value property.\nRequires: valueProperty"
+		case "MIN":
+			body += "Minimum value in the window.\nRequires: valueProperty"
+		case "MAX":
+			body += "Maximum value in the window.\nRequires: valueProperty"
+		case "LATEST":
+			body += "Most recent value in period.\nRequires: valueProperty"
+		}
+		title = "Aggregation: " + agg
+	case 5:
+		title = "Value Property"
+		body = "JSONPath to extract value from\nevent data.\n\nRequired for: SUM, AVG, MIN, MAX,\nUNIQUE_COUNT, LATEST.\nIgnored for COUNT.\n\n  Example: $.tokens\n  Example: $.duration_seconds"
+	case 6:
+		title = "Group By"
+		body = "Named JSONPath expressions.\nOne entry per line.\nFormat: key=$.path\nShorthand: key (→ key=$.key)\n\n  model=$.model\n  type=$.type\n  region"
+	case 7:
+		title = "Event From"
+		body = "Only include events after this date.\nRFC 3339 format. Optional.\n\n  Example: 2024-01-01T00:00:00Z"
+	case 8:
+		title = "Request Body"
+		body = m.buildMeterCreatePreview()
 	}
-	m.createFocused = next
-	if ti := createTextFieldIdx(next); ti >= 0 {
-		m.createFields[ti].Focus()
-		return textinput.Blink
-	}
-	return nil
+	return helpTitleRender(title) + "\n\n" + helpBodyRender(body)
 }
 
-func (m *metersModel) submitCreate() tea.Cmd {
-	slug := m.createFields[0].Value()
-	name := m.createFields[1].Value()
-	desc := m.createFields[2].Value()
-	eventType := m.createFields[3].Value()
-	agg := aggregations[m.createAggIdx]
-	valueProp := m.createFields[4].Value()
-	groupByStr := m.createFields[5].Value()
-	eventFrom := m.createFields[6].Value()
+func (m *metersModel) buildMeterCreatePreview() string {
+	slug := strings.TrimSpace(m.formSlug)
+	eventType := strings.TrimSpace(m.formEventType)
+	agg := m.formAgg
+	if agg == "" {
+		agg = "SUM"
+	}
+
+	body := map[string]any{
+		"slug":        slug,
+		"eventType":   eventType,
+		"aggregation": agg,
+	}
+	if n := strings.TrimSpace(m.formName); n != "" {
+		body["name"] = n
+	}
+	if d := strings.TrimSpace(m.formDesc); d != "" {
+		body["description"] = d
+	}
+	if vp := strings.TrimSpace(m.formValueProp); vp != "" {
+		body["valueProperty"] = vp
+	}
+	if gb := strings.TrimSpace(m.formGroupBy); gb != "" {
+		gb = strings.ReplaceAll(gb, "\n", ",")
+		parsed := parseGroupBy(gb)
+		if len(parsed) > 0 {
+			body["groupBy"] = parsed
+		}
+	}
+	if ef := strings.TrimSpace(m.formEventFrom); ef != "" {
+		body["eventFrom"] = ef
+	}
+
+	b, _ := json.MarshalIndent(body, "", "  ")
+	return string(b)
+}
+
+func (m *metersModel) submitMeterCreate() tea.Cmd {
+	slug := strings.TrimSpace(m.formSlug)
+	name := strings.TrimSpace(m.formName)
+	desc := strings.TrimSpace(m.formDesc)
+	eventType := strings.TrimSpace(m.formEventType)
+	agg := m.formAgg
+	valueProp := strings.TrimSpace(m.formValueProp)
+	groupByStr := strings.TrimSpace(m.formGroupBy)
+	eventFrom := strings.TrimSpace(m.formEventFrom)
 
 	if slug == "" {
-		m.createStatus = statusErr.Render("Slug is required")
-		return nil
+		return func() tea.Msg { return showErrMsg{"Slug is required"} }
 	}
 	if eventType == "" {
-		m.createStatus = statusErr.Render("Event type is required")
-		return nil
+		return func() tea.Msg { return showErrMsg{"Event type is required"} }
 	}
 	if agg != "COUNT" && valueProp == "" {
 		switch agg {
 		case "SUM", "AVG", "MIN", "MAX", "UNIQUE_COUNT", "LATEST":
-			m.createStatus = statusErr.Render(agg + " requires a value property")
-			return nil
+			return func() tea.Msg { return showErrMsg{agg + " requires a value property"} }
 		}
 	}
 
@@ -675,6 +852,7 @@ func (m *metersModel) submitCreate() tea.Cmd {
 		body["valueProperty"] = valueProp
 	}
 	if groupByStr != "" {
+		groupByStr = strings.ReplaceAll(groupByStr, "\n", ",")
 		gb := parseGroupBy(groupByStr)
 		if len(gb) > 0 {
 			body["groupBy"] = gb
@@ -684,7 +862,6 @@ func (m *metersModel) submitCreate() tea.Cmd {
 		body["eventFrom"] = eventFrom
 	}
 
-	m.createStatus = statusWIP.Render("Creating…")
 	return func() tea.Msg {
 		raw, _ := json.Marshal(body)
 		_, err := m.client.CreateMeter(raw)
@@ -706,77 +883,6 @@ func parseGroupBy(s string) map[string]string {
 		}
 	}
 	return gb
-}
-
-func (m *metersModel) createFieldHelp() (string, string) {
-	switch m.createFocused {
-	case createFieldSlug:
-		return "Slug (required)",
-			"Unique identifier for the meter.\nAlphanumeric + underscores only.\nUsed in API paths.\n\n  Example: tokens_total\n  Example: api_requests_total"
-	case createFieldName:
-		return "Display Name",
-			"Human-readable name (1-256 chars).\nDefaults to the slug if omitted.\n\n  Example: Tokens Total"
-	case createFieldDescription:
-		return "Description",
-			"Optional description (max 1024).\n\n  Example: AI Token Usage"
-	case createFieldEventType:
-		return "Event Type (required)",
-			"The CloudEvents type to match.\nOnly events with this exact type\nare aggregated by the meter.\n\n  Example: prompt\n  Example: request"
-	case createFieldAggregation:
-		agg := aggregations[m.createAggIdx]
-		base := "How matched events are combined.\n\n"
-		switch agg {
-		case "SUM":
-			base += "Sums a numeric value property.\nRequires: valueProperty"
-		case "COUNT":
-			base += "Counts the number of events.\nNo value property needed."
-		case "UNIQUE_COUNT":
-			base += "Counts distinct values (string).\nRequires: valueProperty"
-		case "AVG":
-			base += "Averages the value property.\nRequires: valueProperty"
-		case "MIN":
-			base += "Minimum value in the window.\nRequires: valueProperty"
-		case "MAX":
-			base += "Maximum value in the window.\nRequires: valueProperty"
-		case "LATEST":
-			base += "Most recent value in period.\nRequires: valueProperty"
-		}
-		return "Aggregation: " + agg, base
-	case createFieldValueProp:
-		return "Value Property",
-			"JSONPath to extract value from\nevent data.\n\nRequired for: SUM, AVG, MIN, MAX,\nUNIQUE_COUNT, LATEST.\nIgnored for COUNT.\n\n  Example: $.tokens\n  Example: $.duration_seconds"
-	case createFieldGroupBy:
-		return "Group By",
-			"Named JSONPath expressions.\nFormat: key=$.path\nShorthand: key (→ key=$.key)\n\n  Example: model=$.model,type=$.type\n  Example: region,gpu_type"
-	case createFieldEventFrom:
-		return "Event From",
-			"Only include events after this date.\nRFC 3339 format. Optional.\n\n  Example: 2024-01-01T00:00:00Z"
-	}
-	return "", ""
-}
-
-func (m *metersModel) viewCreateForm(width int) string {
-	return m.viewTwoPaneForm(width, "Create Meter", m.createFocused, func() ([]formRow, string) {
-		rows := []formRow{
-			{"Slug:", createFieldSlug, true},
-			{"Name:", createFieldName, false},
-			{"Description:", createFieldDescription, false},
-			{"Event Type:", createFieldEventType, true},
-			{"Aggregation:", createFieldAggregation, true},
-			{"Value Prop:", createFieldValueProp, false},
-			{"Group By:", createFieldGroupBy, false},
-			{"Event From:", createFieldEventFrom, false},
-		}
-		title, body := m.createFieldHelp()
-		return rows, helpTitleRender(title) + "\n\n" + helpBodyRender(body)
-	}, func(r formRow, inputW int) string {
-		if r.logical == createFieldAggregation {
-			return renderAggSelector(m.createAggIdx)
-		}
-		ti := createTextFieldIdx(r.logical)
-		m.createFields[ti].Width = inputW
-		return m.createFields[ti].View()
-	}, m.createStatus)
 }
 
 // ─── update form ─────────────────────────────────────────────────────────────
@@ -1025,20 +1131,6 @@ var (
 	helpTitleRender = lipgloss.NewStyle().Bold(true).Foreground(colPurple).Render
 	helpBodyRender  = lipgloss.NewStyle().Foreground(colFg).Render
 )
-
-func renderAggSelector(activeIdx int) string {
-	aggActive := lipgloss.NewStyle().Background(colAccent).Foreground(colBg).Padding(0, 1)
-	aggInactive := lipgloss.NewStyle().Foreground(colMuted)
-	var opts []string
-	for i, a := range aggregations {
-		if i == activeIdx {
-			opts = append(opts, aggActive.Render(a))
-		} else {
-			opts = append(opts, aggInactive.Render(a))
-		}
-	}
-	return strings.Join(opts, " ")
-}
 
 func renderWindowSizeSelector(activeIdx int) string {
 	wsActive := lipgloss.NewStyle().Background(colAccent).Foreground(colBg).Padding(0, 1)

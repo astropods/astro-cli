@@ -385,6 +385,8 @@ func (m *eventsModel) SetSize(w, h int) {
 	m.width, m.height = w, h
 }
 
+func (m *eventsModel) Tip() string { return "" }
+
 func (m *eventsModel) Status() string { return m.status }
 
 func (m *eventsModel) Hints(navMode bool) []KeyHint {
@@ -411,7 +413,7 @@ func (m *eventsModel) Hints(navMode bool) []KeyHint {
 		if m.advanced && m.nextCursor != "" {
 			hints = append(hints, KeyHint{"C-n", "next page"})
 		}
-		hints = append(hints, KeyHint{"Esc", "nav mode"})
+		hints = append(hints, KeyHint{"n", "nav mode"})
 		return hints
 	}
 }

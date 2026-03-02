@@ -572,8 +572,7 @@ func (m *customersModel) View(w, h int) string {
 	case customerFocusDetail:
 		return m.viewDetail()
 	default:
-		tip := tipStyle.Render("Customers map to billable entities. Enter to view details, d to delete, R to refresh.")
-		return tip + "\n" + m.t.View()
+		return m.t.View()
 	}
 }
 
@@ -853,6 +852,15 @@ func (m *customersModel) SetSize(w, h int) {
 	m.t.SetSize(w, h)
 }
 
+func (m *customersModel) Tip() string {
+	switch m.focus {
+	case customerFocusDetail:
+		return ""
+	default:
+		return "Customers map to billable entities. Enter to view details, d to delete, R to refresh."
+	}
+}
+
 func (m *customersModel) Status() string {
 	switch m.focus {
 	case customerFocusDetail:
@@ -895,7 +903,7 @@ func (m *customersModel) Hints(navMode bool) []KeyHint {
 			{"Enter", "detail"},
 			{"d", "delete"},
 			{"R", "refresh"},
-			{"Esc", "nav mode"},
+			{"n", "nav mode"},
 		}
 	}
 }

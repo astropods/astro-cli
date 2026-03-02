@@ -205,7 +205,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if key == "esc" {
+		if key == "n" {
 			m.navMode = true
 			return m, nil
 		}
@@ -312,7 +312,7 @@ func (m appModel) updateOverlay(msg tea.Msg) (appModel, tea.Cmd) {
 		case "y", "Y", "enter":
 			m.overlay = overlayNone
 			return m, m.confirmFn()
-		case "n", "N", "esc", "q":
+		case "N", "esc", "q":
 			m.overlay = overlayNone
 		}
 		return m, nil
@@ -351,22 +351,25 @@ func (m appModel) View() string {
 		return statusWIP.Render("Loading…")
 	}
 
+	tab := m.tabs[m.active]
 	header := m.renderHeader()
+	tipLine := tipStyle.Render(tab.Tip())
 	footer := m.renderFooter()
 	inner := m.innerHeight()
 
-	content := m.tabs[m.active].View(m.width, inner)
+	content := tab.View(m.width, inner)
 
 	contentLines := strings.Count(content, "\n") + 1
 	if contentLines < inner {
 		content += strings.Repeat("\n", inner-contentLines)
 	}
 
-	return strings.Join([]string{header, content, footer}, "\n")
+	return strings.Join([]string{header, content, tipLine, footer}, "\n")
 }
 
 func (m appModel) innerHeight() int {
-	h := m.height - 3
+	// header(1) + border(1) + tip(1) + footer(1) = 4
+	h := m.height - 4
 	if h < 0 {
 		return 0
 	}

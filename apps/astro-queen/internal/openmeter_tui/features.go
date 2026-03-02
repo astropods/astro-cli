@@ -254,12 +254,7 @@ func (m *featuresModel) View(w, h int) string {
 	case featureFocusDetail:
 		return m.viewDetail()
 	default:
-		archivedHint := ""
-		if m.showArchived {
-			archivedHint = " (showing archived)"
-		}
-		tip := tipStyle.Render("Features define what can be entitled to customers." + archivedHint)
-		return tip + "\n" + m.t.View()
+		return m.t.View()
 	}
 }
 
@@ -334,6 +329,19 @@ func (m *featuresModel) SetSize(w, h int) {
 	m.t.SetSize(w, h)
 }
 
+func (m *featuresModel) Tip() string {
+	switch m.focus {
+	case featureFocusDetail:
+		return ""
+	default:
+		tip := "Features define what can be entitled to customers."
+		if m.showArchived {
+			tip += " (showing archived)"
+		}
+		return tip
+	}
+}
+
 func (m *featuresModel) Status() string {
 	switch m.focus {
 	case featureFocusDetail:
@@ -369,24 +377,12 @@ func (m *featuresModel) Hints(navMode bool) []KeyHint {
 			{"d", "archive"},
 			{"A", "toggle archived"},
 			{"R", "refresh"},
-			{"Esc", "nav mode"},
+			{"n", "nav mode"},
 		}
 	}
 }
 
 // ─── create form (huh) ─────────────────────────────────────────────────────
-
-var huhTheme = func() *huh.Theme {
-	t := huh.ThemeBase()
-	t.Focused.Title = t.Focused.Title.Foreground(colAccent)
-	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(colAccent)
-	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(colOrange)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(colOrange)
-	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(colGreen)
-	t.Focused.Base = t.Focused.Base.BorderForeground(colAccent)
-	t.Blurred.TextInput.Prompt = t.Blurred.TextInput.Prompt.Foreground(colDimmed)
-	return t
-}()
 
 func (m *featuresModel) buildHuhForm(meterOpts []huh.Option[string]) *huh.Form {
 	m.formKey = ""
