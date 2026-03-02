@@ -1,15 +1,23 @@
 package cmd
 
-import "fmt"
+import (
+	"fmt"
 
-const astroBanner = "\033[36m" + `
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
+)
+
+const bannerArt = `
   ⠉⠛⠿⣿⣿⣿⣿⡿ ⣸⢿⡄  ⣀⣀⡀ ⣀⣷⣀⡀⢀⣀⡀⣀⡀ ⣀⣀⡀ ⣀⣀⣀⡀ ⢀⣀⡀  ⣀⣀⣿  ⣀⣀⡀
 ⡀⣤⣶⣿⣿⣿⣿⣿⣿⠁ ⣿ ⣿ ⢸⣏⠉⠿⠈⠉⣿⠉⠁⠈⢹⡟⠉ ⣿⠉⠉⣿ ⣿⠉⠙⣷⢠⡟⠉⢻⣆⣾⠋⠉⣿ ⢾⡏⠉⠿
      ⣿⡿⣿⡟ ⢸⡟⠛⢿⡄⣠⡉⠛⣿  ⣿   ⢸⡇  ⣿  ⣿ ⣿  ⣿⠸⣇ ⢰⡟⣿  ⣿ ⣤⡉⠛⣿
     ⣼⠟ ⣿  ⠛  ⠈⠛ ⠛⠛⠋ ⠙⠛⠃ ⠛⠛⠛  ⠈⠛⠛⠁ ⣿⠛⠛⠁ ⠙⠛⠋  ⠛⠛⠙  ⠛⠛⠋
-    ⠃  ⠇                          ` + "\033[0m"
+    ⠃  ⠇                          `
+
+func astroBanner() string {
+	return theme.PrimaryANSI + bannerArt + "\033[0m"
+}
 
 func printBanner() {
-	fmt.Println(astroBanner)
+	fmt.Println(astroBanner())
 	fmt.Println()
 }

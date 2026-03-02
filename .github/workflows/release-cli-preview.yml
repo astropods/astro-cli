@@ -62,7 +62,8 @@ jobs:
             -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID} \
             -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${SERVER_URL} \
             -X github.com/postman/astro/apps/astro-cli/cmd.downloadBaseURL=${DOWNLOAD_URL} \
-            -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=${BINARY_NAME}"
+            -X github.com/postman/astro/apps/astro-cli/cmd.binaryName=${BINARY_NAME} \
+            -X github.com/postman/astro/apps/astro-cli/internal/theme.binaryName=${BINARY_NAME}"
 
           for OS in darwin linux; do
             for ARCH in amd64 arm64; do

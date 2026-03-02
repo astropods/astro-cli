@@ -22,6 +22,7 @@ import (
 
 	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
 	"github.com/postman/astro/apps/astro-cli/internal/config"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
@@ -680,7 +681,7 @@ func withSpinner(title string, verbose bool, fn func() error) error {
 	}
 	return spinner.New().
 		Title(" " + title).
-		Style(lipgloss.NewStyle().Foreground(lipgloss.Color("6"))).
+		Style(lipgloss.NewStyle().Foreground(theme.Primary)).
 		ActionWithErr(func(_ context.Context) error {
 			return fn()
 		}).
@@ -689,9 +690,9 @@ func withSpinner(title string, verbose bool, fn func() error) error {
 
 // printReadyBlock renders the post-start summary using lipgloss.
 func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
-	teal := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	primary := lipgloss.NewStyle().Foreground(theme.Primary)
 	bold := lipgloss.NewStyle().Bold(true)
-	boldTeal := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	dim := lipgloss.NewStyle().Faint(true)
 
 	var lines []string
@@ -699,7 +700,7 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	lines = append(lines, "")
 
 	if hasWebInterface {
-		lines = append(lines, teal.Render("➜")+"  "+boldTeal.Render("http://localhost:3000"))
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3000"))
 		lines = append(lines, dim.Render("   http://localhost:3100  (API)"))
 	}
 
@@ -729,7 +730,7 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
-		BorderForeground(lipgloss.Color("6")).
+		BorderForeground(theme.Primary).
 		Padding(0, 2).
 		Render(strings.Join(lines, "\n"))
 

@@ -7,14 +7,15 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	promptStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
 	hintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	selectedStyle = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
 )
 
 // Credential describes a single credential to collect.

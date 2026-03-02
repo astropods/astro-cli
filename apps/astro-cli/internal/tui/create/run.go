@@ -6,9 +6,9 @@ import (
 	"slices"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 // ollamaModels returns a curated list of popular models from the Ollama library.
@@ -211,22 +211,22 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 		),
 	)
 
-	teal := lipgloss.Color("6")
-	theme := huh.ThemeCharm()
-	theme.Focused.Title = theme.Focused.Title.Foreground(teal)
-	theme.Focused.SelectedOption = theme.Focused.SelectedOption.Foreground(teal)
-	theme.Focused.SelectedPrefix = theme.Focused.SelectedPrefix.Foreground(teal)
-	theme.Focused.FocusedButton = theme.Focused.FocusedButton.Background(teal)
-	theme.Focused.SelectSelector = theme.Focused.SelectSelector.Foreground(teal)
-	theme.Focused.MultiSelectSelector = theme.Focused.MultiSelectSelector.Foreground(teal)
-	theme.Focused.TextInput.Cursor = theme.Focused.TextInput.Cursor.Foreground(teal)
-	theme.Focused.TextInput.Prompt = theme.Focused.TextInput.Prompt.Foreground(teal)
-	theme.Focused.Next = theme.Focused.Next.Foreground(teal)
-	theme.Blurred.Title = theme.Blurred.Title.Foreground(teal)
-	theme.Blurred.SelectedOption = theme.Blurred.SelectedOption.Foreground(teal)
-	theme.Blurred.SelectedPrefix = theme.Blurred.SelectedPrefix.Foreground(teal)
+	primary := theme.Primary
+	huhTheme := huh.ThemeCharm()
+	huhTheme.Focused.Title = huhTheme.Focused.Title.Foreground(primary)
+	huhTheme.Focused.SelectedOption = huhTheme.Focused.SelectedOption.Foreground(primary)
+	huhTheme.Focused.SelectedPrefix = huhTheme.Focused.SelectedPrefix.Foreground(primary)
+	huhTheme.Focused.FocusedButton = huhTheme.Focused.FocusedButton.Background(primary)
+	huhTheme.Focused.SelectSelector = huhTheme.Focused.SelectSelector.Foreground(primary)
+	huhTheme.Focused.MultiSelectSelector = huhTheme.Focused.MultiSelectSelector.Foreground(primary)
+	huhTheme.Focused.TextInput.Cursor = huhTheme.Focused.TextInput.Cursor.Foreground(primary)
+	huhTheme.Focused.TextInput.Prompt = huhTheme.Focused.TextInput.Prompt.Foreground(primary)
+	huhTheme.Focused.Next = huhTheme.Focused.Next.Foreground(primary)
+	huhTheme.Blurred.Title = huhTheme.Blurred.Title.Foreground(primary)
+	huhTheme.Blurred.SelectedOption = huhTheme.Blurred.SelectedOption.Foreground(primary)
+	huhTheme.Blurred.SelectedPrefix = huhTheme.Blurred.SelectedPrefix.Foreground(primary)
 
-	if err := form.WithTheme(theme).Run(); err != nil {
+	if err := form.WithTheme(huhTheme).Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
 			return scaffold.ScaffoldConfig{}, ErrCancelled
 		}

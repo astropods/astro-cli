@@ -6,11 +6,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
+	selectedStyle = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	hintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
 )

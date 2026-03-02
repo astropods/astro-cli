@@ -11,6 +11,8 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var upgradeCmd = &cobra.Command{
@@ -28,7 +30,7 @@ func init() {
 
 func runUpgrade(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
-	cyan := color.New(color.FgCyan)
+	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
