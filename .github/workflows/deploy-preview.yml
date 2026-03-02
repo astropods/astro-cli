@@ -186,7 +186,7 @@ jobs:
           if [ -f "$CONFIG_FILE" ]; then
             kubectl create configmap ${{ matrix.service }}-config \
               --from-env-file="$CONFIG_FILE" \
-              --namespace=${{ matrix.service }} \
+              --namespace=astro \
               --dry-run=client -o yaml | kubectl apply -f -
             echo "::notice::ConfigMap updated for ${{ matrix.service }}"
           else
