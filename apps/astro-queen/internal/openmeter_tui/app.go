@@ -411,7 +411,7 @@ func (m appModel) renderFooter() string {
 	left := " " + statusOK.Render(now) + "  " + tab.Status()
 
 	hints := tab.Hints()
-	hints = append(hints, KeyHint{"⌥N", "tab"})
+	hints = append(hints, KeyHint{"⌥1..9", "tab"})
 	parts := make([]string, len(hints))
 	for i, h := range hints {
 		parts[i] = hint(h.Key, h.Desc)

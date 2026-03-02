@@ -391,17 +391,40 @@ func (m *metersModel) viewDetail() string {
 		return statusWIP.Render("Loading meter…")
 	}
 
-	var b strings.Builder
 	info := m.detailInfo
 	kvStyle := lipgloss.NewStyle().Foreground(colDimmed)
 	valStyle := lipgloss.NewStyle().Foreground(colFg)
 
-	// ─── header: meter summary ───
-	b.WriteString(titleStyle.Render(info.Slug))
-	if info.Name != "" && info.Name != info.Slug {
-		b.WriteString("  " + valStyle.Render(info.Name))
+	leftW := 48
+	gap := 1
+	rightW := m.width - leftW - gap
+	if rightW < 30 {
+		rightW = 30
+		leftW = m.width - rightW - gap
 	}
-	b.WriteString("\n")
+
+	boxFor := func(focused bool, w int) lipgloss.Style {
+		col := colBorder
+		if focused {
+			col = colAccent
+		}
+		return lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(col).
+			Width(w).
+			Padding(0, 1)
+	}
+
+	// ── left pane: meter info + query form ──
+	innerW := leftW - 4
+	var left strings.Builder
+
+	// Meter summary
+	left.WriteString(titleStyle.Render(info.Slug))
+	if info.Name != "" && info.Name != info.Slug {
+		left.WriteString("  " + valStyle.Render(info.Name))
+	}
+	left.WriteString("\n")
 
 	summaryParts := []string{
 		kvStyle.Render("event: ") + valStyle.Render(info.EventType),
@@ -423,57 +446,57 @@ func (m *metersModel) viewDetail() string {
 	if info.Description != "" {
 		summaryParts = append(summaryParts, kvStyle.Render("desc: ")+valStyle.Render(info.Description))
 	}
-	b.WriteString(strings.Join(summaryParts, "  ") + "\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", m.width)) + "\n")
+	left.WriteString(strings.Join(summaryParts, "\n") + "\n")
+	left.WriteString(formSeparator(innerW) + "\n")
 
-	// ─── inline query form ───
-	fieldW := 37 // input(24) + marker(1) + label(10) + pad(2)
+	// Query form
+	fieldW := innerW - 2
+	inputW := fieldW - 12
+	if inputW < 8 {
+		inputW = 8
+	}
+	for i := range m.queryFields {
+		m.queryFields[i].Width = inputW
+	}
 
-	m.queryFields[0].Width = 24
-	m.queryFields[1].Width = 24
-	m.queryFields[2].Width = 24
-	m.queryFields[3].Width = 20
-	m.queryFields[4].Width = 24
+	left.WriteString(formField("Subject:", m.queryFields[0].View(), m.queryFocused == queryFieldSubject, fieldW) + "\n")
+	left.WriteString(formField("From:", m.queryFields[1].View(), m.queryFocused == queryFieldFrom, fieldW) + "\n")
+	left.WriteString(formField("To:", m.queryFields[2].View(), m.queryFocused == queryFieldTo, fieldW) + "\n")
+	left.WriteString(formField("Window:", renderWindowSizeSelector(m.queryWinIdx), m.queryFocused == queryFieldWindowSize, fieldW) + "\n")
+	left.WriteString(formField("Timezone:", m.queryFields[3].View(), m.queryFocused == queryFieldWindowTZ, fieldW) + "\n")
+	left.WriteString(formField("Group By:", m.queryFields[4].View(), m.queryFocused == queryFieldGroupBy, fieldW) + "\n")
 
-	qRow1 := formLine(
-		formField("Subject:", m.queryFields[0].View(), m.queryFocused == queryFieldSubject, fieldW),
-		formField("Window:", renderWindowSizeSelector(m.queryWinIdx), m.queryFocused == queryFieldWindowSize, 0),
+	leftBox := borderLabel(
+		boxFor(true, leftW-2).Render(left.String()),
+		info.Slug, colAccent,
 	)
-	qRow2 := formLine(
-		formField("From:", m.queryFields[1].View(), m.queryFocused == queryFieldFrom, fieldW),
-		formField("To:", m.queryFields[2].View(), m.queryFocused == queryFieldTo, fieldW),
-	)
-	qRow3 := formLine(
-		formField("Timezone:", m.queryFields[3].View(), m.queryFocused == queryFieldWindowTZ, 33),
-		formField("Group By:", m.queryFields[4].View(), m.queryFocused == queryFieldGroupBy, fieldW),
-	)
 
-	b.WriteString(qRow1 + "\n")
-	b.WriteString(qRow2 + "\n")
-	b.WriteString(qRow3 + "\n")
+	leftPane := lipgloss.NewStyle().
+		Width(leftW).
+		Height(m.height).
+		Render(leftBox)
 
-	b.WriteString(lipgloss.NewStyle().Foreground(colBorder).Render(strings.Repeat("─", m.width)) + "\n")
+	// ── right pane: query results ──
+	var right strings.Builder
 
-	// ─── query results ───
 	if m.queryFormStatus != "" {
-		b.WriteString(m.queryFormStatus + "\n")
+		right.WriteString(m.queryFormStatus + "\n")
 	}
 	if m.queryStatus != "" {
-		b.WriteString(m.queryStatus)
+		right.WriteString(m.queryStatus)
 		if m.queryHeader != "" {
-			b.WriteString("  " + descStyle.Render(m.queryHeader))
+			right.WriteString("  " + descStyle.Render(m.queryHeader))
 		}
-		b.WriteString("\n")
+		right.WriteString("\n")
 	}
 
 	if len(m.queryRows) > 0 {
-		b.WriteString(headerStyle.Render("Window Start          Window End            Value         Subject       Group By") + "\n")
-		// Show results with scroll
-		visibleH := m.height - strings.Count(b.String(), "\n") - 2
-		if visibleH < 1 {
-			visibleH = 1
+		right.WriteString(headerStyle.Render("Start                 End                   Value         Subject       Group By") + "\n")
+		rightInnerH := m.height - 6 // border + status + header
+		if rightInnerH < 1 {
+			rightInnerH = 1
 		}
-		end := m.resultScroll + visibleH
+		end := m.resultScroll + rightInnerH
 		if end > len(m.queryRows) {
 			end = len(m.queryRows)
 		}
@@ -482,13 +505,18 @@ func (m *metersModel) viewDetail() string {
 			start = len(m.queryRows)
 		}
 		for _, row := range m.queryRows[start:end] {
-			b.WriteString(strings.Join(row, "  ") + "\n")
+			right.WriteString(strings.Join(row, "  ") + "\n")
 		}
 	} else if m.queryStatus == "" {
-		b.WriteString(descStyle.Render("Press Enter to query this meter") + "\n")
+		right.WriteString(descStyle.Render("Press Enter to query this meter") + "\n")
 	}
 
-	return b.String()
+	rightBox := borderLabel(
+		boxFor(false, rightW-2).Render(right.String()),
+		"Results", colBorder,
+	)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightBox)
 }
 
 func (m *metersModel) SetSize(w, h int) {
