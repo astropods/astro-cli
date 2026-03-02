@@ -72,6 +72,49 @@ func TestSealAndUnsealSession(t *testing.T) {
 	}
 }
 
+func TestSealAndUnsealSession_WithPermissions(t *testing.T) {
+	sm := NewSessionManager("test-password-that-is-32-chars!!", 24*time.Hour)
+
+	originalData := &SessionData{
+		Session: &Session{
+			ID:          "session_perm",
+			UserID:      "user_perm",
+			Role:        "admin",
+			Permissions: []string{"admin:view", "agents:deploy"},
+			AccessToken: "token",
+			ExpiresAt:   time.Now().Add(1 * time.Hour),
+			CreatedAt:   time.Now(),
+		},
+		User: &User{
+			ID:    "user_perm",
+			Email: "admin@example.com",
+		},
+	}
+
+	sealed, err := sm.SealSession(originalData)
+	if err != nil {
+		t.Fatalf("SealSession failed: %v", err)
+	}
+
+	unsealed, err := sm.UnsealSession(sealed)
+	if err != nil {
+		t.Fatalf("UnsealSession failed: %v", err)
+	}
+
+	if unsealed.Session.Role != "admin" {
+		t.Errorf("Role = %q, want %q", unsealed.Session.Role, "admin")
+	}
+	if len(unsealed.Session.Permissions) != 2 {
+		t.Fatalf("Permissions length = %d, want 2", len(unsealed.Session.Permissions))
+	}
+	if unsealed.Session.Permissions[0] != "admin:view" {
+		t.Errorf("Permissions[0] = %q, want %q", unsealed.Session.Permissions[0], "admin:view")
+	}
+	if unsealed.Session.Permissions[1] != "agents:deploy" {
+		t.Errorf("Permissions[1] = %q, want %q", unsealed.Session.Permissions[1], "agents:deploy")
+	}
+}
+
 func TestUnsealSession_EmptyData(t *testing.T) {
 	sm := NewSessionManager("test-password-that-is-32-chars!!", 24*time.Hour)
 

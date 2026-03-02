@@ -158,12 +158,19 @@ type RefreshResult struct {
 	RefreshToken string //nolint:gosec
 }
 
-// extractSessionIDFromToken extracts the session ID from a JWT access token
-// The session ID is stored in the "sid" claim
-func extractSessionIDFromToken(token string) string {
+// TokenClaims represents the JWT claims we extract from access tokens
+type TokenClaims struct {
+	SessionID   string   `json:"sid"`
+	Role        string   `json:"role"`
+	Permissions []string `json:"permissions"`
+}
+
+// ExtractTokenClaims decodes JWT payload claims without signature validation.
+// This is safe because we only call it on tokens freshly received from WorkOS.
+func ExtractTokenClaims(token string) TokenClaims {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return ""
+		return TokenClaims{}
 	}
 
 	// Decode the payload (second part)
@@ -178,16 +185,19 @@ func extractSessionIDFromToken(token string) string {
 
 	decoded, err := base64.URLEncoding.DecodeString(payload)
 	if err != nil {
-		return ""
+		return TokenClaims{}
 	}
 
-	// Parse the claims
-	var claims struct {
-		SessionID string `json:"sid"`
-	}
+	var claims TokenClaims
 	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return ""
+		return TokenClaims{}
 	}
 
-	return claims.SessionID
+	return claims
+}
+
+// extractSessionIDFromToken extracts the session ID from a JWT access token
+// The session ID is stored in the "sid" claim
+func extractSessionIDFromToken(token string) string {
+	return ExtractTokenClaims(token).SessionID
 }

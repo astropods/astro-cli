@@ -69,6 +69,7 @@ export const mockAuthContext: AuthContextType = {
   sessionId: 'session-1',
   organizationId: 'org-1',
   role: 'admin',
+  permissions: [],
   expiresAt: new Date(Date.now() + 86400000),
   isLoading: false,
   isAuthenticated: true,

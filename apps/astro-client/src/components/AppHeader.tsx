@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router";
 import {
   Bars3Icon,
   ArrowLeftStartOnRectangleIcon,
+  Cog6ToothIcon,
   MagnifyingGlassIcon,
   EllipsisHorizontalIcon,
 } from "@heroicons/react/24/outline";
@@ -48,7 +49,7 @@ function NavLink({ to, external, children, className }: { to: string; external?:
 const ALWAYS_VISIBLE = 2;
 
 export function AppHeader() {
-  const { user, isLoading, isAuthenticated, login, logout } = useAuth();
+  const { user, isLoading, isAuthenticated, login, logout, hasPermission } = useAuth();
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -197,6 +198,14 @@ export function AppHeader() {
                 </div>
               </div>
               <DropdownMenuSeparator />
+              {hasPermission('admin:view') && (
+                <DropdownMenuItem asChild className="gap-2">
+                  <Link to="/admin">
+                    <Cog6ToothIcon className="size-4" />
+                    Admin
+                  </Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={logout} className="gap-2">
                 <ArrowLeftStartOnRectangleIcon className="size-4" />
                 Sign out

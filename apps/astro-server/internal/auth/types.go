@@ -52,6 +52,7 @@ type AuthResponse struct {
 	SessionID    string                `json:"session_id"`
 	Organization string                `json:"organization_id,omitempty"`
 	Role         string                `json:"role,omitempty"`
+	Permissions  []string              `json:"permissions"`
 	ExpiresAt    string                `json:"expires_at"`
 	Accounts     []AuthAccountResponse `json:"accounts"`
 }

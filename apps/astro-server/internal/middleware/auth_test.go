@@ -278,6 +278,135 @@ func TestGetSession_NotSet(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_Granted(t *testing.T) {
+	_, mw := setupTestRouter()
+	router := gin.New()
+
+	// Inject session, then use the real middleware
+	router.GET("/admin", func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			Permissions: []string{"admin:view", "agents:read"},
+		})
+		c.Next()
+	}, mw.RequirePermission("admin:view"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
+func TestRequirePermission_Denied(t *testing.T) {
+	_, mw := setupTestRouter()
+	router := gin.New()
+
+	router.GET("/admin", func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			Permissions: []string{"agents:read"},
+		})
+		c.Next()
+	}, mw.RequirePermission("admin:view"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestRequirePermission_NoPermissions(t *testing.T) {
+	_, mw := setupTestRouter()
+	router := gin.New()
+
+	router.GET("/admin", func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			Permissions: []string{},
+		})
+		c.Next()
+	}, mw.RequirePermission("admin:view"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestRequirePermission_NoSession(t *testing.T) {
+	_, mw := setupTestRouter()
+	router := gin.New()
+
+	// No session injected
+	router.GET("/admin", mw.RequirePermission("admin:view"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+}
+
+func TestRequireRole_Granted(t *testing.T) {
+	_, mw := setupTestRouter()
+	router := gin.New()
+
+	router.GET("/admin", func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			Role: "admin",
+		})
+		c.Next()
+	}, mw.RequireRole("admin"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestRequireRole_Denied(t *testing.T) {
+	_, mw := setupTestRouter()
+	router := gin.New()
+
+	router.GET("/admin", func(c *gin.Context) {
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			Role: "member",
+		})
+		c.Next()
+	}, mw.RequireRole("admin"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
 func TestRequireRole_HasRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

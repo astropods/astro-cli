@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -287,5 +288,119 @@ func TestCookieClearingSameSite(t *testing.T) {
 	cookie := cookies[0]
 	if cookie.SameSite != http.SameSiteLaxMode {
 		t.Errorf("expected SameSite=Lax even when clearing cookie, got %v", cookie.SameSite)
+	}
+}
+
+// TestMe_ReturnsPermissions verifies that the /auth/me endpoint includes
+// permissions from the sealed session in the response.
+func TestMe_ReturnsPermissions(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+
+	// Create a session with permissions and seal it
+	sessionData := &auth.SessionData{
+		Session: &auth.Session{
+			ID:          "session_perm",
+			UserID:      "user_perm",
+			Role:        "admin",
+			Permissions: []string{"admin:view", "agents:deploy"},
+			AccessToken: "token",
+			ExpiresAt:   time.Now().Add(1 * time.Hour),
+			CreatedAt:   time.Now(),
+		},
+		User: &auth.User{
+			ID:    "user_perm",
+			Email: "admin@example.com",
+		},
+	}
+
+	sealed, err := handler.sessionManager.SealSession(sessionData)
+	if err != nil {
+		t.Fatalf("failed to seal session: %v", err)
+	}
+
+	router := gin.New()
+	router.GET("/auth/me", handler.Me())
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  handler.cfg.Auth.CookieName,
+		Value: sealed,
+	})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var resp auth.AuthResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Role != "admin" {
+		t.Errorf("Role = %q, want %q", resp.Role, "admin")
+	}
+	if len(resp.Permissions) != 2 {
+		t.Fatalf("Permissions length = %d, want 2", len(resp.Permissions))
+	}
+	if resp.Permissions[0] != "admin:view" || resp.Permissions[1] != "agents:deploy" {
+		t.Errorf("Permissions = %v, want [admin:view agents:deploy]", resp.Permissions)
+	}
+}
+
+// TestMe_ReturnsEmptyPermissions verifies that the response always contains
+// a permissions array (never null), even when the session has no permissions.
+func TestMe_ReturnsEmptyPermissions(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+
+	sessionData := &auth.SessionData{
+		Session: &auth.Session{
+			ID:          "session_no_perms",
+			UserID:      "user_no_perms",
+			AccessToken: "token",
+			ExpiresAt:   time.Now().Add(1 * time.Hour),
+			CreatedAt:   time.Now(),
+		},
+		User: &auth.User{
+			ID:    "user_no_perms",
+			Email: "user@example.com",
+		},
+	}
+
+	sealed, err := handler.sessionManager.SealSession(sessionData)
+	if err != nil {
+		t.Fatalf("failed to seal session: %v", err)
+	}
+
+	router := gin.New()
+	router.GET("/auth/me", handler.Me())
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  handler.cfg.Auth.CookieName,
+		Value: sealed,
+	})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	// Decode as raw JSON to verify permissions is [] not null
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(rec.Body).Decode(&raw); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	permsRaw, ok := raw["permissions"]
+	if !ok {
+		t.Fatal("response missing 'permissions' field")
+	}
+	if string(permsRaw) != "[]" {
+		t.Errorf("permissions = %s, want []", string(permsRaw))
 	}
 }

@@ -10,6 +10,7 @@ export default [
     route("operator/deploy/:account/:name", "pages/legacy/DeployPage.tsx"),
     route("u/:account/:agent", "pages/legacy/AgentPage.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
+    route("admin", "pages/Admin.tsx"),
     route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),
     route(":account/:agentSlug", "pages/AgentDetail.tsx", { id: "agent-detail" }),
     route("*", "pages/NotFound.tsx"),

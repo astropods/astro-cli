@@ -52,6 +52,7 @@ export interface AuthResponse {
   session_id: string;
   organization_id?: string;
   role?: string;
+  permissions: string[];
   expires_at: string;
   accounts: Account[];
 }

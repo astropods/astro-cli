@@ -6,6 +6,7 @@ export interface AuthState {
   sessionId: string | null;
   organizationId: string | null;
   role: string | null;
+  permissions: string[];
   expiresAt: Date | null;
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -27,6 +28,7 @@ export const initialAuthState: AuthState = {
   sessionId: null,
   organizationId: null,
   role: null,
+  permissions: [],
   expiresAt: null,
   isLoading: true,
   isAuthenticated: false,

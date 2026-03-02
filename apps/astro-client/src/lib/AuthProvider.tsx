@@ -23,6 +23,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       sessionId: response.session_id,
       organizationId: response.organization_id || null,
       role: response.role || null,
+      permissions: response.permissions || [],
       expiresAt: response.expires_at ? new Date(response.expires_at) : null,
       isLoading: false,
       isAuthenticated: true,

@@ -194,7 +194,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			"session_id", result.SessionID,
 		)
 
-		// Create session data
+		// Create session data with role and permissions from JWT claims
 		session := h.sessionManager.CreateSession(
 			result.SessionID,
 			result.User.ID,
@@ -203,6 +203,10 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			result.RefreshToken,
 			3600, // 1 hour default, will be capped by session max age
 		)
+
+		claims := auth.ExtractTokenClaims(result.AccessToken)
+		session.Role = claims.Role
+		session.Permissions = claims.Permissions
 
 		sessionData := &auth.SessionData{
 			Session: session,
@@ -359,11 +363,16 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 		}
 
 		// Return user info with accounts
+		permissions := sessionData.Session.Permissions
+		if permissions == nil {
+			permissions = []string{}
+		}
 		c.JSON(http.StatusOK, auth.AuthResponse{
 			User:         sessionData.User,
 			SessionID:    sessionData.Session.ID,
 			Organization: sessionData.Session.OrganizationID,
 			Role:         sessionData.Session.Role,
+			Permissions:  permissions,
 			ExpiresAt:    sessionData.Session.ExpiresAt.Format(time.RFC3339),
 			Accounts:     h.fetchAccounts(sessionData.User.ID),
 		})
@@ -404,11 +413,16 @@ func (h *AuthHandler) Refresh() gin.HandlerFunc {
 			return
 		}
 
+		refreshedPermissions := refreshed.Session.Permissions
+		if refreshedPermissions == nil {
+			refreshedPermissions = []string{}
+		}
 		c.JSON(http.StatusOK, auth.AuthResponse{
 			User:         refreshed.User,
 			SessionID:    refreshed.Session.ID,
 			Organization: refreshed.Session.OrganizationID,
 			Role:         refreshed.Session.Role,
+			Permissions:  refreshedPermissions,
 			ExpiresAt:    refreshed.Session.ExpiresAt.Format(time.RFC3339),
 			Accounts:     h.fetchAccounts(refreshed.User.ID),
 		})
@@ -443,7 +457,7 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 		return nil, err
 	}
 
-	// Update session with new tokens
+	// Update session with new tokens and refreshed claims
 	newSession := h.sessionManager.CreateSession(
 		sessionData.Session.ID,
 		sessionData.Session.UserID,
@@ -452,6 +466,10 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 		result.RefreshToken,
 		3600,
 	)
+
+	claims := auth.ExtractTokenClaims(result.AccessToken)
+	newSession.Role = claims.Role
+	newSession.Permissions = claims.Permissions
 
 	newSessionData := &auth.SessionData{
 		Session: newSession,
