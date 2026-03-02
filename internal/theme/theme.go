@@ -3,10 +3,8 @@ package theme
 import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
+	"github.com/postman/astro/apps/astro-cli/internal/buildinfo"
 )
-
-// binaryName is set at build time via ldflags. Defaults to "ast" (production).
-var binaryName = "ast"
 
 // IsPreview reports whether the CLI was built as a preview release.
 var IsPreview bool
@@ -21,7 +19,7 @@ var PrimaryANSI string
 var PrimaryFatihAttr color.Attribute
 
 func init() {
-	IsPreview = binaryName == "ast-preview"
+	IsPreview = buildinfo.BinaryName == "ast-preview"
 	if IsPreview {
 		Primary = lipgloss.Color("205")
 		PrimaryANSI = "\033[38;5;205m"

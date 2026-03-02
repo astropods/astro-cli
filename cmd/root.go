@@ -7,13 +7,15 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/postman/astro/apps/astro-cli/internal/buildinfo"
 )
 
-// version, commit, binaryName, and downloadBaseURL are set at build time via ldflags.
+// version, commit, and downloadBaseURL are set at build time via ldflags.
 var (
 	version         = "dev"
 	commit          = ""
-	binaryName      = "ast"
+	binaryName      = buildinfo.BinaryName
 	downloadBaseURL = "" // e.g. https://download.astropods.ai
 )
 
