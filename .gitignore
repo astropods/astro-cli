@@ -149,8 +149,8 @@ storybook-static
 
 # Claude Code
 .claude
-apps/astro-client/.certs.bak/local.astromode.ai-key.pem
-apps/astro-client/.certs.bak/local.astromode.ai.pem
+apps/astro-client/.certs.bak/local.astropods.ai-key.pem
+apps/astro-client/.certs.bak/local.astropods.ai.pem
 apps/astro-client/.certs.bak/local.odesdaz.com-key.pem
 apps/astro-client/.certs.bak/local.odesdaz.com.pem
 .mcp.json

@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 export function PublishCTA() {
   return (
     <a
-      href="https://docs.astromode.ai"
+      href="https://docs.astropods.ai"
       target="_blank"
       rel="noopener noreferrer"
       className="flex flex-col items-center justify-center gap-3 rounded-sm border border-dashed border-muted-foreground/30 p-6 transition-colors hover:bg-card-hover"
