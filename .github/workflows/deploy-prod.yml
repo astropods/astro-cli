@@ -190,15 +190,9 @@ jobs:
           if [ -f "$CONFIG_FILE" ]; then
             kubectl create configmap ${{ matrix.service }}-config \
               --from-env-file="$CONFIG_FILE" \
-              --namespace=astro \
+              --namespace=${{ matrix.service }} \
               --dry-run=client -o yaml | kubectl apply -f -
             echo "::notice::ConfigMap updated for ${{ matrix.service }}"
           else
             echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
           fi
-
-      - name: Upload schema to S3
-        if: matrix.service == 'astro-server'
-        run: |
-          aws s3 cp apps/astro-server/schema.sql \
-            "s3://as0-schema-migrations-${{ secrets.AWS_ACCOUNT_ID }}/astro/prod/schema.sql"
