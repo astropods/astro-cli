@@ -78,3 +78,13 @@ CREATE TABLE public.deployments (
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
 
 CREATE UNIQUE INDEX idx_deployments_active_agent ON public.deployments(account_id, agent_name) WHERE status = 'active';
+
+CREATE TABLE public.waitlist (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    name text NOT NULL,
+    email text NOT NULL,
+    invited_at timestamp,
+    created_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT waitlist_pkey PRIMARY KEY (id),
+    CONSTRAINT waitlist_email_key UNIQUE (email)
+);

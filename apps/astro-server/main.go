@@ -23,6 +23,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
@@ -84,6 +85,7 @@ func main() {
 	agentIndex := agentindex.NewIndexWithDB(db)
 	accountStore := account.NewAccountStore(db)
 	deploymentStore := deploymentstore.NewStore(db)
+	waitlistStore := waitlist.NewStore(db)
 	log.Info("Agent index and account store initialized")
 
 	// Initialize Kubernetes client (EKS for production, local for development)
@@ -128,7 +130,7 @@ func main() {
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, cfg, probeHandler, k8sClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient)
 
 	// Start admin gRPC server
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, deploymentStore, k8sClient, db)
@@ -184,7 +186,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -232,6 +234,9 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 		// Readiness check endpoint (public)
 		v1.GET("/ready", handlers.ReadinessCheck(log))
+
+		// Waitlist signup (public, no auth)
+		v1.POST("/waitlist", handlers.JoinWaitlist(log, waitlistStore))
 
 		// Agent registry endpoints (public read, with optional auth for visibility)
 		v1.GET("/agents", handlers.ListAgents(log, agentIndex, accountStore))
