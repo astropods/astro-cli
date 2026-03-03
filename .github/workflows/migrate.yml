@@ -47,20 +47,3 @@ jobs:
         run: |
           PLAN=$(jq -r .plan ${{ runner.temp }}/bytebase-metadata.json)
           echo "plan=$PLAN" >> $GITHUB_OUTPUT
-
-  deploy-to-prod:
-    needs: create-rollout
-    runs-on: ubuntu-latest
-    environment: prod
-    container:
-      image: bytebase/bytebase-action:latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Roll out to prod
-        run: |
-          bytebase-action rollout \
-            --url=${{ env.BYTEBASE_URL }} \
-            --project=${{ env.BYTEBASE_PROJECT }} \
-            --target-stage=environments/prod \
-            --plan=${{ needs.create-rollout.outputs.plan }}
