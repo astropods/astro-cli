@@ -1,0 +1,31 @@
+name: SQL Review
+
+on:
+  pull_request:
+    paths:
+      - "apps/astro-server/schema.sql"
+
+env:
+  BYTEBASE_URL: https://bytebase.astroids.ai/
+  BYTEBASE_SERVICE_ACCOUNT: github-bot@service.bytebase.com
+  BYTEBASE_SERVICE_ACCOUNT_SECRET: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT_SECRET }}
+  BYTEBASE_PROJECT: "projects/astro"
+
+jobs:
+  sql-review:
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    container:
+      image: docker://bytebase/bytebase-action:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Review against test and prod
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
+          FILE_PATTERN: "apps/astro-server/schema.sql"
+        run: |
+          bytebase-action check --url=${{ env.BYTEBASE_URL }} --project=${{ env.BYTEBASE_PROJECT }} --targets=${{ env.BYTEBASE_TARGETS }} --file-pattern=${{ env.FILE_PATTERN }} --declarative
