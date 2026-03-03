@@ -8,9 +8,6 @@ import type {
   ListAgentsResponse,
   GetAgentBuildsResponse,
   ClusterStatusResponse,
-  ListImagesResponse,
-  GetSchemaResponse,
-  QueryDatabaseResponse,
   GetPodLogsResponse,
   GetPodEnvResponse,
 } from "@/types/admin";
@@ -101,27 +98,6 @@ export function useClusterStatus(namespace: string) {
         `/api/admin/cluster-status?namespace=${encodeURIComponent(namespace)}`
       ),
     enabled: !!namespace,
-  });
-}
-
-export function useImages() {
-  return useQuery({
-    queryKey: adminKeys.images(),
-    queryFn: () => api.get<ListImagesResponse>("/api/admin/images"),
-  });
-}
-
-export function useSchema() {
-  return useQuery({
-    queryKey: adminKeys.schema(),
-    queryFn: () => api.get<GetSchemaResponse>("/api/admin/schema"),
-  });
-}
-
-export function useQueryDatabase() {
-  return useMutation({
-    mutationFn: (query: string) =>
-      api.post<QueryDatabaseResponse>("/api/admin/query", { query }),
   });
 }
 

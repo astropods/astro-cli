@@ -15,14 +15,14 @@ import type {
 export function useMeters() {
   return useQuery({
     queryKey: openmeterKeys.meters(),
-    queryFn: () => api.get<Meter[]>("/api/openmeter/meters"),
+    queryFn: () => api.get<Meter[]>("/api/openmeter/api/v1/meters"),
   });
 }
 
 export function useMeter(id: string) {
   return useQuery({
     queryKey: openmeterKeys.meter(id),
-    queryFn: () => api.get<Meter>(`/api/openmeter/meters/${encodeURIComponent(id)}`),
+    queryFn: () => api.get<Meter>(`/api/openmeter/api/v1/meters/${encodeURIComponent(id)}`),
     enabled: !!id,
   });
 }
@@ -31,7 +31,7 @@ export function useCreateMeter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<Meter>) =>
-      api.post<Meter>("/api/openmeter/meters", body),
+      api.post<Meter>("/api/openmeter/api/v1/meters", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.meters() });
     },
@@ -42,7 +42,7 @@ export function useUpdateMeter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: Partial<Meter> }) =>
-      api.put<Meter>(`/api/openmeter/meters/${encodeURIComponent(id)}`, body),
+      api.put<Meter>(`/api/openmeter/api/v1/meters/${encodeURIComponent(id)}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.meters() });
     },
@@ -53,7 +53,7 @@ export function useDeleteMeter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      api.del(`/api/openmeter/meters/${encodeURIComponent(id)}`),
+      api.del(`/api/openmeter/api/v1/meters/${encodeURIComponent(id)}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.meters() });
     },
@@ -63,7 +63,7 @@ export function useDeleteMeter() {
 export function useQueryMeter() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: unknown }) =>
-      api.post(`/api/openmeter/meters/${encodeURIComponent(id)}/query`, body),
+      api.post(`/api/openmeter/api/v1/meters/${encodeURIComponent(id)}/query`, body),
   });
 }
 
@@ -72,7 +72,7 @@ export function useMeterGroupByValues(id: string, groupByKey: string) {
     queryKey: openmeterKeys.meterGroupBy(id, groupByKey),
     queryFn: () =>
       api.get(
-        `/api/openmeter/meters/${encodeURIComponent(id)}/group-by/${encodeURIComponent(groupByKey)}/values`
+        `/api/openmeter/api/v1/meters/${encodeURIComponent(id)}/group-by/${encodeURIComponent(groupByKey)}/values`
       ),
     enabled: !!id && !!groupByKey,
   });
@@ -84,7 +84,7 @@ export function useFeatures(includeArchived = false) {
     queryKey: openmeterKeys.features(),
     queryFn: () =>
       api.get<Feature[]>(
-        `/api/openmeter/features${includeArchived ? "?includeArchived=true" : ""}`
+        `/api/openmeter/api/v1/features${includeArchived ? "?includeArchived=true" : ""}`
       ),
   });
 }
@@ -93,7 +93,7 @@ export function useCreateFeature() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<Feature>) =>
-      api.post<Feature>("/api/openmeter/features", body),
+      api.post<Feature>("/api/openmeter/api/v1/features", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.features() });
     },
@@ -104,7 +104,7 @@ export function useDeleteFeature() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      api.del(`/api/openmeter/features/${encodeURIComponent(id)}`),
+      api.del(`/api/openmeter/api/v1/features/${encodeURIComponent(id)}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.features() });
     },
@@ -116,7 +116,7 @@ export function useCustomers() {
   return useQuery({
     queryKey: openmeterKeys.customers(),
     queryFn: async () => {
-      const res = await api.get<Customer[] | { items: Customer[] }>("/api/openmeter/customers");
+      const res = await api.get<Customer[] | { items: Customer[] }>("/api/openmeter/api/v1/customers");
       return Array.isArray(res) ? res : res.items;
     },
   });
@@ -126,7 +126,7 @@ export function useCustomer(id: string) {
   return useQuery({
     queryKey: openmeterKeys.customer(id),
     queryFn: () =>
-      api.get<Customer>(`/api/openmeter/customers/${encodeURIComponent(id)}`),
+      api.get<Customer>(`/api/openmeter/api/v1/customers/${encodeURIComponent(id)}`),
     enabled: !!id,
   });
 }
@@ -136,7 +136,7 @@ export function useUpdateCustomer() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: Partial<Customer> }) =>
       api.put<Customer>(
-        `/api/openmeter/customers/${encodeURIComponent(id)}`,
+        `/api/openmeter/api/v1/customers/${encodeURIComponent(id)}`,
         body
       ),
     onSuccess: () => {
@@ -149,7 +149,7 @@ export function useDeleteCustomer() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      api.del(`/api/openmeter/customers/${encodeURIComponent(id)}`),
+      api.del(`/api/openmeter/api/v1/customers/${encodeURIComponent(id)}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.customers() });
     },
@@ -160,7 +160,7 @@ export function useCustomerAccess(id: string) {
   return useQuery({
     queryKey: openmeterKeys.customerAccess(id),
     queryFn: () =>
-      api.get(`/api/openmeter/customers/${encodeURIComponent(id)}/access`),
+      api.get(`/api/openmeter/api/v1/customers/${encodeURIComponent(id)}/access`),
     enabled: !!id,
   });
 }
@@ -169,7 +169,7 @@ export function useCustomerApps(id: string) {
   return useQuery({
     queryKey: openmeterKeys.customerApps(id),
     queryFn: () =>
-      api.get(`/api/openmeter/customers/${encodeURIComponent(id)}/apps`),
+      api.get(`/api/openmeter/api/v1/customers/${encodeURIComponent(id)}/apps`),
     enabled: !!id,
   });
 }
@@ -179,7 +179,7 @@ export function useCustomerEntitlements(id: string) {
     queryKey: openmeterKeys.customerEntitlements(id),
     queryFn: () =>
       api.get<Entitlement[]>(
-        `/api/openmeter/customers/${encodeURIComponent(id)}/entitlements`
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(id)}/entitlements`
       ),
     enabled: !!id,
   });
@@ -196,7 +196,7 @@ export function useCreateEntitlement() {
       body: unknown;
     }) =>
       api.post(
-        `/api/openmeter/customers/${encodeURIComponent(customerId)}/entitlements`,
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(customerId)}/entitlements`,
         body
       ),
     onSuccess: (_data, vars) => {
@@ -218,7 +218,7 @@ export function useDeleteEntitlement() {
       entitlementId: string;
     }) =>
       api.del(
-        `/api/openmeter/customers/${encodeURIComponent(customerId)}/entitlements/${encodeURIComponent(entitlementId)}`
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(customerId)}/entitlements/${encodeURIComponent(entitlementId)}`
       ),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({
@@ -233,7 +233,7 @@ export function useEntitlementValue(custId: string, entId: string) {
     queryKey: openmeterKeys.entitlementValue(custId, entId),
     queryFn: () =>
       api.get<EntitlementValue>(
-        `/api/openmeter/customers/${encodeURIComponent(custId)}/entitlements/${encodeURIComponent(entId)}/value`
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(custId)}/entitlements/${encodeURIComponent(entId)}/value`
       ),
     enabled: !!custId && !!entId,
   });
@@ -244,7 +244,7 @@ export function useEntitlementGrants(custId: string, entId: string) {
     queryKey: openmeterKeys.entitlementGrants(custId, entId),
     queryFn: () =>
       api.get<Grant[]>(
-        `/api/openmeter/customers/${encodeURIComponent(custId)}/entitlements/${encodeURIComponent(entId)}/grants`
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(custId)}/entitlements/${encodeURIComponent(entId)}/grants`
       ),
     enabled: !!custId && !!entId,
   });
@@ -263,7 +263,7 @@ export function useCreateGrant() {
       body: unknown;
     }) =>
       api.post(
-        `/api/openmeter/customers/${encodeURIComponent(customerId)}/entitlements/${encodeURIComponent(entitlementId)}/grants`,
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(customerId)}/entitlements/${encodeURIComponent(entitlementId)}/grants`,
         body
       ),
     onSuccess: (_data, vars) => {
@@ -290,7 +290,7 @@ export function useResetEntitlement() {
       body: unknown;
     }) =>
       api.post(
-        `/api/openmeter/customers/${encodeURIComponent(customerId)}/entitlements/${encodeURIComponent(entitlementId)}/reset`,
+        `/api/openmeter/api/v2/customers/${encodeURIComponent(customerId)}/entitlements/${encodeURIComponent(entitlementId)}/reset`,
         body
       ),
     onSuccess: (_data, vars) => {
@@ -305,20 +305,29 @@ export function useResetEntitlement() {
 }
 
 // Events
+interface EventWrapper {
+  event: CloudEvent;
+  ingestedAt: string;
+  storedAt: string;
+  validationError?: string;
+}
+
 export function useEvents(params?: string) {
   return useQuery({
     queryKey: openmeterKeys.events(),
-    queryFn: () =>
-      api.get<CloudEvent[]>(
-        `/api/openmeter/events${params ? `?${params}` : ""}`
-      ),
+    queryFn: async () => {
+      const raw = await api.get<EventWrapper[]>(
+        `/api/openmeter/api/v1/events${params ? `?${params}` : ""}`
+      );
+      return raw.map((w) => ({ ...w.event, ingestedAt: w.ingestedAt }));
+    },
   });
 }
 
 export function useIngestEvent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: unknown) => api.post("/api/openmeter/events", body),
+    mutationFn: (body: unknown) => api.post("/api/openmeter/api/v1/events", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.events() });
     },

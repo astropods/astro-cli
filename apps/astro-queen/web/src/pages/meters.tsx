@@ -81,9 +81,13 @@ export function MetersPage() {
   );
 }
 
+const AGGREGATIONS = ["COUNT", "SUM", "UNIQUE_COUNT", "AVG", "MIN", "MAX", "LATEST"] as const;
+
 function CreateMeterForm({ onClose, onSubmit, isPending }: { onClose: () => void; onSubmit: (body: Partial<Meter>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ slug: "", name: "", description: "", eventType: "", aggregation: "COUNT", valueProperty: "" });
+  const [form, setForm] = useState({ slug: "", name: "", description: "", eventType: "", aggregation: "COUNT", valueProperty: "", groupByKey: "", groupByValue: "" });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const needsValue = form.aggregation !== "COUNT" && form.aggregation !== "UNIQUE_COUNT";
 
   return (
     <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-4">
@@ -92,17 +96,68 @@ function CreateMeterForm({ onClose, onSubmit, isPending }: { onClose: () => void
         <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3.5" /></Button>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Slug *" value={form.slug} onChange={(v) => set("slug", v)} />
-        <Field label="Name" value={form.name} onChange={(v) => set("name", v)} />
-        <Field label="Event Type *" value={form.eventType} onChange={(v) => set("eventType", v)} />
-        <Field label="Aggregation *" value={form.aggregation} onChange={(v) => set("aggregation", v)} />
-        <Field label="Value Property" value={form.valueProperty} onChange={(v) => set("valueProperty", v)} />
-        <Field label="Description" value={form.description} onChange={(v) => set("description", v)} />
+        <div>
+          <label className="mb-1 block text-xs text-zinc-500">Slug <span className="text-red-400">*</span></label>
+          <Input value={form.slug} onChange={(e) => set("slug", e.target.value)} placeholder="api_requests" />
+          <p className="mt-0.5 text-[10px] text-zinc-600">Lowercase, underscores only (e.g. api_requests)</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-zinc-500">Name</label>
+          <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="API Requests" />
+          <p className="mt-0.5 text-[10px] text-zinc-600">Human-readable display name</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-zinc-500">Event Type <span className="text-red-400">*</span></label>
+          <Input value={form.eventType} onChange={(e) => set("eventType", e.target.value)} placeholder="api.request" />
+          <p className="mt-0.5 text-[10px] text-zinc-600">CloudEvents type to match</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-zinc-500">Aggregation <span className="text-red-400">*</span></label>
+          <select
+            value={form.aggregation}
+            onChange={(e) => set("aggregation", e.target.value)}
+            className="flex h-8 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm text-zinc-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+          >
+            {AGGREGATIONS.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+          <p className="mt-0.5 text-[10px] text-zinc-600">How event values are combined</p>
+        </div>
+        {needsValue && (
+          <div>
+            <label className="mb-1 block text-xs text-zinc-500">Value Property <span className="text-red-400">*</span></label>
+            <Input value={form.valueProperty} onChange={(e) => set("valueProperty", e.target.value)} placeholder="$.duration_ms" />
+            <p className="mt-0.5 text-[10px] text-zinc-600">JSONPath to the numeric value in event data</p>
+          </div>
+        )}
+        <div>
+          <label className="mb-1 block text-xs text-zinc-500">Group By</label>
+          <div className="flex gap-1">
+            <Input value={form.groupByKey} onChange={(e) => set("groupByKey", e.target.value)} placeholder="key" className="flex-1" />
+            <Input value={form.groupByValue} onChange={(e) => set("groupByValue", e.target.value)} placeholder="$.path" className="flex-1" />
+          </div>
+          <p className="mt-0.5 text-[10px] text-zinc-600">Optional: group name and JSONPath (e.g. method / $.method)</p>
+        </div>
+        <div className="col-span-2">
+          <label className="mb-1 block text-xs text-zinc-500">Description</label>
+          <Input value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Tracks API request count by endpoint" />
+        </div>
       </div>
-      <div className="mt-3">
-        <Button size="sm" onClick={() => onSubmit(form)} disabled={isPending || !form.slug || !form.eventType}>
-          Create
+      <div className="mt-4 flex items-center gap-3">
+        <Button size="sm" onClick={() => {
+          const { groupByKey, groupByValue, ...rest } = form;
+          const body: Record<string, unknown> = Object.fromEntries(
+            Object.entries(rest).filter(([, v]) => v !== "")
+          );
+          if (groupByKey && groupByValue) {
+            body.groupBy = { [groupByKey]: groupByValue };
+          }
+          onSubmit(body as Partial<Meter>);
+        }} disabled={isPending || !form.slug || !form.eventType || (needsValue && !form.valueProperty)}>
+          Create Meter
         </Button>
+        <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
       </div>
     </div>
   );

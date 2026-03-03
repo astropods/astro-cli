@@ -14,9 +14,6 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/admin/deployments/{namespace}", s.handleDeleteDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{namespace}/restart", s.handleRestartDeployment)
 	mux.HandleFunc("GET /api/admin/cluster-status", s.handleGetClusterStatus)
-	mux.HandleFunc("GET /api/admin/images", s.handleListImages)
-	mux.HandleFunc("POST /api/admin/query", s.handleQueryDatabase)
-	mux.HandleFunc("GET /api/admin/schema", s.handleGetSchema)
 	mux.HandleFunc("GET /api/admin/pods/{namespace}/{pod}/logs", s.handleGetPodLogs)
 	mux.HandleFunc("GET /api/admin/pods/{namespace}/{pod}/env", s.handleGetPodEnv)
 	mux.HandleFunc("GET /api/admin/agents", s.handleListAgents)
@@ -102,46 +99,6 @@ func (s *Server) handleGetClusterStatus(w http.ResponseWriter, r *http.Request) 
 	resp, err := s.admin.GetClusterStatus(r.Context(), &adminv1.GetClusterStatusRequest{
 		Namespace: ns,
 	})
-	if err != nil {
-		writeGRPCErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleListImages(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.admin.ListImages(r.Context(), &adminv1.ListImagesRequest{})
-	if err != nil {
-		writeGRPCErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleQueryDatabase(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Query string `json:"query"`
-	}
-	if err := readJSON(r, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.Query == "" {
-		writeErr(w, http.StatusBadRequest, "query is required")
-		return
-	}
-	resp, err := s.admin.QueryDatabase(r.Context(), &adminv1.QueryDatabaseRequest{
-		Query: body.Query,
-	})
-	if err != nil {
-		writeGRPCErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleGetSchema(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.admin.GetSchema(r.Context(), &adminv1.GetSchemaRequest{})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

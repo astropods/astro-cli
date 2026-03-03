@@ -16,11 +16,8 @@ type AdminServiceClient interface {
 	ListDeployments(ctx context.Context, in *ListDeploymentsRequest, opts ...grpc.CallOption) (*ListDeploymentsResponse, error)
 	GetDeployment(ctx context.Context, in *GetDeploymentRequest, opts ...grpc.CallOption) (*GetDeploymentResponse, error)
 	GetClusterStatus(ctx context.Context, in *GetClusterStatusRequest, opts ...grpc.CallOption) (*GetClusterStatusResponse, error)
-	ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error)
 	DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error)
 	RestartDeployment(ctx context.Context, in *RestartDeploymentRequest, opts ...grpc.CallOption) (*RestartDeploymentResponse, error)
-	QueryDatabase(ctx context.Context, in *QueryDatabaseRequest, opts ...grpc.CallOption) (*QueryDatabaseResponse, error)
-	GetSchema(ctx context.Context, in *GetSchemaRequest, opts ...grpc.CallOption) (*GetSchemaResponse, error)
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
 	GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error)
@@ -61,14 +58,6 @@ func (c *adminServiceClient) GetClusterStatus(ctx context.Context, in *GetCluste
 	return out, nil
 }
 
-func (c *adminServiceClient) ListImages(ctx context.Context, in *ListImagesRequest, opts ...grpc.CallOption) (*ListImagesResponse, error) {
-	out := new(ListImagesResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListImages", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *adminServiceClient) DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error) {
 	out := new(DeleteDeploymentResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/DeleteDeployment", in, out, opts...); err != nil {
@@ -80,22 +69,6 @@ func (c *adminServiceClient) DeleteDeployment(ctx context.Context, in *DeleteDep
 func (c *adminServiceClient) RestartDeployment(ctx context.Context, in *RestartDeploymentRequest, opts ...grpc.CallOption) (*RestartDeploymentResponse, error) {
 	out := new(RestartDeploymentResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RestartDeployment", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) QueryDatabase(ctx context.Context, in *QueryDatabaseRequest, opts ...grpc.CallOption) (*QueryDatabaseResponse, error) {
-	out := new(QueryDatabaseResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/QueryDatabase", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) GetSchema(ctx context.Context, in *GetSchemaRequest, opts ...grpc.CallOption) (*GetSchemaResponse, error) {
-	out := new(GetSchemaResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetSchema", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -155,11 +128,8 @@ type AdminServiceServer interface {
 	ListDeployments(context.Context, *ListDeploymentsRequest) (*ListDeploymentsResponse, error)
 	GetDeployment(context.Context, *GetDeploymentRequest) (*GetDeploymentResponse, error)
 	GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error)
-	ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error)
 	DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error)
 	RestartDeployment(context.Context, *RestartDeploymentRequest) (*RestartDeploymentResponse, error)
-	QueryDatabase(context.Context, *QueryDatabaseRequest) (*QueryDatabaseResponse, error)
-	GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error)
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
 	GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error)
@@ -184,24 +154,12 @@ func (UnimplementedAdminServiceServer) GetClusterStatus(context.Context, *GetClu
 	return nil, status.Errorf(codes.Unimplemented, "method GetClusterStatus not implemented")
 }
 
-func (UnimplementedAdminServiceServer) ListImages(context.Context, *ListImagesRequest) (*ListImagesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListImages not implemented")
-}
-
 func (UnimplementedAdminServiceServer) DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteDeployment not implemented")
 }
 
 func (UnimplementedAdminServiceServer) RestartDeployment(context.Context, *RestartDeploymentRequest) (*RestartDeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RestartDeployment not implemented")
-}
-
-func (UnimplementedAdminServiceServer) QueryDatabase(context.Context, *QueryDatabaseRequest) (*QueryDatabaseResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method QueryDatabase not implemented")
-}
-
-func (UnimplementedAdminServiceServer) GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetSchema not implemented")
 }
 
 func (UnimplementedAdminServiceServer) ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error) {
@@ -285,21 +243,6 @@ func _AdminService_GetClusterStatus_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_ListImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListImagesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).ListImages(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListImages"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).ListImages(ctx, req.(*ListImagesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AdminService_DeleteDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteDeploymentRequest)
 	if err := dec(in); err != nil {
@@ -326,36 +269,6 @@ func _AdminService_RestartDeployment_Handler(srv interface{}, ctx context.Contex
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RestartDeployment"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).RestartDeployment(ctx, req.(*RestartDeploymentRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_QueryDatabase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryDatabaseRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).QueryDatabase(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/QueryDatabase"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).QueryDatabase(ctx, req.(*QueryDatabaseRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_GetSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetSchemaRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).GetSchema(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetSchema"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).GetSchema(ctx, req.(*GetSchemaRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -458,11 +371,8 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ListDeployments", Handler: _AdminService_ListDeployments_Handler},
 		{MethodName: "GetDeployment", Handler: _AdminService_GetDeployment_Handler},
 		{MethodName: "GetClusterStatus", Handler: _AdminService_GetClusterStatus_Handler},
-		{MethodName: "ListImages", Handler: _AdminService_ListImages_Handler},
 		{MethodName: "DeleteDeployment", Handler: _AdminService_DeleteDeployment_Handler},
 		{MethodName: "RestartDeployment", Handler: _AdminService_RestartDeployment_Handler},
-		{MethodName: "QueryDatabase", Handler: _AdminService_QueryDatabase_Handler},
-		{MethodName: "GetSchema", Handler: _AdminService_GetSchema_Handler},
 		{MethodName: "ListAccounts", Handler: _AdminService_ListAccounts_Handler},
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},
 		{MethodName: "GetPodLogs", Handler: _AdminService_GetPodLogs_Handler},

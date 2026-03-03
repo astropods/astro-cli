@@ -14,27 +14,27 @@ import (
 	"time"
 
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
-
-	"github.com/postman/astro/apps/astro-queen/internal/openmeter"
 )
 
-// Server is an HTTP server that proxies admin gRPC and OpenMeter REST APIs
+// Server is an HTTP server that proxies admin gRPC calls
 // and serves the embedded React SPA.
 type Server struct {
-	admin   adminv1.AdminServiceClient
-	om      *openmeter.Client
-	webFS   fs.FS
-	port    int
-	httpSrv *http.Server
+	admin    adminv1.AdminServiceClient
+	webFS    fs.FS
+	port     int
+	httpSrv  *http.Server
+	omServer string
+	omAPIKey string
 }
 
 // New creates a new Server.
-func New(admin adminv1.AdminServiceClient, om *openmeter.Client, webFS fs.FS, port int) *Server {
+func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, omServer, omAPIKey string) *Server {
 	return &Server{
-		admin: admin,
-		om:    om,
-		webFS: webFS,
-		port:  port,
+		admin:    admin,
+		webFS:    webFS,
+		port:     port,
+		omServer: omServer,
+		omAPIKey: omAPIKey,
 	}
 }
 
@@ -45,7 +45,7 @@ func (s *Server) ListenAndServe() error {
 	// Admin API routes
 	s.registerAdminRoutes(mux)
 
-	// OpenMeter API routes
+	// OpenMeter reverse proxy
 	s.registerOpenMeterRoutes(mux)
 
 	// SPA fallback
@@ -87,6 +87,9 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) registerSPAHandler(mux *http.ServeMux) {
+	// Pre-read index.html for SPA fallback
+	indexHTML, _ := fs.ReadFile(s.webFS, "index.html")
+
 	fileServer := http.FileServer(http.FS(s.webFS))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -96,22 +99,18 @@ func (s *Server) registerSPAHandler(mux *http.ServeMux) {
 			return
 		}
 
-		// Try to serve the file directly
-		path := r.URL.Path
-		if path == "/" {
-			path = "/index.html"
+		// Try to serve static files (JS, CSS, images)
+		if r.URL.Path != "/" {
+			f, err := s.webFS.Open(strings.TrimPrefix(r.URL.Path, "/"))
+			if err == nil {
+				f.Close()
+				fileServer.ServeHTTP(w, r)
+				return
+			}
 		}
 
-		// Check if file exists in the embedded FS
-		f, err := s.webFS.Open(strings.TrimPrefix(path, "/"))
-		if err == nil {
-			f.Close()
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-
-		// SPA fallback: serve index.html for client-side routing
-		r.URL.Path = "/index.html"
-		fileServer.ServeHTTP(w, r)
+		// SPA fallback: serve index.html directly (avoids FileServer redirect loop)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexHTML) //nolint:errcheck
 	})
 }

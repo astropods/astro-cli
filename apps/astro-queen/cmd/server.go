@@ -11,7 +11,6 @@ import (
 
 	"github.com/postman/astro/apps/astro-queen/internal/client"
 	"github.com/postman/astro/apps/astro-queen/internal/config"
-	"github.com/postman/astro/apps/astro-queen/internal/openmeter"
 	"github.com/postman/astro/apps/astro-queen/internal/server"
 )
 
@@ -35,15 +34,13 @@ var serverCmd = &cobra.Command{
 		}
 		defer c.Close() //nolint:errcheck
 
-		om := openmeter.New(cfg.OpenMeterServer, cfg.OpenMeterAPIKey)
-
 		// Strip the "web/dist" prefix from the embedded FS
 		webContent, err := fs.Sub(WebFS, "web/dist")
 		if err != nil {
 			return fmt.Errorf("embedded web fs: %w", err)
 		}
 
-		srv := server.New(c.AdminService(), om, webContent, serverPort)
+		srv := server.New(c.AdminService(), webContent, serverPort, cfg.OpenMeterServer, cfg.OpenMeterAPIKey)
 
 		// Open browser
 		url := fmt.Sprintf("http://127.0.0.1:%d", serverPort)

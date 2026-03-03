@@ -333,8 +333,6 @@ func startAdminGRPCServer(
 		deployStore,
 		k8sClient,
 		db,
-		cfg.Deployment.AWSRegion,
-		cfg.Deployment.Environment,
 	))
 
 	lis, err := net.Listen("tcp", ":"+port)

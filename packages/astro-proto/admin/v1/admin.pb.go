@@ -185,20 +185,6 @@ type GetClusterStatusResponse struct {
 	Summary         *ClusterSummary         `json:"summary,omitempty"`
 }
 
-type ListImagesRequest struct{}
-
-type ImageInfo struct {
-	Repository string   `json:"repository,omitempty"`
-	Namespace  string   `json:"namespace,omitempty"`
-	Name       string   `json:"name,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
-}
-
-type ListImagesResponse struct {
-	Images []*ImageInfo `json:"images,omitempty"`
-	Count  int32        `json:"count,omitempty"`
-}
-
 type DeleteDeploymentRequest struct {
 	Namespace string `json:"namespace,omitempty"`
 }
@@ -214,18 +200,6 @@ type RestartDeploymentRequest struct {
 
 type RestartDeploymentResponse struct {
 	Status string `json:"status,omitempty"`
-}
-
-type GetSchemaRequest struct{}
-
-type ColumnInfo struct {
-	TableName  string `json:"table_name,omitempty"`
-	ColumnName string `json:"column_name,omitempty"`
-	DataType   string `json:"data_type,omitempty"`
-}
-
-type GetSchemaResponse struct {
-	Columns []*ColumnInfo `json:"columns,omitempty"`
 }
 
 type ListAccountsRequest struct{}
@@ -326,17 +300,4 @@ type AgentBuild struct {
 type GetAgentBuildsResponse struct {
 	Builds []*AgentBuild `json:"builds,omitempty"`
 	Count  int32         `json:"count,omitempty"`
-}
-
-type QueryDatabaseRequest struct {
-	Query string `json:"query,omitempty"`
-}
-
-type Row struct {
-	Values []string `json:"values,omitempty"`
-}
-
-type QueryDatabaseResponse struct {
-	Columns []string `json:"columns,omitempty"`
-	Rows    []*Row   `json:"rows,omitempty"`
 }

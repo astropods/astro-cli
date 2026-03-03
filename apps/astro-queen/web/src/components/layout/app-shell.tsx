@@ -4,9 +4,7 @@ import {
   LayoutDashboard,
   Users,
   Bot,
-  Database,
   Server,
-  Image,
   Gauge,
   Star,
   UserCircle,
@@ -17,9 +15,7 @@ const adminLinks = [
   { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
   { to: "/admin/accounts", label: "Accounts", icon: Users },
   { to: "/admin/agents", label: "Agents", icon: Bot },
-  { to: "/admin/sql", label: "SQL Query", icon: Database },
   { to: "/admin/cluster", label: "Cluster", icon: Server },
-  { to: "/admin/images", label: "Images", icon: Image },
 ];
 
 const openmeterLinks = [
