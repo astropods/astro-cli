@@ -18,21 +18,21 @@ export function AccountsPage() {
       {isLoading && <LoadingSkeleton />}
       {error && <p className="text-red-400">Error: {error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-md border border-zinc-800">
+        <div className="overflow-x-auto rounded-md border border-stone-800">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50">
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Type</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Owner</th>
-                <th className="px-4 py-2 text-right font-medium text-zinc-400">Members</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Created</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Actions</th>
+              <tr className="border-b border-stone-800 bg-stone-900/50">
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Name</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Type</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Owner</th>
+                <th className="px-4 py-2 text-right font-medium text-stone-400">Members</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Created</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.accounts?.map((a) => (
-                <tr key={a.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
+                <tr key={a.id} className="border-b border-stone-800/50 hover:bg-stone-900/30">
                   <td className="px-4 py-2">
                     {editing === a.id ? (
                       <div className="flex items-center gap-1">
@@ -63,10 +63,10 @@ export function AccountsPage() {
                       a.name
                     )}
                   </td>
-                  <td className="px-4 py-2 text-zinc-400">{a.type}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-500">{truncateUUID(a.owner_user_id)}</td>
+                  <td className="px-4 py-2 text-stone-400">{a.type}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-stone-500">{truncateUUID(a.owner_user_id)}</td>
                   <td className="px-4 py-2 text-right">{a.member_count}</td>
-                  <td className="px-4 py-2 text-zinc-500">{formatDateTime(a.created_at)}</td>
+                  <td className="px-4 py-2 text-stone-500">{formatDateTime(a.created_at)}</td>
                   <td className="px-4 py-2">
                     {editing !== a.id && (
                       <Button

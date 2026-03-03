@@ -33,25 +33,25 @@ export function EventsPage() {
       {isLoading && <Skeleton className="h-40 w-full" />}
       {error && <p className="text-red-400 text-sm">{error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-md border border-zinc-800">
+        <div className="overflow-x-auto rounded-md border border-stone-800">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 bg-zinc-900/50">
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">ID</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Type</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Subject</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Source</th>
-                <th className="px-4 py-2 text-left font-medium text-zinc-400">Time</th>
+              <tr className="border-b border-stone-800 bg-stone-900/50">
+                <th className="px-4 py-2 text-left font-medium text-stone-400">ID</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Type</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Subject</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Source</th>
+                <th className="px-4 py-2 text-left font-medium text-stone-400">Time</th>
               </tr>
             </thead>
             <tbody>
               {data.map((ev, i) => (
-                <tr key={ev.id || i} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-400">{ev.id}</td>
+                <tr key={ev.id || i} className="border-b border-stone-800/50 hover:bg-stone-900/30">
+                  <td className="px-4 py-2 font-mono text-xs text-stone-400">{ev.id}</td>
                   <td className="px-4 py-2 text-amber">{ev.type}</td>
                   <td className="px-4 py-2">{ev.subject}</td>
-                  <td className="px-4 py-2 text-zinc-400">{ev.source}</td>
-                  <td className="px-4 py-2 text-zinc-500">{ev.time ? formatDateTime(ev.time) : "-"}</td>
+                  <td className="px-4 py-2 text-stone-400">{ev.source}</td>
+                  <td className="px-4 py-2 text-stone-500">{ev.time ? formatDateTime(ev.time) : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -99,7 +99,7 @@ function IngestForm({
   };
 
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="rounded-md border border-stone-800 bg-stone-900/50 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium">Ingest Event</h3>
         <Button variant="ghost" size="icon-xs" onClick={onClose}>
@@ -108,20 +108,20 @@ function IngestForm({
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="mb-1 block text-xs text-zinc-500">Type *</label>
+          <label className="mb-1 block text-xs text-stone-500">Type *</label>
           <Input value={form.type} onChange={(e) => set("type", e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-zinc-500">Subject *</label>
+          <label className="mb-1 block text-xs text-stone-500">Subject *</label>
           <Input value={form.subject} onChange={(e) => set("subject", e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-zinc-500">Source</label>
+          <label className="mb-1 block text-xs text-stone-500">Source</label>
           <Input value={form.source} onChange={(e) => set("source", e.target.value)} />
         </div>
       </div>
       <div className="mt-3">
-        <label className="mb-1 block text-xs text-zinc-500">Data (JSON)</label>
+        <label className="mb-1 block text-xs text-stone-500">Data (JSON)</label>
         <Textarea
           value={form.data}
           onChange={(e) => set("data", e.target.value)}

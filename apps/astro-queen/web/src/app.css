@@ -1,20 +1,35 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-muted: #27272a;
-  --color-muted-foreground: #a1a1aa;
-  --color-border: #27272a;
-  --color-input: #27272a;
-  --color-ring: #d4d4d8;
-  --color-primary: #fafafa;
-  --color-primary-foreground: #18181b;
-  --color-secondary: #27272a;
-  --color-secondary-foreground: #fafafa;
+  /* Dark honeycomb palette */
+  --color-background: #0c0a09;
+  --color-foreground: #fafaf9;
+  --color-muted: #1c1917;
+  --color-muted-foreground: #a8a29e;
+  --color-border: #292524;
+  --color-input: #1c1917;
+  --color-ring: #d6d3d1;
+  --color-primary: #fafaf9;
+  --color-primary-foreground: #0c0a09;
+  --color-secondary: #1c1917;
+  --color-secondary-foreground: #fafaf9;
   --color-destructive: #dc2626;
-  --color-accent: #27272a;
-  --color-accent-foreground: #fafafa;
+  --color-accent: #1c1917;
+  --color-accent-foreground: #fafaf9;
+
+  /* Bee palette */
+  --color-honey: #f59e0b;
+  --color-honey-light: #fbbf24;
+  --color-honey-dark: #b45309;
   --color-amber: #e6b450;
+  --color-comb: #292524;
+  --color-comb-light: #44403c;
+  --color-pollen: #fef3c7;
   --color-teal: #2dd4bf;
+}
+
+/* Subtle honeycomb pattern on sidebar */
+.honeycomb-bg {
+  background-image: radial-gradient(circle at 1px 1px, rgba(245, 158, 11, 0.03) 1px, transparent 0);
+  background-size: 24px 24px;
 }

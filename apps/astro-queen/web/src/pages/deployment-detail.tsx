@@ -27,7 +27,7 @@ export function DeploymentDetailPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">{dep.name}</h2>
-          <p className="text-sm text-zinc-500">{dep.namespace}</p>
+          <p className="text-sm text-stone-500">{dep.namespace}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -64,10 +64,10 @@ export function DeploymentDetailPage() {
 
       {dep.components?.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-medium text-zinc-400">Components</h3>
+          <h3 className="mb-2 text-sm font-medium text-stone-400">Components</h3>
           <div className="flex flex-wrap gap-1.5">
             {dep.components.map((c) => (
-              <span key={c} className="rounded bg-zinc-800 px-2 py-0.5 text-xs">{c}</span>
+              <span key={c} className="rounded bg-stone-800 px-2 py-0.5 text-xs">{c}</span>
             ))}
           </div>
         </div>
@@ -87,7 +87,7 @@ export function DeploymentDetailPage() {
 
           {cs.pods?.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-medium text-zinc-400">Pods</h3>
+              <h3 className="mb-2 text-sm font-medium text-stone-400">Pods</h3>
               <div className="space-y-2">
                 {cs.pods.map((pod) => (
                   <PodRow key={pod.name} pod={pod} namespace={namespace!} onSelect={setSelectedPod} />
@@ -98,30 +98,30 @@ export function DeploymentDetailPage() {
 
           {cs.events?.length > 0 && (
             <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-zinc-400 hover:text-zinc-200">
+              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-stone-400 hover:text-stone-200">
                 <ChevronDown className="size-4" />
                 Events ({cs.events.length})
               </CollapsibleTrigger>
               <CollapsibleContent className="mt-2">
-                <div className="overflow-x-auto rounded-md border border-zinc-800">
+                <div className="overflow-x-auto rounded-md border border-stone-800">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-zinc-800 bg-zinc-900/50">
-                        <th className="px-3 py-1.5 text-left font-medium text-zinc-400">Type</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-zinc-400">Reason</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-zinc-400">Message</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-zinc-400">Object</th>
-                        <th className="px-3 py-1.5 text-right font-medium text-zinc-400">Count</th>
+                      <tr className="border-b border-stone-800 bg-stone-900/50">
+                        <th className="px-3 py-1.5 text-left font-medium text-stone-400">Type</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-stone-400">Reason</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-stone-400">Message</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-stone-400">Object</th>
+                        <th className="px-3 py-1.5 text-right font-medium text-stone-400">Count</th>
                       </tr>
                     </thead>
                     <tbody>
                       {cs.events.map((ev, i) => (
-                        <tr key={i} className="border-b border-zinc-800/50">
-                          <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-400" : "text-zinc-400"}`}>{ev.type}</td>
+                        <tr key={i} className="border-b border-stone-800/50">
+                          <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-400" : "text-stone-400"}`}>{ev.type}</td>
                           <td className="px-3 py-1.5">{ev.reason}</td>
-                          <td className="max-w-md truncate px-3 py-1.5 text-zinc-400">{ev.message}</td>
-                          <td className="px-3 py-1.5 text-zinc-500">{ev.involved_object}</td>
-                          <td className="px-3 py-1.5 text-right text-zinc-500">{ev.count}</td>
+                          <td className="max-w-md truncate px-3 py-1.5 text-stone-400">{ev.message}</td>
+                          <td className="px-3 py-1.5 text-stone-500">{ev.involved_object}</td>
+                          <td className="px-3 py-1.5 text-right text-stone-500">{ev.count}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -147,8 +147,8 @@ export function DeploymentDetailPage() {
 
 function InfoCard({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900/30 px-3 py-2">
-      <p className="text-xs text-zinc-500">{label}</p>
+    <div className="rounded-md border border-stone-800 bg-stone-900/30 px-3 py-2">
+      <p className="text-xs text-stone-500">{label}</p>
       <p className={`mt-0.5 truncate text-sm ${mono ? "font-mono text-xs" : ""}`}>{value || "-"}</p>
     </div>
   );
@@ -156,10 +156,10 @@ function InfoCard({ label, value, mono }: { label: string; value: string; mono?:
 
 function StatCard({ label, value, sub, warn }: { label: string; value: number; sub?: string; warn?: boolean }) {
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900/30 px-3 py-2">
-      <p className="text-xs text-zinc-500">{label}</p>
+    <div className="rounded-md border border-stone-800 bg-stone-900/30 px-3 py-2">
+      <p className="text-xs text-stone-500">{label}</p>
       <p className="text-lg font-semibold">{value}</p>
-      {sub && <p className={`text-xs ${warn ? "text-yellow-400" : "text-zinc-500"}`}>{sub}</p>}
+      {sub && <p className={`text-xs ${warn ? "text-yellow-400" : "text-stone-500"}`}>{sub}</p>}
     </div>
   );
 }
@@ -174,10 +174,10 @@ function PodRow({
   onSelect: (sel: { ns: string; name: string; mode: "logs" | "env" }) => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/30 px-3 py-2">
+    <div className="flex items-center justify-between rounded-md border border-stone-800 bg-stone-900/30 px-3 py-2">
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{pod.name}</p>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-stone-500">
           {pod.phase} &middot; {pod.node_name} &middot; {pod.pod_ip}
         </p>
       </div>
@@ -198,7 +198,7 @@ function PodDetail({ namespace, pod, mode, onClose }: { namespace: string; pod: 
   const envQuery = usePodEnv(mode === "env" ? namespace : "", mode === "env" ? pod : "");
 
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="rounded-md border border-stone-800 bg-stone-900/50 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h4 className="font-medium">{pod} - {mode === "logs" ? "Logs" : "Environment"}</h4>
         <Button variant="ghost" size="xs" onClick={onClose}>Close</Button>
@@ -206,7 +206,7 @@ function PodDetail({ namespace, pod, mode, onClose }: { namespace: string; pod: 
       {mode === "logs" && (
         logsQuery.isLoading ? <Skeleton className="h-40 w-full" /> :
         logsQuery.error ? <p className="text-red-400 text-sm">{logsQuery.error.message}</p> :
-        <pre className="max-h-96 overflow-auto rounded bg-zinc-950 p-3 text-xs text-zinc-300">{logsQuery.data?.logs || "No logs"}</pre>
+        <pre className="max-h-96 overflow-auto rounded bg-stone-950 p-3 text-xs text-stone-300">{logsQuery.data?.logs || "No logs"}</pre>
       )}
       {mode === "env" && (
         envQuery.isLoading ? <Skeleton className="h-40 w-full" /> :
@@ -214,14 +214,14 @@ function PodDetail({ namespace, pod, mode, onClose }: { namespace: string; pod: 
         <div className="space-y-3">
           {envQuery.data?.containers?.map((c) => (
             <div key={c.container}>
-              <p className="mb-1 text-xs font-medium text-zinc-400">{c.container}</p>
-              <div className="overflow-x-auto rounded bg-zinc-950">
+              <p className="mb-1 text-xs font-medium text-stone-400">{c.container}</p>
+              <div className="overflow-x-auto rounded bg-stone-950">
                 <table className="w-full text-xs">
                   <tbody>
                     {c.vars?.map((v) => (
-                      <tr key={v.name} className="border-b border-zinc-900">
+                      <tr key={v.name} className="border-b border-stone-900">
                         <td className="whitespace-nowrap px-2 py-1 font-mono text-amber">{v.name}</td>
-                        <td className="px-2 py-1 font-mono text-zinc-400">{v.value || v.value_from || "-"}</td>
+                        <td className="px-2 py-1 font-mono text-stone-400">{v.value || v.value_from || "-"}</td>
                       </tr>
                     ))}
                   </tbody>
