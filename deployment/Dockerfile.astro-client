@@ -24,7 +24,9 @@ COPY packages ./packages
 WORKDIR /app/packages/astro-identity-gen
 RUN bun run build
 
-# Build the SSR app
+# Build the SSR app (VITE_ vars are inlined at build time)
+ARG VITE_AMPLITUDE_API_KEY=""
+ENV VITE_AMPLITUDE_API_KEY=$VITE_AMPLITUDE_API_KEY
 WORKDIR /app/apps/astro-client
 RUN bun run build
 

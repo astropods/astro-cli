@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/postman/astro/apps/astro-cli/internal/auth"
 	"github.com/postman/astro/apps/astro-cli/internal/buildinfo"
+	"github.com/postman/astro/apps/astro-cli/internal/telemetry"
 )
 
 // version, commit, and downloadBaseURL are set at build time via ldflags.
@@ -48,14 +51,62 @@ func Execute() {
 	// check for commands that manage the CLI itself.
 	invoked, _, _ := rootCmd.Find(os.Args[1:])
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	// Print first-run telemetry notice (once per install)
+	if telemetry.EnsureNoticed(binaryName) {
+		fmt.Fprintln(os.Stderr, "Notice: Astro collects anonymous usage data to improve the CLI.")
+		fmt.Fprintln(os.Stderr, "Run `"+binaryName+" configure --no-telemetry` to opt out.")
+		fmt.Fprintln(os.Stderr)
+	}
+
+	start := time.Now()
+	execErr := rootCmd.Execute()
+
+	// Send telemetry — SDK handles batching; Shutdown flushes before exit
+	if telemetry.IsEnabled(binaryName) {
+		cmdName := resolveCommandName(invoked)
+		tc := buildTelemetryClient()
+		if tc != nil {
+			tc.TrackCommand(cmdName, time.Since(start), execErr)
+			tc.Shutdown()
+		}
+	}
+
+	if execErr != nil {
+		fmt.Fprintln(os.Stderr, execErr)
 		os.Exit(1)
 	}
 
 	if invoked == nil || invoked.Name() != "upgrade" {
 		notifyIfUpdateAvailable()
 	}
+}
+
+// resolveCommandName returns a dotted command path like "deploy" or "configure.set".
+func resolveCommandName(cmd *cobra.Command) string {
+	if cmd == nil {
+		return "unknown"
+	}
+	var parts []string
+	for c := cmd; c != nil && c != rootCmd; c = c.Parent() {
+		parts = append([]string{c.Name()}, parts...)
+	}
+	if len(parts) == 0 {
+		return "root"
+	}
+	return strings.Join(parts, ".")
+}
+
+// buildTelemetryClient creates a one-shot telemetry client.
+// No auth needed — the telemetry sidecar is a public write-only relay.
+func buildTelemetryClient() *telemetry.Client {
+	userID := ""
+	storage := auth.NewStorage(binaryName)
+	if profile, err := storage.GetCurrentProfile(); err == nil && profile.User != nil {
+		userID = profile.User.ID
+	}
+	deviceID := telemetry.GetDeviceID(binaryName)
+
+	return telemetry.NewClient(userID, deviceID, version)
 }
 
 func init() {

@@ -12,6 +12,7 @@ import {
 import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
 import { QueryAuthSync } from "./lib/QueryAuthSync";
 
@@ -93,9 +94,11 @@ export default function Root() {
       <QueryClientProvider client={queryClient}>
         <QueryAuthSync />
         <AuthGuard>
-          <OnboardingGuard>
-            <Outlet />
-          </OnboardingGuard>
+          <AmplitudeProvider>
+            <OnboardingGuard>
+              <Outlet />
+            </OnboardingGuard>
+          </AmplitudeProvider>
         </AuthGuard>
       </QueryClientProvider>
     </AuthProvider>

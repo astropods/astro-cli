@@ -23,10 +23,10 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 )
 
 func main() {
