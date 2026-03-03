@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/postman/astro/apps/astro-cli/internal/config"
+	"github.com/postman/astro/apps/astro-cli/internal/telemetry"
 	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	spec "github.com/postman/astro/packages/astro-spec"
 )
@@ -43,9 +44,26 @@ loaded by 'ast dev'.`,
 	RunE: runConfigureSet,
 }
 
+var configureTelemetryCmd = &cobra.Command{
+	Use:   "telemetry",
+	Short: "Enable or disable anonymous telemetry",
+	Long: `Control whether the CLI sends anonymous usage data.
+
+Use --enable to opt in, --disable to opt out.
+You can also set the ASTRO_NO_TELEMETRY environment variable to disable.`,
+	RunE: runConfigureTelemetry,
+}
+
 func init() {
 	rootCmd.AddCommand(configureCmd)
 	configureCmd.AddCommand(configureSetCmd)
+	configureCmd.AddCommand(configureTelemetryCmd)
+	configureTelemetryCmd.Flags().Bool("enable", false, "Enable anonymous telemetry")
+	configureTelemetryCmd.Flags().Bool("disable", false, "Disable anonymous telemetry")
+
+	// Also allow --no-telemetry / --telemetry directly on configure
+	configureCmd.Flags().Bool("no-telemetry", false, "Disable anonymous telemetry")
+	configureCmd.Flags().Bool("telemetry", false, "Enable anonymous telemetry")
 }
 
 // varEntry describes one configurable variable.
@@ -170,7 +188,53 @@ func (m *configureApp) View() string {
 	return m.form.View() + hint
 }
 
+func runConfigureTelemetry(cmd *cobra.Command, _ []string) error {
+	enable, _ := cmd.Flags().GetBool("enable")
+	disable, _ := cmd.Flags().GetBool("disable")
+
+	if !enable && !disable {
+		// Show current status
+		if telemetry.IsEnabled(binaryName) {
+			fmt.Println("Telemetry is enabled.")
+		} else {
+			fmt.Println("Telemetry is disabled.")
+		}
+		fmt.Println("Use --enable or --disable to change.")
+		return nil
+	}
+	if enable && disable {
+		return fmt.Errorf("cannot use both --enable and --disable")
+	}
+
+	if err := telemetry.SetEnabled(binaryName, enable); err != nil {
+		return fmt.Errorf("failed to update telemetry setting: %w", err)
+	}
+	if enable {
+		fmt.Println("Telemetry enabled.")
+	} else {
+		fmt.Println("Telemetry disabled. No usage data will be sent.")
+	}
+	return nil
+}
+
 func runConfigure(cmd *cobra.Command, args []string) error {
+	// Handle telemetry shortcut flags
+	noTelemetry, _ := cmd.Flags().GetBool("no-telemetry")
+	enableTelemetry, _ := cmd.Flags().GetBool("telemetry")
+	if noTelemetry || enableTelemetry {
+		if err := telemetry.SetEnabled(binaryName, enableTelemetry); err != nil {
+			return fmt.Errorf("failed to update telemetry setting: %w", err)
+		}
+		if enableTelemetry {
+			fmt.Println("Telemetry enabled.")
+		} else {
+			fmt.Println("Telemetry disabled.")
+		}
+		if noTelemetry && !enableTelemetry {
+			return nil // --no-telemetry is standalone
+		}
+	}
+
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
