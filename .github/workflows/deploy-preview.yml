@@ -198,3 +198,13 @@ jobs:
         run: |
           aws s3 cp apps/astro-server/schema.sql \
             "s3://as0-schema-migrations-${{ secrets.AWS_ACCOUNT_ID }}/astro/${{ vars.ENV_NAME }}/schema.sql"
+      - name: Run schema migration
+        if: matrix.service == 'astro-server'
+        run: |
+          kubectl create job astro-migrate-${{ github.run_id }} \
+            --from=cronjob/astro-schema-migrate \
+            --namespace=astro
+          kubectl wait --for=condition=complete \
+            job/astro-migrate-${{ github.run_id }} \
+            --namespace=astro \
+            --timeout=120s
