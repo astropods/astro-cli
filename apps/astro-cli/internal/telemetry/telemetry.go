@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"context"
 	"runtime"
 	"time"
 
@@ -10,6 +11,14 @@ import (
 // AmplitudeAPIKey is set at build time via ldflags.
 // Override via: go build -ldflags "-X github.com/postman/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=..."
 var AmplitudeAPIKey = ""
+
+// noopLogger suppresses all Amplitude SDK log output.
+type noopLogger struct{}
+
+func (noopLogger) Debugf(string, ...interface{}) {}
+func (noopLogger) Infof(string, ...interface{})  {}
+func (noopLogger) Warnf(string, ...interface{})  {}
+func (noopLogger) Errorf(string, ...interface{}) {}
 
 // Client sends telemetry events directly to Amplitude via the official Go SDK.
 // All methods are nil-safe (no-ops when client is nil).
@@ -29,6 +38,7 @@ func NewClient(userID, deviceID, cliVersion string) *Client {
 	config := amplitude.NewConfig(AmplitudeAPIKey)
 	config.FlushQueueSize = 1 // flush immediately — CLI is short-lived
 	config.FlushInterval = 100 * time.Millisecond
+	config.Logger = noopLogger{}
 
 	return &Client{
 		amp:      amplitude.NewClient(config),
@@ -52,7 +62,7 @@ func (c *Client) TrackCommand(command string, duration time.Duration, cmdErr err
 		"arch":        runtime.GOARCH,
 	}
 	if cmdErr != nil {
-		props["error_type"] = "command_error"
+		props["error_type"] = classifyError(cmdErr)
 	}
 
 	c.amp.Track(amplitude.Event{
@@ -68,10 +78,34 @@ func (c *Client) TrackCommand(command string, duration time.Duration, cmdErr err
 	})
 }
 
-// Shutdown flushes pending events. Call before process exit.
+// Shutdown flushes pending events with a timeout so we never block the CLI exit.
 func (c *Client) Shutdown() {
 	if c == nil {
 		return
 	}
-	c.amp.Shutdown()
+	done := make(chan struct{})
+	go func() {
+		c.amp.Shutdown()
+		close(done)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+func classifyError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	// Cobra user errors (bad flags, missing args, unknown commands)
+	for _, prefix := range []string{"unknown command", "unknown flag", "required flag", "accepts ", "invalid argument"} {
+		if len(msg) >= len(prefix) && msg[:len(prefix)] == prefix {
+			return "user_error"
+		}
+	}
+	return "command_error"
 }
