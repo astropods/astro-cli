@@ -61,9 +61,9 @@ func Execute() {
 	start := time.Now()
 	execErr := rootCmd.Execute()
 
-	// Send telemetry — SDK handles batching; Shutdown flushes before exit
-	if telemetry.IsEnabled(binaryName) {
-		cmdName := resolveCommandName(invoked)
+	// Send telemetry — skip noise commands (help, version, completion, telemetry config)
+	cmdName := resolveCommandName(invoked, os.Args[1:])
+	if telemetry.IsEnabled(binaryName) && !isNoiseCommand(cmdName) {
 		tc := buildTelemetryClient()
 		if tc != nil {
 			tc.TrackCommand(cmdName, time.Since(start), execErr)
@@ -81,8 +81,22 @@ func Execute() {
 	}
 }
 
-// resolveCommandName returns a dotted command path like "deploy" or "configure.set".
-func resolveCommandName(cmd *cobra.Command) string {
+// resolveCommandName returns a command name like "deploy" or "configure.set".
+// Detects --version / --help flags that Cobra handles on the root command.
+func resolveCommandName(cmd *cobra.Command, args []string) string {
+	// Detect --version flag (Cobra runs it on root, no subcommand)
+	for _, a := range args {
+		if a == "--version" || a == "-V" {
+			return "version"
+		}
+		if a == "--help" || a == "-h" {
+			return "help"
+		}
+		if a == "--" {
+			break
+		}
+	}
+
 	if cmd == nil {
 		return "unknown"
 	}
@@ -96,8 +110,17 @@ func resolveCommandName(cmd *cobra.Command) string {
 	return strings.Join(parts, ".")
 }
 
+// isNoiseCommand returns true for commands that don't provide useful analytics signal.
+func isNoiseCommand(name string) bool {
+	switch name {
+	case "help", "version", "configure.telemetry", "completion":
+		return true
+	}
+	return false
+}
+
 // buildTelemetryClient creates a one-shot telemetry client.
-// No auth needed — the telemetry sidecar is a public write-only relay.
+// User identity enrichment happens on the web client — CLI just needs the same UserID.
 func buildTelemetryClient() *telemetry.Client {
 	userID := ""
 	storage := auth.NewStorage(binaryName)
