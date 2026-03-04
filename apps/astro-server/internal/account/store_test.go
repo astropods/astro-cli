@@ -192,13 +192,13 @@ func TestAddMember_WithWorkosMembershipID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members").
-		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO account_member_workos").
 		WithArgs("acct-1", "user-1", "wm-123").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := store.AddMember("acct-1", "user-1", "admin", "wm-123")
+	err := store.AddMember("acct-1", "user-1", "wm-123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -209,10 +209,10 @@ func TestAddMember_WithoutWorkosMembershipID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members").
-		WithArgs("acct-1", "user-1", "member", sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := store.AddMember("acct-1", "user-1", "member", "")
+	err := store.AddMember("acct-1", "user-1", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -225,8 +225,8 @@ func TestGetMember_NullWorkosMembershipID(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "owner", nil, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", nil, now))
 
 	m, err := store.GetMember("acct-1", "user-1")
 	if err != nil {
@@ -244,15 +244,12 @@ func TestGetMember_Found(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "owner", "wm-1", now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "wm-1", now))
 
 	m, err := store.GetMember("acct-1", "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if m.Role != "owner" {
-		t.Errorf("expected role 'owner', got %q", m.Role)
 	}
 	if m.WorkOSMembershipID != "wm-1" {
 		t.Errorf("expected workos_membership_id 'wm-1', got %q", m.WorkOSMembershipID)
@@ -264,13 +261,13 @@ func TestAddMember_WorkosLinkInsertFailure(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members").
-		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO account_member_workos").
 		WithArgs("acct-1", "user-1", "wm-dup").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	err := store.AddMember("acct-1", "user-1", "admin", "wm-dup")
+	err := store.AddMember("acct-1", "user-1", "wm-dup")
 	if err == nil {
 		t.Fatal("expected error when workos link insert fails")
 	}
@@ -281,13 +278,13 @@ func TestUpsertMemberByWorkosMembershipID_WorkosLinkFailure(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
-		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO account_member_workos .+ ON CONFLICT").
 		WithArgs("acct-1", "user-1", "wm-1").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1", time.Now())
+	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "wm-1")
 	if err == nil {
 		t.Fatal("expected error when workos link upsert fails")
 	}
@@ -299,7 +296,7 @@ func TestGetMember_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-2").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}))
 
 	_, err := store.GetMember("acct-1", "user-2")
 	if err == nil {
@@ -314,10 +311,10 @@ func TestGetMembersForAccount(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "owner", "wm-1", now).
-			AddRow("acct-1", "user-2", "admin", nil, now).
-			AddRow("acct-1", "user-3", "member", "wm-3", now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "wm-1", now).
+			AddRow("acct-1", "user-2", nil, now).
+			AddRow("acct-1", "user-3", "wm-3", now))
 
 	members, err := store.GetMembersForAccount("acct-1")
 	if err != nil {
@@ -325,9 +322,6 @@ func TestGetMembersForAccount(t *testing.T) {
 	}
 	if len(members) != 3 {
 		t.Fatalf("expected 3 members, got %d", len(members))
-	}
-	if members[0].Role != "owner" {
-		t.Errorf("first member should be owner, got %q", members[0].Role)
 	}
 	if members[1].WorkOSMembershipID != "" {
 		t.Errorf("second member should have empty workos_membership_id, got %q", members[1].WorkOSMembershipID)
@@ -344,8 +338,8 @@ func TestGetMemberByWorkosMembershipID_Found(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
 		WithArgs("wm-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "owner", "wm-1", now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "wm-1", now))
 
 	m, err := store.GetMemberByWorkosMembershipID("wm-1")
 	if err != nil {
@@ -362,7 +356,7 @@ func TestGetMemberByWorkosMembershipID_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
 		WithArgs("wm-unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}))
 
 	_, err := store.GetMemberByWorkosMembershipID("wm-unknown")
 	if err == nil {
@@ -375,43 +369,15 @@ func TestUpsertMemberByWorkosMembershipID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
-		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO account_member_workos .+ ON CONFLICT").
 		WithArgs("acct-1", "user-1", "wm-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1", time.Now())
+	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "wm-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestUpdateMemberRole(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := NewAccountStore(db)
-
-	mock.ExpectExec("UPDATE account_members SET role").
-		WithArgs("admin", "acct-1", "user-1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	err := store.UpdateMemberRole("acct-1", "user-1", "admin")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestUpdateMemberRole_NotFound(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := NewAccountStore(db)
-
-	mock.ExpectExec("UPDATE account_members SET role").
-		WithArgs("admin", "acct-1", "user-2").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	err := store.UpdateMemberRole("acct-1", "user-2", "admin")
-	if err == nil {
-		t.Fatal("expected error for member not found")
 	}
 }
 
@@ -464,9 +430,9 @@ func TestGetAccountsForUser_IncludesWorkOSOrgID(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_members am .+ LEFT JOIN account_organizations ao").
 		WithArgs("user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "role", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "personal", "personal", "owner", "", now, now).
-			AddRow("acct-2", "myorg", "organization", "admin", "org_123", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "personal", "personal", "", now, now).
+			AddRow("acct-2", "myorg", "organization", "org_123", now, now))
 
 	accounts, err := store.GetAccountsForUser("user-1")
 	if err != nil {
@@ -499,57 +465,6 @@ func TestHasPersonalAccount_True(t *testing.T) {
 	}
 	if !has {
 		t.Error("expected true, got false")
-	}
-}
-
-func TestCountOwners_MultipleOwners(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
-
-	count, err := store.CountOwners("acct-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 2 {
-		t.Errorf("expected 2, got %d", count)
-	}
-}
-
-func TestCountOwners_SingleOwner(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	count, err := store.CountOwners("acct-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected 1, got %d", count)
-	}
-}
-
-func TestCountOwners_Zero(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	count, err := store.CountOwners("acct-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0, got %d", count)
 	}
 }
 

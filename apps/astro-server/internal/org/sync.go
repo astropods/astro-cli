@@ -3,7 +3,6 @@ package org
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/postman/astro/apps/astro-server/internal/account"
 )
@@ -28,13 +27,12 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 
 	if acct.WorkOSOrganizationID == "" {
 		// Personal account — local only
-		if err := s.accountStore.AddMember(accountID, userID, role, ""); err != nil {
+		if err := s.accountStore.AddMember(accountID, userID, ""); err != nil {
 			return nil, err
 		}
 		return &account.AccountMember{
 			AccountID: accountID,
 			UserID:    userID,
-			Role:      role,
 		}, nil
 	}
 
@@ -44,7 +42,7 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 		return nil, fmt.Errorf("failed to create WorkOS membership: %w", err)
 	}
 
-	if err := s.accountStore.AddMember(accountID, userID, role, m.ID); err != nil {
+	if err := s.accountStore.AddMember(accountID, userID, m.ID); err != nil {
 		// Compensating action: clean up WorkOS membership
 		_ = s.client.DeleteMembership(ctx, m.ID)
 		return nil, fmt.Errorf("failed to add local member: %w", err)
@@ -53,37 +51,53 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 	return &account.AccountMember{
 		AccountID:          accountID,
 		UserID:             userID,
-		Role:               role,
 		WorkOSMembershipID: m.ID,
 	}, nil
 }
 
-// ChangeMemberRole updates a member's role, writing to WorkOS first then locally.
+// ChangeMemberRole updates a member's role in WorkOS. No local role to update.
 func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole string) error {
 	member, err := s.accountStore.GetMember(accountID, userID)
 	if err != nil {
 		return fmt.Errorf("member not found: %w", err)
 	}
 
-	// Prevent demoting the last owner
-	if member.Role == "owner" && newRole != "owner" {
-		count, err := s.accountStore.CountOwners(accountID)
+	if member.WorkOSMembershipID == "" {
+		return fmt.Errorf("cannot change role on personal account")
+	}
+
+	// Prevent demoting the last owner — check via WorkOS
+	acct, err := s.accountStore.GetByID(accountID)
+	if err != nil {
+		return fmt.Errorf("account not found: %w", err)
+	}
+
+	currentMembership, err := s.client.GetMembership(ctx, member.WorkOSMembershipID)
+	if err != nil {
+		return fmt.Errorf("failed to get WorkOS membership: %w", err)
+	}
+
+	if currentMembership.RoleSlug == "owner" && newRole != "owner" {
+		memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
 		if err != nil {
-			return fmt.Errorf("failed to check owner count: %w", err)
+			return fmt.Errorf("failed to list WorkOS memberships: %w", err)
 		}
-		if count <= 1 {
+		ownerCount := 0
+		for _, m := range memberships {
+			if m.RoleSlug == "owner" {
+				ownerCount++
+			}
+		}
+		if ownerCount <= 1 {
 			return fmt.Errorf("cannot change role: account must have at least one owner")
 		}
 	}
 
-	if member.WorkOSMembershipID != "" {
-		// Org account — update WorkOS first
-		if _, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole); err != nil {
-			return fmt.Errorf("failed to update WorkOS membership role: %w", err)
-		}
+	if _, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole); err != nil {
+		return fmt.Errorf("failed to update WorkOS membership role: %w", err)
 	}
 
-	return s.accountStore.UpdateMemberRole(accountID, userID, newRole)
+	return nil
 }
 
 // RemoveMember removes a member from an account, deleting from WorkOS first then locally.
@@ -93,18 +107,34 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 		return fmt.Errorf("member not found: %w", err)
 	}
 
-	// Prevent removing the last owner
-	if member.Role == "owner" {
-		count, err := s.accountStore.CountOwners(accountID)
-		if err != nil {
-			return fmt.Errorf("failed to check owner count: %w", err)
-		}
-		if count <= 1 {
-			return fmt.Errorf("cannot remove member: account must have at least one owner")
-		}
-	}
-
 	if member.WorkOSMembershipID != "" {
+		// Check last-owner guard via WorkOS
+		acct, err := s.accountStore.GetByID(accountID)
+		if err != nil {
+			return fmt.Errorf("account not found: %w", err)
+		}
+
+		membership, err := s.client.GetMembership(ctx, member.WorkOSMembershipID)
+		if err != nil {
+			return fmt.Errorf("failed to get WorkOS membership: %w", err)
+		}
+
+		if membership.RoleSlug == "owner" {
+			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
+			if err != nil {
+				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
+			}
+			ownerCount := 0
+			for _, m := range memberships {
+				if m.RoleSlug == "owner" {
+					ownerCount++
+				}
+			}
+			if ownerCount <= 1 {
+				return fmt.Errorf("cannot remove member: account must have at least one owner")
+			}
+		}
+
 		if err := s.client.DeleteMembership(ctx, member.WorkOSMembershipID); err != nil {
 			return fmt.Errorf("failed to delete WorkOS membership: %w", err)
 		}
@@ -135,7 +165,7 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error 
 
 		// Upsert the membership locally
 		if err := s.accountStore.UpsertMemberByWorkosMembershipID(
-			acct.ID, m.UserID, m.RoleSlug, m.ID, time.Now(),
+			acct.ID, m.UserID, m.ID,
 		); err != nil {
 			return fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
 		}

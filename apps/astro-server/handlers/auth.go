@@ -569,7 +569,6 @@ func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
 					ID:                   a.ID,
 					Name:                 a.Name,
 					Type:                 a.Type,
-					Role:                 a.Role,
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
 				})
 			}

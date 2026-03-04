@@ -11,18 +11,15 @@ import (
 )
 
 // requireOwnerForOwnerRole guards against non-owners assigning the owner role.
+// For org accounts, checks session.Role from JWT. For personal accounts (no WorkOS org),
+// any member is owner so always allows.
 // Returns true if the request should continue, false if it was aborted with 403.
-func requireOwnerForOwnerRole(c *gin.Context, accountStore *account.AccountStore, acctID, requestedRole string) bool {
+func requireOwnerForOwnerRole(c *gin.Context, requestedRole string) bool {
 	if requestedRole != "owner" {
 		return true
 	}
-	user, ok := middleware.GetUser(c)
-	if !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only owners can assign the owner role"})
-		return false
-	}
-	caller, err := accountStore.GetMember(acctID, user.ID)
-	if err != nil || caller.Role != "owner" {
+	session, ok := middleware.GetSession(c)
+	if !ok || session.Role != "owner" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only owners can assign the owner role"})
 		return false
 	}
@@ -80,7 +77,7 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 			return
 		}
 
-		if !requireOwnerForOwnerRole(c, accountStore, acct.ID, req.Role) {
+		if !requireOwnerForOwnerRole(c, req.Role) {
 			return
 		}
 
@@ -119,7 +116,7 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 			return
 		}
 
-		if !requireOwnerForOwnerRole(c, accountStore, acct.ID, req.Role) {
+		if !requireOwnerForOwnerRole(c, req.Role) {
 			return
 		}
 
@@ -199,7 +196,7 @@ func CreateInvitation(log *logger.Logger, orgClient *org.Client, accountStore *a
 			return
 		}
 
-		if !requireOwnerForOwnerRole(c, accountStore, acct.ID, req.RoleSlug) {
+		if !requireOwnerForOwnerRole(c, req.RoleSlug) {
 			return
 		}
 

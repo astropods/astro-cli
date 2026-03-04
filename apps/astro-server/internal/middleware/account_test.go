@@ -8,7 +8,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/auth"
 )
@@ -129,13 +128,13 @@ func TestRequireAccountPermission_NoAccount(t *testing.T) {
 	}
 }
 
-func TestRequireAccountPermission_PersonalAccount_Owner(t *testing.T) {
+func TestRequireAccountPermission_PersonalAccount_Member(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 
-	// Owner check: HasRole query
+	// IsMember check
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1", "user-1", pq.Array([]string{"owner"})).
+		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	router := setupPermissionTestRouter(store, "org:admin",
@@ -147,16 +146,16 @@ func TestRequireAccountPermission_PersonalAccount_Owner(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("personal owner should have all permissions, got %d: %s", rec.Code, rec.Body.String())
+		t.Errorf("personal account member should have all permissions, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestRequireAccountPermission_PersonalAccount_NotOwner(t *testing.T) {
+func TestRequireAccountPermission_PersonalAccount_NotMember(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1", "user-2", pq.Array([]string{"owner"})).
+		WithArgs("acct-1", "user-2").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	router := setupPermissionTestRouter(store, "agents:read",

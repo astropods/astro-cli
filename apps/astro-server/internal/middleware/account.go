@@ -58,9 +58,9 @@ func RequireAccountPermission(accountStore *account.AccountStore, permission str
 		}
 
 		if acct.Type == "personal" {
-			// Personal accounts: owner has all permissions
-			hasRole, err := accountStore.HasRole(acct.ID, user.ID, "owner")
-			if err != nil || !hasRole {
+			// Personal accounts: any member has all permissions
+			isMember, err := accountStore.IsMember(acct.ID, user.ID)
+			if err != nil || !isMember {
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 					"error": "insufficient permissions for this account",
 				})

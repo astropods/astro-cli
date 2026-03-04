@@ -134,16 +134,10 @@ func (ec *EventsConsumer) processEvent(_ context.Context, event events.Event) er
 		return nil
 	}
 
-	// Parse event updated_at for staleness guard
-	updatedAt, err := time.Parse(time.RFC3339, data.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("parse event updated_at %q: %w", data.UpdatedAt, err)
-	}
-
 	switch event.Event {
 	case "organization_membership.created", "organization_membership.updated":
 		return ec.accountStore.UpsertMemberByWorkosMembershipID(
-			acct.ID, data.UserID, data.Role.Slug, data.ID, updatedAt,
+			acct.ID, data.UserID, data.ID,
 		)
 
 	case "organization_membership.deleted":

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/postman/astro/apps/astro-server/internal/account"
@@ -36,12 +35,11 @@ type AccountResponse struct {
 	UpdatedAt string        `json:"updated_at"`
 }
 
-// AccountWithRoleResponse represents an account with the user's role
+// AccountWithRoleResponse represents an account in the profile response
 type AccountWithRoleResponse struct {
 	ID     string         `json:"id"`
 	Name   string         `json:"name"`
 	Type   string         `json:"type"`
-	Role   string         `json:"role"`
 	Agents []AgentSummary `json:"agents,omitempty"`
 }
 
@@ -145,7 +143,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 				// Non-fatal: local membership already exists from Create()
 			} else {
 				// Update local member with WorkOS membership ID
-				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, "owner", m.ID, time.Now())
+				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
 			}
 		}
 
@@ -180,13 +178,15 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
-		// Best-effort: look up owner profile for public display
-		if ownerID, err := accountStore.GetOwnerUserID(acct.ID); err == nil {
-			if user, err := workos.GetUser(c.Request.Context(), ownerID); err == nil {
-				resp.Owner = &AccountOwner{
-					FirstName:         user.FirstName,
-					LastName:          user.LastName,
-					ProfilePictureURL: user.ProfilePictureURL,
+		// Best-effort: look up owner profile for personal accounts
+		if acct.Type == "personal" {
+			if ownerID, err := accountStore.GetFirstMemberUserID(acct.ID); err == nil {
+				if user, err := workos.GetUser(c.Request.Context(), ownerID); err == nil {
+					resp.Owner = &AccountOwner{
+						FirstName:         user.FirstName,
+						LastName:          user.LastName,
+						ProfilePictureURL: user.ProfilePictureURL,
+					}
 				}
 			}
 		}
@@ -258,7 +258,6 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 				ID:   a.ID,
 				Name: a.Name,
 				Type: a.Type,
-				Role: a.Role,
 			}
 
 			// Include agent summaries for each account
