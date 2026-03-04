@@ -46,9 +46,122 @@ func main() {
 	log.Info("Starting astro-server",
 		"version", "1.0.0",
 		"mode", cfg.Server.Mode,
+		"run_mode", cfg.RunMode,
 		"port", cfg.Server.Port,
 	)
 
+	// Open shared database connection
+	db, err := sql.Open("postgres", cfg.Database.URL)
+	if err != nil {
+		log.Error("Failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close() //nolint:errcheck
+
+	if err := db.Ping(); err != nil {
+		log.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	log.Info("Database connection established")
+
+	// Initialize account store (needed by both API and worker)
+	accountStore := account.NewAccountStore(db)
+
+	// Initialize WorkOS organization client
+	var orgClient *org.Client
+	var orgSync *org.Sync
+	if cfg.Auth.WorkOSAPIKey != "" {
+		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
+		orgSync = org.NewSync(orgClient, accountStore)
+		log.Info("WorkOS organization client initialized")
+	}
+
+	// Track components for graceful shutdown
+	var httpSrv *http.Server
+	var grpcServer *grpc.Server
+	var eventsCancel context.CancelFunc
+	var probeHandler *handlers.ProbeHandler
+
+	// --- API mode: HTTP server + gRPC admin ---
+	if cfg.RunAPI() {
+		httpSrv, grpcServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync)
+	}
+
+	// --- Worker mode: events consumer ---
+	if cfg.RunWorker() {
+		eventsCancel = runWorker(log, cfg, accountStore, db)
+	}
+
+	// In worker-only mode, start a minimal health server
+	if !cfg.RunAPI() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "ok")
+		})
+		mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "ok")
+		})
+		httpSrv = &http.Server{
+			Addr:    fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
+			Handler: mux,
+		}
+		go func() {
+			log.Info("Worker health server listening", "address", httpSrv.Addr)
+			if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error("Worker health server failed", "error", err)
+				os.Exit(1)
+			}
+		}()
+	}
+
+	// Wait for interrupt signal for graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Info("Shutting down server...")
+
+	// Mark as not ready to stop receiving new traffic
+	if probeHandler != nil {
+		probeHandler.SetReady(false)
+	}
+
+	// Stop events consumer
+	if eventsCancel != nil {
+		eventsCancel()
+	}
+
+	// Graceful shutdown of gRPC server
+	if grpcServer != nil {
+		grpcServer.GracefulStop()
+	}
+
+	// Create shutdown context with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	defer shutdownCancel()
+
+	// Attempt graceful shutdown of HTTP server
+	if httpSrv != nil {
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			log.Error("Server forced to shutdown", "error", err)
+			os.Exit(1)
+		}
+	}
+
+	log.Info("Server stopped gracefully")
+}
+
+// runAPI initializes and starts the HTTP API server and gRPC admin server.
+func runAPI(
+	log *logger.Logger,
+	cfg *config.Config,
+	db *sql.DB,
+	accountStore *account.AccountStore,
+	orgClient *org.Client,
+	orgSync *org.Sync,
+) (*http.Server, *grpc.Server, *handlers.ProbeHandler) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
 
@@ -68,42 +181,16 @@ func main() {
 		}
 	}
 
-	// Open shared database connection
-	db, err := sql.Open("postgres", cfg.Database.URL)
-	if err != nil {
-		log.Error("Failed to open database", "error", err)
-		os.Exit(1)
-	}
-	defer db.Close() //nolint:errcheck
-
-	if err := db.Ping(); err != nil {
-		log.Error("Failed to connect to database", "error", err)
-		os.Exit(1)
-	}
-	log.Info("Database connection established")
-
-	// Initialize stores with shared DB
+	// Initialize stores
 	agentIndex := agentindex.NewIndexWithDB(db)
-	accountStore := account.NewAccountStore(db)
 	deploymentStore := deploymentstore.NewStore(db)
 	waitlistStore := waitlist.NewStore(db)
-	log.Info("Agent index and account store initialized")
+	log.Info("Agent index and stores initialized")
 
-	// Initialize WorkOS organization client and sync service
-	var orgClient *org.Client
-	var orgSync *org.Sync
-	if cfg.Auth.WorkOSAPIKey != "" {
-		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
-		orgSync = org.NewSync(orgClient, accountStore)
-		log.Info("WorkOS organization client initialized")
-	}
-
-	// Initialize Kubernetes client (EKS for production, local for development)
+	// Initialize Kubernetes client
 	var k8sClient k8s.ClusterClient
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
-	log.Info("Initializing Kubernetes client",
-		"mode", string(clientMode),
-	)
+	log.Info("Initializing Kubernetes client", "mode", string(clientMode))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	var k8sErr error
 	k8sClient, k8sErr = k8s.NewClusterClient(ctx, k8s.ClusterClientConfig{
@@ -121,7 +208,6 @@ func main() {
 		log.Warn("Kubernetes features will be unavailable")
 		k8sClient = nil
 	} else {
-		// Test connectivity and get server version
 		if version, connErr := k8sClient.GetServerVersion(); connErr != nil {
 			log.Warn("K8s client created but connection failed", "error", connErr)
 			diag := k8sClient.DiagnoseConnection()
@@ -136,7 +222,7 @@ func main() {
 		}
 	}
 
-	// Initialize probe handler for K8s health checks
+	// Initialize probe handler
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
@@ -149,17 +235,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Start WorkOS events consumer for reverse sync (WorkOS → Astro)
-	var eventsCancel context.CancelFunc
-	if orgClient != nil {
-		eventsCtx, cancel := context.WithCancel(context.Background())
-		eventsCancel = cancel
-		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
-		go consumer.Start(eventsCtx)
-		log.Info("WorkOS events consumer started")
-	}
-
-	// Create HTTP server with timeouts
+	// Create HTTP server
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
 		Handler:      router,
@@ -168,7 +244,7 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Start HTTP server in a goroutine
+	// Start HTTP server
 	go func() {
 		log.Info("Server listening", "address", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -177,37 +253,27 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal for graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	return srv, grpcServer, probeHandler
+}
 
-	log.Info("Shutting down server...")
-
-	// Mark as not ready to stop receiving new traffic
-	probeHandler.SetReady(false)
-
-	// Stop events consumer
-	if eventsCancel != nil {
-		eventsCancel()
+// runWorker starts background workers (events consumer) and returns a cancel func.
+func runWorker(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	db *sql.DB,
+) context.CancelFunc {
+	if cfg.Auth.WorkOSAPIKey == "" {
+		log.Warn("WorkOS API key not configured, events consumer will not start")
+		return nil
 	}
 
-	// Graceful shutdown of gRPC server
-	if grpcServer != nil {
-		grpcServer.GracefulStop()
-	}
+	eventsCtx, cancel := context.WithCancel(context.Background())
+	consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
+	go consumer.Start(eventsCtx)
+	log.Info("WorkOS events consumer started")
 
-	// Create shutdown context with timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
-	defer shutdownCancel()
-
-	// Attempt graceful shutdown of HTTP server
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("Server forced to shutdown", "error", err)
-		os.Exit(1)
-	}
-
-	log.Info("Server stopped gracefully")
+	return cancel
 }
 
 // setupRoutes configures all application routes

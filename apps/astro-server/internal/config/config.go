@@ -8,6 +8,7 @@ import (
 
 // Config holds the application configuration
 type Config struct {
+	RunMode    string // SERVER_MODE: "all" (default), "api", or "worker"
 	Server     ServerConfig
 	Log        LogConfig
 	Security   SecurityConfig
@@ -15,6 +16,16 @@ type Config struct {
 	Auth       AuthConfig
 	Database   DatabaseConfig
 	AdminGRPC  AdminGRPCConfig
+}
+
+// RunAPI returns true if this instance should run the HTTP/gRPC API servers.
+func (c *Config) RunAPI() bool {
+	return c.RunMode == "all" || c.RunMode == "api"
+}
+
+// RunWorker returns true if this instance should run background workers (events consumer).
+func (c *Config) RunWorker() bool {
+	return c.RunMode == "all" || c.RunMode == "worker"
 }
 
 // AdminGRPCConfig holds admin gRPC server configuration.
@@ -102,6 +113,7 @@ type DeploymentConfig struct {
 // Load loads configuration from environment variables with defaults
 func Load() (*Config, error) {
 	cfg := &Config{
+		RunMode: getEnv("SERVER_MODE", "all"),
 		Server: ServerConfig{
 			Port:            getEnv("PORT", "8080"),
 			Host:            getEnv("HOST", "0.0.0.0"),
@@ -175,6 +187,11 @@ func Load() (*Config, error) {
 
 // Validate validates the configuration
 func (c *Config) Validate() error {
+	validRunModes := map[string]bool{"all": true, "api": true, "worker": true}
+	if !validRunModes[c.RunMode] {
+		return fmt.Errorf("invalid SERVER_MODE: %q (must be all, api, or worker)", c.RunMode)
+	}
+
 	if c.Server.Port == "" {
 		return fmt.Errorf("server port cannot be empty")
 	}
@@ -189,16 +206,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid log level: %s", c.Log.Level)
 	}
 
-	if c.Deployment.RegistryURL == "" {
-		if c.Deployment.K8sClientMode == "local" {
-			c.Deployment.RegistryURL = "docker.io/library"
-		} else {
-			return fmt.Errorf("REGISTRY_URL environment variable is required")
+	// Deployment config only required for API mode
+	if c.RunAPI() {
+		if c.Deployment.RegistryURL == "" {
+			if c.Deployment.K8sClientMode == "local" {
+				c.Deployment.RegistryURL = "docker.io/library"
+			} else {
+				return fmt.Errorf("REGISTRY_URL environment variable is required")
+			}
 		}
-	}
 
-	if c.Deployment.Environment == "" {
-		return fmt.Errorf("ENVIRONMENT environment variable is required")
+		if c.Deployment.Environment == "" {
+			return fmt.Errorf("ENVIRONMENT environment variable is required")
+		}
 	}
 
 	if c.Database.URL == "" {

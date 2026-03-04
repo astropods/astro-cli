@@ -215,7 +215,15 @@ All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 
 ### Read Path: `org.EventsConsumer`
 
-A background goroutine polls the WorkOS Events API on a configurable interval:
+A background goroutine polls the WorkOS Events API on a configurable interval. It runs as a **dedicated worker** (`SERVER_MODE=worker`) to avoid duplicate polling when multiple API replicas are running.
+
+| `SERVER_MODE` | HTTP/gRPC API | Events consumer |
+|---|---|---|
+| unset / `all` (default) | Yes | Yes |
+| `api` | Yes | No |
+| `worker` | No | Yes |
+
+In production with multiple replicas, set `SERVER_MODE=api` on the main deployment and run a separate single-replica deployment with `SERVER_MODE=worker`. The worker exposes `/livez` and `/readyz` health endpoints for k8s probes.
 
 - **Events processed**: `organization_membership.created`, `.updated`, `.deleted`
 - **Cursor tracking**: A singleton `workos_event_cursor` table stores the last processed event ID
