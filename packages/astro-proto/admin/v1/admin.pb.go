@@ -271,13 +271,12 @@ type GetPodEnvResponse struct {
 type ListAgentsRequest struct{}
 
 type AdminAgent struct {
-	AccountName         string `json:"account_name,omitempty"`
-	Name                string `json:"name,omitempty"`
-	BuildCount          int32  `json:"build_count,omitempty"`
-	PublishedBuildCount int32  `json:"published_build_count,omitempty"`
-	LatestBuildID       string `json:"latest_build_id,omitempty"`
-	CreatedAt           string `json:"created_at,omitempty"`
-	UpdatedAt           string `json:"updated_at,omitempty"`
+	AccountName   string `json:"account_name,omitempty"`
+	Name          string `json:"name,omitempty"`
+	BuildCount    int32  `json:"build_count,omitempty"`
+	LatestBuildID string `json:"latest_build_id,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
 type ListAgentsResponse struct {
@@ -291,10 +290,9 @@ type GetAgentBuildsRequest struct {
 }
 
 type AgentBuild struct {
-	BuildID       string `json:"build_id,omitempty"`
-	PublishedAt   string `json:"published_at,omitempty"`
-	UpdatedAt     string `json:"updated_at,omitempty"`
-	TaggedVersion string `json:"tagged_version,omitempty"`
+	BuildID     string `json:"build_id,omitempty"`
+	PublishedAt string `json:"published_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
 type GetAgentBuildsResponse struct {

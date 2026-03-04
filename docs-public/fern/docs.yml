@@ -41,9 +41,6 @@ navigation:
           - page: Your first project
             path: docs/pages/get-started.mdx
             icon: fa-duotone fa-rocket
-          - page: Publish to registry
-            path: docs/pages/publish-to-registry.mdx
-            icon: fa-duotone fa-cloud-arrow-up
           - page: Authentication
             path: docs/pages/authentication.mdx
             icon: fa-duotone fa-key

@@ -182,7 +182,6 @@ export interface AdminAgent {
   account_name: string;
   name: string;
   build_count: number;
-  published_build_count: number;
   latest_build_id: string;
   created_at: string;
   updated_at: string;
@@ -197,7 +196,6 @@ export interface AgentBuild {
   build_id: string;
   published_at: string;
   updated_at: string;
-  tagged_version: string;
 }
 
 export interface GetAgentBuildsResponse {

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type AgentsListResponse, type Agent, type DeploymentTemplate } from '../../lib/api';
-import { agentKeys, deploymentKeys, accountKeys } from './keys';
+import { agentKeys, deploymentKeys } from './keys';
 
 export function useAgents(opts?: { initialData?: AgentsListResponse }) {
   return useQuery({
@@ -48,15 +48,3 @@ export function useValidateDeployment() {
   });
 }
 
-export function usePublishAgent(account: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: { name: string; build_id: string; version: string }) =>
-      api.publishAgent(account, data.name, { build_id: data.build_id, version: data.version }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.all });
-      queryClient.invalidateQueries({ queryKey: accountKeys.profile });
-    },
-  });
-}

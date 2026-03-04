@@ -144,7 +144,7 @@ message AdminAgent {
   string account_name = 1;
   string name = 2;
   int32 build_count = 3;
-  int32 published_build_count = 4;
+  // Field 4 reserved (was published_build_count)
   string latest_build_id = 5;
   string created_at = 6;
   string updated_at = 7;
@@ -164,7 +164,7 @@ message AgentBuild {
   string build_id = 1;
   string published_at = 2;
   string updated_at = 3;
-  string tagged_version = 4;
+  // Field 4 reserved (was tagged_version)
 }
 
 message GetAgentBuildsResponse {

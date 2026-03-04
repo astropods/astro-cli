@@ -16,7 +16,6 @@ export interface AgentSummary {
   name: string;
   registry: string;
   build_count: number;
-  published_version_count: number;
 }
 
 export interface AccountOwner {
@@ -224,17 +223,6 @@ class ApiClient {
     });
   }
 
-  async publishAgent(account: string, name: string, data: {
-    build_id: string;
-    version: string;
-  }): Promise<{ message: string; account: string; name: string; build_id: string; version: string }> {
-    return this.request(`/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/publish`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-
   // Get deployment template for an agent (resolves latest build server-side)
   async getDeploymentTemplate(account: string, name: string): Promise<DeploymentTemplate> {
     return this.request<DeploymentTemplate>(
@@ -398,7 +386,7 @@ export interface AgentSpec {
 
 export interface AgentVersion {
   build_id: string;
-  version?: string; // semver, present only for published versions
+  version?: string;
   spec: AgentSpec;
   readme?: string;
   published_at: string;

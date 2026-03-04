@@ -2,23 +2,19 @@ import { useState } from "react";
 import {
   Loader2,
   Package,
-  Globe,
-  Lock,
-  Tag,
   AlertTriangle,
   Code,
   ChevronDown,
 } from "lucide-react";
-import type { Agent, AgentVersion } from "../../lib/api";
+import type { AgentVersion } from "../../lib/api";
 import { useAgent } from "../../api/queries/agents";
 
 export interface AgentBuildsSectionProps {
   accountName: string;
   agentName: string;
-  onPublish: (agentName: string, buildId: string) => void;
 }
 
-export function AgentBuildsSection({ accountName, agentName, onPublish }: AgentBuildsSectionProps) {
+export function AgentBuildsSection({ accountName, agentName }: AgentBuildsSectionProps) {
   const { data: agent, isLoading } = useAgent(accountName, agentName);
 
   if (isLoading) {
@@ -45,8 +41,6 @@ export function AgentBuildsSection({ accountName, agentName, onPublish }: AgentB
           key={version.build_id}
           version={version}
           isLatest={index === 0}
-          agent={agent}
-          onPublish={onPublish}
         />
       ))}
     </div>
@@ -56,13 +50,9 @@ export function AgentBuildsSection({ accountName, agentName, onPublish }: AgentB
 function BuildRow({
   version,
   isLatest,
-  agent,
-  onPublish,
 }: {
   version: AgentVersion;
   isLatest: boolean;
-  agent: Agent;
-  onPublish: (agentName: string, buildId: string) => void;
 }) {
   const [specOpen, setSpecOpen] = useState(false);
   const hasWarnings = version.validation_warnings && version.validation_warnings.length > 0;
@@ -80,17 +70,6 @@ function BuildRow({
             {isLatest && (
               <span className="px-1.5 py-0.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 shrink-0">
                 latest
-              </span>
-            )}
-            {version.version ? (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-green-50 border border-green-200 text-green-700 shrink-0">
-                <Globe size={9} />
-                {version.version}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-stone-100 border border-stone-200 text-stone-500 shrink-0">
-                <Lock size={9} />
-                private
               </span>
             )}
             {hasWarnings && (
@@ -114,15 +93,6 @@ function BuildRow({
             {specOpen ? <ChevronDown size={12} /> : <Code size={12} />}
             Spec
           </button>
-          {!version.version && (
-            <button
-              onClick={() => onPublish(agent.name, version.build_id)}
-              className="flex items-center gap-1 px-2 py-1 text-xs border border-green-300 text-green-700 bg-white hover:bg-green-50 cursor-pointer"
-            >
-              <Tag size={10} />
-              Publish
-            </button>
-          )}
         </div>
       </div>
 

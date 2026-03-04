@@ -23,7 +23,6 @@ export function AgentsPage() {
                   <th className="px-4 py-2 text-left font-medium text-stone-400">Account</th>
                   <th className="px-4 py-2 text-left font-medium text-stone-400">Name</th>
                   <th className="px-4 py-2 text-right font-medium text-stone-400">Builds</th>
-                  <th className="px-4 py-2 text-right font-medium text-stone-400">Published</th>
                   <th className="px-4 py-2 text-left font-medium text-stone-400">Latest Build</th>
                   <th className="px-4 py-2 text-left font-medium text-stone-400">Updated</th>
                   <th className="w-8"></th>
@@ -41,7 +40,6 @@ export function AgentsPage() {
                       <td className="px-4 py-2 text-stone-400">{a.account_name}</td>
                       <td className="px-4 py-2 font-medium text-amber">{a.name}</td>
                       <td className="px-4 py-2 text-right">{a.build_count}</td>
-                      <td className="px-4 py-2 text-right">{a.published_build_count}</td>
                       <td className="px-4 py-2 font-mono text-xs text-stone-500">{truncateUUID(a.latest_build_id)}</td>
                       <td className="px-4 py-2 text-stone-500">{formatDateTime(a.updated_at)}</td>
                       <td className="px-2">
@@ -78,9 +76,8 @@ function BuildsPanel({ account, name, onClose }: { account: string; name: string
       {data?.builds?.map((b) => (
         <div key={b.build_id} className="mb-2 rounded border border-stone-800 px-2.5 py-1.5 text-xs">
           <p className="font-mono text-amber">{truncateUUID(b.build_id)}</p>
-          {b.tagged_version && <p className="text-stone-400">v{b.tagged_version}</p>}
           <p className="text-stone-500">
-            {b.published_at ? `Published ${formatDateTime(b.published_at)}` : `Updated ${formatDateTime(b.updated_at)}`}
+            {formatDateTime(b.updated_at)}
           </p>
         </div>
       ))}

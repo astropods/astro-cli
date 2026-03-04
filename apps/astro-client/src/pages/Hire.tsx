@@ -7,7 +7,6 @@ import { PageTitle } from "@/components/PageTitle";
 import { Button } from "@/components/ui/button";
 import { AgentCard } from "@/components/AgentCard";
 import { CategorySidebar } from "@/components/browse/CategorySidebar";
-import { PublishCTA } from "@/components/browse/PublishCTA";
 import { useAgents } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { getAgentCategories, getAgentDescription } from "@/lib/agent-utils";
@@ -122,7 +121,6 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
                 ownerPictureUrl={accountsMap[agent.account]?.owner?.profile_picture_url}
               />
             ))}
-            <PublishCTA />
           </div>
         </div>
       )}

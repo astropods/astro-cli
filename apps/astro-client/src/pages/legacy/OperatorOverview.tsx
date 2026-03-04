@@ -25,7 +25,7 @@ export default function OperatorOverview() {
         <div>
           <h1 className="text-2xl font-semibold mb-1">Home</h1>
           <p className="text-stone-600 text-sm">
-            Manage builds, publish versions, and deploy agents
+            Manage builds and deploy agents
           </p>
         </div>
         <button
@@ -77,11 +77,6 @@ export default function OperatorOverview() {
                     </h3>
                     <p className="text-sm text-stone-500">
                       {summary.build_count} build{summary.build_count !== 1 ? "s" : ""}
-                      {summary.published_version_count > 0 && (
-                        <span>
-                          {" "}&middot; {summary.published_version_count} published
-                        </span>
-                      )}
                     </p>
                   </div>
                   <ChevronRight size={20} className="text-stone-400 shrink-0" />

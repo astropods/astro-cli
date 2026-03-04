@@ -23,12 +23,11 @@ import {
 } from "lucide-react";
 import type { DeployResponse } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { usePublishAgent, useAgent } from "../../api/queries/agents";
+import { useAgent } from "../../api/queries/agents";
 import { useDeployments, useUndeployAgent } from "../../api/queries/deployments";
 import { AgentBuildsSection } from "../../components/operator/AgentBuildsSection";
 import { DeploymentCard } from "../../components/operator/DeploymentCard";
 import { DeployResultModal } from "../../components/operator/DeployResultModal";
-import { PublishModal } from "../../components/operator/PublishModal";
 import { PlaygroundChat } from "../../components/operator/PlaygroundChat";
 import { ObservabilityTab } from "../../components/operator/ObservabilityTab";
 import { createServerApi } from "@/lib/api.server";
@@ -98,9 +97,6 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
     }
   }, []);
 
-  // Publish modal state
-  const [publishTarget, setPublishTarget] = useState<{ name: string; buildId: string } | null>(null);
-
   // Undeploy confirm state
   const [undeployConfirm, setUndeployConfirm] = useState<string | null>(null);
 
@@ -111,7 +107,6 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
 
   // Mutations
   const undeployMutation = useUndeployAgent(userAccount);
-  const publishMutation = usePublishAgent(userAccount);
 
   const handleUndeploy = (name: string) => {
     setUndeployConfirm(name);
@@ -126,21 +121,6 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
       console.error("Failed to undeploy:", err);
       const apiErr = err as { details?: string; error?: string; message?: string };
       alert(apiErr.details || apiErr.error || apiErr.message || "Failed to undeploy agent");
-    }
-  };
-
-  const handlePublish = async (version: string) => {
-    if (!publishTarget) return;
-    try {
-      await publishMutation.mutateAsync({
-        name: publishTarget.name,
-        build_id: publishTarget.buildId,
-        version,
-      });
-      setPublishTarget(null);
-    } catch (err) {
-      const apiErr = err as { details?: string; error?: string };
-      alert(apiErr.details || apiErr.error || "Failed to publish");
     }
   };
 
@@ -278,7 +258,6 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
             <AgentBuildsSection
               accountName={account}
               agentName={agentName}
-              onPublish={(name, buildId) => setPublishTarget({ name, buildId })}
             />
           )}
 
@@ -324,17 +303,6 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
         <DeployResultModal
           result={deployResult}
           onClose={() => setDeployResult(null)}
-        />
-      )}
-
-      {publishTarget && (
-        <PublishModal
-          accountName={account}
-          agentName={publishTarget.name}
-          buildId={publishTarget.buildId}
-          onClose={() => setPublishTarget(null)}
-          onPublish={handlePublish}
-          isPublishing={publishMutation.isPending}
         />
       )}
 
