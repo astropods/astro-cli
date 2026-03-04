@@ -58,7 +58,7 @@ func RequireAccountPermission(accountStore *account.AccountStore, permission str
 		}
 
 		if acct.Type == "personal" {
-			// Personal accounts: any member has all permissions
+			// Personal accounts: only one member (the creator) who has all permissions
 			isMember, err := accountStore.IsMember(acct.ID, user.ID)
 			if err != nil || !isMember {
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{

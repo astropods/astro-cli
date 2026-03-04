@@ -39,7 +39,7 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 
 Replaces the old `RequireAccountRole` middleware (`middleware/account.go`). Two authorization paths:
 
-1. **Personal accounts** — owner has all permissions implicitly; no JWT check needed.
+1. **Personal accounts** — any member has all permissions implicitly; no JWT check needed.
 
 2. **Organization accounts** — the session JWT must be scoped to the target org (`session.OrganizationID == account.WorkOSOrganizationID`). Clients must call `POST /auth/switch-org` before accessing an org's resources. Permissions are read directly from the JWT `permissions` claim — no DB lookup needed. If the JWT is scoped to a different org, the request is rejected with 403.
 
@@ -71,11 +71,11 @@ Memberships are kept in sync between Astro's `account_members` table and WorkOS 
 
 ### Write Path (Astro → WorkOS): `org.Sync`
 
-All member mutations go through `org.Sync` which writes to WorkOS first, then to the local DB. If the local write fails, a compensating action cleans up WorkOS. Methods: `AddMember`, `ChangeMemberRole`, `RemoveMember`.
+All member mutations go through `org.Sync` which writes to WorkOS first, then to the local DB. If the local write fails, a compensating action cleans up WorkOS. `ChangeMemberRole` only updates WorkOS (no local role column). Methods: `AddMember`, `ChangeMemberRole`, `RemoveMember`.
 
 ### Read Path (WorkOS → Astro): `org.EventsConsumer`
 
-A background goroutine polls the WorkOS Events API for `organization_membership.created`, `.updated`, and `.deleted` events. It upserts or removes local `account_members` rows accordingly. A `workos_event_cursor` table tracks the cursor for idempotent polling.
+A dedicated worker process (`SERVER_MODE=worker`) polls the WorkOS Events API for `organization_membership.created`, `.updated`, and `.deleted` events. It upserts or removes local `account_members` rows accordingly (membership presence only — roles are not stored locally). A `workos_event_cursor` table tracks the cursor for idempotent polling.
 
 ### Login-Time Reconciliation
 

@@ -43,7 +43,7 @@ type AuthAccountResponse struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
 	Type                 string `json:"type"`
-	WorkOSOrganizationID string `json:"workos_org_id,omitempty"`
+	WorkOSOrganizationID string `json:"organization_id,omitempty"`
 }
 
 // AuthResponse is returned to the client after successful authentication

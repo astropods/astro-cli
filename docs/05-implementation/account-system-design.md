@@ -36,7 +36,6 @@ CREATE TABLE accounts (
 CREATE TABLE account_members (
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     user_id VARCHAR(255) NOT NULL,            -- WorkOS user ID
-    role VARCHAR(20) NOT NULL DEFAULT 'member', -- 'owner', 'admin', 'member'
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, user_id)
 );
@@ -44,8 +43,9 @@ CREATE TABLE account_members (
 -- Index for "given a user, find their accounts"
 CREATE INDEX idx_account_members_user ON account_members(user_id);
 
--- Personal account: exactly one owner, enforced at app level
--- Org account: one or more owners, admins, members
+-- Roles are managed in WorkOS, not stored locally.
+-- Personal account: exactly one member (the creator)
+-- Org account: members tracked locally for fast lookup, roles from WorkOS JWT
 ```
 
 Account name rules are a superset of k8s namespace rules, so the account name can be used directly as the k8s namespace with no sanitization.
@@ -86,7 +86,7 @@ Account claiming happens on the **web dashboard only**. CLI reads account info f
 1. User signs up via WorkOS (existing)
 2. WorkOS redirects to dashboard. `GET /auth/me` returns `accounts: []`.
 3. Dashboard detects empty accounts and shows onboarding screen: "Choose your username". Validates format client-side (length, charset, pattern). Checks uniqueness + reserved names server-side via `GET /api/v1/accounts/check/:name` with debounce.
-4. Submit calls `POST /api/v1/accounts` with `type: personal`. Server creates account + account_member (role: owner).
+4. Submit calls `POST /api/v1/accounts` with `type: personal`. Server creates account + account_member.
 5. Dashboard proceeds to main app. All subsequent pages gate on `accounts.length > 0`.
 
 CLI equivalent: `ast login` calls `GET /auth/me`. If `accounts: []`, prints:
@@ -107,8 +107,8 @@ Deferred. The data model supports orgs (account type + members table) but no UI/
    {
      "user": { "id": "user_01K1...", "email": "...", "username": "saswat" },
      "accounts": [
-       { "name": "saswat", "type": "personal", "role": "owner" },
-       { "name": "postman", "type": "organization", "role": "admin" }
+       { "name": "saswat", "type": "personal" },
+       { "name": "postman", "type": "organization" }
      ],
      "current_account": "saswat"
    }
@@ -225,10 +225,10 @@ type Store struct { db *sql.DB }
 func (s *Store) CreateAccount(name, accountType, displayName string) (*Account, error)
 func (s *Store) GetAccount(name string) (*Account, error)
 func (s *Store) GetAccountsForUser(userID string) ([]AccountMembership, error)
-func (s *Store) AddMember(accountName, userID, role string) error
-func (s *Store) RemoveMember(accountName, userID string) error
-func (s *Store) GetMembers(accountName string) ([]Member, error)
-func (s *Store) HasRole(accountName, userID string, roles ...string) (bool, error)
+func (s *Store) AddMember(accountID, userID, workosMembershipID string) error
+func (s *Store) RemoveMember(accountID, userID string) error
+func (s *Store) GetMembers(accountID string) ([]Member, error)
+func (s *Store) IsMember(accountID, userID string) (bool, error)
 ```
 
 ### Auth middleware update

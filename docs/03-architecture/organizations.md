@@ -11,7 +11,7 @@ Astro has two account types, both stored in the `accounts` table:
 | `personal` | One per user, created on signup | None |
 | `organization` | Shared team account | Linked to WorkOS Organization via `workos_org_id` |
 
-Every account has members tracked in `account_members`. Personal accounts have a single `owner`. Organization accounts can have many members with different roles.
+Every account has members tracked in `account_members`. Personal accounts have a single member (the creator). Organization accounts can have many members — roles are managed entirely in WorkOS, not stored locally.
 
 ## System Overview
 
@@ -116,8 +116,8 @@ Permission slugs map to actions:
 ```
 RequireAccountPermission(permission)
        │
-       ├─ PERSONAL ACCOUNT
-       │     Is caller the owner?
+       ├─ PERSONAL ACCOUNT (only one member: the creator)
+       │     Is caller the account's user?
        │     ├─ Yes → ALLOW (all permissions implicit)
        │     └─ No  → DENY
        │
@@ -206,7 +206,7 @@ All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 | Method | WorkOS Action | Local Action | Compensating Action |
 |---|---|---|---|
 | `AddMember` | Create membership | Insert `account_members` | Delete WorkOS membership |
-| `ChangeMemberRole` | Update membership role | Update local role | (none needed) |
+| `ChangeMemberRole` | Update membership role | (none — role lives in WorkOS) | (none needed) |
 | `RemoveMember` | Delete membership | Delete local row | (none needed) |
 
 **Safety guards** built into the write path:
@@ -215,7 +215,7 @@ All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 
 ### Read Path: `org.EventsConsumer`
 
-A background goroutine polls the WorkOS Events API on a configurable interval. It runs as a **dedicated worker** (`SERVER_MODE=worker`) to avoid duplicate polling when multiple API replicas are running.
+A dedicated worker process (`SERVER_MODE=worker`) polls the WorkOS Events API on a configurable interval, avoiding duplicate polling when multiple API replicas are running.
 
 | `SERVER_MODE` | HTTP/gRPC API | Events consumer |
 |---|---|---|
@@ -267,11 +267,10 @@ account_organizations (
   workos_org_id text NOT NULL UNIQUE
 )
 
--- Account memberships
+-- Account memberships (roles are managed in WorkOS, not stored locally)
 account_members (
   account_id           uuid REFERENCES accounts(id) ON DELETE CASCADE,
   user_id              text NOT NULL,
-  role                 varchar(20) NOT NULL,  -- 'owner' | 'admin' | 'member'
   created_at           timestamptz NOT NULL,
   PRIMARY KEY (account_id, user_id)
 )
@@ -323,7 +322,7 @@ workos_event_cursor (
 | Component | Purpose |
 |---|---|
 | `ResolveAccount` | Looks up `:account` URL param and sets it in context |
-| `RequireAccountPermission` | Authorization: personal (owner check) or org (JWT permissions) |
+| `RequireAccountPermission` | Authorization: personal (membership check) or org (JWT permissions) |
 
 ## API Endpoints
 
