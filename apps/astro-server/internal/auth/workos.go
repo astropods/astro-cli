@@ -69,10 +69,21 @@ func (c *WorkOSClient) AuthenticateWithCode(ctx context.Context, code string) (*
 
 // AuthenticateWithRefreshToken refreshes an access token
 func (c *WorkOSClient) AuthenticateWithRefreshToken(ctx context.Context, refreshToken string) (*RefreshResult, error) {
-	response, err := c.client.AuthenticateWithRefreshToken(ctx, usermanagement.AuthenticateWithRefreshTokenOpts{
+	return c.AuthenticateWithRefreshTokenForOrg(ctx, refreshToken, "")
+}
+
+// AuthenticateWithRefreshTokenForOrg refreshes an access token scoped to a specific organization.
+// If organizationID is empty, behaves like AuthenticateWithRefreshToken.
+func (c *WorkOSClient) AuthenticateWithRefreshTokenForOrg(ctx context.Context, refreshToken, organizationID string) (*RefreshResult, error) {
+	opts := usermanagement.AuthenticateWithRefreshTokenOpts{
 		ClientID:     c.clientID,
 		RefreshToken: refreshToken,
-	})
+	}
+	if organizationID != "" {
+		opts.OrganizationID = organizationID
+	}
+
+	response, err := c.client.AuthenticateWithRefreshToken(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh token: %w", err)
 	}

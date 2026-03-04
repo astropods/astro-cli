@@ -9,7 +9,9 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
+	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
@@ -21,11 +23,24 @@ func setupAgentTestRouter() (*gin.Engine, *agentindex.Index, sqlmock.Sqlmock) {
 	return router, index, mock
 }
 
+// injectTestAccount is a test middleware that sets a fake account in context,
+// simulating what ResolveAccount middleware does in production.
+func injectTestAccount() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{
+			ID:   "test-account-id",
+			Name: "testaccount",
+			Type: "personal",
+		})
+		c.Next()
+	}
+}
+
 func TestRegisterAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index))
 
 	// Expect transaction: BEGIN, INSERT agent, INSERT version, COMMIT
 	mock.ExpectBegin()
@@ -53,7 +68,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 		t.Errorf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
@@ -101,7 +116,7 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/register", RegisterAgent(log, index, nil))
+			router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -113,7 +128,7 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 				t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
 			}
 
-			var resp map[string]interface{}
+			var resp map[string]any
 			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 				t.Fatalf("failed to unmarshal response: %v", err)
 			}
@@ -129,7 +144,7 @@ func TestRegisterAgent_InvalidJSON(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -146,7 +161,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
 
 	body := `{
 		"name": "test-agent",
@@ -165,7 +180,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
@@ -175,12 +190,11 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	}
 }
 
-
 func TestRegisterAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
 
 	// Simulate DB failure on BEGIN
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
@@ -202,7 +216,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}

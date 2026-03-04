@@ -17,16 +17,16 @@ import (
 
 // AgentResponse represents an agent with all its versions
 type AgentResponse struct {
-	Account  string                 `json:"account"`
-	Name     string                 `json:"name"`
-	Registry string                 `json:"registry"`
-	Versions []AgentVersionResponse `json:"versions"`
+	Account    string                 `json:"account"`
+	Name       string                 `json:"name"`
+	Registry   string                 `json:"registry"`
+	Visibility string                 `json:"visibility"`
+	Versions   []AgentVersionResponse `json:"versions"`
 }
 
 // AgentVersionResponse represents a specific version of an agent
 type AgentVersionResponse struct {
 	BuildID            string           `json:"build_id"`
-	Version            string           `json:"version,omitempty"`
 	Spec               map[string]any   `json:"spec"`
 	Readme             string           `json:"readme"`
 	PublishedAt        string           `json:"published_at"`
@@ -42,12 +42,12 @@ type RegisterAgentRequest struct {
 }
 
 // ListAgents handles GET /api/v1/agents
-// Lists only agents with published semver versions (public catalog)
+// Lists agents with visibility='public' (public catalog)
 func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Info("Listing public agents from index")
 
-		agents, err := index.ListPublic()
+		agents, err := index.ListPublicAgents()
 		if err != nil {
 			log.Error("Failed to list agents", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -78,7 +78,6 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			for _, v := range agent.Versions {
 				versions = append(versions, AgentVersionResponse{
 					BuildID:     v.BuildID,
-					Version:     v.Version,
 					Spec:        v.Spec,
 					Readme:      v.Readme,
 					PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -86,10 +85,11 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			}
 
 			responses = append(responses, AgentResponse{
-				Account:  accountName,
-				Name:     agent.Name,
-				Registry: agent.Registry,
-				Versions: versions,
+				Account:    accountName,
+				Name:       agent.Name,
+				Registry:   agent.Registry,
+				Visibility: agent.Visibility,
+				Versions:   versions,
 			})
 		}
 
@@ -101,7 +101,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 }
 
 // GetAgent handles GET /api/v1/agents/:account/:name
-// Public visitors see only published versions; authenticated account members see all builds
+// Private agents are only visible to account members; public agents are visible to all
 func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
@@ -127,72 +127,47 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		}
 
 		// Check if the caller is an authenticated account member
-		isOwner := false
+		isMember := false
 		if user, exists := middleware.GetUser(c); exists {
-			isMember, err := accountStore.IsMember(acct.ID, user.ID)
-			if err == nil && isMember {
-				isOwner = true
+			if ok, err := accountStore.IsMember(acct.ID, user.ID); err == nil && ok {
+				isMember = true
 			}
 		}
 
-		if isOwner {
-			// Account member: return all builds with semver annotations
-			publishedVersions, _ := index.GetPublishedVersionsForAgent(acct.ID, name)
-			buildToVersion := make(map[string]string)
-			for _, pv := range publishedVersions {
-				buildToVersion[pv.BuildID] = pv.Version
-			}
-
-			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
-			for _, v := range agent.Versions {
-				versions = append(versions, AgentVersionResponse{
-					BuildID:            v.BuildID,
-					Version:            buildToVersion[v.BuildID],
-					Spec:               v.Spec,
-					Readme:             v.Readme,
-					PublishedAt:        v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
-					ValidationWarnings: v.ValidationWarnings,
-				})
-			}
-
-			c.JSON(http.StatusOK, AgentResponse{
-				Account:  accountName,
-				Name:     agent.Name,
-				Registry: agent.Registry,
-				Versions: versions,
-			})
-		} else {
-			// Public visitor: only published versions
-			publishedVersions, err := index.GetPublishedVersionsForAgent(acct.ID, name)
-			if err != nil || len(publishedVersions) == 0 {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
-				return
-			}
-
-			versions := make([]AgentVersionResponse, 0, len(publishedVersions))
-			for _, v := range publishedVersions {
-				versions = append(versions, AgentVersionResponse{
-					BuildID:     v.BuildID,
-					Version:     v.Version,
-					Spec:        v.Spec,
-					Readme:      v.Readme,
-					PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
-				})
-			}
-
-			c.JSON(http.StatusOK, AgentResponse{
-				Account:  accountName,
-				Name:     agent.Name,
-				Registry: agent.Registry,
-				Versions: versions,
-			})
+		// Private agents are only visible to members
+		if agent.Visibility == "private" && !isMember {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
+			return
 		}
+
+		versions := make([]AgentVersionResponse, 0, len(agent.Versions))
+		for _, v := range agent.Versions {
+			resp := AgentVersionResponse{
+				BuildID:     v.BuildID,
+				Spec:        v.Spec,
+				Readme:      v.Readme,
+				PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
+			}
+			if isMember {
+				resp.ValidationWarnings = v.ValidationWarnings
+			}
+			versions = append(versions, resp)
+		}
+
+		c.JSON(http.StatusOK, AgentResponse{
+			Account:    accountName,
+			Name:       agent.Name,
+			Registry:   agent.Registry,
+			Visibility: agent.Visibility,
+			Versions:   versions,
+		})
 	}
 }
 
 // RegisterAgent handles POST /api/v1/agents/:account/:name/register
-// Registers a new agent or updates an existing one in the index
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+// Registers a new agent or updates an existing one in the index.
+// Requires agents:write permission (enforced by middleware).
+func RegisterAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -207,29 +182,12 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 			return
 		}
 
-		// Resolve account and verify access
-		var accountID string
-		if accountStore != nil && accountName != "" {
-			acct, err := accountStore.GetByName(accountName)
-			if err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-				return
-			}
-			accountID = acct.ID
-
-			// Verify user has write access (owner or admin)
-			user, exists := middleware.GetUser(c)
-			if !exists {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-				return
-			}
-
-			hasRole, err := accountStore.HasRole(acct.ID, user.ID, "owner", "admin")
-			if err != nil || !hasRole {
-				c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
-				return
-			}
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
 		}
+		accountID := acct.ID
 
 		log.Info("Registering agent",
 			"account", accountName,
@@ -295,20 +253,20 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 	}
 }
 
-// PublishAgentRequest represents the request to publish an agent version
-type PublishAgentRequest struct {
-	BuildID string `json:"build_id" binding:"required"`
-	Version string `json:"version" binding:"required"`
+// SetAgentVisibilityRequest represents the request to change agent visibility
+type SetAgentVisibilityRequest struct {
+	Visibility string `json:"visibility" binding:"required"`
 }
 
-// PublishAgent handles POST /api/v1/agents/:account/:name/publish
-// Assigns a semver version to a build, making it publicly visible
-func PublishAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+// SetAgentVisibility handles PUT /api/v1/agents/:account/:name/visibility
+// Toggles an agent between public and private visibility.
+// Requires agents:write permission (enforced by middleware).
+func SetAgentVisibility(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
 
-		var req PublishAgentRequest
+		var req SetAgentVisibilityRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid request body",
@@ -317,54 +275,32 @@ func PublishAgent(log *logger.Logger, index *agentindex.Index, accountStore *acc
 			return
 		}
 
-		// Resolve account and verify access
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
 			return
 		}
 
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-
-		hasRole, err := accountStore.HasRole(acct.ID, user.ID, "owner", "admin")
-		if err != nil || !hasRole {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
-			return
-		}
-
-		// Verify build exists
-		_, err = index.GetVersion(acct.ID, agentName, req.BuildID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "build not found", "details": err.Error()})
-			return
-		}
-
-		if err := index.Publish(acct.ID, agentName, req.BuildID, req.Version); err != nil {
-			log.Error("Failed to publish agent", "error", err)
+		if err := index.SetVisibility(acct.ID, agentName, req.Visibility); err != nil {
+			log.Error("Failed to set agent visibility", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "failed to publish agent",
+				"error":   "failed to set visibility",
 				"details": err.Error(),
 			})
 			return
 		}
 
-		log.Info("Agent published",
+		log.Info("Agent visibility updated",
 			"account", accountName,
 			"name", agentName,
-			"build_id", req.BuildID,
-			"version", req.Version,
+			"visibility", req.Visibility,
 		)
 
-		c.JSON(http.StatusCreated, gin.H{
-			"message":  "agent published",
-			"account":  accountName,
-			"name":     agentName,
-			"build_id": req.BuildID,
-			"version":  req.Version,
+		c.JSON(http.StatusOK, gin.H{
+			"message":    "visibility updated",
+			"account":    accountName,
+			"name":       agentName,
+			"visibility": req.Visibility,
 		})
 	}
 }

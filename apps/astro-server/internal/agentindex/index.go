@@ -5,15 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
 )
-
-var semverRegex = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 
 // AgentVersion represents a specific published build of an agent
 type AgentVersion struct {
@@ -27,31 +22,13 @@ type AgentVersion struct {
 
 // Agent represents an agent with all its versions (ordered newest first)
 type Agent struct {
-	AccountID string          `json:"account_id"`
-	Name      string          `json:"name"`
-	Registry  string          `json:"registry"`
-	Versions  []*AgentVersion `json:"versions"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
-
-// PublishedVersion represents a semver-published build of an agent
-type PublishedVersion struct {
-	Version     string         `json:"version"`
-	BuildID     string         `json:"build_id"`
-	Spec        map[string]any `json:"spec"`
-	Readme      string         `json:"readme"`
-	PublishedAt time.Time      `json:"published_at"`
-}
-
-// PublicAgent represents an agent with only its published versions
-type PublicAgent struct {
-	AccountID  string              `json:"account_id"`
-	Name       string              `json:"name"`
-	Registry   string              `json:"registry"`
-	Versions   []*PublishedVersion `json:"versions"`
-	CreatedAt  time.Time           `json:"created_at"`
-	UpdatedAt  time.Time           `json:"updated_at"`
+	AccountID  string          `json:"account_id"`
+	Name       string          `json:"name"`
+	Registry   string          `json:"registry"`
+	Visibility string          `json:"visibility"`
+	Versions   []*AgentVersion `json:"versions"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 // Index manages the registry of published agents using PostgreSQL
@@ -145,10 +122,10 @@ func (idx *Index) Register(accountID, name, buildID, registry string, spec map[s
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
-		SELECT account_id, name, registry, created_at, updated_at
+		SELECT account_id, name, registry, visibility, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND name = $2
-	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.CreatedAt, &agent.UpdatedAt)
+	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
@@ -215,7 +192,7 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 // List returns all agents in the index (global browse)
 func (idx *Index) List() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, created_at, updated_at
+		SELECT account_id, name, registry, visibility, created_at, updated_at
 		FROM agents
 		ORDER BY name
 	`)
@@ -227,7 +204,7 @@ func (idx *Index) List() ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
+		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan agent: %w", err)
 		}
 
@@ -267,7 +244,7 @@ func (idx *Index) List() ([]*Agent, error) {
 // ListForAccount returns all agents belonging to a specific account
 func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, created_at, updated_at
+		SELECT account_id, name, registry, visibility, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1
 		ORDER BY name
@@ -280,7 +257,7 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
+		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan agent: %w", err)
 		}
 
@@ -380,109 +357,42 @@ func (idx *Index) DeleteVersion(accountID, name, buildID string) error {
 	return nil
 }
 
-// compareSemver compares two semver strings (without "v" prefix).
-// Returns -1 if a < b, 0 if a == b, 1 if a > b.
-// Pre-release versions are compared lexicographically; build metadata is ignored.
-func compareSemver(a, b string) int {
-	// Strip build metadata
-	if i := strings.IndexByte(a, '+'); i >= 0 {
-		a = a[:i]
-	}
-	if i := strings.IndexByte(b, '+'); i >= 0 {
-		b = b[:i]
+// SetVisibility updates the visibility of an agent (public or private)
+func (idx *Index) SetVisibility(accountID, name, visibility string) error {
+	if visibility != "public" && visibility != "private" {
+		return fmt.Errorf("invalid visibility: %s (must be 'public' or 'private')", visibility)
 	}
 
-	// Split into core and pre-release
-	aParts := strings.SplitN(a, "-", 2)
-	bParts := strings.SplitN(b, "-", 2)
-
-	// Compare major.minor.patch
-	aCore := strings.Split(aParts[0], ".")
-	bCore := strings.Split(bParts[0], ".")
-	for i := 0; i < 3; i++ {
-		av, _ := strconv.Atoi(aCore[i])
-		bv, _ := strconv.Atoi(bCore[i])
-		if av < bv {
-			return -1
-		}
-		if av > bv {
-			return 1
-		}
-	}
-
-	// Core is equal; check pre-release (having a pre-release is lower precedence)
-	aHasPre := len(aParts) > 1
-	bHasPre := len(bParts) > 1
-	if !aHasPre && !bHasPre {
-		return 0
-	}
-	if !aHasPre && bHasPre {
-		return 1 // release > pre-release
-	}
-	if aHasPre && !bHasPre {
-		return -1
-	}
-
-	// Both have pre-release: lexicographic comparison
-	if aParts[1] < bParts[1] {
-		return -1
-	}
-	if aParts[1] > bParts[1] {
-		return 1
-	}
-	return 0
-}
-
-// Publish assigns a semver version to a build, making it publicly visible.
-// The version must be strictly greater than any existing published version.
-func (idx *Index) Publish(accountID, name, buildID, version string) error {
-	if !semverRegex.MatchString(version) {
-		return fmt.Errorf("invalid semver: %s", version)
-	}
-
-	// Check the latest published version and enforce monotonic increase
-	var latestVersion sql.NullString
-	err := idx.db.QueryRow(`
-		SELECT version FROM agent_published_versions
-		WHERE account_id = $1 AND name = $2
-		ORDER BY published_at DESC
-		LIMIT 1
-	`, accountID, name).Scan(&latestVersion)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("failed to query latest version: %w", err)
-	}
-
-	if latestVersion.Valid {
-		cmp := compareSemver(version, latestVersion.String)
-		if cmp == 0 {
-			return fmt.Errorf("version %s is already published", version)
-		}
-		if cmp < 0 {
-			return fmt.Errorf("version %s is lower than the current latest %s", version, latestVersion.String)
-		}
-	}
-
-	_, err = idx.db.Exec(`
-		INSERT INTO agent_published_versions (account_id, name, version, build_id)
-		VALUES ($1, $2, $3, $4)
-	`, accountID, name, version, buildID)
+	result, err := idx.db.Exec(`
+		UPDATE agents SET visibility = $1, updated_at = $2
+		WHERE account_id = $3 AND name = $4
+	`, visibility, time.Now(), accountID, name)
 	if err != nil {
-		return fmt.Errorf("failed to publish version: %w", err)
+		return fmt.Errorf("failed to update visibility: %w", err)
 	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("agent not found: %s", name)
+	}
+
 	return nil
 }
 
-// ListPublic returns agents with their latest published version only (one per agent)
-func (idx *Index) ListPublic() ([]*PublicAgent, error) {
+// ListPublicAgents returns agents with visibility='public' and their latest version
+func (idx *Index) ListPublicAgents() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
-		SELECT a.account_id, a.name, a.registry, a.created_at, a.updated_at,
-		       p.version, p.build_id, v.spec_json, v.readme, p.published_at
+		SELECT a.account_id, a.name, a.registry, a.visibility, a.created_at, a.updated_at,
+		       v.build_id, v.spec_json, v.readme, v.published_at, v.updated_at
 		FROM agents a
-		JOIN agent_published_versions p ON a.account_id = p.account_id AND a.name = p.name
-		JOIN agent_versions v ON p.account_id = v.account_id AND p.name = v.name AND p.build_id = v.build_id
-		WHERE p.published_at = (
-			SELECT MAX(p2.published_at) FROM agent_published_versions p2
-			WHERE p2.account_id = a.account_id AND p2.name = a.name
+		JOIN agent_versions v ON a.account_id = v.account_id AND a.name = v.name
+		WHERE a.visibility = 'public'
+		AND v.published_at = (
+			SELECT MAX(v2.published_at) FROM agent_versions v2
+			WHERE v2.account_id = a.account_id AND v2.name = a.name
 		)
 		ORDER BY a.name
 	`)
@@ -491,110 +401,28 @@ func (idx *Index) ListPublic() ([]*PublicAgent, error) {
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var agents []*PublicAgent
+	var agents []*Agent
 	for rows.Next() {
-		var accountID, name, registry, version, buildID, specJSON, readme string
-		var createdAt, updatedAt, publishedAt time.Time
+		var agent Agent
+		var v AgentVersion
+		var specJSON string
 
-		if err := rows.Scan(&accountID, &name, &registry, &createdAt, &updatedAt,
-			&version, &buildID, &specJSON, &readme, &publishedAt); err != nil {
+		if err := rows.Scan(
+			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt,
+			&v.BuildID, &specJSON, &v.Readme, &v.PublishedAt, &v.UpdatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		var spec map[string]any
-		if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
+		if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
 		}
 
-		agents = append(agents, &PublicAgent{
-			AccountID: accountID,
-			Name:      name,
-			Registry:  registry,
-			CreatedAt: createdAt,
-			UpdatedAt: updatedAt,
-			Versions: []*PublishedVersion{{
-				Version:     version,
-				BuildID:     buildID,
-				Spec:        spec,
-				Readme:      readme,
-				PublishedAt: publishedAt,
-			}},
-		})
+		agent.Versions = []*AgentVersion{&v}
+		agents = append(agents, &agent)
 	}
 
 	return agents, nil
-}
-
-// GetPublicVersion resolves a semver version to a build and returns it
-func (idx *Index) GetPublicVersion(accountID, name, version string) (*PublishedVersion, error) {
-	var buildID, specJSON, readme string
-	var publishedAt time.Time
-
-	err := idx.db.QueryRow(`
-		SELECT p.build_id, v.spec_json, v.readme, p.published_at
-		FROM agent_published_versions p
-		JOIN agent_versions v ON p.account_id = v.account_id AND p.name = v.name AND p.build_id = v.build_id
-		WHERE p.account_id = $1 AND p.name = $2 AND p.version = $3
-	`, accountID, name, version).Scan(&buildID, &specJSON, &readme, &publishedAt)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("published version not found: %s@%s", name, version)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query published version: %w", err)
-	}
-
-	var spec map[string]any
-	if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
-	}
-
-	return &PublishedVersion{
-		Version:     version,
-		BuildID:     buildID,
-		Spec:        spec,
-		Readme:      readme,
-		PublishedAt: publishedAt,
-	}, nil
-}
-
-// GetPublishedVersionsForAgent returns all published semver mappings for one agent
-func (idx *Index) GetPublishedVersionsForAgent(accountID, name string) ([]*PublishedVersion, error) {
-	rows, err := idx.db.Query(`
-		SELECT p.version, p.build_id, v.spec_json, v.readme, p.published_at
-		FROM agent_published_versions p
-		JOIN agent_versions v ON p.account_id = v.account_id AND p.name = v.name AND p.build_id = v.build_id
-		WHERE p.account_id = $1 AND p.name = $2
-		ORDER BY p.published_at DESC
-	`, accountID, name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query published versions: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var versions []*PublishedVersion
-	for rows.Next() {
-		var version, buildID, specJSON, readme string
-		var publishedAt time.Time
-
-		if err := rows.Scan(&version, &buildID, &specJSON, &readme, &publishedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan published version: %w", err)
-		}
-
-		var spec map[string]any
-		if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
-		}
-
-		versions = append(versions, &PublishedVersion{
-			Version:     version,
-			BuildID:     buildID,
-			Spec:        spec,
-			Readme:      readme,
-			PublishedAt: publishedAt,
-		})
-	}
-	return versions, nil
 }
 
 // GetLatestVersion returns the most recently registered build for an agent
@@ -624,43 +452,3 @@ func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error
 	return &v, nil
 }
 
-// GetLatestPublishedVersion returns the most recently published version for cross-account deploys
-func (idx *Index) GetLatestPublishedVersion(accountID, name string) (*AgentVersion, error) {
-	var v AgentVersion
-	var specJSON, warningsJSON string
-	err := idx.db.QueryRow(`
-		SELECT v.build_id, v.spec_json, v.readme, v.validation_warnings, v.published_at, v.updated_at
-		FROM agent_published_versions p
-		JOIN agent_versions v ON p.account_id = v.account_id AND p.name = v.name AND p.build_id = v.build_id
-		WHERE p.account_id = $1 AND p.name = $2
-		ORDER BY p.published_at DESC
-		LIMIT 1
-	`, accountID, name).Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("no published versions found for agent: %s", name)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query latest published version: %w", err)
-	}
-
-	if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
-	}
-	v.ValidationWarnings = parseValidationWarnings(warningsJSON)
-
-	return &v, nil
-}
-
-// IsPublishedBuild checks if a specific build_id has a published semver version
-func (idx *Index) IsPublishedBuild(accountID, name, buildID string) (bool, error) {
-	var count int
-	err := idx.db.QueryRow(`
-		SELECT COUNT(*) FROM agent_published_versions
-		WHERE account_id = $1 AND name = $2 AND build_id = $3
-	`, accountID, name, buildID).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("failed to check published build: %w", err)
-	}
-	return count > 0, nil
-}

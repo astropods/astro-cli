@@ -26,6 +26,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/org"
 	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 )
 
@@ -88,6 +89,15 @@ func main() {
 	waitlistStore := waitlist.NewStore(db)
 	log.Info("Agent index and account store initialized")
 
+	// Initialize WorkOS organization client and sync service
+	var orgClient *org.Client
+	var orgSync *org.Sync
+	if cfg.Auth.WorkOSAPIKey != "" {
+		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
+		orgSync = org.NewSync(orgClient, accountStore)
+		log.Info("WorkOS organization client initialized")
+	}
+
 	// Initialize Kubernetes client (EKS for production, local for development)
 	var k8sClient k8s.ClusterClient
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
@@ -130,13 +140,23 @@ func main() {
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient, orgClient, orgSync)
 
 	// Start admin gRPC server
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, deploymentStore, k8sClient, db)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)
 		os.Exit(1)
+	}
+
+	// Start WorkOS events consumer for reverse sync (WorkOS → Astro)
+	var eventsCancel context.CancelFunc
+	if orgClient != nil {
+		eventsCtx, cancel := context.WithCancel(context.Background())
+		eventsCancel = cancel
+		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
+		go consumer.Start(eventsCtx)
+		log.Info("WorkOS events consumer started")
 	}
 
 	// Create HTTP server with timeouts
@@ -167,6 +187,11 @@ func main() {
 	// Mark as not ready to stop receiving new traffic
 	probeHandler.SetReady(false)
 
+	// Stop events consumer
+	if eventsCancel != nil {
+		eventsCancel()
+	}
+
 	// Graceful shutdown of gRPC server
 	if grpcServer != nil {
 		grpcServer.GracefulStop()
@@ -186,7 +211,7 @@ func main() {
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -206,15 +231,19 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 	// Setup authentication
 	authHandler := handlers.NewAuthHandler(log, cfg, accountStore)
+	if orgSync != nil {
+		authHandler.SetOrgSync(orgSync)
+	}
 
 	// Auth routes (no auth required)
-	auth := router.Group("/auth")
+	authRoutes := router.Group("/auth")
 	{
-		auth.GET("/login", authHandler.Login())
-		auth.GET("/callback", authHandler.Callback())
-		auth.GET("/logout", authHandler.Logout())
-		auth.GET("/me", authHandler.Me())
-		auth.POST("/refresh", authHandler.Refresh())
+		authRoutes.GET("/login", authHandler.Login())
+		authRoutes.GET("/callback", authHandler.Callback())
+		authRoutes.GET("/logout", authHandler.Logout())
+		authRoutes.GET("/me", authHandler.Me())
+		authRoutes.POST("/refresh", authHandler.Refresh())
+		authRoutes.POST("/switch-org", authHandler.SwitchOrg())
 	}
 
 	// Create auth middleware
@@ -257,14 +286,35 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.GET("/me", handlers.GetProfile(log, accountStore, agentIndex))
 
 			// Account management
-			protected.POST("/accounts", handlers.CreateAccount(log, accountStore))
+			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient))
 
-			// Account-scoped routes with role check
-			accountRoutes := protected.Group("/accounts/:account")
-			accountRoutes.Use(middleware.ResolveAccount(accountStore))
-			accountRoutes.Use(middleware.RequireAccountRole(accountStore, "owner"))
+			// Account-scoped routes (owner/admin)
+			accountAdmin := protected.Group("/accounts/:account")
+			accountAdmin.Use(middleware.ResolveAccount(accountStore))
+			accountAdmin.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
 			{
-				accountRoutes.PUT("", handlers.RenameAccount(log, accountStore))
+				accountAdmin.PUT("", handlers.RenameAccount(log, accountStore))
+			}
+
+			// Member management (requires org:manage permission)
+			memberRoutes := protected.Group("/accounts/:account/members")
+			memberRoutes.Use(middleware.ResolveAccount(accountStore))
+			memberRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			{
+				memberRoutes.GET("", handlers.ListMembers(log, accountStore))
+				memberRoutes.POST("", handlers.AddMember(log, orgSync, accountStore))
+				memberRoutes.PUT("/:user_id", handlers.UpdateMemberRole(log, orgSync, accountStore))
+				memberRoutes.DELETE("/:user_id", handlers.RemoveMember(log, orgSync))
+			}
+
+			// Invitation management (requires org:manage permission)
+			invitationRoutes := protected.Group("/accounts/:account/invitations")
+			invitationRoutes.Use(middleware.ResolveAccount(accountStore))
+			invitationRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			{
+				invitationRoutes.GET("", handlers.ListAccountInvitations(log, orgClient))
+				invitationRoutes.POST("", handlers.CreateInvitation(log, orgClient, accountStore))
+				invitationRoutes.DELETE("/:id", handlers.RevokeInvitation(log, orgClient))
 			}
 
 			// Agent config (protected read, resolves latest build)
@@ -273,9 +323,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			// Deployment template generation
 			protected.GET("/agents/:account/:name/deployment-template", handlers.GetDeploymentTemplate(log, agentIndex, accountStore, cfg))
 
-			// Agent registration and publishing (account-scoped, requires write access)
-			protected.POST("/agents/:account/:name/register", handlers.RegisterAgent(log, agentIndex, accountStore))
-			protected.POST("/agents/:account/:name/publish", handlers.PublishAgent(log, agentIndex, accountStore))
+			// Agent write operations (requires agents:write permission)
+			agentWriteRoutes := protected.Group("/agents/:account/:name")
+			agentWriteRoutes.Use(middleware.ResolveAccount(accountStore))
+			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
+			{
+				agentWriteRoutes.POST("/register", handlers.RegisterAgent(log, agentIndex))
+				agentWriteRoutes.PUT("/visibility", handlers.SetAgentVisibility(log, agentIndex))
+			}
 
 			// Deploy/undeploy
 			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))

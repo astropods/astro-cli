@@ -1,0 +1,605 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
+	"github.com/postman/astro/apps/astro-server/internal/account"
+	"github.com/postman/astro/apps/astro-server/internal/auth"
+	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/org"
+)
+
+func init() {
+	gin.SetMode(gin.TestMode)
+}
+
+// injectTestOrgAccount sets an org account + user in context for testing org handlers
+func injectTestOrgAccount(acct *account.Account, user *auth.User) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if acct != nil {
+			c.Set(string(auth.AccountContextKey), acct)
+		}
+		if user != nil {
+			c.Set(string(auth.UserContextKey), user)
+		}
+		c.Next()
+	}
+}
+
+// --- ListMembers tests ---
+
+func TestListMembers_Success(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "owner", "wm-1", time.Now()).
+			AddRow("acct-1", "user-2", "admin", nil, time.Now()))
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	router.GET("/members", injectTestOrgAccount(acct, nil), ListMembers(log, store))
+
+	req := httptest.NewRequest(http.MethodGet, "/members", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	var members []account.AccountMember
+	if err := json.Unmarshal(resp["members"], &members); err != nil {
+		t.Fatalf("failed to unmarshal members: %v", err)
+	}
+
+	if len(members) != 2 {
+		t.Errorf("expected 2 members, got %d", len(members))
+	}
+}
+
+func TestListMembers_NoAccount(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store))
+
+	req := httptest.NewRequest(http.MethodGet, "/members", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when no account, got %d", rec.Code)
+	}
+}
+
+func TestListMembers_DBError(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	router.GET("/members", injectTestOrgAccount(acct, nil), ListMembers(log, store))
+
+	req := httptest.NewRequest(http.MethodGet, "/members", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 on DB error, got %d", rec.Code)
+	}
+}
+
+// --- AddMember tests (handler-level validation only) ---
+
+func TestAddMember_InvalidBody_MissingFields(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	// syncSvc is nil — we test that validation fires before sync is called
+	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil))
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"missing user_id", `{"role": "admin"}`},
+		{"missing role", `{"user_id": "user-1"}`},
+		{"empty body", `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAddMember_NoAccount(t *testing.T) {
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil))
+
+	body := `{"user_id": "user-1", "role": "admin"}`
+	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+// --- UpdateMemberRole tests ---
+
+func TestUpdateMemberRole_InvalidBody(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+
+	router := gin.New()
+	router.PUT("/members/:user_id", injectTestOrgAccount(acct, nil), UpdateMemberRole(log, nil, nil))
+
+	req := httptest.NewRequest(http.MethodPut, "/members/user-1", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateMemberRole_NoAccount(t *testing.T) {
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.PUT("/members/:user_id", injectTestOrgAccount(nil, nil), UpdateMemberRole(log, nil, nil))
+
+	body := `{"role": "admin"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/user-1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+// --- RemoveMember tests ---
+
+func TestRemoveMember_NoAccount(t *testing.T) {
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+// --- CreateInvitation tests ---
+
+func TestCreateInvitation_NonOrgAccount(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "personal", Type: "personal", WorkOSOrganizationID: ""}
+	user := &auth.User{ID: "user-1", Email: "test@example.com"}
+
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := gin.New()
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitation(log, nil, store))
+
+	body := `{"email": "invite@example.com", "role": "member"}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-org account, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["error"] != "invitations are only supported for organization accounts" {
+		t.Errorf("unexpected error: %s", resp["error"])
+	}
+}
+
+func TestCreateInvitation_NoAuth(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := gin.New()
+	// No user injected
+	router.POST("/invitations", injectTestOrgAccount(acct, nil), CreateInvitation(log, nil, store))
+
+	body := `{"email": "invite@example.com", "role": "member"}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 with no user, got %d", rec.Code)
+	}
+}
+
+func TestCreateInvitation_InvalidBody(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "user-1"}
+
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := gin.New()
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitation(log, nil, store))
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"missing email", `{"role": "member"}`},
+		{"missing role", `{"email": "invite@example.com"}`},
+		{"empty body", `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateInvitation_NoAccount(t *testing.T) {
+	log := logger.New("error", "json")
+
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := gin.New()
+	router.POST("/invitations", injectTestOrgAccount(nil, nil), CreateInvitation(log, nil, store))
+
+	body := `{"email": "invite@example.com", "role": "member"}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+// --- RevokeInvitation tests ---
+
+func TestRevokeInvitation_NoAccount(t *testing.T) {
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	// No account injected — handler should return 500
+	router.DELETE("/invitations/:id", injectTestOrgAccount(nil, nil), RevokeInvitation(log, nil))
+
+	req := httptest.NewRequest(http.MethodDelete, "/invitations/inv-123", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when no account, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- ListAccountInvitations tests ---
+
+func TestListAccountInvitations_NoWorkOSOrgID(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "personal", Type: "personal", WorkOSOrganizationID: ""}
+
+	router := gin.New()
+	router.GET("/invitations", injectTestOrgAccount(acct, nil), ListAccountInvitations(log, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/invitations", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]json.RawMessage
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if string(resp["invitations"]) != "[]" {
+		t.Errorf("expected empty invitations array, got %s", string(resp["invitations"]))
+	}
+}
+
+func TestListAccountInvitations_NoAccount(t *testing.T) {
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.GET("/invitations", injectTestOrgAccount(nil, nil), ListAccountInvitations(log, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/invitations", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+}
+
+// --- Role Escalation Prevention tests ---
+
+func TestAddMember_RoleEscalation_AdminCannotAssignOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
+
+	// GetMember for caller: returns admin role
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1", "caller-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "caller-1", "admin", nil, time.Now()))
+
+	router := gin.New()
+	router.POST("/members", injectTestOrgAccount(acct, caller), AddMember(log, nil, store))
+
+	body := `{"user_id": "new-user", "role": "owner"}`
+	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("admin should not be able to assign owner role, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	caller := &auth.User{ID: "caller-1", Email: "owner@example.com"}
+
+	// GetMember for caller: returns owner role (guard check)
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1", "caller-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "caller-1", "owner", nil, time.Now()))
+
+	// syncSvc will be nil — we only test the guard passes, the handler will error on nil syncSvc
+	router := gin.New()
+	router.Use(gin.Recovery())
+	router.POST("/members", injectTestOrgAccount(acct, caller), AddMember(log, nil, store))
+
+	body := `{"user_id": "new-user", "role": "owner"}`
+	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Should NOT be 403 — the owner guard should pass (will fail later on nil syncSvc)
+	if rec.Code == http.StatusForbidden {
+		t.Errorf("owner should be able to assign owner role, got 403: %s", rec.Body.String())
+	}
+}
+
+func TestUpdateMemberRole_RoleEscalation_AdminCannotPromoteToOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
+
+	// GetMember for caller: returns admin role
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1", "caller-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "caller-1", "admin", nil, time.Now()))
+
+	router := gin.New()
+	router.PUT("/members/:user_id", injectTestOrgAccount(acct, caller), UpdateMemberRole(log, nil, store))
+
+	body := `{"role": "owner"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/target-user", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("admin should not be able to promote to owner, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateInvitation_RoleEscalation_AdminCannotInviteAsOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
+
+	// GetMember for caller: returns admin role
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1", "caller-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "caller-1", "admin", nil, time.Now()))
+
+	router := gin.New()
+	router.POST("/invitations", injectTestOrgAccount(acct, caller), CreateInvitation(log, nil, store))
+
+	body := `{"email": "invite@example.com", "role": "owner"}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("admin should not be able to invite as owner, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Self-modification tests ---
+
+func TestUpdateMemberRole_SelfModification(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	syncSvc := org.NewSync(nil, store)
+	log := logger.New("error", "json")
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	user := &auth.User{ID: "user-1", Email: "self@example.com"}
+
+	// syncSvc.ChangeMemberRole: GetMember
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "admin", nil, time.Now()))
+
+	// syncSvc.ChangeMemberRole: UpdateMemberRole
+	mock.ExpectExec("UPDATE account_members SET role").
+		WithArgs("member", "acct-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	router := gin.New()
+	router.PUT("/members/:user_id", injectTestOrgAccount(acct, user), UpdateMemberRole(log, syncSvc, store))
+
+	body := `{"role": "member"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/user-1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("self-modification to non-owner role should succeed, expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRemoveMember_SelfRemoval(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	syncSvc := org.NewSync(nil, store)
+	log := logger.New("error", "json")
+
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	user := &auth.User{ID: "user-1", Email: "self@example.com"}
+
+	// syncSvc.RemoveMember: GetMember
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "admin", nil, time.Now()))
+
+	// syncSvc.RemoveMember: RemoveMember
+	mock.ExpectExec("DELETE FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	router := gin.New()
+	router.DELETE("/members/:user_id", injectTestOrgAccount(acct, user), RemoveMember(log, syncSvc))
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("self-removal should succeed, expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Cross-account access test ---
+
+func TestListMembers_CrossAccount_Denied(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+
+	// ResolveAccount: return org-b
+	mock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+		WithArgs("org-b").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-b", "org-b", "organization", "org_b_wos", time.Now(), time.Now()))
+
+	// RequireAccountPermission: GetMember returns no rows (user-a is not a member of org-b)
+	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+		WithArgs("acct-b", "user-a").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-a"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{OrganizationID: ""})
+		c.Next()
+	})
+	memberRoutes := router.Group("/accounts/:account/members")
+	memberRoutes.Use(middleware.ResolveAccount(store))
+	memberRoutes.Use(middleware.RequireAccountPermission(store, "org:manage"))
+	memberRoutes.GET("", ListMembers(log, store))
+
+	req := httptest.NewRequest(http.MethodGet, "/accounts/org-b/members", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-account access should be denied, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

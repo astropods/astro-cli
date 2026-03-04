@@ -9,6 +9,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/org"
 )
 
 // CreateAccountRequest represents the request body for creating an account
@@ -45,10 +46,10 @@ type AccountWithRoleResponse struct {
 
 // AgentSummary represents a brief summary of an agent for the profile response
 type AgentSummary struct {
-	Name                  string `json:"name"`
-	Registry              string `json:"registry"`
-	BuildCount            int    `json:"build_count"`
-	PublishedVersionCount int    `json:"published_version_count"`
+	Name       string `json:"name"`
+	Registry   string `json:"registry"`
+	Visibility string `json:"visibility"`
+	BuildCount int    `json:"build_count"`
 }
 
 // ProfileResponse represents the /api/v1/me response
@@ -66,7 +67,8 @@ type ProfileUser struct {
 }
 
 // CreateAccount handles POST /api/v1/accounts
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+// For organization accounts, also creates a WorkOS Organization and links it.
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -97,6 +99,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 			}
 		}
 
+		// Step 1: Create local account (Astro is source of truth)
 		acct, err := accountStore.Create(req.Name, req.Type, user.ID)
 		if err != nil {
 			log.Error("Failed to create account", "error", err, "name", req.Name)
@@ -105,6 +108,44 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Step 2: For org accounts, create WorkOS Organization and link
+		if req.Type == "organization" && orgClient != nil {
+			ctx := c.Request.Context()
+
+			// Create WorkOS organization with external_id = account.ID
+			workosOrg, err := orgClient.CreateOrganization(ctx, req.Name, acct.ID)
+			if err != nil {
+				log.Error("Failed to create WorkOS organization", "error", err, "account_id", acct.ID)
+				// Compensating action: delete local account
+				_ = accountStore.DeleteByID(acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "failed to create organization",
+					"details": err.Error(),
+				})
+				return
+			}
+
+			// Link WorkOS org to local account
+			if err := accountStore.SetWorkOSOrganizationID(acct.ID, workosOrg.ID); err != nil {
+				log.Error("Failed to link WorkOS org", "error", err, "account_id", acct.ID)
+				_ = orgClient.DeleteOrganization(ctx, workosOrg.ID)
+				_ = accountStore.DeleteByID(acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link organization"})
+				return
+			}
+			acct.WorkOSOrganizationID = workosOrg.ID
+
+			// Create WorkOS membership for creator as owner
+			m, err := orgClient.CreateMembership(ctx, workosOrg.ID, user.ID, "owner")
+			if err != nil {
+				log.Warn("Failed to create WorkOS membership for org creator", "error", err)
+				// Non-fatal: local membership already exists from Create()
+			} else {
+				// Update local member with WorkOS membership ID
+				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, "owner", m.ID)
+			}
 		}
 
 		log.Info("Account created", "id", acct.ID, "name", acct.Name, "type", acct.Type, "user_id", user.ID)
@@ -224,12 +265,11 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 			if err == nil {
 				summaries := make([]AgentSummary, 0, len(agents))
 				for _, agent := range agents {
-					publishedVersions, _ := agentIndex.GetPublishedVersionsForAgent(a.ID, agent.Name)
 					summaries = append(summaries, AgentSummary{
-						Name:                  agent.Name,
-						Registry:              agent.Registry,
-						BuildCount:            len(agent.Versions),
-						PublishedVersionCount: len(publishedVersions),
+						Name:       agent.Name,
+						Registry:   agent.Registry,
+						Visibility: agent.Visibility,
+						BuildCount: len(agent.Versions),
 					})
 				}
 				resp.Agents = summaries

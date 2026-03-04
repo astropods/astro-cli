@@ -124,8 +124,8 @@ func TestTriggerIngestion_NotMember(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
 		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
 
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
@@ -146,8 +146,8 @@ func TestTriggerIngestion_NilK8sClient(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
 		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -185,8 +185,8 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 	// account + membership
 	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
 		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -237,8 +237,8 @@ func TestTriggerIngestion_IngestionNotInSpec(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
 		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -296,8 +296,8 @@ func TestTriggerIngestion_Success(t *testing.T) {
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
 		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))

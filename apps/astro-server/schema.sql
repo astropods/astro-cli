@@ -6,16 +6,21 @@ CREATE TABLE public.accounts (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name varchar(39) NOT NULL,
     type varchar(20) NOT NULL DEFAULT 'personal',
+    workos_org_id text,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
 );
 
+CREATE UNIQUE INDEX idx_accounts_workos_org_id
+    ON public.accounts(workos_org_id) WHERE workos_org_id IS NOT NULL;
+
 CREATE TABLE public.account_members (
     account_id uuid NOT NULL,
     user_id text NOT NULL,
     role varchar(20) NOT NULL DEFAULT 'owner',
+    workos_membership_id text,
     created_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT account_members_pkey PRIMARY KEY (account_id, user_id),
     CONSTRAINT account_members_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
@@ -23,15 +28,21 @@ CREATE TABLE public.account_members (
 
 CREATE INDEX idx_account_members_user ON public.account_members(user_id);
 
+CREATE UNIQUE INDEX idx_account_members_workos_id
+    ON public.account_members(workos_membership_id) WHERE workos_membership_id IS NOT NULL;
+
 CREATE TABLE public.agents (
     account_id uuid NOT NULL,
     name text NOT NULL,
     registry text NOT NULL,
+    visibility varchar(10) NOT NULL DEFAULT 'private',
     created_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
     CONSTRAINT agents_pkey PRIMARY KEY (account_id, name),
     CONSTRAINT agents_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
+
+CREATE INDEX idx_agents_public ON public.agents(visibility) WHERE visibility = 'public';
 
 CREATE TABLE public.agent_versions (
     account_id uuid NOT NULL,
@@ -48,18 +59,14 @@ CREATE TABLE public.agent_versions (
 
 CREATE INDEX idx_versions_agent ON public.agent_versions(account_id, name);
 
-CREATE TABLE public.agent_published_versions (
-    account_id uuid NOT NULL,
-    name text NOT NULL,
-    version text NOT NULL,
-    build_id text NOT NULL,
-    published_at timestamp NOT NULL DEFAULT now(),
-    CONSTRAINT agent_published_versions_pkey PRIMARY KEY (account_id, name, version),
-    CONSTRAINT agent_published_versions_account_id_name_build_id_key UNIQUE (account_id, name, build_id),
-    CONSTRAINT agent_published_versions_account_id_name_build_id_fkey FOREIGN KEY (account_id, name, build_id) REFERENCES public.agent_versions(account_id, name, build_id) ON DELETE CASCADE
+CREATE TABLE public.workos_event_cursor (
+    id integer PRIMARY KEY DEFAULT 1,
+    cursor_id text NOT NULL DEFAULT '',
+    updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT workos_event_cursor_singleton CHECK (id = 1)
 );
 
-CREATE INDEX idx_published_versions_agent ON public.agent_published_versions(account_id, name);
+INSERT INTO public.workos_event_cursor (id) VALUES (1);
 
 CREATE TABLE public.deployments (
     id uuid NOT NULL DEFAULT gen_random_uuid(),

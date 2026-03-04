@@ -12,6 +12,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/postman/astro/apps/astro-server/internal/org"
 )
 
 // AuthHandler handles authentication endpoints
@@ -23,6 +24,14 @@ type AuthHandler struct {
 	jwtValidator   *auth.JWTValidator
 	allowedOrigins map[string]bool
 	accountStore   *account.AccountStore
+	orgSync        *org.Sync
+}
+
+// SetOrgSync sets the org sync service on the auth handler.
+// Called after construction since org.Sync depends on the account store
+// which is also a dependency of the auth handler.
+func (h *AuthHandler) SetOrgSync(sync *org.Sync) {
+	h.orgSync = sync
 }
 
 // NewAuthHandler creates a new auth handler
@@ -193,6 +202,13 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 			"email", result.User.Email,
 			"session_id", result.SessionID,
 		)
+
+		// Best-effort: sync org memberships from WorkOS to local store
+		if h.orgSync != nil {
+			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), result.User.ID); err != nil {
+				h.log.Warn("Failed to sync memberships on login", "error", err, "user_id", result.User.ID)
+			}
+		}
 
 		// Create session data with role and permissions from JWT claims
 		session := h.sessionManager.CreateSession(
@@ -429,6 +445,117 @@ func (h *AuthHandler) Refresh() gin.HandlerFunc {
 	}
 }
 
+// SwitchOrgRequest represents the request to switch org context
+type SwitchOrgRequest struct {
+	OrganizationID string `json:"organization_id" binding:"required"`
+}
+
+// SwitchOrg handles POST /auth/switch-org
+// Refreshes the session token scoped to a different organization, giving the
+// user a new JWT with the correct role and permissions for that org.
+func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SwitchOrgRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, auth.ErrorResponse{
+				Error:       "invalid_request",
+				Description: "organization_id is required",
+			})
+			return
+		}
+
+		// Get current session
+		sessionCookie, err := c.Cookie(h.cfg.Auth.CookieName)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, auth.ErrorResponse{
+				Error:       "unauthorized",
+				Description: "No session found",
+			})
+			return
+		}
+
+		sessionData, err := h.sessionManager.UnsealSession(sessionCookie)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, auth.ErrorResponse{
+				Error:       "session_invalid",
+				Description: "Session is invalid",
+			})
+			return
+		}
+
+		// Refresh token with the target organization ID
+		result, err := h.workos.AuthenticateWithRefreshTokenForOrg(
+			c.Request.Context(),
+			sessionData.Session.RefreshToken,
+			req.OrganizationID,
+		)
+		if err != nil {
+			h.log.Error("Failed to switch org", "error", err, "org_id", req.OrganizationID)
+			c.JSON(http.StatusBadRequest, auth.ErrorResponse{
+				Error:       "switch_failed",
+				Description: "Failed to switch organization",
+			})
+			return
+		}
+
+		// Build new session with the org-scoped token
+		newSession := h.sessionManager.CreateSession(
+			sessionData.Session.ID,
+			sessionData.Session.UserID,
+			req.OrganizationID,
+			result.AccessToken,
+			result.RefreshToken,
+			3600,
+		)
+
+		claims := auth.ExtractTokenClaims(result.AccessToken)
+		newSession.Role = claims.Role
+		newSession.Permissions = claims.Permissions
+
+		newSessionData := &auth.SessionData{
+			Session: newSession,
+			User:    sessionData.User,
+		}
+
+		// Seal and update cookie
+		sealed, err := h.sessionManager.SealSession(newSessionData)
+		if err != nil {
+			h.log.Error("Failed to seal session after org switch", "error", err)
+			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{
+				Error:       "server_error",
+				Description: "Failed to update session",
+			})
+			return
+		}
+
+		maxAge := int(h.cfg.Auth.CookieMaxAge.Seconds())
+		h.setSameSiteMode(c)
+		c.SetCookie(
+			h.cfg.Auth.CookieName,
+			sealed,
+			maxAge,
+			"/",
+			h.cfg.Auth.CookieDomain,
+			h.cfg.Auth.CookieSecure,
+			true,
+		)
+
+		permissions := newSessionData.Session.Permissions
+		if permissions == nil {
+			permissions = []string{}
+		}
+		c.JSON(http.StatusOK, auth.AuthResponse{
+			User:         newSessionData.User,
+			SessionID:    newSessionData.Session.ID,
+			Organization: newSessionData.Session.OrganizationID,
+			Role:         newSessionData.Session.Role,
+			Permissions:  permissions,
+			ExpiresAt:    newSessionData.Session.ExpiresAt.Format(time.RFC3339),
+			Accounts:     h.fetchAccounts(newSessionData.User.ID),
+		})
+	}
+}
+
 // fetchAccounts returns the accounts for a user, always returning a non-nil slice
 func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
 	accounts := make([]auth.AuthAccountResponse, 0)
@@ -439,10 +566,11 @@ func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
 		} else {
 			for _, a := range userAccounts {
 				accounts = append(accounts, auth.AuthAccountResponse{
-					ID:   a.ID,
-					Name: a.Name,
-					Type: a.Type,
-					Role: a.Role,
+					ID:                   a.ID,
+					Name:                 a.Name,
+					Type:                 a.Type,
+					Role:                 a.Role,
+					WorkOSOrganizationID: a.WorkOSOrganizationID,
 				})
 			}
 		}
@@ -455,6 +583,13 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	result, err := h.workos.AuthenticateWithRefreshToken(c.Request.Context(), sessionData.Session.RefreshToken)
 	if err != nil {
 		return nil, err
+	}
+
+	// Best-effort: sync org memberships on token refresh
+	if h.orgSync != nil {
+		if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
+			h.log.Warn("Failed to sync memberships on refresh", "error", err, "user_id", sessionData.Session.UserID)
+		}
 	}
 
 	// Update session with new tokens and refreshed claims

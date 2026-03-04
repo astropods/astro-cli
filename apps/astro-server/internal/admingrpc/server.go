@@ -566,7 +566,6 @@ func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (
 			ac.name AS account_name,
 			a.name,
 			(SELECT COUNT(*) FROM agent_versions av WHERE av.account_id = a.account_id AND av.name = a.name) AS build_count,
-			(SELECT COUNT(*) FROM agent_published_versions apv WHERE apv.account_id = a.account_id AND apv.name = a.name) AS published_build_count,
 			COALESCE((SELECT av2.build_id FROM agent_versions av2 WHERE av2.account_id = a.account_id AND av2.name = a.name ORDER BY av2.published_at DESC LIMIT 1), '') AS latest_build_id,
 			a.created_at,
 			a.updated_at
@@ -585,7 +584,7 @@ func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (
 		var createdAt, updatedAt time.Time
 		if err := rows.Scan(
 			&agent.AccountName, &agent.Name,
-			&agent.BuildCount, &agent.PublishedBuildCount, &agent.LatestBuildID,
+			&agent.BuildCount, &agent.LatestBuildID,
 			&createdAt, &updatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan agent: %w", err)
@@ -604,17 +603,15 @@ func (s *Server) ListAgents(ctx context.Context, _ *adminv1.ListAgentsRequest) (
 	}, nil
 }
 
-// GetAgentBuilds returns all builds for a specific agent with their published version tags.
+// GetAgentBuilds returns all builds for a specific agent.
 func (s *Server) GetAgentBuilds(ctx context.Context, req *adminv1.GetAgentBuildsRequest) (*adminv1.GetAgentBuildsResponse, error) {
 	if req.AccountName == "" || req.AgentName == "" {
 		return nil, fmt.Errorf("account_name and agent_name are required")
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT av.build_id, av.published_at, av.updated_at, COALESCE(apv.version, '')
+		SELECT av.build_id, av.published_at, av.updated_at
 		FROM agent_versions av
-		LEFT JOIN agent_published_versions apv
-			ON apv.account_id = av.account_id AND apv.name = av.name AND apv.build_id = av.build_id
 		WHERE av.account_id = (SELECT id FROM accounts WHERE name = $1)
 			AND av.name = $2
 		ORDER BY av.published_at DESC
@@ -628,7 +625,7 @@ func (s *Server) GetAgentBuilds(ctx context.Context, req *adminv1.GetAgentBuilds
 	for rows.Next() {
 		var b adminv1.AgentBuild
 		var publishedAt, updatedAt time.Time
-		if err := rows.Scan(&b.BuildID, &publishedAt, &updatedAt, &b.TaggedVersion); err != nil {
+		if err := rows.Scan(&b.BuildID, &publishedAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan agent build: %w", err)
 		}
 		b.PublishedAt = publishedAt.Format(time.RFC3339)

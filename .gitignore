@@ -158,3 +158,4 @@ apps/astro-client/.certs.bak/local.odesdaz.com.pem
 
 # Certificates
 .certs/
+*.pem

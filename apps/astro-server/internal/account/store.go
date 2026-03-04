@@ -32,13 +32,13 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 	defer tx.Rollback() //nolint:errcheck
 
 	now := time.Now()
-	var account Account
+	var acct Account
 	err = tx.QueryRow(`
 		INSERT INTO accounts (name, type, created_at, updated_at)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, type, created_at, updated_at
+		RETURNING id, name, type, COALESCE(workos_org_id, ''), created_at, updated_at
 	`, name, accountType, now, now).Scan(
-		&account.ID, &account.Name, &account.Type, &account.CreatedAt, &account.UpdatedAt,
+		&acct.ID, &acct.Name, &acct.Type, &acct.WorkOSOrganizationID, &acct.CreatedAt, &acct.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create account: %w", err)
@@ -48,7 +48,7 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 	_, err = tx.Exec(`
 		INSERT INTO account_members (account_id, user_id, role, created_at)
 		VALUES ($1, $2, 'owner', $3)
-	`, account.ID, ownerUserID, now)
+	`, acct.ID, ownerUserID, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add owner member: %w", err)
 	}
@@ -57,51 +57,86 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
 
-	return &account, nil
+	return &acct, nil
+}
+
+// scanAccount scans an account row with the workos_org_id column.
+func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
+	var acct Account
+	var workosOrgID sql.NullString
+	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &acct.CreatedAt, &acct.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if workosOrgID.Valid {
+		acct.WorkOSOrganizationID = workosOrgID.String
+	}
+	return &acct, nil
 }
 
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
-	var account Account
-	err := s.db.QueryRow(`
-		SELECT id, name, type, created_at, updated_at
+	acct, err := scanAccount(s.db.QueryRow(`
+		SELECT id, name, type, workos_org_id, created_at, updated_at
 		FROM accounts
 		WHERE name = $1
-	`, name).Scan(&account.ID, &account.Name, &account.Type, &account.CreatedAt, &account.UpdatedAt)
-
+	`, name))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account not found: %s", name)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query account: %w", err)
 	}
-
-	return &account, nil
+	return acct, nil
 }
 
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
-	var account Account
-	err := s.db.QueryRow(`
-		SELECT id, name, type, created_at, updated_at
+	acct, err := scanAccount(s.db.QueryRow(`
+		SELECT id, name, type, workos_org_id, created_at, updated_at
 		FROM accounts
 		WHERE id = $1
-	`, id).Scan(&account.ID, &account.Name, &account.Type, &account.CreatedAt, &account.UpdatedAt)
-
+	`, id))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account not found: %s", id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query account: %w", err)
 	}
+	return acct, nil
+}
 
-	return &account, nil
+// GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
+func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
+	acct, err := scanAccount(s.db.QueryRow(`
+		SELECT id, name, type, workos_org_id, created_at, updated_at
+		FROM accounts
+		WHERE workos_org_id = $1
+	`, orgID))
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("account not found for workos org: %s", orgID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query account: %w", err)
+	}
+	return acct, nil
+}
+
+// SetWorkOSOrganizationID links an account to a WorkOS organization.
+func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET workos_org_id = $1, updated_at = $2 WHERE id = $3
+	`, orgID, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set workos_org_id: %w", err)
+	}
+	return nil
 }
 
 // GetAccountsForUser returns all accounts a user is a member of, with their role
 func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, am.role, a.created_at, a.updated_at
+		SELECT a.id, a.name, a.type, am.role, COALESCE(a.workos_org_id, ''), a.created_at, a.updated_at
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		WHERE am.user_id = $1
@@ -115,7 +150,7 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	var accounts []AccountWithRole
 	for rows.Next() {
 		var a AccountWithRole
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Role, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.Role, &a.WorkOSOrganizationID, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
 		accounts = append(accounts, a)
@@ -130,7 +165,6 @@ func (s *AccountStore) HasRole(accountID, userID string, roles ...string) (bool,
 		return false, nil
 	}
 
-	// Build IN clause for roles
 	query := `
 		SELECT COUNT(*) FROM account_members
 		WHERE account_id = $1 AND user_id = $2 AND role = ANY($3)
@@ -216,4 +250,166 @@ func (s *AccountStore) HasPersonalAccount(userID string) (bool, error) {
 		return false, fmt.Errorf("failed to check personal account: %w", err)
 	}
 	return count > 0, nil
+}
+
+// CountOwners returns the number of members with role 'owner' in an account.
+func (s *AccountStore) CountOwners(accountID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM account_members
+		WHERE account_id = $1 AND role = 'owner'
+	`, accountID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count owners: %w", err)
+	}
+	return count, nil
+}
+
+// --- Member CRUD ---
+
+// AddMember inserts a new account member with optional WorkOS membership ID.
+func (s *AccountStore) AddMember(accountID, userID, role, workosMembershipID string) error {
+	var wid sql.NullString
+	if workosMembershipID != "" {
+		wid = sql.NullString{String: workosMembershipID, Valid: true}
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO account_members (account_id, user_id, role, workos_membership_id, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, accountID, userID, role, wid, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to add member: %w", err)
+	}
+	return nil
+}
+
+// UpdateMemberRole updates a member's role.
+func (s *AccountStore) UpdateMemberRole(accountID, userID, newRole string) error {
+	result, err := s.db.Exec(`
+		UPDATE account_members SET role = $1
+		WHERE account_id = $2 AND user_id = $3
+	`, newRole, accountID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update member role: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("member not found")
+	}
+	return nil
+}
+
+// RemoveMember removes a member from an account.
+func (s *AccountStore) RemoveMember(accountID, userID string) error {
+	result, err := s.db.Exec(`
+		DELETE FROM account_members
+		WHERE account_id = $1 AND user_id = $2
+	`, accountID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to remove member: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("member not found")
+	}
+	return nil
+}
+
+// GetMember retrieves a single account member.
+func (s *AccountStore) GetMember(accountID, userID string) (*AccountMember, error) {
+	var m AccountMember
+	var wid sql.NullString
+	err := s.db.QueryRow(`
+		SELECT account_id, user_id, role, workos_membership_id, created_at
+		FROM account_members
+		WHERE account_id = $1 AND user_id = $2
+	`, accountID, userID).Scan(&m.AccountID, &m.UserID, &m.Role, &wid, &m.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("member not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query member: %w", err)
+	}
+	if wid.Valid {
+		m.WorkOSMembershipID = wid.String
+	}
+	return &m, nil
+}
+
+// GetMembersForAccount returns all members of an account.
+func (s *AccountStore) GetMembersForAccount(accountID string) ([]AccountMember, error) {
+	rows, err := s.db.Query(`
+		SELECT account_id, user_id, role, workos_membership_id, created_at
+		FROM account_members
+		WHERE account_id = $1
+		ORDER BY created_at
+	`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query members: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var members []AccountMember
+	for rows.Next() {
+		var m AccountMember
+		var wid sql.NullString
+		if err := rows.Scan(&m.AccountID, &m.UserID, &m.Role, &wid, &m.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan member: %w", err)
+		}
+		if wid.Valid {
+			m.WorkOSMembershipID = wid.String
+		}
+		members = append(members, m)
+	}
+	return members, nil
+}
+
+// GetMemberByWorkosMembershipID looks up a member by their WorkOS membership ID.
+func (s *AccountStore) GetMemberByWorkosMembershipID(membershipID string) (*AccountMember, error) {
+	var m AccountMember
+	var wid sql.NullString
+	err := s.db.QueryRow(`
+		SELECT account_id, user_id, role, workos_membership_id, created_at
+		FROM account_members
+		WHERE workos_membership_id = $1
+	`, membershipID).Scan(&m.AccountID, &m.UserID, &m.Role, &wid, &m.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("member not found for workos membership: %s", membershipID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query member: %w", err)
+	}
+	if wid.Valid {
+		m.WorkOSMembershipID = wid.String
+	}
+	return &m, nil
+}
+
+// UpsertMemberByWorkosMembershipID inserts or updates a member keyed by WorkOS membership ID.
+// Used by event sync and login-time reconciliation.
+func (s *AccountStore) UpsertMemberByWorkosMembershipID(accountID, userID, role, workosMembershipID string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO account_members (account_id, user_id, role, workos_membership_id, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (account_id, user_id) DO UPDATE SET role = $3, workos_membership_id = $4
+	`, accountID, userID, role, workosMembershipID, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to upsert member: %w", err)
+	}
+	return nil
+}
+
+// DeleteByID deletes an account by its UUID (used for cleanup on org creation failure).
+func (s *AccountStore) DeleteByID(accountID string) error {
+	_, err := s.db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to delete account: %w", err)
+	}
+	return nil
 }

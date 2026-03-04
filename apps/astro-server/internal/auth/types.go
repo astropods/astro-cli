@@ -40,10 +40,11 @@ type SessionData struct {
 
 // AuthAccountResponse represents an account in the auth response
 type AuthAccountResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Role string `json:"role"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	Role                 string `json:"role"`
+	WorkOSOrganizationID string `json:"workos_org_id,omitempty"`
 }
 
 // AuthResponse is returned to the client after successful authentication
