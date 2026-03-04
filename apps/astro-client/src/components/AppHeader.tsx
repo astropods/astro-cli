@@ -3,9 +3,11 @@ import { Link, useLocation } from "react-router";
 import {
   Bars3Icon,
   ArrowLeftStartOnRectangleIcon,
+  BuildingOffice2Icon,
   Cog6ToothIcon,
   MagnifyingGlassIcon,
   EllipsisHorizontalIcon,
+  PlusIcon,
 } from "@heroicons/react/24/outline";
 import { Input } from "@/components/ui/input";
 import astroLogo from "@/assets/astro-logo.svg";
@@ -49,7 +51,7 @@ function NavLink({ to, external, children, className }: { to: string; external?:
 const ALWAYS_VISIBLE = 2;
 
 export function AppHeader() {
-  const { user, isLoading, isAuthenticated, login, logout, hasPermission } = useAuth();
+  const { user, accounts, isLoading, isAuthenticated, login, logout, hasPermission } = useAuth();
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -198,6 +200,35 @@ export function AppHeader() {
                 </div>
               </div>
               <DropdownMenuSeparator />
+              {(() => {
+                const orgs = accounts.filter((a) => a.type === "organization");
+                return orgs.length > 0 ? (
+                  <>
+                    <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                      Organizations
+                    </div>
+                    {orgs.map((org) => (
+                      <DropdownMenuItem key={org.id} asChild className="gap-2">
+                        <Link to={`/${org.name}`}>
+                          <BuildingOffice2Icon className="size-4" />
+                          {org.name}
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem asChild className="gap-2">
+                      <Link to="/organization/new">
+                        <PlusIcon className="size-4" />
+                        Create organization
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                );
+              })()}
               {hasPermission('admin:view') && (
                 <DropdownMenuItem asChild className="gap-2">
                   <Link to="/admin">

@@ -71,6 +71,35 @@ export interface ApiError {
   missing_variables?: string[];
 }
 
+export interface AccountMember {
+  user_id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  role: string;
+  joined_at: string;
+}
+
+export interface AccountMembersResponse {
+  members: AccountMember[];
+  count: number;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  invited_by: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface AccountInvitationsResponse {
+  invitations: Invitation[];
+  count: number;
+}
+
 class ApiClient {
   private baseUrl: string;
   private authUrl: string;
@@ -179,6 +208,18 @@ class ApiClient {
   async getAccount(name: string): Promise<AccountPublic> {
     return this.request<AccountPublic>(
       `/api/v1/accounts/${encodeURIComponent(name)}`
+    );
+  }
+
+  async getAccountMembers(account: string): Promise<AccountMembersResponse> {
+    return this.request<AccountMembersResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members`
+    );
+  }
+
+  async getAccountInvitations(account: string): Promise<AccountInvitationsResponse> {
+    return this.request<AccountInvitationsResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`
     );
   }
 
