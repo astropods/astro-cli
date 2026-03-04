@@ -37,11 +37,11 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 
 ### `RequireAccountPermission` Middleware
 
-Replaces the old `RequireAccountRole` middleware. Authorization logic:
+Replaces the old `RequireAccountRole` middleware (`middleware/account.go`). Two authorization paths:
 
 1. **Personal accounts** — owner has all permissions implicitly; no JWT check needed.
-2. **Organization accounts (JWT path)** — if the session JWT is scoped to the target org (`session.OrganizationID == account.WorkOSOrganizationID`), permissions are read directly from the JWT `permissions` claim.
-3. **Organization accounts (fallback)** — if the JWT is not scoped to the target org, local `account_members` role is mapped to permissions using the same role→permission matrix above.
+
+2. **Organization accounts** — the session JWT must be scoped to the target org (`session.OrganizationID == account.WorkOSOrganizationID`). Clients must call `POST /auth/switch-org` before accessing an org's resources. Permissions are read directly from the JWT `permissions` claim — no DB lookup needed. If the JWT is scoped to a different org, the request is rejected with 403.
 
 ### Route Protection
 

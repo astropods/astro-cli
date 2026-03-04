@@ -38,7 +38,7 @@ Every account has members tracked in `account_members`. Personal accounts have a
   │  │       │              │             │    │           │
   │  │       ▼              ▼             │    │           │
   │  │  RequireAccountPermission          │    │           │
-  │  │  (3-tier authorization)            │    │           │
+  │  │  (personal owner / org JWT)        │    │           │
   │  └────────────────────────────────────┘    │           │
   │                                            │           │
   │  ┌──────────────┐  ┌──────────────────┐    │           │
@@ -109,36 +109,28 @@ Permission slugs map to actions:
 | `org:manage` | Manage members and invitations |
 | `org:admin` | Rename/delete org, billing |
 
-### Three-Tier Authorization
+### Authorization Flow
 
-`RequireAccountPermission` middleware enforces permissions using a three-tier strategy based on account type and session state:
+`RequireAccountPermission` middleware enforces permissions based on account type:
 
 ```
 RequireAccountPermission(permission)
        │
-       ├─ Tier 1: PERSONAL ACCOUNT
+       ├─ PERSONAL ACCOUNT
        │     Is caller the owner?
        │     ├─ Yes → ALLOW (all permissions implicit)
        │     └─ No  → DENY
        │
-       ├─ Tier 2: ORG ACCOUNT + JWT SCOPED TO THIS ORG
-       │     session.OrganizationID == account.WorkOSOrganizationID?
-       │     ├─ Yes → Check session.Permissions array
-       │     │        ├─ Permission found → ALLOW
-       │     │        └─ Not found        → DENY
-       │     └─ No  → Fall through to Tier 3
-       │
-       └─ Tier 3: ORG ACCOUNT + FALLBACK (no matching JWT)
-             Look up caller in account_members table
-             ├─ Not a member → DENY
-             └─ Is a member  → Map local role to permission set
-                              ├─ Permission in set → ALLOW
-                              └─ Not in set        → DENY
+       └─ ORGANIZATION ACCOUNT
+             Is JWT scoped to this org?
+             (session.OrganizationID == account.WorkOSOrganizationID)
+             ├─ No  → DENY ("use switch-org first")
+             └─ Yes → Check session.Permissions array
+                      ├─ Permission found → ALLOW
+                      └─ Not found        → DENY
 ```
 
-**Tier 2** is the primary path when the user has switched to the org via `/auth/switch-org`. The JWT carries permissions directly from WorkOS.
-
-**Tier 3** covers cases where the user's session was established before the org was linked, or they're accessing an org they belong to but didn't explicitly switch into. The local role-to-permission mapping is intentionally conservative (matches the WorkOS RBAC matrix).
+Organization accounts require the session JWT to be scoped to the target org via `POST /auth/switch-org`. The JWT carries the user's permissions for that org directly from WorkOS — no DB lookup needed. If the JWT is scoped to a different org, the request is rejected with 403.
 
 ### Route Protection
 
@@ -310,7 +302,7 @@ workos_event_cursor (
 | Component | Purpose |
 |---|---|
 | `ResolveAccount` | Looks up `:account` URL param and sets it in context |
-| `RequireAccountPermission` | Three-tier authorization (personal / JWT / fallback role) |
+| `RequireAccountPermission` | Authorization: personal (owner check) or org (JWT permissions) |
 
 ## API Endpoints
 

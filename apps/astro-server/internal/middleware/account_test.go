@@ -222,150 +222,14 @@ func TestRequireAccountPermission_OrgAccount_JWTPath_Denied(t *testing.T) {
 	}
 }
 
-func TestRequireAccountPermission_OrgAccount_FallbackRole_Owner(t *testing.T) {
-	db, mock, _ := sqlmock.New()
+func TestRequireAccountPermission_OrgAccount_OrgMismatch_Rejected(t *testing.T) {
+	db, _, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 
-	// Session is NOT scoped to the org, falls back to local role check
-	// GetMember query
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "owner", nil, time.Now()))
-
-	router := setupPermissionTestRouter(store, "org:admin",
-		&auth.User{ID: "user-1"},
-		&auth.Session{OrganizationID: "org_other"}, // Different org
-		&account.Account{
-			ID: "acct-1", Name: "myorg", Type: "organization",
-			WorkOSOrganizationID: "org_123",
-		})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("owner role should have org:admin via fallback, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRequireAccountPermission_OrgAccount_FallbackRole_AdminDeniedOrgAdmin(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "admin", nil, time.Now()))
-
-	router := setupPermissionTestRouter(store, "org:admin",
-		&auth.User{ID: "user-1"},
-		&auth.Session{OrganizationID: ""}, // No org scope
-		&account.Account{
-			ID: "acct-1", Name: "myorg", Type: "organization",
-			WorkOSOrganizationID: "org_123",
-		})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("admin role should NOT have org:admin, got %d", rec.Code)
-	}
-}
-
-func TestRequireAccountPermission_OrgAccount_FallbackRole_AdminAllowedOrgManage(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "admin", nil, time.Now()))
-
-	router := setupPermissionTestRouter(store, "org:manage",
-		&auth.User{ID: "user-1"},
-		&auth.Session{OrganizationID: ""},
-		&account.Account{
-			ID: "acct-1", Name: "myorg", Type: "organization",
-			WorkOSOrganizationID: "org_123",
-		})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("admin role should have org:manage, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRequireAccountPermission_OrgAccount_FallbackRole_MemberDeniedAgentsWrite(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "member", nil, time.Now()))
-
-	router := setupPermissionTestRouter(store, "agents:write",
-		&auth.User{ID: "user-1"},
-		&auth.Session{OrganizationID: ""},
-		&account.Account{
-			ID: "acct-1", Name: "myorg", Type: "organization",
-			WorkOSOrganizationID: "org_123",
-		})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("member role should NOT have agents:write, got %d", rec.Code)
-	}
-}
-
-func TestRequireAccountPermission_OrgAccount_FallbackRole_MemberAllowedAgentsRead(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
-			AddRow("acct-1", "user-1", "member", nil, time.Now()))
-
+	// Session JWT scoped to a different org — should be rejected
 	router := setupPermissionTestRouter(store, "agents:read",
 		&auth.User{ID: "user-1"},
-		&auth.Session{OrganizationID: ""},
-		&account.Account{
-			ID: "acct-1", Name: "myorg", Type: "organization",
-			WorkOSOrganizationID: "org_123",
-		})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("member role should have agents:read, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestRequireAccountPermission_OrgAccount_NotMember(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
-	// GetMember returns no rows
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
-
-	router := setupPermissionTestRouter(store, "agents:read",
-		&auth.User{ID: "user-1"},
-		&auth.Session{OrganizationID: ""},
+		&auth.Session{OrganizationID: "org_other"},
 		&account.Account{
 			ID: "acct-1", Name: "myorg", Type: "organization",
 			WorkOSOrganizationID: "org_123",
@@ -376,47 +240,28 @@ func TestRequireAccountPermission_OrgAccount_NotMember(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
-		t.Errorf("non-member should be forbidden, got %d", rec.Code)
+		t.Errorf("mismatched org should be forbidden, got %d", rec.Code)
 	}
 }
 
-// --- hasPermissionForRole tests ---
+func TestRequireAccountPermission_OrgAccount_NoSession_Rejected(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
 
-func TestHasPermissionForRole(t *testing.T) {
-	tests := []struct {
-		role       string
-		permission string
-		expected   bool
-	}{
-		// Owner has everything
-		{"owner", "agents:read", true},
-		{"owner", "agents:write", true},
-		{"owner", "agents:deploy", true},
-		{"owner", "org:manage", true},
-		{"owner", "org:admin", true},
-		// Admin has everything except org:admin
-		{"admin", "agents:read", true},
-		{"admin", "agents:write", true},
-		{"admin", "agents:deploy", true},
-		{"admin", "org:manage", true},
-		{"admin", "org:admin", false},
-		// Member has only agents:read and agents:deploy
-		{"member", "agents:read", true},
-		{"member", "agents:write", false},
-		{"member", "agents:deploy", true},
-		{"member", "org:manage", false},
-		{"member", "org:admin", false},
-		// Unknown role has nothing
-		{"viewer", "agents:read", false},
-		{"", "agents:read", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.role+"_"+tt.permission, func(t *testing.T) {
-			got := hasPermissionForRole(tt.role, tt.permission)
-			if got != tt.expected {
-				t.Errorf("hasPermissionForRole(%q, %q) = %v, want %v", tt.role, tt.permission, got, tt.expected)
-			}
+	// No session at all
+	router := setupPermissionTestRouter(store, "agents:read",
+		&auth.User{ID: "user-1"},
+		nil,
+		&account.Account{
+			ID: "acct-1", Name: "myorg", Type: "organization",
+			WorkOSOrganizationID: "org_123",
 		})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("no session should be forbidden, got %d", rec.Code)
 	}
 }
