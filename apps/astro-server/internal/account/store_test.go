@@ -287,7 +287,7 @@ func TestUpsertMemberByWorkosMembershipID_WorkosLinkFailure(t *testing.T) {
 		WithArgs("acct-1", "user-1", "wm-1").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1")
+	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1", time.Now())
 	if err == nil {
 		t.Fatal("expected error when workos link upsert fails")
 	}
@@ -381,7 +381,7 @@ func TestUpsertMemberByWorkosMembershipID(t *testing.T) {
 		WithArgs("acct-1", "user-1", "wm-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1")
+	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1", time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

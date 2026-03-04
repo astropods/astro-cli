@@ -403,13 +403,15 @@ func (s *AccountStore) GetMemberByWorkosMembershipID(membershipID string) (*Acco
 }
 
 // UpsertMemberByWorkosMembershipID inserts or updates a member keyed by WorkOS membership ID.
-// Used by event sync and login-time reconciliation.
-func (s *AccountStore) UpsertMemberByWorkosMembershipID(accountID, userID, role, workosMembershipID string) error {
+// The updatedAt timestamp guards against stale events overwriting newer state:
+// the role is only updated when the incoming timestamp is newer than the stored one.
+func (s *AccountStore) UpsertMemberByWorkosMembershipID(accountID, userID, role, workosMembershipID string, updatedAt time.Time) error {
 	_, err := s.db.Exec(`
-		INSERT INTO account_members (account_id, user_id, role, created_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (account_id, user_id) DO UPDATE SET role = $3
-	`, accountID, userID, role, time.Now())
+		INSERT INTO account_members (account_id, user_id, role, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $4)
+		ON CONFLICT (account_id, user_id) DO UPDATE SET role = $3, updated_at = $4
+		WHERE account_members.updated_at <= $4
+	`, accountID, userID, role, updatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to upsert member: %w", err)
 	}

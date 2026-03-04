@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/postman/astro/apps/astro-server/internal/account"
@@ -37,11 +38,11 @@ type AccountResponse struct {
 
 // AccountWithRoleResponse represents an account with the user's role
 type AccountWithRoleResponse struct {
-	ID     string              `json:"id"`
-	Name   string              `json:"name"`
-	Type   string              `json:"type"`
-	Role   string              `json:"role"`
-	Agents []AgentSummary      `json:"agents,omitempty"`
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Type   string         `json:"type"`
+	Role   string         `json:"role"`
+	Agents []AgentSummary `json:"agents,omitempty"`
 }
 
 // AgentSummary represents a brief summary of an agent for the profile response
@@ -144,7 +145,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 				// Non-fatal: local membership already exists from Create()
 			} else {
 				// Update local member with WorkOS membership ID
-				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, "owner", m.ID)
+				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, "owner", m.ID, time.Now())
 			}
 		}
 

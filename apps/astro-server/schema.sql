@@ -25,6 +25,7 @@ CREATE TABLE public.account_members (
     user_id text NOT NULL,
     role varchar(20) NOT NULL DEFAULT 'owner',
     created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT account_members_pkey PRIMARY KEY (account_id, user_id),
     CONSTRAINT account_members_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );

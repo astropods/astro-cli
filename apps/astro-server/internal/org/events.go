@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/workos/workos-go/v4/pkg/events"
 )
+
+const eventsBatchSize = 100
 
 // EventsConsumer polls the WorkOS Events API and processes membership events.
 type EventsConsumer struct {
@@ -32,13 +35,8 @@ func NewEventsConsumer(apiKey string, accountStore *account.AccountStore, db *sq
 	}
 }
 
-// Start begins polling the WorkOS Events API in a background goroutine.
-// It stops when the context is cancelled.
+// Start polls the WorkOS Events API in a loop until the context is cancelled.
 func (ec *EventsConsumer) Start(ctx context.Context) {
-	go ec.run(ctx)
-}
-
-func (ec *EventsConsumer) run(ctx context.Context) {
 	ec.log.Info("WorkOS events consumer started", "interval", ec.interval.String())
 
 	// Run immediately on start, then on interval
@@ -59,7 +57,7 @@ func (ec *EventsConsumer) run(ctx context.Context) {
 }
 
 func (ec *EventsConsumer) poll(ctx context.Context) {
-	cursor, err := ec.getCursor()
+	cursor, err := ec.getCursor(ctx)
 	if err != nil {
 		ec.log.Error("Failed to get events cursor", "error", err)
 		return
@@ -75,7 +73,7 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 		resp, err := ec.eventsClient.ListEvents(ctx, events.ListEventsOpts{
 			Events: eventTypes,
 			After:  cursor,
-			Limit:  100,
+			Limit:  eventsBatchSize,
 		})
 		if err != nil {
 			ec.log.Error("Failed to list WorkOS events", "error", err)
@@ -99,13 +97,13 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 		}
 
 		// Persist cursor after processing batch
-		if err := ec.setCursor(cursor); err != nil {
+		if err := ec.setCursor(ctx, cursor); err != nil {
 			ec.log.Error("Failed to persist events cursor", "error", err)
 			return
 		}
 
 		// If fewer events than limit, we've caught up
-		if len(resp.Data) < 100 {
+		if len(resp.Data) < eventsBatchSize {
 			return
 		}
 	}
@@ -123,7 +121,7 @@ type membershipEventData struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func (ec *EventsConsumer) processEvent(ctx context.Context, event events.Event) error {
+func (ec *EventsConsumer) processEvent(_ context.Context, event events.Event) error {
 	var data membershipEventData
 	if err := json.Unmarshal(event.Data, &data); err != nil {
 		return fmt.Errorf("unmarshal event data: %w", err)
@@ -136,15 +134,16 @@ func (ec *EventsConsumer) processEvent(ctx context.Context, event events.Event) 
 		return nil
 	}
 
-	switch event.Event {
-	case "organization_membership.created":
-		return ec.accountStore.UpsertMemberByWorkosMembershipID(
-			acct.ID, data.UserID, data.Role.Slug, data.ID,
-		)
+	// Parse event updated_at for staleness guard
+	updatedAt, err := time.Parse(time.RFC3339, data.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("parse event updated_at %q: %w", data.UpdatedAt, err)
+	}
 
-	case "organization_membership.updated":
+	switch event.Event {
+	case "organization_membership.created", "organization_membership.updated":
 		return ec.accountStore.UpsertMemberByWorkosMembershipID(
-			acct.ID, data.UserID, data.Role.Slug, data.ID,
+			acct.ID, data.UserID, data.Role.Slug, data.ID, updatedAt,
 		)
 
 	case "organization_membership.deleted":
@@ -159,10 +158,10 @@ func (ec *EventsConsumer) processEvent(ctx context.Context, event events.Event) 
 	return nil
 }
 
-func (ec *EventsConsumer) getCursor() (string, error) {
+func (ec *EventsConsumer) getCursor(ctx context.Context) (string, error) {
 	var cursor string
-	err := ec.db.QueryRow(`SELECT cursor_id FROM workos_event_cursor WHERE id = 1`).Scan(&cursor)
-	if err == sql.ErrNoRows {
+	err := ec.db.QueryRowContext(ctx, `SELECT cursor_id FROM workos_event_cursor WHERE id = 1`).Scan(&cursor)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
@@ -171,8 +170,8 @@ func (ec *EventsConsumer) getCursor() (string, error) {
 	return cursor, nil
 }
 
-func (ec *EventsConsumer) setCursor(cursor string) error {
-	_, err := ec.db.Exec(
+func (ec *EventsConsumer) setCursor(ctx context.Context, cursor string) error {
+	_, err := ec.db.ExecContext(ctx,
 		`INSERT INTO workos_event_cursor (id, cursor_id, updated_at) VALUES (1, $1, now())
 		 ON CONFLICT (id) DO UPDATE SET cursor_id = $1, updated_at = now()`,
 		cursor,

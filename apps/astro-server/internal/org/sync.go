@@ -3,6 +3,7 @@ package org
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/postman/astro/apps/astro-server/internal/account"
 )
@@ -134,7 +135,7 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error 
 
 		// Upsert the membership locally
 		if err := s.accountStore.UpsertMemberByWorkosMembershipID(
-			acct.ID, m.UserID, m.RoleSlug, m.ID,
+			acct.ID, m.UserID, m.RoleSlug, m.ID, time.Now(),
 		); err != nil {
 			return fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
 		}
