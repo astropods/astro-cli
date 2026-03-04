@@ -1,0 +1,27 @@
+---
+title: Publish to registry
+subtitle: Log in and push your agent to the Astro AI registry
+slug: publish-to-registry
+---
+
+Pushing your agent to the Astro AI registry requires an account and authentication. If you don't have an account, [join the waitlist](https://blog.astropods.ai/waitlist).
+
+## 1. Log in
+
+Authenticate with your Astro AI account:
+
+```bash
+ast login
+```
+
+Complete the browser flow to link the CLI to your account. See [Authentication](/authentication) for details.
+
+## 2. Push
+
+From your agent project directory, push to the registry:
+
+```bash
+ast push
+```
+
+Your agent is then available in your account. Use `ast push --build` to force a build first, then push to the registry.
