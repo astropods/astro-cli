@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -97,19 +98,20 @@ func main() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "ok")
+			_, _ = fmt.Fprint(w, "ok")
 		})
 		mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "ok")
+			_, _ = fmt.Fprint(w, "ok")
 		})
 		httpSrv = &http.Server{
-			Addr:    fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
-			Handler: mux,
+			Addr:              fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() {
 			log.Info("Worker health server listening", "address", httpSrv.Addr)
-			if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Error("Worker health server failed", "error", err)
 				os.Exit(1)
 			}
@@ -247,7 +249,7 @@ func runAPI(
 	// Start HTTP server
 	go func() {
 		log.Info("Server listening", "address", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("Failed to start server", "error", err)
 			os.Exit(1)
 		}

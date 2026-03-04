@@ -2,6 +2,7 @@ package account
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -82,7 +83,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.name = $1
 	`, name))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("account not found: %s", name)
 	}
 	if err != nil {
@@ -99,7 +100,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.id = $1
 	`, id))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("account not found: %s", id)
 	}
 	if err != nil {
@@ -116,7 +117,7 @@ func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error)
 		JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE ao.workos_org_id = $1
 	`, orgID))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("account not found for workos org: %s", orgID)
 	}
 	if err != nil {
@@ -234,7 +235,7 @@ func (s *AccountStore) GetOwnerUserID(accountID string) (string, error) {
 		LIMIT 1
 	`, accountID).Scan(&userID)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("no owner found for account: %s", accountID)
 	}
 	if err != nil {
@@ -342,7 +343,7 @@ func (s *AccountStore) GetMember(accountID, userID string) (*AccountMember, erro
 		LEFT JOIN account_member_workos mw ON mw.account_id = am.account_id AND mw.user_id = am.user_id
 		WHERE am.account_id = $1 AND am.user_id = $2
 	`, accountID, userID).Scan(&m.AccountID, &m.UserID, &m.Role, &wid, &m.CreatedAt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("member not found")
 	}
 	if err != nil {
@@ -392,7 +393,7 @@ func (s *AccountStore) GetMemberByWorkosMembershipID(membershipID string) (*Acco
 		JOIN account_members am ON am.account_id = mw.account_id AND am.user_id = mw.user_id
 		WHERE mw.workos_membership_id = $1
 	`, membershipID).Scan(&m.AccountID, &m.UserID, &m.Role, &m.WorkOSMembershipID, &m.CreatedAt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("member not found for workos membership: %s", membershipID)
 	}
 	if err != nil {
