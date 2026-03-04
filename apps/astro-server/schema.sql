@@ -13,8 +13,11 @@ CREATE TABLE public.accounts (
 );
 
 CREATE TABLE public.account_organizations (
-    account_id uuid PRIMARY KEY REFERENCES public.accounts(id) ON DELETE CASCADE,
-    workos_org_id text NOT NULL UNIQUE
+    account_id uuid NOT NULL,
+    workos_org_id text NOT NULL,
+    CONSTRAINT account_organizations_pkey PRIMARY KEY (account_id),
+    CONSTRAINT account_organizations_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT account_organizations_workos_org_id_key UNIQUE (workos_org_id)
 );
 
 CREATE TABLE public.account_members (
@@ -31,9 +34,10 @@ CREATE INDEX idx_account_members_user ON public.account_members(user_id);
 CREATE TABLE public.account_member_workos (
     account_id uuid NOT NULL,
     user_id text NOT NULL,
-    workos_membership_id text NOT NULL UNIQUE,
-    PRIMARY KEY (account_id, user_id),
-    FOREIGN KEY (account_id, user_id) REFERENCES public.account_members(account_id, user_id) ON DELETE CASCADE
+    workos_membership_id text NOT NULL,
+    CONSTRAINT account_member_workos_pkey PRIMARY KEY (account_id, user_id),
+    CONSTRAINT account_member_workos_fkey FOREIGN KEY (account_id, user_id) REFERENCES public.account_members(account_id, user_id) ON DELETE CASCADE,
+    CONSTRAINT account_member_workos_workos_membership_id_key UNIQUE (workos_membership_id)
 );
 
 CREATE TABLE public.agents (
@@ -65,9 +69,10 @@ CREATE TABLE public.agent_versions (
 CREATE INDEX idx_versions_agent ON public.agent_versions(account_id, name);
 
 CREATE TABLE public.workos_event_cursor (
-    id integer PRIMARY KEY DEFAULT 1,
+    id integer NOT NULL DEFAULT 1,
     cursor_id text NOT NULL DEFAULT '',
     updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT workos_event_cursor_pkey PRIMARY KEY (id),
     CONSTRAINT workos_event_cursor_singleton CHECK (id = 1)
 );
 
