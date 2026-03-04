@@ -51,10 +51,38 @@ jobs:
           echo "::notice::Changed services: $services"
 
   # ---------------------------------------------------------------------------
+  # Validate: ensure required vars and secrets are set
+  # ---------------------------------------------------------------------------
+  validate:
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - name: Check required variables
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          IAM_ROLE_SUFFIX: ${{ vars.IAM_ROLE_SUFFIX }}
+          ECR_PREFIX: ${{ vars.ECR_PREFIX }}
+          AMPLITUDE_API_KEY: ${{ vars.AMPLITUDE_API_KEY }}
+          EKS_CLUSTER: ${{ vars.EKS_CLUSTER }}
+          ENV_NAME: ${{ vars.ENV_NAME }}
+        run: |
+          errors=()
+          [ -z "$AWS_ACCOUNT_ID" ] && errors+=("secret: AWS_ACCOUNT_ID")
+          [ -z "$IAM_ROLE_SUFFIX" ] && errors+=("var: IAM_ROLE_SUFFIX")
+          [ -z "$ECR_PREFIX" ] && errors+=("var: ECR_PREFIX")
+          [ -z "$AMPLITUDE_API_KEY" ] && errors+=("var: AMPLITUDE_API_KEY")
+          [ -z "$EKS_CLUSTER" ] && errors+=("var: EKS_CLUSTER")
+          [ -z "$ENV_NAME" ] && errors+=("var: ENV_NAME")
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo "::error::Missing required variables: ${errors[*]}"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
   # Build: multi-arch images, push by digest to preview ECR
   # ---------------------------------------------------------------------------
   build:
-    needs: [changes]
+    needs: [changes, validate]
     if: needs.changes.outputs.services != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -110,7 +138,7 @@ jobs:
           build-args: |
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
-            VITE_AMPLITUDE_API_KEY=${{ secrets.AMPLITUDE_API_KEY }}
+            VITE_AMPLITUDE_API_KEY=${{ vars.AMPLITUDE_API_KEY }}
 
       - name: Export digest
         run: |
@@ -130,7 +158,7 @@ jobs:
   # Deploy to preview
   # ---------------------------------------------------------------------------
   deploy:
-    needs: [changes, build]
+    needs: [changes, validate, build]
     if: needs.changes.outputs.services != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -57,10 +57,35 @@ jobs:
           echo "::notice::Services: $services | Environment: prod"
 
   # ---------------------------------------------------------------------------
+  # Validate: ensure required vars and secrets are set
+  # ---------------------------------------------------------------------------
+  validate:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Check required variables
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          IAM_ROLE_SUFFIX: ${{ vars.IAM_ROLE_SUFFIX }}
+          ECR_PREFIX: ${{ vars.ECR_PREFIX }}
+          AMPLITUDE_API_KEY: ${{ vars.AMPLITUDE_API_KEY }}
+        run: |
+          errors=()
+          [ -z "$AWS_ACCOUNT_ID" ] && errors+=("secret: AWS_ACCOUNT_ID")
+          [ -z "$IAM_ROLE_SUFFIX" ] && errors+=("var: IAM_ROLE_SUFFIX")
+          [ -z "$ECR_PREFIX" ] && errors+=("var: ECR_PREFIX")
+          [ -z "$AMPLITUDE_API_KEY" ] && errors+=("var: AMPLITUDE_API_KEY")
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo "::error::Missing required variables: ${errors[*]}"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
   # Build: multi-arch images, push by digest to prod ECR
   # ---------------------------------------------------------------------------
   build:
-    needs: [prepare]
+    needs: [prepare, validate]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     environment: prod
@@ -115,7 +140,7 @@ jobs:
           build-args: |
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
-            VITE_AMPLITUDE_API_KEY=${{ secrets.AMPLITUDE_API_KEY }}
+            VITE_AMPLITUDE_API_KEY=${{ vars.AMPLITUDE_API_KEY }}
 
       - name: Export digest
         run: |
@@ -135,7 +160,7 @@ jobs:
   # Deploy to prod
   # ---------------------------------------------------------------------------
   deploy:
-    needs: [prepare, build]
+    needs: [prepare, validate, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: prod

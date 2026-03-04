@@ -28,6 +28,17 @@ jobs:
     outputs:
       plan: ${{ steps.set-output.outputs.plan }}
     steps:
+      - name: Check required variables
+        env:
+          BYTEBASE_SERVICE_ACCOUNT_SECRET: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT_SECRET }}
+        run: |
+          errors=()
+          [ -z "$BYTEBASE_SERVICE_ACCOUNT_SECRET" ] && errors+=("secret: BYTEBASE_SERVICE_ACCOUNT_SECRET")
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo "::error::Missing required variables: ${errors[*]}"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
       - name: Create rollout plan

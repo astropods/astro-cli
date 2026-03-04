@@ -26,6 +26,25 @@ jobs:
       contents: read
 
     steps:
+      - name: Check required variables
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          IAM_ROLE_SUFFIX: ${{ vars.IAM_ROLE_SUFFIX }}
+          WORKOS_CLIENT_ID: ${{ vars.WORKOS_CLIENT_ID }}
+          AMPLITUDE_API_KEY: ${{ vars.AMPLITUDE_API_KEY }}
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          errors=()
+          [ -z "$AWS_ACCOUNT_ID" ] && errors+=("secret: AWS_ACCOUNT_ID")
+          [ -z "$IAM_ROLE_SUFFIX" ] && errors+=("var: IAM_ROLE_SUFFIX")
+          [ -z "$WORKOS_CLIENT_ID" ] && errors+=("var: WORKOS_CLIENT_ID")
+          [ -z "$AMPLITUDE_API_KEY" ] && errors+=("var: AMPLITUDE_API_KEY")
+          [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ] && errors+=("var: CLOUDFRONT_DISTRIBUTION_ID")
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo "::error::Missing required variables: ${errors[*]}"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -54,7 +73,7 @@ jobs:
           SERVER_URL: ${{ steps.vars.outputs.server_url }}
           DOWNLOAD_URL: ${{ steps.vars.outputs.download_url }}
           WORKOS_CLIENT_ID: ${{ vars.WORKOS_CLIENT_ID }}
-          AMPLITUDE_API_KEY: ${{ secrets.AMPLITUDE_API_KEY }}
+          AMPLITUDE_API_KEY: ${{ vars.AMPLITUDE_API_KEY }}
         run: |
           mkdir -p bin
           LDFLAGS="-s -w \

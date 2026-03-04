@@ -53,10 +53,30 @@ jobs:
           echo "::notice::Build matrix: $build_matrix"
 
   # ---------------------------------------------------------------------------
+  # Validate: ensure required vars and secrets are set
+  # ---------------------------------------------------------------------------
+  validate:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required variables
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        run: |
+          errors=()
+          [ -z "$AWS_ACCOUNT_ID" ] && errors+=("secret: AWS_ACCOUNT_ID")
+          [ -z "$GHCR_PAT" ] && errors+=("secret: GHCR_PAT")
+          if [ ${#errors[@]} -gt 0 ]; then
+            echo "::error::Missing required variables: ${errors[*]}"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
   # Build: multi-arch images, push by digest to GHCR + ECR
   # ---------------------------------------------------------------------------
   build:
-    needs: [prepare]
+    needs: [prepare, validate]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -155,7 +175,7 @@ jobs:
   # Merge: create multi-arch manifests and tag
   # ---------------------------------------------------------------------------
   merge:
-    needs: [prepare, build]
+    needs: [prepare, validate, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
