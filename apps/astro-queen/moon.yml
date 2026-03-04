@@ -40,6 +40,10 @@ tasks:
       - "build"
     local: true
 
+  dev:
+    command: "./dev.sh"
+    local: true
+
   link:
     command: "ln -sf $(pwd)/bin/queen $HOME/go/bin/queen"
     deps:

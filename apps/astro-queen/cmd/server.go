@@ -14,7 +14,10 @@ import (
 	"github.com/postman/astro/apps/astro-queen/internal/server"
 )
 
-var serverPort int
+var (
+	serverPort   int
+	serverNoOpen bool
+)
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
@@ -42,9 +45,11 @@ var serverCmd = &cobra.Command{
 
 		srv := server.New(c.AdminService(), webContent, serverPort, cfg.OpenMeterServer, cfg.OpenMeterAPIKey)
 
-		// Open browser
-		url := fmt.Sprintf("http://127.0.0.1:%d", serverPort)
-		go openBrowser(url)
+		// Open browser (skip with --no-open for dev/reload workflows)
+		if !serverNoOpen {
+			url := fmt.Sprintf("http://127.0.0.1:%d", serverPort)
+			go openBrowser(url)
+		}
 
 		return srv.ListenAndServe()
 	},
@@ -52,6 +57,7 @@ var serverCmd = &cobra.Command{
 
 func init() {
 	serverCmd.Flags().IntVarP(&serverPort, "port", "p", 8888, "HTTP server port")
+	serverCmd.Flags().BoolVar(&serverNoOpen, "no-open", false, "Don't open browser on start")
 	rootCmd.AddCommand(serverCmd)
 }
 
