@@ -192,7 +192,10 @@ func TestAddMember_WithWorkosMembershipID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members").
-		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO account_member_workos").
+		WithArgs("acct-1", "user-1", "wm-123").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.AddMember("acct-1", "user-1", "admin", "wm-123")
@@ -206,7 +209,7 @@ func TestAddMember_WithoutWorkosMembershipID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members").
-		WithArgs("acct-1", "user-1", "member", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1", "member", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.AddMember("acct-1", "user-1", "member", "")
@@ -215,12 +218,31 @@ func TestAddMember_WithoutWorkosMembershipID(t *testing.T) {
 	}
 }
 
+func TestGetMember_NullWorkosMembershipID(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "owner", nil, now))
+
+	m, err := store.GetMember("acct-1", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m.WorkOSMembershipID != "" {
+		t.Errorf("expected empty workos_membership_id, got %q", m.WorkOSMembershipID)
+	}
+}
+
 func TestGetMember_Found(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
 	now := time.Now()
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "user-1", "owner", "wm-1", now))
@@ -237,11 +259,45 @@ func TestGetMember_Found(t *testing.T) {
 	}
 }
 
+func TestAddMember_WorkosLinkInsertFailure(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("INSERT INTO account_members").
+		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO account_member_workos").
+		WithArgs("acct-1", "user-1", "wm-dup").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	err := store.AddMember("acct-1", "user-1", "admin", "wm-dup")
+	if err == nil {
+		t.Fatal("expected error when workos link insert fails")
+	}
+}
+
+func TestUpsertMemberByWorkosMembershipID_WorkosLinkFailure(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
+		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO account_member_workos .+ ON CONFLICT").
+		WithArgs("acct-1", "user-1", "wm-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1")
+	if err == nil {
+		t.Fatal("expected error when workos link upsert fails")
+	}
+}
+
 func TestGetMember_NotFound(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-2").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
 
@@ -256,7 +312,7 @@ func TestGetMembersForAccount(t *testing.T) {
 	store := NewAccountStore(db)
 
 	now := time.Now()
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "user-1", "owner", "wm-1", now).
@@ -286,7 +342,7 @@ func TestGetMemberByWorkosMembershipID_Found(t *testing.T) {
 	store := NewAccountStore(db)
 
 	now := time.Now()
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE workos_membership_id").
+	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
 		WithArgs("wm-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "user-1", "owner", "wm-1", now))
@@ -304,7 +360,7 @@ func TestGetMemberByWorkosMembershipID_NotFound(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE workos_membership_id").
+	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
 		WithArgs("wm-unknown").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
 
@@ -319,7 +375,10 @@ func TestUpsertMemberByWorkosMembershipID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
-		WithArgs("acct-1", "user-1", "admin", "wm-1", sqlmock.AnyArg()).
+		WithArgs("acct-1", "user-1", "admin", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO account_member_workos .+ ON CONFLICT").
+		WithArgs("acct-1", "user-1", "wm-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err := store.UpsertMemberByWorkosMembershipID("acct-1", "user-1", "admin", "wm-1")

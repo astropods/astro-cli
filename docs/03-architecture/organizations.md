@@ -264,9 +264,17 @@ account_members (
   account_id           uuid REFERENCES accounts(id) ON DELETE CASCADE,
   user_id              text NOT NULL,
   role                 varchar(20) NOT NULL,  -- 'owner' | 'admin' | 'member'
-  workos_membership_id text,                  -- NULL for personal accounts
   created_at           timestamptz NOT NULL,
   PRIMARY KEY (account_id, user_id)
+)
+
+-- Links org members to WorkOS memberships
+account_member_workos (
+  account_id           uuid NOT NULL,
+  user_id              text NOT NULL,
+  workos_membership_id text NOT NULL UNIQUE,
+  PRIMARY KEY (account_id, user_id),
+  FOREIGN KEY (account_id, user_id) REFERENCES account_members ON DELETE CASCADE
 )
 
 -- Events consumer cursor (singleton)
@@ -280,7 +288,7 @@ workos_event_cursor (
 ### Key Indexes
 
 - `account_organizations.workos_org_id` — unique index
-- `account_members.workos_membership_id` — partial unique index (WHERE `workos_membership_id IS NOT NULL`)
+- `account_member_workos.workos_membership_id` — unique index
 - `agents.visibility` — partial index (WHERE `visibility = 'public'`)
 
 ## Internal Packages

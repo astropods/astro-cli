@@ -21,7 +21,6 @@ CREATE TABLE public.account_members (
     account_id uuid NOT NULL,
     user_id text NOT NULL,
     role varchar(20) NOT NULL DEFAULT 'owner',
-    workos_membership_id text,
     created_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT account_members_pkey PRIMARY KEY (account_id, user_id),
     CONSTRAINT account_members_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
@@ -29,8 +28,13 @@ CREATE TABLE public.account_members (
 
 CREATE INDEX idx_account_members_user ON public.account_members(user_id);
 
-CREATE UNIQUE INDEX idx_account_members_workos_id
-    ON public.account_members(workos_membership_id) WHERE workos_membership_id IS NOT NULL;
+CREATE TABLE public.account_member_workos (
+    account_id uuid NOT NULL,
+    user_id text NOT NULL,
+    workos_membership_id text NOT NULL UNIQUE,
+    PRIMARY KEY (account_id, user_id),
+    FOREIGN KEY (account_id, user_id) REFERENCES public.account_members(account_id, user_id) ON DELETE CASCADE
+);
 
 CREATE TABLE public.agents (
     account_id uuid NOT NULL,

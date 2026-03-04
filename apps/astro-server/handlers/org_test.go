@@ -41,7 +41,7 @@ func TestListMembers_Success(t *testing.T) {
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "user-1", "owner", "wm-1", time.Now()).
@@ -97,7 +97,7 @@ func TestListMembers_DBError(t *testing.T) {
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1").
 		WillReturnError(sqlmock.ErrCancelled)
 
@@ -392,7 +392,7 @@ func TestAddMember_RoleEscalation_AdminCannotAssignOwner(t *testing.T) {
 	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
 
 	// GetMember for caller: returns admin role
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "caller-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "caller-1", "admin", nil, time.Now()))
@@ -420,7 +420,7 @@ func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
 	caller := &auth.User{ID: "caller-1", Email: "owner@example.com"}
 
 	// GetMember for caller: returns owner role (guard check)
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "caller-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "caller-1", "owner", nil, time.Now()))
@@ -451,7 +451,7 @@ func TestUpdateMemberRole_RoleEscalation_AdminCannotPromoteToOwner(t *testing.T)
 	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
 
 	// GetMember for caller: returns admin role
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "caller-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "caller-1", "admin", nil, time.Now()))
@@ -479,7 +479,7 @@ func TestCreateInvitation_RoleEscalation_AdminCannotInviteAsOwner(t *testing.T) 
 	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
 
 	// GetMember for caller: returns admin role
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "caller-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "caller-1", "admin", nil, time.Now()))
@@ -510,7 +510,7 @@ func TestUpdateMemberRole_SelfModification(t *testing.T) {
 	user := &auth.User{ID: "user-1", Email: "self@example.com"}
 
 	// syncSvc.ChangeMemberRole: GetMember
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "user-1", "admin", nil, time.Now()))
@@ -544,7 +544,7 @@ func TestRemoveMember_SelfRemoval(t *testing.T) {
 	user := &auth.User{ID: "user-1", Email: "self@example.com"}
 
 	// syncSvc.RemoveMember: GetMember
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}).
 			AddRow("acct-1", "user-1", "admin", nil, time.Now()))
@@ -580,7 +580,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 			AddRow("acct-b", "org-b", "organization", "org_b_wos", time.Now(), time.Now()))
 
 	// RequireAccountPermission: GetMember returns no rows (user-a is not a member of org-b)
-	mock.ExpectQuery("SELECT .+ FROM account_members WHERE account_id").
+	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-b", "user-a").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "role", "workos_membership_id", "created_at"}))
 

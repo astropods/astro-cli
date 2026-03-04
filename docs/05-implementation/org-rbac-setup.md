@@ -104,8 +104,8 @@ This allows the frontend to switch between orgs without a full re-login.
 ### `account_organizations` table (new)
 - Maps organization accounts to WorkOS: `account_id` (PK, FK → accounts) + `workos_org_id` (NOT NULL, UNIQUE).
 
-### `account_members` table
-- Added `workos_membership_id text` column with a partial unique index.
+### `account_member_workos` table (new)
+- Maps org members to WorkOS memberships: `(account_id, user_id)` (PK, FK → account_members) + `workos_membership_id` (NOT NULL, UNIQUE).
 
 ### `agents` table
 - Added `visibility varchar(10) NOT NULL DEFAULT 'private'` with a partial index on `visibility = 'public'`.

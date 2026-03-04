@@ -275,16 +275,21 @@ func (s *AccountStore) CountOwners(accountID string) (int, error) {
 
 // AddMember inserts a new account member with optional WorkOS membership ID.
 func (s *AccountStore) AddMember(accountID, userID, role, workosMembershipID string) error {
-	var wid sql.NullString
-	if workosMembershipID != "" {
-		wid = sql.NullString{String: workosMembershipID, Valid: true}
-	}
 	_, err := s.db.Exec(`
-		INSERT INTO account_members (account_id, user_id, role, workos_membership_id, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, accountID, userID, role, wid, time.Now())
+		INSERT INTO account_members (account_id, user_id, role, created_at)
+		VALUES ($1, $2, $3, $4)
+	`, accountID, userID, role, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to add member: %w", err)
+	}
+	if workosMembershipID != "" {
+		_, err = s.db.Exec(`
+			INSERT INTO account_member_workos (account_id, user_id, workos_membership_id)
+			VALUES ($1, $2, $3)
+		`, accountID, userID, workosMembershipID)
+		if err != nil {
+			return fmt.Errorf("failed to add member workos link: %w", err)
+		}
 	}
 	return nil
 }
@@ -332,9 +337,10 @@ func (s *AccountStore) GetMember(accountID, userID string) (*AccountMember, erro
 	var m AccountMember
 	var wid sql.NullString
 	err := s.db.QueryRow(`
-		SELECT account_id, user_id, role, workos_membership_id, created_at
-		FROM account_members
-		WHERE account_id = $1 AND user_id = $2
+		SELECT am.account_id, am.user_id, am.role, mw.workos_membership_id, am.created_at
+		FROM account_members am
+		LEFT JOIN account_member_workos mw ON mw.account_id = am.account_id AND mw.user_id = am.user_id
+		WHERE am.account_id = $1 AND am.user_id = $2
 	`, accountID, userID).Scan(&m.AccountID, &m.UserID, &m.Role, &wid, &m.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("member not found")
@@ -351,10 +357,11 @@ func (s *AccountStore) GetMember(accountID, userID string) (*AccountMember, erro
 // GetMembersForAccount returns all members of an account.
 func (s *AccountStore) GetMembersForAccount(accountID string) ([]AccountMember, error) {
 	rows, err := s.db.Query(`
-		SELECT account_id, user_id, role, workos_membership_id, created_at
-		FROM account_members
-		WHERE account_id = $1
-		ORDER BY created_at
+		SELECT am.account_id, am.user_id, am.role, mw.workos_membership_id, am.created_at
+		FROM account_members am
+		LEFT JOIN account_member_workos mw ON mw.account_id = am.account_id AND mw.user_id = am.user_id
+		WHERE am.account_id = $1
+		ORDER BY am.created_at
 	`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query members: %w", err)
@@ -379,20 +386,17 @@ func (s *AccountStore) GetMembersForAccount(accountID string) ([]AccountMember, 
 // GetMemberByWorkosMembershipID looks up a member by their WorkOS membership ID.
 func (s *AccountStore) GetMemberByWorkosMembershipID(membershipID string) (*AccountMember, error) {
 	var m AccountMember
-	var wid sql.NullString
 	err := s.db.QueryRow(`
-		SELECT account_id, user_id, role, workos_membership_id, created_at
-		FROM account_members
-		WHERE workos_membership_id = $1
-	`, membershipID).Scan(&m.AccountID, &m.UserID, &m.Role, &wid, &m.CreatedAt)
+		SELECT am.account_id, am.user_id, am.role, mw.workos_membership_id, am.created_at
+		FROM account_member_workos mw
+		JOIN account_members am ON am.account_id = mw.account_id AND am.user_id = mw.user_id
+		WHERE mw.workos_membership_id = $1
+	`, membershipID).Scan(&m.AccountID, &m.UserID, &m.Role, &m.WorkOSMembershipID, &m.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("member not found for workos membership: %s", membershipID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query member: %w", err)
-	}
-	if wid.Valid {
-		m.WorkOSMembershipID = wid.String
 	}
 	return &m, nil
 }
@@ -401,12 +405,20 @@ func (s *AccountStore) GetMemberByWorkosMembershipID(membershipID string) (*Acco
 // Used by event sync and login-time reconciliation.
 func (s *AccountStore) UpsertMemberByWorkosMembershipID(accountID, userID, role, workosMembershipID string) error {
 	_, err := s.db.Exec(`
-		INSERT INTO account_members (account_id, user_id, role, workos_membership_id, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (account_id, user_id) DO UPDATE SET role = $3, workos_membership_id = $4
-	`, accountID, userID, role, workosMembershipID, time.Now())
+		INSERT INTO account_members (account_id, user_id, role, created_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (account_id, user_id) DO UPDATE SET role = $3
+	`, accountID, userID, role, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to upsert member: %w", err)
+	}
+	_, err = s.db.Exec(`
+		INSERT INTO account_member_workos (account_id, user_id, workos_membership_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (account_id, user_id) DO UPDATE SET workos_membership_id = $3
+	`, accountID, userID, workosMembershipID)
+	if err != nil {
+		return fmt.Errorf("failed to upsert member workos link: %w", err)
 	}
 	return nil
 }
