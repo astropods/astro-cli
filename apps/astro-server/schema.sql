@@ -66,8 +66,6 @@ CREATE TABLE public.workos_event_cursor (
     CONSTRAINT workos_event_cursor_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.workos_event_cursor (id) VALUES (1);
-
 CREATE TABLE public.deployments (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL,
