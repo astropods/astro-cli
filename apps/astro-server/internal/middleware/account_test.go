@@ -20,7 +20,7 @@ func TestResolveAccount_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 
-	mock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", "org_123", time.Now(), time.Now()))
@@ -49,7 +49,7 @@ func TestResolveAccount_NotFound(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 
-	mock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("unknown").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
 

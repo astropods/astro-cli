@@ -179,7 +179,7 @@ func TestGetAgent_PublicAgent_NoAuth(t *testing.T) {
 	now := time.Now()
 
 	// Account lookup
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))
@@ -216,7 +216,7 @@ func TestGetAgent_PrivateAgent_NoAuth(t *testing.T) {
 
 	now := time.Now()
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))
@@ -245,7 +245,7 @@ func TestGetAgent_PrivateAgent_NonMember(t *testing.T) {
 
 	now := time.Now()
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))
@@ -279,7 +279,7 @@ func TestGetAgent_PrivateAgent_Member(t *testing.T) {
 
 	now := time.Now()
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))
@@ -326,7 +326,7 @@ func TestGetAgent_PublicAgent_NonMember_NoWarnings(t *testing.T) {
 
 	now := time.Now()
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))
@@ -370,7 +370,7 @@ func TestGetAgent_NotFound(t *testing.T) {
 
 	now := time.Now()
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))
@@ -414,7 +414,7 @@ func TestListAgents_OnlyPublic(t *testing.T) {
 				"build-1", `{"name":"test"}`, "", now, now))
 
 	// Account lookup for name resolution
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE id").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", nil, now, now))

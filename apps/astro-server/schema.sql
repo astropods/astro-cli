@@ -6,15 +6,16 @@ CREATE TABLE public.accounts (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name varchar(39) NOT NULL,
     type varchar(20) NOT NULL DEFAULT 'personal',
-    workos_org_id text,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
 );
 
-CREATE UNIQUE INDEX idx_accounts_workos_org_id
-    ON public.accounts(workos_org_id) WHERE workos_org_id IS NOT NULL;
+CREATE TABLE public.account_organizations (
+    account_id uuid PRIMARY KEY REFERENCES public.accounts(id) ON DELETE CASCADE,
+    workos_org_id text NOT NULL UNIQUE
+);
 
 CREATE TABLE public.account_members (
     account_id uuid NOT NULL,

@@ -249,9 +249,14 @@ accounts (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name          text UNIQUE NOT NULL,
   type          varchar(20) NOT NULL,        -- 'personal' | 'organization'
-  workos_org_id text,                        -- NULL for personal accounts
   created_at    timestamptz NOT NULL,
   updated_at    timestamptz NOT NULL
+)
+
+-- Links organization accounts to WorkOS
+account_organizations (
+  account_id    uuid PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  workos_org_id text NOT NULL UNIQUE
 )
 
 -- Account memberships
@@ -274,7 +279,7 @@ workos_event_cursor (
 
 ### Key Indexes
 
-- `accounts.workos_org_id` — partial unique index (WHERE `workos_org_id IS NOT NULL`)
+- `account_organizations.workos_org_id` — unique index
 - `account_members.workos_membership_id` — partial unique index (WHERE `workos_membership_id IS NOT NULL`)
 - `agents.visibility` — partial index (WHERE `visibility = 'public'`)
 

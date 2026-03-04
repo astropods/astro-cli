@@ -574,7 +574,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	log := logger.New("error", "json")
 
 	// ResolveAccount: return org-b
-	mock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("org-b").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-b", "org-b", "organization", "org_b_wos", time.Now(), time.Now()))

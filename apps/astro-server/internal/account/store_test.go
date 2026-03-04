@@ -7,12 +7,142 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
+func TestCreate_Success(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO accounts").
+		WithArgs("myorg", "organization", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", time.Now(), time.Now()))
+	mock.ExpectExec("INSERT INTO account_members").
+		WithArgs("acct-1", "user-1", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	acct, err := store.Create("myorg", "organization", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if acct.ID != "acct-1" {
+		t.Errorf("expected ID 'acct-1', got %q", acct.ID)
+	}
+	if acct.Name != "myorg" {
+		t.Errorf("expected name 'myorg', got %q", acct.Name)
+	}
+	if acct.WorkOSOrganizationID != "" {
+		t.Errorf("expected empty workos_org_id on create, got %q", acct.WorkOSOrganizationID)
+	}
+}
+
+func TestCreate_InvalidName(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	_, err := store.Create("ab", "personal", "user-1")
+	if err == nil {
+		t.Fatal("expected error for short name")
+	}
+}
+
+func TestGetByName_Found(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_123", now, now))
+
+	acct, err := store.GetByName("myorg")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if acct.ID != "acct-1" {
+		t.Errorf("expected ID 'acct-1', got %q", acct.ID)
+	}
+	if acct.WorkOSOrganizationID != "org_123" {
+		t.Errorf("expected workos_org_id 'org_123', got %q", acct.WorkOSOrganizationID)
+	}
+}
+
+func TestGetByName_NotFound(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("unknown").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+
+	_, err := store.GetByName("unknown")
+	if err == nil {
+		t.Fatal("expected error for not found")
+	}
+}
+
+func TestGetByName_PersonalAccount_NullWorkOSOrgID(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("personal").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "personal", "personal", nil, now, now))
+
+	acct, err := store.GetByName("personal")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if acct.WorkOSOrganizationID != "" {
+		t.Errorf("personal account should have empty workos_org_id, got %q", acct.WorkOSOrganizationID)
+	}
+}
+
+func TestGetByID_Found(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_123", now, now))
+
+	acct, err := store.GetByID("acct-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if acct.Name != "myorg" {
+		t.Errorf("expected name 'myorg', got %q", acct.Name)
+	}
+	if acct.WorkOSOrganizationID != "org_123" {
+		t.Errorf("expected workos_org_id 'org_123', got %q", acct.WorkOSOrganizationID)
+	}
+}
+
+func TestGetByID_NotFound(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("unknown-id").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+
+	_, err := store.GetByID("unknown-id")
+	if err == nil {
+		t.Fatal("expected error for not found")
+	}
+}
+
 func TestGetByWorkOSOrganizationID_Found(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
 	now := time.Now()
-	mock.ExpectQuery("SELECT .+ FROM accounts WHERE workos_org_id").
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_123").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", "org_123", now, now))
@@ -33,7 +163,7 @@ func TestGetByWorkOSOrganizationID_NotFound(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
-	mock.ExpectQuery("SELECT .+ FROM accounts WHERE workos_org_id").
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_unknown").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
 
@@ -47,8 +177,8 @@ func TestSetWorkOSOrganizationID(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
-	mock.ExpectExec("UPDATE accounts SET workos_org_id").
-		WithArgs("org_123", sqlmock.AnyArg(), "acct-1").
+	mock.ExpectExec("INSERT INTO account_organizations").
+		WithArgs("acct-1", "org_123").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err := store.SetWorkOSOrganizationID("acct-1", "org_123")
@@ -273,7 +403,7 @@ func TestGetAccountsForUser_IncludesWorkOSOrgID(t *testing.T) {
 	store := NewAccountStore(db)
 
 	now := time.Now()
-	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_members").
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_members am .+ LEFT JOIN account_organizations ao").
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "role", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "personal", "personal", "owner", "", now, now).

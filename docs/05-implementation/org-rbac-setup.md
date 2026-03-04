@@ -101,8 +101,8 @@ This allows the frontend to switch between orgs without a full re-login.
 
 ## 7. Schema Changes
 
-### `accounts` table
-- Added `workos_org_id text` column with a partial unique index.
+### `account_organizations` table (new)
+- Maps organization accounts to WorkOS: `account_id` (PK, FK → accounts) + `workos_org_id` (NOT NULL, UNIQUE).
 
 ### `account_members` table
 - Added `workos_membership_id text` column with a partial unique index.

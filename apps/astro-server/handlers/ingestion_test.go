@@ -25,10 +25,10 @@ type mockClusterClient struct {
 	clientset *kubernetes.Clientset
 }
 
-func (m *mockClusterClient) Clientset() *kubernetes.Clientset  { return m.clientset }
-func (m *mockClusterClient) Config() *rest.Config               { return nil }
-func (m *mockClusterClient) CheckHealth() error                 { return nil }
-func (m *mockClusterClient) GetServerVersion() (string, error)  { return "v1.30.0", nil }
+func (m *mockClusterClient) Clientset() *kubernetes.Clientset      { return m.clientset }
+func (m *mockClusterClient) Config() *rest.Config                  { return nil }
+func (m *mockClusterClient) CheckHealth() error                    { return nil }
+func (m *mockClusterClient) GetServerVersion() (string, error)     { return "v1.30.0", nil }
 func (m *mockClusterClient) DiagnoseConnection() map[string]string { return nil }
 
 // newMockK8sClient spins up a fake API server and returns a ClusterClient
@@ -105,9 +105,9 @@ func TestTriggerIngestion_MissingAccount(t *testing.T) {
 func TestTriggerIngestion_AccountNotFound(t *testing.T) {
 	router, accountMock, _ := setupIngestionRouter(nil, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/deployments/ns/ingestion/data/trigger?account=unknown", nil)
@@ -122,7 +122,7 @@ func TestTriggerIngestion_AccountNotFound(t *testing.T) {
 func TestTriggerIngestion_NotMember(t *testing.T) {
 	router, accountMock, _ := setupIngestionRouter(nil, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
@@ -144,7 +144,7 @@ func TestTriggerIngestion_NotMember(t *testing.T) {
 func TestTriggerIngestion_NilK8sClient(t *testing.T) {
 	router, accountMock, _ := setupIngestionRouter(nil, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
@@ -183,7 +183,7 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 	router, accountMock, indexMock := setupIngestionRouter(k8sClient, true)
 
 	// account + membership
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
@@ -235,7 +235,7 @@ func TestTriggerIngestion_IngestionNotInSpec(t *testing.T) {
 	k8sClient := newMockK8sClient(k8sHandler)
 	router, accountMock, indexMock := setupIngestionRouter(k8sClient, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))
@@ -294,7 +294,7 @@ func TestTriggerIngestion_Success(t *testing.T) {
 	k8sClient := newMockK8sClient(k8sHandler)
 	router, accountMock, indexMock := setupIngestionRouter(k8sClient, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts WHERE name").
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
 			AddRow("acct-1", "acme", "team", nil, time.Now(), time.Now()))

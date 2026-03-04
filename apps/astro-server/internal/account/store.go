@@ -36,9 +36,9 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 	err = tx.QueryRow(`
 		INSERT INTO accounts (name, type, created_at, updated_at)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, type, COALESCE(workos_org_id, ''), created_at, updated_at
+		RETURNING id, name, type, created_at, updated_at
 	`, name, accountType, now, now).Scan(
-		&acct.ID, &acct.Name, &acct.Type, &acct.WorkOSOrganizationID, &acct.CreatedAt, &acct.UpdatedAt,
+		&acct.ID, &acct.Name, &acct.Type, &acct.CreatedAt, &acct.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create account: %w", err)
@@ -77,9 +77,10 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT id, name, type, workos_org_id, created_at, updated_at
-		FROM accounts
-		WHERE name = $1
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.created_at, a.updated_at
+		FROM accounts a
+		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		WHERE a.name = $1
 	`, name))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account not found: %s", name)
@@ -93,9 +94,10 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT id, name, type, workos_org_id, created_at, updated_at
-		FROM accounts
-		WHERE id = $1
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.created_at, a.updated_at
+		FROM accounts a
+		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		WHERE a.id = $1
 	`, id))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account not found: %s", id)
@@ -109,9 +111,10 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT id, name, type, workos_org_id, created_at, updated_at
-		FROM accounts
-		WHERE workos_org_id = $1
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.created_at, a.updated_at
+		FROM accounts a
+		JOIN account_organizations ao ON ao.account_id = a.id
+		WHERE ao.workos_org_id = $1
 	`, orgID))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account not found for workos org: %s", orgID)
@@ -125,8 +128,10 @@ func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error)
 // SetWorkOSOrganizationID links an account to a WorkOS organization.
 func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 	_, err := s.db.Exec(`
-		UPDATE accounts SET workos_org_id = $1, updated_at = $2 WHERE id = $3
-	`, orgID, time.Now(), accountID)
+		INSERT INTO account_organizations (account_id, workos_org_id)
+		VALUES ($1, $2)
+		ON CONFLICT (account_id) DO UPDATE SET workos_org_id = $2
+	`, accountID, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to set workos_org_id: %w", err)
 	}
@@ -136,9 +141,10 @@ func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 // GetAccountsForUser returns all accounts a user is a member of, with their role
 func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, am.role, COALESCE(a.workos_org_id, ''), a.created_at, a.updated_at
+		SELECT a.id, a.name, a.type, am.role, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
+		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE am.user_id = $1
 		ORDER BY a.name
 	`, userID)
