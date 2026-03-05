@@ -11,6 +11,15 @@ import type {
   CloudEvent,
 } from "@/types/openmeter";
 
+// OpenAPI Schema
+export function useOpenAPISchema() {
+  return useQuery({
+    queryKey: openmeterKeys.openapi(),
+    queryFn: () => api.get<Record<string, unknown>>("/api/openapi.json"),
+    staleTime: Infinity,
+  });
+}
+
 // Meters
 export function useMeters() {
   return useQuery({

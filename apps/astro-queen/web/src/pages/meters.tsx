@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useMeters, useCreateMeter, useDeleteMeter, useUpdateMeter, useQueryMeter } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel, FieldDescription, FieldGroup } from "@/components/ui/field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -13,8 +15,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Search, Pencil } from "lucide-react";
+import { Plus, Trash2, Search, Pencil, CheckCircle2 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
+import { useOpenAPISchema } from "@/api/openmeter";
+import { extractSchema, validateAgainstSchema, formatErrors, SCHEMA_REFS } from "@/lib/schemas";
 import type { Meter } from "@/types/openmeter";
 
 export function MetersPage() {
@@ -82,11 +86,7 @@ export function MetersPage() {
                       <Button variant="ghost" size="icon-xs" onClick={() => setEditMeter(m)}>
                         <Pencil className="size-3" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => { if (confirm(`Delete meter "${m.slug}"?`)) deleteMut.mutate(m.id || m.slug); }}
-                      >
+                      <Button variant="ghost" size="icon-xs" onClick={() => { if (confirm(`Delete meter "${m.slug}"?`)) deleteMut.mutate(m.id || m.slug); }}>
                         <Trash2 className="size-3 text-red-500" />
                       </Button>
                     </div>
@@ -103,79 +103,133 @@ export function MetersPage() {
 
 const AGGREGATIONS = ["COUNT", "SUM", "UNIQUE_COUNT", "AVG", "MIN", "MAX", "LATEST"] as const;
 
-function CreateMeterDialog({ open, onOpenChange, onSubmit, isPending }: { open: boolean; onOpenChange: (open: boolean) => void; onSubmit: (body: Partial<Meter>) => void; isPending: boolean }) {
-  const [form, setForm] = useState({ slug: "", name: "", description: "", eventType: "", aggregation: "COUNT", valueProperty: "", groupByKey: "", groupByValue: "" });
-  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+type MeterForm = { slug: string; name: string; description: string; eventType: string; aggregation: string; valueProperty: string; groupByKey: string; groupByValue: string };
+const EMPTY_FORM: MeterForm = { slug: "", name: "", description: "", eventType: "", aggregation: "COUNT", valueProperty: "", groupByKey: "", groupByValue: "" };
 
+function formToJson(form: MeterForm): Record<string, unknown> {
+  const { groupByKey, groupByValue, ...rest } = form;
+  const body: Record<string, unknown> = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== ""));
+  if (groupByKey && groupByValue) body.groupBy = { [groupByKey]: groupByValue };
+  return body;
+}
+
+function jsonToForm(json: Record<string, unknown>): MeterForm {
+  const groupBy = (json.groupBy ?? {}) as Record<string, string>;
+  const entries = Object.entries(groupBy);
+  return { slug: String(json.slug ?? ""), name: String(json.name ?? ""), description: String(json.description ?? ""), eventType: String(json.eventType ?? ""), aggregation: String(json.aggregation ?? "COUNT"), valueProperty: String(json.valueProperty ?? ""), groupByKey: entries[0]?.[0] ?? "", groupByValue: entries[0]?.[1] ?? "" };
+}
+
+function CreateMeterDialog({ open, onOpenChange, onSubmit, isPending }: { open: boolean; onOpenChange: (open: boolean) => void; onSubmit: (body: Partial<Meter>) => void; isPending: boolean }) {
+  const { data: spec, isLoading: schemaLoading } = useOpenAPISchema();
+  const [form, setForm] = useState<MeterForm>(EMPTY_FORM);
+  const [rawJson, setRawJson] = useState("");
+  const [mode, setMode] = useState<string>("pretty");
+  const [validated, setValidated] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const set = (k: string, v: string) => { setForm((f) => ({ ...f, [k]: v })); setValidated(false); setErrors([]); };
   const needsValue = form.aggregation !== "COUNT" && form.aggregation !== "UNIQUE_COUNT";
 
+  const handleTabChange = useCallback((tab: string) => {
+    if (tab === "json") { setRawJson(JSON.stringify(formToJson(form), null, 2)); }
+    else { try { setForm(jsonToForm(JSON.parse(rawJson))); } catch {} }
+    setMode(tab); setValidated(false); setErrors([]);
+  }, [form, rawJson]);
+
+  const getBody = (): Record<string, unknown> | null => {
+    if (mode === "json") { try { return JSON.parse(rawJson); } catch { setErrors(["Invalid JSON"]); return null; } }
+    return formToJson(form);
+  };
+
+  const handleValidate = () => {
+    const body = getBody();
+    if (!body || !spec) return;
+    const schema = extractSchema(spec, SCHEMA_REFS.MeterCreate);
+    const { valid, errors: valErrors } = validateAgainstSchema(schema, body);
+    if (valid) { setValidated(true); setErrors([]); }
+    else { setValidated(false); setErrors(formatErrors(valErrors)); }
+  };
+
   const handleSubmit = () => {
-    const { groupByKey, groupByValue, ...rest } = form;
-    const body: Record<string, unknown> = Object.fromEntries(
-      Object.entries(rest).filter(([, v]) => v !== "")
-    );
-    if (groupByKey && groupByValue) {
-      body.groupBy = { [groupByKey]: groupByValue };
-    }
-    onSubmit(body as Partial<Meter>);
+    const body = getBody();
+    if (body) onSubmit(body as Partial<Meter>);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Create Meter</DialogTitle>
-          <DialogDescription>Define a new usage meter to track events.</DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Slug <span className="text-red-500">*</span></Label>
-            <Input value={form.slug} onChange={(e) => set("slug", e.target.value)} placeholder="api_requests" />
-            <p className="mt-0.5 text-[10px] text-muted-foreground">Lowercase, underscores only</p>
+      <DialogContent className="sm:max-w-xl" showCloseButton={false}>
+        <Tabs value={mode} onValueChange={handleTabChange}>
+          <div className="flex items-start justify-between">
+            <DialogHeader>
+              <DialogTitle>Create Meter</DialogTitle>
+              <DialogDescription>Define a new usage meter to track events.</DialogDescription>
+            </DialogHeader>
+            <TabsList className="h-6 p-0.5">
+              <TabsTrigger value="pretty" className="h-5 px-2 text-[10px]">Pretty</TabsTrigger>
+              <TabsTrigger value="json" className="h-5 px-2 text-[10px]">JSON</TabsTrigger>
+            </TabsList>
           </div>
-          <div>
-            <Label>Name</Label>
-            <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="API Requests" />
-          </div>
-          <div>
-            <Label>Event Type <span className="text-red-500">*</span></Label>
-            <Input value={form.eventType} onChange={(e) => set("eventType", e.target.value)} placeholder="api.request" />
-          </div>
-          <div>
-            <Label>Aggregation <span className="text-red-500">*</span></Label>
-            <select
-              value={form.aggregation}
-              onChange={(e) => set("aggregation", e.target.value)}
-              className="flex h-8 w-full rounded-md border border-glass-border-honey bg-glass-light backdrop-blur-sm px-3 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-honey/40"
-            >
-              {AGGREGATIONS.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-          {needsValue && (
-            <div>
-              <Label>Value Property <span className="text-red-500">*</span></Label>
-              <Input value={form.valueProperty} onChange={(e) => set("valueProperty", e.target.value)} placeholder="$.duration_ms" />
-            </div>
-          )}
-          <div>
-            <Label>Group By</Label>
-            <div className="flex gap-1">
-              <Input value={form.groupByKey} onChange={(e) => set("groupByKey", e.target.value)} placeholder="key" className="flex-1" />
-              <Input value={form.groupByValue} onChange={(e) => set("groupByValue", e.target.value)} placeholder="$.path" className="flex-1" />
-            </div>
-          </div>
-          <div className="col-span-2">
-            <Label>Description</Label>
-            <Input value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Tracks API request count by endpoint" />
-          </div>
-        </div>
+          <TabsContent value="pretty" className="mt-3">
+            <FieldGroup className="gap-4">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs">Slug <span className="text-destructive">*</span></FieldLabel>
+                  <Input className="h-8 text-xs" value={form.slug} onChange={(e) => set("slug", e.target.value)} placeholder="api_requests" />
+                  <FieldDescription className="text-[10px]">Lowercase, underscores only</FieldDescription>
+                </Field>
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs">Name</FieldLabel>
+                  <Input className="h-8 text-xs" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="API Requests" />
+                </Field>
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs">Event Type <span className="text-destructive">*</span></FieldLabel>
+                  <Input className="h-8 text-xs" value={form.eventType} onChange={(e) => set("eventType", e.target.value)} placeholder="api.request" />
+                </Field>
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs">Aggregation <span className="text-destructive">*</span></FieldLabel>
+                  <Select value={form.aggregation} onValueChange={(v) => set("aggregation", v)}>
+                    <SelectTrigger size="sm" className="w-full text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{AGGREGATIONS.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                  </Select>
+                </Field>
+                {needsValue && (
+                  <Field className="gap-1.5">
+                    <FieldLabel className="text-xs">Value Property <span className="text-destructive">*</span></FieldLabel>
+                    <Input className="h-8 text-xs" value={form.valueProperty} onChange={(e) => set("valueProperty", e.target.value)} placeholder="$.duration_ms" />
+                  </Field>
+                )}
+                <Field className="gap-1.5">
+                  <FieldLabel className="text-xs">Group By</FieldLabel>
+                  <div className="flex gap-1.5">
+                    <Input className="h-8 text-xs" value={form.groupByKey} onChange={(e) => set("groupByKey", e.target.value)} placeholder="key" />
+                    <Input className="h-8 text-xs" value={form.groupByValue} onChange={(e) => set("groupByValue", e.target.value)} placeholder="$.path" />
+                  </div>
+                </Field>
+              </div>
+              <Field className="gap-1.5">
+                <FieldLabel className="text-xs">Description</FieldLabel>
+                <Input className="h-8 text-xs" value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Tracks API request count by endpoint" />
+              </Field>
+            </FieldGroup>
+          </TabsContent>
+          <TabsContent value="json" className="mt-3">
+            <Textarea value={rawJson} onChange={(e) => { setRawJson(e.target.value); setValidated(false); setErrors([]); }} className="min-h-48 font-mono text-xs" />
+          </TabsContent>
+        </Tabs>
+        {errors.length > 0 && (
+          <ul className="text-xs text-destructive space-y-0.5">
+            {errors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        )}
+        {validated && errors.length === 0 && (
+          <p className="flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="size-3" /> Validation passed</p>
+        )}
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button size="sm" onClick={handleSubmit} disabled={isPending || !form.slug || !form.eventType || (needsValue && !form.valueProperty)}>
-            Create Meter
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+          {validated ? (
+            <Button size="sm" onClick={handleSubmit} disabled={isPending}>Create Meter</Button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={handleValidate} disabled={schemaLoading}>{schemaLoading ? "Loading..." : "Validate"}</Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -185,37 +239,74 @@ function CreateMeterDialog({ open, onOpenChange, onSubmit, isPending }: { open: 
 function EditMeterDialog({ meter, onOpenChange }: { meter: Meter | null; onOpenChange: (open: boolean) => void }) {
   const updateMut = useUpdateMeter();
   const [form, setForm] = useState({ name: "", description: "" });
-  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [rawJson, setRawJson] = useState("");
+  const [mode, setMode] = useState<string>("pretty");
+  const [validated, setValidated] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const set = (k: string, v: string) => { setForm((f) => ({ ...f, [k]: v })); setValidated(false); setErrors([]); };
 
-  // Sync form when meter changes
   const prevSlug = useState<string | null>(null);
   if (meter && meter.slug !== prevSlug[0]) {
     prevSlug[1](meter.slug);
     setForm({ name: meter.name, description: meter.description });
+    setRawJson(JSON.stringify({ name: meter.name, description: meter.description }, null, 2));
+    setMode("pretty"); setValidated(false); setErrors([]);
   }
+
+  const handleTabChange = (tab: string) => {
+    if (tab === "json") { setRawJson(JSON.stringify(form, null, 2)); }
+    else { try { setForm(JSON.parse(rawJson)); } catch {} }
+    setMode(tab); setValidated(false); setErrors([]);
+  };
+
+  const getBody = (): Record<string, unknown> | null => {
+    if (mode === "json") { try { return JSON.parse(rawJson); } catch { setErrors(["Invalid JSON"]); return null; } }
+    return form;
+  };
+
+  const handleValidate = () => {
+    const body = getBody();
+    if (!body) return;
+    const meterUpdateSchema = { type: "object", additionalProperties: false, properties: { name: { type: "string", maxLength: 256 }, description: { type: "string", maxLength: 1024 } } };
+    const { valid, errors: valErrors } = validateAgainstSchema(meterUpdateSchema, body);
+    if (valid) { setValidated(true); setErrors([]); }
+    else { setValidated(false); setErrors(formatErrors(valErrors)); }
+  };
+
+  const handleSubmit = () => {
+    const body = getBody();
+    if (body) updateMut.mutate({ id: meter?.id || meter?.slug || "", body }, { onSuccess: () => onOpenChange(false) });
+  };
 
   return (
     <Dialog open={!!meter} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Edit {meter?.slug}</DialogTitle>
-          <DialogDescription>Update meter display name and description.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Label>Name</Label>
-            <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
+      <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+        <Tabs value={mode} onValueChange={handleTabChange}>
+          <div className="flex items-start justify-between">
+            <DialogHeader>
+              <DialogTitle>Edit {meter?.slug}</DialogTitle>
+              <DialogDescription>Update meter display name and description.</DialogDescription>
+            </DialogHeader>
+            <TabsList className="h-6 p-0.5">
+              <TabsTrigger value="pretty" className="h-5 px-2 text-[10px]">Pretty</TabsTrigger>
+              <TabsTrigger value="json" className="h-5 px-2 text-[10px]">JSON</TabsTrigger>
+            </TabsList>
           </div>
-          <div>
-            <Label>Description</Label>
-            <Input value={form.description} onChange={(e) => set("description", e.target.value)} />
-          </div>
-        </div>
+          <TabsContent value="pretty" className="mt-3">
+            <FieldGroup className="gap-4">
+              <Field className="gap-1.5"><FieldLabel className="text-xs">Name</FieldLabel><Input className="h-8 text-xs" value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
+              <Field className="gap-1.5"><FieldLabel className="text-xs">Description</FieldLabel><Input className="h-8 text-xs" value={form.description} onChange={(e) => set("description", e.target.value)} /></Field>
+            </FieldGroup>
+          </TabsContent>
+          <TabsContent value="json" className="mt-3">
+            <Textarea value={rawJson} onChange={(e) => { setRawJson(e.target.value); setValidated(false); setErrors([]); }} className="min-h-24 font-mono text-xs" />
+          </TabsContent>
+        </Tabs>
+        {errors.length > 0 && <ul className="text-xs text-destructive space-y-0.5">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
+        {validated && errors.length === 0 && <p className="flex items-center gap-1 text-xs text-green-600"><CheckCircle2 className="size-3" /> Validation passed</p>}
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button size="sm" onClick={() => updateMut.mutate({ id: meter?.id || meter?.slug || "", body: form }, { onSuccess: () => onOpenChange(false) })} disabled={updateMut.isPending}>
-            Save
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+          {validated ? <Button size="sm" onClick={handleSubmit} disabled={updateMut.isPending}>Save</Button> : <Button size="sm" variant="secondary" onClick={handleValidate}>Validate</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -228,26 +319,22 @@ function QueryMeterDialog({ meter, onOpenChange }: { meter: Meter | null; onOpen
 
   return (
     <Dialog open={!!meter} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Query {meter?.slug}</DialogTitle>
           <DialogDescription>Run a query against this meter.</DialogDescription>
         </DialogHeader>
-        <div>
-          <Label>Query Body (JSON)</Label>
-          <Textarea value={body} onChange={(e) => setBody(e.target.value)} className="font-mono text-xs" />
-        </div>
+        <Field className="gap-1.5">
+          <FieldLabel className="text-xs">Query Body (JSON)</FieldLabel>
+          <Textarea value={body} onChange={(e) => setBody(e.target.value)} className="min-h-24 font-mono text-xs" />
+        </Field>
         {queryMut.error && <p className="text-xs text-destructive">{queryMut.error.message}</p>}
         {queryMut.data != null && (
-          <pre className="max-h-64 overflow-auto rounded glass-subtle p-2 text-xs text-foreground">
-            {JSON.stringify(queryMut.data, null, 2)}
-          </pre>
+          <pre className="max-h-64 overflow-auto rounded-md glass-subtle p-3 text-xs text-foreground">{JSON.stringify(queryMut.data, null, 2)}</pre>
         )}
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button size="sm" onClick={() => { try { queryMut.mutate({ id: meter?.id || meter?.slug || "", body: JSON.parse(body) }); } catch {} }} disabled={queryMut.isPending}>
-            Query
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button size="sm" onClick={() => { try { queryMut.mutate({ id: meter?.id || meter?.slug || "", body: JSON.parse(body) }); } catch {} }} disabled={queryMut.isPending}>Query</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

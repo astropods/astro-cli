@@ -40,4 +40,5 @@ export const openmeterKeys = {
   entitlementGrants: (custId: string, entId: string) =>
     [...openmeterKeys.all, "entitlementGrants", custId, entId] as const,
   events: () => [...openmeterKeys.all, "events"] as const,
+  openapi: () => [...openmeterKeys.all, "openapi"] as const,
 };

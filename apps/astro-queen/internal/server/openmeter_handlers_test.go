@@ -103,7 +103,7 @@ func TestOMReverseProxy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := New(&mockAdminClient{proxyFn: tt.proxyFn}, nil, 0)
+			srv := New(&mockAdminClient{proxyFn: tt.proxyFn}, nil, 0, nil)
 
 			req := httptest.NewRequest("GET", tt.reqPath, nil)
 			rec := httptest.NewRecorder()
