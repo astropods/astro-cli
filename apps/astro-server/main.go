@@ -354,6 +354,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			protected.GET("/me", handlers.GetProfile(log, accountStore, agentIndex))
 
 			// Account management
+			protected.GET("/accounts/search", handlers.SearchAccounts(log, accountStore))
 			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient))
 
 			// Account-scoped routes (owner/admin)

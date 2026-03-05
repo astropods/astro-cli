@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -368,6 +369,61 @@ func (s *AccountStore) UpsertMemberByWorkosMembershipID(accountID, userID, worko
 		return fmt.Errorf("failed to upsert member workos link: %w", err)
 	}
 	return nil
+}
+
+// Search finds accounts whose name starts with the given prefix.
+// If accountType is non-empty, results are filtered to that type.
+// Limit is capped at 10.
+func (s *AccountStore) Search(query string, accountType string, limit int) ([]Account, error) {
+	if limit <= 0 || limit > 10 {
+		limit = 10
+	}
+
+	// Escape LIKE metacharacters before appending the prefix wildcard
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	pattern := escaped + "%"
+
+	var rows *sql.Rows
+	var err error
+
+	if accountType != "" {
+		rows, err = s.db.Query(`
+			SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at
+			FROM accounts a
+			LEFT JOIN account_organizations ao ON ao.account_id = a.id
+			WHERE a.name LIKE $1 AND a.type = $2
+			ORDER BY a.name
+			LIMIT $3
+		`, pattern, accountType, limit)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at
+			FROM accounts a
+			LEFT JOIN account_organizations ao ON ao.account_id = a.id
+			WHERE a.name LIKE $1
+			ORDER BY a.name
+			LIMIT $2
+		`, pattern, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to search accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		var workosOrgID string
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &workosOrgID, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		if workosOrgID != "" {
+			a.WorkOSOrganizationID = workosOrgID
+		}
+		accounts = append(accounts, a)
+	}
+
+	return accounts, nil
 }
 
 // DeleteByID deletes an account by its UUID (used for cleanup on org creation failure).

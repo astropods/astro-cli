@@ -12,6 +12,8 @@ CREATE TABLE public.accounts (
     CONSTRAINT accounts_name_key UNIQUE (name)
 );
 
+CREATE INDEX idx_accounts_name_prefix ON public.accounts(name text_pattern_ops);
+
 CREATE TABLE public.account_organizations (
     account_id uuid NOT NULL,
     workos_org_id text NOT NULL,

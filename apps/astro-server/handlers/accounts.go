@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/postman/astro/apps/astro-server/internal/account"
@@ -317,5 +319,55 @@ func CheckAccountName(log *logger.Logger, accountStore *account.AccountStore) gi
 			"available": false,
 			"reason":    "name is already taken",
 		})
+	}
+}
+
+// SearchAccountResult represents a single account in search results
+type SearchAccountResult struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// SearchAccounts handles GET /api/v1/accounts/search (protected)
+// Query params: q (required), type (optional: personal|organization), limit (optional, default 10, max 20)
+func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		q := strings.ToLower(strings.TrimSpace(c.Query("q")))
+		if len(q) < 3 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' must be at least 3 characters"})
+			return
+		}
+
+		accountType := c.Query("type")
+		if accountType != "" && accountType != "personal" && accountType != "organization" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "type must be 'personal' or 'organization'"})
+			return
+		}
+
+		limit := 10
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 10 {
+				limit = parsed
+			}
+		}
+
+		accounts, err := accountStore.Search(q, accountType, limit)
+		if err != nil {
+			log.Error("Failed to search accounts", "error", err, "query", q)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search accounts"})
+			return
+		}
+
+		results := make([]SearchAccountResult, 0, len(accounts))
+		for _, a := range accounts {
+			results = append(results, SearchAccountResult{
+				ID:   a.ID,
+				Name: a.Name,
+				Type: a.Type,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"results": results})
 	}
 }
