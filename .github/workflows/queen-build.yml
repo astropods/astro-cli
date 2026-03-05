@@ -1,0 +1,54 @@
+name: Build Queen CLI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/astro-queen/**"
+      - "packages/astro-proto/**"
+  pull_request:
+    paths:
+      - "apps/astro-queen/**"
+      - "packages/astro-proto/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/astro-queen/go.mod
+          cache-dependency-path: apps/astro-queen/go.sum
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build web frontend
+        working-directory: apps/astro-queen/web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Build queen binary
+        working-directory: apps/astro-queen
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o queen-${{ matrix.goos }}-${{ matrix.goarch }} .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: queen-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: apps/astro-queen/queen-${{ matrix.goos }}-${{ matrix.goarch }}
