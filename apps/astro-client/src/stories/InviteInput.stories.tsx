@@ -4,7 +4,6 @@ import { InviteInput, type InviteEntry } from "@/components/InviteInput";
 
 const meta = {
   title: "Components/InviteInput",
-  component: InviteInput,
   decorators: [
     (Story) => (
       <div className="max-w-md">
@@ -12,7 +11,7 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof InviteInput>;
+} satisfies Meta;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
