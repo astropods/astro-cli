@@ -99,7 +99,7 @@ func main() {
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, db)
+		eventsCancel = runWorker(log, cfg, accountStore, db, omClient)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -268,22 +268,28 @@ func runAPI(
 	return srv, grpcServer, probeHandler
 }
 
-// runWorker starts background workers (events consumer) and returns a cancel func.
+// runWorker starts background workers (events consumer, OpenMeter reconciler) and returns a cancel func.
 func runWorker(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
 	db *sql.DB,
+	omClient *openmeter.Client,
 ) context.CancelFunc {
-	if cfg.Auth.WorkOSAPIKey == "" {
+	workerCtx, cancel := context.WithCancel(context.Background())
+
+	if cfg.Auth.WorkOSAPIKey != "" {
+		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
+		go consumer.Start(workerCtx)
+		log.Info("WorkOS events consumer started")
+	} else {
 		log.Warn("WorkOS API key not configured, events consumer will not start")
-		return nil
 	}
 
-	eventsCtx, cancel := context.WithCancel(context.Background())
-	consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
-	go consumer.Start(eventsCtx)
-	log.Info("WorkOS events consumer started")
+	if omClient != nil {
+		reconciler := openmeter.NewReconciler(omClient, accountStore, log)
+		go reconciler.Run(workerCtx)
+	}
 
 	return cancel
 }
