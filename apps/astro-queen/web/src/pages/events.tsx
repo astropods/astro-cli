@@ -31,27 +31,27 @@ export function EventsPage() {
       )}
 
       {isLoading && <Skeleton className="h-40 w-full" />}
-      {error && <p className="text-red-400 text-sm">{error.message}</p>}
+      {error && <p className="text-destructive text-sm">{error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-md border border-stone-800">
+        <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-800 bg-stone-900/50">
-                <th className="px-4 py-2 text-left font-medium text-stone-400">ID</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Type</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Subject</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Source</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Time</th>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">ID</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Type</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Subject</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Source</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Time</th>
               </tr>
             </thead>
             <tbody>
               {data.map((ev, i) => (
-                <tr key={ev.id || i} className="border-b border-stone-800/50 hover:bg-stone-900/30">
-                  <td className="px-4 py-2 font-mono text-xs text-stone-400">{ev.id}</td>
+                <tr key={ev.id || i} className="border-b border-comb-light hover:bg-glass-light">
+                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{ev.id}</td>
                   <td className="px-4 py-2 text-amber">{ev.type}</td>
                   <td className="px-4 py-2">{ev.subject}</td>
-                  <td className="px-4 py-2 text-stone-400">{ev.source}</td>
-                  <td className="px-4 py-2 text-stone-500">{ev.time ? formatDateTime(ev.time) : "-"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{ev.source}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{ev.time ? formatDateTime(ev.time) : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -99,7 +99,7 @@ function IngestForm({
   };
 
   return (
-    <div className="rounded-md border border-stone-800 bg-stone-900/50 p-4">
+    <div className="rounded-lg glass-heavy p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium">Ingest Event</h3>
         <Button variant="ghost" size="icon-xs" onClick={onClose}>
@@ -108,27 +108,27 @@ function IngestForm({
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Type *</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Type *</label>
           <Input value={form.type} onChange={(e) => set("type", e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Subject *</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Subject *</label>
           <Input value={form.subject} onChange={(e) => set("subject", e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Source</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Source</label>
           <Input value={form.source} onChange={(e) => set("source", e.target.value)} />
         </div>
       </div>
       <div className="mt-3">
-        <label className="mb-1 block text-xs text-stone-500">Data (JSON)</label>
+        <label className="mb-1 block text-xs text-muted-foreground">Data (JSON)</label>
         <Textarea
           value={form.data}
           onChange={(e) => set("data", e.target.value)}
           className="font-mono text-xs"
         />
       </div>
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       <div className="mt-3">
         <Button size="sm" onClick={handleSubmit} disabled={isPending || !form.type || !form.subject}>
           <Send className="size-3.5" /> Ingest

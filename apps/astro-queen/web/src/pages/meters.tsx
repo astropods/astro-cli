@@ -30,30 +30,30 @@ export function MetersPage() {
       {queryMeter && <QueryMeterForm meter={queryMeter} onClose={() => setQueryMeter(null)} />}
 
       {isLoading && <Skeleton className="h-40 w-full" />}
-      {error && <p className="text-red-400 text-sm">{error.message}</p>}
+      {error && <p className="text-destructive text-sm">{error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-md border border-stone-800">
+        <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-800 bg-stone-900/50">
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Slug</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Event Type</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Aggregation</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Value Property</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Created</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Actions</th>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Slug</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Event Type</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Aggregation</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Value Property</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.map((m) => (
-                <tr key={m.id || m.slug} className="border-b border-stone-800/50 hover:bg-stone-900/30">
+                <tr key={m.id || m.slug} className="border-b border-comb-light hover:bg-glass-light">
                   <td className="px-4 py-2 font-mono text-xs text-amber">{m.slug}</td>
                   <td className="px-4 py-2">{m.name}</td>
-                  <td className="px-4 py-2 text-stone-400">{m.eventType}</td>
-                  <td className="px-4 py-2 text-stone-400">{m.aggregation}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-stone-500">{m.valueProperty || "-"}</td>
-                  <td className="px-4 py-2 text-stone-500">{m.createdAt ? formatDateTime(m.createdAt) : "-"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{m.eventType}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{m.aggregation}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{m.valueProperty || "-"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{m.createdAt ? formatDateTime(m.createdAt) : "-"}</td>
                   <td className="px-4 py-2">
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon-xs" onClick={() => setQueryMeter(m)}>
@@ -67,7 +67,7 @@ export function MetersPage() {
                         size="icon-xs"
                         onClick={() => { if (confirm(`Delete meter "${m.slug}"?`)) deleteMut.mutate(m.id || m.slug); }}
                       >
-                        <Trash2 className="size-3 text-red-400" />
+                        <Trash2 className="size-3 text-red-500" />
                       </Button>
                     </div>
                   </td>
@@ -90,57 +90,57 @@ function CreateMeterForm({ onClose, onSubmit, isPending }: { onClose: () => void
   const needsValue = form.aggregation !== "COUNT" && form.aggregation !== "UNIQUE_COUNT";
 
   return (
-    <div className="rounded-md border border-stone-800 bg-stone-900/50 p-4">
+    <div className="rounded-lg glass-heavy p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium">Create Meter</h3>
         <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3.5" /></Button>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Slug <span className="text-red-400">*</span></label>
+          <label className="mb-1 block text-xs text-muted-foreground">Slug <span className="text-red-500">*</span></label>
           <Input value={form.slug} onChange={(e) => set("slug", e.target.value)} placeholder="api_requests" />
-          <p className="mt-0.5 text-[10px] text-stone-600">Lowercase, underscores only (e.g. api_requests)</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">Lowercase, underscores only (e.g. api_requests)</p>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Name</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Name</label>
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="API Requests" />
-          <p className="mt-0.5 text-[10px] text-stone-600">Human-readable display name</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">Human-readable display name</p>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Event Type <span className="text-red-400">*</span></label>
+          <label className="mb-1 block text-xs text-muted-foreground">Event Type <span className="text-red-500">*</span></label>
           <Input value={form.eventType} onChange={(e) => set("eventType", e.target.value)} placeholder="api.request" />
-          <p className="mt-0.5 text-[10px] text-stone-600">CloudEvents type to match</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">CloudEvents type to match</p>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Aggregation <span className="text-red-400">*</span></label>
+          <label className="mb-1 block text-xs text-muted-foreground">Aggregation <span className="text-red-500">*</span></label>
           <select
             value={form.aggregation}
             onChange={(e) => set("aggregation", e.target.value)}
-            className="flex h-8 w-full rounded-md border border-stone-700 bg-stone-900 px-3 py-1 text-sm text-stone-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-500"
+            className="flex h-8 w-full rounded-md border border-glass-border-honey bg-glass-light backdrop-blur-sm px-3 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-honey/40"
           >
             {AGGREGATIONS.map((a) => (
               <option key={a} value={a}>{a}</option>
             ))}
           </select>
-          <p className="mt-0.5 text-[10px] text-stone-600">How event values are combined</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">How event values are combined</p>
         </div>
         {needsValue && (
           <div>
-            <label className="mb-1 block text-xs text-stone-500">Value Property <span className="text-red-400">*</span></label>
+            <label className="mb-1 block text-xs text-muted-foreground">Value Property <span className="text-red-500">*</span></label>
             <Input value={form.valueProperty} onChange={(e) => set("valueProperty", e.target.value)} placeholder="$.duration_ms" />
-            <p className="mt-0.5 text-[10px] text-stone-600">JSONPath to the numeric value in event data</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">JSONPath to the numeric value in event data</p>
           </div>
         )}
         <div>
-          <label className="mb-1 block text-xs text-stone-500">Group By</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Group By</label>
           <div className="flex gap-1">
             <Input value={form.groupByKey} onChange={(e) => set("groupByKey", e.target.value)} placeholder="key" className="flex-1" />
             <Input value={form.groupByValue} onChange={(e) => set("groupByValue", e.target.value)} placeholder="$.path" className="flex-1" />
           </div>
-          <p className="mt-0.5 text-[10px] text-stone-600">Optional: group name and JSONPath (e.g. method / $.method)</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">Optional: group name and JSONPath (e.g. method / $.method)</p>
         </div>
         <div className="col-span-2">
-          <label className="mb-1 block text-xs text-stone-500">Description</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Description</label>
           <Input value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Tracks API request count by endpoint" />
         </div>
       </div>
@@ -169,7 +169,7 @@ function EditMeterForm({ meter, onClose }: { meter: Meter; onClose: () => void }
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <div className="rounded-md border border-stone-800 bg-stone-900/50 p-4">
+    <div className="rounded-lg glass-heavy p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium">Edit {meter.slug}</h3>
         <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3.5" /></Button>
@@ -192,7 +192,7 @@ function QueryMeterForm({ meter, onClose }: { meter: Meter; onClose: () => void 
   const [body, setBody] = useState(JSON.stringify({ from: new Date(Date.now() - 86400000).toISOString(), to: new Date().toISOString(), windowSize: "HOUR" }, null, 2));
 
   return (
-    <div className="rounded-md border border-stone-800 bg-stone-900/50 p-4">
+    <div className="rounded-lg glass-heavy p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium">Query {meter.slug}</h3>
         <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3.5" /></Button>
@@ -203,9 +203,9 @@ function QueryMeterForm({ meter, onClose }: { meter: Meter; onClose: () => void 
           Query
         </Button>
       </div>
-      {queryMut.error && <p className="mt-2 text-xs text-red-400">{queryMut.error.message}</p>}
+      {queryMut.error && <p className="mt-2 text-xs text-destructive">{queryMut.error.message}</p>}
       {queryMut.data != null && (
-        <pre className="mt-2 max-h-64 overflow-auto rounded bg-stone-950 p-2 text-xs text-stone-300">
+        <pre className="mt-2 max-h-64 overflow-auto rounded glass-subtle p-2 text-xs text-foreground">
           {JSON.stringify(queryMut.data, null, 2)}
         </pre>
       )}
@@ -216,7 +216,7 @@ function QueryMeterForm({ meter, onClose }: { meter: Meter; onClose: () => void 
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div>
-      <label className="mb-1 block text-xs text-stone-500">{label}</label>
+      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
       <Input value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );

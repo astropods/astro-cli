@@ -25,14 +25,14 @@ export function CustomerDetailPage() {
   const createEnt = useCreateEntitlement();
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
-  if (error) return <p className="text-red-400">Error: {error.message}</p>;
+  if (error) return <p className="text-destructive">Error: {error.message}</p>;
   if (!customer) return null;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold">{customer.name}</h2>
-        <p className="text-sm text-stone-500">{customer.id}</p>
+        <p className="text-sm text-muted-foreground">{customer.id}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -44,7 +44,7 @@ export function CustomerDetailPage() {
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-stone-400">Entitlements</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">Entitlements</h3>
           <Button size="xs" variant="outline" onClick={() => setShowCreateEnt(true)}>
             <Plus className="size-3" /> Add
           </Button>
@@ -62,7 +62,7 @@ export function CustomerDetailPage() {
         {entitlements?.map((ent) => (
           <EntitlementRow key={ent.id} customerId={id!} entitlement={ent} />
         ))}
-        {entitlements?.length === 0 && <p className="text-sm text-stone-500">No entitlements</p>}
+        {entitlements?.length === 0 && <p className="text-sm text-muted-foreground">No entitlements</p>}
       </div>
     </div>
   );
@@ -70,8 +70,8 @@ export function CustomerDetailPage() {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-stone-800 bg-stone-900/30 px-3 py-2">
-      <p className="text-xs text-stone-500">{label}</p>
+    <div className="rounded-lg glass px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-0.5 truncate text-sm">{value || "-"}</p>
     </div>
   );
@@ -85,45 +85,45 @@ function EntitlementRow({ customerId, entitlement }: { customerId: string; entit
   const createGrant = useCreateGrant();
 
   return (
-    <Collapsible className="mb-2 rounded-md border border-stone-800 bg-stone-900/30">
+    <Collapsible className="mb-2 rounded-lg glass">
       <div className="flex items-center justify-between px-3 py-2">
-        <CollapsibleTrigger className="flex items-center gap-1 text-sm hover:text-stone-200">
-          <ChevronDown className="size-3.5 text-stone-500" />
+        <CollapsibleTrigger className="flex items-center gap-1 text-sm hover:text-foreground">
+          <ChevronDown className="size-3.5 text-muted-foreground" />
           <span className="font-medium text-amber">{entitlement.featureKey}</span>
-          <span className="ml-2 text-xs text-stone-500">{entitlement.type}</span>
+          <span className="ml-2 text-xs text-muted-foreground">{entitlement.type}</span>
         </CollapsibleTrigger>
         <Button variant="ghost" size="icon-xs" onClick={() => deleteEnt.mutate({ customerId, entitlementId: entitlement.id })}>
-          <Trash2 className="size-3 text-red-400" />
+          <Trash2 className="size-3 text-red-500" />
         </Button>
       </div>
-      <CollapsibleContent className="border-t border-stone-800 px-3 py-2">
+      <CollapsibleContent className="border-t border-glass-border-honey px-3 py-2">
         <div className="grid grid-cols-4 gap-3 text-xs">
           <div>
-            <p className="text-stone-500">Access</p>
-            <p className={value?.hasAccess ? "text-green-400" : "text-red-400"}>{value?.hasAccess ? "Yes" : "No"}</p>
+            <p className="text-muted-foreground">Access</p>
+            <p className={value?.hasAccess ? "text-green-600" : "text-destructive"}>{value?.hasAccess ? "Yes" : "No"}</p>
           </div>
           <div>
-            <p className="text-stone-500">Balance</p>
+            <p className="text-muted-foreground">Balance</p>
             <p>{value?.balance ?? "-"}</p>
           </div>
           <div>
-            <p className="text-stone-500">Usage</p>
+            <p className="text-muted-foreground">Usage</p>
             <p>{value?.usage ?? "-"}</p>
           </div>
           <div>
-            <p className="text-stone-500">Overage</p>
+            <p className="text-muted-foreground">Overage</p>
             <p>{value?.overage ?? "-"}</p>
           </div>
         </div>
 
         {grants && grants.length > 0 && (
           <div className="mt-3">
-            <p className="mb-1 text-xs font-medium text-stone-400">Grants</p>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Grants</p>
             {grants.map((g) => (
-              <div key={g.id} className="mb-1 rounded border border-stone-800 px-2 py-1 text-xs">
+              <div key={g.id} className="mb-1 rounded-lg border border-glass-border-honey px-2 py-1 text-xs">
                 <span className="text-amber">Amount: {g.amount}</span>
-                <span className="ml-2 text-stone-500">Priority: {g.priority}</span>
-                <span className="ml-2 text-stone-500">Effective: {formatDateTime(g.effectiveAt)}</span>
+                <span className="ml-2 text-muted-foreground">Priority: {g.priority}</span>
+                <span className="ml-2 text-muted-foreground">Effective: {formatDateTime(g.effectiveAt)}</span>
               </div>
             ))}
           </div>
@@ -152,7 +152,7 @@ function CreateEntitlementForm({ customerId: _customerId, onClose, onSubmit, isP
   const [type, setType] = useState("metered");
 
   return (
-    <div className="mb-3 rounded-md border border-stone-800 bg-stone-900/50 p-3">
+    <div className="mb-3 rounded-lg glass-heavy p-3">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-xs font-medium">Create Entitlement</p>
         <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3" /></Button>
@@ -171,7 +171,7 @@ function CreateGrantForm({ onClose, onSubmit, isPending }: { onClose: () => void
   const [priority, setPriority] = useState("1");
 
   return (
-    <div className="rounded border border-stone-800 bg-stone-950 p-2">
+    <div className="rounded-lg glass-subtle p-2">
       <div className="mb-1 flex items-center justify-between">
         <p className="text-xs font-medium">Add Grant</p>
         <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3" /></Button>

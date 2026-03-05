@@ -13,18 +13,18 @@ export function AgentsPage() {
     <div>
       <h2 className="mb-4 text-xl font-semibold">Agents</h2>
       {isLoading && <LoadingSkeleton />}
-      {error && <p className="text-red-400">Error: {error.message}</p>}
+      {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (
         <div className="flex gap-4">
-          <div className="flex-1 overflow-x-auto rounded-md border border-stone-800">
+          <div className="flex-1 overflow-x-auto rounded-lg glass">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-stone-800 bg-stone-900/50">
-                  <th className="px-4 py-2 text-left font-medium text-stone-400">Account</th>
-                  <th className="px-4 py-2 text-left font-medium text-stone-400">Name</th>
-                  <th className="px-4 py-2 text-right font-medium text-stone-400">Builds</th>
-                  <th className="px-4 py-2 text-left font-medium text-stone-400">Latest Build</th>
-                  <th className="px-4 py-2 text-left font-medium text-stone-400">Updated</th>
+                <tr className="border-b border-glass-border-honey glass-subtle">
+                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Account</th>
+                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Builds</th>
+                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Latest Build</th>
+                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Updated</th>
                   <th className="w-8"></th>
                 </tr>
               </thead>
@@ -34,16 +34,16 @@ export function AgentsPage() {
                   return (
                     <tr
                       key={`${a.account_name}/${a.name}`}
-                      className={`cursor-pointer border-b border-stone-800/50 ${isSelected ? "bg-stone-800/50" : "hover:bg-stone-900/30"}`}
+                      className={`cursor-pointer border-b border-comb-light ${isSelected ? "bg-pollen" : "hover:bg-glass-light"}`}
                       onClick={() => setSelected({ account: a.account_name, name: a.name })}
                     >
-                      <td className="px-4 py-2 text-stone-400">{a.account_name}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{a.account_name}</td>
                       <td className="px-4 py-2 font-medium text-amber">{a.name}</td>
                       <td className="px-4 py-2 text-right">{a.build_count}</td>
-                      <td className="px-4 py-2 font-mono text-xs text-stone-500">{truncateUUID(a.latest_build_id)}</td>
-                      <td className="px-4 py-2 text-stone-500">{formatDateTime(a.updated_at)}</td>
+                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{truncateUUID(a.latest_build_id)}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{formatDateTime(a.updated_at)}</td>
                       <td className="px-2">
-                        <ChevronRight className="size-4 text-stone-600" />
+                        <ChevronRight className="size-4 text-muted-foreground" />
                       </td>
                     </tr>
                   );
@@ -64,7 +64,7 @@ function BuildsPanel({ account, name, onClose }: { account: string; name: string
   const { data, isLoading, error } = useAgentBuilds(account, name);
 
   return (
-    <div className="w-80 shrink-0 rounded-md border border-stone-800 bg-stone-900/30 p-3">
+    <div className="w-80 shrink-0 rounded-lg glass p-3">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-medium">
           {account}/{name} builds
@@ -72,11 +72,11 @@ function BuildsPanel({ account, name, onClose }: { account: string; name: string
         <Button variant="ghost" size="xs" onClick={onClose}>Close</Button>
       </div>
       {isLoading && <Skeleton className="h-32 w-full" />}
-      {error && <p className="text-xs text-red-400">{error.message}</p>}
+      {error && <p className="text-xs text-destructive">{error.message}</p>}
       {data?.builds?.map((b) => (
-        <div key={b.build_id} className="mb-2 rounded border border-stone-800 px-2.5 py-1.5 text-xs">
+        <div key={b.build_id} className="mb-2 rounded-lg border border-glass-border-honey px-2.5 py-1.5 text-xs">
           <p className="font-mono text-amber">{truncateUUID(b.build_id)}</p>
-          <p className="text-stone-500">
+          <p className="text-muted-foreground">
             {formatDateTime(b.updated_at)}
           </p>
         </div>

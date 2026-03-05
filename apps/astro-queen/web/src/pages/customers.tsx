@@ -14,39 +14,39 @@ export function CustomersPage() {
       <h2 className="text-xl font-semibold">Customers</h2>
 
       {isLoading && <Skeleton className="h-40 w-full" />}
-      {error && <p className="text-red-400 text-sm">{error.message}</p>}
+      {error && <p className="text-destructive text-sm">{error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-md border border-stone-800">
+        <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-800 bg-stone-900/50">
-                <th className="px-4 py-2 text-left font-medium text-stone-400">ID</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Email</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Currency</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Created</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Actions</th>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">ID</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Email</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Currency</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.map((c) => (
-                <tr key={c.id} className="border-b border-stone-800/50 hover:bg-stone-900/30">
+                <tr key={c.id} className="border-b border-comb-light hover:bg-glass-light">
                   <td className="px-4 py-2">
                     <Link to={`/openmeter/customers/${c.id}`} className="text-amber hover:underline">
                       {c.id}
                     </Link>
                   </td>
                   <td className="px-4 py-2">{c.name}</td>
-                  <td className="px-4 py-2 text-stone-400">{c.email || "-"}</td>
-                  <td className="px-4 py-2 text-stone-400">{c.currency || "-"}</td>
-                  <td className="px-4 py-2 text-stone-500">{c.createdAt ? formatDateTime(c.createdAt) : "-"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{c.email || "-"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{c.currency || "-"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{c.createdAt ? formatDateTime(c.createdAt) : "-"}</td>
                   <td className="px-4 py-2">
                     <Button
                       variant="ghost"
                       size="icon-xs"
                       onClick={() => { if (confirm(`Delete customer "${c.name}"?`)) deleteMut.mutate(c.id); }}
                     >
-                      <Trash2 className="size-3 text-red-400" />
+                      <Trash2 className="size-3 text-red-500" />
                     </Button>
                   </td>
                 </tr>

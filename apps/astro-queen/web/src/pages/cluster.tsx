@@ -29,7 +29,7 @@ export function ClusterPage() {
       </div>
 
       {isLoading && <Skeleton className="h-64 w-full" />}
-      {error && <p className="text-red-400 text-sm">{error.message}</p>}
+      {error && <p className="text-destructive text-sm">{error.message}</p>}
       {data && (
         <div className="space-y-6">
           {data.summary && (
@@ -46,16 +46,16 @@ export function ClusterPage() {
             <Section title="Deployments">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-stone-800 bg-stone-900/50">
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Name</th>
-                    <th className="px-3 py-1.5 text-right font-medium text-stone-400">Replicas</th>
-                    <th className="px-3 py-1.5 text-right font-medium text-stone-400">Ready</th>
-                    <th className="px-3 py-1.5 text-right font-medium text-stone-400">Available</th>
+                  <tr className="border-b border-glass-border-honey glass-subtle">
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Replicas</th>
+                    <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Ready</th>
+                    <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Available</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.deployments.map((d) => (
-                    <tr key={d.name} className="border-b border-stone-800/50">
+                    <tr key={d.name} className="border-b border-comb-light">
                       <td className="px-3 py-1.5">{d.name}</td>
                       <td className="px-3 py-1.5 text-right">{d.replicas}</td>
                       <td className="px-3 py-1.5 text-right">{d.ready_replicas}</td>
@@ -71,22 +71,22 @@ export function ClusterPage() {
             <Section title="Pods">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-stone-800 bg-stone-900/50">
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Name</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Phase</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Node</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">IP</th>
+                  <tr className="border-b border-glass-border-honey glass-subtle">
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Phase</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Node</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">IP</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.pods.map((p) => (
-                    <tr key={p.name} className="border-b border-stone-800/50">
+                    <tr key={p.name} className="border-b border-comb-light">
                       <td className="px-3 py-1.5 font-mono">{p.name}</td>
-                      <td className={`px-3 py-1.5 ${p.phase === "Running" ? "text-green-400" : p.phase === "Pending" ? "text-yellow-400" : "text-red-400"}`}>
+                      <td className={`px-3 py-1.5 ${p.phase === "Running" ? "text-green-600" : p.phase === "Pending" ? "text-yellow-600" : "text-destructive"}`}>
                         {p.phase}
                       </td>
-                      <td className="px-3 py-1.5 text-stone-500">{p.node_name}</td>
-                      <td className="px-3 py-1.5 text-stone-500">{p.pod_ip}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{p.node_name}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{p.pod_ip}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -98,20 +98,20 @@ export function ClusterPage() {
             <Section title="Services">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-stone-800 bg-stone-900/50">
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Name</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Type</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Cluster IP</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Ports</th>
+                  <tr className="border-b border-glass-border-honey glass-subtle">
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Cluster IP</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Ports</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.services.map((svc) => (
-                    <tr key={svc.name} className="border-b border-stone-800/50">
+                    <tr key={svc.name} className="border-b border-comb-light">
                       <td className="px-3 py-1.5">{svc.name}</td>
-                      <td className="px-3 py-1.5 text-stone-400">{svc.type}</td>
-                      <td className="px-3 py-1.5 text-stone-500">{svc.cluster_ip}</td>
-                      <td className="px-3 py-1.5 text-stone-500">
+                      <td className="px-3 py-1.5 text-muted-foreground">{svc.type}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{svc.cluster_ip}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">
                         {svc.ports?.map((p) => `${p.port}/${p.protocol}`).join(", ")}
                       </td>
                     </tr>
@@ -125,20 +125,20 @@ export function ClusterPage() {
             <Section title="Ingresses">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-stone-800 bg-stone-900/50">
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Name</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Hosts</th>
-                    <th className="px-3 py-1.5 text-left font-medium text-stone-400">Class</th>
+                  <tr className="border-b border-glass-border-honey glass-subtle">
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Hosts</th>
+                    <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Class</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.ingresses.map((ing) => (
-                    <tr key={ing.name} className="border-b border-stone-800/50">
+                    <tr key={ing.name} className="border-b border-comb-light">
                       <td className="px-3 py-1.5">{ing.name}</td>
-                      <td className="px-3 py-1.5 text-stone-400">
+                      <td className="px-3 py-1.5 text-muted-foreground">
                         {ing.rules?.map((r) => r.host).join(", ")}
                       </td>
-                      <td className="px-3 py-1.5 text-stone-500">{ing.ingress_class_name}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{ing.ingress_class_name}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -153,9 +153,9 @@ export function ClusterPage() {
 
 function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
-    <div className="rounded-md border border-stone-800 bg-stone-900/30 px-3 py-2">
-      <p className="text-xs text-stone-500">{label}</p>
-      <p className={`text-lg font-semibold ${warn ? "text-red-400" : ""}`}>{value}</p>
+    <div className="rounded-lg glass px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-lg font-semibold ${warn ? "text-destructive" : ""}`}>{value}</p>
     </div>
   );
 }
@@ -163,8 +163,8 @@ function Stat({ label, value, warn }: { label: string; value: number; warn?: boo
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-medium text-stone-400">{title}</h3>
-      <div className="overflow-x-auto rounded-md border border-stone-800">{children}</div>
+      <h3 className="mb-2 text-sm font-medium text-muted-foreground">{title}</h3>
+      <div className="overflow-x-auto rounded-lg glass">{children}</div>
     </div>
   );
 }

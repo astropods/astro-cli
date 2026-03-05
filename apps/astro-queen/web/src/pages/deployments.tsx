@@ -10,35 +10,35 @@ export function DeploymentsPage() {
     <div>
       <h2 className="mb-4 text-xl font-semibold">Deployments</h2>
       {isLoading && <TableSkeleton />}
-      {error && <p className="text-red-400">Error: {error.message}</p>}
+      {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-md border border-stone-800">
+        <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-800 bg-stone-900/50">
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Namespace</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Status</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Account</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Build</th>
-                <th className="px-4 py-2 text-left font-medium text-stone-400">Created</th>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Namespace</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Account</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Build</th>
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Created</th>
               </tr>
             </thead>
             <tbody>
               {data.deployments?.map((d) => (
-                <tr key={d.namespace} className="border-b border-stone-800/50 hover:bg-stone-900/30">
+                <tr key={d.namespace} className="border-b border-comb-light hover:bg-glass-light">
                   <td className="px-4 py-2">
                     <Link to={`/admin/deployments/${d.namespace}`} className="text-amber hover:underline">
                       {d.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2 text-stone-400">{d.namespace}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{d.namespace}</td>
                   <td className="px-4 py-2">
                     <StatusBadge status={d.status} />
                   </td>
-                  <td className="px-4 py-2 text-stone-400">{d.account_name}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-stone-500">{truncateUUID(d.build_id)}</td>
-                  <td className="px-4 py-2 text-stone-500">{formatDateTime(d.created_at)}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{d.account_name}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{truncateUUID(d.build_id)}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{formatDateTime(d.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -51,12 +51,12 @@ export function DeploymentsPage() {
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    running: "bg-green-900/40 text-green-400",
-    pending: "bg-yellow-900/40 text-yellow-400",
-    failed: "bg-red-900/40 text-red-400",
+    running: "bg-green-100/60 backdrop-blur-sm text-green-700",
+    pending: "bg-yellow-100/60 backdrop-blur-sm text-yellow-700",
+    failed: "bg-red-100/60 backdrop-blur-sm text-red-700",
   };
   return (
-    <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${colors[status?.toLowerCase()] ?? "bg-stone-800 text-stone-400"}`}>
+    <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${colors[status?.toLowerCase()] ?? "rounded-full bg-pollen-light text-honey-dark"}`}>
       {status || "unknown"}
     </span>
   );

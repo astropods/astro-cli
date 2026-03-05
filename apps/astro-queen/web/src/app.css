@@ -1,35 +1,70 @@
 @import "tailwindcss";
 
 @theme {
-  /* Dark honeycomb palette */
-  --color-background: #0c0a09;
-  --color-foreground: #fafaf9;
-  --color-muted: #1c1917;
-  --color-muted-foreground: #a8a29e;
-  --color-border: #292524;
-  --color-input: #1c1917;
-  --color-ring: #d6d3d1;
-  --color-primary: #fafaf9;
-  --color-primary-foreground: #0c0a09;
-  --color-secondary: #1c1917;
-  --color-secondary-foreground: #fafaf9;
-  --color-destructive: #dc2626;
-  --color-accent: #1c1917;
-  --color-accent-foreground: #fafaf9;
+  /* Warm cream base */
+  --color-background: #fffbf0;
+  --color-foreground: #44320a;
+  --color-muted: #f5f0e4;
+  --color-muted-foreground: #8a7a5a;
+  --color-border: #e8dcc4;
+  --color-input: #f5f0e4;
+  --color-ring: #c9a84c;
+  --color-primary: #44320a;
+  --color-primary-foreground: #fffbf0;
+  --color-secondary: #f5f0e4;
+  --color-secondary-foreground: #44320a;
+  --color-destructive: #c53030;
+  --color-accent: #f5f0e4;
+  --color-accent-foreground: #44320a;
 
   /* Bee palette */
-  --color-honey: #f59e0b;
-  --color-honey-light: #fbbf24;
-  --color-honey-dark: #b45309;
-  --color-amber: #e6b450;
-  --color-comb: #292524;
-  --color-comb-light: #44403c;
+  --color-honey: #d97706;
+  --color-honey-light: #f59e0b;
+  --color-honey-dark: #92400e;
+  --color-amber: #b45309;
+  --color-comb: #e8dcc4;
+  --color-comb-light: #f0e6d0;
   --color-pollen: #fef3c7;
-  --color-teal: #2dd4bf;
+  --color-pollen-light: #fef9e7;
+  --color-teal: #0d9488;
+
+  /* Glass tokens */
+  --color-glass: rgba(255, 255, 255, 0.55);
+  --color-glass-heavy: rgba(255, 255, 255, 0.72);
+  --color-glass-light: rgba(255, 251, 240, 0.50);
+  --color-glass-border: rgba(255, 255, 255, 0.45);
+  --color-glass-border-honey: rgba(217, 119, 6, 0.15);
 }
 
-/* Subtle honeycomb pattern on sidebar */
+/* SVG hexagonal honeycomb background */
 .honeycomb-bg {
-  background-image: radial-gradient(circle at 1px 1px, rgba(245, 158, 11, 0.03) 1px, transparent 0);
-  background-size: 24px 24px;
+  background-color: #fffbf0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100' fill='none' stroke='%23d4a84420' stroke-width='1'/%3E%3Cpath d='M28 0L28 34L0 50L0 84L28 100L56 84L56 50L28 34' fill='none' stroke='%23d4a84412' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 56px 100px;
+}
+
+/* Glass utility classes */
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+}
+
+.glass-heavy {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(217, 119, 6, 0.12);
+}
+
+.glass-subtle {
+  background: rgba(254, 243, 199, 0.50);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Honey gradient accent line */
+.honey-gradient {
+  background: linear-gradient(90deg, #f59e0b, #d97706, #92400e);
 }
