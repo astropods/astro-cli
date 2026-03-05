@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { CheckCircle2 } from "lucide-react";
 import { useOpenAPISchema } from "@/api/openmeter";
 import {
   extractSchema,
@@ -146,18 +145,20 @@ export function SchemaFormPanel({
         </ul>
       )}
       {externalError && <p className="text-[10px] text-destructive">{externalError}</p>}
-      {validated && errors.length === 0 && (
-        <p className="flex items-center gap-1 text-[10px] text-green-600">
-          <CheckCircle2 className="size-3" /> Validation passed
-        </p>
-      )}
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="xs" onClick={handleReset}>Reset</Button>
         {validated ? (
-          <Button size="xs" onClick={handleSubmit} disabled={isPending}>{submitLabel}</Button>
+          <Button
+            size="xs"
+            onClick={handleSubmit}
+            disabled={isPending}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            {submitLabel}
+          </Button>
         ) : (
-          <Button size="xs" variant="secondary" onClick={handleValidate} disabled={schemaLoading}>
-            {schemaLoading ? "Loading..." : "Validate"}
+          <Button size="xs" onClick={handleValidate}>
+            Validate
           </Button>
         )}
       </div>

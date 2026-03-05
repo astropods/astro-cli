@@ -1,6 +1,6 @@
 import Ajv from "ajv";
 
-const ajv = new Ajv({ allErrors: true, verbose: true });
+const ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
 
 // Map of resource names to their $ref paths in the OpenAPI spec
 export const SCHEMA_REFS = {
@@ -17,8 +17,13 @@ export const SCHEMA_REFS = {
  */
 export function extractSchema(
   spec: Record<string, unknown>,
-  refPath: string
+  refPath: string,
+  _seen?: Set<string>
 ): Record<string, unknown> | null {
+  const seen = _seen ?? new Set<string>();
+  if (seen.has(refPath)) return {};
+  seen.add(refPath);
+
   const parts = refPath.replace(/^#\//, "").split("/");
   let node: unknown = spec;
   for (const part of parts) {
@@ -27,15 +32,18 @@ export function extractSchema(
   }
   if (node == null || typeof node !== "object") return null;
 
-  return resolveRefs(spec, node as Record<string, unknown>);
+  const result = resolveRefs(spec, node as Record<string, unknown>, seen);
+  seen.delete(refPath);
+  return result;
 }
 
 function resolveRefs(
   root: Record<string, unknown>,
-  schema: Record<string, unknown>
+  schema: Record<string, unknown>,
+  seen?: Set<string>
 ): Record<string, unknown> {
   if ("$ref" in schema && typeof schema["$ref"] === "string") {
-    const resolved = extractSchema(root, schema["$ref"]);
+    const resolved = extractSchema(root, schema["$ref"], seen);
     return resolved ?? {};
   }
 
@@ -47,19 +55,19 @@ function resolveRefs(
         value as Record<string, unknown>
       )) {
         if (pv && typeof pv === "object") {
-          props[pk] = resolveRefs(root, pv as Record<string, unknown>);
+          props[pk] = resolveRefs(root, pv as Record<string, unknown>, seen);
         } else {
           props[pk] = pv;
         }
       }
       result[key] = props;
     } else if (key === "items" && value && typeof value === "object") {
-      result[key] = resolveRefs(root, value as Record<string, unknown>);
+      result[key] = resolveRefs(root, value as Record<string, unknown>, seen);
     } else if (key === "allOf" || key === "oneOf" || key === "anyOf") {
       if (Array.isArray(value)) {
         result[key] = value.map((v) =>
           v && typeof v === "object"
-            ? resolveRefs(root, v as Record<string, unknown>)
+            ? resolveRefs(root, v as Record<string, unknown>, seen)
             : v
         );
       } else {
@@ -70,7 +78,7 @@ function resolveRefs(
       value &&
       typeof value === "object"
     ) {
-      result[key] = resolveRefs(root, value as Record<string, unknown>);
+      result[key] = resolveRefs(root, value as Record<string, unknown>, seen);
     } else if (key === "discriminator" && value && typeof value === "object") {
       const disc = value as Record<string, unknown>;
       const resolved: Record<string, unknown> = { ...disc };
@@ -78,10 +86,9 @@ function resolveRefs(
         const mapping: Record<string, unknown> = {};
         for (const [mk, mv] of Object.entries(disc.mapping as Record<string, unknown>)) {
           if (typeof mv === "string") {
-            // mv is a $ref string like "#/components/schemas/Foo"
-            mapping[mk] = extractSchema(root, mv) ?? {};
+            mapping[mk] = extractSchema(root, mv, seen) ?? {};
           } else if (mv && typeof mv === "object") {
-            mapping[mk] = resolveRefs(root, mv as Record<string, unknown>);
+            mapping[mk] = resolveRefs(root, mv as Record<string, unknown>, seen);
           } else {
             mapping[mk] = mv;
           }
