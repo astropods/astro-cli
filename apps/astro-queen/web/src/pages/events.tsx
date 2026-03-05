@@ -4,7 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, X, Send } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Plus, Send } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
 export function EventsPage() {
@@ -21,14 +30,13 @@ export function EventsPage() {
         </Button>
       </div>
 
-      {showIngest && (
-        <IngestForm
-          onClose={() => setShowIngest(false)}
-          onSubmit={(body) => ingestMut.mutate(body, { onSuccess: () => setShowIngest(false) })}
-          isPending={ingestMut.isPending}
-          error={ingestMut.error?.message}
-        />
-      )}
+      <IngestDialog
+        open={showIngest}
+        onOpenChange={setShowIngest}
+        onSubmit={(body) => ingestMut.mutate(body, { onSuccess: () => setShowIngest(false) })}
+        isPending={ingestMut.isPending}
+        error={ingestMut.error?.message}
+      />
 
       {isLoading && <Skeleton className="h-40 w-full" />}
       {error && <p className="text-destructive text-sm">{error.message}</p>}
@@ -62,13 +70,15 @@ export function EventsPage() {
   );
 }
 
-function IngestForm({
-  onClose,
+function IngestDialog({
+  open,
+  onOpenChange,
   onSubmit,
   isPending,
   error,
 }: {
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSubmit: (body: unknown) => void;
   isPending: boolean;
   error?: string;
@@ -99,41 +109,42 @@ function IngestForm({
   };
 
   return (
-    <div className="rounded-lg glass-heavy p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium">Ingest Event</h3>
-        <Button variant="ghost" size="icon-xs" onClick={onClose}>
-          <X className="size-3.5" />
-        </Button>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Type *</label>
-          <Input value={form.type} onChange={(e) => set("type", e.target.value)} />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Ingest Event</DialogTitle>
+          <DialogDescription>Send a CloudEvents-formatted event.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label>Type <span className="text-red-500">*</span></Label>
+            <Input value={form.type} onChange={(e) => set("type", e.target.value)} />
+          </div>
+          <div>
+            <Label>Subject <span className="text-red-500">*</span></Label>
+            <Input value={form.subject} onChange={(e) => set("subject", e.target.value)} />
+          </div>
+          <div>
+            <Label>Source</Label>
+            <Input value={form.source} onChange={(e) => set("source", e.target.value)} />
+          </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Subject *</label>
-          <Input value={form.subject} onChange={(e) => set("subject", e.target.value)} />
+          <Label>Data (JSON)</Label>
+          <Textarea
+            value={form.data}
+            onChange={(e) => set("data", e.target.value)}
+            className="font-mono text-xs"
+          />
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Source</label>
-          <Input value={form.source} onChange={(e) => set("source", e.target.value)} />
-        </div>
-      </div>
-      <div className="mt-3">
-        <label className="mb-1 block text-xs text-muted-foreground">Data (JSON)</label>
-        <Textarea
-          value={form.data}
-          onChange={(e) => set("data", e.target.value)}
-          className="font-mono text-xs"
-        />
-      </div>
-      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
-      <div className="mt-3">
-        <Button size="sm" onClick={handleSubmit} disabled={isPending || !form.type || !form.subject}>
-          <Send className="size-3.5" /> Ingest
-        </Button>
-      </div>
-    </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleSubmit} disabled={isPending || !form.type || !form.subject}>
+            <Send className="size-3.5" /> Ingest
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -12,8 +12,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { Plus, Trash2, ChevronDown, X } from "lucide-react";
+import { Plus, Trash2, ChevronDown } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import type { Entitlement } from "@/types/openmeter";
 
@@ -50,14 +59,12 @@ export function CustomerDetailPage() {
           </Button>
         </div>
 
-        {showCreateEnt && (
-          <CreateEntitlementForm
-            customerId={id!}
-            onClose={() => setShowCreateEnt(false)}
-            onSubmit={(body) => createEnt.mutate({ customerId: id!, body }, { onSuccess: () => setShowCreateEnt(false) })}
-            isPending={createEnt.isPending}
-          />
-        )}
+        <CreateEntitlementDialog
+          open={showCreateEnt}
+          onOpenChange={setShowCreateEnt}
+          onSubmit={(body) => createEnt.mutate({ customerId: id!, body }, { onSuccess: () => setShowCreateEnt(false) })}
+          isPending={createEnt.isPending}
+        />
 
         {entitlements?.map((ent) => (
           <EntitlementRow key={ent.id} customerId={id!} entitlement={ent} />
@@ -130,59 +137,81 @@ function EntitlementRow({ customerId, entitlement }: { customerId: string; entit
         )}
 
         <div className="mt-2">
-          {showGrant ? (
-            <CreateGrantForm
-              onClose={() => setShowGrant(false)}
-              onSubmit={(body) => createGrant.mutate({ customerId, entitlementId: entitlement.id, body }, { onSuccess: () => setShowGrant(false) })}
-              isPending={createGrant.isPending}
-            />
-          ) : (
-            <Button size="xs" variant="outline" onClick={() => setShowGrant(true)}>
-              <Plus className="size-3" /> Add Grant
-            </Button>
-          )}
+          <Button size="xs" variant="outline" onClick={() => setShowGrant(true)}>
+            <Plus className="size-3" /> Add Grant
+          </Button>
+          <CreateGrantDialog
+            open={showGrant}
+            onOpenChange={setShowGrant}
+            onSubmit={(body) => createGrant.mutate({ customerId, entitlementId: entitlement.id, body }, { onSuccess: () => setShowGrant(false) })}
+            isPending={createGrant.isPending}
+          />
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
-function CreateEntitlementForm({ customerId: _customerId, onClose, onSubmit, isPending }: { customerId: string; onClose: () => void; onSubmit: (body: unknown) => void; isPending: boolean }) {
+function CreateEntitlementDialog({ open, onOpenChange, onSubmit, isPending }: { open: boolean; onOpenChange: (open: boolean) => void; onSubmit: (body: unknown) => void; isPending: boolean }) {
   const [featureKey, setFeatureKey] = useState("");
   const [type, setType] = useState("metered");
 
   return (
-    <div className="mb-3 rounded-lg glass-heavy p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium">Create Entitlement</p>
-        <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3" /></Button>
-      </div>
-      <div className="flex gap-2">
-        <Input placeholder="Feature key" value={featureKey} onChange={(e) => setFeatureKey(e.target.value)} className="flex-1" />
-        <Input placeholder="Type" value={type} onChange={(e) => setType(e.target.value)} className="w-32" />
-        <Button size="sm" onClick={() => onSubmit({ featureKey, type })} disabled={isPending || !featureKey}>Create</Button>
-      </div>
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Create Entitlement</DialogTitle>
+          <DialogDescription>Grant a feature entitlement to this customer.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Feature Key <span className="text-red-500">*</span></Label>
+            <Input value={featureKey} onChange={(e) => setFeatureKey(e.target.value)} />
+          </div>
+          <div>
+            <Label>Type</Label>
+            <Input value={type} onChange={(e) => setType(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button size="sm" onClick={() => onSubmit({ featureKey, type })} disabled={isPending || !featureKey}>
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function CreateGrantForm({ onClose, onSubmit, isPending }: { onClose: () => void; onSubmit: (body: unknown) => void; isPending: boolean }) {
+function CreateGrantDialog({ open, onOpenChange, onSubmit, isPending }: { open: boolean; onOpenChange: (open: boolean) => void; onSubmit: (body: unknown) => void; isPending: boolean }) {
   const [amount, setAmount] = useState("100");
   const [priority, setPriority] = useState("1");
 
   return (
-    <div className="rounded-lg glass-subtle p-2">
-      <div className="mb-1 flex items-center justify-between">
-        <p className="text-xs font-medium">Add Grant</p>
-        <Button variant="ghost" size="icon-xs" onClick={onClose}><X className="size-3" /></Button>
-      </div>
-      <div className="flex gap-2">
-        <Input placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-24" />
-        <Input placeholder="Priority" value={priority} onChange={(e) => setPriority(e.target.value)} className="w-20" />
-        <Button size="xs" onClick={() => onSubmit({ amount: Number(amount), priority: Number(priority), effectiveAt: new Date().toISOString() })} disabled={isPending}>
-          Add
-        </Button>
-      </div>
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xs">
+        <DialogHeader>
+          <DialogTitle>Add Grant</DialogTitle>
+          <DialogDescription>Add a usage grant to this entitlement.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Amount</Label>
+            <Input value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <Label>Priority</Label>
+            <Input value={priority} onChange={(e) => setPriority(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button size="sm" onClick={() => onSubmit({ amount: Number(amount), priority: Number(priority), effectiveAt: new Date().toISOString() })} disabled={isPending}>
+            Add
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
