@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -407,8 +408,6 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	// Register agent spec with server
 	if !skipRegister && effectiveServerURL != "" {
-		printStep("Registering agent with server...")
-
 		// Read README.md if it exists
 		readmeContent := ""
 		readmePath := filepath.Join(workingDir, "README.md")
@@ -416,9 +415,32 @@ func runPush(cmd *cobra.Command, args []string) error {
 			readmeContent = string(readmeData)
 		}
 
+		// Determine visibility
+		visibility := astroSpec.Meta.Visibility
+		if visibility != "public" && visibility != "private" {
+			visibility = "" // ignore invalid values
+		}
+
+		// Check if the agent already exists on the server
+		serverAgent := getAgentFromServer(effectiveServerURL, namespace, astroSpec.Name, noAuth)
+
+		if !serverAgent.Exists {
+			// First push: prompt if not set in spec
+			if visibility == "" {
+				visibility = promptVisibility()
+			}
+		} else if visibility != "" && serverAgent.Visibility != "" && visibility != serverAgent.Visibility {
+			// Existing agent with a visibility change — confirm
+			if !confirmVisibilityChange(serverAgent.Visibility, visibility) {
+				visibility = "" // keep current visibility
+			}
+		}
+
+		printStep("Registering agent with server...")
+
 		// Build the full registry path for the transformed spec
 		registryPath := fmt.Sprintf("%s/%s", registryHost, namespace)
-		if err := registerAgent(effectiveServerURL, astroSpec.Name, pushTag, registryPath, specPath, pushTag, readmeContent, verbose, noAuth); err != nil {
+		if err := registerAgent(effectiveServerURL, astroSpec.Name, pushTag, registryPath, specPath, pushTag, readmeContent, visibility, verbose, noAuth); err != nil {
 			printStepFail()
 			return fmt.Errorf("registration failed: %w", err)
 		} else {
@@ -513,7 +535,7 @@ func getRegistryHost(registryURL string) (string, error) {
 }
 
 // registerAgent registers the agent spec with the astro-server
-func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme string, verbose bool, skipAuth bool) error {
+func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme, visibility string, verbose bool, skipAuth bool) error {
 	// Read and parse spec file
 	specData, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
@@ -548,6 +570,9 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		"registry":     registry,
 		"spec_content": string(transformedSpecData),
 		"readme":       readme,
+	}
+	if visibility != "" {
+		payload["visibility"] = visibility
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -664,6 +689,110 @@ const (
 
 // colorCyan uses the primary accent color from the theme (teal in prod, pink in preview).
 var colorCyan = theme.PrimaryANSI
+
+// agentServerInfo holds metadata about an agent fetched from the server.
+type agentServerInfo struct {
+	Exists     bool
+	Visibility string
+}
+
+// getAgentFromServer checks if an agent exists on the server and returns its metadata.
+func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool) agentServerInfo {
+	reqURL := fmt.Sprintf("%s/api/v1/agents/%s/%s",
+		strings.TrimSuffix(serverURL, "/"),
+		url.PathEscape(accountName),
+		url.PathEscape(agentName),
+	)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: %v\n", colorYellow, colorReset, err)
+		return agentServerInfo{}
+	}
+
+	if !skipAuth {
+		if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
+			fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: auth error\n", colorYellow, colorReset)
+			return agentServerInfo{}
+		}
+	}
+
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: %v\n", colorYellow, colorReset, err)
+		return agentServerInfo{}
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		return agentServerInfo{}
+	}
+
+	var body struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return agentServerInfo{Exists: true}
+	}
+	return agentServerInfo{Exists: true, Visibility: body.Visibility}
+}
+
+// confirmVisibilityChange asks the user to confirm a visibility change from current to desired.
+func confirmVisibilityChange(current, desired string) bool {
+	var confirmed bool
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title(fmt.Sprintf("Change visibility from %s to %s?", current, desired)).
+				Description(fmt.Sprintf("This agent is currently %s. Your spec sets visibility to %s.", current, desired)).
+				Value(&confirmed),
+		),
+	)
+
+	huhTheme := huh.ThemeCharm()
+	primary := theme.Primary
+	huhTheme.Focused.Title = huhTheme.Focused.Title.Foreground(primary)
+	form.WithTheme(huhTheme)
+
+	if err := form.Run(); err != nil {
+		return false
+	}
+
+	return confirmed
+}
+
+// promptVisibility asks the user whether the agent should be public or private.
+func promptVisibility() string {
+	var visibility string
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Agent visibility").
+				Description("Public agents are visible to everyone. Private agents are only visible to account members.").
+				Options(
+					huh.NewOption("Public", "public"),
+					huh.NewOption("Private", "private"),
+				).
+				Value(&visibility),
+		),
+	)
+
+	huhTheme := huh.ThemeCharm()
+	primary := theme.Primary
+	huhTheme.Focused.Title = huhTheme.Focused.Title.Foreground(primary)
+	huhTheme.Focused.SelectedOption = huhTheme.Focused.SelectedOption.Foreground(primary)
+	huhTheme.Focused.SelectedPrefix = huhTheme.Focused.SelectedPrefix.Foreground(primary)
+	form.WithTheme(huhTheme)
+
+	if err := form.Run(); err != nil {
+		// Default to private if prompt fails (e.g. non-interactive terminal)
+		return "private"
+	}
+
+	return visibility
+}
 
 // transformSpecForRegistry replaces build sections with actual image references
 func transformSpecForRegistry(specObj map[string]interface{}, registry, agentName, tag string) map[string]interface{} {

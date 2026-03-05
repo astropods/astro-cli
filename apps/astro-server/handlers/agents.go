@@ -40,6 +40,7 @@ type RegisterAgentRequest struct {
 	Registry    string `json:"registry" binding:"required"`
 	SpecContent string `json:"spec_content" binding:"required"`
 	Readme      string `json:"readme"`
+	Visibility  string `json:"visibility,omitempty"` // "public" or "private"; only applied on first registration
 }
 
 // ListAgents handles GET /api/v1/agents
@@ -244,6 +245,13 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		// Emit agent_build metering event (fire-and-forget)
 		go openmeter.EmitAgentBuild(c.Request.Context(), omClient, log, accountID, agentName)
 
+		// Set visibility if provided (only "public" or "private" are valid)
+		if req.Visibility == "public" || req.Visibility == "private" {
+			if err := index.SetVisibility(accountID, agentName, req.Visibility); err != nil {
+				log.Warn("Failed to set visibility during registration", "error", err, "visibility", req.Visibility)
+			}
+		}
+
 		response := gin.H{
 			"message":  "Agent registered successfully",
 			"account":  accountName,
@@ -321,14 +329,23 @@ func GetAgentConfig(log *logger.Logger, index *agentindex.Index, accountStore *a
 			"name", name,
 		)
 
-		var accountID string
-		if accountStore != nil && accountName != "" {
-			acct, err := accountStore.GetByName(accountName)
-			if err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-				return
-			}
-			accountID = acct.ID
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		accountID := acct.ID
+
+		isMember, err := accountStore.IsMember(accountID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
 		}
 
 		// Get latest build from index

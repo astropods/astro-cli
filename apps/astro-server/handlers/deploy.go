@@ -1055,19 +1055,26 @@ func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, acc
 			"name", name,
 		)
 
-		var accountID string
-		if accountStore != nil && accountName != "" {
-			acct, err := accountStore.GetByName(accountName)
-			if err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-				return
-			}
-			accountID = acct.ID
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		accountID := acct.ID
+
+		if !isAccountMember(c, accountStore, accountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
 		}
 
 		// Resolve build — specific build_id or latest
 		var agentVersion *agentindex.AgentVersion
-		var err error
 		if buildParam := c.Query("build"); buildParam != "" {
 			agentVersion, err = agentIndex.GetVersion(accountID, name, buildParam)
 		} else {

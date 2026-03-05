@@ -20,6 +20,14 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private"
+          ],
+          "description": "Agent visibility: public or private"
         }
       },
       "additionalProperties": false,
