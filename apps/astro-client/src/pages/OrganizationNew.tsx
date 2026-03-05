@@ -100,7 +100,7 @@ function OrganizationNewContent() {
           team.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-3">
           <div>
             <label
               htmlFor="org-name"
@@ -166,7 +166,7 @@ function OrganizationNewContent() {
             type="submit"
             size="lg"
             disabled={createAccount.isPending || !isAvailable || invites.some((e) => !e.valid)}
-            className="w-full"
+            className="mt-6 w-full"
           >
             {createAccount.isPending
               ? "Creating..."
