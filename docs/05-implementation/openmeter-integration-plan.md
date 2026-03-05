@@ -38,23 +38,100 @@ Resource-weighted metric combining CPU and memory over time, measured in **compu
   3. Emit `$.compute_unit_hours = CU * (interval_minutes / 60)`
 - Source: Polls `deployments` table (`undeployed_at IS NULL`) + K8s pod resource requests
 
-### 1c. `agent_registrations` -- Agents Registered
+### 1c. `agents` -- Active Agents
 
-Tracks how many agent builds/versions are registered (pushed to the registry).
+Tracks how many distinct agents exist per account (gauge via periodic snapshot).
 
-- Event type: `agent_register`
+- Event type: `active_agents`
+- Aggregation: `LATEST` on `$.count`
+- GroupBy: *(none — account-level total)*
+- Emission: Background job (Phase 3) counts distinct agents per account and emits the current count
+
+### 1e. `agent_builds` -- Agent Builds
+
+Tracks each build/version pushed to the registry.
+
+- Event type: `agent_build`
 - Aggregation: `COUNT`
 - GroupBy: `$.agent_name`
-- Emission: `handlers/agents.go:170` RegisterAgent handler, after successful version creation
+- Emission: `handlers/agents.go` RegisterAgent handler, after successful version creation
 
-### 1d. `agent_deployments` -- Agents Deployed
+### 1d. `agent_deployments` -- Active Deployments
 
-Tracks the number of deployment operations (each deploy command counts as one).
+Tracks how many agents are currently deployed (gauge via periodic snapshot).
 
-- Event type: `agent_deploy`
-- Aggregation: `COUNT`
-- GroupBy: `$.agent_name`
-- Emission: `handlers/deploy.go` DeployAgent handler, after successful namespace creation
+- Event type: `active_deployments`
+- Aggregation: `LATEST` on `$.count`
+- GroupBy: *(none — account-level total)*
+- Emission: Background job (Phase 3) queries `deployments WHERE status = 'active'` per account every 5 minutes and emits the current count
+
+### Meter Creation Payloads
+
+`POST /api/v1/meters` for each:
+
+```json
+{
+  "slug": "messages",
+  "name": "Messages Handled",
+  "description": "Number of messages processed by deployed agents",
+  "eventType": "agent_message",
+  "aggregation": "COUNT",
+  "groupBy": {
+    "agent_name": "$.agent_name",
+    "namespace": "$.namespace"
+  }
+}
+```
+
+```json
+{
+  "slug": "compute",
+  "name": "Compute Consumed",
+  "description": "Compute-unit-hours consumed by active deployments",
+  "eventType": "compute_usage",
+  "aggregation": "SUM",
+  "valueProperty": "$.compute_unit_hours",
+  "groupBy": {
+    "agent_name": "$.agent_name",
+    "namespace": "$.namespace"
+  }
+}
+```
+
+```json
+{
+  "slug": "agents",
+  "name": "Active Agents",
+  "description": "Number of distinct agents registered per account",
+  "eventType": "active_agents",
+  "aggregation": "LATEST",
+  "valueProperty": "$.count"
+}
+```
+
+```json
+{
+  "slug": "agent_deployments",
+  "name": "Active Deployments",
+  "description": "Number of currently active agent deployments per account",
+  "eventType": "active_deployments",
+  "aggregation": "LATEST",
+  "valueProperty": "$.count"
+}
+```
+
+```json
+{
+  "slug": "agent_builds",
+  "name": "Agent Builds",
+  "description": "Number of agent builds pushed to the registry",
+  "eventType": "agent_build",
+  "aggregation": "COUNT",
+  "groupBy": {
+    "agent_name": "$.agent_name"
+  }
+}
+```
 
 ---
 

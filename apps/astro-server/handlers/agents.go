@@ -11,6 +11,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/openmeter"
 	"github.com/postman/astro/packages/astro-spec"
 	"gopkg.in/yaml.v3"
 )
@@ -167,7 +168,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // RegisterAgent handles POST /api/v1/agents/:account/:name/register
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
-func RegisterAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -239,6 +240,9 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc 
 			})
 			return
 		}
+
+		// Emit agent_build metering event (fire-and-forget)
+		go openmeter.EmitAgentBuild(c.Request.Context(), omClient, log, accountID, agentName)
 
 		response := gin.H{
 			"message":  "Agent registered successfully",

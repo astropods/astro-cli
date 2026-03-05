@@ -40,7 +40,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil))
 
 	// Expect transaction: BEGIN, INSERT agent, INSERT version, COMMIT
 	mock.ExpectBegin()
@@ -116,7 +116,7 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
+			router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -144,7 +144,7 @@ func TestRegisterAgent_InvalidJSON(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -161,7 +161,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
 
 	body := `{
 		"name": "test-agent",
@@ -194,7 +194,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
 
 	// Simulate DB failure on BEGIN
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
