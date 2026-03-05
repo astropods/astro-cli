@@ -14,16 +14,19 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
           - goos: darwin
             goarch: arm64
+            runner: macos-latest
           - goos: darwin
             goarch: amd64
+            runner: macos-13
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +48,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
+          CGO_ENABLED: "1"
         run: |
           go build -ldflags "\
             -X github.com/postman/astro/apps/astro-queen/cmd.buildNumber=${{ github.run_number }} \
