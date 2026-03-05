@@ -29,6 +29,7 @@ const sections = [
   {
     key: "openmeter",
     label: "OpenMeter",
+    homeTo: "/openmeter",
     links: [
       { to: "/openmeter/meters", label: "Meters", icon: Gauge },
       { to: "/openmeter/features", label: "Features", icon: Star },
@@ -44,7 +45,7 @@ function TreeSection({
   onToggle,
   collapsed,
 }: {
-  section: (typeof sections)[number];
+  section: (typeof sections)[number] & { homeTo?: string };
   open: boolean;
   onToggle: () => void;
   collapsed: boolean;
@@ -75,15 +76,31 @@ function TreeSection({
 
   return (
     <div>
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center gap-1 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ChevronRight
-          className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
-        />
-        {section.label}
-      </button>
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={onToggle}
+          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronRight
+            className={cn("size-3 transition-transform", open && "rotate-90")}
+          />
+        </button>
+        {section.homeTo ? (
+          <NavLink
+            to={section.homeTo}
+            className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {section.label}
+          </NavLink>
+        ) : (
+          <button
+            onClick={onToggle}
+            className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {section.label}
+          </button>
+        )}
+      </div>
       {open && (
         <nav className="ml-1.5 border-l border-glass-border-honey pl-2 mt-0.5">
           {section.links.map((link) => (

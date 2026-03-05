@@ -11,12 +11,14 @@ import { FeaturesPage } from "@/pages/features";
 import { CustomersPage } from "@/pages/customers";
 import { CustomerDetailPage } from "@/pages/customer-detail";
 import { EventsPage } from "@/pages/events";
+import { OpenMeterHomePage } from "@/pages/openmeter-home";
 
 export const router = createBrowserRouter([
   {
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/admin/deployments" replace /> },
+      { index: true, element: <Navigate to="/openmeter" replace /> },
+      { path: "openmeter", element: <OpenMeterHomePage /> },
       { path: "admin/accounts", element: <AccountsPage /> },
       { path: "admin/deployments", element: <DeploymentsPage /> },
       { path: "admin/deployments/:namespace", element: <DeploymentDetailPage /> },
