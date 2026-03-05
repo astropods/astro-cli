@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useCreateAccount, useCheckAccountName } from "../api/queries/accounts";
@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { InviteInput, type InviteEntry } from "@/components/InviteInput";
+import type { ApiError } from "@/lib/api";
 
 function validateName(name: string): string | null {
   if (name.length < 4) return "Must be at least 4 characters";
@@ -24,19 +25,22 @@ function OrganizationNewContent() {
   const [invites, setInvites] = useState<InviteEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { checkAuth } = useAuth();
+  const { checkAuth, accounts } = useAuth();
   const createAccount = useCreateAccount();
+  const excludeFromInvite = useMemo(
+    () => new Set(accounts.filter((a) => a.type === "personal").map((a) => a.name)),
+    [accounts]
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const clientError = name.length > 0 ? validateName(name) : null;
   const shouldCheck = name.length >= 4 && !clientError;
 
   useEffect(() => {
-    if (!shouldCheck) {
-      setDebouncedName("");
-      return;
-    }
-    timerRef.current = setTimeout(() => setDebouncedName(name), 300);
+    timerRef.current = setTimeout(
+      () => setDebouncedName(shouldCheck ? name : ""),
+      shouldCheck ? 300 : 0,
+    );
     return () => clearTimeout(timerRef.current);
   }, [name, shouldCheck]);
 
@@ -59,9 +63,16 @@ function OrganizationNewContent() {
       if (!isAvailable) return;
 
       try {
-        await createAccount.mutateAsync({ name, type: "organization" });
+        const invitations = invites
+          .filter((inv) => inv.valid)
+          .map((inv) => ({ value: inv.value, kind: inv.kind, role: "member" as const }));
+        await createAccount.mutateAsync({
+          name,
+          type: "organization",
+          ...(invitations.length > 0 && { invitations }),
+        });
       } catch (err: unknown) {
-        const apiErr = err as { error?: string; error_description?: string };
+        const apiErr = err as ApiError;
         setError(
           apiErr.error_description ||
             apiErr.error ||
@@ -77,7 +88,7 @@ function OrganizationNewContent() {
       }
       navigate(`/${name}`);
     },
-    [name, isAvailable, createAccount, checkAuth, navigate]
+    [name, invites, isAvailable, createAccount, checkAuth, navigate]
   );
 
   return (
@@ -143,20 +154,10 @@ function OrganizationNewContent() {
             <label className="mb-1.5 block text-sm font-medium">
               Invite members
             </label>
-            <InviteInput
-              entries={invites}
-              onChange={setInvites}
-              placeholder="name@example.com"
-            />
+            <InviteInput entries={invites} onChange={setInvites} exclude={excludeFromInvite} />
             <p className="text-muted-foreground mt-1 text-xs">
-              Separate multiple emails with commas or spaces. Invitations will
-              be sent after the organization is created.
+              Invitations will be sent after the organization is created.
             </p>
-            {invites.some((e) => !e.valid) && (
-              <p className="text-destructive mt-1 text-pretty text-xs">
-                Some entries are not valid email addresses.
-              </p>
-            )}
           </div>
 
           {error && <p className="text-destructive text-pretty text-sm">{error}</p>}

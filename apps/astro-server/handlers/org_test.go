@@ -233,20 +233,17 @@ func TestRemoveMember_NoAccount(t *testing.T) {
 	}
 }
 
-// --- CreateInvitation tests ---
+// --- CreateInvitations tests ---
 
-func TestCreateInvitation_NonOrgAccount(t *testing.T) {
+func TestCreateInvitations_NonOrgAccount(t *testing.T) {
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "personal", Type: "personal", WorkOSOrganizationID: ""}
 	user := &auth.User{ID: "user-1", Email: "test@example.com"}
 
-	db, _, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitation(log, nil, store))
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil))
 
-	body := `{"email": "invite@example.com", "role": "member"}`
+	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -263,18 +260,15 @@ func TestCreateInvitation_NonOrgAccount(t *testing.T) {
 	}
 }
 
-func TestCreateInvitation_NoAuth(t *testing.T) {
+func TestCreateInvitations_NoAuth(t *testing.T) {
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
 
-	db, _, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
 	router := gin.New()
 	// No user injected
-	router.POST("/invitations", injectTestOrgAccount(acct, nil), CreateInvitation(log, nil, store))
+	router.POST("/invitations", injectTestOrgAccount(acct, nil), CreateInvitations(log, nil))
 
-	body := `{"email": "invite@example.com", "role": "member"}`
+	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -285,50 +279,32 @@ func TestCreateInvitation_NoAuth(t *testing.T) {
 	}
 }
 
-func TestCreateInvitation_InvalidBody(t *testing.T) {
+func TestCreateInvitations_InvalidBody(t *testing.T) {
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
 	user := &auth.User{ID: "user-1"}
 
-	db, _, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitation(log, nil, store))
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil))
 
-	tests := []struct {
-		name string
-		body string
-	}{
-		{"missing email", `{"role": "member"}`},
-		{"missing role", `{"email": "invite@example.com"}`},
-		{"empty body", `{}`},
-	}
+	// Empty invitations array should fail
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(`{"invitations":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(tt.body))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusBadRequest {
-				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-			}
-		})
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestCreateInvitation_NoAccount(t *testing.T) {
+func TestCreateInvitations_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
-	db, _, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccount(nil, nil), CreateInvitation(log, nil, store))
+	router.POST("/invitations", injectTestOrgAccount(nil, nil), CreateInvitations(log, nil))
 
-	body := `{"email": "invite@example.com", "role": "member"}`
+	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -461,19 +437,16 @@ func TestUpdateMemberRole_RoleEscalation_NonOwnerCannotPromoteToOwner(t *testing
 	}
 }
 
-func TestCreateInvitation_RoleEscalation_NonOwnerCannotInviteAsOwner(t *testing.T) {
+func TestCreateInvitations_RoleEscalation_NonOwnerCannotInviteAsOwner(t *testing.T) {
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
 	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
 	session := &auth.Session{Role: "admin"}
 
-	db, _, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccountWithSession(acct, caller, session), CreateInvitation(log, nil, store))
+	router.POST("/invitations", injectTestOrgAccountWithSession(acct, caller, session), CreateInvitations(log, nil))
 
-	body := `{"email": "invite@example.com", "role": "owner"}`
+	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "owner"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

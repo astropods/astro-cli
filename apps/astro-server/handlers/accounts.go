@@ -16,8 +16,13 @@ import (
 
 // CreateAccountRequest represents the request body for creating an account
 type CreateAccountRequest struct {
-	Name string `json:"name" binding:"required"`
-	Type string `json:"type" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Type        string `json:"type" binding:"required"`
+	Invitations []struct {
+		Value string `json:"value"`
+		Kind  string `json:"kind"`
+		Role  string `json:"role"`
+	} `json:"invitations,omitempty"`
 }
 
 // AccountOwner represents the owner's public profile in account responses
@@ -29,12 +34,13 @@ type AccountOwner struct {
 
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Type      string        `json:"type"`
-	Owner     *AccountOwner `json:"owner,omitempty"`
-	CreatedAt string        `json:"created_at"`
-	UpdatedAt string        `json:"updated_at"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Type        string             `json:"type"`
+	Owner       *AccountOwner      `json:"owner,omitempty"`
+	Invitations []org.InviteResult `json:"invitations,omitempty"`
+	CreatedAt   string             `json:"created_at"`
+	UpdatedAt   string             `json:"updated_at"`
 }
 
 // AccountWithRoleResponse represents an account in the profile response
@@ -69,7 +75,7 @@ type ProfileUser struct {
 
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -151,13 +157,38 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 
 		log.Info("Account created", "id", acct.ID, "name", acct.Name, "type", acct.Type, "user_id", user.ID)
 
-		c.JSON(http.StatusCreated, AccountResponse{
+		resp := AccountResponse{
 			ID:        acct.ID,
 			Name:      acct.Name,
 			Type:      acct.Type,
 			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		}
+
+		// Send invitations if provided (non-fatal — log failures, still return success)
+		if len(req.Invitations) > 0 && acct.WorkOSOrganizationID != "" && orgSync != nil {
+			reqs := make([]org.InviteRequest, 0, len(req.Invitations))
+			for _, inv := range req.Invitations {
+				role := inv.Role
+				if role == "" {
+					role = "member"
+				}
+				reqs = append(reqs, org.InviteRequest{
+					Kind:     inv.Kind,
+					Value:    inv.Value,
+					RoleSlug: role,
+				})
+			}
+			results := orgSync.SendBulkInvitations(c.Request.Context(), acct.WorkOSOrganizationID, user.ID, reqs)
+			resp.Invitations = results
+			for _, r := range results {
+				if !r.Success {
+					log.Warn("Invitation failed during account creation", "value", r.Value, "error", r.Error)
+				}
+			}
+		}
+
+		c.JSON(http.StatusCreated, resp)
 	}
 }
 
@@ -330,7 +361,7 @@ type SearchAccountResult struct {
 }
 
 // SearchAccounts handles GET /api/v1/accounts/search (protected)
-// Query params: q (required), type (optional: personal|organization), limit (optional, default 10, max 20)
+// Query params: q (required), type (optional: personal|organization), limit (optional, default 10, max 10)
 func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q := strings.ToLower(strings.TrimSpace(c.Query("q")))

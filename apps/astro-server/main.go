@@ -22,6 +22,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/admingrpc"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
+	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/config"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
@@ -73,7 +74,8 @@ func main() {
 	var orgSync *org.Sync
 	if cfg.Auth.WorkOSAPIKey != "" {
 		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
-		orgSync = org.NewSync(orgClient, accountStore)
+		workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
+		orgSync = org.NewSync(orgClient, accountStore, workosClient)
 		log.Info("WorkOS organization client initialized")
 	}
 
@@ -355,7 +357,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 			// Account management
 			protected.GET("/accounts/search", handlers.SearchAccounts(log, accountStore))
-			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient))
+			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient, orgSync))
 
 			// Account-scoped routes (owner/admin)
 			accountAdmin := protected.Group("/accounts/:account")
@@ -382,7 +384,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			invitationRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
 				invitationRoutes.GET("", handlers.ListAccountInvitations(log, orgClient))
-				invitationRoutes.POST("", handlers.CreateInvitation(log, orgClient, accountStore))
+				invitationRoutes.POST("", handlers.CreateInvitations(log, orgSync))
 				invitationRoutes.DELETE("/:id", handlers.RevokeInvitation(log, orgClient))
 			}
 

@@ -37,6 +37,23 @@ type Role struct {
 	Description string `json:"description,omitempty"`
 }
 
+// InviteRequest describes a single invitation to send (by email or account name).
+type InviteRequest struct {
+	Kind     string // "email" or "account"
+	Value    string // email address or account name
+	RoleSlug string
+}
+
+// InviteResult is the outcome of a single invitation attempt.
+type InviteResult struct {
+	Value      string      `json:"value"`
+	Kind       string      `json:"kind"`
+	Email      string      `json:"email,omitempty"`
+	Success    bool        `json:"success"`
+	Error      string      `json:"error,omitempty"`
+	Invitation *Invitation `json:"invitation,omitempty"`
+}
+
 // ListOpts provides pagination options for list operations
 type ListOpts struct {
 	Limit  int

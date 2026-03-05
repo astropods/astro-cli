@@ -5,17 +5,19 @@ import (
 	"fmt"
 
 	"github.com/postman/astro/apps/astro-server/internal/account"
+	"github.com/postman/astro/apps/astro-server/internal/auth"
 )
 
 // Sync provides write-path sync logic (Astro → WorkOS) for organization memberships.
 type Sync struct {
 	client       *Client
 	accountStore *account.AccountStore
+	workos       *auth.WorkOSClient
 }
 
 // NewSync creates a new Sync instance.
-func NewSync(client *Client, accountStore *account.AccountStore) *Sync {
-	return &Sync{client: client, accountStore: accountStore}
+func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.WorkOSClient) *Sync {
+	return &Sync{client: client, accountStore: accountStore, workos: workos}
 }
 
 // AddMember adds a member to an org account, writing to WorkOS first then locally.
@@ -160,4 +162,65 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error 
 	}
 
 	return nil
+}
+
+// SendBulkInvitations resolves each InviteRequest to an email and sends a
+// WorkOS invitation. Results are returned per-entry; individual failures do
+// not abort the batch.
+func (s *Sync) SendBulkInvitations(ctx context.Context, workosOrgID, inviterUserID string, reqs []InviteRequest) []InviteResult {
+	results := make([]InviteResult, 0, len(reqs))
+	for _, r := range reqs {
+		res := InviteResult{Value: r.Value, Kind: r.Kind}
+		role := r.RoleSlug
+		if role == "" {
+			role = "member"
+		}
+
+		var email string
+		switch r.Kind {
+		case "email":
+			email = r.Value
+		case "account":
+			resolved, err := s.resolveAccountEmail(ctx, r.Value)
+			if err != nil {
+				res.Error = err.Error()
+				results = append(results, res)
+				continue
+			}
+			email = resolved
+		default:
+			res.Error = fmt.Sprintf("unknown invite kind %q", r.Kind)
+			results = append(results, res)
+			continue
+		}
+
+		res.Email = email
+		inv, err := s.client.SendInvitation(ctx, workosOrgID, email, inviterUserID, role)
+		if err != nil {
+			res.Error = err.Error()
+		} else {
+			res.Success = true
+			res.Invitation = &inv
+		}
+		results = append(results, res)
+	}
+	return results
+}
+
+// resolveAccountEmail looks up the email address of an account's first member
+// by going through accountStore → WorkOS user.
+func (s *Sync) resolveAccountEmail(ctx context.Context, accountName string) (string, error) {
+	acct, err := s.accountStore.GetByName(accountName)
+	if err != nil {
+		return "", fmt.Errorf("account %q not found: %w", accountName, err)
+	}
+	userID, err := s.accountStore.GetFirstMemberUserID(acct.ID)
+	if err != nil {
+		return "", fmt.Errorf("no member found for account %q: %w", accountName, err)
+	}
+	user, err := s.workos.GetUser(ctx, userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve user for account %q: %w", accountName, err)
+	}
+	return user.Email, nil
 }

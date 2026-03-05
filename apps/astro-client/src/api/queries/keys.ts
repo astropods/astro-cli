@@ -6,6 +6,7 @@ export const accountKeys = {
   profile: ['profile'] as const,
   detail: (name: string) => ['accounts', name] as const,
   checkName: (name: string) => ['accounts', 'check', name] as const,
+  search: (q: string) => ['accounts', 'search', q] as const,
 };
 
 export const agentKeys = {

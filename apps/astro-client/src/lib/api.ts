@@ -41,6 +41,16 @@ export interface Account {
   agents?: AgentSummary[];
 }
 
+export interface AccountSearchResult {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface AccountSearchResponse {
+  results: AccountSearchResult[];
+}
+
 export interface ProfileResponse {
   user: User;
   accounts: Account[];
@@ -98,6 +108,40 @@ export interface Invitation {
 export interface AccountInvitationsResponse {
   invitations: Invitation[];
   count: number;
+}
+
+export interface InviteEntry {
+  value: string;
+  kind: 'email' | 'account';
+  role?: string;
+}
+
+export interface InviteResultResponse {
+  value: string;
+  kind: string;
+  email?: string;
+  success: boolean;
+  error?: string;
+  invitation?: Invitation;
+}
+
+export interface CreateAccountData {
+  name: string;
+  type: string;
+  invitations?: InviteEntry[];
+}
+
+export interface CreateAccountResponse {
+  id: string;
+  name: string;
+  type: string;
+  invitations?: InviteResultResponse[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BulkInvitationsResponse {
+  results: InviteResultResponse[];
 }
 
 class ApiClient {
@@ -198,8 +242,8 @@ class ApiClient {
   }
 
   // Account endpoints
-  async createAccount(data: { name: string; type: string }): Promise<Account> {
-    return this.request<Account>('/api/v1/accounts', {
+  async createAccount(data: CreateAccountData): Promise<CreateAccountResponse> {
+    return this.request<CreateAccountResponse>('/api/v1/accounts', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -223,9 +267,31 @@ class ApiClient {
     );
   }
 
+  async createInvitations(account: string, invitations: InviteEntry[]): Promise<BulkInvitationsResponse> {
+    return this.request<BulkInvitationsResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ invitations }),
+      }
+    );
+  }
+
   async checkAccountName(name: string): Promise<{ available: boolean; reason?: string }> {
     return this.request<{ available: boolean; reason?: string }>(
       `/api/v1/accounts/check/${encodeURIComponent(name)}`
+    );
+  }
+
+  async searchAccounts(
+    q: string,
+    opts?: { type?: 'personal' | 'organization'; limit?: number }
+  ): Promise<AccountSearchResponse> {
+    const params = new URLSearchParams({ q });
+    if (opts?.type) params.set('type', opts.type);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return this.request<AccountSearchResponse>(
+      `/api/v1/accounts/search?${params}`
     );
   }
 

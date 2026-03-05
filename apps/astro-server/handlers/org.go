@@ -161,14 +161,21 @@ func RemoveMember(log *logger.Logger, syncSvc *org.Sync) gin.HandlerFunc {
 
 // --- Invitation Management ---
 
-// CreateInvitationRequest represents the request to send an invitation.
-type CreateInvitationRequest struct {
-	Email    string `json:"email" binding:"required"`
-	RoleSlug string `json:"role" binding:"required"`
+// BulkInvitationRequest is the request body for bulk invitation creation.
+type BulkInvitationRequest struct {
+	Invitations []InvitationEntry `json:"invitations"`
 }
 
-// CreateInvitation handles POST /api/v1/accounts/:account/invitations
-func CreateInvitation(log *logger.Logger, orgClient *org.Client, accountStore *account.AccountStore) gin.HandlerFunc {
+// InvitationEntry represents a single invitation in a bulk request.
+type InvitationEntry struct {
+	Value string `json:"value"`
+	Kind  string `json:"kind"`
+	Role  string `json:"role"`
+}
+
+// CreateInvitations handles POST /api/v1/accounts/:account/invitations
+// Expects {"invitations":[{value, kind, role}, ...]}.
+func CreateInvitations(log *logger.Logger, orgSync *org.Sync) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -187,31 +194,43 @@ func CreateInvitation(log *logger.Logger, orgClient *org.Client, accountStore *a
 			return
 		}
 
-		var req CreateInvitationRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "invalid request body",
-				"details": err.Error(),
+		var req BulkInvitationRequest
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.Invitations) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body: expected {invitations:[...]}"})
+			return
+		}
+
+		// Role escalation check: if any entry has role "owner", require owner
+		for _, e := range req.Invitations {
+			if !requireOwnerForOwnerRole(c, e.Role) {
+				return
+			}
+		}
+
+		reqs := make([]org.InviteRequest, 0, len(req.Invitations))
+		for _, e := range req.Invitations {
+			role := e.Role
+			if role == "" {
+				role = "member"
+			}
+			reqs = append(reqs, org.InviteRequest{
+				Kind:     e.Kind,
+				Value:    e.Value,
+				RoleSlug: role,
 			})
-			return
 		}
 
-		if !requireOwnerForOwnerRole(c, req.RoleSlug) {
-			return
+		results := orgSync.SendBulkInvitations(c.Request.Context(), acct.WorkOSOrganizationID, user.ID, reqs)
+
+		for _, r := range results {
+			if r.Success {
+				log.Info("Invitation sent", "account_id", acct.ID, "value", r.Value)
+			} else {
+				log.Warn("Invitation failed", "account_id", acct.ID, "value", r.Value, "error", r.Error)
+			}
 		}
 
-		inv, err := orgClient.SendInvitation(c.Request.Context(), acct.WorkOSOrganizationID, req.Email, user.ID, req.RoleSlug)
-		if err != nil {
-			log.Error("Failed to send invitation", "error", err, "account_id", acct.ID, "email", req.Email)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "failed to send invitation",
-				"details": err.Error(),
-			})
-			return
-		}
-
-		log.Info("Invitation sent", "account_id", acct.ID, "email", req.Email)
-		c.JSON(http.StatusCreated, gin.H{"invitation": inv})
+		c.JSON(http.StatusCreated, gin.H{"results": results})
 	}
 }
 

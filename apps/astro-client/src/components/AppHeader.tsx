@@ -202,11 +202,13 @@ export function AppHeader() {
               <DropdownMenuSeparator />
               {(() => {
                 const orgs = accounts.filter((a) => a.type === "organization");
-                return orgs.length > 0 ? (
+                return (
                   <>
-                    <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                      Organizations
-                    </div>
+                    {orgs.length > 0 && (
+                      <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                        Organizations
+                      </div>
+                    )}
                     {orgs.map((org) => (
                       <DropdownMenuItem key={org.id} asChild className="gap-2">
                         <Link to={`/${org.name}`}>
@@ -215,10 +217,6 @@ export function AppHeader() {
                         </Link>
                       </DropdownMenuItem>
                     ))}
-                    <DropdownMenuSeparator />
-                  </>
-                ) : (
-                  <>
                     <DropdownMenuItem asChild className="gap-2">
                       <Link to="/organization/new">
                         <PlusIcon className="size-4" />
