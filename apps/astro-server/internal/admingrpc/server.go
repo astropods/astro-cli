@@ -531,7 +531,7 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 			a.id,
 			a.name,
 			a.type,
-			COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id AND role = 'owner' LIMIT 1), '') AS owner_user_id,
+			COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '') AS owner_user_id,
 			(SELECT COUNT(*) FROM account_members WHERE account_id = a.id) AS member_count,
 			a.created_at,
 			a.updated_at

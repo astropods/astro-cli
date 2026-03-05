@@ -5,8 +5,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  bin = "./tmp/queen server --no-open"
   cmd = "go build -o ./tmp/queen ."
+  full_bin = "./tmp/queen server --no-open"
   delay = 1000
   exclude_dir = ["tmp", "web", "bin", "vendor"]
   exclude_regex = ["_test.go"]
