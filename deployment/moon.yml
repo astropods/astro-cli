@@ -7,13 +7,13 @@ tasks:
       runInCI: false
 
   "messaging":
-    command: "cd .. && docker build -t astro-messaging:latest -f packages/messaging/Dockerfile packages/messaging"
+    command: "cd .. && docker build -t astro-messaging:latest -f modules/messaging/Dockerfile modules/messaging"
     options:
       cache: false
       runInCI: false
 
   "playground":
-    command: "cd .. && docker build -t astro-playground:latest -f packages/playground/Dockerfile packages/playground"
+    command: "cd .. && docker build -t astro-playground:latest -f modules/playground/Dockerfile modules/playground"
     options:
       cache: false
       runInCI: false

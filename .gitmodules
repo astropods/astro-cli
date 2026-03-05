@@ -1,18 +1,18 @@
-[submodule "messaging"]
-	path = packages/messaging
-	url = git@github.com:astropods/messaging.git
-[submodule "playground"]
-	path = packages/playground
-	url = git@github.com:astropods/playground.git
-[submodule "adapters"]
-	path = packages/adapters
-	url = git@github.com:astropods/adapters.git
-[submodule "agents"]
-	path = agents
+[submodule "modules/agents"]
+	path = modules/agents
 	url = git@github.com:astropods/agents.git
-[submodule "ast-cli"]
-	path = apps/cli-public
+[submodule "modules/cli-public"]
+	path = modules/cli-public
 	url = git@github.com:astropods/ast-cli.git
-[submodule "website"]
-	path = website
+[submodule "modules/adapters"]
+	path = modules/adapters
+	url = git@github.com:astropods/adapters.git
+[submodule "modules/messaging"]
+	path = modules/messaging
+	url = git@github.com:astropods/messaging.git
+[submodule "modules/playground"]
+	path = modules/playground
+	url = git@github.com:astropods/playground.git
+[submodule "modules/website"]
+	path = modules/website
 	url = git@github.com:postman-eng/astro-website.git

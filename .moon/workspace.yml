@@ -14,6 +14,7 @@ $schema: "./cache/schemas/workspace.json"
 projects:
   - "apps/*/moon.yml"
   - "packages/*/moon.yml"
+  - "modules/*/moon.yml"
   - "deployment"
 
 # Configures the version control system to utilize within the workspace. A VCS
