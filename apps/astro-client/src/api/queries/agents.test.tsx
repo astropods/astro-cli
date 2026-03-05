@@ -85,7 +85,7 @@ describe('useDeployAgent', () => {
       source: { account: testAccount, name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
       target: { runtime: 'kubernetes', namespace: 'prod' },
       agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
-    } as any);
+    } as unknown as Parameters<typeof result.current.mutate>[0]);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

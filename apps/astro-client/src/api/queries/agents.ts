@@ -7,7 +7,7 @@ export function useAgents(opts?: { initialData?: AgentsListResponse }) {
     queryKey: agentKeys.all,
     queryFn: () => api.listAgents(),
     initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? Date.now() : undefined,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
@@ -17,7 +17,7 @@ export function useAgent(account: string, name: string, opts?: { initialData?: A
     queryFn: () => api.getAgent(account, name),
     enabled: !!account && !!name,
     initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? Date.now() : undefined,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 
@@ -27,7 +27,7 @@ export function useDeploymentTemplate(account: string, name: string, opts?: { in
     queryFn: () => api.getDeploymentTemplate(account, name),
     enabled: !!account && !!name,
     initialData: opts?.initialData,
-    initialDataUpdatedAt: opts?.initialData ? Date.now() : undefined,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 

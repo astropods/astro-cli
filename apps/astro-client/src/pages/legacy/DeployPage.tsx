@@ -3,7 +3,7 @@
  * Superseded by InstallAgent (route: deploy/:account/:agentSlug).
  * Do not add new features here.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router";
 import {
   ArrowLeft,
@@ -410,29 +410,32 @@ export default function DeployPage() {
     : null;
 
   // Agent/ingestion-targeting variables
-  const variableEntries = template?.variables
-    ? Object.entries(template.variables).filter(([, v]) =>
-        v.targets.some((t) => t === "agent" || t.startsWith("ingestion")),
-      )
-    : [];
+  const variableEntries = useMemo(
+    () =>
+      template?.variables
+        ? Object.entries(template.variables).filter(([, v]) =>
+            v.targets.some((t) => t === "agent" || t.startsWith("ingestion")),
+          )
+        : [],
+    [template],
+  );
 
   useEffect(() => {
-    if (variableEntries.length > 0) {
-      setCredentialValues((prev) => {
-        const initial: Record<string, string> = {};
-        for (const [key, v] of variableEntries) {
-          initial[key] = prev[key] ?? v.default ?? "";
-        }
-        return initial;
-      });
-    }
-  }, [template]);
+    if (variableEntries.length === 0) return;
+    setCredentialValues((prev) => {
+      const initial: Record<string, string> = {};
+      for (const [key, v] of variableEntries) {
+        initial[key] = prev[key] ?? v.default ?? "";
+      }
+      return initial;
+    });
+  }, [variableEntries]);
 
   useEffect(() => {
-    if (template?.observability) {
-      const obs = template.observability as Record<string, unknown>;
-      if (obs.enabled !== undefined) setObservabilityEnabled(obs.enabled as boolean);
-    }
+    if (!template?.observability) return;
+    const obs = template.observability as Record<string, unknown>;
+    if (obs.enabled === undefined) return;
+    setObservabilityEnabled(obs.enabled as boolean);
   }, [template]);
 
   const requiredVariables = variableEntries.filter(([, v]) => !v.optional);

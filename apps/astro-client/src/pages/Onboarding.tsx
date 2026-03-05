@@ -27,11 +27,10 @@ export default function Onboarding() {
 
   // Debounce the server check
   useEffect(() => {
-    if (!shouldCheck) {
-      setDebouncedName('');
-      return;
-    }
-    timerRef.current = setTimeout(() => setDebouncedName(name), 300);
+    timerRef.current = setTimeout(
+      () => setDebouncedName(shouldCheck ? name : ''),
+      shouldCheck ? 300 : 0,
+    );
     return () => clearTimeout(timerRef.current);
   }, [name, shouldCheck]);
 

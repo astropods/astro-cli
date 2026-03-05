@@ -132,7 +132,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [updateFromResponse]);
 
   // Check if token needs refresh (expiring within 5 minutes)
   const isTokenExpiringSoon = useCallback(() => {

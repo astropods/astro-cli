@@ -95,7 +95,7 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
     if (location.state?.deployResult) {
       window.history.replaceState({}, document.title);
     }
-  }, []);
+  }, [location.state?.deployResult]);
 
   // Undeploy confirm state
   const [undeployConfirm, setUndeployConfirm] = useState<string | null>(null);

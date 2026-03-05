@@ -49,6 +49,7 @@ function fulfillTemplate(
   selectedAdapters: string[],
 ): DeploymentSpec {
   // Destructure out editable (template-only) so it is not present in the fulfilled spec
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
   const { editable: _editable, ...rest } = template;
 
   // Rebuild variables: keep only runtime fields, fill in user-supplied value

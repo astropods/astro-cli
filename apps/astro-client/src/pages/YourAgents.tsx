@@ -40,13 +40,13 @@ function YourAgentsContent() {
   const { accounts, isAuthenticated } = useAuth();
   const userAccount = accounts[0]?.name ?? "";
   const { data } = useDeployments(userAccount, isAuthenticated);
-  const deployments = data?.deployments ?? [];
 
   const filtered = useMemo(() => {
-    if (!filter) return deployments;
+    const list = data?.deployments ?? [];
+    if (!filter) return list;
     const lower = filter.toLowerCase();
-    return deployments.filter((d) => d.name.toLowerCase().includes(lower));
-  }, [deployments, filter]);
+    return list.filter((d) => d.name.toLowerCase().includes(lower));
+  }, [data?.deployments, filter]);
 
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
