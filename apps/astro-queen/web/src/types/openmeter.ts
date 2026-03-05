@@ -48,6 +48,7 @@ export interface Customer {
   currency: string;
   timezone: string;
   subjects: string[];
+  currentSubscriptionId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +91,55 @@ export interface Grant {
   expiresAt?: string;
   voidedAt?: string;
   nextRecurrence?: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
+export interface Plan {
+  id: string;
+  name: string;
+  description?: string;
+  key: string;
+  version: number;
+  currency: string;
+  billingCadence: string;
+  status: string;
+  phases: PlanPhase[];
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
+export interface PlanPhase {
+  key: string;
+  name: string;
+  description?: string;
+  duration?: string;
+  rateCards: RateCard[];
+}
+
+export interface RateCard {
+  type: string;
+  key: string;
+  name: string;
+  featureKey?: string;
+  billingCadence?: string;
+  entitlementTemplate?: Record<string, unknown>;
+  price?: Record<string, unknown>;
+}
+
+export interface Subscription {
+  id: string;
+  name: string;
+  description?: string;
+  status: string;
+  customerId: string;
+  plan?: { key: string; version: number };
+  currency: string;
+  billingCadence: string;
+  activeFrom: string;
+  activeTo?: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;

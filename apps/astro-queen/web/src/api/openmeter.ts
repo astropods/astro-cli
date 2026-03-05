@@ -8,6 +8,8 @@ import type {
   Entitlement,
   EntitlementValue,
   Grant,
+  Plan,
+  Subscription,
   CloudEvent,
 } from "@/types/openmeter";
 
@@ -309,6 +311,108 @@ export function useResetEntitlement() {
           vars.entitlementId
         ),
       });
+    },
+  });
+}
+
+// Plans
+export function usePlans() {
+  return useQuery({
+    queryKey: openmeterKeys.plans(),
+    queryFn: async () => {
+      const res = await api.get<Plan[] | { items: Plan[] }>(
+        "/api/openmeter/api/v1/plans"
+      );
+      return Array.isArray(res) ? res : res.items;
+    },
+  });
+}
+
+export function usePlan(id: string) {
+  return useQuery({
+    queryKey: openmeterKeys.plan(id),
+    queryFn: () => api.get<Plan>(`/api/openmeter/api/v1/plans/${encodeURIComponent(id)}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) =>
+      api.post<Plan>("/api/openmeter/api/v1/plans", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.plans() });
+    },
+  });
+}
+
+export function useDeletePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.del(`/api/openmeter/api/v1/plans/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.plans() });
+    },
+  });
+}
+
+export function usePublishPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post(`/api/openmeter/api/v1/plans/${encodeURIComponent(id)}/publish`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.plans() });
+    },
+  });
+}
+
+export function useArchivePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post(`/api/openmeter/api/v1/plans/${encodeURIComponent(id)}/archive`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.plans() });
+    },
+  });
+}
+
+// Subscriptions
+export function useCreateSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: unknown) =>
+      api.post<Subscription>("/api/openmeter/api/v1/subscriptions", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.customers() });
+    },
+  });
+}
+
+export function useSubscription(id: string) {
+  return useQuery({
+    queryKey: openmeterKeys.subscription(id),
+    queryFn: () =>
+      api.get<Subscription>(
+        `/api/openmeter/api/v1/subscriptions/${encodeURIComponent(id)}`
+      ),
+    enabled: !!id,
+  });
+}
+
+export function useCancelSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: unknown }) =>
+      api.post(
+        `/api/openmeter/api/v1/subscriptions/${encodeURIComponent(id)}/cancel`,
+        body
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.customers() });
     },
   });
 }

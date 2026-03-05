@@ -11,8 +11,7 @@ import { FeaturesPage } from "@/pages/features";
 import { CustomersPage } from "@/pages/customers";
 import { CustomerDetailPage } from "@/pages/customer-detail";
 import { EventsPage } from "@/pages/events";
-import { EntitlementsPage } from "@/pages/entitlements";
-import { GrantsPage } from "@/pages/grants";
+import { PlansPage } from "@/pages/plans";
 import { OpenMeterHomePage } from "@/pages/openmeter-home";
 
 export const router = createBrowserRouter([
@@ -30,8 +29,7 @@ export const router = createBrowserRouter([
       { path: "openmeter/features", element: <FeaturesPage /> },
       { path: "openmeter/customers", element: <CustomersPage /> },
       { path: "openmeter/customers/:id", element: <CustomerDetailPage /> },
-      { path: "openmeter/entitlements", element: <EntitlementsPage /> },
-      { path: "openmeter/grants", element: <GrantsPage /> },
+      { path: "openmeter/plans", element: <PlansPage /> },
       { path: "openmeter/events", element: <EventsPage /> },
     ],
   },
