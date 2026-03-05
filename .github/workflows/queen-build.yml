@@ -46,7 +46,11 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -o queen-${{ matrix.goos }}-${{ matrix.goarch }} .
+        run: |
+          go build -ldflags "\
+            -X github.com/postman/astro/apps/astro-queen/cmd.buildNumber=${{ github.run_number }} \
+            -X github.com/postman/astro/apps/astro-queen/cmd.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o queen-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - uses: actions/upload-artifact@v4
         with:

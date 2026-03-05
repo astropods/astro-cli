@@ -10,6 +10,12 @@ import (
 
 var cfgFile string
 
+// Set via -ldflags at build time.
+var (
+	buildNumber = "dev"
+	buildDate   = "unknown"
+)
+
 // WebFS is set by main.go from the embedded filesystem.
 var WebFS embed.FS
 
@@ -30,8 +36,9 @@ const beeArt = `
 `
 
 var rootCmd = &cobra.Command{
-	Use:   "queen",
-	Short: "queen - Astro admin toolkit",
+	Use:     "queen",
+	Short:   "queen - Astro admin toolkit",
+	Version: fmt.Sprintf("build %s (%s)", buildNumber, buildDate),
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Print(beeArt)
 		fmt.Println("  queen - Astro admin toolkit")
