@@ -14,18 +14,9 @@ Integrate OpenMeter into astro-server for usage metering, billing, and entitleme
 
 ## 1. Meters
 
-Four core meters, mapped to the primary billable dimensions of the platform.
+Three core meters, mapped to the primary billable dimensions of the platform.
 
-### 1a. `messages` -- Messages Handled
-
-Tracks the number of messages processed by deployed agents. The messaging container is Astro-controlled infrastructure (not user code), so it emits events directly to OpenMeter.
-
-- Event type: `agent_message`
-- Aggregation: `COUNT`
-- GroupBy: `$.agent_name`, `$.namespace`
-- Emission: The messaging container emits CloudEvents directly to OpenMeter on each message handled. Requires the container to know the `OPENMETER_URL`, API key, and the account's subject key (injected as env vars at deployment time).
-
-### 1b. `compute` -- Compute and Memory Consumed
+### 1a. `compute` -- Compute and Memory Consumed
 
 Resource-weighted metric combining CPU and memory over time, measured in **compute-unit-hours** (1 CU = 1 vCPU + 2GB RAM per hour). Analogous to Lambda's GB-seconds.
 
@@ -38,7 +29,7 @@ Resource-weighted metric combining CPU and memory over time, measured in **compu
   3. Emit `$.compute_unit_hours = CU * (interval_minutes / 60)`
 - Source: Polls `deployments` table (`undeployed_at IS NULL`) + K8s pod resource requests
 
-### 1c. `agents` -- Active Agents
+### 1b. `agents` -- Active Agents
 
 Tracks how many distinct agents exist per account (gauge via periodic snapshot).
 
@@ -47,7 +38,7 @@ Tracks how many distinct agents exist per account (gauge via periodic snapshot).
 - GroupBy: *(none — account-level total)*
 - Emission: Background job (Phase 3) counts distinct agents per account and emits the current count
 
-### 1e. `agent_builds` -- Agent Builds
+### 1c. `agent_builds` -- Agent Builds
 
 Tracks each build/version pushed to the registry.
 
@@ -68,20 +59,6 @@ Tracks how many agents are currently deployed (gauge via periodic snapshot).
 ### Meter Creation Payloads
 
 `POST /api/v1/meters` for each:
-
-```json
-{
-  "slug": "messages",
-  "name": "Messages Handled",
-  "description": "Number of messages processed by deployed agents",
-  "eventType": "agent_message",
-  "aggregation": "COUNT",
-  "groupBy": {
-    "agent_name": "$.agent_name",
-    "namespace": "$.namespace"
-  }
-}
-```
 
 ```json
 {
@@ -196,23 +173,6 @@ All events use CloudEvents format with `subject` = `account.id`. Below are the e
 }
 ```
 
-### `agent_message` (inline — messaging container)
-
-```json
-{
-  "id": "<uuid>",
-  "source": "astro-messaging",
-  "specversion": "1.0",
-  "type": "agent_message",
-  "subject": "<account.id>",
-  "time": "<RFC3339>",
-  "data": {
-    "agent_name": "my-agent",
-    "namespace": "astro-abc123"
-  }
-}
-```
-
 ### `compute_usage` (heartbeat — every 5 min, one per container)
 
 ```json
@@ -276,14 +236,12 @@ Event ingestion is **async fire-and-forget** (buffered channel or goroutine) so 
 ### Example Plans
 
 **Free**
-- `messages`: metered entitlement, 10K/month, hard limit
 - `compute`: metered entitlement, 100 CU-hours/month, hard limit
 - `agent_registrations`: metered entitlement, 5/month, hard limit
 - `agent_deployments`: metered entitlement, 10/month, hard limit
 - Flat fee: $0
 
 **Pro**
-- `messages`: tiered pricing -- first 50K at $0, then $0.002/message
 - `compute`: usage-based, $0.05/CU-hour
 - `agent_registrations`: unlimited (soft limit)
 - `agent_deployments`: metered entitlement, 100/month
@@ -347,7 +305,6 @@ Initialized with `OPENMETER_URL` (no auth). Passed into handlers via dependency 
 ### Background Jobs
 
 - **Compute heartbeat**: Runs every 5 minutes. For each active deployment, computes CU-hours for the interval from CPU/memory requests and emits `compute_usage` events.
-- ~~Message sync~~: Not needed -- messaging container emits directly to OpenMeter.
 
 ---
 
@@ -357,7 +314,7 @@ Initialized with `OPENMETER_URL` (no auth). Passed into handlers via dependency 
 |---|---|---|
 | **Phase 1** | OpenMeter client + customer creation on account create + backfill migration | `internal/openmeter/client.go`, `handlers/accounts.go`, `schema.sql`, migration script |
 | **Phase 2** | Inline meters: `agent_deployments` + `agent_registrations` event emission | `internal/openmeter/events.go`, `handlers/deploy.go`, `handlers/agents.go` |
-| **Phase 3** | Background meters: `compute` heartbeat + `messages` Galileo sync | `internal/openmeter/sync.go` |
+| **Phase 3** | Background meters: `compute` heartbeat | `internal/openmeter/sync.go` |
 | **Phase 4** | Plan/subscription management + entitlement enforcement middleware | `internal/openmeter/middleware.go`, plan definitions in OpenMeter |
 
 ---
@@ -371,4 +328,3 @@ Initialized with `OPENMETER_URL` (no auth). Passed into handlers via dependency 
 - [x] What is the API key auth mechanism for OpenMeter -- env var, secret, or service account? **No auth.** OpenMeter is internal/private, accessed directly via `OPENMETER_URL`.
 - [x] Should the Galileo token sync be real-time (webhook from Galileo) or polled? **N/A.** Galileo is not used for metering at all.
 - [x] Do we need OpenMeter's notification system for threshold alerts (75%, 100% usage)? **Not yet.** No notifications for now.
-- [ ] What env vars does the messaging container need? At minimum: `OPENMETER_URL`, `OPENMETER_SUBJECT` (account ID). No API key needed (no auth). Injected by the deploy handler into the messaging container spec.
