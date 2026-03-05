@@ -20,9 +20,6 @@ jobs:
           - goos: darwin
             goarch: arm64
             runner: macos-latest
-          - goos: darwin
-            goarch: amd64
-            runner: macos-13
           - goos: linux
             goarch: amd64
             runner: ubuntu-latest
