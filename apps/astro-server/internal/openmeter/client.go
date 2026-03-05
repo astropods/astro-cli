@@ -72,7 +72,7 @@ func (c *Client) CreateCustomer(ctx context.Context, accountID, accountName, acc
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
 	if err != nil {
 		return "", fmt.Errorf("create customer request: %w", err)
 	}
@@ -130,7 +130,7 @@ func (c *Client) IngestEvents(ctx context.Context, events []CloudEvent) error {
 	}
 	req.Header.Set("Content-Type", "application/cloudevents-batch+json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
 	if err != nil {
 		return fmt.Errorf("ingest events request: %w", err)
 	}
@@ -160,7 +160,7 @@ func (c *Client) GetEntitlementValue(ctx context.Context, subjectKey, featureKey
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
 	if err != nil {
 		return nil, fmt.Errorf("get entitlement request: %w", err)
 	}
