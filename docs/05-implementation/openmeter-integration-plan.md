@@ -87,13 +87,14 @@ Tracks how many agents are currently deployed (gauge via periodic snapshot).
 {
   "slug": "compute",
   "name": "Compute Consumed",
-  "description": "Compute-unit-hours consumed by active deployments",
+  "description": "Compute-unit-hours consumed by active deployments, per container",
   "eventType": "compute_usage",
   "aggregation": "SUM",
   "valueProperty": "$.compute_unit_hours",
   "groupBy": {
     "agent_name": "$.agent_name",
-    "namespace": "$.namespace"
+    "namespace": "$.namespace",
+    "component": "$.component"
   }
 }
 ```
@@ -177,17 +178,92 @@ One-time migration script that iterates all existing accounts and creates corres
 
 ## 3. Event Ingestion
 
-All events use CloudEvents format with `subject` = `account.id`:
+All events use CloudEvents format with `subject` = `account.id`. Below are the exact payloads emitted by each source.
+
+### `agent_build` (inline — RegisterAgent handler)
 
 ```json
 {
   "id": "<uuid>",
   "source": "astro-server",
   "specversion": "1.0",
-  "type": "<event_type>",
+  "type": "agent_build",
   "subject": "<account.id>",
   "time": "<RFC3339>",
-  "data": { ... }
+  "data": {
+    "agent_name": "my-agent"
+  }
+}
+```
+
+### `agent_message` (inline — messaging container)
+
+```json
+{
+  "id": "<uuid>",
+  "source": "astro-messaging",
+  "specversion": "1.0",
+  "type": "agent_message",
+  "subject": "<account.id>",
+  "time": "<RFC3339>",
+  "data": {
+    "agent_name": "my-agent",
+    "namespace": "astro-abc123"
+  }
+}
+```
+
+### `compute_usage` (heartbeat — every 5 min, one per container)
+
+```json
+{
+  "id": "<uuid>",
+  "source": "astro-server",
+  "specversion": "1.0",
+  "type": "compute_usage",
+  "subject": "<account.id>",
+  "time": "<RFC3339>",
+  "data": {
+    "compute_unit_hours": 0.0833,
+    "agent_name": "my-agent",
+    "namespace": "astro-abc123",
+    "component": "model/llm",
+    "cpu": "2",
+    "memory": "8Gi",
+    "replicas": 1
+  }
+}
+```
+
+### `active_deployments` (heartbeat — every 5 min, one per account)
+
+```json
+{
+  "id": "<uuid>",
+  "source": "astro-server",
+  "specversion": "1.0",
+  "type": "active_deployments",
+  "subject": "<account.id>",
+  "time": "<RFC3339>",
+  "data": {
+    "count": 3
+  }
+}
+```
+
+### `active_agents` (heartbeat — every 5 min, one per account)
+
+```json
+{
+  "id": "<uuid>",
+  "source": "astro-server",
+  "specversion": "1.0",
+  "type": "active_agents",
+  "subject": "<account.id>",
+  "time": "<RFC3339>",
+  "data": {
+    "count": 5
+  }
 }
 ```
 

@@ -1,0 +1,293 @@
+package openmeter
+
+import (
+	"context"
+	"encoding/json"
+	"math"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/postman/astro/apps/astro-server/internal/logger"
+	spec "github.com/postman/astro/packages/astro-spec"
+)
+
+func TestParseCPU(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"100m", 0.1},
+		{"250m", 0.25},
+		{"1", 1},
+		{"2", 2},
+		{"1.5", 1.5},
+		{"", 0},
+		{"0m", 0},
+	}
+	for _, tt := range tests {
+		got := parseCPU(tt.input)
+		if math.Abs(got-tt.want) > 0.001 {
+			t.Errorf("parseCPU(%q) = %f, want %f", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseMemory(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"1Gi", 1},
+		{"256Mi", 0.25},
+		{"512Mi", 0.5},
+		{"2Gi", 2},
+		{"128Mi", 0.125},
+		{"1G", 1},
+		{"500M", 0.5},
+		{"", 0},
+	}
+	for _, tt := range tests {
+		got := parseMemory(tt.input)
+		if math.Abs(got-tt.want) > 0.01 {
+			t.Errorf("parseMemory(%q) = %f, want %f", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestContainerBreakdown_BasicAgent(t *testing.T) {
+	s := &spec.AstroDeploymentSpec{
+		Agent: spec.DeploymentAgent{
+			Replicas:  1,
+			Resources: spec.DeploymentResources{CPU: "1", Memory: "2Gi"},
+		},
+	}
+	containers := containerBreakdown(s)
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(containers))
+	}
+	if containers[0].Component != "agent" {
+		t.Errorf("expected component 'agent', got %q", containers[0].Component)
+	}
+	// CU = max(1, 2/2) = 1
+	if math.Abs(containers[0].CU-1) > 0.001 {
+		t.Errorf("expected CU=1, got %f", containers[0].CU)
+	}
+}
+
+func TestContainerBreakdown_MemoryHeavy(t *testing.T) {
+	s := &spec.AstroDeploymentSpec{
+		Agent: spec.DeploymentAgent{
+			Replicas:  1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "4Gi"},
+		},
+	}
+	containers := containerBreakdown(s)
+	// CU = max(0.1, 4/2) = 2
+	if math.Abs(containers[0].CU-2) > 0.001 {
+		t.Errorf("expected CU=2, got %f", containers[0].CU)
+	}
+}
+
+func TestContainerBreakdown_WithReplicas(t *testing.T) {
+	s := &spec.AstroDeploymentSpec{
+		Agent: spec.DeploymentAgent{
+			Replicas:  3,
+			Resources: spec.DeploymentResources{CPU: "1", Memory: "2Gi"},
+		},
+	}
+	containers := containerBreakdown(s)
+	// CU = max(1, 1) * 3 = 3
+	if math.Abs(containers[0].CU-3) > 0.001 {
+		t.Errorf("expected CU=3, got %f", containers[0].CU)
+	}
+	if containers[0].Replicas != 3 {
+		t.Errorf("expected replicas=3, got %d", containers[0].Replicas)
+	}
+}
+
+func TestContainerBreakdown_MultipleContainers(t *testing.T) {
+	s := &spec.AstroDeploymentSpec{
+		Agent: spec.DeploymentAgent{
+			Replicas:  1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+		},
+		Models: map[string]spec.DeploymentModel{
+			"llm": {
+				Replicas:  1,
+				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
+			},
+		},
+		Interfaces: &spec.DeploymentInterfaces{
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "128Mi"},
+		},
+	}
+	containers := containerBreakdown(s)
+	if len(containers) != 3 {
+		t.Fatalf("expected 3 containers, got %d", len(containers))
+	}
+
+	// Find each by component name
+	byName := map[string]containerUsage{}
+	for _, c := range containers {
+		byName[c.Component] = c
+	}
+
+	// Agent: max(0.1, 0.25/2) = 0.125
+	if math.Abs(byName["agent"].CU-0.125) > 0.01 {
+		t.Errorf("agent CU: expected 0.125, got %f", byName["agent"].CU)
+	}
+	// Model: max(2, 8/2) = 4
+	if math.Abs(byName["model/llm"].CU-4) > 0.01 {
+		t.Errorf("model/llm CU: expected 4, got %f", byName["model/llm"].CU)
+	}
+	// Interfaces: max(0.1, 0.125/2) = 0.1
+	if math.Abs(byName["interfaces"].CU-0.1) > 0.01 {
+		t.Errorf("interfaces CU: expected 0.1, got %f", byName["interfaces"].CU)
+	}
+}
+
+func TestHeartbeat_EmitComputeUsage(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	depSpec := spec.AstroDeploymentSpec{
+		Agent: spec.DeploymentAgent{
+			Replicas:  1,
+			Resources: spec.DeploymentResources{CPU: "1", Memory: "2Gi"},
+		},
+		Models: map[string]spec.DeploymentModel{
+			"llm": {
+				Replicas:  1,
+				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
+			},
+		},
+	}
+	specJSON, _ := json.Marshal(depSpec)
+
+	mock.ExpectQuery("SELECT .+ FROM deployments WHERE status = 'active'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "agent_name", "namespace", "deployment_spec_json"}).
+			AddRow("acct-1", "my-agent", "astro-abc", string(specJSON)))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitComputeUsage(context.Background())
+
+	// Should get 2 events: one for agent, one for model/llm
+	if len(received) != 2 {
+		t.Fatalf("expected 2 events (per container), got %d", len(received))
+	}
+	for _, ev := range received {
+		if ev.Type != "compute_usage" {
+			t.Errorf("expected type 'compute_usage', got %q", ev.Type)
+		}
+		if ev.Subject != "acct-1" {
+			t.Errorf("expected subject 'acct-1', got %q", ev.Subject)
+		}
+	}
+}
+
+func TestHeartbeat_EmitActiveDeployments(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM deployments WHERE status = 'active'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
+			AddRow("acct-1", 3).
+			AddRow("acct-2", 1))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitActiveDeployments(context.Background())
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(received))
+	}
+	if received[0].Type != "active_deployments" {
+		t.Errorf("expected type 'active_deployments', got %q", received[0].Type)
+	}
+	if received[0].Subject != "acct-1" {
+		t.Errorf("expected subject 'acct-1', got %q", received[0].Subject)
+	}
+}
+
+func TestHeartbeat_EmitActiveAgents(t *testing.T) {
+	var received []CloudEvent
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var events []CloudEvent
+		_ = json.NewDecoder(r.Body).Decode(&events)
+		received = append(received, events...)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, mock, _ := sqlmock.New()
+	client := NewClient(srv.URL)
+	log := logger.New("error", "json")
+
+	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM agents").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}).
+			AddRow("acct-1", 5))
+
+	hb := &Heartbeat{client: client, db: db, log: log}
+	hb.emitActiveAgents(context.Background())
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(received))
+	}
+	if received[0].Type != "active_agents" {
+		t.Errorf("expected type 'active_agents', got %q", received[0].Type)
+	}
+}
+
+func TestHeartbeat_StartAndCancel(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	client := NewClient("http://localhost:0")
+	log := logger.New("error", "json")
+
+	// The immediate tick: 3 queries (compute, deployments count, agents count)
+	mock.ExpectQuery("SELECT .+ FROM deployments WHERE status = 'active'").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "agent_name", "namespace", "deployment_spec_json"}))
+	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM deployments").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}))
+	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM agents").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}))
+
+	hb := NewHeartbeat(client, db, log)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		hb.Start(ctx)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("heartbeat did not stop within timeout")
+	}
+}

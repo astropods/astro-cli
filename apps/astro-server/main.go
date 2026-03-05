@@ -289,6 +289,9 @@ func runWorker(
 	if omClient != nil {
 		reconciler := openmeter.NewReconciler(omClient, accountStore, log)
 		go reconciler.Run(workerCtx)
+
+		heartbeat := openmeter.NewHeartbeat(omClient, db, log)
+		go heartbeat.Start(workerCtx)
 	}
 
 	return cancel
