@@ -14,7 +14,7 @@ export interface InviteEntry {
 
 type DropdownItem =
   | { type: "email"; email: string }
-  | { type: "account"; name: string; accountType: string };
+  | { type: "account"; name: string };
 
 interface InviteInputProps {
   entries: InviteEntry[];
@@ -79,8 +79,9 @@ export function InviteInput({
       items.push({ type: "email", email: trimmed });
     }
     for (const r of searchData?.results ?? []) {
+      if (r.type !== "personal") continue;
       if (!existingValues.has(r.name) && !exclude?.has(r.name)) {
-        items.push({ type: "account", name: r.name, accountType: r.type });
+        items.push({ type: "account", name: r.name });
       }
     }
     return items;
@@ -276,9 +277,6 @@ export function InviteInput({
                 <>
                   <User className="text-muted-foreground size-4 shrink-0" />
                   <span className="font-medium">{item.name}</span>
-                  <span className="text-muted-foreground text-xs">
-                    {item.accountType}
-                  </span>
                 </>
               )}
             </li>
