@@ -8,10 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	cfgFile    string
-	serverAddr string
-)
+var cfgFile string
 
 // WebFS is set by main.go from the embedded filesystem.
 var WebFS embed.FS
@@ -20,15 +17,16 @@ var WebFS embed.FS
 var OpenAPIJSON []byte
 
 const beeArt = `
-        \     /
-     \  .\---./  /
-      \/ o   o \/
-      ( _  ^  _ )
-       |/ \Y/ \|
-       ()  |  ()
-        |  |  |
-       _|  |  |_
-      (___/ \___)
+                __/   _
+        .__  __.  \__/   __
+         .-` + "`" + `'-.   /  \__/
+     .-.(  oo  ).-. _/  \__/
+ __ :   \".~~."/   ; \__/
+/  \_` + "`" + `.  Y` + "`" + `--'Y  .' _/  \__
+ __/  ` + "`" + `./======\.'   \__/  \_
+/  \__/ \======/  \__/  \__/
+\__/   (_` + "`" + `----'_)    \__/  \
+"""""""""""""""""""""""""""""""""
 `
 
 var rootCmd = &cobra.Command{
@@ -49,14 +47,14 @@ var rootCmd = &cobra.Command{
 		}
 
 		fmt.Println()
-		fmt.Println("  Use \"queen <command> --help\" for more information about a command.")
+		fmt.Println("  Usage: queen <prod|preview> admin  to start")
+		fmt.Println("         queen login                to authenticate")
 		fmt.Println()
 	},
 }
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default ~/.astro-queen/config.yaml)")
-	rootCmd.PersistentFlags().StringVarP(&serverAddr, "server", "s", "", "gRPC server address (overrides config)")
 }
 
 // Execute runs the root command.

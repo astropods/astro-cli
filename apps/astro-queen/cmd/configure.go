@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,91 +12,72 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/postman/astro/apps/astro-queen/internal/config"
+	"github.com/postman/astro/apps/astro-queen/internal/opauth"
 )
 
-var configureCmd = &cobra.Command{
-	Use:   "configure",
-	Short: "Interactively set up server address and mTLS certificates",
-	RunE:  runConfigure,
+var loginCmd = &cobra.Command{
+	Use:   "login",
+	Short: "Authenticate via 1Password and fetch mTLS certificates",
+	RunE:  runLogin,
 }
 
 func init() {
-	rootCmd.AddCommand(configureCmd)
+	rootCmd.AddCommand(loginCmd)
 }
 
-func runConfigure(cmd *cobra.Command, args []string) error {
+func runLogin(cmd *cobra.Command, args []string) error {
 	scanner := bufio.NewScanner(os.Stdin)
 
-	// Server address
-	fmt.Print("Server address [localhost:9091]: ")
+	fmt.Print(beeArt)
+
+	// 1Password account name
+	fmt.Print("1Password account name: ")
 	scanner.Scan()
-	server := strings.TrimSpace(scanner.Text())
-	if server == "" {
-		server = "localhost:9091"
+	opAccount := strings.TrimSpace(scanner.Text())
+	if opAccount == "" {
+		return fmt.Errorf("1Password account name is required")
 	}
 
-	// Derive config directory from DefaultPath
-	configDir := filepath.Dir(config.DefaultPath())
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
+	// Fetch certs from 1Password
+	fmt.Println("Fetching certificates from 1Password...")
+	ctx := context.Background()
+	certPEM, keyPEM, caPEM, err := opauth.FetchCerts(ctx, opAccount)
+	if err != nil {
+		return fmt.Errorf("fetch certs from 1password: %w", err)
 	}
+	fmt.Println("Certificates fetched successfully.")
 
-	// Client certificate
-	fmt.Println("Client certificate PEM (paste, then press Enter on a blank line after -----END):")
-	certPEM := readPEM(scanner)
-
-	// Client key
-	fmt.Println("Client key PEM (paste, then press Enter on a blank line after -----END):")
-	keyPEM := readPEM(scanner)
-
-	// CA certificate
-	fmt.Println("CA certificate PEM (paste, then press Enter on a blank line after -----END):")
-	caPEM := readPEM(scanner)
-
-	// Write cert files
-	files := map[string]string{
-		"client.crt": certPEM,
-		"client.key": keyPEM,
-		"ca.crt":     caPEM,
+	// Write cert files to conventional paths
+	certFiles := map[string]string{
+		config.CertFile(): certPEM,
+		config.KeyFile():  keyPEM,
+		config.CAFile():   caPEM,
 	}
-	for name, pem := range files {
-		path := filepath.Join(configDir, name)
+	for path, pem := range certFiles {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return fmt.Errorf("create config dir: %w", err)
+		}
 		if err := os.WriteFile(path, []byte(pem), 0600); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
+			return fmt.Errorf("write %s: %w", path, err)
 		}
 	}
 
 	// Write config.yaml
 	cfg := config.Config{
-		Server:   server,
-		CertFile: filepath.Join(configDir, "client.crt"),
-		KeyFile:  filepath.Join(configDir, "client.key"),
-		CAFile:   filepath.Join(configDir, "ca.crt"),
+		OPAccount: opAccount,
 	}
 	data, err := yaml.Marshal(&cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	configPath := config.DefaultPath()
+	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
 	fmt.Printf("Configuration written to %s\n", configPath)
 	return nil
-}
-
-// readPEM reads lines from the scanner until a blank line appears after an -----END line.
-func readPEM(scanner *bufio.Scanner) string {
-	var lines []string
-	sawEnd := false
-	for scanner.Scan() {
-		line := scanner.Text()
-		if sawEnd && strings.TrimSpace(line) == "" {
-			break
-		}
-		sawEnd = strings.Contains(line, "-----END")
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n") + "\n"
 }

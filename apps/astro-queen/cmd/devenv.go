@@ -19,7 +19,7 @@ var (
 var nameRegex = regexp.MustCompile(`^[a-z][a-z0-9-]{0,19}$`)
 
 var devenvCmd = &cobra.Command{
-	Use:   "devenv",
+	Use:   "dev",
 	Short: "Manage Astropod developer environments",
 }
 

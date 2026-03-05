@@ -26,8 +26,12 @@ type Client struct {
 func New(cfg *config.Config) (*Client, error) {
 	var opts []grpc.DialOption
 
-	if cfg.CertFile != "" && cfg.KeyFile != "" && cfg.CAFile != "" {
-		creds, err := loadClientTLS(cfg)
+	certFile := config.CertFile()
+	keyFile := config.KeyFile()
+	caFile := config.CAFile()
+
+	if fileExists(certFile) && fileExists(keyFile) && fileExists(caFile) {
+		creds, err := loadClientTLS(certFile, keyFile, caFile)
 		if err != nil {
 			return nil, fmt.Errorf("load TLS: %w", err)
 		}
@@ -65,13 +69,18 @@ func (c *Client) Close() error {
 	return c.cc.Close()
 }
 
-func loadClientTLS(cfg *config.Config) (credentials.TransportCredentials, error) {
-	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func loadClientTLS(certFile, keyFile, caFile string) (credentials.TransportCredentials, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("load key pair: %w", err)
 	}
 
-	caBytes, err := os.ReadFile(cfg.CAFile)
+	caBytes, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("read CA: %w", err)
 	}
