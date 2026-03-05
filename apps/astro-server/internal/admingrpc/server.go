@@ -663,7 +663,7 @@ func (s *Server) ProxyOpenMeter(ctx context.Context, req *adminv1.OpenMeterProxy
 		httpReq.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := http.DefaultClient.Do(httpReq) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
 	if err != nil {
 		return nil, fmt.Errorf("openmeter request: %w", err)
 	}
