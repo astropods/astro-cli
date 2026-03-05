@@ -57,12 +57,17 @@ export interface Entitlement {
   featureId: string;
   featureKey: string;
   subjectKey: string;
+  customerId?: string;
   type: string;
-  usagePeriod: { interval: string; anchor: string };
-  currentUsagePeriod: { from: string; to: string };
-  measureUsageFrom: string;
+  isSoftLimit?: boolean;
+  usagePeriod?: { interval: string; anchor: string };
+  currentUsagePeriod?: { from: string; to: string };
+  measureUsageFrom?: string;
+  activeFrom?: string;
+  activeTo?: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 }
 
 export interface EntitlementValue {
@@ -76,12 +81,18 @@ export interface Grant {
   id: string;
   entitlementId: string;
   amount: number;
-  priority: number;
+  priority?: number;
   effectiveAt: string;
-  expiration: { duration: string; count: number };
-  recurrence: { interval: string; anchor: string };
+  expiration?: { duration: string; count: number };
+  maxRolloverAmount?: number;
+  minRolloverAmount?: number;
+  recurrence?: { interval: string; anchor: string };
+  expiresAt?: string;
+  voidedAt?: string;
+  nextRecurrence?: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 }
 
 export interface CloudEvent {

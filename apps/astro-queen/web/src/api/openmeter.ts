@@ -313,6 +313,32 @@ export function useResetEntitlement() {
   });
 }
 
+// Entitlements (global)
+export function useEntitlements() {
+  return useQuery({
+    queryKey: openmeterKeys.entitlements(),
+    queryFn: async () => {
+      const res = await api.get<Entitlement[] | { items: Entitlement[] }>(
+        "/api/openmeter/api/v2/entitlements"
+      );
+      return Array.isArray(res) ? res : res.items;
+    },
+  });
+}
+
+// Grants (global)
+export function useGrants() {
+  return useQuery({
+    queryKey: openmeterKeys.grants(),
+    queryFn: async () => {
+      const res = await api.get<Grant[] | { items: Grant[] }>(
+        "/api/openmeter/api/v2/grants"
+      );
+      return Array.isArray(res) ? res : res.items;
+    },
+  });
+}
+
 // Events
 interface EventWrapper {
   event: CloudEvent;
