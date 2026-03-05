@@ -28,6 +28,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/openmeter"
 	"github.com/postman/astro/apps/astro-server/internal/org"
 	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 )
@@ -79,6 +80,12 @@ func main() {
 		log.Info("WorkOS organization client initialized")
 	}
 
+	// Initialize OpenMeter client (nil if OPENMETER_URL is empty)
+	omClient := openmeter.NewClient(cfg.OpenMeterURL)
+	if omClient != nil {
+		log.Info("OpenMeter client initialized", "url", cfg.OpenMeterURL)
+	}
+
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
 	var grpcServer *grpc.Server
@@ -87,7 +94,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync)
+		httpSrv, grpcServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -165,6 +172,7 @@ func runAPI(
 	accountStore *account.AccountStore,
 	orgClient *org.Client,
 	orgSync *org.Sync,
+	omClient *openmeter.Client,
 ) (*http.Server, *grpc.Server, *handlers.ProbeHandler) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -230,7 +238,7 @@ func runAPI(
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient, orgClient, orgSync)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient)
 
 	// Start admin gRPC server
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, deploymentStore, k8sClient, db)
@@ -281,7 +289,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) {
 	// Kubernetes-style health probe endpoints (at root, no middleware)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
@@ -357,7 +365,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 			// Account management
 			protected.GET("/accounts/search", handlers.SearchAccounts(log, accountStore))
-			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient, orgSync))
+			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient))
 
 			// Account-scoped routes (owner/admin)
 			accountAdmin := protected.Group("/accounts/:account")

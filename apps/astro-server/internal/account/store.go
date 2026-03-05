@@ -420,6 +420,43 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 	return accounts, nil
 }
 
+// SetOpenMeterCustomerID stores the OpenMeter customer ID for an account.
+func (s *AccountStore) SetOpenMeterCustomerID(accountID, customerID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET openmeter_customer_id = $1, updated_at = $2
+		WHERE id = $3
+	`, customerID, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set openmeter_customer_id: %w", err)
+	}
+	return nil
+}
+
+// GetAccountsMissingOpenMeterCustomer returns accounts that don't have an OpenMeter customer yet.
+func (s *AccountStore) GetAccountsMissingOpenMeterCustomer(limit int) ([]Account, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, type, created_at, updated_at
+		FROM accounts
+		WHERE openmeter_customer_id IS NULL
+		ORDER BY created_at
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, nil
+}
+
 // DeleteByID deletes an account by its UUID (used for cleanup on org creation failure).
 func (s *AccountStore) DeleteByID(accountID string) error {
 	_, err := s.db.Exec(`DELETE FROM accounts WHERE id = $1`, accountID)

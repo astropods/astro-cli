@@ -1,0 +1,180 @@
+package openmeter
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Client is a typed HTTP client for the OpenMeter API.
+type Client struct {
+	baseURL    string
+	httpClient *http.Client
+}
+
+// NewClient creates a new OpenMeter client. Returns nil if baseURL is empty.
+func NewClient(baseURL string) *Client {
+	if baseURL == "" {
+		return nil
+	}
+	return &Client{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+}
+
+// Customer represents an OpenMeter customer.
+type Customer struct {
+	ID               string            `json:"id,omitempty"`
+	Name             string            `json:"name"`
+	Key              string            `json:"key"`
+	UsageAttribution UsageAttribution  `json:"usageAttribution"`
+	PrimaryEmail     string            `json:"primaryEmail,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
+}
+
+// UsageAttribution controls how usage events are attributed to a customer.
+type UsageAttribution struct {
+	SubjectKeys []string `json:"subjectKeys"`
+}
+
+// CreateCustomer creates a customer in OpenMeter mapped to an Astro account.
+// Returns the OpenMeter customer ID.
+func (c *Client) CreateCustomer(ctx context.Context, accountID, accountName, accountType, ownerEmail string) (string, error) {
+	customer := Customer{
+		Name: accountName,
+		Key:  accountID,
+		UsageAttribution: UsageAttribution{
+			SubjectKeys: []string{accountID},
+		},
+		PrimaryEmail: ownerEmail,
+		Metadata: map[string]string{
+			"type": accountType,
+		},
+	}
+
+	body, err := json.Marshal(customer)
+	if err != nil {
+		return "", fmt.Errorf("marshal customer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/customers", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("create customer request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create customer: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode customer response: %w", err)
+	}
+
+	return result.ID, nil
+}
+
+// CloudEvent is a CloudEvents v1.0 envelope for OpenMeter event ingestion.
+type CloudEvent struct {
+	ID          string `json:"id"`
+	Source      string `json:"source"`
+	SpecVersion string `json:"specversion"`
+	Type        string `json:"type"`
+	Subject     string `json:"subject"`
+	Time        string `json:"time"`
+	Data        any    `json:"data"`
+}
+
+// NewCloudEvent creates a CloudEvent with standard fields pre-filled.
+func NewCloudEvent(eventType, subject string, data any) CloudEvent {
+	return CloudEvent{
+		ID:          uuid.New().String(),
+		Source:      "astro-server",
+		SpecVersion: "1.0",
+		Type:        eventType,
+		Subject:     subject,
+		Time:        time.Now().UTC().Format(time.RFC3339),
+		Data:        data,
+	}
+}
+
+// IngestEvents sends a batch of CloudEvents to OpenMeter.
+func (c *Client) IngestEvents(ctx context.Context, events []CloudEvent) error {
+	body, err := json.Marshal(events)
+	if err != nil {
+		return fmt.Errorf("marshal events: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/events", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/cloudevents-batch+json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("ingest events request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ingest events: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// Entitlement represents an OpenMeter entitlement check result.
+type Entitlement struct {
+	HasAccess bool   `json:"hasAccess"`
+	Usage     *int64 `json:"usage,omitempty"`
+	Limit     *int64 `json:"limit,omitempty"`
+}
+
+// GetEntitlementValue checks a metered entitlement for a subject.
+func (c *Client) GetEntitlementValue(ctx context.Context, subjectKey, featureKey string) (*Entitlement, error) {
+	url := fmt.Sprintf("%s/api/v1/subjects/%s/entitlements/%s/value", c.baseURL, subjectKey, featureKey)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get entitlement request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get entitlement: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result Entitlement
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode entitlement response: %w", err)
+	}
+
+	return &result, nil
+}

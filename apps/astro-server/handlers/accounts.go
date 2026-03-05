@@ -11,6 +11,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/openmeter"
 	"github.com/postman/astro/apps/astro-server/internal/org"
 )
 
@@ -75,7 +76,8 @@ type ProfileUser struct {
 
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync) gin.HandlerFunc {
+// If omClient is non-nil, creates a corresponding OpenMeter customer (non-blocking).
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -152,6 +154,18 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			} else {
 				// Update local member with WorkOS membership ID
 				_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
+			}
+		}
+
+		// Create OpenMeter customer (non-blocking — failure is logged, not fatal)
+		if omClient != nil {
+			customerID, omErr := omClient.CreateCustomer(c.Request.Context(), acct.ID, acct.Name, acct.Type, user.Email)
+			if omErr != nil {
+				log.Error("Failed to create OpenMeter customer", "error", omErr, "account_id", acct.ID)
+			} else {
+				if storeErr := accountStore.SetOpenMeterCustomerID(acct.ID, customerID); storeErr != nil {
+					log.Error("Failed to store OpenMeter customer ID", "error", storeErr, "account_id", acct.ID)
+				}
 			}
 		}
 

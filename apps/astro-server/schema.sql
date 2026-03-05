@@ -6,6 +6,7 @@ CREATE TABLE public.accounts (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name varchar(39) NOT NULL,
     type varchar(20) NOT NULL DEFAULT 'personal',
+    openmeter_customer_id text,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT accounts_pkey PRIMARY KEY (id),

@@ -8,14 +8,15 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	RunMode    string // SERVER_MODE: "all" (default), "api", or "worker"
-	Server     ServerConfig
-	Log        LogConfig
-	Security   SecurityConfig
-	Deployment DeploymentConfig
-	Auth       AuthConfig
-	Database   DatabaseConfig
-	AdminGRPC  AdminGRPCConfig
+	RunMode      string // SERVER_MODE: "all" (default), "api", or "worker"
+	Server       ServerConfig
+	Log          LogConfig
+	Security     SecurityConfig
+	Deployment   DeploymentConfig
+	Auth         AuthConfig
+	Database     DatabaseConfig
+	AdminGRPC    AdminGRPCConfig
+	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API
 }
 
 // RunAPI returns true if this instance should run the HTTP/gRPC API servers.
@@ -178,6 +179,7 @@ func Load() (*Config, error) {
 			CAFile:       getEnv("ADMIN_GRPC_CA_FILE", ""),
 			OpenMeterURL: getEnv("OPENMETER_URL", ""),
 		},
+		OpenMeterURL: getEnv("OPENMETER_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {

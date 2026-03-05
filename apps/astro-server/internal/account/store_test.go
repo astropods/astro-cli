@@ -409,6 +409,60 @@ func TestRemoveMember_NotFound(t *testing.T) {
 	}
 }
 
+func TestSetOpenMeterCustomerID(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("UPDATE accounts SET openmeter_customer_id").
+		WithArgs("om-cust-1", sqlmock.AnyArg(), "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := store.SetOpenMeterCustomerID("acct-1", "om-cust-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGetAccountsMissingOpenMeterCustomer(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts WHERE openmeter_customer_id IS NULL").
+		WithArgs(10).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
+			AddRow("acct-1", "org1", "organization", now, now).
+			AddRow("acct-2", "personal1", "personal", now, now))
+
+	accounts, err := store.GetAccountsMissingOpenMeterCustomer(10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(accounts))
+	}
+	if accounts[0].ID != "acct-1" {
+		t.Errorf("expected 'acct-1', got %q", accounts[0].ID)
+	}
+}
+
+func TestGetAccountsMissingOpenMeterCustomer_Empty(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM accounts WHERE openmeter_customer_id IS NULL").
+		WithArgs(10).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}))
+
+	accounts, err := store.GetAccountsMissingOpenMeterCustomer(10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(accounts) != 0 {
+		t.Errorf("expected 0 accounts, got %d", len(accounts))
+	}
+}
+
 func TestDeleteByID(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
