@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Plus, Trash2, CalendarIcon } from "lucide-react";
+import { Plus, Trash2, CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractDiscriminator } from "@/lib/schemas";
 
@@ -369,6 +369,9 @@ function DiscriminatorField({
   );
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+
 function DateTimePicker({
   label,
   required,
@@ -384,49 +387,58 @@ function DateTimePicker({
 }) {
   const [open, setOpen] = useState(false);
   const date = value ? parseISO(value) : undefined;
-  const timeStr = date ? format(date, "HH:mm") : "";
+  const hh = date ? String(date.getHours()).padStart(2, "0") : "";
+  const mm = date ? String(date.getMinutes()).padStart(2, "0") : "";
 
   const handleDateSelect = (day: Date | undefined) => {
     if (!day) return;
-    // Preserve existing time or default to current time
     const existing = date ?? new Date();
     day.setHours(existing.getHours(), existing.getMinutes(), existing.getSeconds());
     onChange(day.toISOString());
     setOpen(false);
   };
 
-  const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const [h, m] = e.target.value.split(":").map(Number);
+  const setTime = (h: string, m: string) => {
     const d = date ? new Date(date) : new Date();
-    d.setHours(h ?? 0, m ?? 0, 0);
+    d.setHours(Number(h), Number(m), 0);
     onChange(d.toISOString());
   };
 
   return (
-    <Field className="gap-1.5">
+    <Field className="gap-1">
       <FieldLabel className="text-[11px]">{label}{required && <span className="text-destructive"> *</span>}</FieldLabel>
-      <div className="flex gap-1.5">
+      <div className="flex items-center gap-0.5">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               size="sm"
-              className={cn("h-6 flex-1 justify-start px-2 text-[11px] font-normal", !date && "text-muted-foreground")}
+              className={cn("h-6 w-[6.5rem] justify-start gap-0.5 px-1 text-[10px] font-normal", !date && "text-muted-foreground")}
             >
-              <CalendarIcon className="size-3 text-muted-foreground" />
-              {date ? format(date, "MMM d, yyyy") : "Pick date"}
+              <CalendarIcon className="size-2 shrink-0 text-muted-foreground" />
+              {date ? format(date, "MMM d, yy") : "Pick date"}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
             <Calendar mode="single" selected={date} onSelect={handleDateSelect} />
           </PopoverContent>
         </Popover>
-        <Input
-          type="time"
-          className="h-6 w-20 text-[11px]"
-          value={timeStr}
-          onChange={handleTimeChange}
-        />
+        <div className="flex items-center gap-px shrink-0">
+          <Select value={hh} onValueChange={(v) => setTime(v, mm || "00")}>
+            <SelectTrigger size="sm" className="h-6 w-11 px-1 text-[10px] tabular-nums justify-center"><SelectValue placeholder="HH" /></SelectTrigger>
+            <SelectContent className="max-h-48 min-w-0">{HOURS.map((h) => <SelectItem key={h} value={h}>{h}</SelectItem>)}</SelectContent>
+          </Select>
+          <span className="text-[9px] text-muted-foreground">:</span>
+          <Select value={mm} onValueChange={(v) => setTime(hh || "00", v)}>
+            <SelectTrigger size="sm" className="h-6 w-11 px-1 text-[10px] tabular-nums justify-center"><SelectValue placeholder="MM" /></SelectTrigger>
+            <SelectContent className="max-h-48 min-w-0">{MINUTES.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        {date && (
+          <Button variant="ghost" size="icon-xs" className="size-5" onClick={() => onChange(undefined)}>
+            <X className="size-2.5 text-muted-foreground" />
+          </Button>
+        )}
       </div>
       {description && <FieldDescription className="text-[9px]">{description}</FieldDescription>}
     </Field>

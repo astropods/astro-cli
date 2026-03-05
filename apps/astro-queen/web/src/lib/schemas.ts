@@ -93,6 +93,28 @@ function resolveRefs(
       result[key] = value;
     }
   }
+  // Flatten allOf: merge all sub-schemas into the result so that
+  // patterns like `allOf: [{ $ref: "...MeterAggregation" }]` become
+  // a flat `{ type, enum, ... }` that the form renderer understands.
+  if (Array.isArray(result.allOf)) {
+    const allOf = result.allOf as Record<string, unknown>[];
+    const { allOf: _, ...rest } = result;
+    const merged: Record<string, unknown> = { ...rest };
+    for (const sub of allOf) {
+      if (sub && typeof sub === "object") {
+        for (const [sk, sv] of Object.entries(sub)) {
+          // For arrays (e.g. required), concat; otherwise last-write-wins
+          if (Array.isArray(sv) && Array.isArray(merged[sk])) {
+            merged[sk] = [...(merged[sk] as unknown[]), ...sv];
+          } else {
+            merged[sk] = sv;
+          }
+        }
+      }
+    }
+    return merged;
+  }
+
   return result;
 }
 
