@@ -71,6 +71,24 @@ function resolveRefs(
       typeof value === "object"
     ) {
       result[key] = resolveRefs(root, value as Record<string, unknown>);
+    } else if (key === "discriminator" && value && typeof value === "object") {
+      const disc = value as Record<string, unknown>;
+      const resolved: Record<string, unknown> = { ...disc };
+      if (disc.mapping && typeof disc.mapping === "object") {
+        const mapping: Record<string, unknown> = {};
+        for (const [mk, mv] of Object.entries(disc.mapping as Record<string, unknown>)) {
+          if (typeof mv === "string") {
+            // mv is a $ref string like "#/components/schemas/Foo"
+            mapping[mk] = extractSchema(root, mv) ?? {};
+          } else if (mv && typeof mv === "object") {
+            mapping[mk] = resolveRefs(root, mv as Record<string, unknown>);
+          } else {
+            mapping[mk] = mv;
+          }
+        }
+        resolved.mapping = mapping;
+      }
+      result[key] = resolved;
     } else {
       result[key] = value;
     }
@@ -99,6 +117,47 @@ export function validateAgainstSchema(
 
   const valid = validate(data) as boolean;
   return { valid, errors: validate.errors };
+}
+
+/**
+ * Extract discriminator info from a schema with oneOf + discriminator.
+ * Returns the property name and resolved variant schemas keyed by discriminator value.
+ */
+export function extractDiscriminator(
+  schema: Record<string, unknown>
+): {
+  propertyName: string;
+  variants: Record<string, Record<string, unknown>>;
+} | null {
+  const disc = schema.discriminator as
+    | { propertyName?: string; mapping?: Record<string, Record<string, unknown>> }
+    | undefined;
+  if (!disc?.propertyName || !disc?.mapping) return null;
+
+  const variants: Record<string, Record<string, unknown>> = {};
+  for (const [key, variantSchema] of Object.entries(disc.mapping)) {
+    if (variantSchema && typeof variantSchema === "object") {
+      variants[key] = variantSchema;
+    }
+  }
+  return { propertyName: disc.propertyName, variants };
+}
+
+/**
+ * Walk schema properties and collect default values into a flat object.
+ */
+export function getSchemaDefaults(
+  schema: Record<string, unknown>
+): Record<string, unknown> {
+  const defaults: Record<string, unknown> = {};
+  const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
+  if (!props) return defaults;
+  for (const [key, prop] of Object.entries(props)) {
+    if (prop && "default" in prop) {
+      defaults[key] = prop.default;
+    }
+  }
+  return defaults;
 }
 
 export function formatErrors(

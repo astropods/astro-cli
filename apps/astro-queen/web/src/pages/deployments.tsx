@@ -13,32 +13,32 @@ export function DeploymentsPage() {
       {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (
         <div className="overflow-x-auto rounded-lg glass">
-          <table className="w-full text-sm">
+          <table className="w-full text-[11px] whitespace-nowrap">
             <thead>
               <tr className="border-b border-glass-border-honey glass-subtle">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Namespace</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Account</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Build</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Namespace</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Account</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Build</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
               </tr>
             </thead>
             <tbody>
               {data.deployments?.map((d) => (
                 <tr key={d.namespace} className="border-b border-comb-light hover:bg-glass-light">
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-0.5">
                     <Link to={`/admin/deployments/${d.namespace}`} className="text-amber hover:underline">
                       {d.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{d.namespace}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-0.5 text-muted-foreground">{d.namespace}</td>
+                  <td className="px-2 py-0.5">
                     <StatusBadge status={d.status} />
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{d.account_name}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{truncateUUID(d.build_id)}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{formatDateTime(d.created_at)}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{d.account_name}</td>
+                  <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{truncateUUID(d.build_id)}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{formatDateTime(d.created_at)}</td>
                 </tr>
               ))}
             </tbody>

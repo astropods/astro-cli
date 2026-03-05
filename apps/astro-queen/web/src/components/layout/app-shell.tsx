@@ -11,6 +11,8 @@ import {
   UserCircle,
   Zap,
   ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
 const sections = [
@@ -40,11 +42,37 @@ function TreeSection({
   section,
   open,
   onToggle,
+  collapsed,
 }: {
   section: (typeof sections)[number];
   open: boolean;
   onToggle: () => void;
+  collapsed: boolean;
 }) {
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-1">
+        {section.links.map((link) => (
+          <NavLink
+            key={link.to}
+            to={link.to}
+            title={link.label}
+            className={({ isActive }) =>
+              cn(
+                "flex size-7 items-center justify-center rounded transition-colors",
+                isActive
+                  ? "bg-pollen/80 text-honey-dark"
+                  : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
+              )
+            }
+          >
+            <link.icon className="size-3.5" />
+          </NavLink>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div>
       <button
@@ -86,29 +114,45 @@ export function AppShell() {
     admin: true,
     openmeter: true,
   });
+  const [collapsed, setCollapsed] = useState(false);
 
   const toggle = (key: string) =>
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
 
   return (
     <div className="flex h-screen">
-      <aside className="glass-heavy flex w-44 shrink-0 flex-col px-2 py-3">
-        <div className="mb-4 px-1">
-          <h1 className="text-sm font-bold text-honey-dark">Queen 🐝</h1>
+      <aside
+        className={cn(
+          "glass-heavy flex shrink-0 flex-col py-3 transition-all duration-200",
+          collapsed ? "w-11 px-1" : "w-44 px-2"
+        )}
+      >
+        <div className={cn("mb-4 flex items-center", collapsed ? "justify-center" : "justify-between px-1")}>
+          {!collapsed && <h1 className="text-sm font-bold text-honey-dark">Queen 🐝</h1>}
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpen className="size-3.5" /> : <PanelLeftClose className="size-3.5" />}
+          </button>
         </div>
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-1">
+        <div className={cn("flex flex-1 flex-col gap-3 overflow-y-auto", !collapsed && "px-1")}>
           {sections.map((s) => (
             <TreeSection
               key={s.key}
               section={s}
               open={openSections[s.key] ?? true}
               onToggle={() => toggle(s.key)}
+              collapsed={collapsed}
             />
           ))}
         </div>
-        <div className="mt-2 border-t border-glass-border-honey px-1 pt-2">
-          <p className="text-[9px] text-muted-foreground">astro admin toolkit</p>
-        </div>
+        {!collapsed && (
+          <div className="mt-2 border-t border-glass-border-honey px-1 pt-2">
+            <p className="text-[9px] text-muted-foreground">astro admin toolkit</p>
+          </div>
+        )}
       </aside>
       <main className="flex-1 overflow-y-auto p-6">
         <Outlet />

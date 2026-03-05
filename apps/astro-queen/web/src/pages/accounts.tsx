@@ -19,21 +19,21 @@ export function AccountsPage() {
       {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (
         <div className="overflow-x-auto rounded-lg glass">
-          <table className="w-full text-sm">
+          <table className="w-full text-[11px] whitespace-nowrap">
             <thead>
               <tr className="border-b border-glass-border-honey glass-subtle">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Type</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Owner</th>
-                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Members</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Created</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Actions</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Type</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Owner</th>
+                <th className="px-2 py-0.5 text-right font-medium text-muted-foreground">Members</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.accounts?.map((a) => (
                 <tr key={a.id} className="border-b border-comb-light hover:bg-glass-light">
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-0.5">
                     {editing === a.id ? (
                       <div className="flex items-center gap-1">
                         <Input
@@ -63,11 +63,11 @@ export function AccountsPage() {
                       a.name
                     )}
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{a.type}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{truncateUUID(a.owner_user_id)}</td>
-                  <td className="px-4 py-2 text-right">{a.member_count}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{formatDateTime(a.created_at)}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-0.5 text-muted-foreground">{a.type}</td>
+                  <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{truncateUUID(a.owner_user_id)}</td>
+                  <td className="px-2 py-0.5 text-right">{a.member_count}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{formatDateTime(a.created_at)}</td>
+                  <td className="px-2 py-0.5">
                     {editing !== a.id && (
                       <Button
                         variant="ghost"

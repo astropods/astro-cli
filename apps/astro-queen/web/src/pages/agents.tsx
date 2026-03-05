@@ -17,14 +17,14 @@ export function AgentsPage() {
       {data && (
         <div className="flex gap-4">
           <div className="flex-1 overflow-x-auto rounded-lg glass">
-            <table className="w-full text-sm">
+            <table className="w-full text-[11px] whitespace-nowrap">
               <thead>
                 <tr className="border-b border-glass-border-honey glass-subtle">
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Account</th>
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Builds</th>
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Latest Build</th>
-                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Updated</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Account</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="px-2 py-0.5 text-right font-medium text-muted-foreground">Builds</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Latest Build</th>
+                  <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Updated</th>
                   <th className="w-8"></th>
                 </tr>
               </thead>
@@ -37,11 +37,11 @@ export function AgentsPage() {
                       className={`cursor-pointer border-b border-comb-light ${isSelected ? "bg-pollen" : "hover:bg-glass-light"}`}
                       onClick={() => setSelected({ account: a.account_name, name: a.name })}
                     >
-                      <td className="px-4 py-2 text-muted-foreground">{a.account_name}</td>
-                      <td className="px-4 py-2 font-medium text-amber">{a.name}</td>
-                      <td className="px-4 py-2 text-right">{a.build_count}</td>
-                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{truncateUUID(a.latest_build_id)}</td>
-                      <td className="px-4 py-2 text-muted-foreground">{formatDateTime(a.updated_at)}</td>
+                      <td className="px-2 py-0.5 text-muted-foreground">{a.account_name}</td>
+                      <td className="px-2 py-0.5 font-medium text-amber">{a.name}</td>
+                      <td className="px-2 py-0.5 text-right">{a.build_count}</td>
+                      <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{truncateUUID(a.latest_build_id)}</td>
+                      <td className="px-2 py-0.5 text-muted-foreground">{formatDateTime(a.updated_at)}</td>
                       <td className="px-2">
                         <ChevronRight className="size-4 text-muted-foreground" />
                       </td>

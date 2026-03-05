@@ -17,30 +17,30 @@ export function CustomersPage() {
       {error && <p className="text-destructive text-sm">{error.message}</p>}
       {data && (
         <div className="overflow-x-auto rounded-lg glass">
-          <table className="w-full text-sm">
+          <table className="w-full text-[11px] whitespace-nowrap">
             <thead>
               <tr className="border-b border-glass-border-honey glass-subtle">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">ID</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Email</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Currency</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Created</th>
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Actions</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">ID</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Email</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Currency</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.map((c) => (
                 <tr key={c.id} className="border-b border-comb-light hover:bg-glass-light">
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-0.5">
                     <Link to={`/openmeter/customers/${c.id}`} className="text-amber hover:underline">
                       {c.id}
                     </Link>
                   </td>
-                  <td className="px-4 py-2">{c.name}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{c.email || "-"}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{c.currency || "-"}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{c.createdAt ? formatDateTime(c.createdAt) : "-"}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-0.5">{c.name}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{c.email || "-"}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{c.currency || "-"}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{c.createdAt ? formatDateTime(c.createdAt) : "-"}</td>
+                  <td className="px-2 py-0.5">
                     <Button
                       variant="ghost"
                       size="icon-xs"
