@@ -81,20 +81,6 @@ export interface ApiError {
   missing_variables?: string[];
 }
 
-export interface AccountMember {
-  user_id: string;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-  role: string;
-  joined_at: string;
-}
-
-export interface AccountMembersResponse {
-  members: AccountMember[];
-  count: number;
-}
-
 export interface Invitation {
   id: string;
   email: string;
@@ -103,11 +89,6 @@ export interface Invitation {
   invited_by: string;
   created_at: string;
   expires_at: string;
-}
-
-export interface AccountInvitationsResponse {
-  invitations: Invitation[];
-  count: number;
 }
 
 export interface InviteEntry {
@@ -138,10 +119,6 @@ export interface CreateAccountResponse {
   invitations?: InviteResultResponse[];
   created_at: string;
   updated_at: string;
-}
-
-export interface BulkInvitationsResponse {
-  results: InviteResultResponse[];
 }
 
 class ApiClient {
@@ -252,28 +229,6 @@ class ApiClient {
   async getAccount(name: string): Promise<AccountPublic> {
     return this.request<AccountPublic>(
       `/api/v1/accounts/${encodeURIComponent(name)}`
-    );
-  }
-
-  async getAccountMembers(account: string): Promise<AccountMembersResponse> {
-    return this.request<AccountMembersResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/members`
-    );
-  }
-
-  async getAccountInvitations(account: string): Promise<AccountInvitationsResponse> {
-    return this.request<AccountInvitationsResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`
-    );
-  }
-
-  async createInvitations(account: string, invitations: InviteEntry[]): Promise<BulkInvitationsResponse> {
-    return this.request<BulkInvitationsResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/invitations`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ invitations }),
-      }
     );
   }
 
