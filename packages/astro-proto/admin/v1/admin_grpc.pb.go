@@ -24,6 +24,7 @@ type AdminServiceClient interface {
 	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
 	ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error)
 	GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error)
+	ProxyOpenMeter(ctx context.Context, in *OpenMeterProxyRequest, opts ...grpc.CallOption) (*OpenMeterProxyResponse, error)
 }
 
 type adminServiceClient struct {
@@ -122,6 +123,14 @@ func (c *adminServiceClient) GetAgentBuilds(ctx context.Context, in *GetAgentBui
 	return out, nil
 }
 
+func (c *adminServiceClient) ProxyOpenMeter(ctx context.Context, in *OpenMeterProxyRequest, opts ...grpc.CallOption) (*OpenMeterProxyResponse, error) {
+	out := new(OpenMeterProxyResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ProxyOpenMeter", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -136,6 +145,7 @@ type AdminServiceServer interface {
 	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
 	ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error)
 	GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error)
+	ProxyOpenMeter(context.Context, *OpenMeterProxyRequest) (*OpenMeterProxyResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -184,6 +194,10 @@ func (UnimplementedAdminServiceServer) ListAgents(context.Context, *ListAgentsRe
 
 func (UnimplementedAdminServiceServer) GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAgentBuilds not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ProxyOpenMeter(context.Context, *OpenMeterProxyRequest) (*OpenMeterProxyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProxyOpenMeter not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -363,6 +377,21 @@ func _AdminService_GetAgentBuilds_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ProxyOpenMeter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OpenMeterProxyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ProxyOpenMeter(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ProxyOpenMeter"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ProxyOpenMeter(ctx, req.(*OpenMeterProxyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -379,6 +408,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},
 		{MethodName: "ListAgents", Handler: _AdminService_ListAgents_Handler},
 		{MethodName: "GetAgentBuilds", Handler: _AdminService_GetAgentBuilds_Handler},
+		{MethodName: "ProxyOpenMeter", Handler: _AdminService_ProxyOpenMeter_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

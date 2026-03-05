@@ -299,3 +299,16 @@ type GetAgentBuildsResponse struct {
 	Builds []*AgentBuild `json:"builds,omitempty"`
 	Count  int32         `json:"count,omitempty"`
 }
+
+type OpenMeterProxyRequest struct {
+	Method  string            `json:"method,omitempty"`
+	Path    string            `json:"path,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    []byte            `json:"body,omitempty"`
+}
+
+type OpenMeterProxyResponse struct {
+	StatusCode int32             `json:"status_code,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Body       []byte            `json:"body,omitempty"`
+}

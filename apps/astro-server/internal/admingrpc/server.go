@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -22,10 +24,11 @@ import (
 type Server struct {
 	adminv1.UnimplementedAdminServiceServer
 
-	log         *logger.Logger
-	deployStore *deploymentstore.Store
-	k8sClient   k8s.ClusterClient
-	db          *sql.DB
+	log          *logger.Logger
+	deployStore  *deploymentstore.Store
+	k8sClient    k8s.ClusterClient
+	db           *sql.DB
+	openMeterURL string
 }
 
 // New creates a new admin gRPC server.
@@ -34,12 +37,14 @@ func New(
 	deployStore *deploymentstore.Store,
 	k8sClient k8s.ClusterClient,
 	db *sql.DB,
+	openMeterURL string,
 ) *Server {
 	return &Server{
-		log:         log,
-		deployStore: deployStore,
-		k8sClient:   k8sClient,
-		db:          db,
+		log:          log,
+		deployStore:  deployStore,
+		k8sClient:    k8sClient,
+		db:           db,
+		openMeterURL: strings.TrimRight(openMeterURL, "/"),
 	}
 }
 
@@ -639,6 +644,45 @@ func (s *Server) GetAgentBuilds(ctx context.Context, req *adminv1.GetAgentBuilds
 	return &adminv1.GetAgentBuildsResponse{
 		Builds: builds,
 		Count:  int32(len(builds)), //nolint:gosec // bounded by DB rows
+	}, nil
+}
+
+// ProxyOpenMeter forwards an HTTP request to the configured OpenMeter server.
+func (s *Server) ProxyOpenMeter(ctx context.Context, req *adminv1.OpenMeterProxyRequest) (*adminv1.OpenMeterProxyResponse, error) {
+	if s.openMeterURL == "" {
+		return nil, fmt.Errorf("OPENMETER_URL not configured")
+	}
+
+	targetURL := s.openMeterURL + req.Path
+
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, targetURL, bytes.NewReader(req.Body))
+	if err != nil {
+		return nil, fmt.Errorf("build openmeter request: %w", err)
+	}
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("openmeter request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read openmeter response: %w", err)
+	}
+
+	headers := make(map[string]string, len(resp.Header))
+	for k := range resp.Header {
+		headers[k] = resp.Header.Get(k)
+	}
+
+	return &adminv1.OpenMeterProxyResponse{
+		StatusCode: int32(resp.StatusCode), //nolint:gosec // HTTP status codes are bounded
+		Headers:    headers,
+		Body:       body,
 	}, nil
 }
 

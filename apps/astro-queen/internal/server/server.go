@@ -19,22 +19,18 @@ import (
 // Server is an HTTP server that proxies admin gRPC calls
 // and serves the embedded React SPA.
 type Server struct {
-	admin    adminv1.AdminServiceClient
-	webFS    fs.FS
-	port     int
-	httpSrv  *http.Server
-	omServer string
-	omAPIKey string
+	admin   adminv1.AdminServiceClient
+	webFS   fs.FS
+	port    int
+	httpSrv *http.Server
 }
 
 // New creates a new Server.
-func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, omServer, omAPIKey string) *Server {
+func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int) *Server {
 	return &Server{
-		admin:    admin,
-		webFS:    webFS,
-		port:     port,
-		omServer: omServer,
-		omAPIKey: omAPIKey,
+		admin: admin,
+		webFS: webFS,
+		port:  port,
 	}
 }
 

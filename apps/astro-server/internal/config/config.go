@@ -31,10 +31,11 @@ func (c *Config) RunWorker() bool {
 // AdminGRPCConfig holds admin gRPC server configuration.
 // Cert/Key/CA values accept file paths or inline PEM (auto-detected by "-----BEGIN" prefix).
 type AdminGRPCConfig struct {
-	Port     string // ADMIN_GRPC_PORT, default "9091" (optional — gRPC server disabled if empty)
-	CertFile string // ADMIN_GRPC_CERT_FILE — file path or inline PEM (optional — no TLS if empty)
-	KeyFile  string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
-	CAFile   string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
+	Port         string // ADMIN_GRPC_PORT, default "9091" (optional — gRPC server disabled if empty)
+	CertFile     string // ADMIN_GRPC_CERT_FILE — file path or inline PEM (optional — no TLS if empty)
+	KeyFile      string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
+	CAFile       string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
+	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API proxying
 }
 
 // DatabaseConfig holds database configuration
@@ -171,10 +172,11 @@ func Load() (*Config, error) {
 			URL: getEnv("DATABASE_URL", ""),
 		},
 		AdminGRPC: AdminGRPCConfig{
-			Port:     getEnv("ADMIN_GRPC_PORT", "9091"),
-			CertFile: getEnv("ADMIN_GRPC_CERT_FILE", ""),
-			KeyFile:  getEnv("ADMIN_GRPC_KEY_FILE", ""),
-			CAFile:   getEnv("ADMIN_GRPC_CA_FILE", ""),
+			Port:         getEnv("ADMIN_GRPC_PORT", "9091"),
+			CertFile:     getEnv("ADMIN_GRPC_CERT_FILE", ""),
+			KeyFile:      getEnv("ADMIN_GRPC_KEY_FILE", ""),
+			CAFile:       getEnv("ADMIN_GRPC_CA_FILE", ""),
+			OpenMeterURL: getEnv("OPENMETER_URL", ""),
 		},
 	}
 

@@ -461,6 +461,7 @@ func startAdminGRPCServer(
 		deployStore,
 		k8sClient,
 		db,
+		cfg.AdminGRPC.OpenMeterURL,
 	))
 
 	lis, err := net.Listen("tcp", ":"+port)

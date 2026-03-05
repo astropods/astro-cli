@@ -4,6 +4,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
 )
 
 func (s *Server) registerOpenMeterRoutes(mux *http.ServeMux) {
@@ -11,40 +13,37 @@ func (s *Server) registerOpenMeterRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) omReverseProxy(w http.ResponseWriter, r *http.Request) {
-	// Strip /api/openmeter prefix, forward the rest to the OpenMeter server.
-	target := strings.TrimRight(s.omServer, "/") + strings.TrimPrefix(r.URL.RequestURI(), "/api/openmeter")
+	// Strip /api/openmeter prefix to get the relative path for the upstream.
+	path := strings.TrimPrefix(r.URL.RequestURI(), "/api/openmeter")
 
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
+	// Read incoming body
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Copy headers from the original request
-	for k, vv := range r.Header {
-		for _, v := range vv {
-			req.Header.Add(k, v)
-		}
+	// Collect single-value headers
+	headers := make(map[string]string, len(r.Header))
+	for k := range r.Header {
+		headers[k] = r.Header.Get(k)
 	}
 
-	// Set auth if configured
-	if s.omAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+s.omAPIKey)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.admin.ProxyOpenMeter(r.Context(), &adminv1.OpenMeterProxyRequest{
+		Method:  r.Method,
+		Path:    path,
+		Headers: headers,
+		Body:    body,
+	})
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	defer resp.Body.Close()
 
 	// Copy response headers and status
-	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
+	for k, v := range resp.Headers {
+		w.Header().Set(k, v)
 	}
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body) //nolint:errcheck
+	w.WriteHeader(int(resp.StatusCode))
+	w.Write(resp.Body) //nolint:errcheck
 }
