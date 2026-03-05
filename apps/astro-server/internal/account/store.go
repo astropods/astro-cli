@@ -388,18 +388,16 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 
 	if accountType != "" {
 		rows, err = s.db.Query(`
-			SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at
+			SELECT a.id, a.name, a.type, a.created_at, a.updated_at
 			FROM accounts a
-			LEFT JOIN account_organizations ao ON ao.account_id = a.id
 			WHERE a.name LIKE $1 AND a.type = $2
 			ORDER BY a.name
 			LIMIT $3
 		`, pattern, accountType, limit)
 	} else {
 		rows, err = s.db.Query(`
-			SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at
+			SELECT a.id, a.name, a.type, a.created_at, a.updated_at
 			FROM accounts a
-			LEFT JOIN account_organizations ao ON ao.account_id = a.id
 			WHERE a.name LIKE $1
 			ORDER BY a.name
 			LIMIT $2
@@ -413,12 +411,8 @@ func (s *AccountStore) Search(query string, accountType string, limit int) ([]Ac
 	var accounts []Account
 	for rows.Next() {
 		var a Account
-		var workosOrgID string
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &workosOrgID, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
-		}
-		if workosOrgID != "" {
-			a.WorkOSOrganizationID = workosOrgID
 		}
 		accounts = append(accounts, a)
 	}

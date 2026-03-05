@@ -21,7 +21,7 @@ func setupAccountTestRouter() (*gin.Engine, *account.AccountStore, sqlmock.Sqlmo
 	return router, store, mock
 }
 
-var accountColumns = []string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}
+var accountColumns = []string{"id", "name", "type", "created_at", "updated_at"}
 
 func TestSearchAccounts_Success(t *testing.T) {
 	router, store, mock := setupAccountTestRouter()
@@ -33,8 +33,8 @@ func TestSearchAccounts_Success(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("foo%", 10).
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("id-1", "foobar", "personal", "", now, now).
-			AddRow("id-2", "foocorp", "organization", "workos-123", now, now))
+			AddRow("id-1", "foobar", "personal", now, now).
+			AddRow("id-2", "foocorp", "organization", now, now))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=foo", nil)
 	rec := httptest.NewRecorder()
@@ -76,7 +76,7 @@ func TestSearchAccounts_WithTypeFilter(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts .+ AND a\\.type").
 		WithArgs("bar%", "personal", 10).
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("id-1", "barry", "personal", "", now, now))
+			AddRow("id-1", "barry", "personal", now, now))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=bar&type=personal", nil)
 	rec := httptest.NewRecorder()
@@ -115,7 +115,7 @@ func TestSearchAccounts_CustomLimit(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM accounts").
 		WithArgs("abc%", 5).
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("id-1", "abcdef", "personal", "", now, now))
+			AddRow("id-1", "abcdef", "personal", now, now))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/search?q=abc&limit=5", nil)
 	rec := httptest.NewRecorder()
