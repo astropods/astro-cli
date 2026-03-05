@@ -28,10 +28,10 @@ export function useCheckAccountName(name: string) {
   });
 }
 
-export function useSearchAccounts(query: string) {
+export function useSearchAccounts(query: string, opts?: { type?: 'personal' | 'organization' }) {
   return useQuery({
-    queryKey: accountKeys.search(query),
-    queryFn: () => api.searchAccounts(query),
+    queryKey: accountKeys.search(query, opts?.type),
+    queryFn: () => api.searchAccounts(query, { type: opts?.type }),
     enabled: query.length >= 3,
     staleTime: 30_000,
     placeholderData: keepPreviousData,

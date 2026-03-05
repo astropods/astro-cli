@@ -66,7 +66,7 @@ export function InviteInput({
     return () => clearTimeout(id);
   }, [trimmed, shouldSearch]);
 
-  const { data: searchData } = useSearchAccounts(debouncedSearch);
+  const { data: searchData } = useSearchAccounts(debouncedSearch, { type: "personal" });
 
   const existingValues = useMemo(
     () => new Set(entries.map((e) => e.value)),
@@ -79,7 +79,6 @@ export function InviteInput({
       items.push({ type: "email", email: trimmed });
     }
     for (const r of searchData?.results ?? []) {
-      if (r.type !== "personal") continue;
       if (!existingValues.has(r.name) && !exclude?.has(r.name)) {
         items.push({ type: "account", name: r.name });
       }
