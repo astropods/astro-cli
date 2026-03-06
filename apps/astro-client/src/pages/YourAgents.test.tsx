@@ -12,7 +12,6 @@ function renderYourAgents() {
     [
       {
         path: '/agents',
-        // @ts-expect-error: `matches` won't align between test code and app code
         Component: YourAgents,
       },
     ],
