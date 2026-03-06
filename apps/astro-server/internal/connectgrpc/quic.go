@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/quic-go/quic-go"
 )
 
@@ -15,10 +16,11 @@ import (
 type quicListener struct {
 	ql   *quic.Listener
 	addr net.Addr
+	log  *logger.Logger
 }
 
 // ListenQUIC creates a QUIC listener on the given UDP address.
-func ListenQUIC(addr string, tlsConf *tls.Config) (net.Listener, error) {
+func ListenQUIC(addr string, tlsConf *tls.Config, log *logger.Logger) (net.Listener, error) {
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, err
@@ -37,18 +39,24 @@ func ListenQUIC(addr string, tlsConf *tls.Config) (net.Listener, error) {
 		return nil, err
 	}
 
-	return &quicListener{ql: ql, addr: udpConn.LocalAddr()}, nil
+	log.Debug("QUIC listener ready", "addr", udpConn.LocalAddr().String())
+	return &quicListener{ql: ql, addr: udpConn.LocalAddr(), log: log}, nil
 }
 
 func (l *quicListener) Accept() (net.Conn, error) {
 	conn, err := l.ql.Accept(context.Background())
 	if err != nil {
+		l.log.Error("QUIC accept failed", "error", err)
 		return nil, err
 	}
+	l.log.Debug("QUIC connection accepted", "remote", conn.RemoteAddr().String())
+
 	stream, err := conn.AcceptStream(context.Background())
 	if err != nil {
+		l.log.Error("QUIC stream accept failed", "remote", conn.RemoteAddr().String(), "error", err)
 		return nil, err
 	}
+	l.log.Debug("QUIC stream opened", "remote", conn.RemoteAddr().String(), "stream_id", stream.StreamID())
 	return &quicConn{conn: conn, stream: stream}, nil
 }
 

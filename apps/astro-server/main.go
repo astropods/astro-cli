@@ -543,7 +543,7 @@ func startConnectGRPCServer(
 	tlsConf := connectgrpc.NewTLSConfig(tlsCert)
 
 	// Create QUIC listener
-	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf)
+	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf, log)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect gRPC QUIC listen: %w", err)
 	}
@@ -551,7 +551,7 @@ func startConnectGRPCServer(
 	// Create gRPC server with JWT stream interceptor
 	// TLS is handled by QUIC, so gRPC uses insecure credentials over the QUIC stream
 	grpcSrv := grpc.NewServer(
-		grpc.StreamInterceptor(connectgrpc.JWTStreamInterceptor(jwtValidator)),
+		grpc.StreamInterceptor(connectgrpc.JWTStreamInterceptor(jwtValidator, log)),
 	)
 
 	srv := connectgrpc.New(log, devStore)
