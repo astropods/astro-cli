@@ -88,12 +88,12 @@ body {
 
 :root {
   --radius: 0.75rem;
-  --background: var(--color-stone-100);
+  --background: var(--color-stone-50);
   --foreground: oklch(22.34% 0.0240 190.998); /* designer ink #0d1f1e — warm dark teal */
-  --card: var(--color-stone-50);
-  --card-hover: var(--color-stone-100);
+  --card: var(--color-stone-100);
+  --card-hover: var(--color-stone-50);
   --card-foreground: oklch(22.34% 0.0240 190.998);
-  --popover: var(--color-stone-50);
+  --popover: var(--color-stone-100);
   --popover-foreground: oklch(22.34% 0.0240 190.998);
   --primary: var(--color-teal-800);
   --primary-foreground: #fff;

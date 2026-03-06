@@ -67,10 +67,10 @@ export function AppHeader() {
 
   if (isMobile) {
     return (
-      <header className="flex items-center justify-between border-b border-border bg-stone-50 px-5 py-3">
+      <header className="flex items-center justify-between border-b border-border bg-stone-100 px-5 py-3">
         <Link to="/">
-          <img src={astroLogo} alt="Astro" className="h-5 dark:hidden" />
-          <img src={astroLogoDark} alt="Astro" className="hidden h-5 dark:block" />
+          <img src={astroLogo} alt="Astro" className="h-[18px] dark:hidden" />
+          <img src={astroLogoDark} alt="Astro" className="hidden h-[18px] dark:block" />
         </Link>
 
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -129,10 +129,10 @@ export function AppHeader() {
     : publicNav;
 
   return (
-    <header className="flex items-center gap-1 border-b border-border bg-stone-50 px-5 py-3">
+    <header className="flex items-center gap-1 border-b border-border bg-stone-100 px-5 py-3">
       <Link to="/" className="mr-4">
-        <img src={astroLogo} alt="Astro" className="h-5 dark:hidden" />
-        <img src={astroLogoDark} alt="Astro" className="hidden h-5 dark:block" />
+        <img src={astroLogo} alt="Astro" className="h-[18px] dark:hidden" />
+        <img src={astroLogoDark} alt="Astro" className="hidden h-[18px] dark:block" />
       </Link>
 
       <nav className="flex items-center gap-1">
