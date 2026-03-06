@@ -596,6 +596,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CLI-Version", version)
 
 	// Add authentication header if not skipped
 	if !skipAuth {
@@ -639,6 +640,17 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 			hint = ". It looks like the server requires HTTPS — try updating your server URL to use https://"
 		}
 		return fmt.Errorf("server returned redirect (%d) to %q%s", resp.StatusCode, location, hint)
+	}
+
+	if resp.StatusCode == http.StatusUpgradeRequired {
+		body, _ := io.ReadAll(resp.Body)
+		var errResp map[string]interface{}
+		if json.Unmarshal(body, &errResp) == nil {
+			if msg, ok := errResp["error"].(string); ok {
+				return fmt.Errorf("%s\nRun '%s upgrade' to update", msg, binaryName)
+			}
+		}
+		return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", version, binaryName)
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
