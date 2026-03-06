@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -161,7 +162,8 @@ func extractRepositoryName(path string, env string) string {
 }
 
 // validateNamespaceAccess validates that the user has access to the requested namespace.
-// For writes, user must be a member of the account.
+// All operations require account membership. Org accounts also require the appropriate
+// permission: agents:read for pulls, agents:write for pushes.
 func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc *account.MembershipChecker) bool {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) < 2 {
@@ -169,11 +171,7 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 	}
 
 	namespace := parts[0]
-
-	// Read operations are allowed for any authenticated user
-	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
-		return true
-	}
+	isRead := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead
 
 	// Get authenticated user from context
 	user, ok := middleware.GetUser(c)
@@ -183,10 +181,11 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 	}
 
 	// Check if user is a member of the account
+	memberOK := false
 	if mc != nil {
 		isMember, err := mc.IsMember(namespace, user.ID)
 		if err == nil && isMember {
-			return true
+			memberOK = true
 		}
 		if log != nil && err != nil {
 			log.Warn("Membership check failed",
@@ -197,23 +196,56 @@ func validateNamespaceAccess(c *gin.Context, path string, log *logger.Logger, mc
 		}
 	}
 
-	if log != nil {
-		log.Warn("Namespace access denied",
-			"user_id", user.ID,
-			"namespace", namespace,
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"user_agent", c.Request.UserAgent(),
-		)
+	if !memberOK {
+		action := "push to"
+		if isRead {
+			action = "pull from"
+		}
+		if log != nil {
+			log.Warn("Namespace access denied",
+				"user_id", user.ID,
+				"namespace", namespace,
+				"method", c.Request.Method,
+				"path", c.Request.URL.Path,
+				"user_agent", c.Request.UserAgent(),
+			)
+		}
+		c.JSON(http.StatusForbidden, gin.H{
+			"errors": []gin.H{{
+				"code":    "DENIED",
+				"message": fmt.Sprintf("Access denied: cannot %s namespace %q", action, namespace),
+			}},
+		})
+		return false
 	}
 
-	c.JSON(http.StatusForbidden, gin.H{
-		"errors": []gin.H{{
-			"code":    "DENIED",
-			"message": fmt.Sprintf("Access denied: cannot push to namespace %q", namespace),
-		}},
-	})
-	return false
+	// Check permission for org accounts (session carries permissions from JWT).
+	// Personal accounts have no org-scoped JWT, so skip the check for them.
+	session, hasSession := middleware.GetSession(c)
+	if hasSession && session.OrganizationID != "" {
+		required := "agents:write"
+		if isRead {
+			required = "agents:read"
+		}
+		if !slices.Contains(session.Permissions, required) {
+			if log != nil {
+				log.Warn("Permission denied for registry operation",
+					"user_id", user.ID,
+					"namespace", namespace,
+					"required", required,
+				)
+			}
+			c.JSON(http.StatusForbidden, gin.H{
+				"errors": []gin.H{{
+					"code":    "DENIED",
+					"message": fmt.Sprintf("Insufficient permissions: %s required", required),
+				}},
+			})
+			return false
+		}
+	}
+
+	return true
 }
 
 // buildTargetURL builds the full URL to the backend ECR registry.
