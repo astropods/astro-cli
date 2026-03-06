@@ -110,11 +110,14 @@ func runConnectForeground(cmd *cobra.Command) error {
 		}()
 	}
 
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+
 	return connect.Run(ctx, connect.Config{
 		ServerAddr: serverAddr,
 		Token:      token,
 		DeviceID:   deviceID,
 		CLIVersion: version,
+		Verbose:    verbose,
 	})
 }
 
