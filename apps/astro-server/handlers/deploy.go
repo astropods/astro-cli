@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
+	"github.com/postman/astro/apps/astro-server/internal/deployid"
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
@@ -32,11 +32,11 @@ func isAccountMember(_ *gin.Context, accountStore *account.AccountStore, acctID,
 	return err == nil && isMember
 }
 
-// deploymentNamespace derives a K8s namespace from a deployment UUID.
-// The UUID is generated once per new deployment and stored in the DB,
+// deploymentNamespace derives a K8s namespace from a deployment ID (xxx-xxx-xxx).
+// The ID is generated once per new deployment and stored in the DB,
 // so the namespace is stable across redeploys.
-func deploymentNamespace(deploymentID string) string {
-	return "astro-" + strings.ReplaceAll(deploymentID, "-", "")[:20]
+func deploymentNamespace(id string) string {
+	return "astro-" + deployid.Compact(id) + "-0"
 }
 
 // verifyNamespaceOwnership checks that a K8s namespace belongs to the given account.
@@ -224,7 +224,7 @@ func prepareDeployment(
 		if existing != nil {
 			// Redeploy — reuse namespace
 			k8sNamespace = existing.Namespace
-			deploymentID = uuid.New().String()
+			deploymentID = deployid.New()
 		}
 	}
 	if k8sNamespace == "" && deployStore != nil {
@@ -232,12 +232,12 @@ func prepareDeployment(
 		existing, _ := deployStore.GetActiveDeployment(targetAcct.ID, agentName)
 		if existing != nil && displayName == "" {
 			k8sNamespace = existing.Namespace
-			deploymentID = uuid.New().String()
+			deploymentID = deployid.New()
 		}
 	}
 	if k8sNamespace == "" {
 		// New deployment — generate UUID-based namespace
-		deploymentID = uuid.New().String()
+		deploymentID = deployid.New()
 		k8sNamespace = deploymentNamespace(deploymentID)
 	}
 

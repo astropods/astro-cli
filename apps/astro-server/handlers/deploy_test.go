@@ -14,6 +14,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/auth"
+	"github.com/postman/astro/apps/astro-server/internal/deployid"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
@@ -21,24 +22,23 @@ import (
 // --- deploymentNamespace tests ---
 
 func TestDeploymentNamespace_Format(t *testing.T) {
-	id := "550e8400-e29b-41d4-a716-446655440000"
+	id := deployid.New() // e.g. "a1b-c2d-e3f"
 	ns := deploymentNamespace(id)
 
 	if !strings.HasPrefix(ns, "astro-") {
 		t.Errorf("expected prefix 'astro-', got %q", ns)
 	}
-	// astro- (6) + 20 hex chars = 26
-	if len(ns) != 26 {
-		t.Errorf("expected length 26, got %d (%q)", len(ns), ns)
+	// astro- (6) + 9 chars + -0 (2) = 17
+	if len(ns) != 17 {
+		t.Errorf("expected length 17, got %d (%q)", len(ns), ns)
 	}
-	// Should not contain hyphens (UUID dashes stripped)
-	if strings.Contains(ns[6:], "-") {
-		t.Errorf("namespace suffix should not contain hyphens: %q", ns)
+	if !strings.HasSuffix(ns, "-0") {
+		t.Errorf("expected suffix '-0', got %q", ns)
 	}
 }
 
 func TestDeploymentNamespace_Deterministic(t *testing.T) {
-	id := uuid.New().String()
+	id := deployid.New()
 	ns1 := deploymentNamespace(id)
 	ns2 := deploymentNamespace(id)
 	if ns1 != ns2 {
@@ -47,8 +47,8 @@ func TestDeploymentNamespace_Deterministic(t *testing.T) {
 }
 
 func TestDeploymentNamespace_UniquePerID(t *testing.T) {
-	ns1 := deploymentNamespace(uuid.New().String())
-	ns2 := deploymentNamespace(uuid.New().String())
+	ns1 := deploymentNamespace(deployid.New())
+	ns2 := deploymentNamespace(deployid.New())
 	if ns1 == ns2 {
 		t.Errorf("different IDs should produce different namespaces: %q == %q", ns1, ns2)
 	}
@@ -89,7 +89,7 @@ func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 func TestUndeploy_Success(t *testing.T) {
 	router, deployMock, accountMock := setupUndeployTest(t)
 
-	depID := uuid.New().String()
+	depID := deployid.New()
 	acctID := uuid.New().String()
 
 	now := time.Now()
@@ -142,7 +142,7 @@ func TestUndeploy_Success(t *testing.T) {
 func TestUndeploy_NotFound(t *testing.T) {
 	router, deployMock, _ := setupUndeployTest(t)
 
-	depID := uuid.New().String()
+	depID := deployid.New()
 
 	// GetDeploymentByID returns no rows
 	deployMock.ExpectQuery(`SELECT`).
@@ -165,7 +165,7 @@ func TestUndeploy_NotFound(t *testing.T) {
 func TestUndeploy_InactiveDeployment(t *testing.T) {
 	router, deployMock, _ := setupUndeployTest(t)
 
-	depID := uuid.New().String()
+	depID := deployid.New()
 	acctID := uuid.New().String()
 	now := time.Now()
 	later := now.Add(time.Hour)
@@ -194,7 +194,7 @@ func TestUndeploy_InactiveDeployment(t *testing.T) {
 func TestUndeploy_Forbidden(t *testing.T) {
 	router, deployMock, accountMock := setupUndeployTest(t)
 
-	depID := uuid.New().String()
+	depID := deployid.New()
 	acctID := uuid.New().String()
 	now := time.Now()
 

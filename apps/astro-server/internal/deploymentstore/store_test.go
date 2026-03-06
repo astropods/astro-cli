@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	_ "github.com/lib/pq"
+	"github.com/postman/astro/apps/astro-server/internal/deployid"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -49,7 +49,7 @@ func ensureTestAccount(t *testing.T, db *sql.DB) string {
 	return id
 }
 
-func newID() string { return uuid.New().String() }
+func newID() string { return deployid.New() }
 
 func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	db := testDB(t)
