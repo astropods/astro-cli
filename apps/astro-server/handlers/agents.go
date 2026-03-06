@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/gin-gonic/gin"
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
@@ -169,8 +171,39 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // RegisterAgent handles POST /api/v1/agents/:account/:name/register
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client) gin.HandlerFunc {
+// If minCLIVersion is non-empty, pushes from older CLI versions are rejected with 426.
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string) gin.HandlerFunc {
+	// Pre-parse the minimum version at startup so we don't parse on every request.
+	var minVer *semver.Version
+	if minCLIVersion != "" {
+		var err error
+		minVer, err = semver.NewVersion(minCLIVersion)
+		if err != nil {
+			log.Warn("Invalid MIN_CLI_VERSION, version gate disabled", "value", minCLIVersion, "error", err)
+		}
+	}
+
 	return func(c *gin.Context) {
+		// Enforce minimum CLI version when configured.
+		if minVer != nil {
+			cliVersion := c.GetHeader("X-CLI-Version")
+			if cliVersion == "" {
+				c.JSON(http.StatusUpgradeRequired, gin.H{
+					"error": fmt.Sprintf("X-CLI-Version header is required — minimum version is %s. Please upgrade your CLI", minVer),
+				})
+				return
+			} else if cliVersion == "dev" {
+				// Allow dev builds through.
+			} else if cv, err := semver.NewVersion(cliVersion); err != nil {
+				log.Warn("Unparseable X-CLI-Version header", "value", cliVersion)
+			} else if cv.LessThan(minVer) {
+				c.JSON(http.StatusUpgradeRequired, gin.H{
+					"error": fmt.Sprintf("CLI version %s is below the minimum required version %s — please upgrade", cliVersion, minVer),
+				})
+				return
+			}
+		}
+
 		accountName := c.Param("account")
 		agentName := c.Param("name")
 

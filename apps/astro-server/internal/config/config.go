@@ -69,6 +69,7 @@ type ServerConfig struct {
 	WriteTimeout    time.Duration
 	ShutdownTimeout time.Duration
 	DownloadBaseURL string // Base URL for CLI download CDN, e.g. https://download.astropods.ai (used in /install script)
+	MinCLIVersion   string // MIN_CLI_VERSION — minimum CLI version allowed for push (optional, e.g. "0.3.7")
 }
 
 // LogConfig holds logging configuration
@@ -124,6 +125,7 @@ func Load() (*Config, error) {
 			WriteTimeout:    getEnvDuration("WRITE_TIMEOUT", 10*time.Second),
 			ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 			DownloadBaseURL: getEnv("DOWNLOAD_BASE_URL", ""),
+			MinCLIVersion:   getEnv("MIN_CLI_VERSION", ""),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),

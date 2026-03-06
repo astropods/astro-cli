@@ -40,7 +40,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
 
 	// Expect transaction: BEGIN, INSERT agent, INSERT version, COMMIT
 	mock.ExpectBegin()
@@ -116,7 +116,7 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
+			router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -144,7 +144,7 @@ func TestRegisterAgent_InvalidJSON(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -161,7 +161,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
 
 	body := `{
 		"name": "test-agent",
@@ -194,7 +194,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil))
+	router.POST("/api/v1/agents/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
 
 	// Simulate DB failure on BEGIN
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
@@ -223,5 +223,74 @@ func TestRegisterAgent_DBError(t *testing.T) {
 
 	if resp["error"] != "Failed to register agent" {
 		t.Errorf("expected 'Failed to register agent' error, got %v", resp["error"])
+	}
+}
+
+func TestRegisterAgent_VersionGate(t *testing.T) {
+	tests := []struct {
+		name           string
+		minVersion     string
+		cliVersion     string
+		expectRejected bool
+	}{
+		{"no gate configured", "", "0.1.0", false},
+		{"cli meets minimum", "0.3.0", "0.3.7", false},
+		{"cli equals minimum", "0.3.7", "0.3.7", false},
+		{"cli below minimum", "0.4.0", "0.3.7", true},
+		{"no header sent", "0.3.0", "", true},
+		{"dev build allowed", "0.3.0", "dev", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, index, mock := setupAgentTestRouter()
+			log := logger.New("error", "json")
+
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, tt.minVersion))
+
+			if !tt.expectRejected {
+				mock.ExpectBegin()
+				mock.ExpectExec("INSERT INTO agents").
+					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectExec("INSERT INTO agent_versions").
+					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectCommit()
+			}
+
+			body := `{
+				"build_id": "a3f2b1c9",
+				"registry": "registry.example.com",
+				"spec_content": "name: test-agent\nversion: 1.0.0\n"
+			}`
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			if tt.cliVersion != "" {
+				req.Header.Set("X-CLI-Version", tt.cliVersion)
+			}
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if tt.expectRejected {
+				if rec.Code != http.StatusUpgradeRequired {
+					t.Errorf("expected status %d, got %d: %s", http.StatusUpgradeRequired, rec.Code, rec.Body.String())
+				}
+				var resp map[string]any
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to unmarshal response: %v", err)
+				}
+				errMsg, _ := resp["error"].(string)
+				if !strings.Contains(errMsg, "minimum") {
+					t.Errorf("expected version gate error message, got %q", errMsg)
+				}
+			} else {
+				if rec.Code != http.StatusCreated {
+					t.Errorf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+				}
+			}
+		})
 	}
 }

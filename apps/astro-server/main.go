@@ -416,7 +416,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			agentWriteRoutes.Use(middleware.ResolveAccount(accountStore))
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
-				agentWriteRoutes.POST("/register", handlers.RegisterAgent(log, agentIndex, omClient))
+				agentWriteRoutes.POST("/register", handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion))
 				agentWriteRoutes.PUT("/visibility", handlers.SetAgentVisibility(log, agentIndex))
 			}
 

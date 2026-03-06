@@ -121,10 +121,16 @@ func notifyIfUpdateAvailable() {
 		return
 	}
 
+	verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
+	dim := color.New(color.Faint)
+
 	cache := loadVersionCache()
 
 	// Refresh the cache at most once per interval
 	if cache == nil || time.Since(cache.LastChecked) > versionCheckInterval {
+		if verbose {
+			dim.Fprintln(os.Stderr, "  version check: fetching latest version...") //nolint:errcheck,gosec
+		}
 		latest, err := fetchLatestVersion()
 		if err == nil && latest != "" {
 			cache = &versionCache{
@@ -132,12 +138,25 @@ func notifyIfUpdateAvailable() {
 				LatestVersion: latest,
 			}
 			saveVersionCache(cache)
-		} else if cache == nil {
-			return
+			if verbose {
+				dim.Fprintf(os.Stderr, "  version check: latest=%s (cached)\n", latest) //nolint:errcheck,gosec
+			}
+		} else {
+			if verbose {
+				dim.Fprintf(os.Stderr, "  version check: fetch failed: %v\n", err) //nolint:errcheck,gosec
+			}
+			if cache == nil {
+				return
+			}
 		}
+	} else if verbose {
+		dim.Fprintf(os.Stderr, "  version check: using cache (checked %s ago)\n", time.Since(cache.LastChecked).Truncate(time.Second)) //nolint:errcheck,gosec
 	}
 
 	if cache.LatestVersion == "" || !isNewerVersion(cache.LatestVersion, version) {
+		if verbose {
+			dim.Fprintf(os.Stderr, "  version check: up to date (%s)\n", version) //nolint:errcheck,gosec
+		}
 		return
 	}
 
