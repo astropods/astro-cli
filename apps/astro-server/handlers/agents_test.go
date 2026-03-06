@@ -238,7 +238,7 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 		{"cli equals minimum", "0.3.7", "0.3.7", false},
 		{"cli below minimum", "0.4.0", "0.3.7", true},
 		{"no header sent", "0.3.0", "", true},
-		{"dev build allowed", "0.3.0", "dev", false},
+		{"dev build rejected", "0.3.0", "dev", true},
 	}
 
 	for _, tt := range tests {

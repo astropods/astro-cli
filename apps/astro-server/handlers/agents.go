@@ -187,13 +187,11 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		// Enforce minimum CLI version when configured.
 		if minVer != nil {
 			cliVersion := c.GetHeader("X-CLI-Version")
-			if cliVersion == "" {
+			if cliVersion == "" || cliVersion == "dev" {
 				c.JSON(http.StatusUpgradeRequired, gin.H{
-					"error": fmt.Sprintf("X-CLI-Version header is required — minimum version is %s. Please upgrade your CLI", minVer),
+					"error": fmt.Sprintf("CLI version could not be verified — minimum version is %s. Please install a release build", minVer),
 				})
 				return
-			} else if cliVersion == "dev" {
-				// Allow dev builds through.
 			} else if cv, err := semver.NewVersion(cliVersion); err != nil {
 				log.Warn("Unparseable X-CLI-Version header", "value", cliVersion)
 			} else if cv.LessThan(minVer) {
