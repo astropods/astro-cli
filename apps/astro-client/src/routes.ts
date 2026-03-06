@@ -15,6 +15,7 @@ export default [
     route("organization", "pages/OrganizationRedirect.tsx"),
     route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),
     route(":account", "pages/AccountProfile.tsx"),
+    route(":account/agents/:agentName", "pages/DeployedAgentDetail.tsx"),
     route(":account/:agentSlug", "pages/AgentDetail.tsx", { id: "agent-detail" }),
     route("*", "pages/NotFound.tsx"),
   ]),
