@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"time"
 
@@ -47,12 +48,12 @@ func dialQUIC(ctx context.Context, addr string) (net.Conn, error) {
 		KeepAlivePeriod: 30 * time.Second,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("QUIC dial %s: %w", addr, err)
 	}
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		_ = conn.CloseWithError(1, "failed to open stream")
-		return nil, err
+		return nil, fmt.Errorf("QUIC open stream %s: %w", addr, err)
 	}
 	return &quicConn{conn: conn, stream: stream}, nil
 }
