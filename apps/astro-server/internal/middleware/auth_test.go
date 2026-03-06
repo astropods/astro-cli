@@ -449,7 +449,7 @@ func TestRequirePermission_HasPermission(t *testing.T) {
 	router.GET("/deploy", func(c *gin.Context) {
 		// Manually set session with permissions
 		c.Set(string(auth.SessionContextKey), &auth.Session{
-			Permissions: []string{"agents:read", "agents:deploy"},
+			Permissions: []string{"agents:read", "deployments:write"},
 		})
 		c.Next()
 	}, func(c *gin.Context) {
@@ -462,7 +462,7 @@ func TestRequirePermission_HasPermission(t *testing.T) {
 		s := session.(*auth.Session)
 		hasPermission := false
 		for _, p := range s.Permissions {
-			if p == "agents:deploy" {
+			if p == "deployments:write" {
 				hasPermission = true
 				break
 			}

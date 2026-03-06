@@ -6,10 +6,10 @@ This document explains how organizations work in Astro, covering account types, 
 
 Astro has two account types, both stored in the `accounts` table:
 
-| Type | Description | WorkOS Integration |
-|------|-------------|-------------------|
-| `personal` | One per user, created on signup | None |
-| `organization` | Shared team account | Linked to WorkOS Organization via `workos_org_id` |
+| Type           | Description                     | WorkOS Integration                                |
+| -------------- | ------------------------------- | ------------------------------------------------- |
+| `personal`     | One per user, created on signup | None                                              |
+| `organization` | Shared team account             | Linked to WorkOS Organization via `workos_org_id` |
 
 Every account has members tracked in `account_members`. Personal accounts have a single member (the creator). Organization accounts can have many members — roles are managed entirely in WorkOS, not stored locally.
 
@@ -82,7 +82,7 @@ What's relevant for organizations:
   3. WorkOS returns new JWT with:
      - organization_id: org-B
      - role: "admin"
-     - permissions: ["agents:read", "agents:write", "agents:deploy", "org:manage"]
+     - permissions: ["agents:read", "agents:write", "deployments:read", "deployments:write", "org:manage"]
   4. Seal new session → update cookie
   5. Return updated auth response with role + permissions
 
@@ -93,21 +93,22 @@ What's relevant for organizations:
 
 ### Roles and Permissions
 
-| Role | `agents:read` | `agents:write` | `agents:deploy` | `org:manage` | `org:admin` |
-|------|:---:|:---:|:---:|:---:|:---:|
-| **owner** | Y | Y | Y | Y | Y |
-| **admin** | Y | Y | Y | Y | - |
-| **member** | Y | - | Y | - | - |
+| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `org:admin` |
+| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :---------: |
+| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |      Y      |
+| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |      -      |
+| **member** |       Y       |       Y        |         Y          |          Y          |      -       |      -      |
 
 Permission slugs map to actions:
 
-| Permission | Grants |
-|---|---|
-| `agents:read` | View agents, versions, configs |
-| `agents:write` | Push (register) agents, set visibility |
-| `agents:deploy` | Deploy and undeploy agents |
-| `org:manage` | Manage members and invitations |
-| `org:admin` | Rename/delete org, billing |
+| Permission          | Grants                                                 |
+| ------------------- | ------------------------------------------------------ |
+| `agents:read`       | View agents, versions, configs                         |
+| `agents:write`      | Push (register) agents, set visibility                 |
+| `deployments:read`  | View running agents, logs, metrics, deployment history |
+| `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
+| `org:manage`        | Manage members and invitations                         |
+| `org:admin`         | Rename/delete org, billing                             |
 
 ### Authorization Flow
 
@@ -134,13 +135,15 @@ Organization accounts require the session JWT to be scoped to the target org via
 
 ### Route Protection
 
-| Route | Permission | Description |
-|---|---|---|
-| `PUT /accounts/:account` | `org:admin` | Rename account |
-| `GET/POST/PUT/DELETE .../members` | `org:manage` | Member CRUD |
-| `GET/POST/DELETE .../invitations` | `org:manage` | Invitation CRUD |
-| `POST /agents/:account/:name/register` | `agents:write` | Register agent build |
-| `PUT /agents/:account/:name/visibility` | `agents:write` | Set public/private |
+| Route                                              | Permission          | Description           |
+| -------------------------------------------------- | ------------------- | --------------------- |
+| `PUT /accounts/:account`                           | `org:admin`         | Rename account        |
+| `GET/POST/PUT/DELETE .../members`                  | `org:manage`        | Member CRUD           |
+| `GET/POST/DELETE .../invitations`                  | `org:manage`        | Invitation CRUD       |
+| `POST /agents/:account/:name/register`             | `agents:write`      | Register agent build  |
+| `PUT /agents/:account/:name/visibility`            | `agents:write`      | Set public/private    |
+| `POST /deploy`, `POST /undeploy`, restart, trigger | `deployments:write` | Mutate running agents |
+| `GET .../deployment`, logs, metrics, observability | `deployments:read`  | View running agents   |
 
 ## Organization Account Lifecycle
 
@@ -203,11 +206,11 @@ Memberships are kept in sync between Astro's `account_members` table and WorkOS 
 
 All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 
-| Method | WorkOS Action | Local Action | Compensating Action |
-|---|---|---|---|
-| `AddMember` | Create membership | Insert `account_members` | Delete WorkOS membership |
-| `ChangeMemberRole` | Update membership role | (none — role lives in WorkOS) | (none needed) |
-| `RemoveMember` | Delete membership | Delete local row | (none needed) |
+| Method             | WorkOS Action          | Local Action                  | Compensating Action      |
+| ------------------ | ---------------------- | ----------------------------- | ------------------------ |
+| `AddMember`        | Create membership      | Insert `account_members`      | Delete WorkOS membership |
+| `ChangeMemberRole` | Update membership role | (none — role lives in WorkOS) | (none needed)            |
+| `RemoveMember`     | Delete membership      | Delete local row              | (none needed)            |
 
 **Safety guards** built into the write path:
 - `ChangeMemberRole` prevents demoting the last owner
@@ -217,11 +220,11 @@ All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 
 A dedicated worker process (`SERVER_MODE=worker`) polls the WorkOS Events API on a configurable interval, avoiding duplicate polling when multiple API replicas are running.
 
-| `SERVER_MODE` | HTTP/gRPC API | Events consumer |
-|---|---|---|
-| unset / `all` (default) | Yes | Yes |
-| `api` | Yes | No |
-| `worker` | No | Yes |
+| `SERVER_MODE`           | HTTP/gRPC API | Events consumer |
+| ----------------------- | ------------- | --------------- |
+| unset / `all` (default) | Yes           | Yes             |
+| `api`                   | Yes           | No              |
+| `worker`                | No            | Yes             |
 
 In production with multiple replicas, set `SERVER_MODE=api` on the main deployment and run a separate single-replica deployment with `SERVER_MODE=worker`. The worker exposes `/livez` and `/readyz` health endpoints for k8s probes.
 
@@ -238,10 +241,10 @@ In production with multiple replicas, set `SERVER_MODE=api` on the main deployme
 
 Agent visibility replaces the previous semver publishing model. Agents are either `public` or `private` (default `private`).
 
-| Visibility | Public catalog | Direct access | Validation warnings |
-|---|---|---|---|
-| `public` | Listed in `GET /api/v1/agents` | Anyone can view | Not shown to non-members |
-| `private` | Not listed | Only account members | Shown to account members |
+| Visibility | Public catalog                 | Direct access        | Validation warnings      |
+| ---------- | ------------------------------ | -------------------- | ------------------------ |
+| `public`   | Listed in `GET /api/v1/agents` | Anyone can view      | Not shown to non-members |
+| `private`  | Not listed                     | Only account members | Shown to account members |
 
 - `PUT /agents/:account/:name/visibility` toggles between `public` and `private` (requires `agents:write`)
 - Non-members requesting a private agent get `404` (not `403`) to avoid revealing existence
@@ -302,41 +305,41 @@ workos_event_cursor (
 
 ### `internal/org`
 
-| Component | Purpose |
-|---|---|
-| `Client` | Wraps WorkOS SDK for organizations, memberships, invitations, and roles |
-| `Sync` | Write-path logic: Astro → WorkOS, with compensating actions |
-| `EventsConsumer` | Background goroutine polling WorkOS Events API for membership changes |
-| `types.go` | Organization, Membership, Invitation, Role domain types |
+| Component        | Purpose                                                                 |
+| ---------------- | ----------------------------------------------------------------------- |
+| `Client`         | Wraps WorkOS SDK for organizations, memberships, invitations, and roles |
+| `Sync`           | Write-path logic: Astro → WorkOS, with compensating actions             |
+| `EventsConsumer` | Background goroutine polling WorkOS Events API for membership changes   |
+| `types.go`       | Organization, Membership, Invitation, Role domain types                 |
 
 ### `internal/account`
 
-| Component | Purpose |
-|---|---|
-| `AccountStore` | PostgreSQL CRUD for accounts and members |
+| Component             | Purpose                                                   |
+| --------------------- | --------------------------------------------------------- |
+| `AccountStore`        | PostgreSQL CRUD for accounts and members                  |
 | `ValidateAccountName` | Name validation: 4-39 chars, lowercase, no reserved names |
-| `types.go` | Account, AccountMember, AccountWithRole structs |
+| `types.go`            | Account, AccountMember, AccountWithRole structs           |
 
 ### `internal/middleware`
 
-| Component | Purpose |
-|---|---|
-| `ResolveAccount` | Looks up `:account` URL param and sets it in context |
+| Component                  | Purpose                                                             |
+| -------------------------- | ------------------------------------------------------------------- |
+| `ResolveAccount`           | Looks up `:account` URL param and sets it in context                |
 | `RequireAccountPermission` | Authorization: personal (membership check) or org (JWT permissions) |
 
 ## API Endpoints
 
-| Method | Path | Auth | Permission | Description |
-|---|---|---|---|---|
-| `POST` | `/api/v1/accounts` | Required | - | Create account |
-| `GET` | `/api/v1/accounts/:account` | Optional | - | Get account (public) |
-| `PUT` | `/api/v1/accounts/:account` | Required | `org:admin` | Rename account |
-| `GET` | `.../:account/members` | Required | `org:manage` | List members |
-| `POST` | `.../:account/members` | Required | `org:manage` | Add member |
-| `PUT` | `.../:account/members/:user_id` | Required | `org:manage` | Change role |
-| `DELETE` | `.../:account/members/:user_id` | Required | `org:manage` | Remove member |
-| `GET` | `.../:account/invitations` | Required | `org:manage` | List invitations |
-| `POST` | `.../:account/invitations` | Required | `org:manage` | Send invitation |
-| `DELETE` | `.../:account/invitations/:id` | Required | `org:manage` | Revoke invitation |
-| `PUT` | `/agents/:account/:name/visibility` | Required | `agents:write` | Set visibility |
-| `POST` | `/auth/switch-org` | Session | - | Switch org context |
+| Method   | Path                                | Auth     | Permission     | Description          |
+| -------- | ----------------------------------- | -------- | -------------- | -------------------- |
+| `POST`   | `/api/v1/accounts`                  | Required | -              | Create account       |
+| `GET`    | `/api/v1/accounts/:account`         | Optional | -              | Get account (public) |
+| `PUT`    | `/api/v1/accounts/:account`         | Required | `org:admin`    | Rename account       |
+| `GET`    | `.../:account/members`              | Required | `org:manage`   | List members         |
+| `POST`   | `.../:account/members`              | Required | `org:manage`   | Add member           |
+| `PUT`    | `.../:account/members/:user_id`     | Required | `org:manage`   | Change role          |
+| `DELETE` | `.../:account/members/:user_id`     | Required | `org:manage`   | Remove member        |
+| `GET`    | `.../:account/invitations`          | Required | `org:manage`   | List invitations     |
+| `POST`   | `.../:account/invitations`          | Required | `org:manage`   | Send invitation      |
+| `DELETE` | `.../:account/invitations/:id`      | Required | `org:manage`   | Revoke invitation    |
+| `PUT`    | `/agents/:account/:name/visibility` | Required | `agents:write` | Set visibility       |
+| `POST`   | `/auth/switch-org`                  | Session  | -              | Switch org context   |

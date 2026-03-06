@@ -8,7 +8,7 @@ func TestExtractTokenClaims_RoleAndPermissions(t *testing.T) {
 	token := createTestJWT(map[string]any{
 		"sid":         "session_abc",
 		"role":        "admin",
-		"permissions": []string{"admin:view", "agents:deploy"},
+		"permissions": []string{"admin:view", "deployments:write"},
 	})
 
 	claims := ExtractTokenClaims(token)
@@ -25,8 +25,8 @@ func TestExtractTokenClaims_RoleAndPermissions(t *testing.T) {
 	if claims.Permissions[0] != "admin:view" {
 		t.Errorf("Permissions[0] = %q, want %q", claims.Permissions[0], "admin:view")
 	}
-	if claims.Permissions[1] != "agents:deploy" {
-		t.Errorf("Permissions[1] = %q, want %q", claims.Permissions[1], "agents:deploy")
+	if claims.Permissions[1] != "deployments:write" {
+		t.Errorf("Permissions[1] = %q, want %q", claims.Permissions[1], "deployments:write")
 	}
 }
 

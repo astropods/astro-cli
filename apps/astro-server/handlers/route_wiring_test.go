@@ -30,31 +30,31 @@ func TestRoutePermissionWiring(t *testing.T) {
 	}{
 		// Member routes require org:manage — member permissions denied
 		{"member_GET_members_denied", "GET", "/api/v1/accounts/myorg/members", "",
-			[]string{"agents:read", "agents:deploy"}, http.StatusForbidden},
+			[]string{"agents:read", "deployments:write"}, http.StatusForbidden},
 		// Member routes require org:manage — admin permissions allowed
 		{"admin_GET_members_allowed", "GET", "/api/v1/accounts/myorg/members", "",
-			[]string{"agents:read", "agents:write", "agents:deploy", "org:manage"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK},
 
 		// Invitation routes require org:manage — member permissions denied
 		{"member_GET_invitations_denied", "GET", "/api/v1/accounts/myorg/invitations", "",
-			[]string{"agents:read", "agents:deploy"}, http.StatusForbidden},
+			[]string{"agents:read", "deployments:write"}, http.StatusForbidden},
 		// Invitation routes require org:manage — admin permissions allowed
 		{"admin_GET_invitations_allowed", "GET", "/api/v1/accounts/myorg/invitations", "",
-			[]string{"agents:read", "agents:write", "agents:deploy", "org:manage"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK},
 
 		// Agent write routes require agents:write — member permissions denied
 		{"member_PUT_visibility_denied", "PUT", "/api/v1/agents/myorg/test-agent/visibility", `{}`,
-			[]string{"agents:read", "agents:deploy"}, http.StatusForbidden},
+			[]string{"agents:read", "deployments:write"}, http.StatusForbidden},
 		// Agent write routes require agents:write — admin permissions allowed
 		{"admin_PUT_visibility_allowed", "PUT", "/api/v1/agents/myorg/test-agent/visibility", `{}`,
-			[]string{"agents:read", "agents:write", "agents:deploy", "org:manage"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK},
 
 		// Account admin routes require org:admin — admin permissions denied
 		{"admin_PUT_rename_denied", "PUT", "/api/v1/accounts/myorg", `{}`,
-			[]string{"agents:read", "agents:write", "agents:deploy", "org:manage"}, http.StatusForbidden},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusForbidden},
 		// Account admin routes require org:admin — owner permissions allowed
 		{"owner_PUT_rename_allowed", "PUT", "/api/v1/accounts/myorg", `{}`,
-			[]string{"agents:read", "agents:write", "agents:deploy", "org:manage", "org:admin"}, http.StatusOK},
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK},
 	}
 
 	for _, tt := range tests {

@@ -180,7 +180,7 @@ func TestRequireAccountPermission_OrgAccount_JWTPath_Granted(t *testing.T) {
 		&auth.User{ID: "user-1"},
 		&auth.Session{
 			OrganizationID: "org_123",
-			Permissions:    []string{"agents:read", "agents:write", "agents:deploy"},
+			Permissions:    []string{"agents:read", "agents:write", "deployments:write"},
 		},
 		&account.Account{
 			ID: "acct-1", Name: "myorg", Type: "organization",
@@ -205,7 +205,7 @@ func TestRequireAccountPermission_OrgAccount_JWTPath_Denied(t *testing.T) {
 		&auth.User{ID: "user-1"},
 		&auth.Session{
 			OrganizationID: "org_123",
-			Permissions:    []string{"agents:read", "agents:deploy"},
+			Permissions:    []string{"agents:read", "deployments:write"},
 		},
 		&account.Account{
 			ID: "acct-1", Name: "myorg", Type: "organization",

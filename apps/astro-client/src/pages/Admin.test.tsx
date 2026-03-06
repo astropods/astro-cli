@@ -37,7 +37,7 @@ describe("Admin page", () => {
   });
 
   it("shows no-permission message with unrelated permissions", async () => {
-    renderAdmin(["agents:read", "agents:deploy"]);
+    renderAdmin(["agents:read", "deployments:write"]);
 
     await waitFor(() => {
       expect(

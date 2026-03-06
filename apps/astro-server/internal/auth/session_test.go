@@ -80,7 +80,7 @@ func TestSealAndUnsealSession_WithPermissions(t *testing.T) {
 			ID:          "session_perm",
 			UserID:      "user_perm",
 			Role:        "admin",
-			Permissions: []string{"admin:view", "agents:deploy"},
+			Permissions: []string{"admin:view", "deployments:write"},
 			AccessToken: "token",
 			ExpiresAt:   time.Now().Add(1 * time.Hour),
 			CreatedAt:   time.Now(),
@@ -110,8 +110,8 @@ func TestSealAndUnsealSession_WithPermissions(t *testing.T) {
 	if unsealed.Session.Permissions[0] != "admin:view" {
 		t.Errorf("Permissions[0] = %q, want %q", unsealed.Session.Permissions[0], "admin:view")
 	}
-	if unsealed.Session.Permissions[1] != "agents:deploy" {
-		t.Errorf("Permissions[1] = %q, want %q", unsealed.Session.Permissions[1], "agents:deploy")
+	if unsealed.Session.Permissions[1] != "deployments:write" {
+		t.Errorf("Permissions[1] = %q, want %q", unsealed.Session.Permissions[1], "deployments:write")
 	}
 }
 

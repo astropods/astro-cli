@@ -302,7 +302,7 @@ func TestMe_ReturnsPermissions(t *testing.T) {
 			ID:          "session_perm",
 			UserID:      "user_perm",
 			Role:        "admin",
-			Permissions: []string{"admin:view", "agents:deploy"},
+			Permissions: []string{"admin:view", "deployments:write"},
 			AccessToken: "token",
 			ExpiresAt:   time.Now().Add(1 * time.Hour),
 			CreatedAt:   time.Now(),
@@ -345,8 +345,8 @@ func TestMe_ReturnsPermissions(t *testing.T) {
 	if len(resp.Permissions) != 2 {
 		t.Fatalf("Permissions length = %d, want 2", len(resp.Permissions))
 	}
-	if resp.Permissions[0] != "admin:view" || resp.Permissions[1] != "agents:deploy" {
-		t.Errorf("Permissions = %v, want [admin:view agents:deploy]", resp.Permissions)
+	if resp.Permissions[0] != "admin:view" || resp.Permissions[1] != "deployments:write" {
+		t.Errorf("Permissions = %v, want [admin:view deployments:write]", resp.Permissions)
 	}
 }
 

@@ -420,22 +420,20 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				agentWriteRoutes.PUT("/visibility", handlers.SetAgentVisibility(log, agentIndex))
 			}
 
-			// Deploy/undeploy
+			// Employment write (deploy/undeploy/restart/trigger — TODO: gate with deployments:write)
 			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))
 			protected.POST("/deploy/validate", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg))
 			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))
+			protected.POST("/deployments/:namespace/pods/:pod/restart", handlers.RestartPod(log, accountStore, cfg, k8sClient))
+			protected.POST("/deployments/:namespace/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient))
 
-			// Deployment spec retrieval
+			// Employment read (deployment status, logs, observability — TODO: gate with deployments:read)
 			protected.GET("/agents/:account/:name/deployment", handlers.GetActiveDeploymentSpec(log, accountStore, deploymentStore))
 			protected.GET("/agents/:account/:name/deployment/history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore))
 			protected.GET("/deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient))
 			protected.GET("/deployments/:namespace/logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient))
-			protected.POST("/deployments/:namespace/pods/:pod/restart", handlers.RestartPod(log, accountStore, cfg, k8sClient))
 			protected.GET("/deployments/:namespace/configmap/:cmname", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient))
 			protected.GET("/deployments/:namespace/secret/:secretname/keys", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient))
-			protected.POST("/deployments/:namespace/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient))
-
-			// Observability endpoints
 			protected.GET("/agents/:account/:name/observability/metrics", handlers.GetObservabilityMetrics(log, cfg, deploymentStore, accountStore))
 			protected.GET("/agents/:account/:name/observability/summary", handlers.GetObservabilitySummary(log, cfg, deploymentStore, accountStore))
 			protected.GET("/agents/:account/:name/observability/traces", handlers.GetObservabilityTraces(log, cfg, deploymentStore, accountStore))

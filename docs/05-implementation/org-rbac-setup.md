@@ -8,21 +8,22 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 
 ### Roles
 
-| Role   | Slug     | Permissions                                                              |
-|--------|----------|--------------------------------------------------------------------------|
-| Owner  | `owner`  | `agents:read`, `agents:write`, `agents:deploy`, `org:manage`, `org:admin` |
-| Admin  | `admin`  | `agents:read`, `agents:write`, `agents:deploy`, `org:manage`              |
-| Member | `member` | `agents:read`, `agents:deploy`                                            |
+| Role   | Slug     | Permissions                                                                                       |
+| ------ | -------- | ------------------------------------------------------------------------------------------------- |
+| Owner  | `owner`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `org:admin` |
+| Admin  | `admin`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`              |
+| Member | `member` | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`                            |
 
 ### Permissions
 
-| Slug            | Description                             |
-|-----------------|-----------------------------------------|
-| `agents:read`   | View agents, versions, configs          |
-| `agents:write`  | Push (register) agents, set visibility  |
-| `agents:deploy` | Deploy and undeploy agents              |
-| `org:manage`    | Manage members and invitations          |
-| `org:admin`     | Rename/delete org, billing              |
+| Slug                | Description                                            |
+| ------------------- | ------------------------------------------------------ |
+| `agents:read`       | View agents, versions, configs                         |
+| `agents:write`      | Push (register) agents, set visibility                 |
+| `deployments:read`  | View running agents, logs, metrics, deployment history |
+| `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
+| `org:manage`        | Manage members and invitations                         |
+| `org:admin`         | Rename/delete org, billing                             |
 
 ### Setup Steps
 
@@ -45,13 +46,15 @@ Replaces the old `RequireAccountRole` middleware (`middleware/account.go`). Two 
 
 ### Route Protection
 
-| Route Group | Permission | Description |
-|---|---|---|
-| `PUT /accounts/:account` | `org:admin` | Rename account |
-| `GET/POST/PUT/DELETE /accounts/:account/members` | `org:manage` | Member CRUD |
-| `GET/POST/DELETE /accounts/:account/invitations` | `org:manage` | Invitation CRUD |
-| `POST /agents/:account/:name/register` | `agents:write` | Register agent build |
-| `PUT /agents/:account/:name/visibility` | `agents:write` | Set public/private |
+| Route Group                                        | Permission          | Description           |
+| -------------------------------------------------- | ------------------- | --------------------- |
+| `PUT /accounts/:account`                           | `org:admin`         | Rename account        |
+| `GET/POST/PUT/DELETE /accounts/:account/members`   | `org:manage`        | Member CRUD           |
+| `GET/POST/DELETE /accounts/:account/invitations`   | `org:manage`        | Invitation CRUD       |
+| `POST /agents/:account/:name/register`             | `agents:write`      | Register agent build  |
+| `PUT /agents/:account/:name/visibility`            | `agents:write`      | Set public/private    |
+| `POST /deploy`, `POST /undeploy`, restart, trigger | `deployments:write` | Mutate running agents |
+| `GET .../deployment`, logs, metrics, observability | `deployments:read`  | View running agents   |
 
 ## 3. Organization Account Lifecycle
 
@@ -118,17 +121,17 @@ This allows the frontend to switch between orgs without a full re-login.
 
 ## 8. New API Endpoints
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/auth/switch-org` | Session cookie | Switch JWT org scope |
-| `GET` | `/accounts/:account/members` | `org:manage` | List members |
-| `POST` | `/accounts/:account/members` | `org:manage` | Add member |
-| `PUT` | `/accounts/:account/members/:user_id` | `org:manage` | Change member role |
-| `DELETE` | `/accounts/:account/members/:user_id` | `org:manage` | Remove member |
-| `GET` | `/accounts/:account/invitations` | `org:manage` | List invitations |
-| `POST` | `/accounts/:account/invitations` | `org:manage` | Send invitation |
-| `DELETE` | `/accounts/:account/invitations/:id` | `org:manage` | Revoke invitation |
-| `PUT` | `/agents/:account/:name/visibility` | `agents:write` | Set agent visibility |
+| Method   | Path                                  | Auth           | Description          |
+| -------- | ------------------------------------- | -------------- | -------------------- |
+| `POST`   | `/auth/switch-org`                    | Session cookie | Switch JWT org scope |
+| `GET`    | `/accounts/:account/members`          | `org:manage`   | List members         |
+| `POST`   | `/accounts/:account/members`          | `org:manage`   | Add member           |
+| `PUT`    | `/accounts/:account/members/:user_id` | `org:manage`   | Change member role   |
+| `DELETE` | `/accounts/:account/members/:user_id` | `org:manage`   | Remove member        |
+| `GET`    | `/accounts/:account/invitations`      | `org:manage`   | List invitations     |
+| `POST`   | `/accounts/:account/invitations`      | `org:manage`   | Send invitation      |
+| `DELETE` | `/accounts/:account/invitations/:id`  | `org:manage`   | Revoke invitation    |
+| `PUT`    | `/agents/:account/:name/visibility`   | `agents:write` | Set agent visibility |
 
 ## 9. New Internal Packages
 
