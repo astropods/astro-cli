@@ -54,6 +54,7 @@ function AccountProfileContent() {
                 <DeployedAgentCard
                   key={deployment.name}
                   name={deployment.name}
+                  displayName={deployment.display_name}
                   account={data.name}
                   href={`/${data.name}/${deployment.name}`}
                   status={mapDeploymentStatus(deployment)}

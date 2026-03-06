@@ -22,6 +22,7 @@ const statusLabels: Record<DeployedAgentStatus, string> = {
 
 export interface DeployedAgentCardProps {
   name: string;
+  displayName?: string;
   account: string;
   href: string;
   status: DeployedAgentStatus;
@@ -45,6 +46,7 @@ function MetricCell({ label, value }: { label: string; value: string }) {
 
 export function DeployedAgentCard({
   name,
+  displayName,
   account,
   href,
   status,
@@ -96,7 +98,7 @@ export function DeployedAgentCard({
         )}
         <div className="min-w-0 flex-1 pr-6">
           <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
-            {name}
+            {displayName || name}
           </p>
           <Badge variant={statusToBadgeVariant[status]} showDot>
             {statusLabels[status]}

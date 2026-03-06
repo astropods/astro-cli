@@ -37,6 +37,8 @@ type ApplierConfig struct {
 	GalileoProject string
 	// NamespaceLabels are merged into the namespace metadata on create/update
 	NamespaceLabels map[string]string
+	// NamespaceAnnotations are merged into the namespace metadata on create/update
+	NamespaceAnnotations map[string]string
 	// PodSubnetCIDRs are the private subnet CIDRs where cluster pods run.
 	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
 	PodSubnetCIDRs []string
@@ -62,6 +64,8 @@ type Applier struct {
 	galileoProject string
 	// Per-namespace labels
 	namespaceLabels map[string]string
+	// Per-namespace annotations
+	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
 	podSubnetCIDRs []string
 }
@@ -86,8 +90,9 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		ingestionALBGroupName:  cfg.IngestionALBGroupName,
 		galileoAPIKey:     cfg.GalileoAPIKey,
 		galileoProject:    cfg.GalileoProject,
-		namespaceLabels:   cfg.NamespaceLabels,
-		podSubnetCIDRs:    cfg.PodSubnetCIDRs,
+		namespaceLabels:      cfg.NamespaceLabels,
+		namespaceAnnotations: cfg.NamespaceAnnotations,
+		podSubnetCIDRs:       cfg.PodSubnetCIDRs,
 	}
 }
 

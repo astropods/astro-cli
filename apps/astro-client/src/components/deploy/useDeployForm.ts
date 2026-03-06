@@ -43,11 +43,21 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
   };
 }
 
+/** Convert a slug like "code-reviewer" to title case: "Code Reviewer" */
+export function slugToTitle(slug: string): string {
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function fulfillTemplate(
   template: DeploymentTemplate,
   variableValues: Record<string, string>,
   selectedAdapters: string[],
   targetAccount: string,
+  deployName: string,
 ): DeploymentSpec {
   // Destructure out editable (template-only) so it is not present in the fulfilled spec
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
@@ -81,7 +91,7 @@ function fulfillTemplate(
   return {
     ...rest,
     spec: 'deployment/v1',
-    target: { ...rest.target, account: targetAccount },
+    target: { ...rest.target, account: targetAccount, display_name: deployName },
     variables: Object.keys(variables).length > 0 ? variables : undefined,
     interfaces: rest.interfaces
       ? { ...rest.interfaces, adapters: selectedAdapters }
@@ -93,6 +103,7 @@ function fulfillTemplate(
 
 export interface FormErrors {
   account?: string;
+  deployName?: string;
   adapters?: string;
   credentials?: string[];
   adapterCredentials?: string[];
@@ -113,6 +124,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const deployMutation = useDeployAgent(targetAccount);
 
+  const [deployName, setDeployName] = useState(() => slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>({});
@@ -204,6 +216,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       result.account = "Select an account to install under";
     }
 
+    if (!deployName.trim()) {
+      result.deployName = "Enter a name for the agent";
+    } else if (deployName.trim().length > 64) {
+      result.deployName = "Name must be 64 characters or fewer";
+    }
+
     if (selectedAdapters.length === 0) {
       result.adapters = "Select at least one messaging type";
     }
@@ -226,10 +244,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterCredDefs]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterCredDefs]);
 
   const isValid = submitted
-    ? !errors.account && !errors.adapters && !errors.credentials && !errors.adapterCredentials
+    ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials
     : true;
 
   // Try to submit: marks form as submitted and returns validity
@@ -238,6 +256,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     // Compute validity inline (state update is async, can't rely on `errors` yet)
     const hasAccount = !!targetAccount;
+    const hasName = !!deployName.trim();
     const hasAdapter = selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, variableValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
@@ -245,7 +264,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return creds.every(([key, def]) => def.optional || adapterCredentials[key]?.trim());
     });
 
-    return hasAccount && hasAdapter && varsValid && adapterCredsValid;
+    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid;
   };
 
   // Submission
@@ -254,7 +273,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     setDeployError(null);
     const allVariableValues = { ...variableValues, ...adapterCredentials };
-    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters, targetAccount);
+    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters, targetAccount, deployName.trim());
 
     try {
       await deployMutation.mutateAsync(spec);
@@ -291,6 +310,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     accounts,
     targetAccount,
     setTargetAccount,
+
+    deployName,
+    setDeployName,
 
     selectedAdapters,
     setSelectedAdapters,

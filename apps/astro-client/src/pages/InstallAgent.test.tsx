@@ -104,6 +104,89 @@ describe('InstallAgent page', () => {
     });
   });
 
+  // ── Name Field ──────────────────────────────────────────────────
+
+  describe('name field', () => {
+    it('renders with a default derived from the agent slug', async () => {
+      renderInstall();
+      await waitForForm();
+
+      const nameInput = screen.getByDisplayValue('Code Reviewer');
+      expect(nameInput).toBeInTheDocument();
+    });
+
+    it('allows the user to change the name', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      const nameInput = screen.getByDisplayValue('Code Reviewer');
+      await user.clear(nameInput);
+      await user.type(nameInput, 'My Custom Agent');
+
+      expect(screen.getByDisplayValue('My Custom Agent')).toBeInTheDocument();
+    });
+
+    it('sends custom name in the deploy payload', async () => {
+      const capturedRequests: unknown[] = [];
+      server.use(
+        http.post('/api/v1/deploy', async ({ request }) => {
+          capturedRequests.push(await request.json());
+          return HttpResponse.json({
+            status: 'deployed',
+            name: AGENT,
+            build_id: 'a1b2c3d4e5f6',
+            k8s_namespace: 'user-abc123',
+            deployed_at: new Date().toISOString(),
+            resources: [{ kind: 'Deployment', name: AGENT, status: 'created' }],
+          });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstallWithAgentsRoute();
+      await waitForForm();
+
+      // Change name
+      const nameInput = screen.getByDisplayValue('Code Reviewer');
+      await user.clear(nameInput);
+      await user.type(nameInput, 'My Bot');
+
+      // Fill required credential
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(capturedRequests).toHaveLength(1);
+      });
+
+      const payload = capturedRequests[0] as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        target: expect.objectContaining({ display_name: 'My Bot' }),
+      });
+    });
+
+    it('shows error when name is empty on submit', async () => {
+      const user = userEvent.setup();
+      renderInstall();
+      await waitForForm();
+
+      // Clear the name
+      const nameInput = screen.getByDisplayValue('Code Reviewer');
+      await user.clear(nameInput);
+
+      // Fill credentials so that's not the blocker
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Enter a name for the agent')).toBeInTheDocument();
+      });
+    });
+  });
+
   // ── Interfaces Picker ─────────────────────────────────────────────
 
   describe('interfaces picker', () => {
@@ -383,6 +466,7 @@ describe('InstallAgent page', () => {
       expect(payload).toMatchObject({
         spec: 'deployment/v1',
         source: { account: 'testuser', name: AGENT },
+        target: expect.objectContaining({ display_name: 'Code Reviewer' }),
         variables: {
           OPENAI_API_KEY: expect.objectContaining({ value: 'sk-test123' }),
         },

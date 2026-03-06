@@ -72,6 +72,7 @@ export const mockDeployments: DeploymentsListResponse = {
   deployments: [
     {
       name: 'code-reviewer',
+      display_name: 'Code Reviewer',
       build_id: 'b2c3d4e5f6a7',
       namespace: 'astro-abc123def456',
       status: 'Running',

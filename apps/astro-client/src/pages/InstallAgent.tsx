@@ -2,6 +2,7 @@ import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/InstallAgent";
 import { Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useAgent } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -125,6 +126,20 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
           {form.template && (
             <div className="space-y-8">
+              {/* Agent name */}
+              <FormSection title="Agent Name" description="What would you like to call your agent?">
+                <Input
+                  value={form.deployName}
+                  onChange={(e) => form.setDeployName(e.target.value)}
+                  placeholder="My Agent"
+                  maxLength={64}
+                  aria-invalid={!!form.errors.deployName}
+                />
+                {form.errors.deployName && (
+                  <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
+                )}
+              </FormSection>
+
               {/* Account picker */}
               {form.accounts.length > 1 && (
                 <FormSection title="Install to" description="Choose which account to install this agent under.">

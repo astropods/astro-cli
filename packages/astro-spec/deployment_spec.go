@@ -60,7 +60,8 @@ type DeploymentSource struct {
 type DeploymentTarget struct {
 	Runtime   string `json:"runtime" yaml:"runtime"`
 	Namespace string `json:"namespace" yaml:"namespace"`
-	Account   string `json:"account,omitempty" yaml:"account,omitempty"`
+	Account     string `json:"account,omitempty" yaml:"account,omitempty"`
+	DisplayName string `json:"display_name,omitempty" yaml:"display_name,omitempty"`
 }
 
 // DeploymentAgent describes the main agent container.

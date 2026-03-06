@@ -784,10 +784,16 @@ func (a *Applier) ensureNamespace(ctx context.Context) error {
 		labels[k] = v
 	}
 
+	annotations := make(map[string]string)
+	for k, v := range a.namespaceAnnotations {
+		annotations[k] = v
+	}
+
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   a.namespace,
-			Labels: labels,
+			Name:        a.namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 	}
 	_, err := a.clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
@@ -803,6 +809,12 @@ func (a *Applier) ensureNamespace(ctx context.Context) error {
 			}
 			for k, v := range labels {
 				existing.Labels[k] = v
+			}
+			if existing.Annotations == nil {
+				existing.Annotations = make(map[string]string)
+			}
+			for k, v := range annotations {
+				existing.Annotations[k] = v
 			}
 			_, updateErr := a.clientset.CoreV1().Namespaces().Update(ctx, existing, metav1.UpdateOptions{})
 			if updateErr != nil {

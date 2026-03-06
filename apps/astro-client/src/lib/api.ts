@@ -489,7 +489,7 @@ export interface DeploymentEndpoint {
 export interface DeploymentTemplate {
   spec: 'deployment-template/v1';
   source: { account: string; name: string; build: string; registry: string };
-  target: { runtime: string; namespace: string; account?: string };
+  target: { runtime: string; namespace: string; account?: string; display_name?: string };
   agent: Record<string, unknown>;
   models?: Record<string, unknown>;
   knowledge?: Record<string, unknown>;
@@ -595,6 +595,7 @@ export interface JobDetail {
 
 export interface AgentDeployment {
   name: string;
+  display_name?: string;
   build_id: string;
   namespace: string;
   status: string;

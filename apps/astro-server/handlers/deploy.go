@@ -96,6 +96,7 @@ func parseDeploySpec(c *gin.Context) (*spec.AstroDeploymentSpec, error) {
 type deployContext struct {
 	acct          *account.Account
 	agentName     string
+	displayName   string
 	buildID       string
 	k8sNS         string
 	resolveResult *deployment.ResolveResult
@@ -161,6 +162,21 @@ func prepareDeployment(
 		return nil, false
 	}
 
+	// Sanitize and validate the optional display name
+	submittedSpec.Target.DisplayName = strings.TrimSpace(submittedSpec.Target.DisplayName)
+	if dn := submittedSpec.Target.DisplayName; dn != "" {
+		if len(dn) > 64 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "target.display_name must be 64 characters or fewer"})
+			return nil, false
+		}
+		for _, r := range dn {
+			if r < 0x20 || r == 0x7f {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "target.display_name contains invalid control characters"})
+				return nil, false
+			}
+		}
+	}
+
 	agentName := submittedSpec.Source.Name
 	buildID := submittedSpec.Source.Build
 
@@ -216,8 +232,9 @@ func prepareDeployment(
 	submittedSpec.Target.Namespace = k8sNamespace
 
 	// Rule 19: reject any change to server-owned fields
-	// Ensure template's target.account matches submitted so EnforceEditable doesn't reject it
+	// Sync user-supplied target fields so EnforceEditable doesn't reject them
 	template.Target.Account = submittedSpec.Target.Account
+	template.Target.DisplayName = submittedSpec.Target.DisplayName
 	if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "server-owned fields were modified",
@@ -246,6 +263,7 @@ func prepareDeployment(
 	return &deployContext{
 		acct:          targetAcct,
 		agentName:     agentName,
+		displayName:   submittedSpec.Target.DisplayName,
 		buildID:       buildID,
 		k8sNS:         k8sNamespace,
 		resolveResult: resolveResult,
@@ -300,6 +318,9 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				"astro.dev/account":    dctx.acct.Name,
 				"astro.dev/agent":      dctx.agentName,
 				"astro.dev/build":      dctx.buildID,
+			},
+			NamespaceAnnotations: map[string]string{
+				"astro.dev/display-name": dctx.displayName,
 			},
 		})
 		applyResult, err := applier.ApplyDeploymentSpec(c.Request.Context(), dctx.resolveResult.Spec)
@@ -538,6 +559,7 @@ type JobDetail struct {
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
 	Name             string                `json:"name"`
+	DisplayName      string                `json:"display_name,omitempty"`
 	BuildID          string                `json:"build_id"`
 	Namespace        string                `json:"namespace"`
 	Status           string                `json:"status"`
@@ -614,10 +636,14 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		var allDeployments []AgentDeployment
 		for _, ns := range nsList.Items {
 			manualIngestions := parseManualIngestions(ns.Annotations)
+			displayName := ns.Annotations["astro.dev/display-name"]
 			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name, manualIngestions)
 			if err != nil {
 				log.Warn("Failed to list deployments in namespace", "namespace", ns.Name, "error", err)
 				continue
+			}
+			for i := range deps {
+				deps[i].DisplayName = displayName
 			}
 			allDeployments = append(allDeployments, deps...)
 		}

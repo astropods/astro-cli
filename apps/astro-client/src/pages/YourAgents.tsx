@@ -22,7 +22,10 @@ function YourAgentsContent() {
     const list = data?.deployments ?? [];
     if (!filter) return list;
     const lower = filter.toLowerCase();
-    return list.filter((d) => d.name.toLowerCase().includes(lower));
+    return list.filter((d) =>
+      d.name.toLowerCase().includes(lower) ||
+      d.display_name?.toLowerCase().includes(lower),
+    );
   }, [data?.deployments, filter]);
 
   return (
@@ -47,6 +50,7 @@ function YourAgentsContent() {
             <DeployedAgentCard
               key={deployment.name}
               name={deployment.name}
+              displayName={deployment.display_name}
               account={userAccount}
               href={`/${userAccount}/${deployment.name}`}
               status={mapDeploymentStatus(deployment)}
