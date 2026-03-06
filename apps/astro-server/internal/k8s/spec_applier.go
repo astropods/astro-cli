@@ -184,6 +184,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Replicas:  int32(knowledge.Replicas), //nolint:gosec
 			Resources: BuildResourceRequirements(knowledge.Resources),
 			Strategy:  BuildStatefulSetUpdateStrategy(knowledge.Update),
+			Provider:  knowledge.Provider,
 		}
 		ss := BuildStatefulSet(ssCfg)
 		status, err := a.applyStatefulSet(ctx, ss)

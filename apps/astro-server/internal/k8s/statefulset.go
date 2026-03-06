@@ -21,18 +21,18 @@ type StatefulSetConfig struct {
 	SecretName      string
 	ConfigMapName   string
 	StorageSize     string
-	StorageClass    string // Optional storage class name
+	StorageClass    string                            // Optional storage class name
 	AccessMode      corev1.PersistentVolumeAccessMode // Defaults to ReadWriteOnce
 	Healthcheck     *spec.Healthcheck
 	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 	// Deployment-spec driven fields (optional — zero values preserve existing behavior)
-	Replicas         int32                                // 0 means use default (1)
-	Resources        *corev1.ResourceRequirements         // nil means derive from Container.GPU
-	Strategy         *appsv1.StatefulSetUpdateStrategy    // nil means k8s default
-	NodeSelector     map[string]string                    // nil means no node selector
-	Tolerations      []corev1.Toleration                  // Tolerations for tainted nodes
-	PostStartCommand []string                             // Lifecycle postStart exec command
+	Replicas         int32                             // 0 means use default (1)
+	Resources        *corev1.ResourceRequirements      // nil means derive from Container.GPU
+	Strategy         *appsv1.StatefulSetUpdateStrategy // nil means k8s default
+	NodeSelector     map[string]string                 // nil means no node selector
+	Tolerations      []corev1.Toleration               // Tolerations for tainted nodes
+	PostStartCommand []string                          // Lifecycle postStart exec command
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage
@@ -64,14 +64,19 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 		ssPullPolicy = corev1.PullAlways
 	}
 
-	// Build container ports from provider registry
+	// Build container ports: use resolved port (which falls back to provider default)
 	containerPorts := []corev1.ContainerPort{
-		{Name: "app", ContainerPort: int32(prov.DefaultPort), Protocol: corev1.ProtocolTCP}, //nolint:gosec
+		{Name: "app", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 	}
 	for _, ep := range prov.ExtraPorts {
 		containerPorts = append(containerPorts, corev1.ContainerPort{
 			Name: ep.Name, ContainerPort: int32(ep.Port), Protocol: corev1.ProtocolTCP, //nolint:gosec
 		})
+	}
+
+	mountPath := prov.MountPath
+	if mountPath == "" {
+		mountPath = "/data"
 	}
 
 	container := corev1.Container{
@@ -81,7 +86,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 		VolumeMounts: []corev1.VolumeMount{
 			{
 				Name:      "data",
-				MountPath: prov.MountPath,
+				MountPath: mountPath,
 			},
 		},
 		ImagePullPolicy: ssPullPolicy,

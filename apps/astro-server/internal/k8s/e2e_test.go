@@ -414,11 +414,11 @@ providers:
   jira:
     scope: [integrations]
     variables:
-      - name: JIRA_API_TOKEN
+      - name: API_TOKEN
         datatype: string
         secret: true
         description: "Jira API token"
-      - name: JIRA_EMAIL
+      - name: EMAIL
         datatype: string
         secret: true
         description: "Jira account email"
@@ -434,7 +434,7 @@ integrations:
 
 	requireNoErrors(t, r)
 
-	// Secret should have both integration credentials
+	// Secret should have both integration credentials (keys are {UPPER(provider)}_{varName})
 	ns := r.DeploymentSpec.Target.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
@@ -527,7 +527,7 @@ providers:
   jira:
     scope: [integrations]
     variables:
-      - name: JIRA_TOKEN
+      - name: TOKEN
         datatype: string
         secret: true
         description: "Jira token"
@@ -1014,7 +1014,7 @@ knowledge:
 }
 
 func TestE2E_ProviderEnv_ContainerTool(t *testing.T) {
-	// Container-mode tool → TOOL_{NAME}_ prefix
+	// Container-mode tool → INTEGRATION_{NAME}_ prefix (§8.3)
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1031,9 +1031,9 @@ integrations:
 
 	host := serviceDNS("my-agent-tool-search", "test-ns")
 	assertConfigMapValues(t, r, map[string]string{
-		"TOOL_SEARCH_HOST": host,
-		"TOOL_SEARCH_PORT": "3000",
-		"TOOL_SEARCH_URL":  "http://" + host + ":3000",
+		"INTEGRATION_SEARCH_HOST": host,
+		"INTEGRATION_SEARCH_PORT": "3000",
+		"INTEGRATION_SEARCH_URL":  "http://" + host + ":3000",
 	})
 }
 
@@ -1067,7 +1067,7 @@ integrations:
 	}
 
 	// No container env vars
-	assertConfigMapAbsent(t, r, []string{"TOOL_GITLAB_HOST", "TOOL_GITLAB_PORT"})
+	assertConfigMapAbsent(t, r, []string{"INTEGRATION_GITLAB_HOST", "INTEGRATION_GITLAB_PORT"})
 }
 
 func TestE2E_ProviderEnv_PlatformMetadata(t *testing.T) {
@@ -1154,15 +1154,15 @@ providers:
   slack-provider:
     scope: [integrations]
     variables:
-      - name: SLACK_WEBHOOK_URL
+      - name: WEBHOOK_URL
         datatype: string
         secret: true
         description: "Slack webhook"
 `, e2eOpts{
 		Credentials: map[string]string{
-			"ANTHROPIC_API_KEY": "sk-ant-real",
-			"GITHUB_TOKEN":      "ghp_real",
-			"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test",
+			"ANTHROPIC_API_KEY":          "sk-ant-real",
+			"GITHUB_TOKEN":               "ghp_real",
+			"SLACK_PROVIDER_WEBHOOK_URL": "https://hooks.slack.com/test",
 		},
 	})
 
@@ -1174,9 +1174,9 @@ providers:
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	wantSecret := map[string]string{
-		"ANTHROPIC_API_KEY": "sk-ant-real",
-		"GITHUB_TOKEN":      "ghp_real",
-		"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test",
+		"ANTHROPIC_API_KEY":          "sk-ant-real",
+		"GITHUB_TOKEN":               "ghp_real",
+		"SLACK_PROVIDER_WEBHOOK_URL": "https://hooks.slack.com/test",
 	}
 	for key, val := range wantSecret {
 		if string(secret.Data[key]) != val {
@@ -1186,9 +1186,9 @@ providers:
 
 	// Resolved values should also appear in ConfigMap (credential refs resolve to actual values)
 	assertConfigMapValues(t, r, map[string]string{
-		"ANTHROPIC_API_KEY": "sk-ant-real",
-		"GITHUB_TOKEN":      "ghp_real",
-		"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test",
+		"ANTHROPIC_API_KEY":          "sk-ant-real",
+		"GITHUB_TOKEN":               "ghp_real",
+		"SLACK_PROVIDER_WEBHOOK_URL": "https://hooks.slack.com/test",
 	})
 }
 
@@ -1911,7 +1911,7 @@ knowledge:
 }
 
 func TestE2E_ProviderEnv_TwoContainerTools(t *testing.T) {
-	// Two container-mode tools — each gets distinct TOOL_{NAME}_* env vars, no collision.
+	// Two container-mode tools — each gets distinct INTEGRATION_{NAME}_* env vars, no collision.
 	r := runE2E(t, `
 spec: package/v1
 name: my-agent
@@ -1942,12 +1942,12 @@ integrations:
 	rerankDNS := serviceDNS("my-agent-tool-rerank", ns)
 
 	assertConfigMapValues(t, r, map[string]string{
-		"TOOL_SEARCH_HOST": searchDNS,
-		"TOOL_SEARCH_PORT": "3000",
-		"TOOL_SEARCH_URL":  "http://" + searchDNS + ":3000",
-		"TOOL_RERANK_HOST": rerankDNS,
-		"TOOL_RERANK_PORT": "4000",
-		"TOOL_RERANK_URL":  "http://" + rerankDNS + ":4000",
+		"INTEGRATION_SEARCH_HOST": searchDNS,
+		"INTEGRATION_SEARCH_PORT": "3000",
+		"INTEGRATION_SEARCH_URL":  "http://" + searchDNS + ":3000",
+		"INTEGRATION_RERANK_HOST": rerankDNS,
+		"INTEGRATION_RERANK_PORT": "4000",
+		"INTEGRATION_RERANK_URL":  "http://" + rerankDNS + ":4000",
 	})
 }
 
