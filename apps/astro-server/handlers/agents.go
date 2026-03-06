@@ -186,7 +186,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 	return func(c *gin.Context) {
 		// Enforce minimum CLI version when configured.
 		if minVer != nil {
-			cliVersion := c.GetHeader("X-CLI-Version")
+			cliVersion := c.GetHeader("X-Cli-Version")
 			if cliVersion == "" || cliVersion == "dev" {
 				c.JSON(http.StatusUpgradeRequired, gin.H{
 					"error": fmt.Sprintf("CLI version could not be verified — minimum version is %s. Please install a release build", minVer),

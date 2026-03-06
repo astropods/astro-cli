@@ -268,7 +268,7 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			if tt.cliVersion != "" {
-				req.Header.Set("X-CLI-Version", tt.cliVersion)
+				req.Header.Set("X-Cli-Version", tt.cliVersion)
 			}
 			rec := httptest.NewRecorder()
 
