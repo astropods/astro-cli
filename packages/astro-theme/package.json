@@ -6,7 +6,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./plugin": "./src/vite-plugin.ts",
+    "./plugin": {
+      "types": "./dist/vite-plugin.d.ts",
+      "default": "./dist/vite-plugin.js"
+    },
     "./colors.css": "./dist/colors.css"
   },
   "files": [
