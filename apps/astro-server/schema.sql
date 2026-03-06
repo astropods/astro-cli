@@ -84,6 +84,7 @@ CREATE TABLE public.deployments (
     agent_name varchar NOT NULL,
     build_id varchar NOT NULL,
     namespace varchar NOT NULL,
+    display_name varchar(64) NOT NULL DEFAULT '',
     deployment_spec_json text NOT NULL,
     status varchar NOT NULL DEFAULT 'active',
     deployed_at timestamp NOT NULL DEFAULT now(),
@@ -94,7 +95,21 @@ CREATE TABLE public.deployments (
 
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
 
-CREATE UNIQUE INDEX idx_deployments_active_agent ON public.deployments(account_id, agent_name) WHERE status = 'active';
+CREATE UNIQUE INDEX idx_deployments_active_display_name ON public.deployments(account_id, display_name) WHERE status = 'active' AND display_name != '';
+
+CREATE TABLE public.namespace_ownership (
+    namespace varchar NOT NULL,
+    account_id uuid NOT NULL,
+    agent_name text NOT NULL,
+    deployment_id uuid,
+    source_account text NOT NULL DEFAULT '',
+    scanned_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT namespace_ownership_pkey PRIMARY KEY (namespace),
+    CONSTRAINT namespace_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id),
+    CONSTRAINT namespace_ownership_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id)
+);
+
+CREATE INDEX idx_namespace_ownership_account ON public.namespace_ownership(account_id);
 
 CREATE TABLE public.connected_devices (
     id uuid NOT NULL DEFAULT gen_random_uuid(),

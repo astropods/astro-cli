@@ -4,14 +4,14 @@ import "time"
 
 // DeployResponse represents a deployment response
 type DeployResponse struct {
-	Status           string             `json:"status"`
-	Name             string             `json:"name"`
-	BuildID          string             `json:"build_id"`
-	K8sNamespace     string             `json:"k8s_namespace"`
-	DeployedAt       time.Time          `json:"deployed_at"`
-	Resources        []ResourceStatus   `json:"resources"`
-	ServiceEndpoints []ServiceEndpoint  `json:"service_endpoints,omitempty"`
-	Errors           []DeploymentError  `json:"errors,omitempty"`
+	Status           string            `json:"status"`
+	Name             string            `json:"name"`
+	BuildID          string            `json:"build_id"`
+	K8sNamespace     string            `json:"k8s_namespace"`
+	DeployedAt       time.Time         `json:"deployed_at"`
+	Resources        []ResourceStatus  `json:"resources"`
+	ServiceEndpoints []ServiceEndpoint `json:"service_endpoints,omitempty"`
+	Errors           []DeploymentError `json:"errors,omitempty"`
 }
 
 // ResourceStatus represents the status of a deployed resource
@@ -53,8 +53,7 @@ type ValidationResult struct {
 
 // UndeployRequest represents an undeploy request
 type UndeployRequest struct {
-	Account string `json:"account" binding:"required"`
-	Name    string `json:"name" binding:"required"`
+	DeploymentID string `json:"deployment_id" binding:"required"`
 }
 
 // UndeployResponse represents an undeploy response

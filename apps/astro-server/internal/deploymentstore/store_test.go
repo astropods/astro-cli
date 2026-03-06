@@ -2,9 +2,11 @@ package deploymentstore
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -47,12 +49,14 @@ func ensureTestAccount(t *testing.T, db *sql.DB) string {
 	return id
 }
 
+func newID() string { return uuid.New().String() }
+
 func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	d, err := store.SaveDeployment(accountID, "agent-a", "build-1", "ns-test", `{"spec":"v1"}`)
+	d, err := store.SaveDeployment(newID(), accountID, "agent-a", "Agent A", "build-1", "ns-test", `{"spec":"v1"}`)
 	if err != nil {
 		t.Fatalf("SaveDeployment failed: %v", err)
 	}
@@ -62,6 +66,9 @@ func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	if d.AgentName != "agent-a" {
 		t.Errorf("expected agent_name 'agent-a', got %q", d.AgentName)
 	}
+	if d.DisplayName != "Agent A" {
+		t.Errorf("expected display_name 'Agent A', got %q", d.DisplayName)
+	}
 }
 
 func TestSaveDeployment_Redeploy(t *testing.T) {
@@ -69,12 +76,12 @@ func TestSaveDeployment_Redeploy(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	d1, err := store.SaveDeployment(accountID, "agent-b", "build-1", "ns-test", `{"spec":"v1"}`)
+	d1, err := store.SaveDeployment(newID(), accountID, "agent-b", "Agent B", "build-1", "ns-test", `{"spec":"v1"}`)
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
 	}
 
-	d2, err := store.SaveDeployment(accountID, "agent-b", "build-2", "ns-test", `{"spec":"v2"}`)
+	d2, err := store.SaveDeployment(newID(), accountID, "agent-b", "Agent B", "build-2", "ns-test", `{"spec":"v2"}`)
 	if err != nil {
 		t.Fatalf("second deploy failed: %v", err)
 	}
@@ -94,6 +101,31 @@ func TestSaveDeployment_Redeploy(t *testing.T) {
 	}
 }
 
+func TestSaveDeployment_MultiDeploy(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Deploy same agent twice with different display names — both should be active
+	_, err := store.SaveDeployment(newID(), accountID, "agent-multi", "Production", "build-1", "ns-prod", `{"spec":"v1"}`)
+	if err != nil {
+		t.Fatalf("first deploy failed: %v", err)
+	}
+
+	_, err = store.SaveDeployment(newID(), accountID, "agent-multi", "Staging", "build-1", "ns-staging", `{"spec":"v1"}`)
+	if err != nil {
+		t.Fatalf("second deploy failed: %v", err)
+	}
+
+	deps, err := store.GetActiveDeployments(accountID, "agent-multi")
+	if err != nil {
+		t.Fatalf("GetActiveDeployments failed: %v", err)
+	}
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 active deployments, got %d", len(deps))
+	}
+}
+
 func TestGetActiveDeployment(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
@@ -109,7 +141,7 @@ func TestGetActiveDeployment(t *testing.T) {
 	}
 
 	// Found case
-	_, err = store.SaveDeployment(accountID, "agent-c", "build-1", "ns-test", `{"spec":"v1"}`)
+	_, err = store.SaveDeployment(newID(), accountID, "agent-c", "Agent C", "build-1", "ns-test", `{"spec":"v1"}`)
 	if err != nil {
 		t.Fatalf("SaveDeployment failed: %v", err)
 	}
@@ -125,14 +157,45 @@ func TestGetActiveDeployment(t *testing.T) {
 	}
 }
 
+func TestGetActiveDeploymentByDisplayName(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	_, err := store.SaveDeployment(newID(), accountID, "agent-dn", "My Agent", "build-1", "ns-test", `{"spec":"v1"}`)
+	if err != nil {
+		t.Fatalf("SaveDeployment failed: %v", err)
+	}
+
+	d, err := store.GetActiveDeploymentByDisplayName(accountID, "My Agent")
+	if err != nil {
+		t.Fatalf("GetActiveDeploymentByDisplayName failed: %v", err)
+	}
+	if d == nil {
+		t.Fatal("expected deployment, got nil")
+	}
+	if d.AgentName != "agent-dn" {
+		t.Errorf("expected agent_name 'agent-dn', got %q", d.AgentName)
+	}
+
+	// Not found
+	d, err = store.GetActiveDeploymentByDisplayName(accountID, "Nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d != nil {
+		t.Errorf("expected nil, got %+v", d)
+	}
+}
+
 func TestGetDeploymentHistory(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	_, _ = store.SaveDeployment(accountID, "agent-d", "build-1", "ns-test", `{"v":1}`)
-	_, _ = store.SaveDeployment(accountID, "agent-d", "build-2", "ns-test", `{"v":2}`)
-	_, _ = store.SaveDeployment(accountID, "agent-d", "build-3", "ns-test", `{"v":3}`)
+	for i := 1; i <= 3; i++ {
+		_, _ = store.SaveDeployment(newID(), accountID, "agent-d", fmt.Sprintf("Agent D v%d", i), fmt.Sprintf("build-%d", i), "ns-test", fmt.Sprintf(`{"v":%d}`, i))
+	}
 
 	history, err := store.GetDeploymentHistory(accountID, "agent-d")
 	if err != nil {
@@ -155,11 +218,11 @@ func TestMarkUndeployed(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	_, _ = store.SaveDeployment(accountID, "agent-e", "build-1", "ns-test", `{"spec":"v1"}`)
+	dep, _ := store.SaveDeployment(newID(), accountID, "agent-e", "Agent E", "build-1", "ns-test", `{"spec":"v1"}`)
 
-	err := store.MarkUndeployed(accountID, "agent-e")
+	err := store.MarkUndeployedByID(dep.ID)
 	if err != nil {
-		t.Fatalf("MarkUndeployed failed: %v", err)
+		t.Fatalf("MarkUndeployedByID failed: %v", err)
 	}
 
 	d, err := store.GetActiveDeployment(accountID, "agent-e")
@@ -167,12 +230,12 @@ func TestMarkUndeployed(t *testing.T) {
 		t.Fatalf("GetActiveDeployment failed: %v", err)
 	}
 	if d != nil {
-		t.Errorf("expected no active deployment after MarkUndeployed, got %+v", d)
+		t.Errorf("expected no active deployment after MarkUndeployedByID, got %+v", d)
 	}
 
-	// MarkUndeployed on already-undeployed agent should not error
-	err = store.MarkUndeployed(accountID, "agent-e")
+	// MarkUndeployedByID on already-undeployed should not error
+	err = store.MarkUndeployedByID(dep.ID)
 	if err != nil {
-		t.Fatalf("MarkUndeployed on already-undeployed should not error: %v", err)
+		t.Fatalf("MarkUndeployedByID on already-undeployed should not error: %v", err)
 	}
 }

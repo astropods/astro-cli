@@ -31,6 +31,7 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
+	"github.com/postman/astro/apps/astro-server/internal/nsscan"
 	"github.com/postman/astro/apps/astro-server/internal/openmeter"
 	"github.com/postman/astro/apps/astro-server/internal/org"
 	"github.com/postman/astro/apps/astro-server/internal/waitlist"
@@ -292,7 +293,7 @@ func runAPI(
 	return srv, grpcServer, connectServer, probeHandler
 }
 
-// runWorker starts background workers (events consumer, OpenMeter reconciler) and returns a cancel func.
+// runWorker starts background workers (events consumer, OpenMeter reconciler, namespace scanner) and returns a cancel func.
 func runWorker(
 	log *logger.Logger,
 	cfg *config.Config,
@@ -301,6 +302,30 @@ func runWorker(
 	omClient *openmeter.Client,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background())
+
+	// Start namespace scanner (reconciles DB ↔ K8s, catches drift)
+	var k8sClient k8s.ClusterClient
+	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
+	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	k8sClient, k8sErr := k8s.NewClusterClient(initCtx, k8s.ClusterClientConfig{
+		Mode:            clientMode,
+		ClusterName:     cfg.Deployment.EKSClusterName,
+		ClusterEndpoint: cfg.Deployment.K8sMasterURL,
+		Region:          cfg.Deployment.AWSRegion,
+		KubeconfigPath:  cfg.Deployment.KubeconfigPath,
+		KubeContext:     cfg.Deployment.KubeContext,
+		Logger:          log,
+	})
+	initCancel()
+	if k8sErr != nil {
+		log.Warn("Worker: K8s client unavailable, namespace scanner will skip K8s reconciliation", "error", k8sErr)
+		k8sClient = nil
+	}
+
+	scanner := nsscan.New(db, k8sClient, log)
+	scanner.AddHook(nsscan.MigrationHook(db, log)) // TEMPORARY — remove after migration
+	scanner.Start(workerCtx, 10*time.Minute)
+	log.Info("Namespace scanner started")
 
 	if cfg.Auth.WorkOSAPIKey != "" {
 		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
@@ -454,7 +479,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			// Employment read (deployment status, logs, observability — TODO: gate with deployments:read)
 			protected.GET("/agents/:account/:name/deployment", handlers.GetActiveDeploymentSpec(log, accountStore, deploymentStore))
 			protected.GET("/agents/:account/:name/deployment/history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore))
-			protected.GET("/deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient))
+			protected.GET("/deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore))
 			protected.GET("/deployments/:namespace/logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient))
 			protected.GET("/deployments/:namespace/configmap/:cmname", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient))
 			protected.GET("/deployments/:namespace/secret/:secretname/keys", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient))

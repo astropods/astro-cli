@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/config"
@@ -33,38 +32,11 @@ func isAccountMember(_ *gin.Context, accountStore *account.AccountStore, acctID,
 	return err == nil && isMember
 }
 
-// deploymentNamespace derives a deterministic K8s namespace from a deployment's
-// identity. The namespace is stable across builds so that persistent data
-// (volumes, secrets, configmaps) survives redeploys of the same agent.
-func deploymentNamespace(accountID, sourceAccount, agentName string) string {
-	h := sha256.Sum256([]byte(accountID + ":" + sourceAccount + ":" + agentName))
-	return "astro-" + hex.EncodeToString(h[:])[:20]
-}
-
-// resolveDeploymentNamespace finds the K8s namespace for a deployment by
-// first checking the DB record, then falling back to K8s label lookup.
-func resolveDeploymentNamespace(ctx context.Context, deployStore *deploymentstore.Store, k8sClient k8s.ClusterClient, accountID, agentName string) (string, error) {
-	// Try DB first
-	if deployStore != nil {
-		dep, err := deployStore.GetActiveDeployment(accountID, agentName)
-		if err != nil {
-			return "", fmt.Errorf("failed to look up deployment: %w", err)
-		}
-		if dep != nil {
-			return dep.Namespace, nil
-		}
-	}
-
-	// Fallback: find namespace from K8s labels
-	if k8sClient != nil {
-		selector := fmt.Sprintf("astro.dev/account-id=%s,astro.dev/agent=%s,app.kubernetes.io/managed-by=astro-server", accountID, agentName)
-		nsList, err := k8sClient.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{LabelSelector: selector})
-		if err == nil && len(nsList.Items) > 0 {
-			return nsList.Items[0].Name, nil
-		}
-	}
-
-	return "", fmt.Errorf("no active deployment found for agent %q", agentName)
+// deploymentNamespace derives a K8s namespace from a deployment UUID.
+// The UUID is generated once per new deployment and stored in the DB,
+// so the namespace is stable across redeploys.
+func deploymentNamespace(deploymentID string) string {
+	return "astro-" + strings.ReplaceAll(deploymentID, "-", "")[:20]
 }
 
 // verifyNamespaceOwnership checks that a K8s namespace belongs to the given account.
@@ -97,6 +69,7 @@ type deployContext struct {
 	acct          *account.Account
 	agentName     string
 	displayName   string
+	deploymentID  string
 	buildID       string
 	k8sNS         string
 	resolveResult *deployment.ResolveResult
@@ -109,6 +82,7 @@ func prepareDeployment(
 	accountStore *account.AccountStore,
 	agentIndex *agentindex.Index,
 	cfg *config.Config,
+	deployStore *deploymentstore.Store,
 ) (*deployContext, bool) {
 	user, exists := middleware.GetUser(c)
 	if !exists {
@@ -227,8 +201,46 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	// Derive namespace from target account (stable across builds; user value in spec is ignored)
-	k8sNamespace := deploymentNamespace(targetAcct.ID, sourceAccountName, agentName)
+	displayName := submittedSpec.Target.DisplayName
+
+	// Check display name uniqueness within the account (if non-empty)
+	if displayName != "" && deployStore != nil {
+		existing, lookupErr := deployStore.GetActiveDeploymentByDisplayName(targetAcct.ID, displayName)
+		if lookupErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check display name uniqueness"})
+			return nil, false
+		}
+		// Allow redeploy: same agent + same display name is a redeploy, not a conflict
+		if existing != nil && existing.AgentName != agentName {
+			c.JSON(http.StatusConflict, gin.H{"error": "display_name already in use by another active deployment"})
+			return nil, false
+		}
+	}
+
+	// Resolve namespace: reuse existing if this is a redeploy, otherwise generate new
+	var k8sNamespace, deploymentID string
+	if displayName != "" && deployStore != nil {
+		existing, _ := deployStore.GetActiveDeploymentByDisplayName(targetAcct.ID, displayName)
+		if existing != nil {
+			// Redeploy — reuse namespace
+			k8sNamespace = existing.Namespace
+			deploymentID = uuid.New().String()
+		}
+	}
+	if k8sNamespace == "" && deployStore != nil {
+		// Check for single active deployment of this agent (backward compat)
+		existing, _ := deployStore.GetActiveDeployment(targetAcct.ID, agentName)
+		if existing != nil && displayName == "" {
+			k8sNamespace = existing.Namespace
+			deploymentID = uuid.New().String()
+		}
+	}
+	if k8sNamespace == "" {
+		// New deployment — generate UUID-based namespace
+		deploymentID = uuid.New().String()
+		k8sNamespace = deploymentNamespace(deploymentID)
+	}
+
 	submittedSpec.Target.Namespace = k8sNamespace
 
 	// Rule 19: reject any change to server-owned fields
@@ -263,7 +275,8 @@ func prepareDeployment(
 	return &deployContext{
 		acct:          targetAcct,
 		agentName:     agentName,
-		displayName:   submittedSpec.Target.DisplayName,
+		displayName:   displayName,
+		deploymentID:  deploymentID,
 		buildID:       buildID,
 		k8sNS:         k8sNamespace,
 		resolveResult: resolveResult,
@@ -286,7 +299,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore)
 		if !ok {
 			return
 		}
@@ -338,7 +351,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			stripped := spec.StripSecretVariableValues(dctx.resolveResult.Spec)
 			if specJSON, marshalErr := json.Marshal(stripped); marshalErr != nil {
 				log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
-			} else if _, storeErr := deployStore.SaveDeployment(dctx.acct.ID, dctx.agentName, dctx.buildID, dctx.k8sNS, string(specJSON)); storeErr != nil {
+			} else if _, storeErr := deployStore.SaveDeployment(dctx.deploymentID, dctx.acct.ID, dctx.agentName, dctx.displayName, dctx.buildID, dctx.k8sNS, string(specJSON)); storeErr != nil {
 				log.Error("Failed to save deployment record", "error", storeErr)
 			}
 		}
@@ -385,7 +398,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, nil)
 		if !ok {
 			return
 		}
@@ -416,73 +429,51 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
 		if !exists {
-			log.Error("User not found in context")
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "authentication required",
-			})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
 
-		// Resolve account
-		if req.Account == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account is required"})
+		if deployStore == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "deployment store not configured"})
 			return
 		}
 
-		acct, err := accountStore.GetByName(req.Account)
+		// Look up deployment by ID
+		dep, err := deployStore.GetDeploymentByID(req.DeploymentID)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
+			return
+		}
+		if dep == nil || dep.Status != "active" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "active deployment not found"})
 			return
 		}
 
-		// Verify user is a member
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		// Verify user is a member of the deployment's account
+		isMember, err := accountStore.IsMember(dep.AccountID, user.ID)
 		if err != nil || !isMember {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
 			return
 		}
 
 		log.Info("Received undeploy request",
-			"name", req.Name,
-			"account", req.Account,
+			"deployment_id", req.DeploymentID,
+			"agent", dep.AgentName,
+			"namespace", dep.Namespace,
 			"user_id", user.ID,
 		)
 
 		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "kubernetes client not configured",
-			})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
-		}
-
-		// Look up active deployment — try DB first, then K8s fallback
-		var k8sNamespace, buildID string
-		if deployStore != nil {
-			dep, dbErr := deployStore.GetActiveDeployment(acct.ID, req.Name)
-			if dbErr != nil {
-				log.Warn("Failed to look up deployment from DB", "error", dbErr)
-			}
-			if dep != nil {
-				k8sNamespace = dep.Namespace
-				buildID = dep.BuildID
-			}
-		}
-
-		if k8sNamespace == "" {
-			ns, nsErr := resolveDeploymentNamespace(c.Request.Context(), nil, k8sClient, acct.ID, req.Name)
-			if nsErr != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "no active deployment found for this agent"})
-				return
-			}
-			k8sNamespace = ns
 		}
 
 		// Delete the entire namespace — cascades to all resources
 		err = k8sClient.Clientset().CoreV1().Namespaces().Delete(
-			c.Request.Context(), k8sNamespace, metav1.DeleteOptions{},
+			c.Request.Context(), dep.Namespace, metav1.DeleteOptions{},
 		)
 		if err != nil {
-			log.Error("Failed to delete namespace", "error", err, "namespace", k8sNamespace)
+			log.Error("Failed to delete namespace", "error", err, "namespace", dep.Namespace)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "undeploy failed",
 				"details": err.Error(),
@@ -491,21 +482,21 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 		}
 
 		// Mark deployment record as undeployed
-		if err := deployStore.MarkUndeployed(acct.ID, req.Name); err != nil {
+		if err := deployStore.MarkUndeployedByID(dep.ID); err != nil {
 			log.Warn("Failed to mark deployment as undeployed", "error", err)
 		}
 
 		response := deployment.UndeployResponse{
 			Status:       "success",
-			Name:         req.Name,
-			BuildID:      buildID,
-			K8sNamespace: k8sNamespace,
+			Name:         dep.AgentName,
+			BuildID:      dep.BuildID,
+			K8sNamespace: dep.Namespace,
 			UndeployedAt: time.Now().UTC(),
 		}
 
 		log.Info("Undeploy completed",
 			"status", "success",
-			"namespace", k8sNamespace,
+			"namespace", dep.Namespace,
 		)
 
 		c.JSON(http.StatusOK, response)
@@ -574,7 +565,7 @@ type AgentDeployment struct {
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -632,18 +623,32 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
+		// Build namespace → display_name map from DB
+		nsDisplayNames := make(map[string]string)
+		if deployStore != nil {
+			dbDeps, dbErr := deployStore.GetActiveDeploymentsByAccount(acct.ID)
+			if dbErr != nil {
+				log.Warn("Failed to load deployments from DB for display names", "error", dbErr)
+			} else {
+				for _, d := range dbDeps {
+					nsDisplayNames[d.Namespace] = d.DisplayName
+				}
+			}
+		}
+
 		// Aggregate deployments across all per-deployment namespaces
 		var allDeployments []AgentDeployment
 		for _, ns := range nsList.Items {
 			manualIngestions := parseManualIngestions(ns.Annotations)
-			displayName := ns.Annotations["astro.dev/display-name"]
 			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name, manualIngestions)
 			if err != nil {
 				log.Warn("Failed to list deployments in namespace", "namespace", ns.Name, "error", err)
 				continue
 			}
-			for i := range deps {
-				deps[i].DisplayName = displayName
+			if dn, ok := nsDisplayNames[ns.Name]; ok {
+				for i := range deps {
+					deps[i].DisplayName = dn
+				}
 			}
 			allDeployments = append(allDeployments, deps...)
 		}
@@ -1167,8 +1172,8 @@ func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, acc
 			return
 		}
 
-		// Set target namespace so the template preview shows it
-		template.Target.Namespace = deploymentNamespace(accountID, accountName, name)
+		// Namespace is generated at deploy time from the deployment UUID
+		template.Target.Namespace = "<generated-on-deploy>"
 
 		// Return JSON or YAML based on format query param
 		if c.Query("format") == "json" {
