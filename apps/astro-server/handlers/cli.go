@@ -76,8 +76,6 @@ esac
 INSTALL_DIR="${HOME}/.ast/bin"
 mkdir -p "$INSTALL_DIR"
 
-# Fetch VERSION first so the binary URL and checksums are resolved from the
-# same immutable versioned prefix, preventing any race with a concurrent deploy.
 VERSION="$(curl -fsSL "${DOWNLOAD_BASE}/VERSION" | tr -d '[:space:]')"
 if [ -z "$VERSION" ]; then
   echo "Failed to fetch version from ${DOWNLOAD_BASE}/VERSION" >&2
@@ -85,15 +83,13 @@ if [ -z "$VERSION" ]; then
 fi
 
 BINARY_NAME="${PREFIX}-${OS}-${ARCH}"
-VERSIONED_BASE="${DOWNLOAD_BASE%%/latest}/${VERSION}"
-URL="${VERSIONED_BASE}/${BINARY_NAME}"
+URL="${DOWNLOAD_BASE}/${BINARY_NAME}"
 
 echo "Downloading ${PREFIX} ${VERSION} for ${OS}/${ARCH}..."
 curl -fsSL "$URL" -o "$INSTALL_DIR/${PREFIX}.tmp"
 
-# Verify checksum against the same versioned prefix
 echo "Verifying checksum..."
-CHECKSUMS="$(curl -fsSL "${VERSIONED_BASE}/checksums.txt")"
+CHECKSUMS="$(curl -fsSL "${DOWNLOAD_BASE}/checksums.txt")"
 EXPECTED="$(echo "$CHECKSUMS" | grep "$BINARY_NAME" | awk '{print $1}')"
 if [ -n "$EXPECTED" ]; then
   # Use shasum on macOS, sha256sum on Linux
