@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -53,8 +54,10 @@ func ListenQUIC(addr string, tlsConf *tls.Config, log *logger.Logger) (net.Liste
 	tr := &quic.Transport{Conn: udpConn}
 
 	if serverID, ok := parseNLBServerID(); ok {
-		log.Info("QUIC NLB server ID configured", "server_id", hex.EncodeToString(serverID))
-		tr.ConnectionIDGenerator = &nlbConnIDGenerator{serverID: serverID}
+		log.Info("QUIC-LB server ID configured",
+			"server_id_hex", hex.EncodeToString(serverID[:]),
+			"cid_len", quicLBCIDLen)
+		tr.ConnectionIDGenerator = &quicLBConnIDGenerator{serverID: serverID}
 	}
 
 	ql, err := tr.Listen(tlsConf, quicConf)
@@ -128,39 +131,51 @@ func (l *quicListener) Addr() net.Addr {
 // NLB QUIC Connection ID Generator
 // ---------------------------------------------------------------------------
 
-// parseNLBServerID reads the AWS_LBC_QUIC_SERVER_ID env var (hex-encoded)
-// injected by the AWS Load Balancer Controller into QUIC-enabled pods.
-func parseNLBServerID() ([]byte, bool) {
+// parseNLBServerID reads the AWS_LBC_QUIC_SERVER_ID env var (base64-encoded,
+// 8 bytes) injected by the AWS Load Balancer Controller into QUIC-enabled pods.
+func parseNLBServerID() ([8]byte, bool) {
 	raw := os.Getenv("AWS_LBC_QUIC_SERVER_ID")
 	if raw == "" {
-		return nil, false
+		return [8]byte{}, false
 	}
-	id, err := hex.DecodeString(raw)
-	if err != nil || len(id) == 0 {
-		return nil, false
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil || len(decoded) != 8 {
+		return [8]byte{}, false
 	}
+	var id [8]byte
+	copy(id[:], decoded)
 	return id, true
 }
 
-// nlbConnIDGenerator produces QUIC connection IDs that embed the NLB server
-// ID as a prefix. The NLB extracts this prefix from short-header (1-RTT)
-// packets to route them to the correct target.
-type nlbConnIDGenerator struct {
-	serverID []byte // typically 3 bytes from AWS LBC
+// quicLBConnIDGenerator produces QUIC connection IDs following the QUIC-LB
+// spec used by AWS NLB for connection-ID-based routing.
+//
+// CID format (13 bytes):
+//
+//	Byte 0:      config rotation (3 bits) | length/random (5 bits)
+//	Bytes 1-8:   Server ID (from AWS_LBC_QUIC_SERVER_ID)
+//	Bytes 9-12:  Random nonce
+//
+// The NLB reads the DCID from short-header (1-RTT) packets, extracts
+// bytes 1-8 as the server ID, and routes to the matching target.
+type quicLBConnIDGenerator struct {
+	serverID [8]byte
 }
 
-func (g *nlbConnIDGenerator) GenerateConnectionID() (quic.ConnectionID, error) {
-	// Total connection ID: server ID prefix + 8 random bytes
-	buf := make([]byte, len(g.serverID)+8)
-	copy(buf, g.serverID)
-	if _, err := rand.Read(buf[len(g.serverID):]); err != nil {
+const quicLBCIDLen = 13 // 1 header + 8 server ID + 4 nonce
+
+func (g *quicLBConnIDGenerator) GenerateConnectionID() (quic.ConnectionID, error) {
+	cid := make([]byte, quicLBCIDLen)
+	cid[0] = 0x00 // config rotation = 0, plaintext scheme
+	copy(cid[1:9], g.serverID[:])
+	if _, err := rand.Read(cid[9:]); err != nil {
 		return quic.ConnectionID{}, fmt.Errorf("generate connection ID: %w", err)
 	}
-	return quic.ConnectionIDFromBytes(buf), nil
+	return quic.ConnectionIDFromBytes(cid), nil
 }
 
-func (g *nlbConnIDGenerator) ConnectionIDLen() int {
-	return len(g.serverID) + 8
+func (g *quicLBConnIDGenerator) ConnectionIDLen() int {
+	return quicLBCIDLen
 }
 
 // ---------------------------------------------------------------------------
