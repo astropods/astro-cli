@@ -2,6 +2,7 @@ package connect
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -37,7 +38,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
-	defer cc.Close()
+	defer cc.Close() //nolint:errcheck
 
 	// Attach bearer token as metadata
 	md := metadata.Pairs("authorization", "Bearer "+cfg.Token)
@@ -99,7 +100,7 @@ func Run(ctx context.Context, cfg Config) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			if err == io.EOF || ctx.Err() != nil {
+			if errors.Is(err, io.EOF) || ctx.Err() != nil {
 				return nil
 			}
 			return fmt.Errorf("recv: %w", err)

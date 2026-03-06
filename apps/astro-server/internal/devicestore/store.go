@@ -53,9 +53,10 @@ type Device struct {
 // Upsert registers or reconnects a device. Returns the database row ID.
 func (s *Store) Upsert(ctx context.Context, accountID, userID string, d *Device) (string, error) {
 	var id string
+	now := time.Now()
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO connected_devices (account_id, user_id, device_id, hostname, os, arch, cli_version, status, last_heartbeat_at, connected_at, disconnected_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'connected', NOW(), NOW(), NULL) -- nolint:dupword
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'connected', $8, $8, NULL)
 		ON CONFLICT (account_id, device_id) DO UPDATE SET
 			user_id = EXCLUDED.user_id,
 			hostname = EXCLUDED.hostname,
@@ -63,11 +64,11 @@ func (s *Store) Upsert(ctx context.Context, accountID, userID string, d *Device)
 			arch = EXCLUDED.arch,
 			cli_version = EXCLUDED.cli_version,
 			status = 'connected',
-			last_heartbeat_at = NOW(),
-			connected_at = NOW(),
+			last_heartbeat_at = $8,
+			connected_at = $8,
 			disconnected_at = NULL
 		RETURNING id`,
-		accountID, userID, d.DeviceID, d.Hostname, d.OS, d.Arch, d.CLIVersion,
+		accountID, userID, d.DeviceID, d.Hostname, d.OS, d.Arch, d.CLIVersion, now,
 	).Scan(&id)
 	return id, err
 }

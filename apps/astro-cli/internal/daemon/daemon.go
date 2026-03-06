@@ -43,7 +43,7 @@ func Start(binaryName string, extraArgs []string) error {
 	}
 
 	// Open log file
-	lf, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	lf, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600) //nolint:gosec // path from config dir
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
@@ -54,17 +54,17 @@ func Start(binaryName string, extraArgs []string) error {
 
 	exe, err := os.Executable()
 	if err != nil {
-		lf.Close()
+		_ = lf.Close()
 		return fmt.Errorf("resolve executable: %w", err)
 	}
 
-	cmd := exec.Command(exe, args...)
+	cmd := exec.Command(exe, args...) //nolint:gosec // re-execing self with known args
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := cmd.Start(); err != nil {
-		lf.Close()
+		_ = lf.Close()
 		return fmt.Errorf("start daemon: %w", err)
 	}
 
@@ -72,7 +72,7 @@ func Start(binaryName string, extraArgs []string) error {
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0600); err != nil {
 		// Kill the child if we can't record its PID
 		_ = cmd.Process.Kill()
-		lf.Close()
+		_ = lf.Close()
 		return fmt.Errorf("write PID file: %w", err)
 	}
 
@@ -80,7 +80,7 @@ func Start(binaryName string, extraArgs []string) error {
 
 	// Detach — don't wait for the child
 	_ = cmd.Process.Release()
-	lf.Close()
+	_ = lf.Close()
 	return nil
 }
 
