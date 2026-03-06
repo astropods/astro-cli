@@ -301,7 +301,7 @@ func runWorker(
 	db *sql.DB,
 	omClient *openmeter.Client,
 ) context.CancelFunc {
-	workerCtx, cancel := context.WithCancel(context.Background())
+	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
 	// Start namespace scanner (reconciles DB ↔ K8s, catches drift)
 	var k8sClient k8s.ClusterClient

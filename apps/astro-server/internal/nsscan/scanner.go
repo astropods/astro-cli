@@ -100,7 +100,7 @@ func (s *Scanner) Scan(ctx context.Context) (*ScanResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // rows.Close error is insignificant after successful read
 
 	type dbDeploy struct {
 		id, accountID, agentName, namespace string
@@ -140,7 +140,7 @@ func (s *Scanner) Scan(ctx context.Context) (*ScanResult, error) {
 		SELECT namespace FROM namespace_ownership WHERE scanned_at < $1
 	`, scanTime)
 	if err == nil {
-		defer driftRows.Close()
+		defer driftRows.Close() //nolint:errcheck // rows.Close error is insignificant after successful read
 		for driftRows.Next() {
 			var ns string
 			if err := driftRows.Scan(&ns); err == nil {
