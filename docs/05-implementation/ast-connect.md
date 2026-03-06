@@ -221,8 +221,9 @@ This keeps the client dead simple — any shell command, including `docker`, `or
 
 ### Server env vars
 
-- `CONNECT_GRPC_PORT` — default `9092` (UDP, QUIC)
-- `CONNECT_GRPC_CERT_FILE`, `CONNECT_GRPC_KEY_FILE` — TLS certs for QUIC (can reuse server certs; QUIC mandates TLS 1.3)
+- `FLEET_GRPC_PORT` — default `9092` (UDP, QUIC)
+- `FLEET_TLS_CERT_PATH` — TLS cert path (provided by platform via `fleet-tls` K8s secret at `/etc/fleet-tls/tls.crt`)
+- `FLEET_TLS_KEY_PATH` — TLS key path (provided by platform via `fleet-tls` K8s secret at `/etc/fleet-tls/tls.key`)
 
 ### CLI flags
 

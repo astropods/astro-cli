@@ -43,7 +43,7 @@ type AdminGRPCConfig struct {
 // ConnectGRPCConfig holds connect gRPC server configuration (QUIC transport, JWT auth).
 // TLS certs are provided by the platform via the fleet-tls K8s secret mounted at /etc/fleet-tls/.
 type ConnectGRPCConfig struct {
-	Port     string // CONNECT_GRPC_PORT, default "9092" (UDP/QUIC — disabled if empty)
+	Port     string // FLEET_GRPC_PORT, default "9092" (UDP/QUIC — disabled if empty)
 	CertFile string // FLEET_TLS_CERT_PATH — TLS cert path (default /etc/fleet-tls/tls.crt)
 	KeyFile  string // FLEET_TLS_KEY_PATH  — TLS key path (default /etc/fleet-tls/tls.key)
 }
@@ -191,7 +191,7 @@ func Load() (*Config, error) {
 			OpenMeterURL: getEnv("OPENMETER_URL", ""),
 		},
 		ConnectGRPC: ConnectGRPCConfig{
-			Port:     getEnv("CONNECT_GRPC_PORT", "9092"),
+			Port:     getEnv("FLEET_GRPC_PORT", "9092"),
 			CertFile: getEnv("FLEET_TLS_CERT_PATH", ""),
 			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
 		},
