@@ -955,9 +955,9 @@ func TestAgentConnectionKeys_ContainerModeTool(t *testing.T) {
 		"tools.search": {Host: "tool-search", Port: "3000", URL: "http://tool-search:3000"},
 	}
 	env := AgentConnectionKeys(s, addrs)
-	assertEnv(t, env, "TOOL_SEARCH_HOST", "tool-search")
-	assertEnv(t, env, "TOOL_SEARCH_PORT", "3000")
-	assertEnv(t, env, "TOOL_SEARCH_URL", "http://tool-search:3000")
+	assertEnv(t, env, "INTEGRATION_SEARCH_HOST", "tool-search")
+	assertEnv(t, env, "INTEGRATION_SEARCH_PORT", "3000")
+	assertEnv(t, env, "INTEGRATION_SEARCH_URL", "http://tool-search:3000")
 }
 
 func TestAgentConnectionKeys_CloudProviderSkipped(t *testing.T) {
@@ -1261,8 +1261,8 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	assertEnv(t, res.Agent, "REDIS_HOST", "knowledge-cache")
 
 	// Container-mode tool connections
-	assertEnv(t, res.Agent, "TOOL_SEARCH_HOST", "tool-search")
-	assertEnv(t, res.Agent, "TOOL_SEARCH_URL", "http://tool-search:3000")
+	assertEnv(t, res.Agent, "INTEGRATION_SEARCH_HOST", "tool-search")
+	assertEnv(t, res.Agent, "INTEGRATION_SEARCH_URL", "http://tool-search:3000")
 
 	// Cloud credentials
 	assertEnv(t, res.Agent, "ANTHROPIC_API_KEY", "sk-ant-test")
@@ -1286,7 +1286,7 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 	if _, ok := res.Agent["MODEL_ANTHROPIC_HOST"]; ok {
 		t.Error("cloud provider anthropic must not produce connection keys")
 	}
-	if _, ok := res.Agent["TOOL_GITHUB_HOST"]; ok {
+	if _, ok := res.Agent["INTEGRATION_GITHUB_HOST"]; ok {
 		t.Error("cloud provider github must not produce connection keys")
 	}
 }
@@ -1430,7 +1430,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeTool_NoProvider(t *testing.T) {
 	}
 	meta := AllAgentAutoEnvKeys(s)
 
-	for _, key := range []string{"TOOL_SEARCH_HOST", "TOOL_SEARCH_PORT", "TOOL_SEARCH_URL"} {
+	for _, key := range []string{"INTEGRATION_SEARCH_HOST", "INTEGRATION_SEARCH_PORT", "INTEGRATION_SEARCH_URL"} {
 		assertAutoEnvMeta(t, meta, key, "connection", "search", "tool")
 	}
 }
@@ -1446,7 +1446,7 @@ func TestAllAgentAutoEnvKeys_ContainerModeTool_WithProvider(t *testing.T) {
 	}
 	meta := AllAgentAutoEnvKeys(s)
 
-	for _, key := range []string{"TOOL_SCRAPER_HOST", "TOOL_SCRAPER_PORT", "TOOL_SCRAPER_URL"} {
+	for _, key := range []string{"INTEGRATION_SCRAPER_HOST", "INTEGRATION_SCRAPER_PORT", "INTEGRATION_SCRAPER_URL"} {
 		assertAutoEnvMeta(t, meta, key, "connection", "browserbase", "tool")
 	}
 }

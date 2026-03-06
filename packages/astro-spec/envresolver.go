@@ -23,7 +23,7 @@ import (
 // ─── Name sanitization (spec §8.5) ───────────────────────────────────────────
 
 var (
-	sanitizeNonAlnum      = regexp.MustCompile(`[^a-z0-9_]`)
+	sanitizeNonAlnum        = regexp.MustCompile(`[^a-z0-9_]`)
 	sanitizeMultiUnderscore = regexp.MustCompile(`_+`)
 )
 
@@ -451,7 +451,7 @@ func connectionKeySource(s *AstroSpec, key string) (provider, category string) {
 		}
 	}
 	for name, t := range s.Tools {
-		if strings.HasPrefix(key, "TOOL_"+SanitizeEnvName(name)+"_") {
+		if strings.HasPrefix(key, "INTEGRATION_"+SanitizeEnvName(name)+"_") {
 			prov := t.Provider
 			if prov == "" {
 				prov = name
@@ -591,7 +591,7 @@ func resolveToolConnections(s *AstroSpec, addrs map[string]ConnectionAddress, ds
 			continue // cloud or custom provider — no connection wiring
 		}
 		addr := addrs["tools."+name]
-		prefix := "TOOL_" + SanitizeEnvName(name)
+		prefix := "INTEGRATION_" + SanitizeEnvName(name)
 		dst[prefix+"_HOST"] = addr.Host
 		dst[prefix+"_PORT"] = addr.Port
 		dst[prefix+"_URL"] = addr.URL
@@ -623,7 +623,6 @@ func resolveInputValue(inp Input, provided map[string]string) string {
 	}
 	return inp.Default
 }
-
 
 func ensureComponentMap(m map[string]map[string]string, name string) map[string]string {
 	if m[name] == nil {

@@ -486,9 +486,9 @@ func TestTemplate_Tool(t *testing.T) {
 		t.Errorf("resources: expected StandardResources, got %+v", tool.Resources)
 	}
 
-	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_HOST", "${tools.websearch.host}")
-	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_PORT", "${tools.websearch.http.port}")
-	assertEnvRef(t, ds.Agent.Environment, "TOOL_WEBSEARCH_URL", "${tools.websearch.http.url}")
+	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_HOST", "${tools.websearch.host}")
+	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_PORT", "${tools.websearch.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "INTEGRATION_WEBSEARCH_URL", "${tools.websearch.http.url}")
 }
 
 func TestTemplate_ToolDefaultPort(t *testing.T) {
@@ -886,7 +886,7 @@ func TestTemplate_FullSpec(t *testing.T) {
 	assertEnvExists(t, env, "OLLAMA_HOST")
 	assertEnvExists(t, env, "QDRANT_HOST")
 	assertEnvExists(t, env, "REDIS_HOST")
-	assertEnvExists(t, env, "TOOL_WEBSEARCH_HOST")
+	assertEnvExists(t, env, "INTEGRATION_WEBSEARCH_HOST")
 	assertEnvExists(t, env, "ANTHROPIC_API_KEY")
 	assertEnvExists(t, env, "GITHUB_TOKEN")
 	assertEnvExists(t, env, "ASTRO_AGENT_NAME")

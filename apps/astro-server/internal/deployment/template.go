@@ -222,7 +222,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			ds.Tools[name] = dt
 
 			primaryEp := primaryEndpointName(dt.Endpoints)
-			envPrefix := fmt.Sprintf("TOOL_%s", strings.ToUpper(SanitizeName(name)))
+			envPrefix := fmt.Sprintf("INTEGRATION_%s", strings.ToUpper(SanitizeName(name)))
 			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${tools.%s.host}", name)
 			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${tools.%s.%s.port}", name, primaryEp)
 			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${tools.%s.%s.url}", name, primaryEp)
