@@ -50,17 +50,14 @@ func Run(ctx context.Context, cfg Config) error {
 	cfg.verbf("device=%s  cli_version=%s", cfg.DeviceID, cfg.CLIVersion)
 
 	// Dial via QUIC — TLS is handled by QUIC, so gRPC layer is insecure
+	var verbose func(string, ...any)
+	if cfg.Verbose {
+		verbose = cfg.verbf
+	}
 	cc, err := grpc.NewClient(
 		"passthrough:///"+cfg.ServerAddr,
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			cfg.verbf("QUIC dial to %s (TLS ALPN=astro-connect)", addr)
-			conn, dialErr := dialQUIC(ctx, addr)
-			if dialErr != nil {
-				cfg.verbf("QUIC dial failed: %v", dialErr)
-			} else {
-				cfg.verbf("QUIC established (local=%s remote=%s)", conn.LocalAddr(), conn.RemoteAddr())
-			}
-			return conn, dialErr
+			return dialQUIC(ctx, addr, verbose)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
