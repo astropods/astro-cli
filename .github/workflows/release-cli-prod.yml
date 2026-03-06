@@ -55,6 +55,7 @@ jobs:
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "binary_name=ast" >> "$GITHUB_OUTPUT"
           echo "server_url=https://astropods.ai" >> "$GITHUB_OUTPUT"
+          echo "fleet_server_url=fleet.astropods.ai:9092" >> "$GITHUB_OUTPUT"
           echo "download_url=https://download.astropods.ai/latest" >> "$GITHUB_OUTPUT"
           echo "s3_bucket=prod-astro-downloads" >> "$GITHUB_OUTPUT"
 
@@ -85,6 +86,7 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
           COMMIT: ${{ steps.vars.outputs.commit }}
           SERVER_URL: ${{ steps.vars.outputs.server_url }}
+          FLEET_SERVER_URL: ${{ steps.vars.outputs.fleet_server_url }}
           DOWNLOAD_URL: ${{ steps.vars.outputs.download_url }}
           WORKOS_CLIENT_ID: ${{ vars.WORKOS_CLIENT_ID }}
           AMPLITUDE_API_KEY: ${{ vars.AMPLITUDE_API_KEY }}
@@ -95,6 +97,7 @@ jobs:
             -X github.com/postman/astro/apps/astro-cli/cmd.commit=${COMMIT} \
             -X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=${WORKOS_CLIENT_ID} \
             -X github.com/postman/astro/apps/astro-cli/internal/auth.DefaultServerURL=${SERVER_URL} \
+            -X github.com/postman/astro/apps/astro-cli/internal/auth.FleetServerURL=${FLEET_SERVER_URL} \
             -X github.com/postman/astro/apps/astro-cli/cmd.downloadBaseURL=${DOWNLOAD_URL} \
             -X github.com/postman/astro/apps/astro-cli/internal/buildinfo.BinaryName=${BINARY_NAME} \
             -X github.com/postman/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=${AMPLITUDE_API_KEY}"
@@ -124,6 +127,7 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
           COMMIT: ${{ steps.vars.outputs.commit }}
           SERVER_URL: ${{ steps.vars.outputs.server_url }}
+          FLEET_SERVER_URL: ${{ steps.vars.outputs.fleet_server_url }}
           DOWNLOAD_URL: ${{ steps.vars.outputs.download_url }}
           WORKOS_CLIENT_ID: ${{ vars.WORKOS_CLIENT_ID }}
         run: |
@@ -147,6 +151,7 @@ jobs:
           check "binaryName"      "$BINARY_NAME"
           check "downloadBaseURL" "$DOWNLOAD_URL"
           check "serverURL"       "$SERVER_URL"
+          check "fleetServerURL"  "$FLEET_SERVER_URL"
           check "workosClientID"  "$WORKOS_CLIENT_ID"
 
           [ $FAIL -eq 0 ] || { echo "One or more build flags missing from binary"; exit 1; }

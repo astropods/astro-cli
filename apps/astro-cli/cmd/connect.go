@@ -129,7 +129,7 @@ func runConnectUninstallService(cmd *cobra.Command, args []string) error {
 	return daemon.UninstallService()
 }
 
-// defaultConnectServer derives the connect server address from the configured API server.
+// defaultConnectServer returns the fleet server address set at build time.
 func defaultConnectServer() string {
-	return "localhost:9092"
+	return auth.FleetServerURL
 }
