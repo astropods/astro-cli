@@ -11,6 +11,10 @@ import (
 	"github.com/google/uuid"
 	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/devicestore"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
@@ -24,19 +28,21 @@ type deviceSession struct {
 
 type Server struct {
 	connectv1.UnimplementedConnectServiceServer
-	log         *logger.Logger
-	deviceStore *devicestore.Store
-	reaperOnce  sync.Once
+	log          *logger.Logger
+	deviceStore  *devicestore.Store
+	accountStore *account.AccountStore
+	reaperOnce   sync.Once
 
 	mu       sync.RWMutex
 	sessions map[string]*deviceSession // device_id -> session
 }
 
-func New(log *logger.Logger, deviceStore *devicestore.Store) *Server {
+func New(log *logger.Logger, deviceStore *devicestore.Store, accountStore *account.AccountStore) *Server {
 	return &Server{
-		log:         log,
-		deviceStore: deviceStore,
-		sessions:    make(map[string]*deviceSession),
+		log:          log,
+		deviceStore:  deviceStore,
+		accountStore: accountStore,
+		sessions:     make(map[string]*deviceSession),
 	}
 }
 
@@ -116,10 +122,28 @@ func (s *Server) StartReaper(ctx context.Context) {
 func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 	ctx := stream.Context()
 	userID := UserIDFromContext(ctx)
-	orgID := OrgIDFromContext(ctx)
 
-	if userID == "" || orgID == "" {
-		return io.EOF
+	if userID == "" {
+		return status.Error(codes.Unauthenticated, "missing user identity")
+	}
+
+	// Resolve the user's org from the JWT claim, falling back to their personal account.
+	orgID := OrgIDFromContext(ctx)
+	if orgID == "" {
+		accounts, err := s.accountStore.GetAccountsForUser(userID)
+		if err != nil {
+			s.log.Error("failed to resolve accounts for user", "error", err, "user_id", userID)
+			return status.Error(codes.Internal, "failed to resolve account")
+		}
+		for _, a := range accounts {
+			if a.Type == "personal" {
+				orgID = a.ID
+				break
+			}
+		}
+		if orgID == "" {
+			return status.Error(codes.PermissionDenied, "no account found — run 'ast login' and create an account first")
+		}
 	}
 
 	var deviceID string

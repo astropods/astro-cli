@@ -260,7 +260,7 @@ func runAPI(
 	workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
 	jwksURL, _ := workosClient.GetJWKSURL()
 	connectJWTValidator := auth.NewJWTValidator(jwksURL, cfg.Auth.JWTIssuer, "")
-	connectServer, connectSrv, connectErr := startConnectGRPCServer(log, cfg, devStore, connectJWTValidator)
+	connectServer, connectSrv, connectErr := startConnectGRPCServer(log, cfg, devStore, accountStore, connectJWTValidator)
 	if connectErr != nil {
 		log.Error("Failed to start connect gRPC server", "error", connectErr)
 		os.Exit(1)
@@ -519,6 +519,7 @@ func startConnectGRPCServer(
 	log *logger.Logger,
 	cfg *config.Config,
 	devStore *devicestore.Store,
+	accountStore *account.AccountStore,
 	jwtValidator *auth.JWTValidator,
 ) (*grpc.Server, *connectgrpc.Server, error) {
 	port := cfg.ConnectGRPC.Port
@@ -554,7 +555,7 @@ func startConnectGRPCServer(
 		grpc.StreamInterceptor(connectgrpc.JWTStreamInterceptor(jwtValidator, log)),
 	)
 
-	srv := connectgrpc.New(log, devStore)
+	srv := connectgrpc.New(log, devStore, accountStore)
 	connectv1.RegisterConnectServiceServer(grpcSrv, srv)
 
 	// Start reaper to clean stale devices
