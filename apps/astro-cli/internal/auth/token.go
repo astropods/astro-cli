@@ -55,7 +55,7 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 		newProfile, err := m.refreshToken(ctx, profile)
 		if err != nil {
 			// Return more specific error for refresh failures
-			return "", fmt.Errorf("token expired and refresh failed: %w. Run 'astro login' to re-authenticate", err)
+			return "", fmt.Errorf("token expired and refresh failed: %w. Run 'ast login' to re-authenticate", err)
 		}
 		profile = newProfile
 	}
@@ -153,7 +153,7 @@ func (m *TokenManager) IsAuthenticated() bool {
 // RequireAuth returns an error if the user is not authenticated
 func (m *TokenManager) RequireAuth() error {
 	if !m.IsAuthenticated() {
-		return errors.New("not authenticated. Run 'astro login' to authenticate")
+		return errors.New("not authenticated. Run 'ast login' to authenticate")
 	}
 	return nil
 }

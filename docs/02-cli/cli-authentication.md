@@ -42,7 +42,7 @@ The CLI uses OAuth 2.0 Device Authorization Flow (RFC 8628) via WorkOS. This all
 
 ### Steps
 
-1. User runs `astro login`
+1. User runs `ast login`
 2. CLI requests device authorization from WorkOS
 3. CLI displays user code (e.g., `ABCD-EFGH`) and opens verification URL
 4. User enters code in browser and authenticates (Google, GitHub, etc.)
@@ -94,10 +94,10 @@ Server and registry URLs are stored per profile. Registry is derived as `registr
 
 ## Token Lifecycle
 
-| Token | Lifetime | Purpose |
-|-------|----------|---------|
-| Access Token | ~1 hour | API authentication (Bearer token) |
-| Refresh Token | Long-lived | Obtain new access tokens |
+| Token         | Lifetime   | Purpose                           |
+| ------------- | ---------- | --------------------------------- |
+| Access Token  | ~1 hour    | API authentication (Bearer token) |
+| Refresh Token | Long-lived | Obtain new access tokens          |
 
 ### Automatic Refresh
 
@@ -105,12 +105,12 @@ Tokens are refreshed automatically when within 5 minutes of expiry. The CLI chec
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `astro login` | Authenticate via device flow |
-| `astro login --no-browser` | Print URL instead of opening browser |
-| `astro logout` | Clear stored credentials |
-| `astro whoami` | Display current user info |
+| Command                  | Description                          |
+| ------------------------ | ------------------------------------ |
+| `ast login`              | Authenticate via device flow         |
+| `ast login --no-browser` | Print URL instead of opening browser |
+| `ast logout`             | Clear stored credentials             |
+| `ast whoami`             | Display current user info            |
 
 ## Security Measures
 

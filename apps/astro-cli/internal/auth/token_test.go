@@ -324,7 +324,7 @@ func TestRequireAuth_NotAuthenticated(t *testing.T) {
 		t.Fatal("expected error from RequireAuth when not authenticated, got nil")
 	}
 
-	expectedMsg := "not authenticated. Run 'astro login' to authenticate"
+	expectedMsg := "not authenticated. Run 'ast login' to authenticate"
 	if err.Error() != expectedMsg {
 		t.Errorf("expected error %q, got %q", expectedMsg, err.Error())
 	}
@@ -408,4 +408,3 @@ func TestGetCurrentUser_NoUser(t *testing.T) {
 		t.Fatal("expected error when no user info, got nil")
 	}
 }
-

@@ -54,6 +54,12 @@ func (m *mockAdminClient) ListAgents(context.Context, *adminv1.ListAgentsRequest
 func (m *mockAdminClient) GetAgentBuilds(context.Context, *adminv1.GetAgentBuildsRequest, ...grpc.CallOption) (*adminv1.GetAgentBuildsResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) ListConnectedDevices(context.Context, *adminv1.ListConnectedDevicesRequest, ...grpc.CallOption) (*adminv1.ListConnectedDevicesResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) SendCommand(context.Context, *adminv1.SendCommandRequest, ...grpc.CallOption) (*adminv1.SendCommandResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

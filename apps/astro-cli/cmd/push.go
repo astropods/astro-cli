@@ -601,7 +601,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	// Add authentication header if not skipped
 	if !skipAuth {
 		if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
-			return fmt.Errorf("failed to add authentication: %w. Run 'astro login' to re-authenticate", err)
+			return fmt.Errorf("failed to add authentication: %w. Run 'ast login' to re-authenticate", err)
 		}
 		if verbose {
 			authHeader := req.Header.Get("Authorization")
