@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
 	"google.golang.org/grpc"
 
 	"github.com/postman/astro/apps/astro-server/handlers"
@@ -24,7 +25,9 @@ import (
 	"github.com/postman/astro/apps/astro-server/internal/agentindex"
 	"github.com/postman/astro/apps/astro-server/internal/auth"
 	"github.com/postman/astro/apps/astro-server/internal/config"
+	"github.com/postman/astro/apps/astro-server/internal/connectgrpc"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/postman/astro/apps/astro-server/internal/devicestore"
 	"github.com/postman/astro/apps/astro-server/internal/k8s"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"github.com/postman/astro/apps/astro-server/internal/middleware"
@@ -89,12 +92,13 @@ func main() {
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
 	var grpcServer *grpc.Server
+	var connectGRPCServer *grpc.Server
 	var eventsCancel context.CancelFunc
 	var probeHandler *handlers.ProbeHandler
 
-	// --- API mode: HTTP server + gRPC admin ---
+	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient)
+		httpSrv, grpcServer, connectGRPCServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -144,7 +148,10 @@ func main() {
 		eventsCancel()
 	}
 
-	// Graceful shutdown of gRPC server
+	// Graceful shutdown of gRPC servers
+	if connectGRPCServer != nil {
+		connectGRPCServer.GracefulStop()
+	}
 	if grpcServer != nil {
 		grpcServer.GracefulStop()
 	}
@@ -164,7 +171,7 @@ func main() {
 	log.Info("Server stopped gracefully")
 }
 
-// runAPI initializes and starts the HTTP API server and gRPC admin server.
+// runAPI initializes and starts the HTTP API server, gRPC admin server, and connect gRPC server.
 func runAPI(
 	log *logger.Logger,
 	cfg *config.Config,
@@ -173,7 +180,7 @@ func runAPI(
 	orgClient *org.Client,
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
-) (*http.Server, *grpc.Server, *handlers.ProbeHandler) {
+) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
 
@@ -247,6 +254,17 @@ func runAPI(
 		os.Exit(1)
 	}
 
+	// Start connect gRPC server (QUIC, JWT auth)
+	devStore := devicestore.New(db)
+	workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
+	jwksURL, _ := workosClient.GetJWKSURL()
+	connectJWTValidator := auth.NewJWTValidator(jwksURL, cfg.Auth.JWTIssuer, "")
+	connectServer, connectErr := startConnectGRPCServer(log, cfg, devStore, connectJWTValidator)
+	if connectErr != nil {
+		log.Error("Failed to start connect gRPC server", "error", connectErr)
+		os.Exit(1)
+	}
+
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
@@ -265,7 +283,7 @@ func runAPI(
 		}
 	}()
 
-	return srv, grpcServer, probeHandler
+	return srv, grpcServer, connectServer, probeHandler
 }
 
 // runWorker starts background workers (events consumer, OpenMeter reconciler) and returns a cancel func.
@@ -491,6 +509,63 @@ func startAdminGRPCServer(
 		log.Info("Admin gRPC server listening", "port", port)
 		if err := grpcSrv.Serve(lis); err != nil {
 			log.Error("Admin gRPC server error", "error", err)
+		}
+	}()
+
+	return grpcSrv, nil
+}
+
+// startConnectGRPCServer starts the connect gRPC server over QUIC for CLI device connections.
+// Returns nil, nil if the port is empty (disabled) or TLS certs are not configured.
+func startConnectGRPCServer(
+	log *logger.Logger,
+	cfg *config.Config,
+	devStore *devicestore.Store,
+	jwtValidator *auth.JWTValidator,
+) (*grpc.Server, error) {
+	port := cfg.ConnectGRPC.Port
+	if port == "" {
+		return nil, nil
+	}
+
+	// TLS certs provided by platform via fleet-tls K8s secret
+	certFile := cfg.ConnectGRPC.CertFile
+	keyFile := cfg.ConnectGRPC.KeyFile
+	if certFile == "" || keyFile == "" {
+		log.Warn("Connect gRPC disabled — TLS not configured (set FLEET_TLS_CERT_PATH, FLEET_TLS_KEY_PATH)")
+		return nil, nil
+	}
+
+	// Load TLS config for QUIC (QUIC mandates TLS 1.3)
+	tlsCert, err := connectgrpc.LoadTLSCert(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("connect gRPC TLS: %w", err)
+	}
+
+	tlsConf := connectgrpc.NewTLSConfig(tlsCert)
+
+	// Create QUIC listener
+	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf)
+	if err != nil {
+		return nil, fmt.Errorf("connect gRPC QUIC listen: %w", err)
+	}
+
+	// Create gRPC server with JWT stream interceptor
+	// TLS is handled by QUIC, so gRPC uses insecure credentials over the QUIC stream
+	grpcSrv := grpc.NewServer(
+		grpc.StreamInterceptor(connectgrpc.JWTStreamInterceptor(jwtValidator)),
+	)
+
+	srv := connectgrpc.New(log, devStore)
+	connectv1.RegisterConnectServiceServer(grpcSrv, srv)
+
+	// Start reaper to clean stale devices
+	srv.StartReaper(context.Background())
+
+	go func() {
+		log.Info("Connect gRPC server listening (QUIC/UDP)", "port", port)
+		if err := grpcSrv.Serve(lis); err != nil {
+			log.Error("Connect gRPC server error", "error", err)
 		}
 	}()
 

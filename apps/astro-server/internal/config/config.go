@@ -16,6 +16,7 @@ type Config struct {
 	Auth         AuthConfig
 	Database     DatabaseConfig
 	AdminGRPC    AdminGRPCConfig
+	ConnectGRPC  ConnectGRPCConfig
 	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API
 }
 
@@ -37,6 +38,14 @@ type AdminGRPCConfig struct {
 	KeyFile      string // ADMIN_GRPC_KEY_FILE  — file path or inline PEM
 	CAFile       string // ADMIN_GRPC_CA_FILE   — file path or inline PEM
 	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API proxying
+}
+
+// ConnectGRPCConfig holds connect gRPC server configuration (QUIC transport, JWT auth).
+// TLS certs are provided by the platform via the fleet-tls K8s secret mounted at /etc/fleet-tls/.
+type ConnectGRPCConfig struct {
+	Port     string // CONNECT_GRPC_PORT, default "9092" (UDP/QUIC — disabled if empty)
+	CertFile string // FLEET_TLS_CERT_PATH — TLS cert path (default /etc/fleet-tls/tls.crt)
+	KeyFile  string // FLEET_TLS_KEY_PATH  — TLS key path (default /etc/fleet-tls/tls.key)
 }
 
 // DatabaseConfig holds database configuration
@@ -180,6 +189,11 @@ func Load() (*Config, error) {
 			KeyFile:      getEnv("ADMIN_GRPC_KEY_FILE", ""),
 			CAFile:       getEnv("ADMIN_GRPC_CA_FILE", ""),
 			OpenMeterURL: getEnv("OPENMETER_URL", ""),
+		},
+		ConnectGRPC: ConnectGRPCConfig{
+			Port:     getEnv("CONNECT_GRPC_PORT", "9092"),
+			CertFile: getEnv("FLEET_TLS_CERT_PATH", ""),
+			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
 		},
 		OpenMeterURL: getEnv("OPENMETER_URL", ""),
 	}
