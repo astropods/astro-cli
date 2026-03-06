@@ -17,6 +17,11 @@ func Logger(log *logger.Logger) gin.HandlerFunc {
 		// Process request
 		c.Next()
 
+		// Skip logging health check probes
+		if path == "/readyz" || path == "/healthz" {
+			return
+		}
+
 		// Log after processing
 		duration := time.Since(start)
 		statusCode := c.Writer.Status()
