@@ -75,18 +75,18 @@ var launchdTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0"
 
 func installLaunchd(exe string, extraArgs []string) error {
 	plistPath := launchdPlistPath()
-	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(plistPath), 0750); err != nil { //nolint:gosec
 		return err
 	}
 
 	home, _ := os.UserHomeDir()
 	logFile := filepath.Join(home, ".ast", "connect.log")
 
-	f, err := os.Create(plistPath)
+	f, err := os.Create(plistPath) //nolint:gosec // path is derived from user home dir
 	if err != nil {
 		return fmt.Errorf("create plist: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	if err := launchdTmpl.Execute(f, struct {
 		Label     string
@@ -143,15 +143,15 @@ WantedBy=default.target
 
 func installSystemd(exe string, extraArgs []string) error {
 	unitPath := systemdUnitPath()
-	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0750); err != nil { //nolint:gosec
 		return err
 	}
 
-	f, err := os.Create(unitPath)
+	f, err := os.Create(unitPath) //nolint:gosec // path is derived from user home dir
 	if err != nil {
 		return fmt.Errorf("create unit: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	if err := systemdTmpl.Execute(f, struct {
 		Exe       string

@@ -3,6 +3,7 @@ package connect
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os/exec"
 	"runtime"
 	"time"
@@ -35,7 +36,7 @@ func execShellCommand(cmd *connectv1.ShellCommand) *connectv1.CommandResult {
 		args = []string{"-c", cmd.Command}
 	}
 
-	c := exec.CommandContext(ctx, shell, args...)
+	c := exec.CommandContext(ctx, shell, args...) //nolint:gosec // shell commands are dispatched by the server
 	if cmd.WorkingDir != "" {
 		c.Dir = cmd.WorkingDir
 	}
@@ -50,7 +51,8 @@ func execShellCommand(cmd *connectv1.ShellCommand) *connectv1.CommandResult {
 	err := c.Run()
 	exitCode := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
 			exitCode = -1

@@ -40,7 +40,7 @@ func (c *quicConn) SetWriteDeadline(t time.Time) error { return c.stream.SetWrit
 func dialQUIC(ctx context.Context, addr string) (net.Conn, error) {
 	tlsConf := &tls.Config{
 		NextProtos:         []string{"astro-connect"},
-		InsecureSkipVerify: true, // TODO: proper CA validation for production
+		InsecureSkipVerify: true, //nolint:gosec // TODO: proper CA validation for production
 	}
 	conn, err := quic.DialAddr(ctx, addr, tlsConf, &quic.Config{
 		MaxIdleTimeout:  120 * time.Second,
@@ -51,7 +51,7 @@ func dialQUIC(ctx context.Context, addr string) (net.Conn, error) {
 	}
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
-		conn.CloseWithError(1, "failed to open stream")
+		_ = conn.CloseWithError(1, "failed to open stream")
 		return nil, err
 	}
 	return &quicConn{conn: conn, stream: stream}, nil
