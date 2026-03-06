@@ -109,7 +109,6 @@ func prepareDeployment(
 	agentIndex *agentindex.Index,
 	cfg *config.Config,
 ) (*deployContext, bool) {
-	// Auth: user must be a member of source.account
 	user, exists := middleware.GetUser(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -124,21 +123,41 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	accountName := submittedSpec.Source.Account
-	if accountName == "" {
+	sourceAccountName := submittedSpec.Source.Account
+	if sourceAccountName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "source.account is required in the deployment spec"})
 		return nil, false
 	}
 
-	acct, err := accountStore.GetByName(accountName)
+	// Determine target account: prefer target.account, fall back to source.account
+	targetAccountName := submittedSpec.Target.Account
+	if targetAccountName == "" {
+		targetAccountName = sourceAccountName
+	}
+
+	// Look up source account for build resolution
+	sourceAcct, err := accountStore.GetByName(sourceAccountName)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "source account not found"})
 		return nil, false
 	}
 
-	isMember, err := accountStore.IsMember(acct.ID, user.ID)
+	// Look up target account for auth check and namespace derivation
+	var targetAcct *account.Account
+	if targetAccountName == sourceAccountName {
+		targetAcct = sourceAcct
+	} else {
+		targetAcct, err = accountStore.GetByName(targetAccountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "target account not found"})
+			return nil, false
+		}
+	}
+
+	// Auth: user must be a member of the target account
+	isMember, err := accountStore.IsMember(targetAcct.ID, user.ID)
 	if err != nil || !isMember {
-		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for target account"})
 		return nil, false
 	}
 
@@ -148,12 +167,13 @@ func prepareDeployment(
 	log.Info("Processing deployment spec",
 		"agent", agentName,
 		"build", buildID,
-		"account", accountName,
+		"source_account", sourceAccountName,
+		"target_account", targetAccountName,
 		"user_id", user.ID,
 	)
 
-	// Look up the exact build referenced in the spec
-	agentVersion, err := agentIndex.GetVersion(acct.ID, agentName, buildID)
+	// Look up the exact build referenced in the spec (from source account)
+	agentVersion, err := agentIndex.GetVersion(sourceAcct.ID, agentName, buildID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "agent build not found",
@@ -177,7 +197,7 @@ func prepareDeployment(
 	// Re-generate the server's canonical template for this build
 	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:              &astroSpec,
-		Account:           accountName,
+		Account:           sourceAccountName,
 		BuildID:           buildID,
 		RegistryURL:       cfg.Deployment.RegistryURL,
 		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
@@ -191,11 +211,13 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	// Derive namespace server-side (stable across builds; user value in spec is ignored)
-	k8sNamespace := deploymentNamespace(acct.ID, accountName, agentName)
+	// Derive namespace from target account (stable across builds; user value in spec is ignored)
+	k8sNamespace := deploymentNamespace(targetAcct.ID, sourceAccountName, agentName)
 	submittedSpec.Target.Namespace = k8sNamespace
 
 	// Rule 19: reject any change to server-owned fields
+	// Ensure template's target.account matches submitted so EnforceEditable doesn't reject it
+	template.Target.Account = submittedSpec.Target.Account
 	if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "server-owned fields were modified",
@@ -222,7 +244,7 @@ func prepareDeployment(
 	}
 
 	return &deployContext{
-		acct:          acct,
+		acct:          targetAcct,
 		agentName:     agentName,
 		buildID:       buildID,
 		k8sNS:         k8sNamespace,

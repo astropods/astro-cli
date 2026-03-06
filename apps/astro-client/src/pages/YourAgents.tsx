@@ -6,39 +6,16 @@ import {
   type ViewMode,
 } from "../components/MyAgentsHeader";
 import { DeployedAgentCard } from "../components/DeployedAgentCard";
-import type { DeployedAgentStatus } from "../components/DeployedAgentCard";
 import { useDeployments } from "../api/queries/deployments";
 import { useAuth } from "../lib/auth";
-import type { AgentDeployment } from "../lib/api";
-
-function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
-  if (deployment.status === "error" || (deployment.ready === 0 && deployment.replicas > 0)) {
-    return "error";
-  }
-  if (deployment.status === "pending" || deployment.ready < deployment.replicas) {
-    return "pending";
-  }
-  if (deployment.replicas === 0) {
-    return "inactive";
-  }
-  return "active";
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 
 function YourAgentsContent() {
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
-  const { accounts, isAuthenticated } = useAuth();
-  const userAccount = accounts[0]?.name ?? "";
+  const { personalAccount, isAuthenticated } = useAuth();
+  const userAccount = personalAccount?.name ?? "";
   const { data } = useDeployments(userAccount, isAuthenticated);
 
   const filtered = useMemo(() => {

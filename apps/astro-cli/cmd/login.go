@@ -174,8 +174,14 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s accounts: %s\n", cyan.Sprint("→"), dim.Sprintf("%d found (%s)", len(accounts), accounts[0].Name)) //nolint:errcheck,gosec
 		}
 		profile.Accounts = accounts
-		profile.User.AccountName = accounts[0].Name
-		profile.User.AccountID = accounts[0].ID
+		// A personal account is required for login
+		personalAcct := findPersonalAccount(accounts)
+		if personalAcct != nil {
+			profile.User.AccountName = personalAcct.Name
+			profile.User.AccountID = personalAcct.ID
+		} else {
+			return fmt.Errorf("no personal account found. You must have a personal account to log in. Only organization accounts were found")
+		}
 	} else if verbose && err != nil {
 		red := color.New(color.FgRed)
 		fmt.Printf("  %s accounts: %s\n", red.Sprint("✗"), dim.Sprintf("fetch failed: %v", err)) //nolint:errcheck,gosec
@@ -454,4 +460,14 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 		})
 	}
 	return accounts, nil
+}
+
+// findPersonalAccount returns the first account with type "personal", or nil.
+func findPersonalAccount(accounts []auth.StoredAccount) *auth.StoredAccount {
+	for i := range accounts {
+		if accounts[i].Type == "personal" {
+			return &accounts[i]
+		}
+	}
+	return nil
 }

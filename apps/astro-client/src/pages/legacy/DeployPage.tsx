@@ -379,8 +379,8 @@ function CredentialForm({
 export default function DeployPage() {
   const { account, name } = useParams<{ account: string; name: string }>();
   const navigate = useNavigate();
-  const { accounts, isAuthenticated, login } = useAuth();
-  const userAccount = accounts[0]?.name ?? "";
+  const { personalAccount, isAuthenticated, login } = useAuth();
+  const userAccount = personalAccount?.name ?? "";
 
   const {
     data: template,

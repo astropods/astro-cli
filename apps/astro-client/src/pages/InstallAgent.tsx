@@ -6,6 +6,7 @@ import { useAgent } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
+import { AccountPicker } from "@/components/deploy/AccountPicker";
 import { InterfacesPicker } from "@/components/deploy/InterfacesPicker";
 import { VariableFields } from "@/components/deploy/VariableFields";
 import { FormSection } from "@/components/deploy/FormSection";
@@ -124,6 +125,17 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
           {form.template && (
             <div className="space-y-8">
+              {/* Account picker */}
+              {form.accounts.length > 1 && (
+                <FormSection title="Install to" description="Choose which account to install this agent under.">
+                  <AccountPicker
+                    accounts={form.accounts}
+                    selected={form.targetAccount}
+                    onChange={form.setTargetAccount}
+                  />
+                </FormSection>
+              )}
+
               {/* Interfaces */}
               <FormSection title="Messaging" description="Choose how you want to interact with the agent.">
                 <InterfacesPicker

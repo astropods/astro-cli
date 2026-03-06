@@ -1,7 +1,11 @@
-import { useContext, useCallback } from 'react';
+import { useContext, useCallback, useMemo } from 'react';
 import { AuthContext, type AuthContextType } from './auth-context';
+import type { Account } from './api';
 
-export function useAuth(): AuthContextType & { hasPermission: (permission: string) => boolean } {
+export function useAuth(): AuthContextType & {
+  hasPermission: (permission: string) => boolean;
+  personalAccount: Account | undefined;
+} {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
@@ -10,5 +14,9 @@ export function useAuth(): AuthContextType & { hasPermission: (permission: strin
     (permission: string) => context.permissions.includes(permission),
     [context.permissions],
   );
-  return { ...context, hasPermission };
+  const personalAccount = useMemo(
+    () => context.accounts.find((a) => a.type === 'personal'),
+    [context.accounts],
+  );
+  return { ...context, hasPermission, personalAccount };
 }

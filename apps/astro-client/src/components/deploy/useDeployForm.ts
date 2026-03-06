@@ -47,6 +47,7 @@ function fulfillTemplate(
   template: DeploymentTemplate,
   variableValues: Record<string, string>,
   selectedAdapters: string[],
+  targetAccount: string,
 ): DeploymentSpec {
   // Destructure out editable (template-only) so it is not present in the fulfilled spec
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
@@ -80,6 +81,7 @@ function fulfillTemplate(
   return {
     ...rest,
     spec: 'deployment/v1',
+    target: { ...rest.target, account: targetAccount },
     variables: Object.keys(variables).length > 0 ? variables : undefined,
     interfaces: rest.interfaces
       ? { ...rest.interfaces, adapters: selectedAdapters }
@@ -90,6 +92,7 @@ function fulfillTemplate(
 // --- Validation errors ---
 
 export interface FormErrors {
+  account?: string;
   adapters?: string;
   credentials?: string[];
   adapterCredentials?: string[];
@@ -98,8 +101,9 @@ export interface FormErrors {
 // --- Hook ---
 
 export function useDeployForm(account: string, name: string, opts?: UseDeployFormOptions) {
-  const { accounts } = useAuth();
-  const userAccount = accounts[0]?.name ?? "";
+  const { accounts, personalAccount } = useAuth();
+
+  const [targetAccount, setTargetAccount] = useState(personalAccount?.name ?? "");
 
   const {
     data: template,
@@ -107,7 +111,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     error: templateError,
   } = useDeploymentTemplate(account, name, { initialData: opts?.initialTemplate });
 
-  const deployMutation = useDeployAgent(userAccount);
+  const deployMutation = useDeployAgent(targetAccount);
 
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(["web"]);
@@ -196,6 +200,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     const result: FormErrors = {};
 
+    if (!targetAccount) {
+      result.account = "Select an account to install under";
+    }
+
     if (selectedAdapters.length === 0) {
       result.adapters = "Select at least one messaging type";
     }
@@ -218,10 +226,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterCredDefs]);
+  }, [submitted, targetAccount, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterCredDefs]);
 
   const isValid = submitted
-    ? !errors.adapters && !errors.credentials && !errors.adapterCredentials
+    ? !errors.account && !errors.adapters && !errors.credentials && !errors.adapterCredentials
     : true;
 
   // Try to submit: marks form as submitted and returns validity
@@ -229,6 +237,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setSubmitted(true);
 
     // Compute validity inline (state update is async, can't rely on `errors` yet)
+    const hasAccount = !!targetAccount;
     const hasAdapter = selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, variableValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
@@ -236,7 +245,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return creds.every(([key, def]) => def.optional || adapterCredentials[key]?.trim());
     });
 
-    return hasAdapter && varsValid && adapterCredsValid;
+    return hasAccount && hasAdapter && varsValid && adapterCredsValid;
   };
 
   // Submission
@@ -245,7 +254,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     setDeployError(null);
     const allVariableValues = { ...variableValues, ...adapterCredentials };
-    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters);
+    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters, targetAccount);
 
     try {
       await deployMutation.mutateAsync(spec);
@@ -278,6 +287,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     template,
     templateLoading,
     templateErrorMessage,
+
+    accounts,
+    targetAccount,
+    setTargetAccount,
 
     selectedAdapters,
     setSelectedAdapters,

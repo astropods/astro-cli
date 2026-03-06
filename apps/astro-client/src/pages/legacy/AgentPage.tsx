@@ -60,8 +60,8 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
   const { account, agent: agentName } = useParams<{ account: string; agent: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, login, accounts } = useAuth();
-  const userAccount = accounts[0]?.name ?? "";
+  const { isAuthenticated, login, personalAccount } = useAuth();
+  const userAccount = personalAccount?.name ?? "";
 
   // Measure offset from top of viewport to pin the page height
   const containerRef = useRef<HTMLDivElement>(null);
