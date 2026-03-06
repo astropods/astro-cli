@@ -46,3 +46,14 @@ func TestBuildConfigMap(t *testing.T) {
 		t.Errorf("expected agent label my-agent, got %s", cm.Labels["astro.dev/agent"])
 	}
 }
+
+func TestBuildConfigMap_EmptyData(t *testing.T) {
+	cm := BuildConfigMap("ns", "agent", "1.0", map[string]string{})
+
+	if cm.Kind != "ConfigMap" {
+		t.Errorf("kind: expected ConfigMap, got %s", cm.Kind)
+	}
+	if len(cm.Data) != 0 {
+		t.Errorf("expected 0 data entries, got %d", len(cm.Data))
+	}
+}

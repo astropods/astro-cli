@@ -57,3 +57,33 @@ func TestBuildSecret(t *testing.T) {
 		t.Errorf("expected agent label my-agent, got %s", secret.Labels["astro.dev/agent"])
 	}
 }
+
+func TestBuildSecret_EmptyValues(t *testing.T) {
+	secret := BuildSecret("ns", "agent", "1.0", map[string]string{})
+
+	if secret.Type != corev1.SecretTypeOpaque {
+		t.Errorf("type: expected Opaque, got %s", secret.Type)
+	}
+	if len(secret.Data) != 0 {
+		t.Errorf("expected 0 data entries, got %d", len(secret.Data))
+	}
+}
+
+func TestBuildSecret_MixedCaseKeys(t *testing.T) {
+	creds := map[string]string{
+		"Already_UPPER": "val1",
+		"lower_case":    "val2",
+		"MiXeD":         "val3",
+	}
+
+	secret := BuildSecret("ns", "agent", "1.0", creds)
+
+	for _, key := range []string{"ALREADY_UPPER", "LOWER_CASE", "MIXED"} {
+		if _, ok := secret.Data[key]; !ok {
+			t.Errorf("expected uppercased key %s in secret data", key)
+		}
+	}
+	if len(secret.Data) != 3 {
+		t.Errorf("expected 3 entries, got %d", len(secret.Data))
+	}
+}

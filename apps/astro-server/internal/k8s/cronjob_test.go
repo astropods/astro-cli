@@ -85,6 +85,56 @@ func TestBuildCronJob(t *testing.T) {
 	}
 }
 
+func TestBuildCronJob_NoSecretOrConfigMap(t *testing.T) {
+	cfg := CronJobConfig{
+		Name: "agent-ingestion-sync", Namespace: "default",
+		AgentName: "my-agent", BuildID: "1.0", Component: "ingestion-sync",
+		Schedule: "0 * * * *",
+		Ingestion: spec.Ingestion{
+			Container: spec.ContainerConfig{Image: "ingest:latest"},
+			Trigger:   spec.IngestionTrigger{Type: "schedule"},
+		},
+	}
+
+	cj := BuildCronJob(cfg)
+	container := cj.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
+
+	if len(container.EnvFrom) != 0 {
+		t.Errorf("expected 0 envFrom without secret/configmap, got %d", len(container.EnvFrom))
+	}
+}
+
+func TestBuildCronJob_ImageAndResources(t *testing.T) {
+	cfg := CronJobConfig{
+		Name: "agent-ingestion-sync", Namespace: "default",
+		AgentName: "my-agent", BuildID: "1.0", Component: "ingestion-sync",
+		Schedule: "0 * * * *",
+		Ingestion: spec.Ingestion{
+			Container: spec.ContainerConfig{Image: "my-ingest:v2"},
+			Trigger:   spec.IngestionTrigger{Type: "schedule"},
+		},
+	}
+
+	cj := BuildCronJob(cfg)
+	container := cj.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
+
+	if container.Image != "my-ingest:v2" {
+		t.Errorf("image: expected my-ingest:v2, got %s", container.Image)
+	}
+	if container.ImagePullPolicy != corev1.PullAlways {
+		t.Errorf("pull policy: expected Always, got %s", container.ImagePullPolicy)
+	}
+
+	cpuReq := container.Resources.Requests[corev1.ResourceCPU]
+	if cpuReq.String() != "50m" {
+		t.Errorf("CPU request: expected 50m, got %s", cpuReq.String())
+	}
+	memLim := container.Resources.Limits[corev1.ResourceMemory]
+	if memLim.String() != "256Mi" {
+		t.Errorf("memory limit: expected 256Mi, got %s", memLim.String())
+	}
+}
+
 // TestBuildJob verifies that BuildJob produces a one-shot Job with
 // BackoffLimit=3, RestartPolicy=OnFailure, and container name "ingestion-worker".
 func TestBuildJob(t *testing.T) {
@@ -124,6 +174,69 @@ func TestBuildJob(t *testing.T) {
 	container := podSpec.Containers[0]
 	if container.Name != "ingestion-worker" {
 		t.Errorf("container name: expected ingestion-worker, got %s", container.Name)
+	}
+}
+
+func TestBuildJob_TTLAndEnv(t *testing.T) {
+	cfg := JobConfig{
+		Name: "agent-ingestion-boot", Namespace: "default",
+		AgentName: "my-agent", BuildID: "1.0", Component: "ingestion-boot",
+		SecretName: "my-secret", ConfigMapName: "my-config",
+		Ingestion: spec.Ingestion{
+			Container: spec.ContainerConfig{
+				Image:       "ingest:latest",
+				Environment: map[string]string{"MODE": "full", "BATCH": "100"},
+			},
+			Trigger: spec.IngestionTrigger{Type: "startup"},
+		},
+	}
+
+	job := BuildJob(cfg)
+
+	// TTL
+	if job.Spec.TTLSecondsAfterFinished == nil || *job.Spec.TTLSecondsAfterFinished != 86400 {
+		t.Errorf("TTL: expected 86400, got %v", job.Spec.TTLSecondsAfterFinished)
+	}
+
+	// Labels
+	if job.Labels["astro.dev/agent"] != "my-agent" {
+		t.Errorf("agent label: expected my-agent, got %s", job.Labels["astro.dev/agent"])
+	}
+
+	// Env vars
+	container := job.Spec.Template.Spec.Containers[0]
+	envMap := make(map[string]string)
+	for _, e := range container.Env {
+		envMap[e.Name] = e.Value
+	}
+	if envMap["MODE"] != "full" {
+		t.Errorf("expected MODE=full, got %q", envMap["MODE"])
+	}
+	if envMap["BATCH"] != "100" {
+		t.Errorf("expected BATCH=100, got %q", envMap["BATCH"])
+	}
+
+	// EnvFrom
+	if len(container.EnvFrom) != 2 {
+		t.Fatalf("expected 2 envFrom, got %d", len(container.EnvFrom))
+	}
+}
+
+func TestBuildJob_NoSecretOrConfigMap(t *testing.T) {
+	cfg := JobConfig{
+		Name: "agent-ingestion-boot", Namespace: "default",
+		AgentName: "my-agent", BuildID: "1.0", Component: "ingestion-boot",
+		Ingestion: spec.Ingestion{
+			Container: spec.ContainerConfig{Image: "ingest:latest"},
+			Trigger:   spec.IngestionTrigger{Type: "startup"},
+		},
+	}
+
+	job := BuildJob(cfg)
+	container := job.Spec.Template.Spec.Containers[0]
+
+	if len(container.EnvFrom) != 0 {
+		t.Errorf("expected 0 envFrom without secret/configmap, got %d", len(container.EnvFrom))
 	}
 }
 
@@ -175,5 +288,65 @@ func TestBuildIngestionDeployment(t *testing.T) {
 	container2 := d2.Spec.Template.Spec.Containers[0]
 	if container2.Ports[0].ContainerPort != 9090 {
 		t.Errorf("expected custom port 9090, got %d", container2.Ports[0].ContainerPort)
+	}
+}
+
+func TestBuildIngestionDeployment_EnvAndLabels(t *testing.T) {
+	cfg := JobConfig{
+		Name: "agent-ingestion-webhook", Namespace: "prod",
+		AgentName: "my-agent", BuildID: "2.0", Component: "ingestion-webhook",
+		SecretName: "my-secret", ConfigMapName: "my-config",
+		Ingestion: spec.Ingestion{
+			Container: spec.ContainerConfig{
+				Image:       "ingest:latest",
+				Environment: map[string]string{"ENDPOINT": "/hooks/jira"},
+			},
+			Trigger: spec.IngestionTrigger{Type: "webhook"},
+		},
+	}
+
+	d := BuildIngestionDeployment(cfg, 3001, corev1.PullIfNotPresent)
+
+	// Labels
+	if d.Labels["astro.dev/agent"] != "my-agent" {
+		t.Errorf("agent label: expected my-agent, got %s", d.Labels["astro.dev/agent"])
+	}
+
+	// Selector
+	if d.Spec.Selector.MatchLabels["astro.dev/agent"] != "my-agent" {
+		t.Error("expected agent selector label")
+	}
+
+	container := d.Spec.Template.Spec.Containers[0]
+
+	// ImagePullPolicy override
+	if container.ImagePullPolicy != corev1.PullIfNotPresent {
+		t.Errorf("pull policy: expected IfNotPresent, got %s", container.ImagePullPolicy)
+	}
+
+	// Env vars from ingestion
+	envMap := make(map[string]string)
+	for _, e := range container.Env {
+		envMap[e.Name] = e.Value
+	}
+	if envMap["ENDPOINT"] != "/hooks/jira" {
+		t.Errorf("expected ENDPOINT=/hooks/jira, got %q", envMap["ENDPOINT"])
+	}
+
+	// EnvFrom
+	if len(container.EnvFrom) != 2 {
+		t.Fatalf("expected 2 envFrom, got %d", len(container.EnvFrom))
+	}
+	if container.EnvFrom[0].ConfigMapRef == nil || container.EnvFrom[0].ConfigMapRef.Name != "my-config" {
+		t.Error("expected ConfigMapRef my-config")
+	}
+	if container.EnvFrom[1].SecretRef == nil || container.EnvFrom[1].SecretRef.Name != "my-secret" {
+		t.Error("expected SecretRef my-secret")
+	}
+
+	// Resources
+	cpuReq := container.Resources.Requests[corev1.ResourceCPU]
+	if cpuReq.String() != "50m" {
+		t.Errorf("CPU request: expected 50m, got %s", cpuReq.String())
 	}
 }

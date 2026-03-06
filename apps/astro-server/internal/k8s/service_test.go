@@ -94,4 +94,16 @@ func TestBuildService(t *testing.T) {
 			t.Errorf("target port: expected 3000, got %d", svc.Spec.Ports[0].TargetPort.IntValue())
 		}
 	})
+
+	t.Run("port name and protocol", func(t *testing.T) {
+		svc := BuildService(tests[0].cfg)
+
+		p := svc.Spec.Ports[0]
+		if p.Name != "http" {
+			t.Errorf("port name: expected http, got %s", p.Name)
+		}
+		if p.Protocol != corev1.ProtocolTCP {
+			t.Errorf("protocol: expected TCP, got %s", p.Protocol)
+		}
+	})
 }
