@@ -27,6 +27,9 @@
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
+  "dependencies": {
+    "astro-theme": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.3.0"
   }
