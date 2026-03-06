@@ -670,13 +670,14 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 }
 
 func TestTemplate_VariablesCustomProvider(t *testing.T) {
+	// Variable names are suffixes per §5; full key is {UPPER(provider)}_{varName}.
 	input := baseInput()
 	input.Spec.Providers = map[string]spec.CustomProvider{
 		"myapi": {
 			Scope: []string{"integrations"},
 			Variables: []spec.Input{
-				{Name: "MYAPI_API_KEY", Datatype: "string", Secret: true, Description: "main key"},
-				{Name: "MYAPI_SECRET", Datatype: "string", Secret: true, Description: "optional secret", Optional: true},
+				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "main key"},
+				{Name: "SECRET", Datatype: "string", Secret: true, Description: "optional secret", Optional: true},
 			},
 		},
 	}
@@ -695,6 +696,51 @@ func TestTemplate_VariablesCustomProvider(t *testing.T) {
 	}
 	if !v.Optional {
 		t.Error("expected MYAPI_SECRET to be optional")
+	}
+}
+
+func TestTemplate_JiraIntegrationInputs(t *testing.T) {
+	// End-to-end: a Jira custom provider with scope: [integrations] and three
+	// secret variables must produce the correct deployment template variables
+	// and wire ${variables.*} references into the agent environment.
+	input := baseInput()
+	input.Spec.Providers = map[string]spec.CustomProvider{
+		"jira": {
+			Scope: []string{"integrations"},
+			Variables: []spec.Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "Jira API token"},
+				{Name: "BASE_URL", Datatype: "string", Secret: true, Description: "Jira instance base URL (e.g. https://your-org.atlassian.net)"},
+				{Name: "EMAIL", Datatype: "string", Secret: true, Description: "Atlassian account email for Jira API authentication"},
+			},
+		},
+	}
+	input.Spec.Tools = map[string]spec.Tool{
+		"jira": {Provider: "jira"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// All three variables must exist in the deployment template.
+	for _, key := range []string{"JIRA_API_KEY", "JIRA_BASE_URL", "JIRA_EMAIL"} {
+		v, ok := ds.Variables[key]
+		if !ok {
+			t.Errorf("variables: %s not found", key)
+			continue
+		}
+		if !v.Secret {
+			t.Errorf("%s: expected secret=true", key)
+		}
+
+		// Agent environment must reference the variable.
+		assertEnvRef(t, ds.Agent.Environment, key, "${variables."+key+"}")
+	}
+
+	// Descriptions should be preserved.
+	if ds.Variables["JIRA_API_KEY"].Description != "Jira API token" {
+		t.Errorf("JIRA_API_KEY description = %q", ds.Variables["JIRA_API_KEY"].Description)
+	}
+	if ds.Variables["JIRA_EMAIL"].Description != "Atlassian account email for Jira API authentication" {
+		t.Errorf("JIRA_EMAIL description = %q", ds.Variables["JIRA_EMAIL"].Description)
 	}
 }
 

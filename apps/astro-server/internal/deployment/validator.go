@@ -265,19 +265,16 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 		}
 	}
 
-	// Scan custom providers referenced by components
-	referencedProviders := collectReferencedCustomProviders(astroSpec)
-	for provName, cp := range referencedProviders {
-		for _, v := range cp.Variables {
-			if v.Secret {
-				credMap[v.Name] = CredentialInfo{
-					Key:         v.Name,
-					Provider:    provName,
-					Category:    "provider",
-					Description: v.Description,
-					Optional:    v.Optional,
-				}
-			}
+	// Scan custom providers referenced by components.
+	// Delegates to spec.CustomProviderCredentialKeys which correctly constructs
+	// {UPPER(provider)}_{varName} keys and handles duplicate-entry naming (§8.1/§5).
+	for key, meta := range spec.CustomProviderCredentialKeys(astroSpec) {
+		credMap[key] = CredentialInfo{
+			Key:         key,
+			Provider:    meta.Provider,
+			Category:    meta.Category,
+			Description: meta.Description,
+			Optional:    meta.Optional,
 		}
 	}
 
@@ -310,33 +307,6 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 	}
 
 	return creds
-}
-
-// collectReferencedCustomProviders returns all custom providers actually referenced by components.
-func collectReferencedCustomProviders(astroSpec *spec.AstroSpec) map[string]spec.CustomProvider {
-	result := make(map[string]spec.CustomProvider)
-	for _, model := range astroSpec.Models {
-		if model.IsProviderMode() {
-			if cp, ok := astroSpec.Providers[model.Provider]; ok {
-				result[model.Provider] = cp
-			}
-		}
-	}
-	for _, knowledge := range astroSpec.Knowledge {
-		if knowledge.IsProviderMode() {
-			if cp, ok := astroSpec.Providers[knowledge.Provider]; ok {
-				result[knowledge.Provider] = cp
-			}
-		}
-	}
-	for _, tool := range astroSpec.Tools {
-		if tool.IsProviderMode() {
-			if cp, ok := astroSpec.Providers[tool.Provider]; ok {
-				result[tool.Provider] = cp
-			}
-		}
-	}
-	return result
 }
 
 func scopeContains(scope []string, value string) bool {

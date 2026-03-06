@@ -421,6 +421,54 @@ func TestResolveDeploymentSpecEnv_InterfaceEnvVariableRefs(t *testing.T) {
 	}
 }
 
+func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
+	// Verifies that Jira-style secret variables are correctly resolved into
+	// SecretData and that ${variables.*} references in the agent environment
+	// resolve to the actual values.
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Agent: spec.DeploymentAgent{
+			Image:     "x",
+			Endpoints: httpEndpoints(8080),
+			Environment: map[string]string{
+				"JIRA_API_KEY":  "${variables.JIRA_API_KEY}",
+				"JIRA_BASE_URL": "${variables.JIRA_BASE_URL}",
+				"JIRA_EMAIL":    "${variables.JIRA_EMAIL}",
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"JIRA_API_KEY":  {Value: "jira-token-abc", Secret: true},
+			"JIRA_BASE_URL": {Value: "https://myorg.atlassian.net", Secret: true},
+			"JIRA_EMAIL":    {Value: "bot@myorg.com", Secret: true},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Variable references in agent env should resolve to concrete values.
+	if result.ConfigMapData["JIRA_API_KEY"] != "jira-token-abc" {
+		t.Errorf("JIRA_API_KEY: expected jira-token-abc, got %s", result.ConfigMapData["JIRA_API_KEY"])
+	}
+	if result.ConfigMapData["JIRA_BASE_URL"] != "https://myorg.atlassian.net" {
+		t.Errorf("JIRA_BASE_URL: expected https://myorg.atlassian.net, got %s", result.ConfigMapData["JIRA_BASE_URL"])
+	}
+	if result.ConfigMapData["JIRA_EMAIL"] != "bot@myorg.com" {
+		t.Errorf("JIRA_EMAIL: expected bot@myorg.com, got %s", result.ConfigMapData["JIRA_EMAIL"])
+	}
+
+	// All three must appear in SecretData (since secret=true).
+	for _, key := range []string{"JIRA_API_KEY", "JIRA_BASE_URL", "JIRA_EMAIL"} {
+		if _, ok := result.SecretData[key]; !ok {
+			t.Errorf("SecretData: expected %s to be present", key)
+		}
+	}
+	if result.SecretData["JIRA_API_KEY"] != "jira-token-abc" {
+		t.Errorf("SecretData JIRA_API_KEY: expected jira-token-abc, got %s", result.SecretData["JIRA_API_KEY"])
+	}
+}
+
 func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},

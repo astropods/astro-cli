@@ -665,6 +665,83 @@ func TestCustomProviderCredentialKeys_DescriptionCarriedThrough(t *testing.T) {
 	}
 }
 
+// ─── Jira-style integration: end-to-end credential key + input verification ──
+
+func TestCustomProviderCredentialKeys_JiraIntegration(t *testing.T) {
+	// Mirrors a real Jira integration spec with all-secret variables.
+	// Verifies that credential keys are correctly generated and non-secret
+	// variables (if any were present) would be excluded.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"jira": {Scope: []string{"integrations"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true, Description: "Jira API token"},
+				{Name: "BASE_URL", Datatype: "string", Secret: true, Description: "Jira instance base URL (e.g. https://your-org.atlassian.net)"},
+				{Name: "EMAIL", Datatype: "string", Secret: true, Description: "Atlassian account email for Jira API authentication"},
+			}},
+		},
+		Tools: map[string]Tool{
+			"jira": {Provider: "jira"},
+		},
+	}
+
+	// CustomProviderCredentialKeys should produce keys for all three secret variables.
+	keys := CustomProviderCredentialKeys(s)
+	assertCredKey(t, keys, "JIRA_API_KEY", "provider", false)
+	assertCredKey(t, keys, "JIRA_BASE_URL", "provider", false)
+	assertCredKey(t, keys, "JIRA_EMAIL", "provider", false)
+	if len(keys) != 3 {
+		t.Errorf("expected 3 credential keys, got %d: %v", len(keys), keys)
+	}
+
+	// Descriptions should be carried through.
+	if keys["JIRA_API_KEY"].Description != "Jira API token" {
+		t.Errorf("JIRA_API_KEY description = %q", keys["JIRA_API_KEY"].Description)
+	}
+	if keys["JIRA_EMAIL"].Description != "Atlassian account email for Jira API authentication" {
+		t.Errorf("JIRA_EMAIL description = %q", keys["JIRA_EMAIL"].Description)
+	}
+
+	// AllCredentialKeys should include the same keys (no cloud providers here).
+	all := AllCredentialKeys(s)
+	if len(all) != 3 {
+		t.Errorf("AllCredentialKeys: expected 3, got %d: %v", len(all), all)
+	}
+}
+
+func TestResolveEnvVars_JiraIntegration(t *testing.T) {
+	// Verifies that Jira custom provider credentials are injected into the agent
+	// container environment via ResolveEnvVars.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Providers: map[string]CustomProvider{
+			"jira": {Scope: []string{"integrations"}, Variables: []Input{
+				{Name: "API_KEY", Datatype: "string", Secret: true},
+				{Name: "BASE_URL", Datatype: "string", Secret: true},
+				{Name: "EMAIL", Datatype: "string", Secret: true},
+			}},
+		},
+		Tools: map[string]Tool{
+			"jira": {Provider: "jira"},
+		},
+	}
+
+	credentials := map[string]string{
+		"JIRA_API_KEY":  "test-api-key",
+		"JIRA_BASE_URL": "https://test.atlassian.net",
+		"JIRA_EMAIL":    "user@example.com",
+	}
+
+	result := ResolveEnvVars(s, nil, credentials, nil)
+
+	// All three credentials should be in the agent environment.
+	assertEnv(t, result.Agent, "JIRA_API_KEY", "test-api-key")
+	assertEnv(t, result.Agent, "JIRA_BASE_URL", "https://test.atlassian.net")
+	assertEnv(t, result.Agent, "JIRA_EMAIL", "user@example.com")
+}
+
 // ─── §8.2 Self-hosted provider connection wiring ─────────────────────────────
 
 func TestAgentConnectionKeys_SelfHostedModel(t *testing.T) {

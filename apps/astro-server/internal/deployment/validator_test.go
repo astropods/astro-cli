@@ -179,8 +179,8 @@ func TestValidateSpec(t *testing.T) {
 					"my-service": {
 						Scope: []string{"integrations"},
 						Variables: []spec.Input{
-							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
-							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
+							{Name: "API_KEY", Datatype: "string", Secret: true, Description: "API key"},
+							{Name: "SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
 						},
 					},
 				},
@@ -201,8 +201,8 @@ func TestValidateSpec(t *testing.T) {
 					"my-service": {
 						Scope: []string{"integrations"},
 						Variables: []spec.Input{
-							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
-							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
+							{Name: "API_KEY", Datatype: "string", Secret: true, Description: "API key"},
+							{Name: "SECRET", Datatype: "string", Secret: true, Description: "Shared secret"},
 						},
 					},
 				},
@@ -224,8 +224,8 @@ func TestValidateSpec(t *testing.T) {
 					"my-service": {
 						Scope: []string{"integrations"},
 						Variables: []spec.Input{
-							{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key"},
-							{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Optional secret", Optional: true},
+							{Name: "API_KEY", Datatype: "string", Secret: true, Description: "API key"},
+							{Name: "SECRET", Datatype: "string", Secret: true, Description: "Optional secret", Optional: true},
 						},
 					},
 				},
@@ -464,6 +464,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 	})
 
 	t.Run("custom provider secret credentials", func(t *testing.T) {
+		// Variable names are suffixes per §5; the full key is {UPPER(provider)}_{varName}.
 		s := &spec.AstroSpec{
 			Name:  "my-agent",
 			Meta:  spec.Meta{},
@@ -472,8 +473,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 				"my-service": {
 					Scope: []string{"integrations"},
 					Variables: []spec.Input{
-						{Name: "MY_SERVICE_API_KEY", Datatype: "string", Secret: true, Description: "API key for my-service"},
-						{Name: "MY_SERVICE_SECRET", Datatype: "string", Secret: true, Description: "Shared secret", Optional: true},
+						{Name: "API_KEY", Datatype: "string", Secret: true, Description: "API key for my-service"},
+						{Name: "SECRET", Datatype: "string", Secret: true, Description: "Shared secret", Optional: true},
 					},
 				},
 			},
@@ -506,6 +507,7 @@ func TestGetRequiredCredentials(t *testing.T) {
 	})
 
 	t.Run("custom provider JSON round-trip", func(t *testing.T) {
+		// Variable names are suffixes per §5; full key is {UPPER(provider)}_{varName}.
 		rawSpec := map[string]interface{}{
 			"spec": "package/v1",
 			"name": "my-agent",
@@ -517,8 +519,8 @@ func TestGetRequiredCredentials(t *testing.T) {
 				"my-service": map[string]interface{}{
 					"scope": []interface{}{"integrations"},
 					"variables": []interface{}{
-						map[string]interface{}{"name": "MY_SERVICE_API_KEY", "datatype": "string", "secret": true, "description": "API key"},
-						map[string]interface{}{"name": "MY_SERVICE_SECRET", "datatype": "string", "secret": true, "description": "Shared secret"},
+						map[string]interface{}{"name": "API_KEY", "datatype": "string", "secret": true, "description": "API key"},
+						map[string]interface{}{"name": "SECRET", "datatype": "string", "secret": true, "description": "Shared secret"},
 					},
 				},
 			},
