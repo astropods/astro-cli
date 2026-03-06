@@ -5,6 +5,8 @@ go 1.24.9
 toolchain go1.24.12
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
+	github.com/amplitude/analytics-go v1.3.0
 	github.com/aymanbagabas/go-udiff v0.3.1
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -22,23 +24,28 @@ require (
 	github.com/moby/go-archive v0.2.0
 	github.com/moby/moby v28.5.2+incompatible
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
+	github.com/postman/astro/packages/astro-proto v0.0.0
 	github.com/postman/astro/packages/astro-spec v0.0.0
+	github.com/quic-go/quic-go v0.54.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.6
+	golang.org/x/term v0.39.0
+	google.golang.org/grpc v1.75.1
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
+replace (
+	github.com/postman/astro/packages/astro-proto => ../../packages/astro-proto
+	github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
+)
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/alecthomas/chroma/v2 v2.14.0 // indirect
-	github.com/amplitude/analytics-go v1.3.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
@@ -123,12 +130,14 @@ require (
 	go.opentelemetry.io/otel/sdk v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
+	go.uber.org/mock v0.5.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
+	golang.org/x/crypto v0.47.0 // indirect
+	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/tools v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
-	google.golang.org/grpc v1.75.1 // indirect
 )
