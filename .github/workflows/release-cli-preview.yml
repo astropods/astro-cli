@@ -60,8 +60,8 @@ jobs:
           echo "version=$(cat apps/astro-cli/VERSION)" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "binary_name=ast-preview" >> "$GITHUB_OUTPUT"
-          echo "server_url=https://astropods.ai" >> "$GITHUB_OUTPUT"
-          echo "download_url=https://download.astropods.ai/latest" >> "$GITHUB_OUTPUT"
+          echo "server_url=https://astropod.ai" >> "$GITHUB_OUTPUT"
+          echo "download_url=https://download.astropod.ai/latest" >> "$GITHUB_OUTPUT"
           echo "s3_bucket=preview-astro-downloads" >> "$GITHUB_OUTPUT"
 
       - name: Build CLI binaries
