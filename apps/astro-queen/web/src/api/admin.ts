@@ -11,6 +11,7 @@ import type {
   GetPodLogsResponse,
   GetPodEnvResponse,
   ListConnectedDevicesResponse,
+  SendCommandResponse,
 } from "@/types/admin";
 
 export function useDeployments() {
@@ -119,6 +120,24 @@ export function useConnectedDevices() {
     queryFn: () =>
       api.get<ListConnectedDevicesResponse>("/api/admin/devices"),
     refetchInterval: 30_000,
+  });
+}
+
+export function useSendCommand() {
+  return useMutation({
+    mutationFn: ({
+      deviceId,
+      command,
+      timeoutSeconds,
+    }: {
+      deviceId: string;
+      command: string;
+      timeoutSeconds?: number;
+    }) =>
+      api.post<SendCommandResponse>(
+        `/api/admin/devices/${encodeURIComponent(deviceId)}/command`,
+        { command, timeout_seconds: timeoutSeconds ?? 30 }
+      ),
   });
 }
 

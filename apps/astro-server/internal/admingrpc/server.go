@@ -11,6 +11,7 @@ import (
 	"time"
 
 	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
 
 	"github.com/postman/astro/apps/astro-server/internal/account"
 	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
@@ -21,6 +22,11 @@ import (
 )
 
 // Server implements adminv1.AdminServiceServer.
+// CommandDispatcher sends commands to connected devices.
+type CommandDispatcher interface {
+	SendCommand(ctx context.Context, deviceID string, cmd *connectv1.ShellCommand) (*connectv1.CommandResult, error)
+}
+
 type Server struct {
 	adminv1.UnimplementedAdminServiceServer
 
@@ -29,6 +35,7 @@ type Server struct {
 	k8sClient    k8s.ClusterClient
 	db           *sql.DB
 	openMeterURL string
+	cmdDispatch  CommandDispatcher
 }
 
 // New creates a new admin gRPC server.
@@ -46,6 +53,11 @@ func New(
 		db:           db,
 		openMeterURL: strings.TrimRight(openMeterURL, "/"),
 	}
+}
+
+// SetCommandDispatcher sets the dispatcher for sending commands to connected devices.
+func (s *Server) SetCommandDispatcher(d CommandDispatcher) {
+	s.cmdDispatch = d
 }
 
 // ListDeployments returns all active deployments across all accounts.
@@ -760,5 +772,36 @@ func (s *Server) ListConnectedDevices(ctx context.Context, _ *adminv1.ListConnec
 	return &adminv1.ListConnectedDevicesResponse{
 		Devices: devices,
 		Count:   int32(len(devices)),
+	}, nil
+}
+
+// SendCommand dispatches a shell command to a connected device and returns the result.
+func (s *Server) SendCommand(ctx context.Context, req *adminv1.SendCommandRequest) (*adminv1.SendCommandResponse, error) {
+	if s.cmdDispatch == nil {
+		return nil, fmt.Errorf("command dispatch not available")
+	}
+	if req.DeviceID == "" {
+		return nil, fmt.Errorf("device_id is required")
+	}
+	if req.Command == "" {
+		return nil, fmt.Errorf("command is required")
+	}
+
+	result, err := s.cmdDispatch.SendCommand(ctx, req.DeviceID, &connectv1.ShellCommand{
+		Shell:          req.Shell,
+		Command:        req.Command,
+		WorkingDir:     req.WorkingDir,
+		Env:            req.Env,
+		TimeoutSeconds: req.TimeoutSeconds,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("send command to device %q: %w", req.DeviceID, err)
+	}
+
+	return &adminv1.SendCommandResponse{
+		CommandID: result.CommandID,
+		ExitCode:  result.ExitCode,
+		Stdout:    result.Stdout,
+		Stderr:    result.Stderr,
 	}, nil
 }

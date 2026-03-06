@@ -26,6 +26,7 @@ type AdminServiceClient interface {
 	GetAgentBuilds(ctx context.Context, in *GetAgentBuildsRequest, opts ...grpc.CallOption) (*GetAgentBuildsResponse, error)
 	ProxyOpenMeter(ctx context.Context, in *OpenMeterProxyRequest, opts ...grpc.CallOption) (*OpenMeterProxyResponse, error)
 	ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error)
+	SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error)
 }
 
 type adminServiceClient struct {
@@ -140,6 +141,14 @@ func (c *adminServiceClient) ListConnectedDevices(ctx context.Context, in *ListC
 	return out, nil
 }
 
+func (c *adminServiceClient) SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error) {
+	out := new(SendCommandResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SendCommand", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -156,6 +165,7 @@ type AdminServiceServer interface {
 	GetAgentBuilds(context.Context, *GetAgentBuildsRequest) (*GetAgentBuildsResponse, error)
 	ProxyOpenMeter(context.Context, *OpenMeterProxyRequest) (*OpenMeterProxyResponse, error)
 	ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error)
+	SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -212,6 +222,10 @@ func (UnimplementedAdminServiceServer) ProxyOpenMeter(context.Context, *OpenMete
 
 func (UnimplementedAdminServiceServer) ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListConnectedDevices not implemented")
+}
+
+func (UnimplementedAdminServiceServer) SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendCommand not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -421,6 +435,21 @@ func _AdminService_ListConnectedDevices_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_SendCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SendCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SendCommand"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SendCommand(ctx, req.(*SendCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -439,6 +468,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetAgentBuilds", Handler: _AdminService_GetAgentBuilds_Handler},
 		{MethodName: "ProxyOpenMeter", Handler: _AdminService_ProxyOpenMeter_Handler},
 		{MethodName: "ListConnectedDevices", Handler: _AdminService_ListConnectedDevices_Handler},
+		{MethodName: "SendCommand", Handler: _AdminService_SendCommand_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

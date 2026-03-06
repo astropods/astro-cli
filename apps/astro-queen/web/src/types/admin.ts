@@ -251,3 +251,10 @@ export interface ListConnectedDevicesResponse {
   devices: ConnectedDevice[];
   count: number;
 }
+
+export interface SendCommandResponse {
+  command_id: string;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+}

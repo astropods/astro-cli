@@ -19,6 +19,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/agents", s.handleListAgents)
 	mux.HandleFunc("GET /api/admin/agents/{account}/{name}/builds", s.handleGetAgentBuilds)
 	mux.HandleFunc("GET /api/admin/devices", s.handleListConnectedDevices)
+	mux.HandleFunc("POST /api/admin/devices/{deviceId}/command", s.handleSendCommand)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +139,34 @@ func (s *Server) handleGetPodEnv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.ListAgents(r.Context(), &adminv1.ListAgentsRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSendCommand(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.PathValue("deviceId")
+	var body struct {
+		Command        string            `json:"command"`
+		Shell          string            `json:"shell"`
+		WorkingDir     string            `json:"working_dir"`
+		Env            map[string]string `json:"env"`
+		TimeoutSeconds uint32            `json:"timeout_seconds"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.admin.SendCommand(r.Context(), &adminv1.SendCommandRequest{
+		DeviceID:       deviceID,
+		Command:        body.Command,
+		Shell:          body.Shell,
+		WorkingDir:     body.WorkingDir,
+		Env:            body.Env,
+		TimeoutSeconds: body.TimeoutSeconds,
+	})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

@@ -2,25 +2,91 @@ package connectgrpc
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
 
 	"github.com/postman/astro/apps/astro-server/internal/devicestore"
 	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
+// deviceSession tracks a connected device's stream and pending command responses.
+type deviceSession struct {
+	stream  connectv1.ConnectService_ConnectServer
+	mu      sync.Mutex
+	pending map[string]chan *connectv1.CommandResult // command_id -> result channel
+}
+
 type Server struct {
 	connectv1.UnimplementedConnectServiceServer
 	log         *logger.Logger
 	deviceStore *devicestore.Store
 	reaperOnce  sync.Once
+
+	mu       sync.RWMutex
+	sessions map[string]*deviceSession // device_id -> session
 }
 
 func New(log *logger.Logger, deviceStore *devicestore.Store) *Server {
-	return &Server{log: log, deviceStore: deviceStore}
+	return &Server{
+		log:         log,
+		deviceStore: deviceStore,
+		sessions:    make(map[string]*deviceSession),
+	}
+}
+
+// SendCommand sends a shell command to a connected device and waits for the result.
+func (s *Server) SendCommand(ctx context.Context, deviceID string, cmd *connectv1.ShellCommand) (*connectv1.CommandResult, error) {
+	s.mu.RLock()
+	sess, ok := s.sessions[deviceID]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("device %q is not connected", deviceID)
+	}
+
+	// Assign command ID
+	if cmd.CommandID == "" {
+		cmd.CommandID = uuid.NewString()[:8]
+	}
+
+	// Register pending result channel
+	resultCh := make(chan *connectv1.CommandResult, 1)
+	sess.mu.Lock()
+	sess.pending[cmd.CommandID] = resultCh
+	sess.mu.Unlock()
+
+	defer func() {
+		sess.mu.Lock()
+		delete(sess.pending, cmd.CommandID)
+		sess.mu.Unlock()
+	}()
+
+	// Send command to device
+	sess.mu.Lock()
+	err := sess.stream.Send(&connectv1.ServerMessage{Command: cmd})
+	sess.mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("send command: %w", err)
+	}
+
+	// Wait for result with timeout
+	timeout := 30 * time.Second
+	if cmd.TimeoutSeconds > 0 {
+		timeout = time.Duration(cmd.TimeoutSeconds)*time.Second + 5*time.Second
+	}
+
+	select {
+	case result := <-resultCh:
+		return result, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("command timed out after %s", timeout)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // StartReaper starts a background goroutine that marks stale devices as disconnected.
@@ -57,14 +123,20 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 
 	var deviceID string
 	var registered bool
+	var sess *deviceSession
+
+	defer func() {
+		if registered && deviceID != "" {
+			s.mu.Lock()
+			delete(s.sessions, deviceID)
+			s.mu.Unlock()
+			s.disconnectDevice(orgID, deviceID)
+		}
+	}()
 
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			// Client disconnected — mark device offline
-			if registered {
-				s.disconnectDevice(orgID, deviceID)
-			}
 			if err == io.EOF {
 				return nil
 			}
@@ -92,6 +164,16 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 				continue
 			}
 			registered = true
+
+			// Register session for command dispatch
+			sess = &deviceSession{
+				stream:  stream,
+				pending: make(map[string]chan *connectv1.CommandResult),
+			}
+			s.mu.Lock()
+			s.sessions[deviceID] = sess
+			s.mu.Unlock()
+
 			s.log.Info("device connected",
 				"device_id", deviceID,
 				"hostname", msg.Register.Hostname,
@@ -111,6 +193,14 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 			}
 
 		case msg.CommandResult != nil:
+			if sess != nil {
+				sess.mu.Lock()
+				ch, ok := sess.pending[msg.CommandResult.CommandID]
+				sess.mu.Unlock()
+				if ok {
+					ch <- msg.CommandResult
+				}
+			}
 			s.log.Info("command result",
 				"command_id", msg.CommandResult.CommandID,
 				"exit_code", msg.CommandResult.ExitCode,

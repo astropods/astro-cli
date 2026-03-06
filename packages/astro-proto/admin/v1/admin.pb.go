@@ -323,6 +323,22 @@ type ListConnectedDevicesResponse struct {
 	Count   int32              `json:"count,omitempty"`
 }
 
+type SendCommandRequest struct {
+	DeviceID       string            `json:"device_id,omitempty"`
+	Command        string            `json:"command,omitempty"`
+	Shell          string            `json:"shell,omitempty"`
+	WorkingDir     string            `json:"working_dir,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	TimeoutSeconds uint32            `json:"timeout_seconds,omitempty"`
+}
+
+type SendCommandResponse struct {
+	CommandID string `json:"command_id,omitempty"`
+	ExitCode  int32  `json:"exit_code,omitempty"`
+	Stdout    string `json:"stdout,omitempty"`
+	Stderr    string `json:"stderr,omitempty"`
+}
+
 type OpenMeterProxyRequest struct {
 	Method  string            `json:"method,omitempty"`
 	Path    string            `json:"path,omitempty"`

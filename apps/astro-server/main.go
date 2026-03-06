@@ -248,7 +248,8 @@ func runAPI(
 	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient)
 
 	// Start admin gRPC server
-	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, deploymentStore, k8sClient, db)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL)
+	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)
 		os.Exit(1)
@@ -259,10 +260,15 @@ func runAPI(
 	workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
 	jwksURL, _ := workosClient.GetJWKSURL()
 	connectJWTValidator := auth.NewJWTValidator(jwksURL, cfg.Auth.JWTIssuer, "")
-	connectServer, connectErr := startConnectGRPCServer(log, cfg, devStore, connectJWTValidator)
+	connectServer, connectSrv, connectErr := startConnectGRPCServer(log, cfg, devStore, connectJWTValidator)
 	if connectErr != nil {
 		log.Error("Failed to start connect gRPC server", "error", connectErr)
 		os.Exit(1)
+	}
+
+	// Wire connect server as command dispatcher for admin
+	if connectSrv != nil {
+		adminSrv.SetCommandDispatcher(connectSrv)
 	}
 
 	// Create HTTP server
@@ -465,9 +471,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 func startAdminGRPCServer(
 	log *logger.Logger,
 	cfg *config.Config,
-	deployStore *deploymentstore.Store,
-	k8sClient k8s.ClusterClient,
-	db *sql.DB,
+	adminSrv *admingrpc.Server,
 ) (*grpc.Server, error) {
 	port := cfg.AdminGRPC.Port
 	if port == "" {
@@ -492,13 +496,7 @@ func startAdminGRPCServer(
 	opts = append(opts, grpc.Creds(creds))
 
 	grpcSrv := grpc.NewServer(opts...)
-	adminv1.RegisterAdminServiceServer(grpcSrv, admingrpc.New(
-		log,
-		deployStore,
-		k8sClient,
-		db,
-		cfg.AdminGRPC.OpenMeterURL,
-	))
+	adminv1.RegisterAdminServiceServer(grpcSrv, adminSrv)
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -522,10 +520,10 @@ func startConnectGRPCServer(
 	cfg *config.Config,
 	devStore *devicestore.Store,
 	jwtValidator *auth.JWTValidator,
-) (*grpc.Server, error) {
+) (*grpc.Server, *connectgrpc.Server, error) {
 	port := cfg.ConnectGRPC.Port
 	if port == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// TLS certs provided by platform via fleet-tls K8s secret
@@ -533,13 +531,13 @@ func startConnectGRPCServer(
 	keyFile := cfg.ConnectGRPC.KeyFile
 	if certFile == "" || keyFile == "" {
 		log.Warn("Connect gRPC disabled — TLS not configured (set FLEET_TLS_CERT_PATH, FLEET_TLS_KEY_PATH)")
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Load TLS config for QUIC (QUIC mandates TLS 1.3)
 	tlsCert, err := connectgrpc.LoadTLSCert(certFile, keyFile)
 	if err != nil {
-		return nil, fmt.Errorf("connect gRPC TLS: %w", err)
+		return nil, nil, fmt.Errorf("connect gRPC TLS: %w", err)
 	}
 
 	tlsConf := connectgrpc.NewTLSConfig(tlsCert)
@@ -547,7 +545,7 @@ func startConnectGRPCServer(
 	// Create QUIC listener
 	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf)
 	if err != nil {
-		return nil, fmt.Errorf("connect gRPC QUIC listen: %w", err)
+		return nil, nil, fmt.Errorf("connect gRPC QUIC listen: %w", err)
 	}
 
 	// Create gRPC server with JWT stream interceptor
@@ -569,5 +567,5 @@ func startConnectGRPCServer(
 		}
 	}()
 
-	return grpcSrv, nil
+	return grpcSrv, srv, nil
 }
