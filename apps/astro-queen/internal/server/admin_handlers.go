@@ -18,6 +18,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/pods/{namespace}/{pod}/env", s.handleGetPodEnv)
 	mux.HandleFunc("GET /api/admin/agents", s.handleListAgents)
 	mux.HandleFunc("GET /api/admin/agents/{account}/{name}/builds", s.handleGetAgentBuilds)
+	mux.HandleFunc("GET /api/admin/devices", s.handleListConnectedDevices)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +138,15 @@ func (s *Server) handleGetPodEnv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.ListAgents(r.Context(), &adminv1.ListAgentsRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleListConnectedDevices(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.ListConnectedDevices(r.Context(), &adminv1.ListConnectedDevicesRequest{})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

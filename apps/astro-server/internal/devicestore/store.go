@@ -47,6 +47,7 @@ type Device struct {
 	LastHeartbeatAt *time.Time
 	ConnectedAt     time.Time
 	DisconnectedAt  *time.Time
+	AccountName     string // populated by ListAll join
 }
 
 // Upsert registers or reconnects a device. Returns the database row ID.
@@ -91,6 +92,37 @@ func (s *Store) Disconnect(ctx context.Context, accountID, deviceID string) erro
 		accountID, deviceID,
 	)
 	return err
+}
+
+// ListAll returns all connected devices, joined with account name, ordered by status then connected_at.
+func (s *Store) ListAll(ctx context.Context) ([]*Device, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.account_id, d.user_id, d.device_id, d.hostname, d.os, d.arch,
+		       d.cli_version, d.status, d.last_heartbeat_at, d.connected_at, d.disconnected_at,
+		       COALESCE(a.name, '') as account_name
+		FROM connected_devices d
+		LEFT JOIN accounts a ON a.id = d.account_id
+		ORDER BY d.status ASC, d.connected_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []*Device
+	for rows.Next() {
+		d := &Device{}
+		var accountName string
+		if err := rows.Scan(
+			&d.ID, &d.AccountID, &d.UserID, &d.DeviceID, &d.Hostname, &d.OS, &d.Arch,
+			&d.CLIVersion, &d.Status, &d.LastHeartbeatAt, &d.ConnectedAt, &d.DisconnectedAt,
+			&accountName,
+		); err != nil {
+			return nil, err
+		}
+		d.AccountName = accountName
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
 }
 
 // ReapStale marks devices as disconnected if their last heartbeat is older than maxAge.

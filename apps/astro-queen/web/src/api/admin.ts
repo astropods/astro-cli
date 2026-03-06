@@ -10,6 +10,7 @@ import type {
   ClusterStatusResponse,
   GetPodLogsResponse,
   GetPodEnvResponse,
+  ListConnectedDevicesResponse,
 } from "@/types/admin";
 
 export function useDeployments() {
@@ -109,6 +110,15 @@ export function usePodLogs(namespace: string, pod: string) {
         `/api/admin/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs`
       ),
     enabled: !!namespace && !!pod,
+  });
+}
+
+export function useConnectedDevices() {
+  return useQuery({
+    queryKey: adminKeys.connectedDevices(),
+    queryFn: () =>
+      api.get<ListConnectedDevicesResponse>("/api/admin/devices"),
+    refetchInterval: 30_000,
   });
 }
 

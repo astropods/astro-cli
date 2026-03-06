@@ -6,6 +6,7 @@ import { DeploymentsPage } from "@/pages/deployments";
 import { DeploymentDetailPage } from "@/pages/deployment-detail";
 import { AgentsPage } from "@/pages/agents";
 import { ClusterPage } from "@/pages/cluster";
+import { ConnectedDevicesPage } from "@/pages/connected-devices";
 import { MetersPage } from "@/pages/meters";
 import { FeaturesPage } from "@/pages/features";
 import { CustomersPage } from "@/pages/customers";
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: "admin/deployments/:namespace", element: <DeploymentDetailPage /> },
       { path: "admin/agents", element: <AgentsPage /> },
       { path: "admin/cluster", element: <ClusterPage /> },
+      { path: "admin/devices", element: <ConnectedDevicesPage /> },
       { path: "openmeter/meters", element: <MetersPage /> },
       { path: "openmeter/features", element: <FeaturesPage /> },
       { path: "openmeter/customers", element: <CustomersPage /> },

@@ -15,6 +15,7 @@ export const adminKeys = {
     [...adminKeys.all, "podLogs", ns, pod] as const,
   podEnv: (ns: string, pod: string) =>
     [...adminKeys.all, "podEnv", ns, pod] as const,
+  connectedDevices: () => [...adminKeys.all, "connectedDevices"] as const,
 };
 
 export const openmeterKeys = {
