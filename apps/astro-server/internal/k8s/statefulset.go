@@ -1,6 +1,8 @@
 package k8s
 
 import (
+	"fmt"
+
 	"github.com/postman/astro/apps/astro-server/internal/deployment"
 	"github.com/postman/astro/packages/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
@@ -24,7 +26,8 @@ type StatefulSetConfig struct {
 	StorageClass    string                            // Optional storage class name
 	AccessMode      corev1.PersistentVolumeAccessMode // Defaults to ReadWriteOnce
 	Healthcheck     *spec.Healthcheck
-	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
+	Provider        string            // Provider name (e.g., "redis", "postgres", "qdrant", "ollama")
+	ProviderSection string            // Provider section for registry lookup ("models", "knowledge")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 	// Deployment-spec driven fields (optional — zero values preserve existing behavior)
 	Replicas         int32                             // 0 means use default (1)
@@ -35,8 +38,24 @@ type StatefulSetConfig struct {
 	PostStartCommand []string                          // Lifecycle postStart exec command
 }
 
-// BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage
-func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
+// BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage.
+// Returns an error if the provider is missing required fields (port, mount path).
+func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
+	prov, _ := spec.LookupBuiltin(cfg.ProviderSection, cfg.Provider)
+
+	port := cfg.Port
+	if port == 0 {
+		port = int32(prov.DefaultPort) //nolint:gosec
+	}
+	if port == 0 {
+		return nil, fmt.Errorf("StatefulSet %s: no port specified and provider %q has no default port", cfg.Name, cfg.Provider)
+	}
+
+	mountPath := prov.MountPath
+	if mountPath == "" {
+		return nil, fmt.Errorf("StatefulSet %s: provider %q has no mount path", cfg.Name, cfg.Provider)
+	}
+
 	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 
@@ -46,25 +65,16 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 	}
 	serviceName := cfg.Name
 
-	prov := spec.GetProvider(cfg.Provider)
-
-	port := cfg.Port
-	if port == 0 {
-		port = int32(prov.DefaultPort) //nolint:gosec
-	}
-
 	storageSize := cfg.StorageSize
 	if storageSize == "" {
 		storageSize = "10Gi"
 	}
 
-	// Build container
 	ssPullPolicy := cfg.ImagePullPolicy
 	if ssPullPolicy == "" {
 		ssPullPolicy = corev1.PullAlways
 	}
 
-	// Build container ports: use resolved port (which falls back to provider default)
 	containerPorts := []corev1.ContainerPort{
 		{Name: "app", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 	}
@@ -72,11 +82,6 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 		containerPorts = append(containerPorts, corev1.ContainerPort{
 			Name: ep.Name, ContainerPort: int32(ep.Port), Protocol: corev1.ProtocolTCP, //nolint:gosec
 		})
-	}
-
-	mountPath := prov.MountPath
-	if mountPath == "" {
-		mountPath = "/data"
 	}
 
 	container := corev1.Container{
@@ -130,7 +135,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 
 	// Add health checks if specified
 	if cfg.Healthcheck != nil {
-		probe := buildProbe(cfg.Healthcheck, cfg.Provider, port)
+		probe := buildProbe(cfg.Healthcheck, cfg.Provider, cfg.ProviderSection, port)
 		if probe != nil {
 			container.LivenessProbe = probe
 			container.ReadinessProbe = probe
@@ -209,5 +214,5 @@ func BuildStatefulSet(cfg StatefulSetConfig) *appsv1.StatefulSet {
 		statefulSet.Spec.UpdateStrategy = *cfg.Strategy
 	}
 
-	return statefulSet
+	return statefulSet, nil
 }

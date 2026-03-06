@@ -248,7 +248,7 @@ func TestBuildDeployment_WithSpecDrivenFields(t *testing.T) {
 		Name: "test-deploy", Namespace: "ns", AgentName: "agent",
 		BuildID: "b1", Component: "model-llm",
 		Container: spec.ContainerConfig{Image: "test:latest"},
-		Port: 8080, Replicas: 3, Resources: resources,
+		Port:      8080, Replicas: 3, Resources: resources,
 		Strategy:     strategy,
 		NodeSelector: map[string]string{"workload-type": "gpu"},
 	}
@@ -278,7 +278,7 @@ func TestBuildStatefulSet_WithSpecDrivenFields(t *testing.T) {
 		Name: "test-ss", Namespace: "ns", AgentName: "agent",
 		BuildID: "b1", Component: "knowledge-docs",
 		Container: spec.ContainerConfig{Image: "qdrant:latest"},
-		Port: 6333, Provider: "qdrant",
+		Port:      6333, Provider: "qdrant", ProviderSection: "knowledge",
 		Replicas:     2,
 		Resources:    resources,
 		StorageSize:  "50Gi",
@@ -286,7 +286,10 @@ func TestBuildStatefulSet_WithSpecDrivenFields(t *testing.T) {
 		AccessMode:   corev1.ReadWriteMany,
 	}
 
-	ss := BuildStatefulSet(cfg)
+	ss, err := BuildStatefulSet(cfg)
+	if err != nil {
+		t.Fatalf("BuildStatefulSet: %v", err)
+	}
 	if *ss.Spec.Replicas != 2 {
 		t.Errorf("replicas: expected 2, got %d", *ss.Spec.Replicas)
 	}

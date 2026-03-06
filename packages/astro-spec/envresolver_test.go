@@ -86,6 +86,56 @@ func TestCloudCredentialKeys_SingleToolProvider(t *testing.T) {
 	assertCredKey(t, keys, "GITHUB_TOKEN", "tool", false)
 }
 
+func TestCloudCredentialKeys_AllCloudProviders(t *testing.T) {
+	// Verify every cloud provider in the registry produces the correct credential key.
+	tests := []struct {
+		name    string
+		spec    *AstroSpec
+		wantKey string
+		cat     string
+	}{
+		{
+			name: "openai",
+			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
+				Models: map[string]Model{"m": {Provider: "openai"}}},
+			wantKey: "OPENAI_API_KEY", cat: "model",
+		},
+		{
+			name: "google",
+			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
+				Models: map[string]Model{"m": {Provider: "google"}}},
+			wantKey: "GOOGLE_API_KEY", cat: "model",
+		},
+		{
+			name: "gemini",
+			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
+				Models: map[string]Model{"m": {Provider: "gemini"}}},
+			wantKey: "GEMINI_API_KEY", cat: "model",
+		},
+		{
+			name: "cohere",
+			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
+				Models: map[string]Model{"m": {Provider: "cohere"}}},
+			wantKey: "COHERE_API_KEY", cat: "model",
+		},
+		{
+			name: "gitlab",
+			spec: &AstroSpec{Name: "a", Agent: Container{Image: "a:1"},
+				Tools: map[string]Tool{"t": {Provider: "gitlab"}}},
+			wantKey: "GITLAB_TOKEN", cat: "tool",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keys := CloudCredentialKeys(tt.spec)
+			assertCredKey(t, keys, tt.wantKey, tt.cat, false)
+			if len(keys) != 1 {
+				t.Errorf("expected 1 key, got %d: %v", len(keys), keys)
+			}
+		})
+	}
+}
+
 func TestCloudCredentialKeys_DuplicateModelProviders_NameMatchesPrimary(t *testing.T) {
 	// Entry named "anthropic" using provider "anthropic" is primary.
 	// Entry named "sonnet" using provider "anthropic" gets qualified key.

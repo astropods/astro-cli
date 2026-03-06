@@ -4,8 +4,18 @@ import (
 	"testing"
 
 	"github.com/postman/astro/packages/astro-spec"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
+
+func mustBuildStatefulSet(t *testing.T, cfg StatefulSetConfig) *appsv1.StatefulSet {
+	t.Helper()
+	ss, err := BuildStatefulSet(cfg)
+	if err != nil {
+		t.Fatalf("BuildStatefulSet: %v", err)
+	}
+	return ss
+}
 
 // TestBuildStatefulSet verifies BuildStatefulSet across provider-specific
 // configurations: qdrant (port 6333, extra gRPC 6334, mount /qdrant/storage,
@@ -27,7 +37,7 @@ func TestBuildStatefulSet(t *testing.T) {
 				BuildID:   "1.0",
 				Component: "knowledge-vectors",
 				Container: spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
-				Provider:  "qdrant",
+				Provider:  "qdrant", ProviderSection: "knowledge",
 			},
 		},
 		{
@@ -39,7 +49,7 @@ func TestBuildStatefulSet(t *testing.T) {
 				BuildID:   "1.0",
 				Component: "knowledge-cache",
 				Container: spec.ContainerConfig{Image: "redis:latest"},
-				Provider:  "redis",
+				Provider:  "redis", ProviderSection: "knowledge",
 			},
 		},
 		{
@@ -51,67 +61,97 @@ func TestBuildStatefulSet(t *testing.T) {
 				BuildID:   "1.0",
 				Component: "knowledge-db",
 				Container: spec.ContainerConfig{Image: "postgres:latest"},
-				Provider:  "postgres",
+				Provider:  "postgres", ProviderSection: "knowledge",
 			},
 		},
 		{
 			name: "custom storage 20Gi",
 			cfg: StatefulSetConfig{
-				Name:        "agent-knowledge-big",
-				Namespace:   "default",
-				AgentName:   "my-agent",
-				BuildID:     "1.0",
-				Component:   "knowledge-big",
-				Container:   spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
-				Provider:    "qdrant",
+				Name:      "agent-knowledge-big",
+				Namespace: "default",
+				AgentName: "my-agent",
+				BuildID:   "1.0",
+				Component: "knowledge-big",
+				Container: spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
+				Provider:  "qdrant", ProviderSection: "knowledge",
 				StorageSize: "20Gi",
 			},
 		},
 		{
 			name: "with healthcheck qdrant",
 			cfg: StatefulSetConfig{
-				Name:        "agent-knowledge-hc",
-				Namespace:   "default",
-				AgentName:   "my-agent",
-				BuildID:     "1.0",
-				Component:   "knowledge-hc",
-				Container:   spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
-				Provider:    "qdrant",
+				Name:      "agent-knowledge-hc",
+				Namespace: "default",
+				AgentName: "my-agent",
+				BuildID:   "1.0",
+				Component: "knowledge-hc",
+				Container: spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
+				Provider:  "qdrant", ProviderSection: "knowledge",
 				Healthcheck: &spec.Healthcheck{},
 			},
 		},
 		{
 			name: "with healthcheck redis",
 			cfg: StatefulSetConfig{
-				Name:        "agent-knowledge-hcr",
-				Namespace:   "default",
-				AgentName:   "my-agent",
-				BuildID:     "1.0",
-				Component:   "knowledge-hcr",
-				Container:   spec.ContainerConfig{Image: "redis:latest"},
-				Provider:    "redis",
+				Name:      "agent-knowledge-hcr",
+				Namespace: "default",
+				AgentName: "my-agent",
+				BuildID:   "1.0",
+				Component: "knowledge-hcr",
+				Container: spec.ContainerConfig{Image: "redis:latest"},
+				Provider:  "redis", ProviderSection: "knowledge",
 				Healthcheck: &spec.Healthcheck{},
 			},
 		},
 		{
 			name: "with ConfigMap and Secret",
 			cfg: StatefulSetConfig{
-				Name:          "agent-knowledge-refs",
-				Namespace:     "default",
-				AgentName:     "my-agent",
-				BuildID:       "1.0",
-				Component:     "knowledge-refs",
-				Container:     spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
-				Provider:      "qdrant",
-				ConfigMapName: "my-config",
-				SecretName:    "my-secret",
+				Name:            "agent-knowledge-refs",
+				Namespace:       "default",
+				AgentName:       "my-agent",
+				BuildID:         "1.0",
+				Component:       "knowledge-refs",
+				Container:       spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
+				Provider:        "qdrant",
+				ProviderSection: "knowledge",
+				ConfigMapName:   "my-config",
+				SecretName:      "my-secret",
 			},
 		},
 	}
 
+	// ── ollama (models, self-hosted) ──
+	tests = append(tests, struct {
+		name string
+		cfg  StatefulSetConfig
+	}{
+		name: "ollama provider",
+		cfg: StatefulSetConfig{
+			Name: "agent-model-llm", Namespace: "default",
+			AgentName: "my-agent", BuildID: "1.0", Component: "model-llm",
+			Container:       spec.ContainerConfig{Image: "ollama/ollama:latest"},
+			Provider:        "ollama",
+			ProviderSection: "models",
+		},
+	})
+	// ── neo4j (knowledge, self-hosted) ──
+	tests = append(tests, struct {
+		name string
+		cfg  StatefulSetConfig
+	}{
+		name: "neo4j provider",
+		cfg: StatefulSetConfig{
+			Name: "agent-knowledge-graph", Namespace: "default",
+			AgentName: "my-agent", BuildID: "1.0", Component: "knowledge-graph",
+			Container:       spec.ContainerConfig{Image: "neo4j:5-community"},
+			Provider:        "neo4j",
+			ProviderSection: "knowledge",
+		},
+	})
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ss := BuildStatefulSet(tt.cfg)
+			ss := mustBuildStatefulSet(t, tt.cfg)
 
 			if ss.Name != tt.cfg.Name {
 				t.Errorf("name: expected %s, got %s", tt.cfg.Name, ss.Name)
@@ -129,7 +169,7 @@ func TestBuildStatefulSet(t *testing.T) {
 	}
 
 	t.Run("qdrant ports and mount", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[0].cfg)
+		ss := mustBuildStatefulSet(t, tests[0].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		// Primary port 6333
@@ -152,7 +192,7 @@ func TestBuildStatefulSet(t *testing.T) {
 	})
 
 	t.Run("redis port and mount", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[1].cfg)
+		ss := mustBuildStatefulSet(t, tests[1].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		if container.Ports[0].ContainerPort != 6379 {
@@ -164,7 +204,7 @@ func TestBuildStatefulSet(t *testing.T) {
 	})
 
 	t.Run("postgres port and mount", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[2].cfg)
+		ss := mustBuildStatefulSet(t, tests[2].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		if container.Ports[0].ContainerPort != 5432 {
@@ -176,7 +216,7 @@ func TestBuildStatefulSet(t *testing.T) {
 	})
 
 	t.Run("custom storage 20Gi", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[3].cfg)
+		ss := mustBuildStatefulSet(t, tests[3].cfg)
 
 		pvcStorage := ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests["storage"]
 		if pvcStorage.Cmp(resource.MustParse("20Gi")) != 0 {
@@ -185,7 +225,7 @@ func TestBuildStatefulSet(t *testing.T) {
 	})
 
 	t.Run("healthcheck qdrant - HTTPGet", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[4].cfg)
+		ss := mustBuildStatefulSet(t, tests[4].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		if container.LivenessProbe == nil {
@@ -200,7 +240,7 @@ func TestBuildStatefulSet(t *testing.T) {
 	})
 
 	t.Run("healthcheck redis - Exec", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[5].cfg)
+		ss := mustBuildStatefulSet(t, tests[5].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		if container.LivenessProbe == nil {
@@ -215,8 +255,37 @@ func TestBuildStatefulSet(t *testing.T) {
 		}
 	})
 
+	t.Run("ollama port and mount", func(t *testing.T) {
+		ss := mustBuildStatefulSet(t, tests[7].cfg)
+		container := ss.Spec.Template.Spec.Containers[0]
+
+		if container.Ports[0].ContainerPort != 11434 {
+			t.Errorf("expected port 11434, got %d", container.Ports[0].ContainerPort)
+		}
+		if container.VolumeMounts[0].MountPath != "/root/.ollama" {
+			t.Errorf("expected mount /root/.ollama, got %s", container.VolumeMounts[0].MountPath)
+		}
+	})
+
+	t.Run("neo4j port mount and extra ports", func(t *testing.T) {
+		ss := mustBuildStatefulSet(t, tests[8].cfg)
+		container := ss.Spec.Template.Spec.Containers[0]
+
+		// Primary port 7474
+		if container.Ports[0].ContainerPort != 7474 {
+			t.Errorf("expected port 7474, got %d", container.Ports[0].ContainerPort)
+		}
+		// Extra bolt port 7687
+		if len(container.Ports) < 2 || container.Ports[1].ContainerPort != 7687 {
+			t.Errorf("expected extra bolt port 7687, got %v", container.Ports)
+		}
+		if container.VolumeMounts[0].MountPath != "/data" {
+			t.Errorf("expected mount /data, got %s", container.VolumeMounts[0].MountPath)
+		}
+	})
+
 	t.Run("ConfigMap and Secret envFrom", func(t *testing.T) {
-		ss := BuildStatefulSet(tests[6].cfg)
+		ss := mustBuildStatefulSet(t, tests[6].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]
 
 		if len(container.EnvFrom) != 2 {

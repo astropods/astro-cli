@@ -140,6 +140,7 @@ func TestApplyDeploymentSpec_WithKnowledgePersistent(t *testing.T) {
 			Persistent: true,
 			Storage:    &spec.StorageConfig{Size: "20Gi", AccessMode: "ReadWriteOnce"},
 			Update:     spec.DefaultUpdateStrategy(),
+			Provider:   "qdrant",
 		},
 	}
 
@@ -544,7 +545,8 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 		"docs": {
 			Image: "test-registry.example.com/qdrant:latest", Endpoints: httpEp(6333),
 			Replicas: 1, Persistent: true, Update: spec.DefaultUpdateStrategy(),
-			Storage: &spec.StorageConfig{Size: "50Gi", Class: "gp3", AccessMode: "ReadWriteOnce"},
+			Storage:  &spec.StorageConfig{Size: "50Gi", Class: "gp3", AccessMode: "ReadWriteOnce"},
+			Provider: "qdrant",
 		},
 	}
 	ds.Tools = map[string]spec.DeploymentTool{

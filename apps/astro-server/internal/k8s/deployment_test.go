@@ -110,28 +110,75 @@ func TestBuildDeployment(t *testing.T) {
 		{
 			name: "healthcheck provider redis",
 			cfg: DeploymentConfig{
-				Name:      "hc-redis",
-				Namespace: "default",
-				AgentName: "my-agent",
-				BuildID:   "1.0",
-				Component: "knowledge-cache",
-				Container: spec.ContainerConfig{Image: "redis:latest"},
-				Provider:  "redis",
-				Healthcheck: &spec.Healthcheck{},
+				Name:            "hc-redis",
+				Namespace:       "default",
+				AgentName:       "my-agent",
+				BuildID:         "1.0",
+				Component:       "knowledge-cache",
+				Container:       spec.ContainerConfig{Image: "redis:latest"},
+				Provider:        "redis",
+				ProviderSection: "knowledge",
+				Healthcheck:     &spec.Healthcheck{},
 			},
 		},
 		{
 			name: "healthcheck provider qdrant",
 			cfg: DeploymentConfig{
-				Name:      "hc-qdrant",
-				Namespace: "default",
-				AgentName: "my-agent",
-				BuildID:   "1.0",
-				Component: "knowledge-vectors",
-				Container: spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
-				Provider:  "qdrant",
-				Port:      6333,
-				Healthcheck: &spec.Healthcheck{},
+				Name:            "hc-qdrant",
+				Namespace:       "default",
+				AgentName:       "my-agent",
+				BuildID:         "1.0",
+				Component:       "knowledge-vectors",
+				Container:       spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
+				Provider:        "qdrant",
+				ProviderSection: "knowledge",
+				Port:            6333,
+				Healthcheck:     &spec.Healthcheck{},
+			},
+		},
+		{
+			name: "healthcheck provider postgres",
+			cfg: DeploymentConfig{
+				Name:            "hc-postgres",
+				Namespace:       "default",
+				AgentName:       "my-agent",
+				BuildID:         "1.0",
+				Component:       "knowledge-db",
+				Container:       spec.ContainerConfig{Image: "postgres:15-alpine"},
+				Provider:        "postgres",
+				ProviderSection: "knowledge",
+				Port:            5432,
+				Healthcheck:     &spec.Healthcheck{},
+			},
+		},
+		{
+			name: "healthcheck provider neo4j",
+			cfg: DeploymentConfig{
+				Name:            "hc-neo4j",
+				Namespace:       "default",
+				AgentName:       "my-agent",
+				BuildID:         "1.0",
+				Component:       "knowledge-graph",
+				Container:       spec.ContainerConfig{Image: "neo4j:5-community"},
+				Provider:        "neo4j",
+				ProviderSection: "knowledge",
+				Port:            7474,
+				Healthcheck:     &spec.Healthcheck{},
+			},
+		},
+		{
+			name: "healthcheck provider ollama",
+			cfg: DeploymentConfig{
+				Name:            "hc-ollama",
+				Namespace:       "default",
+				AgentName:       "my-agent",
+				BuildID:         "1.0",
+				Component:       "model-llm",
+				Container:       spec.ContainerConfig{Image: "ollama/ollama:latest"},
+				Provider:        "ollama",
+				ProviderSection: "models",
+				Port:            11434,
+				Healthcheck:     &spec.Healthcheck{},
 			},
 		},
 		{
@@ -361,8 +408,63 @@ func TestBuildDeployment(t *testing.T) {
 		}
 	})
 
-	t.Run("custom timing probe check", func(t *testing.T) {
+	t.Run("healthcheck postgres provider check", func(t *testing.T) {
 		cfg := tests[8].cfg
+		d := BuildDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		if container.LivenessProbe == nil {
+			t.Fatal("expected liveness probe")
+		}
+		if container.LivenessProbe.Exec == nil {
+			t.Fatal("expected exec probe for postgres")
+		}
+		cmd := container.LivenessProbe.Exec.Command
+		if len(cmd) < 2 || cmd[0] != "pg_isready" {
+			t.Errorf("expected [pg_isready -U postgres], got %v", cmd)
+		}
+	})
+
+	t.Run("healthcheck neo4j provider check", func(t *testing.T) {
+		cfg := tests[9].cfg
+		d := BuildDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		if container.LivenessProbe == nil {
+			t.Fatal("expected liveness probe")
+		}
+		if container.LivenessProbe.HTTPGet == nil {
+			t.Fatal("expected HTTPGet probe for neo4j")
+		}
+		if container.LivenessProbe.HTTPGet.Path != "/" {
+			t.Errorf("expected path /, got %s", container.LivenessProbe.HTTPGet.Path)
+		}
+		if container.LivenessProbe.HTTPGet.Port.IntValue() != 7474 {
+			t.Errorf("expected port 7474, got %d", container.LivenessProbe.HTTPGet.Port.IntValue())
+		}
+	})
+
+	t.Run("healthcheck ollama provider check", func(t *testing.T) {
+		cfg := tests[10].cfg
+		d := BuildDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
+
+		if container.LivenessProbe == nil {
+			t.Fatal("expected liveness probe")
+		}
+		if container.LivenessProbe.HTTPGet == nil {
+			t.Fatal("expected HTTPGet probe for ollama")
+		}
+		if container.LivenessProbe.HTTPGet.Path != "/api/tags" {
+			t.Errorf("expected path /api/tags, got %s", container.LivenessProbe.HTTPGet.Path)
+		}
+		if container.LivenessProbe.HTTPGet.Port.IntValue() != 11434 {
+			t.Errorf("expected port 11434, got %d", container.LivenessProbe.HTTPGet.Port.IntValue())
+		}
+	})
+
+	t.Run("custom timing probe check", func(t *testing.T) {
+		cfg := tests[11].cfg
 		d := BuildDeployment(cfg)
 		container := d.Spec.Template.Spec.Containers[0]
 
@@ -381,7 +483,7 @@ func TestBuildDeployment(t *testing.T) {
 	})
 
 	t.Run("custom port check", func(t *testing.T) {
-		cfg := tests[9].cfg
+		cfg := tests[12].cfg
 		d := BuildDeployment(cfg)
 		container := d.Spec.Template.Spec.Containers[0]
 
@@ -403,38 +505,38 @@ func TestBuildMessagingDeployment(t *testing.T) {
 		{
 			name: "slack interface",
 			cfg: MessagingDeploymentConfig{
-				Name:          "msg-slack",
-				Namespace:     "default",
-				AgentName:     "my-agent",
-				BuildID:       "1.0",
-				Component:     "messaging-slack",
-				Image:         "messaging:latest",
-				SlackEnabled:  true,
-				SecretName:    "my-secret",
+				Name:         "msg-slack",
+				Namespace:    "default",
+				AgentName:    "my-agent",
+				BuildID:      "1.0",
+				Component:    "messaging-slack",
+				Image:        "messaging:latest",
+				SlackEnabled: true,
+				SecretName:   "my-secret",
 			},
 		},
 		{
 			name: "web enabled",
 			cfg: MessagingDeploymentConfig{
-				Name:          "msg-web",
-				Namespace:     "default",
-				AgentName:     "my-agent",
-				BuildID:       "1.0",
-				Component:     "messaging-web",
-				Image:         "messaging:latest",
-				SlackEnabled:  true,
-				WebEnabled:    true,
+				Name:         "msg-web",
+				Namespace:    "default",
+				AgentName:    "my-agent",
+				BuildID:      "1.0",
+				Component:    "messaging-web",
+				Image:        "messaging:latest",
+				SlackEnabled: true,
+				WebEnabled:   true,
 			},
 		},
 		{
 			name: "without secret",
 			cfg: MessagingDeploymentConfig{
-				Name:          "msg-nosecret",
-				Namespace:     "default",
-				AgentName:     "my-agent",
-				BuildID:       "1.0",
-				Component:     "messaging",
-				Image:         "messaging:latest",
+				Name:         "msg-nosecret",
+				Namespace:    "default",
+				AgentName:    "my-agent",
+				BuildID:      "1.0",
+				Component:    "messaging",
+				Image:        "messaging:latest",
 				SlackEnabled: true,
 			},
 		},
@@ -529,15 +631,15 @@ func TestBuildMessagingDeployment(t *testing.T) {
 func TestBuildCollectorDeployment(t *testing.T) {
 	t.Run("full config", func(t *testing.T) {
 		cfg := CollectorDeploymentConfig{
-			Name:            "my-agent-collector",
-			Namespace:       "default",
-			AgentName:       "my-agent",
-			BuildID:         "1.0",
-			Component:       "collector",
-			Image:           "collector:latest",
-			ConfigMapName:   "my-agent-1-0-config",
-			GalileoAPIKey:   "gal-key-123",
-			GalileoProject:  "my-project",
+			Name:           "my-agent-collector",
+			Namespace:      "default",
+			AgentName:      "my-agent",
+			BuildID:        "1.0",
+			Component:      "collector",
+			Image:          "collector:latest",
+			ConfigMapName:  "my-agent-1-0-config",
+			GalileoAPIKey:  "gal-key-123",
+			GalileoProject: "my-project",
 		}
 
 		d := BuildCollectorDeployment(cfg)
@@ -754,12 +856,12 @@ func TestBuildCollectorDeployment(t *testing.T) {
 		}
 
 		expected := map[string]string{
-			"GALILEO_API_KEY":      "gal-key",
-			"GALILEO_PROJECT":      "gal-project",
-			"ASTRO_AGENT_NAME":     "full-agent",
-			"ASTRO_AGENT_VERSION":  "v3.0",
-			"ASTRO_DEPLOYMENT_ID":  "dep-99",
-			"GALILEO_LOG_STREAM":   "full-agent-build-99",
+			"GALILEO_API_KEY":     "gal-key",
+			"GALILEO_PROJECT":     "gal-project",
+			"ASTRO_AGENT_NAME":    "full-agent",
+			"ASTRO_AGENT_VERSION": "v3.0",
+			"ASTRO_DEPLOYMENT_ID": "dep-99",
+			"GALILEO_LOG_STREAM":  "full-agent-build-99",
 		}
 		for key, want := range expected {
 			if envMap[key] != want {
@@ -813,14 +915,14 @@ func TestParsePort(t *testing.T) {
 // defaults to 8080.
 func TestBuildProbeHandlerEdgeCases(t *testing.T) {
 	t.Run("unknown provider no path returns nil", func(t *testing.T) {
-		handler := buildProbeHandler("unknown", 8080, "")
+		handler := buildProbeHandler("unknown", "", 8080, "")
 		if handler != nil {
 			t.Errorf("expected nil handler for unknown provider with no path, got %+v", handler)
 		}
 	})
 
 	t.Run("qdrant provider port 0 uses default", func(t *testing.T) {
-		handler := buildProbeHandler("qdrant", 0, "")
+		handler := buildProbeHandler("qdrant", "knowledge", 0, "")
 		if handler == nil {
 			t.Fatal("expected handler for qdrant provider")
 		}
@@ -833,7 +935,7 @@ func TestBuildProbeHandlerEdgeCases(t *testing.T) {
 	})
 
 	t.Run("path fallback port 0 defaults to 8080", func(t *testing.T) {
-		handler := buildProbeHandler("", 0, "/health")
+		handler := buildProbeHandler("", "", 0, "/health")
 		if handler == nil {
 			t.Fatal("expected handler for path fallback")
 		}

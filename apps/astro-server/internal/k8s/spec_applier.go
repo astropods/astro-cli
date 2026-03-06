@@ -181,12 +181,19 @@ func (a *Applier) ApplyDeploymentSpec(
 			Container: resolvedContainer, Port: port,
 			StorageSize: storageSize, StorageClass: storageClass, AccessMode: accessMode,
 			Healthcheck: knowledge.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(knowledge.Replicas), //nolint:gosec
-			Resources: BuildResourceRequirements(knowledge.Resources),
-			Strategy:  BuildStatefulSetUpdateStrategy(knowledge.Update),
-			Provider:  knowledge.Provider,
+			Replicas:        int32(knowledge.Replicas), //nolint:gosec
+			Resources:       BuildResourceRequirements(knowledge.Resources),
+			Strategy:        BuildStatefulSetUpdateStrategy(knowledge.Update),
+			Provider:        knowledge.Provider,
+			ProviderSection: "knowledge",
 		}
-		ss := BuildStatefulSet(ssCfg)
+		ss, err := BuildStatefulSet(ssCfg)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: resourceName, Kind: "StatefulSet", Error: err.Error(),
+			})
+			continue
+		}
 		status, err := a.applyStatefulSet(ctx, ss)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
@@ -238,12 +245,13 @@ func (a *Applier) ApplyDeploymentSpec(
 			Container: resolvedContainer, Port: port,
 			StorageSize: "50Gi", AccessMode: corev1.ReadWriteOnce,
 			Healthcheck: healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:     int32(model.Replicas), //nolint:gosec
-			Resources:    BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
-			Strategy:     BuildStatefulSetUpdateStrategy(model.Update),
-			NodeSelector: BuildGPUNodeSelector(model.GPU),
-			Tolerations:  BuildGPUTolerations(model.GPU),
-			Provider:     model.Provider,
+			Replicas:        int32(model.Replicas), //nolint:gosec
+			Resources:       BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
+			Strategy:        BuildStatefulSetUpdateStrategy(model.Update),
+			NodeSelector:    BuildGPUNodeSelector(model.GPU),
+			Tolerations:     BuildGPUTolerations(model.GPU),
+			Provider:        model.Provider,
+			ProviderSection: "models",
 		}
 
 		// Add model pull postStart hook
@@ -254,7 +262,13 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 		}
 
-		ss := BuildStatefulSet(ssCfg)
+		ss, err := BuildStatefulSet(ssCfg)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: resourceName, Kind: "StatefulSet", Error: err.Error(),
+			})
+			continue
+		}
 		status, err := a.applyStatefulSet(ctx, ss)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
@@ -290,6 +304,8 @@ func (a *Applier) ApplyDeploymentSpec(
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
 			Container: resolvedContainer, Port: port,
+			Provider: model.Provider, ProviderSection: "models",
+			Healthcheck:     model.Healthcheck,
 			ImagePullPolicy: a.imagePullPolicy,
 			Replicas:        int32(model.Replicas), //nolint:gosec
 			Resources:       BuildResourceRequirementsWithGPU(model.Resources, model.GPU),
@@ -329,6 +345,8 @@ func (a *Applier) ApplyDeploymentSpec(
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
+			Provider: knowledge.Provider, ProviderSection: "knowledge",
+			Healthcheck:     knowledge.Healthcheck,
 			ImagePullPolicy: a.imagePullPolicy,
 			Replicas:        int32(knowledge.Replicas), //nolint:gosec
 			Resources:       BuildResourceRequirements(knowledge.Resources),

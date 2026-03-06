@@ -26,16 +26,17 @@ type DeploymentConfig struct {
 	SecretName      string
 	ConfigMapName   string
 	Healthcheck     *spec.Healthcheck
-	Provider        string            // Provider type for health check generation (e.g., "redis", "postgres", "qdrant")
+	Provider        string            // Provider name (e.g., "redis", "postgres", "qdrant", "ollama")
+	ProviderSection string            // Provider section for registry lookup ("models", "knowledge")
 	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 	// Deployment-spec driven fields (optional — zero values preserve existing behavior)
-	Replicas         int32                          // 0 means use default (1)
-	Resources        *corev1.ResourceRequirements   // nil means derive from Container.GPU
-	Strategy         *appsv1.DeploymentStrategy     // nil means k8s default
-	NodeSelector     map[string]string              // nil means no node selector (unless Container has GPU)
-	Tolerations      []corev1.Toleration            // Tolerations for tainted nodes (e.g., GPU)
-	ExtraEnv         []corev1.EnvVar                // Additional env vars to inject
-	PostStartCommand []string                       // Lifecycle postStart exec command (e.g., model pull)
+	Replicas         int32                        // 0 means use default (1)
+	Resources        *corev1.ResourceRequirements // nil means derive from Container.GPU
+	Strategy         *appsv1.DeploymentStrategy   // nil means k8s default
+	NodeSelector     map[string]string            // nil means no node selector (unless Container has GPU)
+	Tolerations      []corev1.Toleration          // Tolerations for tainted nodes (e.g., GPU)
+	ExtraEnv         []corev1.EnvVar              // Additional env vars to inject
+	PostStartCommand []string                     // Lifecycle postStart exec command (e.g., model pull)
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -48,14 +49,14 @@ type MessagingDeploymentConfig struct {
 	Image           string
 	Port            int32
 	SecretName      string
-	ConfigMapName   string                         // ConfigMap with resolved env from interfaces.environment
+	ConfigMapName   string // ConfigMap with resolved env from interfaces.environment
 	AgentURL        string
-	SlackEnabled    bool                           // Whether slack adapter is enabled
-	WebEnabled      bool                           // Whether web adapter is enabled (exposes HTTP endpoint)
-	WebPort         int32                          // HTTP port for web adapter (default 8080)
-	ImagePullPolicy corev1.PullPolicy              // Defaults to PullAlways if empty
-	Resources       *corev1.ResourceRequirements   // From interfaces.resources; nil means hardcoded defaults
-	Environment     map[string]string              // Resolved env from interfaces.environment
+	SlackEnabled    bool                         // Whether slack adapter is enabled
+	WebEnabled      bool                         // Whether web adapter is enabled (exposes HTTP endpoint)
+	WebPort         int32                        // HTTP port for web adapter (default 8080)
+	ImagePullPolicy corev1.PullPolicy            // Defaults to PullAlways if empty
+	Resources       *corev1.ResourceRequirements // From interfaces.resources; nil means hardcoded defaults
+	Environment     map[string]string            // Resolved env from interfaces.environment
 }
 
 // BuildDeployment creates a Kubernetes Deployment manifest
@@ -271,12 +272,12 @@ type CollectorDeploymentConfig struct {
 	DeploymentID    string
 	Component       string
 	Image           string
-	Port            int32                          // OTLP HTTP port (default 4318)
+	Port            int32 // OTLP HTTP port (default 4318)
 	ConfigMapName   string
-	SecretName      string                         // Secret with credentials
+	SecretName      string // Secret with credentials
 	ImagePullPolicy corev1.PullPolicy
-	Resources       *corev1.ResourceRequirements   // From observability.resources; nil means hardcoded defaults
-	Environment     map[string]string              // Resolved env from observability.environment
+	Resources       *corev1.ResourceRequirements // From observability.resources; nil means hardcoded defaults
+	Environment     map[string]string            // Resolved env from observability.environment
 	// Galileo credentials (server-level config, injected directly)
 	GalileoAPIKey    string
 	GalileoProject   string
@@ -480,7 +481,7 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 
 	// Add health checks if specified
 	if cfg.Healthcheck != nil {
-		probe := buildProbe(cfg.Healthcheck, cfg.Provider, port)
+		probe := buildProbe(cfg.Healthcheck, cfg.Provider, cfg.ProviderSection, port)
 		if probe != nil {
 			container.LivenessProbe = probe
 			container.ReadinessProbe = probe
@@ -512,7 +513,7 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 }
 
 // buildProbe creates a probe from healthcheck config
-func buildProbe(healthcheck *spec.Healthcheck, provider string, port int32) *corev1.Probe {
+func buildProbe(healthcheck *spec.Healthcheck, provider, providerSection string, port int32) *corev1.Probe {
 	probe := &corev1.Probe{
 		InitialDelaySeconds: 10,
 		PeriodSeconds:       10,
@@ -530,7 +531,7 @@ func buildProbe(healthcheck *spec.Healthcheck, provider string, port int32) *cor
 		}
 	} else {
 		// Generate provider-specific health check
-		handler := buildProbeHandler(provider, port, healthcheck.Path)
+		handler := buildProbeHandler(provider, providerSection, port, healthcheck.Path)
 		if handler == nil {
 			// No suitable health check could be generated
 			return nil
@@ -559,8 +560,8 @@ func buildProbe(healthcheck *spec.Healthcheck, provider string, port int32) *cor
 }
 
 // buildProbeHandler generates a provider-specific probe handler
-func buildProbeHandler(provider string, port int32, path string) *corev1.ProbeHandler {
-	prov := spec.GetProvider(provider)
+func buildProbeHandler(provider, providerSection string, port int32, path string) *corev1.ProbeHandler {
+	prov, _ := spec.LookupBuiltin(providerSection, provider)
 
 	// Exec-based health check from provider registry
 	if len(prov.HealthCheck) > 0 {
