@@ -19,6 +19,10 @@ var (
 	// Default host (used when not set in profile or env).
 	// Dev builds use localhost; prod/preview override this via ldflags at build time.
 	DefaultServerURL = "http://localhost:8080"
+
+	// FleetServerURL is the connect/fleet server address (host:port).
+	// Override via: go build -ldflags "-X github.com/postman/astro/apps/astro-cli/internal/auth.FleetServerURL=fleet.astropods.ai:9092"
+	FleetServerURL = "localhost:9092"
 )
 
 // Environment variable names
