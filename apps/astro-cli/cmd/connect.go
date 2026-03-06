@@ -36,6 +36,7 @@ var connectUninstallServiceCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(connectCmd)
+	connectCmd.Hidden = true
 	connectCmd.AddCommand(connectInstallServiceCmd)
 	connectCmd.AddCommand(connectUninstallServiceCmd)
 
