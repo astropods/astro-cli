@@ -37,7 +37,7 @@ func getDockerRegistryAuth() (string, error) {
 	authConfig := registry.AuthConfig{
 		RegistryToken: token,
 	}
-	authBytes, err := json.Marshal(authConfig)
+	authBytes, err := json.Marshal(authConfig) //nolint:gosec // registry auth token, not a secret leak
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal auth config: %w", err)
 	}
