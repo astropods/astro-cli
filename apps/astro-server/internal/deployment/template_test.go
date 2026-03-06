@@ -433,8 +433,8 @@ func TestTemplate_ContainerKnowledge(t *testing.T) {
 	}
 
 	// Container mode uses KNOWLEDGE_* prefix
-	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM-DB_HOST", "${knowledge.custom_db.host}")
-	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM-DB_PORT", "${knowledge.custom_db.http.port}")
+	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM_DB_HOST", "${knowledge.custom_db.host}")
+	assertEnvRef(t, ds.Agent.Environment, "KNOWLEDGE_CUSTOM_DB_PORT", "${knowledge.custom_db.http.port}")
 }
 
 func TestTemplate_KnowledgeNonPersistent_NoStorage(t *testing.T) {

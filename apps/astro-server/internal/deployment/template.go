@@ -16,7 +16,7 @@ func providerEnvKeys(basePrefix, name, suffix string, isDuplicate, isFirst bool)
 	if !isDuplicate {
 		return []string{basePrefix + "_" + suffix}
 	}
-	keys := []string{basePrefix + "_" + strings.ToUpper(SanitizeName(name)) + "_" + suffix}
+	keys := []string{basePrefix + "_" + spec.SanitizeEnvName(name) + "_" + suffix}
 	if isFirst {
 		keys = append(keys, basePrefix+"_"+suffix)
 	}
@@ -132,7 +132,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 				}
 			} else {
 				// Generic env vars for container-mode models
-				envPrefix := fmt.Sprintf("MODEL_%s", strings.ToUpper(SanitizeName(name)))
+				envPrefix := fmt.Sprintf("MODEL_%s", spec.SanitizeEnvName(name))
 				agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${models.%s.host}", name)
 				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${models.%s.%s.port}", name, primaryEp)
 				agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp)
@@ -196,12 +196,12 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 						}
 					}
 				} else {
-					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", strings.ToUpper(SanitizeName(name)))
+					envPrefix := fmt.Sprintf("KNOWLEDGE_%s", spec.SanitizeEnvName(name))
 					agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
 					agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 				}
 			} else {
-				envPrefix := fmt.Sprintf("KNOWLEDGE_%s", strings.ToUpper(SanitizeName(name)))
+				envPrefix := fmt.Sprintf("KNOWLEDGE_%s", spec.SanitizeEnvName(name))
 				agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${knowledge.%s.host}", name)
 				agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${knowledge.%s.%s.port}", name, primaryEp)
 			}
@@ -222,7 +222,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			ds.Tools[name] = dt
 
 			primaryEp := primaryEndpointName(dt.Endpoints)
-			envPrefix := fmt.Sprintf("INTEGRATION_%s", strings.ToUpper(SanitizeName(name)))
+			envPrefix := fmt.Sprintf("INTEGRATION_%s", spec.SanitizeEnvName(name))
 			agentEnv[envPrefix+"_HOST"] = fmt.Sprintf("${tools.%s.host}", name)
 			agentEnv[envPrefix+"_PORT"] = fmt.Sprintf("${tools.%s.%s.port}", name, primaryEp)
 			agentEnv[envPrefix+"_URL"] = fmt.Sprintf("${tools.%s.%s.url}", name, primaryEp)

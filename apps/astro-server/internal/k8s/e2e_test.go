@@ -780,9 +780,9 @@ models:
 
 	host := serviceDNS("my-agent-model-custom-llm", "test-ns")
 	assertConfigMapValues(t, r, map[string]string{
-		"MODEL_CUSTOM-LLM_HOST": host,
-		"MODEL_CUSTOM-LLM_PORT": "5000",
-		"MODEL_CUSTOM-LLM_URL":  "http://" + host + ":5000",
+		"MODEL_CUSTOM_LLM_HOST": host,
+		"MODEL_CUSTOM_LLM_PORT": "5000",
+		"MODEL_CUSTOM_LLM_URL":  "http://" + host + ":5000",
 	})
 
 	// Should NOT have provider-prefixed env vars
