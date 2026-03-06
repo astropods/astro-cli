@@ -276,8 +276,7 @@ class ApiClient {
   }
 
   async undeployAgent(data: {
-    account: string;
-    name: string;
+    deployment_id: string;
   }): Promise<UndeployResponse> {
     return this.request<UndeployResponse>('/api/v1/undeploy', {
       method: 'POST',
@@ -594,6 +593,7 @@ export interface JobDetail {
 }
 
 export interface AgentDeployment {
+  id?: string;
   name: string;
   display_name?: string;
   build_id: string;

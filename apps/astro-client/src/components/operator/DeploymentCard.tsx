@@ -65,7 +65,7 @@ function jobStatusBadge(status: string): { color: string; bg: string } {
 export interface DeploymentCardProps {
   accountName: string;
   deployment: AgentDeployment;
-  onUndeploy?: (name: string) => void;
+  onUndeploy?: (deploymentId: string) => void;
   onRefresh?: () => void;
   isUndeploying?: boolean;
 }
@@ -166,7 +166,7 @@ export function DeploymentCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onUndeploy(deployment.name);
+                onUndeploy(deployment.id ?? deployment.name);
               }}
               disabled={isUndeploying}
               className="px-3 py-1.5 border border-red-300 text-sm text-red-600 bg-white hover:bg-red-50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"

@@ -549,6 +549,7 @@ type JobDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
+	ID               string                `json:"id,omitempty"`
 	Name             string                `json:"name"`
 	DisplayName      string                `json:"display_name,omitempty"`
 	BuildID          string                `json:"build_id"`
@@ -623,15 +624,19 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// Build namespace → display_name map from DB
-		nsDisplayNames := make(map[string]string)
+		// Build namespace → DB deployment info map
+		type nsInfo struct {
+			ID          string
+			DisplayName string
+		}
+		nsDeployments := make(map[string]nsInfo)
 		if deployStore != nil {
 			dbDeps, dbErr := deployStore.GetActiveDeploymentsByAccount(acct.ID)
 			if dbErr != nil {
-				log.Warn("Failed to load deployments from DB for display names", "error", dbErr)
+				log.Warn("Failed to load deployments from DB", "error", dbErr)
 			} else {
 				for _, d := range dbDeps {
-					nsDisplayNames[d.Namespace] = d.DisplayName
+					nsDeployments[d.Namespace] = nsInfo{ID: d.ID, DisplayName: d.DisplayName}
 				}
 			}
 		}
@@ -645,9 +650,10 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				log.Warn("Failed to list deployments in namespace", "namespace", ns.Name, "error", err)
 				continue
 			}
-			if dn, ok := nsDisplayNames[ns.Name]; ok {
+			if info, ok := nsDeployments[ns.Name]; ok {
 				for i := range deps {
-					deps[i].DisplayName = dn
+					deps[i].ID = info.ID
+					deps[i].DisplayName = info.DisplayName
 				}
 			}
 			allDeployments = append(allDeployments, deps...)

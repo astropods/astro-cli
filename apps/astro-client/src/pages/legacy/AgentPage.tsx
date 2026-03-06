@@ -108,14 +108,14 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
   // Mutations
   const undeployMutation = useUndeployAgent(userAccount);
 
-  const handleUndeploy = (name: string) => {
-    setUndeployConfirm(name);
+  const handleUndeploy = (deploymentId: string) => {
+    setUndeployConfirm(deploymentId);
   };
 
   const confirmUndeploy = async () => {
     if (!undeployConfirm) return;
     try {
-      await undeployMutation.mutateAsync({ account: userAccount, name: undeployConfirm });
+      await undeployMutation.mutateAsync({ deployment_id: undeployConfirm });
       setUndeployConfirm(null);
     } catch (err) {
       console.error("Failed to undeploy:", err);
@@ -288,7 +288,7 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
                       deployment={dep}
                       onUndeploy={handleUndeploy}
                       onRefresh={() => refetchDeployments()}
-                      isUndeploying={undeployMutation.isPending && undeployMutation.variables?.name === dep.name}
+                      isUndeploying={undeployMutation.isPending && undeployMutation.variables?.deployment_id === dep.id}
                     />
                   ))}
                 </div>

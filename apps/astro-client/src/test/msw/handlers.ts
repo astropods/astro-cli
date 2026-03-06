@@ -146,14 +146,14 @@ export const handlers = [
 
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
-    const body = (await request.json()) as { name: string };
+    const body = (await request.json()) as { deployment_id: string };
     return HttpResponse.json<UndeployResponse>({
       status: 'undeployed',
-      name: body.name,
+      name: 'agent',
       build_id: 'a1b2c3d4e5f6',
       k8s_namespace: 'user-abc123',
       undeployed_at: new Date().toISOString(),
-      resources: [{ kind: 'Deployment', name: body.name, status: 'deleted' }],
+      resources: [{ kind: 'Deployment', name: body.deployment_id, status: 'deleted' }],
     });
   }),
 ];

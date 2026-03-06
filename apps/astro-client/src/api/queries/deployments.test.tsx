@@ -45,7 +45,7 @@ describe('useUndeployAgent', () => {
 
     const { result } = renderHook(() => useUndeployAgent(testAccount), { wrapper });
 
-    result.current.mutate({ account: testAccount, name: 'code-reviewer' });
+    result.current.mutate({ deployment_id: 'test-deployment-id' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
