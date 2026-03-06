@@ -50,8 +50,6 @@ Everything the CLI needs to build and run the agent is driven by `astropods.yml`
 - **interfaces** — How users talk to the agent: `web` (local UI), Slack, HTTP APIs. Config from `ast configure`.
 - **ingestion** (optional) — Data pipelines with cron, manual, or startup triggers.
 
-Set `meta.visibility` to `public` or `private` to control who can see the agent after pushing. If omitted, the CLI will prompt on first push (defaults to `private` in non-interactive environments).
-
 Edit this file to add/remove integrations, interfaces, or knowledge, and run `ast configure` for the matching credentials.
 
 ## Commands
