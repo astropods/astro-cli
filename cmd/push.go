@@ -596,7 +596,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CLI-Version", version)
+	req.Header.Set("X-Cli-Version", version)
 
 	// Add authentication header if not skipped
 	if !skipAuth {
