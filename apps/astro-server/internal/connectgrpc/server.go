@@ -2,6 +2,7 @@ package connectgrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -137,7 +138,7 @@ func (s *Server) Connect(stream connectv1.ConnectService_ConnectServer) error {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err

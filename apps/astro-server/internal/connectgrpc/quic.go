@@ -33,7 +33,7 @@ func ListenQUIC(addr string, tlsConf *tls.Config) (net.Listener, error) {
 		KeepAlivePeriod: 30 * time.Second,
 	})
 	if err != nil {
-		udpConn.Close()
+		_ = udpConn.Close()
 		return nil, err
 	}
 

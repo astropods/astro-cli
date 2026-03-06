@@ -737,7 +737,7 @@ func (s *Server) ListConnectedDevices(ctx context.Context, _ *adminv1.ListConnec
 	if err != nil {
 		return nil, fmt.Errorf("list connected devices: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var devices []*adminv1.ConnectedDevice
 	for rows.Next() {
@@ -771,7 +771,7 @@ func (s *Server) ListConnectedDevices(ctx context.Context, _ *adminv1.ListConnec
 
 	return &adminv1.ListConnectedDevicesResponse{
 		Devices: devices,
-		Count:   int32(len(devices)),
+		Count:   int32(len(devices)), //nolint:gosec // bounded by DB result set
 	}, nil
 }
 

@@ -55,7 +55,7 @@ func (s *Store) Upsert(ctx context.Context, accountID, userID string, d *Device)
 	var id string
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO connected_devices (account_id, user_id, device_id, hostname, os, arch, cli_version, status, last_heartbeat_at, connected_at, disconnected_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'connected', NOW(), NOW(), NULL)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'connected', NOW(), NOW(), NULL) -- nolint:dupword
 		ON CONFLICT (account_id, device_id) DO UPDATE SET
 			user_id = EXCLUDED.user_id,
 			hostname = EXCLUDED.hostname,
@@ -106,7 +106,7 @@ func (s *Store) ListAll(ctx context.Context) ([]*Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var devices []*Device
 	for rows.Next() {
