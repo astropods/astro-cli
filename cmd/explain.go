@@ -234,13 +234,13 @@ func printModelEntry(name string, model spec.Model, s *spec.AstroSpec, specDir, 
 		if mc.HasGPU() {
 			fmt.Printf("    gpu:    %syes%s\n", colorGreen, colorReset)
 		}
-		if model.Model != "" {
-			fmt.Printf("    model:  %s%s%s\n", colorDim, model.Model, colorReset)
+		if len(model.ResolvedModels()) > 0 {
+			fmt.Printf("    model:  %s%s%s\n", colorDim, strings.Join(model.ResolvedModels(), ", "), colorReset)
 		}
 	}
 
 	// Output: what this component injects into the agent env
-	printComponentOutput(s, "models", name, model.Provider, model.Model, s)
+	printComponentOutput(s, "models", name, model.Provider, strings.Join(model.ResolvedModels(), ","), s)
 
 	// Component-specific inputs
 	printInputList(model.Inputs, "    ")

@@ -169,13 +169,17 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 
 			// Add healthcheck: model-aware when model name is set
-			if model.Model != "" {
+			if len(model.ResolvedModels()) > 0 {
 				interval := types.Duration(15000000000) // 15 seconds
 				timeout := types.Duration(5000000000)   // 5 seconds
 				retries := uint64(40)                   // ~10 min for large model pulls
+				var grepParts []string
+				for _, m := range model.ResolvedModels() {
+					grepParts = append(grepParts, fmt.Sprintf("ollama list | grep -q '%s'", m))
+				}
 				test := types.HealthCheckTest([]string{
 					"CMD-SHELL",
-					fmt.Sprintf("ollama list | grep -q '%s'", model.Model),
+					strings.Join(grepParts, " && "),
 				})
 				service.HealthCheck = &types.HealthCheckConfig{
 					Test:     test,
@@ -247,10 +251,14 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 
 			// Auto-pull model after server starts (ollama-specific)
-			if model.Model != "" && model.Provider == "ollama" {
+			if len(model.ResolvedModels()) > 0 && model.Provider == "ollama" {
+				var pullParts []string
+				for _, m := range model.ResolvedModels() {
+					pullParts = append(pullParts, fmt.Sprintf("ollama pull %s", m))
+				}
 				service.Entrypoint = types.ShellCommand{
 					"/bin/sh", "-c",
-					fmt.Sprintf("ollama serve & until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull %s; wait", model.Model),
+					fmt.Sprintf("ollama serve & until ollama list >/dev/null 2>&1; do sleep 1; done; %s; wait", strings.Join(pullParts, " && ")),
 				}
 			}
 		}
@@ -586,8 +594,8 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 				baseURL := fmt.Sprintf("http://%s:%s/api", serviceName, port)
 				env[prov.EnvPrefix+"_BASE_URL"] = &baseURL
 			}
-			if model.Model != "" && prov.EnvPrefix != "" {
-				m := model.Model
+			if len(model.ResolvedModels()) > 0 && prov.EnvPrefix != "" {
+				m := strings.Join(model.ResolvedModels(), ",")
 				env[prov.EnvPrefix+"_MODEL"] = &m
 			}
 		} else {
