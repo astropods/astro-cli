@@ -1,0 +1,60 @@
+name: PR Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "docs/changelog/**"
+
+jobs:
+  update-pr-description:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find changelog and update PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const branch = context.payload.pull_request.head.ref;
+            const changelogDir = 'docs/changelog';
+
+            const files = fs.readdirSync(changelogDir)
+              .filter(f => f.startsWith(branch) && f.endsWith('.md'))
+              .sort()
+              .reverse();
+
+            if (files.length === 0) {
+              console.log(`No changelog found for branch "${branch}"`);
+              return;
+            }
+
+            const content = fs.readFileSync(path.join(changelogDir, files[0]), 'utf8');
+            const current = context.payload.pull_request.body || '';
+
+            const marker = '<!-- changelog-start -->';
+            const endMarker = '<!-- changelog-end -->';
+            const section = `${marker}\n${content}\n${endMarker}`;
+
+            let body;
+            if (current.includes(marker)) {
+              body = current.replace(
+                new RegExp(`${marker}[\\s\\S]*?${endMarker}`),
+                section
+              );
+            } else {
+              body = current ? `${current}\n\n${section}` : section;
+            }
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              body: body,
+            });
+
+            console.log(`Updated PR #${context.payload.pull_request.number} with changelog from ${files[0]}`);
