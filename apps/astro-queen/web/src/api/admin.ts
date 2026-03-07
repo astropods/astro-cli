@@ -141,17 +141,6 @@ export function useSendCommand() {
   });
 }
 
-// Exchange refresh token for access token via admin gRPC
-export function useGetAuthToken() {
-  return useMutation({
-    mutationFn: (refreshToken?: string) =>
-      api.post<{ access_token: string; refresh_token: string }>(
-        "/api/auth/token",
-        refreshToken ? { refresh_token: refreshToken } : {}
-      ),
-  });
-}
-
 // Start device authorization flow (same as CLI)
 interface DeviceAuthStart {
   device_code: string;

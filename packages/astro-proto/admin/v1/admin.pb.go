@@ -365,15 +365,6 @@ type HTTPProxyResponse struct {
 	Body       []byte            `json:"body,omitempty"`
 }
 
-type GetAuthTokenRequest struct {
-	RefreshToken string `json:"refresh_token,omitempty"`
-}
-
-type GetAuthTokenResponse struct {
-	AccessToken  string `json:"access_token,omitempty"`  //nolint:gosec
-	RefreshToken string `json:"refresh_token,omitempty"` //nolint:gosec
-}
-
 type GetAuthConfigRequest struct{}
 
 type GetAuthConfigResponse struct {

@@ -28,11 +28,6 @@ type CommandDispatcher interface {
 	SendCommand(ctx context.Context, deviceID string, cmd *connectv1.ShellCommand) (*connectv1.CommandResult, error)
 }
 
-// TokenRefresher exchanges a refresh token for a new access token.
-type TokenRefresher interface {
-	AuthenticateWithRefreshToken(ctx context.Context, refreshToken string) (accessToken, newRefreshToken string, err error)
-}
-
 type Server struct {
 	adminv1.UnimplementedAdminServiceServer
 
@@ -43,18 +38,12 @@ type Server struct {
 	openMeterURL   string
 	cmdDispatch    CommandDispatcher
 	httpHandler    http.Handler
-	tokenRefresher TokenRefresher
 	workosClientID string
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.
 func (s *Server) SetHTTPHandler(h http.Handler) {
 	s.httpHandler = h
-}
-
-// SetTokenRefresher sets the token refresher for GetAuthToken.
-func (s *Server) SetTokenRefresher(t TokenRefresher) {
-	s.tokenRefresher = t
 }
 
 // SetWorkOSClientID sets the WorkOS client ID for GetAuthConfig.
@@ -835,26 +824,6 @@ func (s *Server) GetAuthConfig(_ context.Context, _ *adminv1.GetAuthConfigReques
 	return &adminv1.GetAuthConfigResponse{
 		WorkOSClientID: s.workosClientID,
 		WorkOSBaseURL:  "https://api.workos.com",
-	}, nil
-}
-
-// GetAuthToken exchanges a refresh token for a fresh access token via WorkOS.
-func (s *Server) GetAuthToken(ctx context.Context, req *adminv1.GetAuthTokenRequest) (*adminv1.GetAuthTokenResponse, error) {
-	if s.tokenRefresher == nil {
-		return nil, fmt.Errorf("token refresher not configured")
-	}
-	if req.RefreshToken == "" {
-		return nil, fmt.Errorf("refresh_token is required")
-	}
-
-	accessToken, refreshToken, err := s.tokenRefresher.AuthenticateWithRefreshToken(ctx, req.RefreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("refresh token: %w", err)
-	}
-
-	return &adminv1.GetAuthTokenResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
 	}, nil
 }
 
