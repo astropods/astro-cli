@@ -79,7 +79,7 @@ CREATE TABLE public.workos_event_cursor (
 );
 
 CREATE TABLE public.deployments (
-    id varchar(11) NOT NULL,
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL,
     agent_name varchar NOT NULL,
     build_id varchar NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE public.namespace_ownership (
     namespace varchar NOT NULL,
     account_id uuid NOT NULL,
     agent_name text NOT NULL,
-    deployment_id varchar(11),
+    deployment_id uuid,
     source_account text NOT NULL DEFAULT '',
     scanned_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT namespace_ownership_pkey PRIMARY KEY (namespace),
