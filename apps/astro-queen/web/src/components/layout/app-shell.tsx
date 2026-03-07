@@ -7,6 +7,7 @@ import {
   Bot,
   Server,
   Wifi,
+  Send,
   Gauge,
   Star,
   UserCircle,
@@ -27,6 +28,7 @@ const sections = [
       { to: "/admin/agents", label: "Agents", icon: Bot },
       { to: "/admin/cluster", label: "Cluster", icon: Server },
       { to: "/admin/devices", label: "Devices", icon: Wifi },
+      { to: "/admin/api-client", label: "API Client", icon: Send },
     ],
   },
   {

@@ -351,3 +351,16 @@ type OpenMeterProxyResponse struct {
 	Headers    map[string]string `json:"headers,omitempty"`
 	Body       []byte            `json:"body,omitempty"`
 }
+
+type HTTPProxyRequest struct {
+	Method  string            `json:"method,omitempty"`
+	Path    string            `json:"path,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Body    []byte            `json:"body,omitempty"`
+}
+
+type HTTPProxyResponse struct {
+	StatusCode int32             `json:"status_code,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Body       []byte            `json:"body,omitempty"`
+}

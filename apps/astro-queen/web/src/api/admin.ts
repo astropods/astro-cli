@@ -141,6 +141,16 @@ export function useSendCommand() {
   });
 }
 
+// OpenAPI spec for astro-server HTTP API
+export function useAstroOpenAPISpec() {
+  return useQuery({
+    queryKey: adminKeys.astroOpenapi(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    queryFn: () => api.get<any>("/api/astro/openapi.json"),
+    staleTime: Infinity,
+  });
+}
+
 export function usePodEnv(namespace: string, pod: string) {
   return useQuery({
     queryKey: adminKeys.podEnv(namespace, pod),

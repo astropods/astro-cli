@@ -51,6 +51,9 @@ func (s *Server) ListenAndServe() error {
 	// OpenMeter reverse proxy
 	s.registerOpenMeterRoutes(mux)
 
+	// Astro server HTTP API proxy
+	s.registerAstroProxyRoutes(mux)
+
 	// SPA fallback
 	s.registerSPAHandler(mux)
 

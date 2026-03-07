@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"time"
 
@@ -36,6 +37,12 @@ type Server struct {
 	db           *sql.DB
 	openMeterURL string
 	cmdDispatch  CommandDispatcher
+	httpHandler  http.Handler
+}
+
+// SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.
+func (s *Server) SetHTTPHandler(h http.Handler) {
+	s.httpHandler = h
 }
 
 // New creates a new admin gRPC server.
@@ -803,5 +810,42 @@ func (s *Server) SendCommand(ctx context.Context, req *adminv1.SendCommandReques
 		ExitCode:  result.ExitCode,
 		Stdout:    result.Stdout,
 		Stderr:    result.Stderr,
+	}, nil
+}
+
+// ProxyHTTP dispatches an HTTP request to the gin router running in the same process.
+func (s *Server) ProxyHTTP(_ context.Context, req *adminv1.HTTPProxyRequest) (*adminv1.HTTPProxyResponse, error) {
+	if s.httpHandler == nil {
+		return nil, fmt.Errorf("HTTP handler not configured")
+	}
+
+	httpReq, err := http.NewRequest(req.Method, req.Path, bytes.NewReader(req.Body))
+	if err != nil {
+		return nil, fmt.Errorf("build HTTP request: %w", err)
+	}
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	rec := httptest.NewRecorder()
+	s.httpHandler.ServeHTTP(rec, httpReq)
+
+	result := rec.Result()
+	defer result.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(result.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
+	headers := make(map[string]string, len(result.Header))
+	for k := range result.Header {
+		headers[k] = result.Header.Get(k)
+	}
+
+	return &adminv1.HTTPProxyResponse{
+		StatusCode: int32(result.StatusCode), //nolint:gosec // HTTP status codes are bounded
+		Headers:    headers,
+		Body:       body,
 	}, nil
 }

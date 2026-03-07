@@ -37,4 +37,28 @@ export const api = {
   del: (path: string) => request<void>("DELETE", path),
 };
 
+// Raw fetch through the astro proxy — returns full response details.
+export async function astroProxyFetch(
+  method: string,
+  path: string,
+  headers?: Record<string, string>,
+  body?: string
+): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+  const proxyPath = `/api/astro${path}`;
+  const opts: RequestInit = {
+    method,
+    headers: { "Content-Type": "application/json", ...headers },
+  };
+  if (body && method !== "GET" && method !== "HEAD") {
+    opts.body = body;
+  }
+  const res = await fetch(proxyPath, opts);
+  const text = await res.text();
+  const respHeaders: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    respHeaders[k] = v;
+  });
+  return { status: res.status, headers: respHeaders, body: text };
+}
+
 export { APIError };

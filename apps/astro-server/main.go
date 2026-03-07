@@ -269,6 +269,9 @@ func runAPI(
 		os.Exit(1)
 	}
 
+	// Wire gin router as HTTP handler for admin ProxyHTTP
+	adminSrv.SetHTTPHandler(router)
+
 	// Wire connect server as command dispatcher for admin
 	if connectSrv != nil {
 		adminSrv.SetCommandDispatcher(connectSrv)
