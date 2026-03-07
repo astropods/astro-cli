@@ -580,7 +580,7 @@ export function ApiClientPage() {
   return (
     <div className="flex h-[calc(100vh-3rem)] gap-3">
       {/* Left: Endpoint list */}
-      <div className="w-72 shrink-0 flex flex-col glass rounded-lg py-2">
+      <div className="w-96 shrink-0 flex flex-col glass rounded-lg py-2 overflow-hidden">
         <div className="px-2 pb-1 space-y-1">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-semibold">API Client</h2>
