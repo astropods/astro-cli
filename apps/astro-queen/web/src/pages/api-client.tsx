@@ -177,8 +177,8 @@ function EndpointSidebar({
     setCollapsed((s) => ({ ...s, [tag]: !s[tag] }));
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="relative px-2 pb-2">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 relative px-2 pb-2">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground" />
         <Input
           value={filter}
@@ -581,7 +581,7 @@ export function ApiClientPage() {
     <div className="flex h-[calc(100vh-3rem)] gap-3">
       {/* Left: Endpoint list */}
       <div className="w-96 shrink-0 flex flex-col glass rounded-lg py-2 overflow-hidden">
-        <div className="px-2 pb-1 space-y-1">
+        <div className="shrink-0 px-2 pb-1 space-y-1">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-semibold">API Client</h2>
             <span className="text-[9px] text-muted-foreground">
