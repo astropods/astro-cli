@@ -105,8 +105,7 @@ CREATE TABLE public.namespace_ownership (
     source_account text NOT NULL DEFAULT '',
     scanned_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT namespace_ownership_pkey PRIMARY KEY (namespace),
-    CONSTRAINT namespace_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id),
-    CONSTRAINT namespace_ownership_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id)
+    CONSTRAINT namespace_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id)
 );
 
 CREATE INDEX idx_namespace_ownership_account ON public.namespace_ownership(account_id);
