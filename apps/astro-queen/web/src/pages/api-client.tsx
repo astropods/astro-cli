@@ -319,7 +319,7 @@ function RequestPanel({
       )}
 
       {/* Auth */}
-      {requiresAuth && (
+      {requiresAuth && !sharedToken && (
         <div>
           <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
             <Lock className="size-2.5" /> Bearer Token
@@ -327,11 +327,16 @@ function RequestPanel({
           <Input
             value={bearerToken}
             onChange={(e) => setBearerToken(e.target.value)}
-            placeholder="Paste your JWT token..."
+            placeholder="Paste your JWT token or use Login above"
             className="mt-1 h-7 font-mono text-[11px]"
             type="password"
           />
         </div>
+      )}
+      {requiresAuth && sharedToken && (
+        <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+          <Lock className="size-2.5" /> Using token from login
+        </p>
       )}
 
       {/* Path params */}
