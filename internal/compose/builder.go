@@ -494,7 +494,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 
 		// Environment variables - inherit from agent
-		service.Environment = buildEnvironment(s, envVars)
+		service.Environment = BuildEnvironment(s, envVars)
 
 		project.Services[serviceName] = service
 	}
@@ -537,7 +537,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Environment variables
-	agentService.Environment = buildEnvironment(s, envVars)
+	agentService.Environment = BuildEnvironment(s, envVars)
 
 	// Dependencies - depend on all other services
 	dependsOn := make(types.DependsOnConfig)
@@ -556,8 +556,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	return project, nil
 }
 
-// buildEnvironment creates environment variables for the agent container
-func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
+// BuildEnvironment creates environment variables for the agent container.
+// Exported so buildLocalAgentEnv can reuse it for --local mode.
+func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
 	// Auto-inject connection strings for container-deploying components;
@@ -647,40 +648,42 @@ func buildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		}
 	}
 
-	// Inject custom provider variables from .env (read using variable name directly)
+	// Inject custom provider variables from .env / config store.
+	// Keys are stored as {PROVIDER}_{VARNAME} (matching configure and CustomProviderCredentialKeys).
+	// We also inject the bare variable name so the agent can use either form.
+	injectedProviders := make(map[string]bool)
 	for _, model := range s.Models {
 		if model.IsProviderMode() {
-			if cp, ok := s.Providers[model.Provider]; ok {
-				for _, v := range cp.Variables {
-					if val, exists := envVars[v.Name]; exists {
-						val := val
-						env[v.Name] = &val
-					}
-				}
-			}
+			injectedProviders[model.Provider] = true
 		}
 	}
 	for _, knowledge := range s.Knowledge {
 		if knowledge.IsProviderMode() {
-			if cp, ok := s.Providers[knowledge.Provider]; ok {
-				for _, v := range cp.Variables {
-					if val, exists := envVars[v.Name]; exists {
-						val := val
-						env[v.Name] = &val
-					}
-				}
-			}
+			injectedProviders[knowledge.Provider] = true
 		}
 	}
 	for _, tool := range s.Tools {
 		if tool.IsProviderMode() {
-			if cp, ok := s.Providers[tool.Provider]; ok {
-				for _, v := range cp.Variables {
-					if val, exists := envVars[v.Name]; exists {
-						val := val
-						env[v.Name] = &val
-					}
-				}
+			injectedProviders[tool.Provider] = true
+		}
+	}
+	for provName := range injectedProviders {
+		cp, ok := s.Providers[provName]
+		if !ok {
+			continue
+		}
+		prefix := spec.SanitizeEnvName(provName)
+		for _, v := range cp.Variables {
+			prefixedKey := prefix + "_" + v.Name
+			// Try prefixed key first (CLOUDFLARE_AI_API_KEY), then bare (AI_API_KEY)
+			val, exists := envVars[prefixedKey]
+			if !exists {
+				val, exists = envVars[v.Name]
+			}
+			if exists {
+				val := val
+				env[prefixedKey] = &val
+				env[v.Name] = &val
 			}
 		}
 	}

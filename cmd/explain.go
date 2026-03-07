@@ -409,10 +409,11 @@ func printAgentReceives(s *spec.AstroSpec) {
 
 	// Non-secret custom provider variables (injected as plain env vars)
 	var plainProviderVars []string
-	for _, cp := range referencedCustomProviders(s) {
+	for provName, cp := range referencedCustomProviders(s) {
+		prefix := spec.SanitizeEnvName(provName)
 		for _, v := range cp.Variables {
 			if !v.Secret {
-				plainProviderVars = append(plainProviderVars, v.Name)
+				plainProviderVars = append(plainProviderVars, prefix+"_"+v.Name)
 			}
 		}
 	}
@@ -491,17 +492,19 @@ func collectWarnings(s *spec.AstroSpec) []string {
 
 	// Custom provider non-secret variables (secrets already covered above).
 	for provName, cp := range referencedCustomProviders(s) {
+		prefix := spec.SanitizeEnvName(provName)
 		for _, v := range cp.Variables {
 			if v.Secret {
 				continue // already in AllAgentAutoEnvKeys via AllCredentialKeys
 			}
+			key := prefix + "_" + v.Name
 			desc := fmt.Sprintf("provider %s%s%s", colorCyan, provName, colorReset)
-			if prev, ok := autoEnv[v.Name]; ok {
+			if prev, ok := autoEnv[key]; ok {
 				warnings = append(warnings, fmt.Sprintf(
 					"Env var %s%s%s is claimed by both %s and %s.",
-					colorBold, v.Name, colorReset, prev, desc))
+					colorBold, key, colorReset, prev, desc))
 			}
-			autoEnv[v.Name] = desc
+			autoEnv[key] = desc
 		}
 	}
 

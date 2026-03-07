@@ -297,6 +297,24 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	// Non-secret custom provider variables (injected as plain env vars)
+	var providerPlainVars []varEntry
+	for provName, cp := range referencedCustomProviders(astroSpec) {
+		prefix := spec.SanitizeEnvName(provName)
+		for _, v := range cp.Variables {
+			if v.Secret {
+				continue // already covered by AllCredentialKeys above
+			}
+			providerPlainVars = append(providerPlainVars, varEntry{
+				key:         prefix + "_" + v.Name,
+				description: v.Description,
+				secret:      false,
+			})
+		}
+	}
+	sort.Slice(providerPlainVars, func(i, j int) bool { return providerPlainVars[i].key < providerPlainVars[j].key })
+	credVars = append(credVars, providerPlainVars...)
+
 	// Slack tokens from dev interfaces
 	if astroSpec.Dev != nil && slices.Contains(astroSpec.Dev.Interfaces, "slack") {
 		messagingVars = append(messagingVars,
