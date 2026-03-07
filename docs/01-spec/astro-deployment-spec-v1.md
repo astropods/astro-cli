@@ -50,7 +50,7 @@ A conforming document MUST contain the following top-level fields:
 | `knowledge`     | map\<string, KnowledgeEntry\> | OPTIONAL     | Knowledge store entries (Section 6.2).                        |
 | `tools`         | map\<string, ToolEntry\>      | OPTIONAL     | Tool service entries (Section 6.3).                           |
 | `ingestion`     | map\<string, IngestionEntry\> | OPTIONAL     | Ingestion pipeline entries (Section 7).                       |
-| `interfaces`    | object                        | OPTIONAL     | Messaging interface configuration (Section 8).                |
+| `interfaces`    | object                        | OPTIONAL     | Messaging sidecar configuration (Section 8). Only present when the agent supports messaging. |
 | `variables`     | map\<string, Variable\>       | OPTIONAL     | Deployment variables (Section 9).                             |
 | `observability` | object                        | OPTIONAL     | Observability configuration (Section 10).                     |
 | `editable`      | string[]                      | OPTIONAL     | `deployment-template/v1` only. Lists editable field paths (Section 12). MUST NOT be present in `deployment/v1`. |
@@ -96,6 +96,8 @@ The `agent` object configures the primary agent container.
 | `environment`   | map\<string, string\>         | OPTIONAL     | Environment variables. Supports `${}` references (Section 11).    |
 | `healthcheck`   | Healthcheck                   | OPTIONAL     | Health check configuration (Section 13.4).                        |
 | `update`        | UpdateStrategy                | OPTIONAL     | Rollout strategy (Section 13.5).                                  |
+
+When the agent declares `interfaces.frontend: true` in the AstroAI Spec, the template generator sets the agent's HTTP endpoint to port 80 with `expose.enabled: true`. This creates an ingress directly to the agent container, bypassing the messaging sidecar.
 
 ---
 
@@ -175,7 +177,7 @@ Each entry in the `ingestion` map configures a data ingestion pipeline. Ingestio
 
 ## 8. Interfaces
 
-The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed as a sidecar.
+The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed as a sidecar. This block is only present when the agent supports messaging (`interfaces.messaging: true` or `interfaces` omitted in the AstroAI Spec). When the agent disables messaging, this block MUST be absent and no sidecar is deployed.
 
 | Field         | Type                    | Required     | Description                                                    |
 | ------------- | ----------------------- | ------------ | -------------------------------------------------------------- |
@@ -245,7 +247,7 @@ ${<section>.<name>.<attribute>}
 
 The translator MUST inject the following environment variables regardless of `agent.environment` content:
 
-- `GRPC_SERVER_ADDR` — injected when `interfaces` is present.
+- `GRPC_SERVER_ADDR` — injected when `interfaces` is present (i.e. messaging is enabled).
 - `OTEL_EXPORTER_OTLP_ENDPOINT` — injected when `observability.enabled` is `true`.
 
 These MAY appear in the template for visibility but are platform-managed and MUST NOT be overridden by user configuration.
@@ -402,8 +404,9 @@ Returns a deployment spec YAML template with placeholder values and descriptions
 4. Populate `agent.environment` with `${}` references using conventional env var names.
 5. Extract variables from all referenced providers and inputs, emitting one variable entry per declared variable. All `Input` fields carry through transparently. Set `targets` based on the variable's origin: provider variables → `[agent]`; interface variables → `[interface.<adapter>]` for the adapter that declared them; ingestion-level inputs → `[ingestion.<name>]` for the specific pipeline; top-level inputs → `[agent, ingestion]` plus one `interface.<adapter>` entry per enabled adapter; `agent.inputs` → `[agent]`.
 6. For each `schedule`-type ingestion: emit `schedule: ""` placeholder.
-7. Emit `interfaces` block with `adapters: []` and the platform messaging sidecar image.
-8. Apply defaults: `replicas: 1`, `observability.enabled: true`, `expose.enabled: false` on all endpoints, `target.runtime: kubernetes`.
+7. If `agent.interfaces.messaging` is `true` (or `interfaces` is omitted): emit `interfaces` block with `adapters: []` and the platform messaging sidecar image. Otherwise omit the block.
+7a. If `agent.interfaces.frontend` is `true`: set the agent's HTTP endpoint to port 80 with `expose.enabled: true`.
+8. Apply defaults: `replicas: 1`, `observability.enabled: true`, `expose.enabled: false` on non-frontend endpoints, `target.runtime: kubernetes`.
 9. Set `source` fields from registered spec metadata.
 10. Emit `editable` list.
 
