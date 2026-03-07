@@ -35,3 +35,14 @@ All server data integration uses TanStack Query. See [docs/04-guides/tanstack-qu
 - Never call `api.*` directly in components for reads — use query hooks from `src/api/queries/`.
 - All query keys must come from the factories in `src/api/queries/keys.ts`.
 - Mutations invalidate affected queries in `onSuccess`.
+
+# Changelogs
+
+Every PR must include a changelog file at `docs/changelog/{branch-name}-YYYY-MM-DD.md`. A GitHub Action warns on PRs missing one and auto-updates the PR description from it.
+
+Changelogs must focus on **architecture and design**, not file-by-file diffs:
+- **Summary** — The problem being solved and why the change exists.
+- **Design** — How the pieces fit together, key decisions, with short code/config examples where helpful.
+- **Migration** — What users need to do (or that nothing is required).
+
+Do not list individual file changes. Explain the system, not the patch.
