@@ -9,7 +9,7 @@ function VariableFieldsStateful(props: VariableFieldsProps) {
 }
 
 const meta = {
-  title: "Deploy/VariableFields",
+  title: "Features/Deploy/VariableFields",
   component: VariableFieldsStateful,
   parameters: { layout: "padded" },
 } satisfies Meta<typeof VariableFieldsStateful>;

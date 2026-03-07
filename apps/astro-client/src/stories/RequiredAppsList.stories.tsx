@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RequiredAppsList } from "@/components/agent-detail/RequiredAppsList";
 
 const meta = {
-  title: "AgentDetail/RequiredAppsList",
+  title: "Features/Agents/Sidebar/RequiredAppsList",
   component: RequiredAppsList,
   decorators: [
     (Story) => (

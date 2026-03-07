@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FormSection } from "@/components/deploy/FormSection";
 
 const meta = {
-  title: "Deploy/FormSection",
+  title: "Design System/Composites/FormSection",
   component: FormSection,
 } satisfies Meta<typeof FormSection>;
 

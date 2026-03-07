@@ -4,7 +4,7 @@ import { Grid2x2, List, LayoutList, Columns3 } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const meta = {
-  title: "Components/ToggleGroup",
+  title: "Design System/Primitives/ToggleGroup",
   component: ToggleGroup,
   decorators: [
     (Story) => (

@@ -25,7 +25,7 @@ function IntegrationIconCatalog() {
 }
 
 const meta = {
-  title: "Components/Integration/IntegrationIcons",
+  title: "Features/Integrations/IntegrationIcons",
   component: IntegrationIconCatalog,
 } satisfies Meta<typeof IntegrationIconCatalog>;
 

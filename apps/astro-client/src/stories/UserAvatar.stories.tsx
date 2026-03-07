@@ -14,7 +14,7 @@ const baseUser: User = {
 };
 
 const meta = {
-  title: "Components/UserAvatar",
+  title: "Design System/Composites/UserAvatar",
   component: UserAvatar,
   args: {
     user: baseUser,

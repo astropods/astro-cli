@@ -6,7 +6,7 @@ import { Gmail } from "@/components/ui/svgs/gmail";
 import { Badge } from "@/components/Badge";
 
 const meta = {
-  title: "Components/Badge",
+  title: "Design System/Primitives/Badge",
   component: Badge,
   argTypes: {
     variant: {

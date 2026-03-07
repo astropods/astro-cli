@@ -6,7 +6,7 @@ import { GithubLight } from "@/components/ui/svgs/githubLight";
 import { Drive } from "@/components/ui/svgs/drive";
 
 const meta = {
-  title: "Components/Integration/IntegrationBadge",
+  title: "Features/Integrations/IntegrationBadge",
   component: IntegrationBadge,
   argTypes: {
     icon: {

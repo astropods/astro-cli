@@ -9,7 +9,7 @@ import { Notion } from "@/components/ui/svgs/notion";
 import { Drive } from "@/components/ui/svgs/drive";
 
 const meta = {
-  title: "Layout/AgentHeader",
+  title: "Features/Agents/AgentHeader",
   component: AgentHeader,
   argTypes: {
     onMenuClick: { table: { disable: true } },

@@ -7,7 +7,7 @@ import {
 } from "@/components/MyAgentsHeader";
 
 const meta = {
-  title: "Layout/MyAgentsHeader",
+  title: "Features/Agents/MyAgentsHeader",
   component: MyAgentsHeader,
   decorators: [
     (Story) => (

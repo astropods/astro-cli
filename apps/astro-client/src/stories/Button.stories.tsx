@@ -4,7 +4,7 @@ import { PlusIcon, EnvelopeIcon, ArrowPathIcon } from "@heroicons/react/24/outli
 import { Button } from "@/components/ui/button"
 
 const meta = {
-  title: "Components/Button",
+  title: "Design System/Primitives/Button",
   component: Button,
   argTypes: {
     variant: {

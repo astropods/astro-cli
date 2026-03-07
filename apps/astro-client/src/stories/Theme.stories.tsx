@@ -212,7 +212,7 @@ function ColorGrid() {
 }
 
 const meta = {
-  title: 'Theme/Colors',
+  title: 'Design System/Theme/Colors',
   component: ColorGrid,
   parameters: {
     layout: 'fullscreen',

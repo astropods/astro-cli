@@ -16,7 +16,7 @@ const allIntegrations = [
 ];
 
 const meta = {
-  title: "Components/Integration/IntegrationIconStack",
+  title: "Features/Integrations/IntegrationIconStack",
   component: IntegrationIconStack,
 } satisfies Meta<typeof IntegrationIconStack>;
 

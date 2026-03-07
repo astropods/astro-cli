@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 
 const meta = {
-  title: "Components/DeployedAgentCard",
+  title: "Features/Agents/DeployedAgentCard",
   component: DeployedAgentCard,
   decorators: [
     (Story) => (

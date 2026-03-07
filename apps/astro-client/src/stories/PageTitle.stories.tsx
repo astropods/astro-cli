@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 
 const meta = {
-  title: "Layout/PageTitle",
+  title: "Design System/Composites/PageTitle",
   component: PageTitle,
 } satisfies Meta<typeof PageTitle>;
 

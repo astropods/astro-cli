@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { RecommendedAgents } from "@/components/RecommendedAgents";
 
 const meta = {
-  title: "Components/RecommendedAgents",
+  title: "Features/Agents/RecommendedAgents",
   component: RecommendedAgents,
   decorators: [
     (Story) => (

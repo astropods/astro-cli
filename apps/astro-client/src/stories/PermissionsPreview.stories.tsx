@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { PermissionsPreview } from "@/components/agent-detail/PermissionsPreview";
 
 const meta = {
-  title: "AgentDetail/PermissionsPreview",
+  title: "Features/Agents/Sidebar/PermissionsPreview",
   component: PermissionsPreview,
   decorators: [
     (Story) => (

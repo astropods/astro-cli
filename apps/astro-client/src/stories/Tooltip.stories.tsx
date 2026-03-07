@@ -28,7 +28,7 @@ function TooltipDemo({
 }
 
 const meta = {
-  title: "Components/Tooltip",
+  title: "Design System/Primitives/Tooltip",
   component: TooltipDemo,
   parameters: {
     layout: "centered",

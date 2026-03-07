@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
 
 const meta = {
-  title: "Layout/EmptyState",
+  title: "Design System/Composites/EmptyState",
   component: EmptyState,
   decorators: [
     (Story) => (

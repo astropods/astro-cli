@@ -5,7 +5,7 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { Button } from "@/components/ui/button";
 
 const meta = {
-  title: "Layout/PageBreadcrumb",
+  title: "Design System/Composites/PageBreadcrumb",
   component: PageBreadcrumb,
   decorators: [
     (Story) => (

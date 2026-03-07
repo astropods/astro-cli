@@ -37,7 +37,7 @@ const mockAccount: AccountPublic = {
 };
 
 const meta = {
-  title: "AgentDetail/AgentDetailSidebar",
+  title: "Features/Agents/AgentDetailSidebar",
   component: AgentDetailSidebar,
   decorators: [
     (Story) => (

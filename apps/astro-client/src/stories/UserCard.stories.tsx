@@ -14,7 +14,7 @@ const baseUser: User = {
 };
 
 const meta = {
-  title: "Components/UserCard",
+  title: "Design System/Composites/UserCard",
   component: UserCard,
   decorators: [
     (Story) => (

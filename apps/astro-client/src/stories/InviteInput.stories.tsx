@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { InviteInput, type InviteEntry } from "@/components/InviteInput";
 
 const meta = {
-  title: "Components/InviteInput",
+  title: "Design System/Composites/InviteInput",
   decorators: [
     (Story) => (
       <div className="max-w-md">

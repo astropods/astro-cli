@@ -28,7 +28,7 @@ function InterfacesPickerStateful(props: InterfacesPickerProps) {
 }
 
 const meta = {
-  title: "Deploy/InterfacesPicker",
+  title: "Features/Deploy/InterfacesPicker",
   component: InterfacesPickerStateful,
   parameters: { layout: "padded" },
   decorators: [

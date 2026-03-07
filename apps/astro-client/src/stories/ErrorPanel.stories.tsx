@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ErrorPanel } from "@/components/deploy/ErrorPanel";
 
 const meta = {
-  title: "Deploy/ErrorPanel",
+  title: "Design System/Composites/ErrorPanel",
   component: ErrorPanel,
   parameters: { layout: "padded" },
   decorators: [
