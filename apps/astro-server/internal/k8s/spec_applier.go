@@ -229,9 +229,15 @@ func (a *Applier) ApplyDeploymentSpec(
 		// Override healthcheck with model-aware readiness when Model is set
 		healthcheck := model.Healthcheck
 		if model.Model != "" && healthcheck == nil {
+			// model.Model is comma-separated; build compound grep check
+			modelNames := strings.Split(model.Model, ",")
+			var checks []string
+			for _, m := range modelNames {
+				checks = append(checks, fmt.Sprintf("ollama list | grep -q '%s'", m))
+			}
 			healthcheck = &spec.Healthcheck{
 				Test: []string{"sh", "-c",
-					fmt.Sprintf("ollama list | grep -q '%s'", model.Model),
+					strings.Join(checks, " && "),
 				},
 				Interval: "15s",
 				Timeout:  "5s",
@@ -256,9 +262,15 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		// Add model pull postStart hook
 		if model.Model != "" {
+			// model.Model is comma-separated; pull each model
+			modelNames := strings.Split(model.Model, ",")
+			var pullCmds []string
+			for _, m := range modelNames {
+				pullCmds = append(pullCmds, fmt.Sprintf("ollama pull %s", m))
+			}
 			ssCfg.PostStartCommand = []string{
 				"sh", "-c",
-				fmt.Sprintf("until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull %s", model.Model),
+				fmt.Sprintf("until ollama list >/dev/null 2>&1; do sleep 1; done; %s", strings.Join(pullCmds, " && ")),
 			}
 		}
 

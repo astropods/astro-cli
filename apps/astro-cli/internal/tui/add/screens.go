@@ -200,7 +200,7 @@ func (m model) buildEntry() map[string]any {
 			if ollamaModel == "" {
 				ollamaModel = ollamaModelOptions()[0].value
 			}
-			return map[string]any{"provider": "ollama", "model": ollamaModel}
+			return map[string]any{"provider": "ollama", "models": []string{ollamaModel}}
 		}
 		return map[string]any{"provider": m.provider}
 	case "knowledge":

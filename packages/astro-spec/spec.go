@@ -2,6 +2,8 @@
 // This package is used by both astro-cli and astro-server to ensure consistent parsing.
 package spec
 
+import "strings"
+
 // AstroSpec represents the complete Astro specification
 type AstroSpec struct {
 	Spec      string                    `json:"spec" yaml:"spec" jsonschema:"description=Spec version. Must be package/v1"`
@@ -75,9 +77,22 @@ type CustomProvider struct {
 
 type Model struct {
 	Provider  string           `json:"provider,omitempty" yaml:"provider,omitempty" jsonschema:"description=Platform-managed provider (e.g. ollama) or custom provider name"`
-	Model     string           `json:"model,omitempty" yaml:"model,omitempty" jsonschema:"description=Provider-specific model name (e.g. llama3.2)"`
+	Models    []string         `json:"models,omitempty" yaml:"models,omitempty" jsonschema:"description=Model identifiers to make available (e.g. [llama3.2, mistral]). Only meaningful for self-hosted providers."`
+	Model     string           `json:"model,omitempty" yaml:"model,omitempty" jsonschema:"description=Deprecated: use models instead. Single model identifier."`
 	Container *ContainerConfig `json:"container,omitempty" yaml:"container,omitempty" jsonschema:"description=Custom container config (alternative to provider)"`
 	Inputs    []Input          `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the model container"`
+}
+
+// ResolvedModels returns the effective list of model identifiers,
+// merging the deprecated Model field into Models.
+func (m Model) ResolvedModels() []string {
+	if len(m.Models) > 0 {
+		return m.Models
+	}
+	if m.Model != "" {
+		return []string{m.Model}
+	}
+	return nil
 }
 
 // IsProviderMode returns true when the model entry uses a platform-managed provider.
@@ -109,14 +124,15 @@ func (m Model) ResolvedContainer() ContainerConfig {
 		Image: prov.Image,
 		Port:  prov.DefaultPort,
 	}
-	// Inject model name and default env from provider
-	if m.Model != "" || len(prov.DefaultEnv) > 0 {
+	// Inject model names and default env from provider
+	models := m.ResolvedModels()
+	if len(models) > 0 || len(prov.DefaultEnv) > 0 {
 		cc.Environment = make(map[string]string)
 		for k, v := range prov.DefaultEnv {
 			cc.Environment[k] = v
 		}
-		if m.Model != "" && prov.EnvPrefix != "" {
-			cc.Environment[prov.EnvPrefix+"_MODEL"] = m.Model
+		if len(models) > 0 && prov.EnvPrefix != "" {
+			cc.Environment[prov.EnvPrefix+"_MODEL"] = strings.Join(models, ",")
 		}
 	}
 	return cc

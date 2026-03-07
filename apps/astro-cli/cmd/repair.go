@@ -392,7 +392,9 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 		p := strings.ToLower(model.Provider)
 		if p == "ollama" || p == "huggingface" {
 			config.ModelProvider = model.Provider
-			config.Model = model.Model
+			if models := model.ResolvedModels(); len(models) > 0 {
+				config.Model = models[0]
+			}
 			break
 		}
 	}

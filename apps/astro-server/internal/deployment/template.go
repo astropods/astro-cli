@@ -124,9 +124,10 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 					for _, key := range providerEnvKeys(prov.EnvPrefix, name, "BASE_URL", isDup, isFirst) {
 						agentEnv[key] = fmt.Sprintf("${models.%s.%s.url}", name, primaryEp) + "/api"
 					}
-					if model.Model != "" {
+					if models := model.ResolvedModels(); len(models) > 0 {
+						joined := strings.Join(models, ",")
 						for _, key := range providerEnvKeys(prov.EnvPrefix, name, "MODEL", isDup, isFirst) {
-							agentEnv[key] = model.Model
+							agentEnv[key] = joined
 						}
 					}
 				}
@@ -395,18 +396,23 @@ func buildDeploymentModel(model spec.Model, input TemplateInput) spec.Deployment
 			dm.Update = spec.UpdateStrategy{Strategy: "recreate"}
 		}
 
-		// Set model name for pull
-		if model.Model != "" {
-			dm.Model = model.Model
+		// Set model name(s) for pull
+		if models := model.ResolvedModels(); len(models) > 0 {
+			dm.Model = strings.Join(models, ",")
 			dm.Persistent = true
 		}
 
 		// Model-aware readiness: verify model is pulled, not just server up
 		if dm.Healthcheck == nil {
-			if model.Model != "" {
+			if models := model.ResolvedModels(); len(models) > 0 {
+				// Build compound grep check: each model must be present
+				var checks []string
+				for _, m := range models {
+					checks = append(checks, fmt.Sprintf("ollama list | grep -q '%s'", m))
+				}
 				dm.Healthcheck = &spec.Healthcheck{
 					Test: []string{"sh", "-c",
-						fmt.Sprintf("ollama list | grep -q '%s'", model.Model),
+						strings.Join(checks, " && "),
 					},
 					Interval: "15s",
 					Timeout:  "5s",

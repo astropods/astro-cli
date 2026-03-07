@@ -799,7 +799,7 @@ func TestAgentConnectionKeys_SelfHostedModel(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"local": {Provider: "ollama", Model: "llama3.2"},
+			"local": {Provider: "ollama", Models: []string{"llama3.2"}},
 		},
 	}
 	addrs := map[string]ConnectionAddress{
@@ -812,6 +812,26 @@ func TestAgentConnectionKeys_SelfHostedModel(t *testing.T) {
 	assertEnv(t, env, "OLLAMA_URL", "http://model-local:11434")
 	assertEnv(t, env, "OLLAMA_BASE_URL", "http://model-local:11434/api")
 	assertEnv(t, env, "OLLAMA_MODEL", "llama3.2")
+}
+
+func TestAgentConnectionKeys_SelfHostedModel_MultiModel(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"local": {Provider: "ollama", Models: []string{"llama3.2", "mistral"}},
+		},
+	}
+	addrs := map[string]ConnectionAddress{
+		"models.local": {Host: "model-local", Port: "11434", URL: "http://model-local:11434", BaseURL: "http://model-local:11434/api"},
+	}
+	env := AgentConnectionKeys(s, addrs)
+
+	assertEnv(t, env, "OLLAMA_HOST", "model-local")
+	assertEnv(t, env, "OLLAMA_PORT", "11434")
+	assertEnv(t, env, "OLLAMA_URL", "http://model-local:11434")
+	assertEnv(t, env, "OLLAMA_BASE_URL", "http://model-local:11434/api")
+	assertEnv(t, env, "OLLAMA_MODEL", "llama3.2,mistral")
 }
 
 func TestAgentConnectionKeys_SelfHostedModel_NoModel(t *testing.T) {
@@ -838,8 +858,8 @@ func TestAgentConnectionKeys_DuplicateSelfHostedModelProvider(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"large": {Provider: "ollama", Model: "llama3.2:70b"},
-			"small": {Provider: "ollama", Model: "llama3.2"},
+			"large": {Provider: "ollama", Models: []string{"llama3.2:70b"}},
+			"small": {Provider: "ollama", Models: []string{"llama3.2"}},
 		},
 	}
 	addrs := map[string]ConnectionAddress{
@@ -1263,7 +1283,7 @@ func TestResolveEnvVars_FullSpec(t *testing.T) {
 			"ALLOWED_ORIGINS": {Name: "ALLOWED_ORIGINS", Datatype: "string", Default: "http://localhost"},
 		},
 		Models: map[string]Model{
-			"llm":       {Provider: "ollama", Model: "llama3.2"},
+			"llm":       {Provider: "ollama", Models: []string{"llama3.2"}},
 			"embedder":  {Container: &ContainerConfig{Image: "embed:latest", Port: 8000}},
 			"anthropic": {Provider: "anthropic"},
 		},
@@ -1401,7 +1421,7 @@ func TestAllAgentAutoEnvKeys_SelfHostedModel(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"local": {Provider: "ollama", Model: "llama3.2"},
+			"local": {Provider: "ollama", Models: []string{"llama3.2"}},
 		},
 	}
 	meta := AllAgentAutoEnvKeys(s)
@@ -1532,7 +1552,7 @@ func TestAllAgentAutoEnvKeys_NoEmptyProviderOrCategory(t *testing.T) {
 		Name:  "agent",
 		Agent: Container{Image: "a:1"},
 		Models: map[string]Model{
-			"llm":      {Provider: "ollama", Model: "llama3.2"},
+			"llm":      {Provider: "ollama", Models: []string{"llama3.2"}},
 			"embedder": {Container: &ContainerConfig{Image: "embed:1", Port: 8000}},
 		},
 		Knowledge: map[string]Knowledge{

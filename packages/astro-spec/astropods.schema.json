@@ -180,9 +180,16 @@
             "type": "string",
             "description": "Platform-managed provider (e.g. ollama) or custom provider name"
           },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Model identifiers to make available (e.g. [llama3.2, mistral]). Only meaningful for self-hosted providers."
+          },
           "model": {
             "type": "string",
-            "description": "Provider-specific model name (e.g. llama3.2)"
+            "description": "Deprecated: use models instead. Single model identifier."
           },
           "container": {
             "properties": {

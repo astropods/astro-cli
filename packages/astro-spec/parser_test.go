@@ -770,6 +770,25 @@ knowledge:
 `,
 			wantErr: "",
 		},
+		{
+			name: "model with both models and model rejected",
+			yaml: `
+spec: package/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+models:
+  llm:
+    provider: ollama
+    model: llama3.2
+    models:
+      - llama3.2
+      - mistral
+`,
+			wantErr: "models and model are mutually exclusive",
+		},
 	}
 
 	for _, tt := range tests {

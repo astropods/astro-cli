@@ -149,6 +149,9 @@ func ParseSpec(path string) (*AstroSpec, error) {
 		if m.Provider == "" && m.Container == nil {
 			return nil, fmt.Errorf("model %q: either provider or container is required", name)
 		}
+		if len(m.Models) > 0 && m.Model != "" {
+			return nil, fmt.Errorf("model %q: models and model are mutually exclusive", name)
+		}
 		// Validate custom provider scope
 		if m.Provider != "" {
 			if cp, ok := spec.Providers[m.Provider]; ok {

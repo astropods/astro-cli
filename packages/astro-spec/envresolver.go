@@ -513,9 +513,10 @@ func resolveModelConnections(s *AstroSpec, addrs map[string]ConnectionAddress, d
 			for _, key := range qualifiedKeys(prov.EnvPrefix, name, "BASE_URL", isDup, isFirst) {
 				dst[key] = addr.BaseURL
 			}
-			if model.Model != "" {
+			if models := model.ResolvedModels(); len(models) > 0 {
+				joined := strings.Join(models, ",")
 				for _, key := range qualifiedKeys(prov.EnvPrefix, name, "MODEL", isDup, isFirst) {
-					dst[key] = model.Model
+					dst[key] = joined
 				}
 			}
 		} else {

@@ -280,8 +280,9 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 				} else if def.Provider != tt.wantDefault {
 					t.Errorf("default provider = %q, want %q", def.Provider, tt.wantDefault)
 				}
-				if tt.wantDefaultModel != "" && def.Model != tt.wantDefaultModel {
-					t.Errorf("default model = %q, want %q", def.Model, tt.wantDefaultModel)
+				resolved := def.ResolvedModels()
+				if tt.wantDefaultModel != "" && (len(resolved) == 0 || resolved[0] != tt.wantDefaultModel) {
+					t.Errorf("default model = %v, want %q", resolved, tt.wantDefaultModel)
 				}
 			}
 		})

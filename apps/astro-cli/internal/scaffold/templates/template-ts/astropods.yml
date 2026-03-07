@@ -15,7 +15,7 @@ models:
   default:
     provider: {{.ModelProvider}}
 {{- if ne .Model ""}}
-    model: {{.Model}}
+    models: [{{.Model}}]
 {{- end}}
 {{- end}}
 {{- range .Integrations}}
