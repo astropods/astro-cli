@@ -272,6 +272,9 @@ func runAPI(
 	// Wire gin router as HTTP handler for admin ProxyHTTP
 	adminSrv.SetHTTPHandler(router)
 
+	// Wire WorkOS token refresher for admin GetAuthToken
+	adminSrv.SetTokenRefresher(&workosTokenRefresher{client: workosClient})
+
 	// Wire connect server as command dispatcher for admin
 	if connectSrv != nil {
 		adminSrv.SetCommandDispatcher(connectSrv)
@@ -834,4 +837,17 @@ func startConnectGRPCServer(
 	}()
 
 	return grpcSrv, srv, nil
+}
+
+// workosTokenRefresher adapts auth.WorkOSClient to admingrpc.TokenRefresher.
+type workosTokenRefresher struct {
+	client *auth.WorkOSClient
+}
+
+func (w *workosTokenRefresher) AuthenticateWithRefreshToken(ctx context.Context, refreshToken string) (string, string, error) {
+	result, err := w.client.AuthenticateWithRefreshToken(ctx, refreshToken)
+	if err != nil {
+		return "", "", err
+	}
+	return result.AccessToken, result.RefreshToken, nil
 }

@@ -19,20 +19,22 @@ import (
 // Server is an HTTP server that proxies admin gRPC calls
 // and serves the embedded React SPA.
 type Server struct {
-	admin       adminv1.AdminServiceClient
-	webFS       fs.FS
-	port        int
-	openapiJSON []byte
-	httpSrv     *http.Server
+	admin        adminv1.AdminServiceClient
+	webFS        fs.FS
+	port         int
+	openapiJSON  []byte
+	refreshToken string
+	httpSrv      *http.Server
 }
 
 // New creates a new Server.
-func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, openapiJSON []byte) *Server {
+func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, openapiJSON []byte, refreshToken string) *Server {
 	return &Server{
-		admin:       admin,
-		webFS:       webFS,
-		port:        port,
-		openapiJSON: openapiJSON,
+		admin:        admin,
+		webFS:        webFS,
+		port:         port,
+		openapiJSON:  openapiJSON,
+		refreshToken: refreshToken,
 	}
 }
 
@@ -53,6 +55,9 @@ func (s *Server) ListenAndServe() error {
 
 	// Astro server HTTP API proxy
 	s.registerAstroProxyRoutes(mux)
+
+	// Auth token endpoint (exchanges refresh token for access token)
+	mux.HandleFunc("POST /api/auth/token", s.handleGetAuthToken)
 
 	// SPA fallback
 	s.registerSPAHandler(mux)

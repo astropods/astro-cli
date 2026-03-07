@@ -6,6 +6,33 @@ import (
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
 
+func (s *Server) handleGetAuthToken(w http.ResponseWriter, r *http.Request) {
+	// Use refresh token from request body, falling back to config
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	_ = readJSON(r, &body)
+
+	token := body.RefreshToken
+	if token == "" {
+		token = s.refreshToken
+	}
+	if token == "" {
+		writeErr(w, http.StatusBadRequest, "no refresh_token provided and none configured in ~/.astro-queen/config.yaml")
+		return
+	}
+
+	resp, err := s.admin.GetAuthToken(r.Context(), &adminv1.GetAuthTokenRequest{
+		RefreshToken: token,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/accounts", s.handleListAccounts)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)

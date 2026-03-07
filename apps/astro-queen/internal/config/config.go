@@ -10,8 +10,9 @@ import (
 
 // Config holds astro-queen connection settings loaded from ~/.astro-queen/config.yaml.
 type Config struct {
-	Server    string `yaml:"-"`          // set at runtime by the environment subcommand
-	OPAccount string `yaml:"op_account"` // 1Password account name for desktop app integration
+	Server       string `yaml:"-"`             // set at runtime by the environment subcommand
+	OPAccount    string `yaml:"op_account"`    // 1Password account name for desktop app integration
+	RefreshToken string `yaml:"refresh_token"` // WorkOS refresh token for API client auth
 }
 
 // CertFile returns the conventional client cert path.

@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback } from "react";
-import { useAstroOpenAPISpec } from "@/api/admin";
+import { useAstroOpenAPISpec, useGetAuthToken } from "@/api/admin";
 import { astroProxyFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Play, ChevronRight, Search, Lock } from "lucide-react";
+import { Play, ChevronRight, Search, Lock, Key } from "lucide-react";
 
 // --- Types ---
 
@@ -239,9 +239,11 @@ function EndpointSidebar({
 function RequestPanel({
   endpoint,
   onResponse,
+  sharedToken,
 }: {
   endpoint: Endpoint;
   onResponse: (r: ApiResponse) => void;
+  sharedToken: string;
 }) {
   const pathParamNames = extractPathParams(endpoint.path);
   const queryParamDefs =
@@ -256,7 +258,7 @@ function RequestPanel({
   const [pathParams, setPathParams] = useState<Record<string, string>>({});
   const [queryParams, setQueryParams] = useState<Record<string, string>>({});
   const [bodyText, setBodyText] = useState("{}");
-  const [bearerToken, setBearerToken] = useState("");
+  const [bearerToken, setBearerToken] = useState(sharedToken);
   const [sending, setSending] = useState(false);
 
   const handleSend = useCallback(async () => {
@@ -465,9 +467,11 @@ function ResponsePanel({ response }: { response: ApiResponse }) {
 
 export function ApiClientPage() {
   const { data: spec, isLoading, error } = useAstroOpenAPISpec();
+  const getAuthToken = useGetAuthToken();
   const [selected, setSelected] = useState<Endpoint | null>(null);
   const [filter, setFilter] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
+  const [bearerToken, setBearerToken] = useState("");
 
   const endpoints = useMemo(
     () => (spec ? parseEndpoints(spec) : []),
@@ -521,13 +525,36 @@ export function ApiClientPage() {
     <div className="flex h-[calc(100vh-3rem)] gap-3">
       {/* Left: Endpoint list */}
       <div className="w-72 shrink-0 flex flex-col glass rounded-lg py-2">
-        <div className="px-2 pb-1 flex items-center justify-between">
-          <h2 className="text-xs font-semibold">
-            API Client
-          </h2>
-          <span className="text-[9px] text-muted-foreground">
-            {endpoints.length} endpoints
-          </span>
+        <div className="px-2 pb-1 space-y-1">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold">API Client</h2>
+            <span className="text-[9px] text-muted-foreground">
+              {endpoints.length} endpoints
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant={bearerToken ? "outline" : "default"}
+            onClick={() =>
+              getAuthToken.mutate(undefined, {
+                onSuccess: (data) => setBearerToken(data.access_token),
+              })
+            }
+            disabled={getAuthToken.isPending}
+            className="w-full h-6 gap-1 text-[10px]"
+          >
+            <Key className="size-2.5" />
+            {getAuthToken.isPending
+              ? "Getting token..."
+              : bearerToken
+                ? "Token active"
+                : "Get Auth Token"}
+          </Button>
+          {getAuthToken.isError && (
+            <p className="text-[9px] text-destructive truncate" title={getAuthToken.error.message}>
+              {getAuthToken.error.message}
+            </p>
+          )}
         </div>
         <EndpointSidebar
           grouped={grouped}
@@ -547,6 +574,7 @@ export function ApiClientPage() {
                 key={`${selected.method}-${selected.path}`}
                 endpoint={selected}
                 onResponse={setResponse}
+                sharedToken={bearerToken}
               />
             </div>
             {response && (
