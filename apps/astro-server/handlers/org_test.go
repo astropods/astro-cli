@@ -13,6 +13,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 )
 
@@ -396,14 +397,22 @@ func TestAddMember_RoleEscalation_NonOwnerCannotAssignOwner(t *testing.T) {
 }
 
 func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
 	caller := &auth.User{ID: "caller-1", Email: "owner@example.com"}
 	session := &auth.Session{Role: "owner"}
 
+	// syncSvc with a real store — GetByID will return "not found" instead of panicking
+	syncSvc := org.NewSync(nil, store, nil)
+
+	mock.ExpectQuery("SELECT .+ FROM accounts").
+		WithArgs("acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
 	router := gin.New()
-	router.Use(gin.Recovery())
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -411,7 +420,7 @@ func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	// Should NOT be 403 — the owner guard should pass (will fail later on nil syncSvc)
+	// Should NOT be 403 — the owner guard should pass (syncSvc returns DB error → 400)
 	if rec.Code == http.StatusForbidden {
 		t.Errorf("owner should be able to assign owner role, got 403: %s", rec.Body.String())
 	}
