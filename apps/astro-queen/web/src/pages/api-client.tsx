@@ -479,7 +479,9 @@ export function ApiClientPage() {
   const [selected, setSelected] = useState<Endpoint | null>(null);
   const [filter, setFilter] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
-  const [bearerToken, setBearerToken] = useState("");
+  const [bearerToken, setBearerToken] = useState(
+    () => localStorage.getItem("queen_bearer_token") ?? ""
+  );
   const [loginState, setLoginState] = useState<
     | { status: "idle" }
     | { status: "waiting"; userCode: string }
@@ -527,6 +529,7 @@ export function ApiClientPage() {
         const result = await pollDeviceAuth(auth.device_code);
         if (result.status === "complete" && result.access_token) {
           setBearerToken(result.access_token);
+          localStorage.setItem("queen_bearer_token", result.access_token);
           setLoginState({ status: "idle" });
           return;
         }
