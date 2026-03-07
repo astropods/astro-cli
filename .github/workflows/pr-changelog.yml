@@ -3,8 +3,6 @@ name: PR Changelog
 on:
   pull_request:
     types: [opened, synchronize]
-    paths:
-      - "docs/changelog/**"
 
 jobs:
   update-pr-description:
@@ -24,14 +22,65 @@ jobs:
             const branch = context.payload.pull_request.head.ref;
             const changelogDir = 'docs/changelog';
 
-            const files = fs.readdirSync(changelogDir)
-              .filter(f => f.startsWith(branch) && f.endsWith('.md'))
-              .sort()
-              .reverse();
+            const commentMarker = '<!-- pr-changelog-bot -->';
+
+            // Match exactly {branch}-YYYY-MM-DD.md to avoid false positives
+            // from similarly-prefixed branches (e.g. "spec-update" vs "spec-update-v2")
+            const pattern = new RegExp(`^${branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d{4}-\\d{2}-\\d{2}\\.md$`);
+            const files = fs.existsSync(changelogDir)
+              ? fs.readdirSync(changelogDir).filter(f => pattern.test(f)).sort().reverse()
+              : [];
+
+            // Find any existing bot comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+            const botComment = comments.find(c => c.body.includes(commentMarker));
 
             if (files.length === 0) {
-              console.log(`No changelog found for branch "${branch}"`);
+              const today = new Date().toISOString().slice(0, 10);
+              const warning = [
+                commentMarker,
+                `> **No changelog found for branch \`${branch}\`**`,
+                '>',
+                '> Add a changelog file so the PR description is updated automatically:',
+                '>',
+                '> ```',
+                `> docs/changelog/${branch}-${today}.md`,
+                '> ```',
+                '>',
+                '> This file should describe what changed and why. See existing files in `docs/changelog/` for examples.',
+              ].join('\n');
+
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  comment_id: botComment.id, body: warning,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number, body: warning,
+                });
+              }
+              console.log('No changelog found — posted warning comment.');
               return;
+            }
+
+            // Remove warning comment if changelog now exists
+            if (botComment) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: botComment.id,
+              });
+            }
+
+            if (files.length > 1) {
+              core.warning(
+                `Multiple changelogs found for branch "${branch}": ${files.join(', ')}. Using latest: ${files[0]}`
+              );
             }
 
             const content = fs.readFileSync(path.join(changelogDir, files[0]), 'utf8');
