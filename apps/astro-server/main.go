@@ -26,12 +26,14 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/nsscan"
+	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
@@ -346,9 +348,16 @@ func runWorker(
 	return cancel
 }
 
-// setupRoutes configures all application routes
+// setupRoutes configures all application routes and builds the OpenAPI spec.
 func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) {
-	// Kubernetes-style health probe endpoints (at root, no middleware)
+	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
+	// both added to gin AND documented in the generated spec.
+	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
+
+	// Serve OpenAPI spec
+	router.GET("/openapi.json", api.JSON())
+
+	// Kubernetes-style health probe endpoints (at root, not part of API spec)
 	router.GET("/livez", probeHandler.Livez())
 	router.GET("/readyz", probeHandler.Readyz())
 	router.GET("/healthz", probeHandler.Healthz())
@@ -395,42 +404,96 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	v1 := router.Group("/api/v1")
 	{
 		// Health check endpoint (public)
-		v1.GET("/health", handlers.HealthCheck(log))
+		api.GET(v1, "/health", "Health check", handlers.HealthCheck(log),
+			oapispec.Tags("Health"),
+			oapispec.Response(200, &handlers.HealthResponse{}),
+		)
 
 		// Readiness check endpoint (public)
-		v1.GET("/ready", handlers.ReadinessCheck(log))
+		api.GET(v1, "/ready", "Readiness check", handlers.ReadinessCheck(log),
+			oapispec.Tags("Health"),
+			oapispec.Response(200, &handlers.HealthResponse{}),
+		)
 
 		// Waitlist signup (public, no auth)
-		v1.POST("/waitlist", handlers.JoinWaitlist(log, waitlistStore))
+		api.POST(v1, "/waitlist", "Join the waitlist", handlers.JoinWaitlist(log, waitlistStore),
+			oapispec.Tags("Waitlist"),
+			oapispec.Body(&handlers.WaitlistSignupRequest{}),
+			oapispec.Response(201, &handlers.WaitlistEntryResponse{}),
+			oapispec.Response(409, &handlers.ErrorResponse{}),
+		)
 
 		// Agent registry endpoints (public read, with optional auth for visibility)
-		v1.GET("/agents", handlers.ListAgents(log, agentIndex, accountStore))
+		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore),
+			oapispec.Tags("Agents"),
+			oapispec.Response(200, &handlers.ListAgentsResponse{}),
+		)
 		agentDetail := v1.Group("")
 		agentDetail.Use(authMw.OptionalAuth())
 		{
-			agentDetail.GET("/agents/:account/:name", handlers.GetAgent(log, agentIndex, accountStore))
+			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore),
+				oapispec.Tags("Agents"),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Response(200, &handlers.AgentResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+			)
 		}
+
 		// Account endpoints (public read)
-		v1.GET("/accounts/:account", handlers.GetAccount(log, accountStore, authHandler.GetWorkOSClient()))
-		v1.GET("/accounts/check/:name", handlers.CheckAccountName(log, accountStore))
+		api.GET(v1, "/accounts/:account", "Get account details", handlers.GetAccount(log, accountStore, authHandler.GetWorkOSClient()),
+			oapispec.Tags("Accounts"),
+			oapispec.PathParam("account", "Account name"),
+			oapispec.Response(200, &handlers.AccountResponse{}),
+			oapispec.Response(404, &handlers.ErrorResponse{}),
+		)
+		api.GET(v1, "/accounts/check/:name", "Check account name availability", handlers.CheckAccountName(log, accountStore),
+			oapispec.Tags("Accounts"),
+			oapispec.PathParam("name", "Account name to check"),
+			oapispec.Response(200, &handlers.CheckAccountNameResponse{}),
+		)
 
 		// Protected endpoints (require authentication)
 		protected := v1.Group("")
 		protected.Use(authMw.RequireAuth())
 		{
 			// Profile
-			protected.GET("/me", handlers.GetProfile(log, accountStore, agentIndex))
+			api.GET(protected, "/me", "Get current user profile", handlers.GetProfile(log, accountStore, agentIndex),
+				oapispec.Tags("Profile"),
+				oapispec.BearerAuth(),
+				oapispec.Response(200, &handlers.ProfileResponse{}),
+			)
 
 			// Account management
-			protected.GET("/accounts/search", handlers.SearchAccounts(log, accountStore))
-			protected.POST("/accounts", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient))
+			api.GET(protected, "/accounts/search", "Search accounts", handlers.SearchAccounts(log, accountStore),
+				oapispec.Tags("Accounts"),
+				oapispec.BearerAuth(),
+				oapispec.QueryParam("q", "Search query (min 3 chars)", true),
+				oapispec.QueryParam("type", "Filter by type: personal or organization", false),
+				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
+				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
+			)
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient),
+				oapispec.Tags("Accounts"),
+				oapispec.BearerAuth(),
+				oapispec.Body(&handlers.CreateAccountRequest{}),
+				oapispec.Response(201, &handlers.AccountResponse{}),
+				oapispec.Response(409, &handlers.ErrorResponse{}),
+			)
 
 			// Account-scoped routes (owner/admin)
 			accountAdmin := protected.Group("/accounts/:account")
 			accountAdmin.Use(middleware.ResolveAccount(accountStore))
 			accountAdmin.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
 			{
-				accountAdmin.PUT("", handlers.RenameAccount(log, accountStore))
+				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore),
+					oapispec.Tags("Accounts"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.RenameAccountRequest{}),
+					oapispec.Response(200, &handlers.RenameAccountResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
 			}
 
 			// Member management (requires org:manage permission)
@@ -438,10 +501,34 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			memberRoutes.Use(middleware.ResolveAccount(accountStore))
 			memberRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
-				memberRoutes.GET("", handlers.ListMembers(log, accountStore))
-				memberRoutes.POST("", handlers.AddMember(log, orgSync, accountStore))
-				memberRoutes.PUT("/:user_id", handlers.UpdateMemberRole(log, orgSync, accountStore))
-				memberRoutes.DELETE("/:user_id", handlers.RemoveMember(log, orgSync))
+				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore),
+					oapispec.Tags("Members"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.ListMembersResponse{}),
+				)
+				api.POST(memberRoutes, "", "Add a member", handlers.AddMember(log, orgSync, accountStore),
+					oapispec.Tags("Members"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.AddMemberRequest{}),
+					oapispec.Response(201, &handlers.AddMemberResponse{}),
+				)
+				api.PUT(memberRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore),
+					oapispec.Tags("Members"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("user_id", "User ID"),
+					oapispec.Body(&handlers.ChangeMemberRoleRequest{}),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+				)
+				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync),
+					oapispec.Tags("Members"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("user_id", "User ID"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+				)
 			}
 
 			// Invitation management (requires org:manage permission)
@@ -449,43 +536,193 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			invitationRoutes.Use(middleware.ResolveAccount(accountStore))
 			invitationRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
-				invitationRoutes.GET("", handlers.ListAccountInvitations(log, orgClient))
-				invitationRoutes.POST("", handlers.CreateInvitations(log, orgSync))
-				invitationRoutes.DELETE("/:id", handlers.RevokeInvitation(log, orgClient))
+				api.GET(invitationRoutes, "", "List account invitations", handlers.ListAccountInvitations(log, orgClient),
+					oapispec.Tags("Invitations"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.ListInvitationsResponse{}),
+				)
+				api.POST(invitationRoutes, "", "Send invitations", handlers.CreateInvitations(log, orgSync),
+					oapispec.Tags("Invitations"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.BulkInvitationRequest{}),
+					oapispec.Response(201, &handlers.BulkInvitationResponse{}),
+				)
+				api.DELETE(invitationRoutes, "/:id", "Revoke an invitation", handlers.RevokeInvitation(log, orgClient),
+					oapispec.Tags("Invitations"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("id", "Invitation ID"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+				)
 			}
 
 			// Agent config (protected read, resolves latest build)
-			protected.GET("/agents/:account/:name/config", handlers.GetAgentConfig(log, agentIndex, accountStore))
+			api.GET(protected, "/agents/:account/:name/config", "Get agent deployment config", handlers.GetAgentConfig(log, agentIndex, accountStore),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("interfaces", "Comma-separated interface filter (e.g. slack,web)", false),
+				oapispec.Response(200, &handlers.AgentConfigResponse{}),
+			)
 
 			// Deployment template generation
-			protected.GET("/agents/:account/:name/deployment-template", handlers.GetDeploymentTemplate(log, agentIndex, accountStore, cfg))
+			api.GET(protected, "/agents/:account/:name/deployment-template", "Get deployment template",
+				handlers.GetDeploymentTemplate(log, agentIndex, accountStore, cfg),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("build", "Specific build ID (default: latest)", false),
+				oapispec.QueryParam("format", "Response format: json or yaml (default: yaml)", false),
+				oapispec.Desc("Returns a deployment spec template for the agent. Defaults to YAML unless ?format=json."),
+				oapispec.Response(200, nil),
+			)
 
 			// Agent write operations (requires agents:write permission)
 			agentWriteRoutes := protected.Group("/agents/:account/:name")
 			agentWriteRoutes.Use(middleware.ResolveAccount(accountStore))
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
-				agentWriteRoutes.POST("/register", handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion))
-				agentWriteRoutes.PUT("/visibility", handlers.SetAgentVisibility(log, agentIndex))
+				api.POST(agentWriteRoutes, "/register", "Register an agent build", handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion),
+					oapispec.Tags("Agents"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Agent name"),
+					oapispec.Body(&handlers.RegisterAgentRequest{}),
+					oapispec.Response(201, &handlers.RegisterAgentResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+					oapispec.Response(426, &handlers.ErrorResponse{}),
+				)
+				api.PUT(agentWriteRoutes, "/visibility", "Set agent visibility", handlers.SetAgentVisibility(log, agentIndex),
+					oapispec.Tags("Agents"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Agent name"),
+					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
+					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
+				)
 			}
 
-			// Employment write (deploy/undeploy/restart/trigger — TODO: gate with deployments:write)
-			protected.POST("/deploy", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))
-			protected.POST("/deploy/validate", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg))
-			protected.POST("/undeploy", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore))
-			protected.POST("/deployments/:namespace/pods/:pod/restart", handlers.RestartPod(log, accountStore, cfg, k8sClient))
-			protected.POST("/deployments/:namespace/ingestion/:ingestion/trigger", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient))
+			// Deployment write (deploy/undeploy/restart/trigger)
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and applies it to Kubernetes."),
+				oapispec.Response(200, &handlers.DeployResponseAlias{}),
+				oapispec.Response(207, &handlers.DeployResponseAlias{}),
+			)
+			api.POST(protected, "/deploy/validate", "Validate a deployment spec", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.Desc("Validates a fulfilled deployment spec without applying it."),
+				oapispec.Response(200, &handlers.ValidateDeploymentResponse{}),
+			)
+			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.Body(&deployment.UndeployRequest{}),
+				oapispec.Response(200, &handlers.UndeployResponseAlias{}),
+			)
+			api.POST(protected, "/deployments/:namespace/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("namespace", "Deployment namespace"),
+				oapispec.PathParam("pod", "Pod name"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.RestartPodResponse{}),
+			)
+			api.POST(protected, "/deployments/:namespace/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("namespace", "Deployment namespace"),
+				oapispec.PathParam("ingestion", "Ingestion name"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.TriggerIngestionResponse{}),
+			)
 
-			// Employment read (deployment status, logs, observability — TODO: gate with deployments:read)
-			protected.GET("/agents/:account/:name/deployment", handlers.GetActiveDeploymentSpec(log, accountStore, deploymentStore))
-			protected.GET("/agents/:account/:name/deployment/history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore))
-			protected.GET("/deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore))
-			protected.GET("/deployments/:namespace/logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient))
-			protected.GET("/deployments/:namespace/configmap/:cmname", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient))
-			protected.GET("/deployments/:namespace/secret/:secretname/keys", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient))
-			protected.GET("/agents/:account/:name/observability/metrics", handlers.GetObservabilityMetrics(log, cfg, deploymentStore, accountStore))
-			protected.GET("/agents/:account/:name/observability/summary", handlers.GetObservabilitySummary(log, cfg, deploymentStore, accountStore))
-			protected.GET("/agents/:account/:name/observability/traces", handlers.GetObservabilityTraces(log, cfg, deploymentStore, accountStore))
+			// Deployment read (status, logs, observability)
+			api.GET(protected, "/agents/:account/:name/deployment", "Get active deployment spec", handlers.GetActiveDeploymentSpec(log, accountStore, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Response(200, &handlers.ActiveDeploymentResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+			)
+			api.GET(protected, "/agents/:account/:name/deployment/history", "Get deployment history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Response(200, &handlers.DeploymentHistoryResponse{}),
+			)
+			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.ListDeploymentsResponse{}),
+			)
+			api.GET(protected, "/deployments/:namespace/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("namespace", "Deployment namespace"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.QueryParam("pod", "Pod name", true),
+				oapispec.QueryParam("container", "Container name", false),
+				oapispec.QueryParam("tailLines", "Number of log lines (default 200)", false),
+				oapispec.Desc("Returns raw log text (text/plain) for a pod in the deployment namespace."),
+				oapispec.Response(200, nil),
+			)
+			api.GET(protected, "/deployments/:namespace/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("namespace", "Deployment namespace"),
+				oapispec.PathParam("cmname", "ConfigMap name"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.ConfigMapDataResponse{}),
+			)
+			api.GET(protected, "/deployments/:namespace/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("namespace", "Deployment namespace"),
+				oapispec.PathParam("secretname", "Secret name"),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, &handlers.SecretKeysResponse{}),
+			)
+			api.GET(protected, "/agents/:account/:name/observability/metrics", "Get agent metrics", handlers.GetObservabilityMetrics(log, cfg, deploymentStore, accountStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.QueryParam("interval", "Bucket interval in minutes (default 60)", false),
+				oapispec.Response(200, &handlers.ObservabilityMetricsResponse{}),
+			)
+			api.GET(protected, "/agents/:account/:name/observability/summary", "Get observability summary", handlers.GetObservabilitySummary(log, cfg, deploymentStore, accountStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.Response(200, &handlers.ObservabilitySummaryResponse{}),
+			)
+			api.GET(protected, "/agents/:account/:name/observability/traces", "Get agent traces", handlers.GetObservabilityTraces(log, cfg, deploymentStore, accountStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.QueryParam("limit", "Page size (default 50)", false),
+				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
+				oapispec.QueryParam("status", "Filter by status", false),
+				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
+			)
 		}
 
 	}
