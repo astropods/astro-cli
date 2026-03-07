@@ -264,11 +264,19 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	if agentImage == "" && input.RegistryURL != "" {
 		agentImage = fmt.Sprintf("%s/%s:%s", input.RegistryURL, astroSpec.Name, input.BuildID)
 	}
+	agentEndpoints := map[string]spec.Endpoint{
+		"http": {Port: 8080, Protocol: "http"},
+	}
+	// When the agent declares a frontend, expose its HTTP endpoint for ingress
+	if astroSpec.Agent.HasFrontend() {
+		agentEndpoints["http"] = spec.Endpoint{
+			Port: 80, Protocol: "http",
+			Expose: &spec.EndpointExpose{Enabled: true},
+		}
+	}
 	ds.Agent = spec.DeploymentAgent{
-		Image: agentImage,
-		Endpoints: map[string]spec.Endpoint{
-			"http": {Port: 8080, Protocol: "http"},
-		},
+		Image:       agentImage,
+		Endpoints:   agentEndpoints,
 		Replicas:    1,
 		Resources:   spec.StandardResources,
 		Environment: agentEnv,
@@ -284,37 +292,39 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		}
 	}
 
-	// Interfaces block — empty adapters, user fills in
-	ds.Interfaces = &spec.DeploymentInterfaces{
-		Adapters:  []string{},
-		Image:     resolveImage("astropods/messaging:latest", input),
-		Resources: spec.MessagingResources,
-		Endpoints: map[string]spec.Endpoint{
-			"grpc": {Port: 9090, Protocol: "grpc"},
-			"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: false}},
-		},
-	}
-
-	// Add adapter credential variables as optional entries so users know what to fill in.
-	// These are optional in the template since adapters are disabled by default; the
-	// resolver enforces values when a specific adapter is enabled.
-	if ds.Variables == nil {
-		ds.Variables = make(map[string]spec.Variable)
-	}
-	if _, exists := ds.Variables["SLACK_BOT_TOKEN"]; !exists {
-		ds.Variables["SLACK_BOT_TOKEN"] = spec.Variable{
-			Description: "Slack bot token for API access and messaging (required when slack adapter is enabled)",
-			Optional:    true,
-			Secret:      true,
-			Targets:     []string{"interface.slack"},
+	// Interfaces block — only emitted when the agent supports messaging
+	if astroSpec.Agent.HasMessaging() {
+		ds.Interfaces = &spec.DeploymentInterfaces{
+			Adapters:  []string{},
+			Image:     resolveImage("astropods/messaging:latest", input),
+			Resources: spec.MessagingResources,
+			Endpoints: map[string]spec.Endpoint{
+				"grpc": {Port: 9090, Protocol: "grpc"},
+				"http": {Port: 8080, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: false}},
+			},
 		}
-	}
-	if _, exists := ds.Variables["SLACK_APP_TOKEN"]; !exists {
-		ds.Variables["SLACK_APP_TOKEN"] = spec.Variable{
-			Description: "Slack app-level token for socket mode connections (required when slack adapter is enabled)",
-			Optional:    true,
-			Secret:      true,
-			Targets:     []string{"interface.slack"},
+
+		// Add adapter credential variables as optional entries so users know what to fill in.
+		// These are optional in the template since adapters are disabled by default; the
+		// resolver enforces values when a specific adapter is enabled.
+		if ds.Variables == nil {
+			ds.Variables = make(map[string]spec.Variable)
+		}
+		if _, exists := ds.Variables["SLACK_BOT_TOKEN"]; !exists {
+			ds.Variables["SLACK_BOT_TOKEN"] = spec.Variable{
+				Description: "Slack bot token for API access and messaging (required when slack adapter is enabled)",
+				Optional:    true,
+				Secret:      true,
+				Targets:     []string{"interface.slack"},
+			}
+		}
+		if _, exists := ds.Variables["SLACK_APP_TOKEN"]; !exists {
+			ds.Variables["SLACK_APP_TOKEN"] = spec.Variable{
+				Description: "Slack app-level token for socket mode connections (required when slack adapter is enabled)",
+				Optional:    true,
+				Secret:      true,
+				Targets:     []string{"interface.slack"},
+			}
 		}
 	}
 

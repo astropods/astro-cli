@@ -51,7 +51,24 @@ dev:
 
 A custom `UnmarshalYAML` on `DevInterfaces` supports the legacy flat array format — `interfaces: [slack, web]` is parsed as `messaging: { adapters: [slack, web] }`. Existing specs continue to work without changes.
 
-### Consumers updated
+### Server: template generation
+
+`GenerateDeploymentTemplate` in `deployment/template.go` now reads `agent.interfaces`:
+
+- When `HasMessaging()` is false, the `DeploymentInterfaces` block and Slack credential variables are omitted entirely.
+- When `HasFrontend()` is true, the agent's HTTP endpoint is set to port 80 with `expose.enabled: true`.
+- Backward compat: agents without `interfaces` still get the messaging block (nil means messaging enabled).
+
+### Server: K8s translation
+
+`spec_applier.go` creates an agent ingress when the agent has an exposed endpoint:
+
+- Checks `ExposedEndpoint(ds.Agent.Endpoints)` — if present, builds an ingress to the agent service.
+- Uses the same ingress domain, ACM cert, and ALB group as the messaging ingress.
+- Emits a `ServiceEndpoint` with type `"frontend"` for the external URL.
+- The messaging sidecar path (`ds.Interfaces != nil`) is unchanged — already guarded correctly.
+
+### CLI consumers
 
 All CLI commands that read `Dev.Interfaces` were updated to use the new struct path (`Dev.Interfaces.Messaging.Adapters`):
 

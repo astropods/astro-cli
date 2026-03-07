@@ -805,6 +805,58 @@ func TestTemplate_InterfacesDefaults(t *testing.T) {
 	}
 }
 
+func TestTemplate_MessagingDisabled(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: false}
+	ds := mustGenerate(t, input)
+
+	if ds.Interfaces != nil {
+		t.Error("interfaces: expected nil when messaging is disabled")
+	}
+	// Slack variables should not be present
+	if _, ok := ds.Variables["SLACK_BOT_TOKEN"]; ok {
+		t.Error("SLACK_BOT_TOKEN should not be present when messaging is disabled")
+	}
+}
+
+func TestTemplate_FrontendEnabled(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Frontend: true, Messaging: false}
+	ds := mustGenerate(t, input)
+
+	// Agent endpoint should be port 80 with expose enabled
+	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	if httpEp == nil {
+		t.Fatal("agent.endpoints.http: expected non-nil")
+	}
+	if httpEp.Port != 80 {
+		t.Errorf("agent.endpoints.http.port: expected 80, got %d", httpEp.Port)
+	}
+	if httpEp.Expose == nil || !httpEp.Expose.Enabled {
+		t.Error("agent.endpoints.http.expose.enabled: expected true for frontend")
+	}
+	// No messaging sidecar
+	if ds.Interfaces != nil {
+		t.Error("interfaces: expected nil when messaging is disabled")
+	}
+}
+
+func TestTemplate_FrontendAndMessaging(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Frontend: true, Messaging: true}
+	ds := mustGenerate(t, input)
+
+	// Agent endpoint exposed for frontend
+	httpEp := spec.EndpointByName(ds.Agent.Endpoints, "http")
+	if httpEp == nil || httpEp.Expose == nil || !httpEp.Expose.Enabled {
+		t.Error("agent.endpoints.http.expose.enabled: expected true for frontend")
+	}
+	// Messaging sidecar present
+	if ds.Interfaces == nil {
+		t.Fatal("interfaces: expected non-nil when messaging is enabled")
+	}
+}
+
 // ===== Phase 9: Full Combination =====
 
 func TestTemplate_FullSpec(t *testing.T) {

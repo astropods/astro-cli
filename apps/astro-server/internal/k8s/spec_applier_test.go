@@ -845,6 +845,54 @@ func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 	}
 }
 
+func TestApplyDeploymentSpec_WithFrontendExpose(t *testing.T) {
+	a := newTestApplier()
+	a.ingressDomain = "example.com"
+	a.acmCertificateARN = "arn:aws:acm:test"
+	a.albGroupName = "test-group"
+	ds := minimalDeploymentSpec()
+	// Agent exposes its own frontend on port 80
+	ds.Agent.Endpoints = map[string]spec.Endpoint{
+		"http": {Port: 80, Protocol: "http", Expose: &spec.EndpointExpose{Enabled: true}},
+	}
+	// No messaging sidecar
+	ds.Interfaces = nil
+
+	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Errorf("expected no errors, got %v", result.Errors)
+	}
+
+	hasAgentIngress := false
+	hasFrontendEndpoint := false
+	for _, r := range result.Resources {
+		if r.Kind == "Ingress" && r.Name == "my-agent-ingress-agent" {
+			hasAgentIngress = true
+		}
+	}
+	for _, ep := range result.ServiceEndpoints {
+		if ep.Name == "agent" && ep.Type == "frontend" {
+			hasFrontendEndpoint = true
+		}
+	}
+	if !hasAgentIngress {
+		t.Error("expected agent ingress for frontend")
+	}
+	if !hasFrontendEndpoint {
+		t.Error("expected frontend service endpoint")
+	}
+
+	// Should NOT have messaging resources
+	for _, r := range result.Resources {
+		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
+			t.Error("should not have messaging deployment when interfaces is nil")
+		}
+	}
+}
+
 func TestApplyIngress_RejectsZeroPort(t *testing.T) {
 	a := newTestApplier()
 	ingress := BuildIngress(IngressConfig{

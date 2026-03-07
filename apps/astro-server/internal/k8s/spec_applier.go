@@ -144,6 +144,38 @@ func (a *Applier) ApplyDeploymentSpec(
 	})
 	a.applyServiceAndRecord(ctx, agentService, result)
 
+	// Agent ingress — when frontend is exposed
+	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+		ingressName := deployment.GenerateAgentResourceName(agentName, "ingress-agent")
+		host := ""
+		if ep.Expose != nil {
+			host = ep.Expose.Domain
+		}
+		if host == "" && a.ingressDomain != "" {
+			host = GenerateIngressHost(agentName, a.namespace, a.ingressDomain)
+		}
+		if host != "" {
+			ingress := BuildIngress(IngressConfig{
+				Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+				BuildID: buildID, Component: "agent",
+				ServiceName: agentResourceName, ServicePort: int32(ep.Port), //nolint:gosec
+				Host:              host,
+				ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
+			})
+			status, err := a.applyIngress(ctx, ingress)
+			result.Resources = append(result.Resources, status)
+			if err != nil {
+				result.Errors = append(result.Errors, deployment.DeploymentError{
+					Resource: ingress.Name, Kind: "Ingress", Error: err.Error(),
+				})
+			}
+			externalURL := fmt.Sprintf("https://%s", host)
+			result.ServiceEndpoints = append(result.ServiceEndpoints, deployment.ServiceEndpoint{
+				Name: "agent", Type: "frontend", URL: externalURL, Port: 443,
+			})
+		}
+	}
+
 	// Phase 4: Create StatefulSets for persistent knowledge
 	for name, knowledge := range ds.Knowledge {
 		if !knowledge.Persistent {
