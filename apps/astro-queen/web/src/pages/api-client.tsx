@@ -507,7 +507,11 @@ export function ApiClientPage() {
       setLoginState({ status: "waiting", userCode: auth.user_code });
 
       // Open browser to verification URL
-      window.open(auth.verification_uri_complete, "_blank");
+      const a = document.createElement("a");
+      a.href = auth.verification_uri_complete;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.click();
 
       // Poll for completion
       const interval = (auth.interval || 5) * 1000;
