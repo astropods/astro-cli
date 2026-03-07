@@ -380,9 +380,7 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 	}
 
 	// Interfaces from dev section
-	if s.Dev != nil {
-		config.Interfaces = s.Dev.Interfaces
-	}
+	config.Interfaces = s.Dev.MessagingAdapters()
 	if len(config.Interfaces) == 0 {
 		config.Interfaces = []string{"web"}
 	}

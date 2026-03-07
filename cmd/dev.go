@@ -328,11 +328,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	// Check if messaging interface is configured (from dev section)
 	hasWebInterface := false
-	if astroSpec.Dev != nil {
-		for _, name := range astroSpec.Dev.Interfaces {
-			if name == "web" {
-				hasWebInterface = true
-			}
+	for _, name := range astroSpec.Dev.MessagingAdapters() {
+		if name == "web" {
+			hasWebInterface = true
+			break
 		}
 	}
 
@@ -649,7 +648,7 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 		}
 	}
 
-	if s.Dev != nil && len(s.Dev.Interfaces) > 0 {
+	if s.Dev.HasMessagingAdapters() {
 		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
 	}
 	// Point at the collector container's published port for auto OTel

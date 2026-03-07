@@ -176,9 +176,9 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	}
 
 	// ── Dev Interfaces ──────────────────────────────────────────────────────
-	if astroSpec.Dev != nil && len(astroSpec.Dev.Interfaces) > 0 {
+	if astroSpec.Dev.HasMessagingAdapters() {
 		sectionHeader("Dev Interfaces", "local messaging channels")
-		for _, name := range astroSpec.Dev.Interfaces {
+		for _, name := range astroSpec.Dev.MessagingAdapters() {
 			envs := getInterfaceEnvVars(name)
 			fmt.Printf("  %s%s%s", colorCyan, name, colorReset)
 			if len(envs) > 0 {

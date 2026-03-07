@@ -71,5 +71,7 @@ ingestion:
 {{- if gt (len .Interfaces) 0}}
 
 dev:
-  interfaces: [{{- range $i, $v := .Interfaces}}{{if $i}}, {{end}}{{$v}}{{- end}}]
+  interfaces:
+    messaging:
+      adapters: [{{- range $i, $v := .Interfaces}}{{if $i}}, {{end}}{{$v}}{{- end}}]
 {{- end}}
