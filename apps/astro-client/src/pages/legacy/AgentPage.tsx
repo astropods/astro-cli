@@ -155,7 +155,7 @@ export default function AgentPage({ loaderData }: Route.ComponentProps) {
               <ArrowLeft size={16} />
               Back to Home
             </Link>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-heading-1 font-bold">
               <span className="font-normal text-stone-500">{account}/</span>
               {agentName}
             </h1>

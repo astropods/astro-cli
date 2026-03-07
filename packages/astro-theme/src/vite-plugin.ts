@@ -17,11 +17,15 @@ const COLORS_SRC = resolve(__dirname, "colors.ts");
 const SEMANTIC_SRC = resolve(__dirname, "semantic.ts");
 const TYPOGRAPHY_SRC = resolve(__dirname, "typography.ts");
 
+const THEME_SOURCES = new Set([COLORS_SRC, SEMANTIC_SRC, TYPOGRAPHY_SRC]);
+
 function buildCSS() {
   execSync("bun run src/build-css.ts", { cwd: PACKAGE_ROOT, stdio: "inherit" });
 }
 
 export function astroThemeColors(): Plugin {
+  let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+
   return {
     name: "astro-theme-colors",
 
@@ -30,13 +34,14 @@ export function astroThemeColors(): Plugin {
     },
 
     configureServer(server) {
-      server.watcher.add(COLORS_SRC);
-      server.watcher.add(SEMANTIC_SRC);
-      server.watcher.add(TYPOGRAPHY_SRC);
+      for (const src of THEME_SOURCES) server.watcher.add(src);
       server.watcher.on("change", (path) => {
-        if (path === COLORS_SRC || path === SEMANTIC_SRC || path === TYPOGRAPHY_SRC) {
+        if (!THEME_SOURCES.has(path)) return;
+        if (rebuildTimer) clearTimeout(rebuildTimer);
+        rebuildTimer = setTimeout(() => {
+          rebuildTimer = null;
           buildCSS();
-        }
+        }, 80);
       });
     },
   };

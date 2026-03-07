@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, NavLink as RRNavLink, useLocation } from "react-router";
+import { cn } from "@/lib/utils";
 import {
   Bars3Icon,
   ArrowLeftStartOnRectangleIcon,
@@ -34,17 +35,32 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const publicNav = [
+interface NavItem {
+  label: string;
+  to: string;
+  external?: boolean;
+}
+
+const publicNav: NavItem[] = [
   { label: "Browse", to: "/browse" },
   { label: "Docs", to: "https://docs.astropods.ai", external: true },
   { label: "Blog", to: "https://blog.astropods.ai", external: true },
 ];
 
-function NavLink({ to, external, children, className }: { to: string; external?: boolean; children: React.ReactNode; className?: string }) {
+function Logo() {
+  return (
+    <>
+      <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
+      <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
+    </>
+  );
+}
+
+function ExternalOrNavLink({ to, external, children, className }: { to: string; external?: boolean; children?: React.ReactNode; className?: string | (({ isActive }: { isActive: boolean }) => string) }) {
   if (external) {
-    return <a href={to} target="_blank" rel="noopener noreferrer" className={className}>{children}</a>;
+    return <a href={to} target="_blank" rel="noopener noreferrer" className={typeof className === "function" ? className({ isActive: false }) : className}>{children}</a>;
   }
-  return <Link to={to} className={className}>{children}</Link>;
+  return <RRNavLink to={to} className={className}>{children}</RRNavLink>;
 }
 
 /** Number of nav items always visible; the rest collapse below `lg`. */
@@ -55,14 +71,13 @@ export function AppHeader() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const isActive = (to: string) => location.pathname.startsWith(to);
 
   // Close sheet on navigation
   useEffect(() => {
     setSheetOpen(false);
   }, [location.pathname]);
 
-  const mobileNavItems = isAuthenticated
+  const navItems: NavItem[] = isAuthenticated
     ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1), { label: "Dashboard", to: "/operator" }]
     : publicNav;
 
@@ -70,8 +85,7 @@ export function AppHeader() {
     return (
       <header className="flex h-14 items-center justify-between border-b border-border bg-stone-100 px-6 dark:bg-background">
         <Link to="/">
-          <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
-          <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
+          <Logo />
         </Link>
 
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -86,15 +100,15 @@ export function AppHeader() {
               <SheetTitle>Menu</SheetTitle>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-4">
-              {mobileNavItems.map((item) => (
-                <NavLink key={item.to} to={item.to} external={"external" in item && item.external}>
+              {navItems.map((item) => (
+                <ExternalOrNavLink key={item.to} to={item.to} external={item.external}>
                   <Button
                     variant="ghost"
                     className="w-full justify-start font-normal"
                   >
                     {item.label}
                   </Button>
-                </NavLink>
+                </ExternalOrNavLink>
               ))}
               <Separator className="my-2" />
               {isLoading ? (
@@ -125,33 +139,32 @@ export function AppHeader() {
     );
   }
 
-  const navItems = isAuthenticated
-    ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1), { label: "Dashboard", to: "/operator" }]
-    : publicNav;
-
   return (
     <header className="flex h-14 items-center border-b border-border bg-stone-100 px-6 dark:bg-background">
       {/* Left: logo + nav */}
       <div className="flex items-center gap-8">
         <Link to="/" className="flex shrink-0 items-center">
-          <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
-          <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
+          <Logo />
         </Link>
 
         <nav className="flex items-center gap-6">
           {navItems.map((item, i) => (
-            <NavLink
+            <ExternalOrNavLink
               key={item.to}
               to={item.to}
-              external={"external" in item && item.external}
-              className={`whitespace-nowrap text-[13px] transition-colors hover:text-foreground ${
-                !("external" in item && item.external) && isActive(item.to)
-                  ? "font-semibold text-primary"
-                  : "font-normal text-muted-foreground"
-              } ${i >= ALWAYS_VISIBLE ? "hidden lg:block" : ""}`}
+              external={item.external}
+              className={({ isActive }) =>
+                cn(
+                  "whitespace-nowrap text-[13px] transition-colors hover:text-foreground",
+                  !item.external && isActive
+                    ? "font-semibold text-primary"
+                    : "font-normal text-muted-foreground",
+                  i >= ALWAYS_VISIBLE && "hidden lg:block",
+                )
+              }
             >
               {item.label}
-            </NavLink>
+            </ExternalOrNavLink>
           ))}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -162,7 +175,7 @@ export function AppHeader() {
             <DropdownMenuContent align="start">
               {navItems.slice(ALWAYS_VISIBLE).map((item) => (
                 <DropdownMenuItem key={item.to} asChild>
-                  <NavLink to={item.to} external={"external" in item && item.external}>{item.label}</NavLink>
+                  <ExternalOrNavLink to={item.to} external={item.external}>{item.label}</ExternalOrNavLink>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

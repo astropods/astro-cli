@@ -18,7 +18,7 @@ export default function RequestAgent() {
       </Link>
 
       <div>
-        <h1 className="text-2xl font-semibold mb-2">Request a Custom Agent</h1>
+        <h1 className="text-heading-1 font-bold mb-2">Request a Custom Agent</h1>
         <p className="text-stone-600 text-sm mb-6">
           Tell us about the problem you're trying to solve, and we'll help you
           build a custom agent tailored to your needs.

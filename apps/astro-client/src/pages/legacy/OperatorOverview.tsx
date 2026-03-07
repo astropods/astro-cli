@@ -23,7 +23,7 @@ export default function OperatorOverview() {
     <div className="p-6 md:p-8">
       <div className="flex justify-between items-start mb-6">
         <div>
-          <h1 className="text-2xl font-semibold mb-1">Home</h1>
+          <h1 className="text-heading-1 font-bold mb-1">Home</h1>
           <p className="text-stone-600 text-sm">
             Manage builds and deploy agents
           </p>

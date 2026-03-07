@@ -109,7 +109,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
           <div className="flex items-start gap-4 mb-8">
             <AgentIdentity account={agent.account} name={agent.name} size={48} className="size-12 shrink-0 rounded-sm overflow-hidden mt-[5px]" />
             <div>
-              <h1 className="text-2xl font-semibold mb-1">
+              <h1 className="text-heading-1 font-bold mb-1">
                 Install <span className="text-muted-foreground font-normal">{agent.account}/</span>{agent.name}
               </h1>
               <p className="text-sm text-muted-foreground">

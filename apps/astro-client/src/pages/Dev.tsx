@@ -23,7 +23,7 @@ export function Dev() {
   return (
     <div className="max-w-2xl space-y-8 p-6 md:p-8">
       <div>
-        <h1 className="text-2xl font-semibold mb-1">Developer</h1>
+        <h1 className="text-heading-1 font-bold mb-1">Developer</h1>
         <p className="text-muted-foreground">
           Download the Astro CLI, install it, and run your first agent.
         </p>

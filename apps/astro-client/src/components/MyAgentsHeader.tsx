@@ -22,7 +22,7 @@ export function MyAgentsHeader({
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-4">
-        <h2 className="text-2xl font-semibold leading-9">My agents</h2>
+        <h2 className="text-heading-1 font-bold">My agents</h2>
         <FilterInput
           placeholder="Filter agents…"
           className="w-[248px]"
