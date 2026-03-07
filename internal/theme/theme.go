@@ -1,9 +1,9 @@
 package theme
 
 import (
+	"github.com/astropods/astro/apps/astro-cli/internal/buildinfo"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
-	"github.com/postman/astro/apps/astro-cli/internal/buildinfo"
 )
 
 // IsPreview reports whether the CLI was built as a preview release.

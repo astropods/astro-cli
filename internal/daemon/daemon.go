@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 )
 
 // Paths returns the PID file and log file paths for the daemon.

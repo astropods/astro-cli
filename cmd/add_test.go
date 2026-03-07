@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/postman/astro/apps/astro-cli/internal/tui/credentials"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui/credentials"
 )
 
 // ─── quoteDotEnvValue ─────────────────────────────────────────────────────────

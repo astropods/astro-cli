@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
+	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"

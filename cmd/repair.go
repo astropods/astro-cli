@@ -15,9 +15,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
-	repairui "github.com/postman/astro/apps/astro-cli/internal/tui/repair"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	repairui "github.com/astropods/astro/apps/astro-cli/internal/tui/repair"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var repairCmd = &cobra.Command{

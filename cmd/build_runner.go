@@ -15,15 +15,15 @@ import (
 	"github.com/docker/docker/api/types/build"
 	controlapi "github.com/moby/buildkit/api/services/control"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/client"
-	"github.com/postman/astro/apps/astro-cli/internal/utils"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 
-	spec "github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var (

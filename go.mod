@@ -1,4 +1,4 @@
-module github.com/postman/astro/apps/astro-cli
+module github.com/astropods/astro/apps/astro-cli
 
 go 1.24.9
 
@@ -24,8 +24,8 @@ require (
 	github.com/moby/go-archive v0.2.0
 	github.com/moby/moby v28.5.2+incompatible
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-	github.com/postman/astro/packages/astro-proto v0.0.0
-	github.com/postman/astro/packages/astro-spec v0.0.0
+	github.com/astropods/astro/packages/astro-proto v0.0.0
+	github.com/astropods/astro/packages/astro-spec v0.0.0
 	github.com/quic-go/quic-go v0.59.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
@@ -37,8 +37,8 @@ require (
 )
 
 replace (
-	github.com/postman/astro/packages/astro-proto => ../../packages/astro-proto
-	github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
+	github.com/astropods/astro/packages/astro-proto => ../../packages/astro-proto
+	github.com/astropods/astro/packages/astro-spec => ../../packages/astro-spec
 )
 
 require (

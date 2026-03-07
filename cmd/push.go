@@ -21,9 +21,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // getOptimizedTransport returns an HTTP transport optimized for large file uploads

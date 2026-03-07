@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
-	"github.com/postman/astro/apps/astro-cli/internal/connect"
-	"github.com/postman/astro/apps/astro-cli/internal/daemon"
-	"github.com/postman/astro/apps/astro-cli/internal/telemetry"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/connect"
+	"github.com/astropods/astro/apps/astro-cli/internal/daemon"
+	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
 )
 
 var connectCmd = &cobra.Command{

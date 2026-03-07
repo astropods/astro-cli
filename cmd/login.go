@@ -18,8 +18,8 @@ import (
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
 var loginCmd = &cobra.Command{
@@ -208,7 +208,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Success message
 	fmt.Println()
-	green.Print("✓ ") //nolint:errcheck,gosec
+	green.Print("✓ ")                          //nolint:errcheck,gosec
 	bold.Println("Authentication successful!") //nolint:errcheck,gosec
 	fmt.Println()
 

@@ -7,8 +7,8 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
 var whoamiCmd = &cobra.Command{
@@ -67,7 +67,7 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	}
 
 	// Display user info
-	green.Print("✓ ") //nolint:errcheck,gosec
+	green.Print("✓ ")             //nolint:errcheck,gosec
 	bold.Println("Authenticated") //nolint:errcheck,gosec
 	fmt.Println()
 

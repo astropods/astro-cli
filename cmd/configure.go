@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/postman/astro/apps/astro-cli/internal/config"
-	"github.com/postman/astro/apps/astro-cli/internal/telemetry"
-	"github.com/postman/astro/apps/astro-cli/internal/utils"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-cli/internal/config"
+	"github.com/astropods/astro/apps/astro-cli/internal/telemetry"
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var configureCmd = &cobra.Command{

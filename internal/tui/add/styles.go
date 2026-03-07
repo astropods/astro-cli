@@ -1,8 +1,8 @@
 package add
 
 import (
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var (
