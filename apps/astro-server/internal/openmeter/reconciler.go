@@ -3,8 +3,8 @@ package openmeter
 import (
 	"context"
 
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 const reconcileBatchSize = 50

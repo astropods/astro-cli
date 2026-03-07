@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/galileo"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/config"
-	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/postman/astro/apps/astro-server/internal/galileo"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/middleware"
 )
 
 // resolveObservabilityContext validates auth, resolves the account, and returns a
@@ -264,12 +264,12 @@ func transformMetricsBuckets(metrics *galileo.MetricsResponse) []gin.H {
 			continue
 		}
 		result = append(result, gin.H{
-			"timestamp":     b.StartBucketTime,
-			"trace_count":   b.RequestsCount,
+			"timestamp":      b.StartBucketTime,
+			"trace_count":    b.RequestsCount,
 			"avg_latency_ms": b.AvgDurationNs / 1e6,
-			"input_tokens":  b.InputTokens,
-			"output_tokens": b.OutputTokens,
-			"error_count":   b.FailuresCount,
+			"input_tokens":   b.InputTokens,
+			"output_tokens":  b.OutputTokens,
+			"error_count":    b.FailuresCount,
 		})
 	}
 	if result == nil {

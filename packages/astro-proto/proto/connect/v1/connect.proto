@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package connect.v1;
 
-option go_package = "github.com/postman/astro/packages/astro-proto/connect/v1;connectv1";
+option go_package = "github.com/astropods/astro/packages/astro-proto/connect/v1;connectv1";
 
 service ConnectService {
   rpc Connect(stream ClientMessage) returns (stream ServerMessage);

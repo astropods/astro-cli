@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var (

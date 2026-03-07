@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
 
 func TestProxyOpenMeter(t *testing.T) {

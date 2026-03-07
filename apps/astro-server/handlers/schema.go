@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
-	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 // AstroAISpecSchema returns the JSON Schema for the Astro Spec.

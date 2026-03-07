@@ -1,7 +1,7 @@
 package k8s
 
 import (
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -9,13 +9,13 @@ import (
 
 // ServiceConfig holds configuration for building a Service
 type ServiceConfig struct {
-	Name           string
-	Namespace      string
-	AgentName      string
-	BuildID        string
-	Component      string
-	Port           int32
-	ServiceType    corev1.ServiceType // ClusterIP or LoadBalancer
+	Name        string
+	Namespace   string
+	AgentName   string
+	BuildID     string
+	Component   string
+	Port        int32
+	ServiceType corev1.ServiceType // ClusterIP or LoadBalancer
 }
 
 // BuildService creates a Kubernetes Service manifest

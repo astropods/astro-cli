@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )

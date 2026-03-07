@@ -6,8 +6,8 @@ import (
 
 	"log"
 
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -77,22 +77,22 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		pullPolicy = corev1.PullAlways
 	}
 	return &Applier{
-		clientset:         client.Clientset(),
-		namespace:         cfg.Namespace,
-		registryURL:       cfg.RegistryURL,
-		imageResolver:     NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL, cfg.Environment),
-		imagePullPolicy:   pullPolicy,
+		clientset:              client.Clientset(),
+		namespace:              cfg.Namespace,
+		registryURL:            cfg.RegistryURL,
+		imageResolver:          NewImageResolver(cfg.ProxyRegistryHost, cfg.RegistryURL, cfg.Environment),
+		imagePullPolicy:        pullPolicy,
 		ingressDomain:          cfg.IngressDomain,
 		acmCertificateARN:      cfg.ACMCertificateARN,
 		albGroupName:           cfg.ALBGroupName,
 		ingestionIngressDomain: cfg.IngestionIngressDomain,
 		ingestionACMCertARN:    cfg.IngestionACMCertARN,
 		ingestionALBGroupName:  cfg.IngestionALBGroupName,
-		galileoAPIKey:     cfg.GalileoAPIKey,
-		galileoProject:    cfg.GalileoProject,
-		namespaceLabels:      cfg.NamespaceLabels,
-		namespaceAnnotations: cfg.NamespaceAnnotations,
-		podSubnetCIDRs:       cfg.PodSubnetCIDRs,
+		galileoAPIKey:          cfg.GalileoAPIKey,
+		galileoProject:         cfg.GalileoProject,
+		namespaceLabels:        cfg.NamespaceLabels,
+		namespaceAnnotations:   cfg.NamespaceAnnotations,
+		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
 	}
 }
 

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/postman/astro/apps/astro-server/internal/k8s"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

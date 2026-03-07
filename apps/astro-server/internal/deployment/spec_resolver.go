@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // ResolveContext provides the runtime context needed to resolve ${} references
@@ -110,8 +110,8 @@ func ResolveDeploymentSpecEnv(ds *spec.AstroDeploymentSpec, rctx ResolveContext)
 
 // componentEndpointInfo holds the port and protocol for a single named endpoint.
 type componentEndpointInfo struct {
-	Port      int
-	Protocol  string
+	Port     int
+	Protocol string
 }
 
 // componentInfo holds the resolved DNS and per-endpoint info for a deployed component.

@@ -5,9 +5,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
+	"github.com/astropods/astro/apps/astro-registry/internal/registry"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
-	"github.com/postman/astro/apps/astro-registry/internal/registry"
 )
 
 // ProbeHandler manages Kubernetes-style health probes

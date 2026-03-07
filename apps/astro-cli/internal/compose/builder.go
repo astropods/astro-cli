@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"strings"
 
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
-	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 // buildSecretsConfig converts spec secrets to compose secrets configuration

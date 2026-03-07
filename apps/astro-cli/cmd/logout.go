@@ -6,7 +6,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 )
 
 var logoutCmd = &cobra.Command{

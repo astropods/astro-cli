@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 func TestReconciler_SyncsAccounts(t *testing.T) {

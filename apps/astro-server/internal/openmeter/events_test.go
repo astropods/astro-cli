@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 func TestEmitAgentBuild_NilClient(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/workos/workos-go/v4/pkg/events"
 )
 

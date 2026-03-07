@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/postman/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 )
 
 // ProjectConfig holds the stored configuration for a single project.

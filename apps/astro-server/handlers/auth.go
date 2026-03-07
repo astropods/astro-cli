@@ -7,12 +7,12 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/auth"
-	"github.com/postman/astro/apps/astro-server/internal/config"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/org"
 )
 
 // AuthHandler handles authentication endpoints

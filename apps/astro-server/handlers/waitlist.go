@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 )
 
 // WaitlistSignupRequest represents the request body for joining the waitlist

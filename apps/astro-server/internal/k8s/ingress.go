@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

@@ -10,19 +10,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
 const (
 	clusterIDHeader = "x-k8s-aws-id"
-	tokenPrefix     = "k8s-aws-v1." //nolint:gosec
+	tokenPrefix     = "k8s-aws-v1."    //nolint:gosec
 	tokenExpiry     = 14 * time.Minute // Tokens valid for 15min, refresh at 14min
 )
 

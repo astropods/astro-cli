@@ -1,4 +1,4 @@
-module github.com/postman/astro/packages/astro-proto
+module github.com/astropods/astro/packages/astro-proto
 
 go 1.24
 

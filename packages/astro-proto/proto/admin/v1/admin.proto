@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package admin.v1;
 
-option go_package = "github.com/postman/astro/packages/astro-proto/admin/v1;adminv1";
+option go_package = "github.com/astropods/astro/packages/astro-proto/admin/v1;adminv1";
 
 service AdminService {
   rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);

@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	_ "github.com/lib/pq"
-	"github.com/postman/astro/apps/astro-server/internal/deployid"
 )
 
 func testDB(t *testing.T) *sql.DB {

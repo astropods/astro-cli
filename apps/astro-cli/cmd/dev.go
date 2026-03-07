@@ -20,11 +20,11 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	composeBuilder "github.com/postman/astro/apps/astro-cli/internal/compose"
-	"github.com/postman/astro/apps/astro-cli/internal/config"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
-	"github.com/postman/astro/apps/astro-cli/internal/utils"
-	spec "github.com/postman/astro/packages/astro-spec"
+	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
+	"github.com/astropods/astro/apps/astro-cli/internal/config"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var devCmd = &cobra.Command{

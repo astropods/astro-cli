@@ -3,7 +3,7 @@ package deployment
 import (
 	"testing"
 
-	spec "github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // fillAndDeploy simulates the full deploy flow:

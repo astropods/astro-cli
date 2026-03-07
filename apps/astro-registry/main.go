@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-registry/handlers"
+	"github.com/astropods/astro/apps/astro-registry/internal/account"
+	"github.com/astropods/astro/apps/astro-registry/internal/config"
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
+	"github.com/astropods/astro/apps/astro-registry/internal/middleware"
+	"github.com/astropods/astro/apps/astro-registry/internal/registry"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
-	"github.com/postman/astro/apps/astro-registry/handlers"
-	"github.com/postman/astro/apps/astro-registry/internal/account"
-	"github.com/postman/astro/apps/astro-registry/internal/config"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
-	"github.com/postman/astro/apps/astro-registry/internal/middleware"
-	"github.com/postman/astro/apps/astro-registry/internal/registry"
 )
 
 func main() {

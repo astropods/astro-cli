@@ -10,9 +10,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	projectconfig "github.com/postman/astro/apps/astro-cli/internal/config"
-	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
-	"github.com/postman/astro/apps/astro-cli/internal/tui/create"
+	projectconfig "github.com/astropods/astro/apps/astro-cli/internal/config"
+	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui/create"
 )
 
 var (

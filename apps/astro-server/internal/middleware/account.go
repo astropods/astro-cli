@@ -3,9 +3,9 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/auth"
 )
 
 // ResolveAccount reads the :account URL param, looks up the account by name,

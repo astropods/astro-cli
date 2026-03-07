@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"runtime/debug"
 
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
 )
 
 // Recovery returns a middleware that recovers from panics

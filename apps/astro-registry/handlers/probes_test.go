@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
 )
 
 func init() {

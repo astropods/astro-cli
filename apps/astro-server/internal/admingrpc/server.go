@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
-	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
+	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
+	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/postman/astro/apps/astro-server/internal/k8s"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

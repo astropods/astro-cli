@@ -9,7 +9,7 @@ import (
 )
 
 // AmplitudeAPIKey is set at build time via ldflags.
-// Override via: go build -ldflags "-X github.com/postman/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=..."
+// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/telemetry.AmplitudeAPIKey=..."
 var AmplitudeAPIKey = ""
 
 // noopLogger suppresses all Amplitude SDK log output.

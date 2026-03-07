@@ -6,14 +6,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/agentindex"
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/apps/astro-server/internal/k8s"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/middleware"
-	spec "github.com/postman/astro/packages/astro-spec"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

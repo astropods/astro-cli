@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

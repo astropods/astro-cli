@@ -11,10 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/specwriter"
-	"github.com/postman/astro/apps/astro-cli/internal/tui/add"
-	"github.com/postman/astro/apps/astro-cli/internal/tui/credentials"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-cli/internal/specwriter"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui/add"
+	"github.com/astropods/astro/apps/astro-cli/internal/tui/credentials"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var addCmd = &cobra.Command{

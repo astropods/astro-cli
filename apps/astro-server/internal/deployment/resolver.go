@@ -3,7 +3,7 @@ package deployment
 import (
 	"fmt"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/robfig/cron/v3"
 )
 

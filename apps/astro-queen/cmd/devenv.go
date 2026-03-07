@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"text/tabwriter"
 
-	"github.com/postman/astro/apps/astro-queen/internal/devenv"
+	"github.com/astropods/astro/apps/astro-queen/internal/devenv"
 	"github.com/spf13/cobra"
 )
 

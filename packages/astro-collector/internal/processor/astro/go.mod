@@ -1,4 +1,4 @@
-module github.com/postman/astro/packages/astro-collector/internal/processor/astro
+module github.com/astropods/astro/packages/astro-collector/internal/processor/astro
 
 go 1.24.0
 

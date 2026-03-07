@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/huh"
 
-	"github.com/postman/astro/apps/astro-cli/internal/scaffold"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
 // ollamaModels returns a curated list of popular models from the Ollama library.
@@ -61,11 +61,11 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 		confirm = true
 	)
 
-	hasOllama    := func() bool { return slices.Contains(models, "ollama") }
+	hasOllama := func() bool { return slices.Contains(models, "ollama") }
 	hasAnthropic := func() bool { return slices.Contains(models, "anthropic") }
-	hasOpenAI    := func() bool { return slices.Contains(models, "openai") }
-	hasGitHub    := func() bool { return slices.Contains(tools, "github") }
-	hasSlack     := func() bool { return slices.Contains(interfaces, "slack") }
+	hasOpenAI := func() bool { return slices.Contains(models, "openai") }
+	hasGitHub := func() bool { return slices.Contains(tools, "github") }
+	hasSlack := func() bool { return slices.Contains(interfaces, "slack") }
 
 	needsName := name == ""
 

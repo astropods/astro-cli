@@ -3,7 +3,7 @@ package openmeter
 import (
 	"context"
 
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // EmitAgentBuild emits an agent_build event when a new build is registered.

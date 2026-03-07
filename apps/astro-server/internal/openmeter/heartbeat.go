@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 const heartbeatInterval = 5 * time.Minute

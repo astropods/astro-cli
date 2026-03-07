@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/waitlist"
 )
 
 func setupWaitlistTestRouter() (*gin.Engine, *waitlist.Store, sqlmock.Sqlmock) {

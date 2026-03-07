@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
 )
 
 var (

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-registry/internal/auth"
+	"github.com/astropods/astro/apps/astro-registry/internal/config"
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/postman/astro/apps/astro-registry/internal/auth"
-	"github.com/postman/astro/apps/astro-registry/internal/config"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
 )
 
 func init() {

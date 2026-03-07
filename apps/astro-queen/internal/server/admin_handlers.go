@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
 
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {

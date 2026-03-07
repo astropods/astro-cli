@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/utils"
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 )
 
 const playgroundImage = "astropods/playground:latest"

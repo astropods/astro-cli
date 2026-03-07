@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"

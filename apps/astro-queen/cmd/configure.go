@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/postman/astro/apps/astro-queen/internal/config"
-	"github.com/postman/astro/apps/astro-queen/internal/opauth"
+	"github.com/astropods/astro/apps/astro-queen/internal/config"
+	"github.com/astropods/astro/apps/astro-queen/internal/opauth"
 )
 
 var loginCmd = &cobra.Command{

@@ -1,11 +1,11 @@
-module github.com/postman/astro/apps/astro-queen
+module github.com/astropods/astro/apps/astro-queen
 
 go 1.24.2
 
 require (
 	github.com/1password/onepassword-sdk-go v0.4.0
 	github.com/google/go-github/v69 v69.2.0
-	github.com/postman/astro/packages/astro-proto v0.0.0
+	github.com/astropods/astro/packages/astro-proto v0.0.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/oauth2 v0.35.0
 	google.golang.org/grpc v1.75.1
@@ -30,4 +30,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/postman/astro/packages/astro-proto => ../../packages/astro-proto
+replace github.com/astropods/astro/packages/astro-proto => ../../packages/astro-proto

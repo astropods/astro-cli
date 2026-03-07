@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"

@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/agentindex"
-	"github.com/postman/astro/apps/astro-server/internal/auth"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
 func setupAgentTestRouter() (*gin.Engine, *agentindex.Index, sqlmock.Sqlmock) {

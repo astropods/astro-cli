@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	spec "github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 func TestParseCPU(t *testing.T) {

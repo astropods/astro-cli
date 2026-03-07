@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 
-	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/postman/astro/apps/astro-queen/internal/config"
+	"github.com/astropods/astro/apps/astro-queen/internal/config"
 )
 
 // Client wraps the AdminServiceClient with connection management.

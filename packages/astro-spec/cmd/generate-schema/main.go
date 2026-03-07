@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/invopop/jsonschema"
-	spec "github.com/postman/astro/packages/astro-spec"
 )
 
 func main() {

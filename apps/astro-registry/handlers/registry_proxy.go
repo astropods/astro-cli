@@ -8,11 +8,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-registry/internal/account"
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
+	"github.com/astropods/astro/apps/astro-registry/internal/middleware"
+	"github.com/astropods/astro/apps/astro-registry/internal/registry"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-registry/internal/account"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
-	"github.com/postman/astro/apps/astro-registry/internal/middleware"
-	"github.com/postman/astro/apps/astro-registry/internal/registry"
 )
 
 // RegistryProxyConfig holds configuration for the registry proxy.

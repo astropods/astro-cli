@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 func httpEndpoints(port int) map[string]spec.Endpoint {

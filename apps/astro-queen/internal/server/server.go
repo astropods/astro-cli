@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	adminv1 "github.com/postman/astro/packages/astro-proto/admin/v1"
+	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
 
 // Server is an HTTP server that proxies admin gRPC calls

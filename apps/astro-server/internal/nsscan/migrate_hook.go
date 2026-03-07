@@ -7,7 +7,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // MigrationHook returns a ScanHook that detects deployments still using the

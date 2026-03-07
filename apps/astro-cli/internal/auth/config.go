@@ -10,7 +10,7 @@ import (
 // Build-time configuration (set via ldflags)
 var (
 	// WorkOSClientID is the public OAuth client ID for device flow
-	// Override via: go build -ldflags "-X github.com/postman/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_..."
+	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.WorkOSClientID=client_..."
 	WorkOSClientID = "client_01K1VMRDRQ94MV98D9ANFVT7H2"
 
 	// WorkOSBaseURL is the WorkOS API base URL
@@ -21,7 +21,7 @@ var (
 	DefaultServerURL = "http://localhost:8080"
 
 	// FleetServerURL is the connect/fleet server address (host:port).
-	// Override via: go build -ldflags "-X github.com/postman/astro/apps/astro-cli/internal/auth.FleetServerURL=fleet.astropods.ai:9092"
+	// Override via: go build -ldflags "-X github.com/astropods/astro/apps/astro-cli/internal/auth.FleetServerURL=fleet.astropods.ai:9092"
 	FleetServerURL = "localhost:9092"
 )
 

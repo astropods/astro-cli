@@ -8,15 +8,15 @@ import (
 	"sync"
 	"time"
 
+	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 	"github.com/google/uuid"
-	connectv1 "github.com/postman/astro/packages/astro-proto/connect/v1"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/devicestore"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // deviceSession tracks a connected device's stream and pending command responses.

@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-registry/internal/auth"
+	"github.com/astropods/astro/apps/astro-registry/internal/config"
+	"github.com/astropods/astro/apps/astro-registry/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-registry/internal/auth"
-	"github.com/postman/astro/apps/astro-registry/internal/config"
-	"github.com/postman/astro/apps/astro-registry/internal/logger"
 )
 
 // AuthMiddleware provides authentication middleware for protecting routes

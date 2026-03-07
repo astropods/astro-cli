@@ -7,14 +7,14 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/agentindex"
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
-	"github.com/postman/astro/apps/astro-server/internal/middleware"
-	"github.com/postman/astro/apps/astro-server/internal/openmeter"
-	"github.com/postman/astro/packages/astro-spec"
 	"gopkg.in/yaml.v3"
 )
 

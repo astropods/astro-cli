@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-queen/internal/client"
-	"github.com/postman/astro/apps/astro-queen/internal/config"
-	"github.com/postman/astro/apps/astro-queen/internal/server"
+	"github.com/astropods/astro/apps/astro-queen/internal/client"
+	"github.com/astropods/astro/apps/astro-queen/internal/config"
+	"github.com/astropods/astro/apps/astro-queen/internal/server"
 )
 
 var (

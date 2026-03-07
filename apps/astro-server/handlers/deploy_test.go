@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/agentindex"
-	"github.com/postman/astro/apps/astro-server/internal/auth"
-	"github.com/postman/astro/apps/astro-server/internal/deployid"
-	"github.com/postman/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
 // --- deploymentNamespace tests ---

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/config"
 )
 
 // allowedCLINames is the set of valid download filenames (prevents path traversal).

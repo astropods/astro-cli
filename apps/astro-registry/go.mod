@@ -1,4 +1,4 @@
-module github.com/postman/astro/apps/astro-registry
+module github.com/astropods/astro/apps/astro-registry
 
 go 1.25.0
 

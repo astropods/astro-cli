@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	spec "github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 var explainCmd = &cobra.Command{

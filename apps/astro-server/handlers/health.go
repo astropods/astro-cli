@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
 // HealthCheck returns a handler for health checks

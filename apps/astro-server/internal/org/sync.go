@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/postman/astro/apps/astro-server/internal/account"
-	"github.com/postman/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 )
 
 // Sync provides write-path sync logic (Astro → WorkOS) for organization memberships.

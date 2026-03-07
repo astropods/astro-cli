@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	spec "github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // providerEnvKey returns the env-var key for a provider entry.

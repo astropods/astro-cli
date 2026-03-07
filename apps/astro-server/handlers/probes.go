@@ -5,10 +5,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/agentindex"
-	"github.com/postman/astro/apps/astro-server/internal/k8s"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
 // ProbeHandler manages Kubernetes-style health probes

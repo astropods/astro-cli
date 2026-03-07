@@ -1,4 +1,4 @@
-module github.com/postman/astro/packages/astro-spec
+module github.com/astropods/astro/packages/astro-spec
 
 go 1.24
 

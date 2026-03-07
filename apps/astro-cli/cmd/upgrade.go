@@ -12,7 +12,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/postman/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 )
 
 var upgradeCmd = &cobra.Command{

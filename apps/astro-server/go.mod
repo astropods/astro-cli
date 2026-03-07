@@ -1,4 +1,4 @@
-module github.com/postman/astro/apps/astro-server
+module github.com/astropods/astro/apps/astro-server
 
 go 1.25.0
 
@@ -15,8 +15,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
-	github.com/postman/astro/packages/astro-proto v0.0.0
-	github.com/postman/astro/packages/astro-spec v0.0.0
+	github.com/astropods/astro/packages/astro-proto v0.0.0
+	github.com/astropods/astro/packages/astro-spec v0.0.0
 	github.com/quic-go/quic-go v0.59.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/workos/workos-go/v4 v4.46.1
@@ -29,8 +29,8 @@ require (
 )
 
 replace (
-	github.com/postman/astro/packages/astro-proto => ../../packages/astro-proto
-	github.com/postman/astro/packages/astro-spec => ../../packages/astro-spec
+	github.com/astropods/astro/packages/astro-proto => ../../packages/astro-proto
+	github.com/astropods/astro/packages/astro-spec => ../../packages/astro-spec
 )
 
 require (

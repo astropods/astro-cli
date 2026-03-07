@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/postman/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/quic-go/quic-go"
 )
 

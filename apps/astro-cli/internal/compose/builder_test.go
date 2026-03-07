@@ -3,7 +3,7 @@ package compose
 import (
 	"testing"
 
-	spec "github.com/postman/astro/packages/astro-spec"
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 // helper to dereference a *string from env maps, returning "" if nil.
@@ -16,8 +16,8 @@ func envVal(env map[string]*string, key string) string {
 
 func TestBuildProject_MinimalSpec(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 	}
 
@@ -42,8 +42,8 @@ func TestBuildProject_MinimalSpec(t *testing.T) {
 
 func TestBuildProject_SlackInterface(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Dev: &spec.Dev{
 			Interfaces: []string{"slack"},
@@ -88,8 +88,8 @@ func TestBuildProject_SlackInterface(t *testing.T) {
 
 func TestBuildProject_WebInterface(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Dev: &spec.Dev{
 			Interfaces: []string{"web"},
@@ -123,8 +123,8 @@ func TestBuildProject_WebInterface(t *testing.T) {
 
 func TestBuildProject_CloudProviderCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Models: map[string]spec.Model{
 			"anthropic": {Provider: "anthropic"},
@@ -239,8 +239,8 @@ func TestBuildProject_CustomProviderMissingEnvVar(t *testing.T) {
 
 func TestBuildProject_KnowledgeStore(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Knowledge: map[string]spec.Knowledge{
 			"docs": {Provider: "qdrant", Persistent: true},
@@ -404,8 +404,8 @@ func TestBuildProject_IngestionWebhookDefaultPort(t *testing.T) {
 
 func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
-		Name:     "my-agent",
-		Meta:      spec.Meta{},
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Models: map[string]spec.Model{
 			"fallback": {Provider: "anthropic"},

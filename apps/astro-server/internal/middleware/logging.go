@@ -3,8 +3,8 @@ package middleware
 import (
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/postman/astro/apps/astro-server/internal/logger"
 )
 
 // Logger returns a gin middleware for structured logging

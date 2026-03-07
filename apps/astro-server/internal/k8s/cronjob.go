@@ -1,8 +1,8 @@
 package k8s
 
 import (
-	"github.com/postman/astro/apps/astro-server/internal/deployment"
-	"github.com/postman/astro/packages/astro-spec"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
