@@ -14,7 +14,7 @@ The Astropods Spec defines a declarative YAML format for describing the topology
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
-| v1.1    | 2026-03-07 | Added `models` (string array) to model entries; deprecated `model`.     |
+| v1.1    | 2026-03-07 | Added `agent.interfaces` (frontend + messaging). Added `models` (string array) to model entries; deprecated `model`. |
 | v1.0    | 2026-02-27 | Initial draft.                                                          |
 
 ## Conventions
@@ -28,6 +28,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 An AstroAI Spec file (`astropods.yml`) is a YAML document that declares:
 
 - The agent's container image (pre-built or build-from-source).
+- How users reach the agent — its own web frontend, messaging adapters (Slack, web chat), or both.
 - Components the agent depends on — models, knowledge stores, and integrations — each supplied by either a platform-managed provider or a user-managed container.
 - Custom providers for external API services that require credential injection.
 - Data ingestion pipelines with trigger semantics.
@@ -42,7 +43,7 @@ A central concept is **provider binding**. Components that an agent depends on �
 
 This design lets authors mix managed and custom components freely within a single spec.
 
-The spec does **not** cover: resource limits (CPU/memory), observability, rate limits, budgets, security policies, deployment region, or interface routing (Slack, web). These are deployment-time concerns configured separately.
+The spec does **not** cover: resource limits (CPU/memory), observability, rate limits, budgets, security policies, or deployment region. These are deployment-time concerns configured separately.
 
 The document format is YAML. Implementations MUST accept files named `astropods.yml`.
 
@@ -87,6 +88,7 @@ The `agent` object defines the agent's primary service — its container image o
 | `image`       | string      | Conditional | Pre-built container image reference.                                   |
 | `build`       | BuildConfig | Conditional | Build-from-source configuration.                                       |
 | `distributed` | boolean     | OPTIONAL    | Whether the agent supports multi-replica deployment. Default: `false`. |
+| `interfaces`  | Interfaces  | OPTIONAL    | Agent capabilities — frontend, messaging, or both (Section 3.3). |
 | `healthcheck` | Healthcheck | OPTIONAL    | Health check configuration.                                            |
 | `inputs`      | Input[]     | OPTIONAL    | User-supplied inputs injected into the agent container.                |
 
@@ -122,6 +124,33 @@ Applies to the agent definition and to any `ContainerConfig.healthcheck` in comp
 | `retries`  | integer  | OPTIONAL | Consecutive failures before unhealthy. Default: `3`.               |
 
 Implementations SHOULD support both `test` (exec-based) and `path` (HTTP-based) health checks. When `path` is provided, the implementation SHOULD generate an equivalent `test` command.
+
+### 3.3 Interfaces
+
+The `interfaces` object declares how users reach the agent. Both fields are booleans — the agent either has the capability or it doesn't. Deployment-time configuration (which messaging adapters to enable, domain routing, etc.) belongs in the deployment spec or `dev.interfaces`.
+
+Omitting `interfaces` entirely preserves backward compatibility — the platform defaults to messaging enabled.
+
+| Field       | Type    | Required | Description                                                                       |
+| ----------- | ------- | -------- | --------------------------------------------------------------------------------- |
+| `frontend`  | boolean | OPTIONAL | Agent serves its own web interface. Default: `false`.                             |
+| `messaging` | boolean | OPTIONAL | Agent supports the messaging protocol; eligible for sidecar deployment. Default: `true` when `interfaces` is omitted, `false` when `interfaces` is present. |
+
+```yaml
+# Agent serves its own UI and supports messaging
+interfaces:
+  frontend: true
+  messaging: true
+
+# Agent serves its own UI, no messaging
+interfaces:
+  frontend: true
+  messaging: false
+
+# Classic conversational agent (equivalent to omitting interfaces)
+interfaces:
+  messaging: true
+```
 
 ---
 
@@ -258,11 +287,30 @@ Trigger type semantics:
 
 The `dev` section provides local development overrides consumed by `astro dev`. These fields are deployment concerns that do not belong in the normative agent topology.
 
-| Field        | Type                  | Required | Description                                                                        |
-| ------------ | --------------------- | -------- | ---------------------------------------------------------------------------------- |
-| `interfaces` | string[]              | OPTIONAL | Messaging interfaces to enable locally (e.g. `slack`, `web`).                      |
-| `command`    | string                | OPTIONAL | Custom start command for the agent. Default: `bun --watch run start`.              |
-| `overrides`  | DevOverrides          | OPTIONAL | Image overrides for local dev services.                                            |
+| Field        | Type           | Required | Description                                                                        |
+| ------------ | -------------- | -------- | ---------------------------------------------------------------------------------- |
+| `interfaces` | DevInterfaces  | OPTIONAL | Local dev configuration for frontend and messaging interfaces.                     |
+| `command`    | string         | OPTIONAL | Custom start command for the agent. Default: `bun --watch run start`.              |
+| `overrides`  | DevOverrides   | OPTIONAL | Image overrides for local dev services.                                            |
+
+#### DevInterfaces
+
+| Field       | Type                | Required | Description                                                      |
+| ----------- | ------------------- | -------- | ---------------------------------------------------------------- |
+| `frontend`  | DevFrontend         | OPTIONAL | Local dev configuration for the agent's frontend.                |
+| `messaging` | DevMessaging        | OPTIONAL | Local dev configuration for the messaging sidecar.               |
+
+#### DevFrontend
+
+| Field  | Type    | Required | Description                                                                |
+| ------ | ------- | -------- | -------------------------------------------------------------------------- |
+| `port` | integer | OPTIONAL | Port the agent serves on locally. The platform proxies port 80 to this. Default: `80`. |
+
+#### DevMessaging
+
+| Field      | Type     | Required | Description                                              |
+| ---------- | -------- | -------- | -------------------------------------------------------- |
+| `adapters` | string[] | OPTIONAL | Messaging adapters to enable locally (e.g. `[slack, web]`). |
 
 #### DevOverrides
 
@@ -384,6 +432,8 @@ Implementations MUST enforce the following validation rules:
 10a. For each entry in `models`: `models` and `model` are mutually exclusive. Providing both is invalid. `model` is deprecated; implementations SHOULD emit a warning when it is used.
 11. When an input's `display-as` is `select`, `options` MUST be present and non-empty.
 12. Each `Input` in any context MUST have a non-empty `name` and `datatype` MUST be one of `string`, `boolean`, `number`, `array`, `object`.
+13. When `agent.interfaces.frontend` is `true`, the agent MUST serve HTTP on port 80.
+14. When `agent.interfaces.messaging` is `true`, the agent MUST implement the messaging protocol.
 
 ---
 
@@ -465,6 +515,9 @@ agent:
     secrets:
       - id: npm_token
         env: GITHUB_PACKAGES_TOKEN
+  interfaces:
+    frontend: true
+    messaging: true
   inputs:
     - name: LOG_LEVEL
       datatype: string
@@ -560,7 +613,11 @@ ingestion:
       type: startup
 
 dev:
-  interfaces: [slack, web]
+  interfaces:
+    frontend:
+      port: 3000
+    messaging:
+      adapters: [slack]
   command: bun --watch run start
 ```
 
