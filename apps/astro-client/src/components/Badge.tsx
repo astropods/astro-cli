@@ -24,7 +24,7 @@ export interface BadgeProps {
 const variantStyles: Record<BadgeVariant, { dot: string; badge: string }> = {
   default: {
     dot: "bg-stone-600 border-[3px] border-stone-300",
-    badge: "bg-white/10 text-muted-foreground border border-tertiary-foreground",
+    badge: "bg-white/10 text-muted-foreground border border-muted-foreground",
   },
   active: {
     dot: "bg-green-700 border-[3px] border-green-200 dark:bg-green-400 dark:border-green-800",

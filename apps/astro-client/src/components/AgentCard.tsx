@@ -23,7 +23,7 @@ export function AgentCard({
   return (
     <Link
       to={`/${slug}`}
-      className="group flex flex-col rounded-sm border border-border bg-card transition-colors hover:bg-card-hover"
+      className="group flex flex-col rounded-sm border border-border bg-background transition-colors hover:bg-accent"
     >
       <div className="flex flex-1 items-start gap-3 p-3">
         <AgentIdentity account={account} name={name} size={40} className="size-10 shrink-0 rounded-sm overflow-hidden" />

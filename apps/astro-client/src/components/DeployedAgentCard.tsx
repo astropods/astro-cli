@@ -62,14 +62,14 @@ export function DeployedAgentCard({
     <Link
       to={href}
       className={cn(
-        "group relative flex flex-col gap-3 rounded-sm border border-border bg-card p-4 transition-colors hover:bg-card-hover",
+        "group relative flex flex-col gap-3 rounded-sm border border-border bg-background p-4 transition-colors hover:bg-accent",
         className,
       )}
     >
       <div className="absolute top-3 right-3">
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-card-hover"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
           aria-label="Agent options"
           onClick={(e) => {
             e.preventDefault();

@@ -7,6 +7,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @import "astro-theme/colors.css";
+@import "astro-theme/semantic.css";
 
 @theme {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
@@ -47,9 +48,6 @@ body {
   --radius-4xl: calc(var(--radius) + 20px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-hover: var(--card-hover);
-  --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -69,84 +67,12 @@ body {
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-tertiary-foreground: var(--tertiary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-}
-
-:root {
-  --radius: 0.75rem;
-  --background: var(--color-stone-50);
-  --foreground: oklch(22.34% 0.0240 190.998); /* designer ink #0d1f1e — warm dark teal */
-  --card: var(--color-stone-100);
-  --card-hover: var(--color-stone-50);
-  --card-foreground: oklch(22.34% 0.0240 190.998);
-  --popover: var(--color-stone-100);
-  --popover-foreground: oklch(22.34% 0.0240 190.998);
-  --primary: var(--color-teal-800);
-  --primary-foreground: #fff;
-  --secondary: var(--color-stone-200);
-  --secondary-foreground: var(--color-stone-800);
-  --muted: var(--color-stone-200);
-  --muted-foreground: oklch(46.51% 0.0244 192.665); /* designer ink-muted #4a5e5d */
-  --tertiary-foreground: var(--color-stone-400);
-  --accent: var(--color-stone-200);
-  --accent-foreground: var(--color-stone-800);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: var(--color-stone-300);
-  --input: var(--color-stone-300);
-  --ring: var(--color-teal-500);
-  --sidebar: var(--color-stone-100);
-  --sidebar-foreground: oklch(22.34% 0.0240 190.998);
-  --sidebar-primary: var(--color-teal-800);
-  --sidebar-primary-foreground: #fff;
-  --sidebar-accent: var(--color-stone-200);
-  --sidebar-accent-foreground: var(--color-stone-800);
-  --sidebar-border: var(--color-stone-300);
-  --sidebar-ring: var(--color-teal-500);
-}
-
-.dark {
-  --background: oklch(14.89% 0.0080 164.578); /* designer bg #080c0a — dark teal-tinted */
-  --foreground: oklch(92.89% 0.0197 87.537); /* designer text #ede7d9 — warm beige */
-  --card: oklch(20.69% 0.0160 188.978); /* designer surface #0f1a19 */
-  --card-hover: oklch(24.92% 0.0161 168.709); /* designer surface-2 #1a2420 */
-  --card-foreground: oklch(92.89% 0.0197 87.537);
-  --popover: oklch(20.69% 0.0160 188.978);
-  --popover-foreground: oklch(92.89% 0.0197 87.537);
-  --primary: var(--color-teal-400);
-  --primary-foreground: var(--color-teal-950);
-  --secondary: oklch(24.92% 0.0161 168.709);
-  --secondary-foreground: oklch(92.89% 0.0197 87.537);
-  --muted: oklch(24.92% 0.0161 168.709);
-  --muted-foreground: oklch(57.71% 0.0225 188.918); /* designer ink-faint #6b7e7c */
-  --tertiary-foreground: var(--color-stone-500);
-  --accent: oklch(24.92% 0.0161 168.709);
-  --accent-foreground: oklch(92.89% 0.0197 87.537);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(75.65% 0.0997 192.824 / 15%); /* teal-300 @ 15% — designer border */
-  --input: oklch(75.65% 0.0997 192.824 / 20%); /* teal-300 @ 20% */
-  --ring: var(--color-teal-500);
-  --sidebar: oklch(14.89% 0.0080 164.578);
-  --sidebar-foreground: oklch(92.89% 0.0197 87.537);
-  --sidebar-primary: var(--color-teal-400);
-  --sidebar-primary-foreground: var(--color-teal-950);
-  --sidebar-accent: oklch(24.92% 0.0161 168.709);
-  --sidebar-accent-foreground: oklch(92.89% 0.0197 87.537);
-  --sidebar-border: oklch(75.65% 0.0997 192.824 / 15%);
-  --sidebar-ring: var(--color-teal-500);
 }
 
 @layer base {
@@ -156,4 +82,95 @@ body {
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
+}
+
+/* Storybook docs overrides — light */
+.sbdocs-wrapper {
+  background: var(--color-stone-50) !important;
+}
+
+.docs-story {
+  background: var(--color-stone-50) !important;
+}
+
+html .sbdocs-preview {
+  background-color: var(--color-stone-50) !important;
+}
+
+/* Storybook docs overrides — dark */
+.dark .sbdocs-wrapper {
+  background: var(--color-stone-950) !important;
+  color: var(--foreground) !important;
+}
+
+.dark .sbdocs-content {
+  color: var(--foreground) !important;
+}
+
+.dark .sbdocs-title,
+.dark .sbdocs-subtitle,
+.dark .sbdocs .markdown h1,
+.dark .sbdocs .markdown h2,
+.dark .sbdocs .markdown h3,
+.dark .sbdocs .markdown h4,
+.dark .sbdocs h1,
+.dark .sbdocs h2,
+.dark .sbdocs h3,
+.dark .sbdocs h4 {
+  color: var(--foreground) !important;
+}
+
+.dark .sbdocs p,
+.dark .sbdocs li,
+.dark .sbdocs td,
+.dark .sbdocs th,
+.dark .sbdocs label,
+.dark .sbdocs span {
+  color: var(--foreground) !important;
+}
+
+.dark .sbdocs a {
+  color: var(--primary) !important;
+}
+
+.dark .sbdocs code {
+  background: var(--muted) !important;
+  color: var(--foreground) !important;
+}
+
+.dark .sbdocs pre {
+  background: var(--color-teal-900) !important;
+  color: var(--foreground) !important;
+}
+
+.dark .sbdocs pre code {
+  background: transparent !important;
+}
+
+.dark .docs-story {
+  background: var(--color-stone-950) !important;
+}
+
+html.dark .sbdocs-preview {
+  background-color: var(--color-stone-950) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--border) 50%, transparent) !important;
+}
+
+.dark .docblock-argstable {
+  border-color: var(--border) !important;
+}
+
+.dark .docblock-argstable th,
+.dark .docblock-argstable td {
+  background: var(--color-stone-950) !important;
+  color: var(--foreground) !important;
+  border-color: var(--border) !important;
+}
+
+.dark .sbdocs hr {
+  border-color: var(--border) !important;
+}
+
+.dark .sbdocs-expandable {
+  border-color: var(--border) !important;
 }

@@ -70,13 +70,13 @@ export function AgentDetailContent({
       {/* Safety & Permissions */}
       {safetyPermissions.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-xs font-medium text-tertiary-foreground mb-3">
+          <h2 className="text-xs font-medium text-muted-foreground mb-3">
             Safety & Permissions
           </h2>
           <ul className="space-y-2">
             {safetyPermissions.map((permission, i) => (
               <li key={i} className="flex items-start gap-2 text-sm">
-                <ShieldCheck className="size-4 shrink-0 text-tertiary-foreground mt-0.5" />
+                <ShieldCheck className="size-4 shrink-0 text-muted-foreground mt-0.5" />
                 <span className="text-muted-foreground">{permission}</span>
               </li>
             ))}

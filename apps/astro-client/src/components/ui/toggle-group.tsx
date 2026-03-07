@@ -50,7 +50,7 @@ function ToggleGroup({
     <ToggleGroupContext.Provider value={{ value: activeValue, items }}>
       <ToggleGroupPrimitive.Root
         className={cn(
-          "relative inline-flex items-center gap-1 rounded-sm border border-border bg-stone-50 dark:bg-card p-1",
+          "relative inline-flex items-center gap-1 rounded-sm border border-border bg-stone-50 dark:bg-background p-1",
           className
         )}
         type={type}

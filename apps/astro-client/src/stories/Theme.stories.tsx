@@ -15,11 +15,12 @@ const hues = [
   'pink',
 ] as const
 
-const shades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const
+const shades = [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const
 
 // Pre-computed class map so Tailwind can detect every utility at build time.
 const bgClass: Record<string, Record<number, string>> = {
   indigo: {
+    25: 'bg-indigo-25',
     50: 'bg-indigo-50',
     100: 'bg-indigo-100',
     200: 'bg-indigo-200',
@@ -33,6 +34,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-indigo-950',
   },
   'neutral': {
+    25: 'bg-neutral-25',
     50: 'bg-neutral-50',
     100: 'bg-neutral-100',
     200: 'bg-neutral-200',
@@ -46,6 +48,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-neutral-950',
   },
   'stone': {
+    25: 'bg-stone-25',
     50: 'bg-stone-50',
     100: 'bg-stone-100',
     200: 'bg-stone-200',
@@ -59,6 +62,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-stone-950',
   },
   red: {
+    25: 'bg-red-25',
     50: 'bg-red-50',
     100: 'bg-red-100',
     200: 'bg-red-200',
@@ -72,6 +76,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-red-950',
   },
   amber: {
+    25: 'bg-amber-25',
     50: 'bg-amber-50',
     100: 'bg-amber-100',
     200: 'bg-amber-200',
@@ -85,6 +90,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-amber-950',
   },
   yellow: {
+    25: 'bg-yellow-25',
     50: 'bg-yellow-50',
     100: 'bg-yellow-100',
     200: 'bg-yellow-200',
@@ -98,6 +104,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-yellow-950',
   },
   green: {
+    25: 'bg-green-25',
     50: 'bg-green-50',
     100: 'bg-green-100',
     200: 'bg-green-200',
@@ -111,6 +118,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-green-950',
   },
   teal: {
+    25: 'bg-teal-25',
     50: 'bg-teal-50',
     100: 'bg-teal-100',
     200: 'bg-teal-200',
@@ -124,6 +132,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-teal-950',
   },
   coral: {
+    25: 'bg-coral-25',
     50: 'bg-coral-50',
     100: 'bg-coral-100',
     200: 'bg-coral-200',
@@ -137,6 +146,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-coral-950',
   },
   blue: {
+    25: 'bg-blue-25',
     50: 'bg-blue-50',
     100: 'bg-blue-100',
     200: 'bg-blue-200',
@@ -150,6 +160,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-blue-950',
   },
   purple: {
+    25: 'bg-purple-25',
     50: 'bg-purple-50',
     100: 'bg-purple-100',
     200: 'bg-purple-200',
@@ -163,6 +174,7 @@ const bgClass: Record<string, Record<number, string>> = {
     950: 'bg-purple-950',
   },
   pink: {
+    25: 'bg-pink-25',
     50: 'bg-pink-50',
     100: 'bg-pink-100',
     200: 'bg-pink-200',

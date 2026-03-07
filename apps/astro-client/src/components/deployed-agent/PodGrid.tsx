@@ -26,7 +26,7 @@ export function PodGrid({ pods, basePath }: { pods: PodDetail[]; basePath: strin
             <Link
               key={pod.name}
               to={`${basePath}?pod=${encodeURIComponent(pod.name)}`}
-              className="border border-border rounded-sm p-3 bg-card hover:bg-card-hover transition-colors"
+              className="border border-border rounded-sm p-3 bg-background hover:bg-accent transition-colors"
             >
               <p className="font-mono text-sm truncate" title={pod.name}>{pod.name}</p>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">

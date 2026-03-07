@@ -1,6 +1,6 @@
 /**
  * Color palettes — single source of truth for the Astro design system.
- * Each scale goes from 50 (lightest) to 950 (darkest).
+ * Each scale goes from 25 (lightest) to 950 (darkest).
  * All values use OKLCH format.
  *
  * Hue values have been smoothed via chroma²-weighted cubic polynomial
@@ -8,6 +8,7 @@
  */
 
 export type ColorScale = {
+  25: string;
   50: string;
   100: string;
   200: string;
@@ -22,6 +23,7 @@ export type ColorScale = {
 };
 
 export const teal: ColorScale = {
+  25: "oklch(98.88% 0.0053 194.137)",
   50: "oklch(97.76% 0.0106 194.137)",
   100: "oklch(92.68% 0.0364 194.362)",
   200: "oklch(85.43% 0.0692 194.037)",
@@ -36,6 +38,7 @@ export const teal: ColorScale = {
 };
 
 export const coral: ColorScale = {
+  25: "oklch(97.38% 0.0047 35.337)",
   50: "oklch(94.76% 0.0093 35.337)",
   100: "oklch(91.34% 0.0225 35.337)",
   200: "oklch(86.37% 0.0435 35.337)",
@@ -50,6 +53,7 @@ export const coral: ColorScale = {
 };
 
 export const stone: ColorScale = {
+  25: "oklch(98.25% 0.0070 76.761)",
   50: "oklch(96.50% 0.0140 76.761)",
   100: "oklch(92.89% 0.0247 77.488)",
   200: "oklch(90.18% 0.0227 76.598)",
@@ -64,6 +68,7 @@ export const stone: ColorScale = {
 };
 
 export const indigo: ColorScale = {
+  25: "oklch(98.08% 0.0084 267.767)",
   50: "oklch(96.16% 0.0167 267.767)",
   100: "oklch(92.93% 0.0309 269.580)",
   200: "oklch(87.08% 0.0571 272.201)",
@@ -78,6 +83,7 @@ export const indigo: ColorScale = {
 };
 
 export const neutral: ColorScale = {
+  25: "oklch(99.26% 0 0)",
   50: "oklch(98.51% 0 0)",
   100: "oklch(96.72% 0 0)",
   200: "oklch(92.80% 0 0)",
@@ -92,6 +98,7 @@ export const neutral: ColorScale = {
 };
 
 export const red: ColorScale = {
+  25: "oklch(98.50% 0.0060 7.937)",
   50: "oklch(97.00% 0.0119 7.937)",
   100: "oklch(93.70% 0.0286 10.373)",
   200: "oklch(88.50% 0.0557 14.568)",
@@ -106,6 +113,7 @@ export const red: ColorScale = {
 };
 
 export const amber: ColorScale = {
+  25: "oklch(98.98% 0.0060 67.580)",
   50: "oklch(97.96% 0.0119 67.580)",
   100: "oklch(95.49% 0.0301 69.014)",
   200: "oklch(90.13% 0.0593 64.459)",
@@ -120,6 +128,7 @@ export const amber: ColorScale = {
 };
 
 export const yellow: ColorScale = {
+  25: "oklch(99.37% 0.0074 91.553)",
   50: "oklch(98.74% 0.0147 91.553)",
   100: "oklch(96.20% 0.0346 93.851)",
   200: "oklch(92.50% 0.0704 94.802)",
@@ -134,6 +143,7 @@ export const yellow: ColorScale = {
 };
 
 export const green: ColorScale = {
+  25: "oklch(99.07% 0.0074 155.900)",
   50: "oklch(98.14% 0.0148 155.900)",
   100: "oklch(96.28% 0.0396 154.451)",
   200: "oklch(92.45% 0.0741 151.677)",
@@ -148,6 +158,7 @@ export const green: ColorScale = {
 };
 
 export const blue: ColorScale = {
+  25: "oklch(98.41% 0.0069 251.519)",
   50: "oklch(96.82% 0.0137 251.519)",
   100: "oklch(93.20% 0.0288 251.694)",
   200: "oklch(87.99% 0.0537 252.648)",
@@ -162,6 +173,7 @@ export const blue: ColorScale = {
 };
 
 export const purple: ColorScale = {
+  25: "oklch(98.81% 0.0070 303.700)",
   50: "oklch(97.61% 0.0139 303.700)",
   100: "oklch(94.49% 0.0322 304.449)",
   200: "oklch(90.18% 0.0579 304.809)",
@@ -176,6 +188,7 @@ export const purple: ColorScale = {
 };
 
 export const pink: ColorScale = {
+  25: "oklch(98.55% 0.0071 337.926)",
   50: "oklch(97.09% 0.0141 337.926)",
   100: "oklch(94.80% 0.0284 336.946)",
   200: "oklch(89.97% 0.0610 337.433)",

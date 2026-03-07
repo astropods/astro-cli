@@ -10,7 +10,8 @@
       "types": "./dist/vite-plugin.d.ts",
       "default": "./dist/vite-plugin.js"
     },
-    "./colors.css": "./dist/colors.css"
+    "./colors.css": "./dist/colors.css",
+    "./semantic.css": "./dist/semantic.css"
   },
   "files": [
     "dist"

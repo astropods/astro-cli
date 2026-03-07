@@ -50,7 +50,7 @@ export function AgentDetailBreadcrumb({
             variant="ghost"
             size="icon-sm"
             disabled
-            className="text-tertiary-foreground"
+            className="text-muted-foreground"
           >
             <Heart className="h-4 w-4" />
           </Button>
