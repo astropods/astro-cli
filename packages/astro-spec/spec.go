@@ -29,8 +29,31 @@ type Container struct {
 	Image       string       `json:"image,omitempty" yaml:"image,omitempty"`
 	Build       *BuildConfig `json:"build,omitempty" yaml:"build,omitempty"`
 	Distributed bool         `json:"distributed,omitempty" yaml:"distributed,omitempty" jsonschema:"description=Whether the agent supports multi-replica deployment"`
+	Interfaces  *Interfaces  `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Agent capabilities: frontend and/or messaging"`
 	Healthcheck *Healthcheck `json:"healthcheck,omitempty" yaml:"healthcheck,omitempty"`
 	Inputs      []Input      `json:"inputs,omitempty" yaml:"inputs,omitempty" jsonschema:"description=User-supplied inputs injected into the agent container"`
+}
+
+// Interfaces declares agent interface capabilities.
+// When nil (omitted), the platform defaults to messaging enabled.
+// When present, both fields default to false.
+type Interfaces struct {
+	Frontend  bool `json:"frontend,omitempty" yaml:"frontend,omitempty" jsonschema:"description=Agent serves its own web interface on port 80"`
+	Messaging bool `json:"messaging,omitempty" yaml:"messaging,omitempty" jsonschema:"description=Agent supports the messaging protocol"`
+}
+
+// HasFrontend reports whether the agent serves its own web frontend.
+func (c Container) HasFrontend() bool {
+	return c.Interfaces != nil && c.Interfaces.Frontend
+}
+
+// HasMessaging reports whether the agent supports the messaging protocol.
+// Returns true when interfaces is omitted (backward compat).
+func (c Container) HasMessaging() bool {
+	if c.Interfaces == nil {
+		return true
+	}
+	return c.Interfaces.Messaging
 }
 
 type BuildConfig struct {
@@ -226,10 +249,60 @@ func (c ContainerConfig) HasGPU() bool {
 
 // Dev provides local development overrides read by `astro dev`.
 type Dev struct {
-	Interfaces []string          `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Messaging interfaces to enable locally (e.g. slack)"`
+	Interfaces *DevInterfaces    `json:"interfaces,omitempty" yaml:"interfaces,omitempty" jsonschema:"description=Local dev configuration for frontend and messaging interfaces"`
 	Schedules  map[string]string `json:"schedules,omitempty" yaml:"schedules,omitempty" jsonschema:"description=Cron schedules for ingestion jobs during dev"`
 	Command    string            `json:"command,omitempty" yaml:"command,omitempty" jsonschema:"description=Start command for the agent (default: bun --watch run start)"`
 	Overrides  *DevOverrides     `json:"overrides,omitempty" yaml:"overrides,omitempty" jsonschema:"description=Image overrides for local dev services"`
+}
+
+// DevInterfaces configures interfaces for local development.
+// Supports both the legacy format (string array: [slack, web]) and the
+// structured format ({frontend: {port: 3000}, messaging: {adapters: [slack]}}).
+// The legacy format is treated as messaging.adapters.
+type DevInterfaces struct {
+	Frontend  *DevFrontend  `json:"frontend,omitempty" yaml:"frontend,omitempty" jsonschema:"description=Local dev configuration for the agent frontend"`
+	Messaging *DevMessaging `json:"messaging,omitempty" yaml:"messaging,omitempty" jsonschema:"description=Local dev configuration for messaging"`
+}
+
+// UnmarshalYAML supports the legacy string-array format for backward compatibility.
+func (d *DevInterfaces) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try legacy format first: [slack, web]
+	var legacy []string
+	if err := unmarshal(&legacy); err == nil {
+		d.Messaging = &DevMessaging{Adapters: legacy}
+		return nil
+	}
+	// Structured format
+	type devInterfacesAlias DevInterfaces
+	var alias devInterfacesAlias
+	if err := unmarshal(&alias); err != nil {
+		return err
+	}
+	*d = DevInterfaces(alias)
+	return nil
+}
+
+// DevFrontend configures the agent's frontend for local development.
+type DevFrontend struct {
+	Port int `json:"port,omitempty" yaml:"port,omitempty" jsonschema:"description=Port the agent serves on locally. Platform proxies port 80 to this. Default: 80"`
+}
+
+// DevMessaging configures the messaging sidecar for local development.
+type DevMessaging struct {
+	Adapters []string `json:"adapters,omitempty" yaml:"adapters,omitempty" jsonschema:"description=Messaging adapters to enable locally (e.g. slack)"`
+}
+
+// HasMessagingAdapters reports whether dev messaging adapters are configured.
+func (d *Dev) HasMessagingAdapters() bool {
+	return d != nil && d.Interfaces != nil && d.Interfaces.Messaging != nil && len(d.Interfaces.Messaging.Adapters) > 0
+}
+
+// MessagingAdapters returns the dev messaging adapter names, or nil.
+func (d *Dev) MessagingAdapters() []string {
+	if d == nil || d.Interfaces == nil || d.Interfaces.Messaging == nil {
+		return nil
+	}
+	return d.Interfaces.Messaging.Adapters
 }
 
 // DevOverrides allows overriding default images for local dev services.

@@ -328,7 +328,11 @@ meta:
 agent:
   image: test:latest
 dev:
-  interfaces: [slack, web]
+  interfaces:
+    frontend:
+      port: 3000
+    messaging:
+      adapters: [slack, web]
   schedules:
     docs-sync: "0 */4 * * *"
 `,
@@ -337,20 +341,66 @@ dev:
 				if s.Dev == nil {
 					t.Fatal("Dev is nil")
 				}
-				if len(s.Dev.Interfaces) != 2 {
-					t.Fatalf("len(Dev.Interfaces) = %d, want 2", len(s.Dev.Interfaces))
+				if s.Dev.Interfaces == nil {
+					t.Fatal("Dev.Interfaces is nil")
 				}
-				if s.Dev.Interfaces[0] != "slack" {
-					t.Errorf("Dev.Interfaces[0] = %q, want %q", s.Dev.Interfaces[0], "slack")
+				if s.Dev.Interfaces.Frontend == nil {
+					t.Fatal("Dev.Interfaces.Frontend is nil")
 				}
-				if s.Dev.Interfaces[1] != "web" {
-					t.Errorf("Dev.Interfaces[1] = %q, want %q", s.Dev.Interfaces[1], "web")
+				if s.Dev.Interfaces.Frontend.Port != 3000 {
+					t.Errorf("Dev.Interfaces.Frontend.Port = %d, want 3000", s.Dev.Interfaces.Frontend.Port)
+				}
+				if s.Dev.Interfaces.Messaging == nil {
+					t.Fatal("Dev.Interfaces.Messaging is nil")
+				}
+				if len(s.Dev.Interfaces.Messaging.Adapters) != 2 {
+					t.Fatalf("len(Dev.Interfaces.Messaging.Adapters) = %d, want 2", len(s.Dev.Interfaces.Messaging.Adapters))
+				}
+				if s.Dev.Interfaces.Messaging.Adapters[0] != "slack" {
+					t.Errorf("Dev.Interfaces.Messaging.Adapters[0] = %q, want %q", s.Dev.Interfaces.Messaging.Adapters[0], "slack")
 				}
 				if len(s.Dev.Schedules) != 1 {
 					t.Fatalf("len(Dev.Schedules) = %d, want 1", len(s.Dev.Schedules))
 				}
 				if s.Dev.Schedules["docs-sync"] != "0 */4 * * *" {
 					t.Errorf("Dev.Schedules[docs-sync] = %q, want %q", s.Dev.Schedules["docs-sync"], "0 */4 * * *")
+				}
+			},
+		},
+		{
+			name: "spec with legacy dev interfaces (string array)",
+			yaml: `
+spec: package/v1
+name: test-agent
+meta:
+  version: 1.0.0
+agent:
+  image: test:latest
+dev:
+  interfaces: [slack, web]
+`,
+			wantErr: false,
+			check: func(t *testing.T, s *AstroSpec) {
+				if s.Dev == nil {
+					t.Fatal("Dev is nil")
+				}
+				if s.Dev.Interfaces == nil {
+					t.Fatal("Dev.Interfaces is nil")
+				}
+				if s.Dev.Interfaces.Frontend != nil {
+					t.Error("Dev.Interfaces.Frontend should be nil for legacy format")
+				}
+				if s.Dev.Interfaces.Messaging == nil {
+					t.Fatal("Dev.Interfaces.Messaging is nil")
+				}
+				if len(s.Dev.Interfaces.Messaging.Adapters) != 2 {
+					t.Fatalf("len(Dev.Interfaces.Messaging.Adapters) = %d, want 2", len(s.Dev.Interfaces.Messaging.Adapters))
+				}
+				if s.Dev.Interfaces.Messaging.Adapters[0] != "slack" {
+					t.Errorf("Adapters[0] = %q, want %q", s.Dev.Interfaces.Messaging.Adapters[0], "slack")
+				}
+				if s.Dev.Interfaces.Messaging.Adapters[1] != "web" {
+					t.Errorf("Adapters[1] = %q, want %q", s.Dev.Interfaces.Messaging.Adapters[1], "web")
 				}
 			},
 		},

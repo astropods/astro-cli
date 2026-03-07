@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -410,64 +411,73 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Add interface services (messaging sidecar, grpc services, etc.)
-	if s.Dev != nil {
-		for _, name := range s.Dev.Interfaces {
-			// Check for messaging interfaces
+	if s.Dev.HasMessagingAdapters() {
+		adapters := s.Dev.MessagingAdapters()
+		hasMessagingAdapter := false
+		hasWebAdapter := false
+		for _, name := range adapters {
 			if name == "slack" || name == "web" {
-				messagingImage := "astropods/messaging:latest"
-				messagingPull := types.PullPolicyAlways
-				if s.Dev.Overrides != nil && s.Dev.Overrides.MessagingImage != "" {
-					messagingImage = s.Dev.Overrides.MessagingImage
-					messagingPull = ""
-				}
-				messagingService := types.ServiceConfig{
-					Name:       "astro-messaging",
-					Image:      messagingImage,
-					PullPolicy: messagingPull,
-					Networks: map[string]*types.ServiceNetworkConfig{
-						"astro-dev": nil,
-					},
-					Environment: buildMessagingEnvironment(s, envVars),
-					Ports:       buildMessagingPorts(s),
-				}
-				project.Services["astro-messaging"] = messagingService
+				hasMessagingAdapter = true
 			}
-
-			// Add playground for web interface
 			if name == "web" {
-				// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
-				apiURL := ""
-				playgroundImage := "astropods/playground:latest"
-				playgroundPull := types.PullPolicyAlways
-				if s.Dev.Overrides != nil && s.Dev.Overrides.PlaygroundImage != "" {
-					playgroundImage = s.Dev.Overrides.PlaygroundImage
-					playgroundPull = ""
-				}
-				playgroundService := types.ServiceConfig{
-					Name:       "playground",
-					Image:      playgroundImage,
-					PullPolicy: playgroundPull,
-					Networks: map[string]*types.ServiceNetworkConfig{
-						"astro-dev": nil,
-					},
-					Environment: types.MappingWithEquals{
-						"API_URL": &apiURL,
-					},
-					Ports: []types.ServicePortConfig{
-						{
-							Target:    80,
-							Published: "3000",
-						},
-					},
-					DependsOn: types.DependsOnConfig{
-						"astro-messaging": types.ServiceDependency{
-							Condition: types.ServiceConditionStarted,
-							Required:  true,
-						},
-					},
-				}
-				project.Services["playground"] = playgroundService
+				hasWebAdapter = true
 			}
+		}
+
+		if hasMessagingAdapter {
+			messagingImage := "astropods/messaging:latest"
+			messagingPull := types.PullPolicyAlways
+			if s.Dev.Overrides != nil && s.Dev.Overrides.MessagingImage != "" {
+				messagingImage = s.Dev.Overrides.MessagingImage
+				messagingPull = ""
+			}
+			messagingService := types.ServiceConfig{
+				Name:       "astro-messaging",
+				Image:      messagingImage,
+				PullPolicy: messagingPull,
+				Networks: map[string]*types.ServiceNetworkConfig{
+					"astro-dev": nil,
+				},
+				Environment: buildMessagingEnvironment(s, envVars),
+				Ports:       buildMessagingPorts(s),
+			}
+			project.Services["astro-messaging"] = messagingService
+		}
+
+		if hasWebAdapter {
+			// Add playground for web interface
+			// Empty string = use relative URLs (nginx proxies /api to astro-messaging)
+			apiURL := ""
+			playgroundImage := "astropods/playground:latest"
+			playgroundPull := types.PullPolicyAlways
+			if s.Dev.Overrides != nil && s.Dev.Overrides.PlaygroundImage != "" {
+				playgroundImage = s.Dev.Overrides.PlaygroundImage
+				playgroundPull = ""
+			}
+			playgroundService := types.ServiceConfig{
+				Name:       "playground",
+				Image:      playgroundImage,
+				PullPolicy: playgroundPull,
+				Networks: map[string]*types.ServiceNetworkConfig{
+					"astro-dev": nil,
+				},
+				Environment: types.MappingWithEquals{
+					"API_URL": &apiURL,
+				},
+				Ports: []types.ServicePortConfig{
+					{
+						Target:    80,
+						Published: "3000",
+					},
+				},
+				DependsOn: types.DependsOnConfig{
+					"astro-messaging": types.ServiceDependency{
+						Condition: types.ServiceConditionStarted,
+						Required:  true,
+					},
+				},
+			}
+			project.Services["playground"] = playgroundService
 		}
 	}
 
@@ -763,8 +773,8 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
 
-	// Add GRPC_SERVER_ADDR if any interface is configured
-	if s.Dev != nil && len(s.Dev.Interfaces) > 0 {
+	// Add GRPC_SERVER_ADDR if messaging is configured
+	if s.Dev.HasMessagingAdapters() {
 		grpcAddr := "astro-messaging:9090"
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
@@ -782,16 +792,11 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 	}
 
 	// Add HTTP port if web adapter is enabled
-	if s.Dev != nil {
-		for _, name := range s.Dev.Interfaces {
-			if name == "web" {
-				ports = append(ports, types.ServicePortConfig{
-					Target:    8080,
-					Published: "3100",
-				})
-				break
-			}
-		}
+	if slices.Contains(s.Dev.MessagingAdapters(), "web") {
+		ports = append(ports, types.ServicePortConfig{
+			Target:    8080,
+			Published: "3100",
+		})
 	}
 
 	return ports
@@ -816,30 +821,28 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	env["LOG_LEVEL"] = &logLevel
 
 	// Configure adapters based on interfaces
-	if s.Dev != nil {
-		for _, name := range s.Dev.Interfaces {
-			switch name {
-			case "slack":
-				// Enable Slack adapter
-				enabled := "true"
-				env["SLACK_ENABLED"] = &enabled
-				env["SLACK_SOCKET_MODE"] = &enabled
+	for _, name := range s.Dev.MessagingAdapters() {
+		switch name {
+		case "slack":
+			// Enable Slack adapter
+			enabled := "true"
+			env["SLACK_ENABLED"] = &enabled
+			env["SLACK_SOCKET_MODE"] = &enabled
 
-				// Slack credentials from .env
-				if val, ok := envVars["SLACK_BOT_TOKEN"]; ok {
-					env["SLACK_BOT_TOKEN"] = &val
-				}
-				if val, ok := envVars["SLACK_APP_TOKEN"]; ok {
-					env["SLACK_APP_TOKEN"] = &val
-				}
-
-			case "web":
-				// Enable Web adapter for HTTP/SSE access
-				enabled := "true"
-				env["WEB_ENABLED"] = &enabled
-				listenAddr := ":8080"
-				env["WEB_LISTEN_ADDR"] = &listenAddr
+			// Slack credentials from .env
+			if val, ok := envVars["SLACK_BOT_TOKEN"]; ok {
+				env["SLACK_BOT_TOKEN"] = &val
 			}
+			if val, ok := envVars["SLACK_APP_TOKEN"]; ok {
+				env["SLACK_APP_TOKEN"] = &val
+			}
+
+		case "web":
+			// Enable Web adapter for HTTP/SSE access
+			enabled := "true"
+			env["WEB_ENABLED"] = &enabled
+			listenAddr := ":8080"
+			env["WEB_LISTEN_ADDR"] = &listenAddr
 		}
 	}
 

@@ -46,7 +46,11 @@ func TestBuildProject_SlackInterface(t *testing.T) {
 		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Dev: &spec.Dev{
-			Interfaces: []string{"slack"},
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{
+					Adapters: []string{"slack"},
+				},
+			},
 		},
 	}
 
@@ -92,7 +96,11 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		Meta:  spec.Meta{},
 		Agent: spec.Container{Image: "agent:latest"},
 		Dev: &spec.Dev{
-			Interfaces: []string{"web"},
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{
+					Adapters: []string{"web"},
+				},
+			},
 		},
 	}
 

@@ -318,7 +318,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	credVars = append(credVars, providerPlainVars...)
 
 	// Slack tokens from dev interfaces
-	if astroSpec.Dev != nil && slices.Contains(astroSpec.Dev.Interfaces, "slack") {
+	if slices.Contains(astroSpec.Dev.MessagingAdapters(), "slack") {
 		messagingVars = append(messagingVars,
 			varEntry{key: "SLACK_BOT_TOKEN", description: "Slack bot token (xoxb-...)", secret: true},
 			varEntry{key: "SLACK_APP_TOKEN", description: "Slack app-level token (xapp-...)", secret: true},
