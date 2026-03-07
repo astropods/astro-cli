@@ -32,10 +32,8 @@ jobs:
         env:
           BYTEBASE_SERVICE_ACCOUNT_SECRET: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT_SECRET }}
         run: |
-          errors=()
-          [ -z "$BYTEBASE_SERVICE_ACCOUNT_SECRET" ] && errors+=("secret: BYTEBASE_SERVICE_ACCOUNT_SECRET")
-          if [ ${#errors[@]} -gt 0 ]; then
-            echo "::error::Missing required variables: ${errors[*]}"
+          if [ -z "$BYTEBASE_SERVICE_ACCOUNT_SECRET" ]; then
+            echo "::error::Missing required secret: BYTEBASE_SERVICE_ACCOUNT_SECRET"
             exit 1
           fi
 
