@@ -5,10 +5,17 @@ slug: astropods-package-spec
 ---
 
 <Versions>
-<Version version="v1.0 (Draft) - 2026-02-27" default>
+<Version version="v1.1 (Draft) - 2026-03-07" default>
 ## Abstract
 
 The Astropods Spec defines a declarative YAML format for describing the topology of an AI agent — its container, model dependencies, knowledge stores, integrations, and data ingestion pipelines. The spec is consumed by build tools and deployment servers; it intentionally excludes runtime, orchestration, and deployment-environment concerns. At deploy time, the platform combines this spec with runtime configuration (credentials, interfaces, schedules) to produce a resolved deployment spec, which is then translated into infrastructure manifests.
+
+## Changelog
+
+| Version | Date       | Changes                                                                 |
+| ------- | ---------- | ----------------------------------------------------------------------- |
+| v1.1    | 2026-03-07 | Added `models` (string array) to model entries; deprecated `model`.     |
+| v1.0    | 2026-02-27 | Initial draft.                                                          |
 
 ## Conventions
 
@@ -134,7 +141,8 @@ The `models` section declares AI models the agent consumes — LLMs (e.g. Claude
 | Field       | Type            | Required    | Description                                                                             |
 | ----------- | --------------- | ----------- | --------------------------------------------------------------------------------------- |
 | `provider`  | string          | Conditional | Platform-managed provider name (e.g. `ollama`, `anthropic`).                            |
-| `model`     | string          | OPTIONAL    | Provider-specific model identifier (e.g. `llama3.2`). Only meaningful in provider mode. |
+| `models`    | string[]        | OPTIONAL    | Model identifiers to make available (e.g. `[llama3.2, mistral]`). Only meaningful for self-hosted providers that support multiple models. |
+| `model`     | string          | OPTIONAL    | **Deprecated.** Use `models` instead. Single model identifier. Only meaningful in provider mode. |
 | `container` | ContainerConfig | Conditional | Custom container configuration.                                                         |
 | `inputs`    | Input[]         | OPTIONAL    | User-supplied inputs injected into the model's container.                               |
 
@@ -325,7 +333,7 @@ Each entry gets name-qualified keys; the first alphabetically also gets bare key
 {EnvPrefix}_{UPPER(entry_name)}_HOST  (plus bare {EnvPrefix}_HOST for first)
 ```
 
-Model providers additionally inject `{EnvPrefix}_BASE_URL` (with `/api` appended) and `{EnvPrefix}_MODEL` when a model name is specified.
+Model providers additionally inject `{EnvPrefix}_BASE_URL` (with `/api` appended) and `{EnvPrefix}_MODEL` as a comma-separated list of model identifiers when `models` (or the deprecated `model`) is specified.
 
 ### 8.3 Container-Mode Connection Details
 
@@ -373,6 +381,7 @@ Implementations MUST enforce the following validation rules:
 8. For each entry in `ingestion`: both `container` and `trigger` are REQUIRED. `trigger.type` MUST be one of `schedule`, `startup`, `manual`, `webhook`.
 9. When a `BuildConfig` is provided (in `agent.build`, `container.build`), `context` and `dockerfile` are REQUIRED.
 10. When `gpu.runtime` is provided, it MUST be one of `cuda` or `rocm`.
+10a. For each entry in `models`: `models` and `model` are mutually exclusive. Providing both is invalid. `model` is deprecated; implementations SHOULD emit a warning when it is used.
 11. When an input's `display-as` is `select`, `options` MUST be present and non-empty.
 12. Each `Input` in any context MUST have a non-empty `name` and `datatype` MUST be one of `string`, `boolean`, `number`, `array`, `object`.
 
@@ -390,7 +399,7 @@ The following tables document the platform's built-in provider registries as of 
 | -------- | ---------------------- | ----- | ---------------- | --- | --------------------------------------------- |
 | `ollama` | `ollama/ollama:latest` | 11434 | HTTP `/api/tags` | Yes | `OLLAMA_HOST=0.0.0.0`, `OLLAMA_KEEP_ALIVE=-1` |
 
-When `model` is specified for a self-hosted provider, the platform sets `{ENV_PREFIX}_MODEL` (e.g. `OLLAMA_MODEL=llama3.2`).
+When `models` is specified for a self-hosted provider, the platform pulls all listed models and sets `{ENV_PREFIX}_MODEL` to the comma-separated list (e.g. `OLLAMA_MODEL=llama3.2,mistral`). The deprecated `model` field is treated as a single-element list.
 
 #### Cloud
 
@@ -472,7 +481,7 @@ inputs:
 models:
   local_llm:
     provider: ollama
-    model: llama3.2
+    models: [llama3.2, mistral]
 
   primary:
     provider: anthropic
