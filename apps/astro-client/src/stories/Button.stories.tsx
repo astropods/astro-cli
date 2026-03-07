@@ -87,13 +87,6 @@ export const Destructive: Story = {
   },
 }
 
-export const Secondary: Story = {
-  args: {
-    variant: "secondary",
-    children: "Button",
-  },
-}
-
 export const Ghost: Story = {
   args: {
     variant: "ghost",
