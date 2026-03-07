@@ -27,6 +27,7 @@ type AdminServiceClient interface {
 	ProxyOpenMeter(ctx context.Context, in *OpenMeterProxyRequest, opts ...grpc.CallOption) (*OpenMeterProxyResponse, error)
 	ProxyHTTP(ctx context.Context, in *HTTPProxyRequest, opts ...grpc.CallOption) (*HTTPProxyResponse, error)
 	GetAuthToken(ctx context.Context, in *GetAuthTokenRequest, opts ...grpc.CallOption) (*GetAuthTokenResponse, error)
+	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
 	ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error)
 	SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error)
 }
@@ -151,6 +152,14 @@ func (c *adminServiceClient) GetAuthToken(ctx context.Context, in *GetAuthTokenR
 	return out, nil
 }
 
+func (c *adminServiceClient) GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error) {
+	out := new(GetAuthConfigResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetAuthConfig", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error) {
 	out := new(ListConnectedDevicesResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListConnectedDevices", in, out, opts...); err != nil {
@@ -184,6 +193,7 @@ type AdminServiceServer interface {
 	ProxyOpenMeter(context.Context, *OpenMeterProxyRequest) (*OpenMeterProxyResponse, error)
 	ProxyHTTP(context.Context, *HTTPProxyRequest) (*HTTPProxyResponse, error)
 	GetAuthToken(context.Context, *GetAuthTokenRequest) (*GetAuthTokenResponse, error)
+	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
 	ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error)
 	SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
@@ -246,6 +256,10 @@ func (UnimplementedAdminServiceServer) ProxyHTTP(context.Context, *HTTPProxyRequ
 
 func (UnimplementedAdminServiceServer) GetAuthToken(context.Context, *GetAuthTokenRequest) (*GetAuthTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAuthToken not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAuthConfig not implemented")
 }
 
 func (UnimplementedAdminServiceServer) ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error) {
@@ -478,6 +492,21 @@ func _AdminService_GetAuthToken_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetAuthConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAuthConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetAuthConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetAuthConfig"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetAuthConfig(ctx, req.(*GetAuthConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_ListConnectedDevices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListConnectedDevicesRequest)
 	if err := dec(in); err != nil {
@@ -527,6 +556,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ProxyOpenMeter", Handler: _AdminService_ProxyOpenMeter_Handler},
 		{MethodName: "ProxyHTTP", Handler: _AdminService_ProxyHTTP_Handler},
 		{MethodName: "GetAuthToken", Handler: _AdminService_GetAuthToken_Handler},
+		{MethodName: "GetAuthConfig", Handler: _AdminService_GetAuthConfig_Handler},
 		{MethodName: "ListConnectedDevices", Handler: _AdminService_ListConnectedDevices_Handler},
 		{MethodName: "SendCommand", Handler: _AdminService_SendCommand_Handler},
 	},

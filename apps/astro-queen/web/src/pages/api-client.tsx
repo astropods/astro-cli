@@ -1,5 +1,9 @@
 import { useState, useMemo, useCallback } from "react";
-import { useAstroOpenAPISpec, useGetAuthToken } from "@/api/admin";
+import {
+  useAstroOpenAPISpec,
+  startDeviceAuth,
+  pollDeviceAuth,
+} from "@/api/admin";
 import { astroProxyFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -467,11 +471,15 @@ function ResponsePanel({ response }: { response: ApiResponse }) {
 
 export function ApiClientPage() {
   const { data: spec, isLoading, error } = useAstroOpenAPISpec();
-  const getAuthToken = useGetAuthToken();
   const [selected, setSelected] = useState<Endpoint | null>(null);
   const [filter, setFilter] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
   const [bearerToken, setBearerToken] = useState("");
+  const [loginState, setLoginState] = useState<
+    | { status: "idle" }
+    | { status: "waiting"; userCode: string }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
 
   const endpoints = useMemo(
     () => (spec ? parseEndpoints(spec) : []),
@@ -491,6 +499,45 @@ export function ApiClientPage() {
   }, [endpoints, filter]);
 
   const grouped = useMemo(() => groupByTag(filtered), [filtered]);
+
+  const handleLogin = useCallback(async () => {
+    try {
+      setLoginState({ status: "waiting", userCode: "..." });
+      const auth = await startDeviceAuth();
+      setLoginState({ status: "waiting", userCode: auth.user_code });
+
+      // Open browser to verification URL
+      window.open(auth.verification_uri_complete, "_blank");
+
+      // Poll for completion
+      const interval = (auth.interval || 5) * 1000;
+      const deadline = Date.now() + (auth.expires_in || 300) * 1000;
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, interval));
+        const result = await pollDeviceAuth(auth.device_code);
+        if (result.status === "complete" && result.access_token) {
+          setBearerToken(result.access_token);
+          setLoginState({ status: "idle" });
+          return;
+        }
+        if (
+          result.status === "access_denied" ||
+          result.status === "expired_token"
+        ) {
+          setLoginState({
+            status: "error",
+            message: result.error || result.status,
+          });
+          return;
+        }
+        // authorization_pending / slow_down → keep polling
+      }
+      setLoginState({ status: "error", message: "Login timed out" });
+    } catch (err) {
+      setLoginState({ status: "error", message: String(err) });
+    }
+  }, []);
 
   const handleSelect = useCallback((ep: Endpoint) => {
     setSelected(ep);
@@ -535,24 +582,20 @@ export function ApiClientPage() {
           <Button
             size="sm"
             variant={bearerToken ? "outline" : "default"}
-            onClick={() =>
-              getAuthToken.mutate(undefined, {
-                onSuccess: (data) => setBearerToken(data.access_token),
-              })
-            }
-            disabled={getAuthToken.isPending}
+            onClick={handleLogin}
+            disabled={loginState.status === "waiting"}
             className="w-full h-6 gap-1 text-[10px]"
           >
             <Key className="size-2.5" />
-            {getAuthToken.isPending
-              ? "Getting token..."
+            {loginState.status === "waiting"
+              ? `Enter code: ${loginState.userCode}`
               : bearerToken
-                ? "Token active"
-                : "Get Auth Token"}
+                ? "Logged in"
+                : "Login"}
           </Button>
-          {getAuthToken.isError && (
-            <p className="text-[9px] text-destructive truncate" title={getAuthToken.error.message}>
-              {getAuthToken.error.message}
+          {loginState.status === "error" && (
+            <p className="text-[9px] text-destructive truncate" title={loginState.message}>
+              {loginState.message}
             </p>
           )}
         </div>

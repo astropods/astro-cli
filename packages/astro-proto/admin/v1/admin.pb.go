@@ -373,3 +373,10 @@ type GetAuthTokenResponse struct {
 	AccessToken  string `json:"access_token,omitempty"`  //nolint:gosec
 	RefreshToken string `json:"refresh_token,omitempty"` //nolint:gosec
 }
+
+type GetAuthConfigRequest struct{}
+
+type GetAuthConfigResponse struct {
+	WorkOSClientID string `json:"workos_client_id,omitempty"`
+	WorkOSBaseURL  string `json:"workos_base_url,omitempty"`
+}

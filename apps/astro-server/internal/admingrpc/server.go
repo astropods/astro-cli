@@ -44,6 +44,7 @@ type Server struct {
 	cmdDispatch    CommandDispatcher
 	httpHandler    http.Handler
 	tokenRefresher TokenRefresher
+	workosClientID string
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.
@@ -54,6 +55,11 @@ func (s *Server) SetHTTPHandler(h http.Handler) {
 // SetTokenRefresher sets the token refresher for GetAuthToken.
 func (s *Server) SetTokenRefresher(t TokenRefresher) {
 	s.tokenRefresher = t
+}
+
+// SetWorkOSClientID sets the WorkOS client ID for GetAuthConfig.
+func (s *Server) SetWorkOSClientID(id string) {
+	s.workosClientID = id
 }
 
 // New creates a new admin gRPC server.
@@ -821,6 +827,14 @@ func (s *Server) SendCommand(ctx context.Context, req *adminv1.SendCommandReques
 		ExitCode:  result.ExitCode,
 		Stdout:    result.Stdout,
 		Stderr:    result.Stderr,
+	}, nil
+}
+
+// GetAuthConfig returns auth configuration needed for device authorization flow.
+func (s *Server) GetAuthConfig(_ context.Context, _ *adminv1.GetAuthConfigRequest) (*adminv1.GetAuthConfigResponse, error) {
+	return &adminv1.GetAuthConfigResponse{
+		WorkOSClientID: s.workosClientID,
+		WorkOSBaseURL:  "https://api.workos.com",
 	}, nil
 }
 

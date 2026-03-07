@@ -59,6 +59,10 @@ func (s *Server) ListenAndServe() error {
 	// Auth token endpoint (exchanges refresh token for access token)
 	mux.HandleFunc("POST /api/auth/token", s.handleGetAuthToken)
 
+	// Device auth flow (same as CLI — talks to WorkOS directly)
+	mux.HandleFunc("POST /api/auth/device", s.handleDeviceAuthStart)
+	mux.HandleFunc("POST /api/auth/device/poll", s.handleDeviceAuthPoll)
+
 	// SPA fallback
 	s.registerSPAHandler(mux)
 

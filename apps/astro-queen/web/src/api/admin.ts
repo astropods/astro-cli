@@ -152,6 +152,35 @@ export function useGetAuthToken() {
   });
 }
 
+// Start device authorization flow (same as CLI)
+interface DeviceAuthStart {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string;
+  expires_in: number;
+  interval: number;
+}
+
+interface DeviceAuthPollResult {
+  status: string;
+  access_token?: string;
+  refresh_token?: string;
+  error?: string;
+}
+
+export async function startDeviceAuth(): Promise<DeviceAuthStart> {
+  return api.post<DeviceAuthStart>("/api/auth/device");
+}
+
+export async function pollDeviceAuth(
+  deviceCode: string
+): Promise<DeviceAuthPollResult> {
+  return api.post<DeviceAuthPollResult>("/api/auth/device/poll", {
+    device_code: deviceCode,
+  });
+}
+
 // OpenAPI spec for astro-server HTTP API
 export function useAstroOpenAPISpec() {
   return useQuery({

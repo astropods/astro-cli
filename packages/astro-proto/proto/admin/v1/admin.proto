@@ -16,6 +16,7 @@ service AdminService {
   rpc ProxyOpenMeter(OpenMeterProxyRequest) returns (OpenMeterProxyResponse);
   rpc ProxyHTTP(HTTPProxyRequest) returns (HTTPProxyResponse);
   rpc GetAuthToken(GetAuthTokenRequest) returns (GetAuthTokenResponse);
+  rpc GetAuthConfig(GetAuthConfigRequest) returns (GetAuthConfigResponse);
 }
 
 message ListDeploymentsRequest {
@@ -208,4 +209,11 @@ message GetAuthTokenRequest {
 message GetAuthTokenResponse {
   string access_token = 1;
   string refresh_token = 2;
+}
+
+message GetAuthConfigRequest {}
+
+message GetAuthConfigResponse {
+  string workos_client_id = 1;
+  string workos_base_url = 2;
 }

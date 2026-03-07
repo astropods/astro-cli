@@ -272,6 +272,9 @@ func runAPI(
 	// Wire gin router as HTTP handler for admin ProxyHTTP
 	adminSrv.SetHTTPHandler(router)
 
+	// Wire WorkOS client ID for admin GetAuthConfig
+	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
+
 	// Wire WorkOS token refresher for admin GetAuthToken
 	adminSrv.SetTokenRefresher(&workosTokenRefresher{client: workosClient})
 
