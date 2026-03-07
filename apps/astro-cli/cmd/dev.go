@@ -606,7 +606,8 @@ func unlinkLocalPackages(workingDir string) error {
 }
 
 // buildLocalAgentEnv returns env for the agent process when running with --no-container.
-// Uses .env vars and sets GRPC_SERVER_ADDR=localhost:9090 so the agent talks to the messaging container.
+// Merges OS env, .env vars, and spec-resolved variables (provider credentials, model
+// connection strings, inputs) so the local process sees the same env as the container.
 func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 	envMap := make(map[string]string)
 	for _, e := range os.Environ() {
@@ -617,6 +618,18 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 	for k, v := range envVars {
 		envMap[k] = v
 	}
+
+	// Apply the same spec-resolved variables that buildEnvironment injects into
+	// the Docker agent container (provider credentials, model URLs, inputs, etc.).
+	// Container-based service names are rewritten to localhost since in --local
+	// mode ports are published to the host.
+	specEnv := composeBuilder.BuildEnvironment(s, envVars)
+	for k, v := range specEnv {
+		if v != nil {
+			envMap[k] = *v
+		}
+	}
+
 	if s.Dev != nil && len(s.Dev.Interfaces) > 0 {
 		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
 	}

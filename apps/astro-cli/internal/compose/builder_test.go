@@ -402,6 +402,92 @@ func TestBuildProject_IngestionWebhookDefaultPort(t *testing.T) {
 	}
 }
 
+func TestBuildProject_CustomProviderPrefixedKeys(t *testing.T) {
+	// When ast configure stores keys as CLOUDFLARE_AI_API_KEY (prefix + var name),
+	// buildEnvironment must find them and inject both prefixed and bare forms.
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Providers: map[string]spec.CustomProvider{
+			"cloudflare": {
+				Scope: []string{"integrations"},
+				Variables: []spec.Input{
+					{Name: "AI_API_KEY", Datatype: "string", Secret: true},
+					{Name: "ACCOUNT_ID", Datatype: "string", Secret: true},
+				},
+			},
+		},
+		Tools: map[string]spec.Tool{
+			"cloudflare": {Provider: "cloudflare"},
+		},
+	}
+
+	// Keys stored by ast configure with CLOUDFLARE_ prefix
+	envVars := map[string]string{
+		"CLOUDFLARE_AI_API_KEY": "cf-key-123",
+		"CLOUDFLARE_ACCOUNT_ID": "acc-456",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+
+	// Prefixed keys should be injected
+	if envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY") != "cf-key-123" {
+		t.Errorf("CLOUDFLARE_AI_API_KEY = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY"), "cf-key-123")
+	}
+	if envVal(agent.Environment, "CLOUDFLARE_ACCOUNT_ID") != "acc-456" {
+		t.Errorf("CLOUDFLARE_ACCOUNT_ID = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_ACCOUNT_ID"), "acc-456")
+	}
+
+	// Bare keys should also be injected for convenience
+	if envVal(agent.Environment, "AI_API_KEY") != "cf-key-123" {
+		t.Errorf("AI_API_KEY = %q, want %q", envVal(agent.Environment, "AI_API_KEY"), "cf-key-123")
+	}
+	if envVal(agent.Environment, "ACCOUNT_ID") != "acc-456" {
+		t.Errorf("ACCOUNT_ID = %q, want %q", envVal(agent.Environment, "ACCOUNT_ID"), "acc-456")
+	}
+}
+
+func TestBuildProject_CustomProviderBareKeys(t *testing.T) {
+	// When env vars use bare names (from .env file), they should still be injected.
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Providers: map[string]spec.CustomProvider{
+			"cloudflare": {
+				Scope: []string{"integrations"},
+				Variables: []spec.Input{
+					{Name: "AI_API_KEY", Datatype: "string", Secret: true},
+				},
+			},
+		},
+		Tools: map[string]spec.Tool{
+			"cloudflare": {Provider: "cloudflare"},
+		},
+	}
+
+	envVars := map[string]string{
+		"AI_API_KEY": "bare-key",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "AI_API_KEY") != "bare-key" {
+		t.Errorf("AI_API_KEY = %q, want %q", envVal(agent.Environment, "AI_API_KEY"), "bare-key")
+	}
+	if envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY") != "bare-key" {
+		t.Errorf("CLOUDFLARE_AI_API_KEY = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY"), "bare-key")
+	}
+}
+
 func TestBuildProject_NameDerivedCredentials(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
