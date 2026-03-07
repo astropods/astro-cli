@@ -1,0 +1,81 @@
+import { Meta, Canvas } from "@storybook/addon-docs/blocks"
+import * as TypographyStories from "./Typography.stories"
+
+<Meta of={TypographyStories} />
+
+# Typography
+
+Composite font-size tokens that apply size, line-height, and letter-spacing in one Tailwind class. Pair with standard utilities for weight, family, and text-transform.
+
+## Full Scale
+
+<Canvas of={TypographyStories.FullScale} />
+
+## Tokens
+
+| Token class | Size | Line-height | Letter-spacing | Typical pairing |
+|---|---|---|---|---|
+| `text-display` | 46px | 1.1 | -0.025em | `font-bold` |
+| `text-heading-1` | 28px | 1 | -0.02em | `font-bold` |
+| `text-heading-2` | 18px | 1 | -0.01em | `font-semibold` |
+| `text-body` | 14px | 1.65 | — | — |
+| `text-body-sm` | 12px | 1.55 | — | — |
+| `text-label` | 11px | 1 | 0.18em | `font-mono uppercase` |
+| `text-mono-md` | 12px | 1 | 0.04em | `font-mono` |
+| `text-mono-sm` | 10px | 1 | 0.14em | `font-mono` |
+
+## Usage
+
+```tsx
+<h1 className="text-heading-1 font-bold">Page Title</h1>
+<p className="text-body">Description text goes here.</p>
+<span className="text-label font-mono uppercase">Active</span>
+```
+
+## Display
+
+Hero headlines and marketing copy.
+
+<Canvas of={TypographyStories.Display} />
+
+## Heading 1
+
+Page-level titles.
+
+<Canvas of={TypographyStories.Heading1} />
+
+## Heading 2
+
+Section headings within a page.
+
+<Canvas of={TypographyStories.Heading2} />
+
+## Body
+
+Default body copy for descriptions and general content.
+
+<Canvas of={TypographyStories.Body} />
+
+## Body Small
+
+Supporting text and secondary information.
+
+<Canvas of={TypographyStories.BodySmall} />
+
+## Label
+
+Status labels, badges, and uppercase tags.
+
+<Canvas of={TypographyStories.Label} />
+
+## Mono MD
+
+Data values, stats, and counters.
+
+<Canvas of={TypographyStories.MonoMd} />
+
+## Mono SM
+
+Micro-labels and metadata.
+
+<Canvas of={TypographyStories.MonoSm} />

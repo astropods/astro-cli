@@ -55,6 +55,7 @@ export function AppHeader() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const isActive = (to: string) => location.pathname.startsWith(to);
 
   // Close sheet on navigation
   useEffect(() => {
@@ -67,10 +68,10 @@ export function AppHeader() {
 
   if (isMobile) {
     return (
-      <header className="flex items-center justify-between border-b border-border bg-stone-100 px-5 py-3">
+      <header className="flex h-14 items-center justify-between border-b border-border bg-stone-100 px-6 dark:bg-background">
         <Link to="/">
-          <img src={astroLogo} alt="Astro" className="h-[18px] dark:hidden" />
-          <img src={astroLogoDark} alt="Astro" className="hidden h-[18px] dark:block" />
+          <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
+          <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
         </Link>
 
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -129,51 +130,58 @@ export function AppHeader() {
     : publicNav;
 
   return (
-    <header className="flex items-center gap-1 border-b border-border bg-stone-100 px-5 py-3">
-      <Link to="/" className="mr-4">
-        <img src={astroLogo} alt="Astro" className="h-[18px] dark:hidden" />
-        <img src={astroLogoDark} alt="Astro" className="hidden h-[18px] dark:block" />
-      </Link>
+    <header className="flex h-14 items-center border-b border-border bg-stone-100 px-6 dark:bg-background">
+      {/* Left: logo + nav */}
+      <div className="flex items-center gap-8">
+        <Link to="/" className="flex shrink-0 items-center">
+          <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
+          <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
+        </Link>
 
-      <nav className="flex items-center gap-1">
-        {navItems.map((item, i) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            external={"external" in item && item.external}
-            className={i >= ALWAYS_VISIBLE ? "hidden lg:block" : undefined}
-          >
-            <Button variant="ghost" className="whitespace-nowrap font-medium text-muted-foreground hover:text-foreground">
+        <nav className="flex items-center gap-6">
+          {navItems.map((item, i) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              external={"external" in item && item.external}
+              className={`whitespace-nowrap text-[13px] transition-colors hover:text-foreground ${
+                !("external" in item && item.external) && isActive(item.to)
+                  ? "font-semibold text-primary"
+                  : "font-normal text-muted-foreground"
+              } ${i >= ALWAYS_VISIBLE ? "hidden lg:block" : ""}`}
+            >
               {item.label}
-            </Button>
-          </NavLink>
-        ))}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="shrink-0 lg:hidden">
-              <EllipsisHorizontalIcon className="size-5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {navItems.slice(ALWAYS_VISIBLE).map((item) => (
-              <DropdownMenuItem key={item.to} asChild>
-                <NavLink to={item.to} external={"external" in item && item.external}>{item.label}</NavLink>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </nav>
-
-      <div className="relative ml-auto mr-2 max-w-56 flex-1">
-        <MagnifyingGlassIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="Search..."
-          className="h-8 border-stone-300 pl-8"
-        />
+            </NavLink>
+          ))}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="shrink-0 lg:hidden">
+                <EllipsisHorizontalIcon className="size-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {navItems.slice(ALWAYS_VISIBLE).map((item) => (
+                <DropdownMenuItem key={item.to} asChild>
+                  <NavLink to={item.to} external={"external" in item && item.external}>{item.label}</NavLink>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </nav>
       </div>
 
-      <div className="flex items-center gap-1">
+      {/* Right: search + auth */}
+      <div className="ml-auto flex items-center gap-4">
+        <div className="relative">
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search"
+            className="h-8 w-[168px] rounded-lg border-stone-300 pl-8 text-[13px] dark:border-input"
+          />
+        </div>
+
+        <div className="flex items-center gap-1">
         {isLoading ? (
           <Skeleton className="size-8 rounded-full" />
         ) : isAuthenticated && user ? (
@@ -251,6 +259,7 @@ export function AppHeader() {
             </Button>
           </>
         )}
+        </div>
       </div>
     </header>
   );

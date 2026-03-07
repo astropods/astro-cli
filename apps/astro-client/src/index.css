@@ -8,6 +8,7 @@
 
 @import "astro-theme/colors.css";
 @import "astro-theme/semantic.css";
+@import "astro-theme/typography.css";
 
 @theme {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;

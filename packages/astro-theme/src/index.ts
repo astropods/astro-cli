@@ -18,3 +18,5 @@ export {
 } from "./colors";
 
 export { lightTheme, darkTheme } from "./semantic";
+
+export { typography, type TypeVariant, type TypeVariantName } from "./typography";

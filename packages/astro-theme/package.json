@@ -11,7 +11,8 @@
       "default": "./dist/vite-plugin.js"
     },
     "./colors.css": "./dist/colors.css",
-    "./semantic.css": "./dist/semantic.css"
+    "./semantic.css": "./dist/semantic.css",
+    "./typography.css": "./dist/typography.css"
   },
   "files": [
     "dist"

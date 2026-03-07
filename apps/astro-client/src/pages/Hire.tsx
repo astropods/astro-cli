@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import type { Route } from "./+types/Hire";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { Loader2 } from "lucide-react";
-import { PageTitle } from "@/components/PageTitle";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { AgentCard } from "@/components/AgentCard";
 import { CategorySidebar } from "@/components/browse/CategorySidebar";
 import { useAgents } from "@/api/queries";
@@ -92,18 +92,15 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
         </div>
       ) : (
         <div className="flex flex-col gap-6 md:grid md:grid-cols-[9rem_1fr] md:gap-x-6 md:gap-y-6">
-          <PageTitle
-            title="Browse Agents"
-            actions={
-              <Button asChild className="hidden @[540px]:inline-flex">
-                <Link to="/request-agent">
-                  <PaperAirplaneIcon className="size-4" />
-                  Request agent
-                </Link>
-              </Button>
-            }
-            className="md:col-start-2"
-          />
+          <div className={cn("flex items-center justify-between", "md:col-start-2")}>
+            <h1 className="text-heading-1 font-bold">Browse Agents</h1>
+            <Button asChild className="hidden @[540px]:inline-flex">
+              <Link to="/request-agent">
+                <PaperAirplaneIcon className="size-4" />
+                Request agent
+              </Link>
+            </Button>
+          </div>
           <CategorySidebar
             categories={categories}
             selected={selectedCategory}

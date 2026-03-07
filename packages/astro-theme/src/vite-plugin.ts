@@ -15,6 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, "..");
 const COLORS_SRC = resolve(__dirname, "colors.ts");
 const SEMANTIC_SRC = resolve(__dirname, "semantic.ts");
+const TYPOGRAPHY_SRC = resolve(__dirname, "typography.ts");
 
 function buildCSS() {
   execSync("bun run src/build-css.ts", { cwd: PACKAGE_ROOT, stdio: "inherit" });
@@ -31,8 +32,9 @@ export function astroThemeColors(): Plugin {
     configureServer(server) {
       server.watcher.add(COLORS_SRC);
       server.watcher.add(SEMANTIC_SRC);
+      server.watcher.add(TYPOGRAPHY_SRC);
       server.watcher.on("change", (path) => {
-        if (path === COLORS_SRC || path === SEMANTIC_SRC) {
+        if (path === COLORS_SRC || path === SEMANTIC_SRC || path === TYPOGRAPHY_SRC) {
           buildCSS();
         }
       });

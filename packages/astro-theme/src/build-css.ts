@@ -7,6 +7,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { palettes } from "./colors";
 import { lightTheme, darkTheme } from "./semantic";
+import { typography } from "./typography";
 
 const __filename = fileURLToPath(import.meta.url);
 const packageRoot = dirname(dirname(__filename));
@@ -57,6 +58,25 @@ function generateSemanticCSS(): string {
   return lines.join("\n") + "\n";
 }
 
+function generateTypographyCSS(): string {
+  const lines: string[] = [
+    "/* Generated from typography.ts — do not edit manually */",
+    "@theme {",
+  ];
+
+  for (const [name, variant] of Object.entries(typography)) {
+    lines.push("");
+    lines.push(`  --text-${name}: ${variant.size};`);
+    lines.push(`  --text-${name}--line-height: ${variant.lineHeight};`);
+    if ("letterSpacing" in variant) {
+      lines.push(`  --text-${name}--letter-spacing: ${variant.letterSpacing};`);
+    }
+  }
+
+  lines.push("}");
+  return lines.join("\n") + "\n";
+}
+
 mkdirSync(outDir, { recursive: true });
 
 const colorsPath = join(outDir, "colors.css");
@@ -66,3 +86,7 @@ console.log(`Generated ${colorsPath}`);
 const semanticPath = join(outDir, "semantic.css");
 writeFileSync(semanticPath, generateSemanticCSS());
 console.log(`Generated ${semanticPath}`);
+
+const typographyPath = join(outDir, "typography.css");
+writeFileSync(typographyPath, generateTypographyCSS());
+console.log(`Generated ${typographyPath}`);
