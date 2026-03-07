@@ -474,6 +474,52 @@ providers:
 	}
 }
 
+func TestContainer_HasMessaging(t *testing.T) {
+	tests := []struct {
+		name       string
+		interfaces *Interfaces
+		want       bool
+	}{
+		{"nil interfaces (backward compat)", nil, true},
+		{"messaging true", &Interfaces{Messaging: true}, true},
+		{"messaging false", &Interfaces{Messaging: false}, false},
+		{"frontend only", &Interfaces{Frontend: true}, false},
+		{"both enabled", &Interfaces{Frontend: true, Messaging: true}, true},
+		{"empty interfaces", &Interfaces{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Container{Interfaces: tt.interfaces}
+			if got := c.HasMessaging(); got != tt.want {
+				t.Errorf("HasMessaging() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContainer_HasFrontend(t *testing.T) {
+	tests := []struct {
+		name       string
+		interfaces *Interfaces
+		want       bool
+	}{
+		{"nil interfaces", nil, false},
+		{"frontend true", &Interfaces{Frontend: true}, true},
+		{"frontend false", &Interfaces{Frontend: false}, false},
+		{"messaging only", &Interfaces{Messaging: true}, false},
+		{"both enabled", &Interfaces{Frontend: true, Messaging: true}, true},
+		{"empty interfaces", &Interfaces{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Container{Interfaces: tt.interfaces}
+			if got := c.HasFrontend(); got != tt.want {
+				t.Errorf("HasFrontend() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseSpec_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
