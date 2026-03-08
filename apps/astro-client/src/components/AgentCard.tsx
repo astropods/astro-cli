@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import { Download } from "lucide-react";
-import { InlineBadge } from "@/components/InlineBadge";
 import { AgentIdentity } from "./AgentIdentity";
 
 export interface AgentCardProps {
@@ -17,48 +16,38 @@ export function AgentCard({
   account,
   name,
   description,
-  categories,
-  ownerPictureUrl,
 }: AgentCardProps) {
   return (
     <Link
       to={`/${slug}`}
-      className="group flex flex-col rounded-sm border border-border bg-background transition-colors hover:bg-accent"
+      className="group flex flex-col overflow-hidden rounded-md border border-stone-400 bg-stone-50 shadow-none transition-all duration-200 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
     >
-      <div className="flex flex-1 items-start gap-3 p-3">
-        <AgentIdentity account={account} name={name} size={40} className="size-10 shrink-0 rounded-sm overflow-hidden" />
+      <div className="flex flex-1 items-start gap-3 p-4 pb-3">
+        <AgentIdentity
+          account={account}
+          name={name}
+          size={36}
+          className="size-9 shrink-0 rounded-sm overflow-hidden"
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h3 className="truncate text-base font-semibold text-foreground transition-colors group-hover:text-primary">
+          <h3 className="truncate text-[13px] font-semibold text-ink transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
             {name}
           </h3>
-          <p className="line-clamp-2 text-sm text-muted-foreground">
+          <p className="line-clamp-3 text-body-sm text-ink-muted">
             {description}
           </p>
-          {categories.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {categories.slice(0, 2).map((category) => (
-                <InlineBadge key={category}>{category}</InlineBadge>
-              ))}
-            </div>
-          )}
         </div>
       </div>
-      <div className="flex items-center gap-2 border-t border-border px-3 py-2">
-        <Download size={14} className="text-muted-foreground" />
-        <span className="text-xs font-mono text-muted-foreground">1.2k</span>
-        <div className="flex-1" />
-        {ownerPictureUrl ? (
-          <img
-            src={ownerPictureUrl}
-            alt={account}
-            className="size-5 rounded-full object-cover"
-          />
-        ) : (
-          <div className="flex size-5 items-center justify-center rounded-full bg-stone-200 text-[10px] font-semibold text-muted-foreground">
-            {account.charAt(0).toUpperCase()}
-          </div>
-        )}
-        <span className="text-xs font-mono text-muted-foreground">{account}</span>
+      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <div className="flex items-center gap-1.5">
+          <Download size={11} className="text-ink-faint" />
+          <span className="text-mono-sm font-mono text-ink-faint">
+            1.2K
+          </span>
+        </div>
+        <span className="text-mono-sm font-mono text-ink-faint">
+          {account}
+        </span>
       </div>
     </Link>
   );

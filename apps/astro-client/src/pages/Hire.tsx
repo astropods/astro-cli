@@ -62,7 +62,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
   }, [agents, selectedCategory]);
 
   return (
-    <div className="@container w-full flex-1 overflow-y-auto px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6 max-w-[1500px] mx-auto">
+    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6 max-w-[1500px] mx-auto">
       {isLoading ? (
         <div role="status" aria-label="Loading agents" className="flex items-center justify-center py-12">
           <Loader2 size={32} className="animate-spin text-muted-foreground" />
