@@ -54,6 +54,7 @@ export function SidebarNavItem({
   return (
     <button
       type="button"
+      aria-current={active ? "true" : undefined}
       className={cn(
         "whitespace-nowrap rounded-sm px-3 py-1.5 text-left text-[13px] transition-colors cursor-pointer",
         active

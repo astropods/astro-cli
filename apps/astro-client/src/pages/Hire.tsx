@@ -7,6 +7,8 @@ import { SidebarLayout, SidebarBody } from "@/components/ui/sidebar-layout";
 import { useAgents } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { getAgentCategories, getAgentDescription } from "@/lib/agent-utils";
+
+const CATEGORIES = ["All", "Development", "Data", "Marketing", "Sales", "Support"] as const;
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const agentsData = await api.listAgents().catch(() => ({ agents: [], count: 0 }));
@@ -28,7 +30,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
     initialData: loaderData?.agentsData,
   });
   const agents = data?.agents ?? [];
-  const categories = ["All", "Development", "Data", "Marketing", "Sales", "Support"];
+  const categories = CATEGORIES;
 
   const filteredAgents = useMemo(() => {
     if (selectedCategory === "All") return agents;
@@ -74,7 +76,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
           />
           <SidebarBody>
             <div className="flex items-baseline gap-2">
-              <h2 className="text-heading-2 font-bold text-ink">All Agents</h2>
+              <h2 className="text-heading-2 font-bold text-ink">{selectedCategory === "All" ? "All Agents" : selectedCategory}</h2>
               <span className="text-mono-md font-mono tracking-normal text-ink-faint">
                 {filteredAgents.length} {filteredAgents.length === 1 ? "agent" : "agents"}
               </span>
