@@ -14,7 +14,7 @@ export function SidebarStats({
 
   return (
     <>
-      <div className="my-5 h-px bg-stone-400 dark:bg-border" />
+      <div className="my-5 h-px bg-border-strong" />
       <div className="grid grid-cols-2 gap-3">
         {version && (
           <div className="flex flex-col gap-0.5">

@@ -75,6 +75,8 @@ body {
   --color-ink-muted: var(--ink-muted);
   --color-ink-faint: var(--ink-faint);
   --color-surface: var(--surface);
+  --color-border-strong: var(--border-strong);
+  --color-code-text: var(--code-text);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

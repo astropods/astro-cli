@@ -18,7 +18,7 @@ export function RequiredAppsList({ integrations }: RequiredAppsListProps) {
           return (
             <div
               key={name}
-              className="flex items-center gap-3 rounded-lg border border-stone-400 bg-stone-50 px-3 py-2 dark:border-border dark:bg-background"
+              className="flex items-center gap-3 rounded-lg border border-border-strong bg-stone-50 px-3 py-2 dark:bg-background"
             >
               {icon ? (
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:size-full">

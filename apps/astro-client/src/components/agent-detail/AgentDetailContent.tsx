@@ -71,7 +71,7 @@ export function AgentDetailContent({
       {/* Safety & Permissions */}
       {safetyPermissions.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-[15px] font-bold text-foreground mb-3.5 pb-2.5 border-b border-stone-400 dark:border-border">
+          <h2 className="text-[15px] font-bold text-foreground mb-3.5 pb-2.5 border-b border-border-strong">
             Safety & Permissions
           </h2>
           <ul className="space-y-2.5">

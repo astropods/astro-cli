@@ -14,7 +14,7 @@ export function SidebarAuthor({
   const initial = name.charAt(0).toUpperCase();
 
   return (
-    <div className="pt-5 mt-5 border-t border-stone-400 dark:border-border">
+    <div className="pt-5 mt-5 border-t border-border-strong">
       <SidebarSection title="Created by">
         <div className="flex items-center gap-3">
           {profilePictureUrl ? (
