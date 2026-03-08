@@ -21,7 +21,7 @@ export const mockAgents: Agent[] = [
           model: 'gpt-4o',
           meta: {
             description: 'Automated code review agent that analyzes pull requests for quality and security issues.',
-            tags: ['Developer Tools', 'Security'],
+            tags: ['Development', 'Support'],
           },
           integrations: {
             github: { provider: 'GitHub', type: 'tool' },
@@ -36,7 +36,7 @@ export const mockAgents: Agent[] = [
           model: 'gpt-4',
           meta: {
             description: 'Automated code review agent.',
-            tags: ['Developer Tools'],
+            tags: ['Development'],
           },
         },
         published_at: '2025-01-01T00:00:00Z',
@@ -54,7 +54,7 @@ export const mockAgents: Agent[] = [
           model: 'claude-3',
           meta: {
             description: 'Analyzes datasets and generates visual reports with actionable insights.',
-            tags: ['Analytics'],
+            tags: ['Data'],
           },
           integrations: {
             snowflake: { provider: 'Snowflake', type: 'tool' },

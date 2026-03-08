@@ -104,14 +104,14 @@ describe('Hire page', () => {
   // ── Category Filter ─────────────────────────────────────────────────
 
   describe('category filter', () => {
-    it('renders category sidebar from agent tags', async () => {
+    it('renders category sidebar with static categories', async () => {
       renderHire();
       await waitForAgents();
 
       expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Analytics' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Developer Tools' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Security' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Development' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Support' })).toBeInTheDocument();
     });
 
     it('filters agents by selected category', async () => {
@@ -119,7 +119,7 @@ describe('Hire page', () => {
       renderHire();
       await waitForAgents();
 
-      await user.click(screen.getByRole('button', { name: 'Analytics' }));
+      await user.click(screen.getByRole('button', { name: 'Data' }));
 
       await waitFor(() => {
         expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
@@ -133,7 +133,7 @@ describe('Hire page', () => {
       await waitForAgents();
 
       // Filter by Analytics first
-      await user.click(screen.getByRole('button', { name: 'Analytics' }));
+      await user.click(screen.getByRole('button', { name: 'Data' }));
       await waitFor(() => {
         expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
       });
