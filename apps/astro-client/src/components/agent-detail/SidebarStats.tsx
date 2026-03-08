@@ -14,11 +14,11 @@ export function SidebarStats({
 
   return (
     <>
-      <div className="my-5 h-px bg-border" />
+      <div className="my-5 h-px bg-stone-400 dark:bg-border" />
       <div className="grid grid-cols-2 gap-3">
         {version && (
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Version</span>
+            <span className="text-[11px] text-[var(--ink-faint)]">Version</span>
             <span className="text-[13px] font-normal text-foreground font-mono">
               {isSemver ? `v${version}` : version}
             </span>
@@ -26,7 +26,7 @@ export function SidebarStats({
         )}
         {updatedAt && (
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Updated</span>
+            <span className="text-[11px] text-[var(--ink-faint)]">Updated</span>
             <span className="text-[13px] font-normal text-foreground font-mono">
               {updatedAt}
             </span>

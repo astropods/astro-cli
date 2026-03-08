@@ -65,9 +65,9 @@ export const meta: Route.MetaFunction = ({ data }) => {
 
 function AgentDetailSkeleton() {
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0 bg-surface">
       {/* Breadcrumb skeleton */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-stone-200 dark:bg-background">
         <div className="flex items-center gap-2">
           <Skeleton className="h-4 w-24" />
           <Skeleton className="h-3.5 w-3.5" />
@@ -222,7 +222,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-white">
+    <div className="flex flex-col flex-1 min-h-0 bg-surface">
       <AgentDetailBreadcrumb account={agent.account} agentName={agent.name} />
 
       <div className="flex flex-1 overflow-y-auto">

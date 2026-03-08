@@ -158,7 +158,7 @@ export function AppHeader() {
                   "whitespace-nowrap text-[13px] transition-colors hover:text-foreground",
                   !item.external && isActive
                     ? "font-semibold text-primary"
-                    : "font-normal text-muted-foreground",
+                    : "font-normal text-[var(--ink-muted)]",
                   i >= ALWAYS_VISIBLE && "hidden lg:block",
                 )
               }
@@ -168,7 +168,7 @@ export function AppHeader() {
           ))}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 lg:hidden">
+              <Button variant="ghost" size="icon" className="shrink-0 text-[var(--ink-muted)] lg:hidden">
                 <EllipsisHorizontalIcon className="size-5" />
               </Button>
             </DropdownMenuTrigger>
@@ -190,7 +190,7 @@ export function AppHeader() {
           <Input
             type="search"
             placeholder="Search"
-            className="h-8 w-[168px] rounded-lg border-stone-300 pl-8 text-[13px] dark:border-input"
+            className="h-8 w-[168px] rounded-sm border-stone-300 pl-8 text-[13px] dark:border-input"
           />
         </div>
 

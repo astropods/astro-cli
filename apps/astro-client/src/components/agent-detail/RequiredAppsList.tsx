@@ -18,7 +18,7 @@ export function RequiredAppsList({ integrations }: RequiredAppsListProps) {
           return (
             <div
               key={name}
-              className="flex items-center gap-3 rounded border border-border px-3 py-2.5"
+              className="flex items-center gap-3 rounded-lg border border-stone-400 bg-stone-50 px-3 py-2 dark:border-border dark:bg-background"
             >
               {icon ? (
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:size-full">
@@ -27,7 +27,7 @@ export function RequiredAppsList({ integrations }: RequiredAppsListProps) {
               ) : (
                 <Puzzle className="h-5 w-5 shrink-0 text-muted-foreground" />
               )}
-              <span className="text-sm font-medium text-foreground">{name}</span>
+              <span className="text-[13px] font-medium text-foreground">{name}</span>
             </div>
           );
         })}

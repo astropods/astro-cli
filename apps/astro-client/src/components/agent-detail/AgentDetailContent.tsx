@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ShieldCheck } from "lucide-react";
+import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { InlineBadge } from "@/components/InlineBadge";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { RecommendedAgents } from "@/components/RecommendedAgents";
@@ -27,25 +26,29 @@ export function AgentDetailContent({
   mobileSidebar,
 }: AgentDetailContentProps) {
   return (
-    <div className="flex-1 min-w-0 p-6 md:p-8 lg:max-w-3xl">
+    <div className="flex-1 min-w-0 p-6 md:p-8 min-[900px]:max-w-3xl">
       {/* Header */}
-      <header className="mb-8">
-        <div className="flex items-center gap-3">
+      <header className="mb-4">
+        <div className="flex items-start gap-4">
           <AgentIdentity
             account={account}
             name={name}
-            size={40}
-            className="size-10 shrink-0 rounded-sm overflow-hidden"
+            size={56}
+            className="size-14 shrink-0 rounded-md overflow-hidden border border-stone-200 dark:border-border"
           />
-          <h1 className="text-2xl leading-tight font-semibold text-foreground">
-            {name}
-          </h1>
+          <div className="min-w-0">
+            <h1 className="font-mono text-lg font-bold text-foreground">
+              {name}
+            </h1>
+            <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
+              by {account}
+              {categories.length > 0 && <> · {categories[0]}</>}
+            </p>
+          </div>
         </div>
-        <hr className="mt-4 border-border" />
-
         {/* Category tags */}
         {categories.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-1.5">
             {categories.map((tag) => (
               <InlineBadge key={tag}>{tag}</InlineBadge>
             ))}
@@ -55,28 +58,26 @@ export function AgentDetailContent({
 
       {/* Sidebar content inlined on mobile */}
       {mobileSidebar && (
-        <div className="lg:hidden mb-8">{mobileSidebar}</div>
+        <div className="min-[900px]:hidden mb-8">{mobileSidebar}</div>
       )}
 
       {/* README */}
       {readme && (
         <section className="mb-8">
-          <div className="prose prose-stone dark:prose-invert max-w-none overflow-x-auto prose-headings:font-bold prose-headings:text-foreground text-foreground prose-p:my-2 prose-headings:mt-6 prose-headings:mb-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-3 prose-blockquote:my-3 prose-hr:my-4 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-stone-100 [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-foreground [&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']">
-            <Markdown remarkPlugins={[remarkGfm]}>{readme}</Markdown>
-          </div>
+          <StyledMarkdown>{readme}</StyledMarkdown>
         </section>
       )}
 
       {/* Safety & Permissions */}
       {safetyPermissions.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-xs font-medium text-muted-foreground mb-3">
+          <h2 className="text-[15px] font-bold text-foreground mb-3.5 pb-2.5 border-b border-stone-400 dark:border-border">
             Safety & Permissions
           </h2>
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {safetyPermissions.map((permission, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <ShieldCheck className="size-4 shrink-0 text-muted-foreground mt-0.5" />
+              <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed">
+                <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground mt-0.5" />
                 <span className="text-muted-foreground">{permission}</span>
               </li>
             ))}

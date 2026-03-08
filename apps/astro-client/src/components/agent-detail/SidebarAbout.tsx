@@ -8,9 +8,9 @@ export function SidebarAbout({ description }: SidebarAboutProps) {
   if (!description) return null;
 
   return (
-    <div className="pt-5 mt-5 border-t border-border">
+    <div className="pt-5 mt-5 border-t border-stone-400 dark:border-border">
       <SidebarSection title="About">
-        <p className="text-sm text-foreground leading-snug">{description}</p>
+        <p className="text-[13px] text-foreground leading-[1.55]">{description}</p>
       </SidebarSection>
     </div>
   );

@@ -32,7 +32,7 @@ export function PermissionsPreview({ permissions }: PermissionsPreviewProps) {
 
   return (
     <SidebarSection title="Permissions">
-      <div className="flex flex-col gap-2 text-sm text-foreground">
+      <div className="flex flex-col gap-2 text-[13px] leading-[1.5] text-foreground">
         {visible.map((p) => (
           <PermissionItem key={p} text={p} />
         ))}

@@ -40,9 +40,9 @@ export function SidebarCard({
     : agent.account;
 
   return (
-    <div className="rounded-lg border border-border bg-stone-100 p-5">
+    <div className="rounded-lg border border-stone-400 bg-stone-200 p-5 dark:border-border dark:bg-background">
       {/* Install CTA */}
-      <Button asChild size="lg" className="w-full gap-2">
+      <Button asChild size="default" className="w-full gap-2 text-stone-100">
         <Link to={`/deploy/${agent.account}/${agent.name}`}>
           Install Agent
           <ArrowRight className="h-4 w-4" />
@@ -66,7 +66,7 @@ export function SidebarCard({
       {/* Required Apps */}
       {integrations.length > 0 && (
         <>
-          <div className="my-5 h-px bg-border" />
+          <div className="my-5 h-px bg-stone-400 dark:bg-border" />
           <RequiredAppsList integrations={integrations} />
         </>
       )}
@@ -74,7 +74,7 @@ export function SidebarCard({
       {/* Permissions */}
       {permissions.length > 0 && (
         <>
-          <div className="my-5 h-px bg-border" />
+          <div className="my-5 h-px bg-stone-400 dark:bg-border" />
           <PermissionsPreview permissions={permissions} />
         </>
       )}
@@ -86,8 +86,8 @@ export type AgentDetailSidebarProps = SidebarCardProps;
 
 export function AgentDetailSidebar(props: AgentDetailSidebarProps) {
   return (
-    <div className="hidden lg:block w-[340px] shrink-0 p-6">
-      <div className="sticky top-[57px]">
+    <div className="hidden min-[900px]:block w-[340px] shrink-0 pl-0 pr-8 pt-10 pb-6">
+      <div>
         <SidebarCard {...props} />
       </div>
     </div>
