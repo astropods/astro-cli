@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router";
 import { Paperclip, Mic, Send } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
 const quickActions = [
   "Surface customer insights",
@@ -23,9 +24,9 @@ export default function Home() {
         <h1 className="text-3xl font-semibold mb-2">Welcome to Astro</h1>
         <p className="text-stone-600 mb-6">What can I help you solve?</p>
 
-        <div className="border border-stone-300 p-3 mb-4 text-left">
-          <textarea
-            className="w-full border-none bg-transparent text-sm resize-none focus:outline-none"
+        <div className="border border-border rounded-sm p-3 mb-4 text-left bg-[var(--input-background)]">
+          <Textarea
+            className="min-h-0 border-none bg-transparent p-0 shadow-none focus-visible:ring-0 focus-visible:border-transparent"
             placeholder="Describe the problem you're trying to solve..."
             rows={4}
           />

@@ -1,5 +1,8 @@
 import { Link } from "react-router";
 import { ArrowLeft } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 export default function RequestAgent() {
   const handleSubmit = (e: React.FormEvent) => {
@@ -28,79 +31,61 @@ export default function RequestAgent() {
           className="border border-stone-300 p-6"
           onSubmit={handleSubmit}
         >
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="name" className="text-sm text-stone-600">
-              Your Name *
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5 mb-4">
+            <Label htmlFor="name">Your Name *</Label>
+            <Input
               type="text"
               id="name"
               placeholder="Enter your name"
               required
-              className="px-3 py-2 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
             />
           </div>
 
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="company" className="text-sm text-stone-600">
-              Company Name *
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5 mb-4">
+            <Label htmlFor="company">Company Name *</Label>
+            <Input
               type="text"
               id="company"
               placeholder="Enter your company name"
               required
-              className="px-3 py-2 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
             />
           </div>
 
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="email" className="text-sm text-stone-600">
-              Work Email *
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5 mb-4">
+            <Label htmlFor="email">Work Email *</Label>
+            <Input
               type="email"
               id="email"
               placeholder="you@company.com"
               required
-              className="px-3 py-2 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
             />
           </div>
 
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="problem" className="text-sm text-stone-600">
-              What problem are you trying to solve? *
-            </label>
-            <textarea
+          <div className="flex flex-col gap-1.5 mb-4">
+            <Label htmlFor="problem">What problem are you trying to solve? *</Label>
+            <Textarea
               id="problem"
               placeholder="Describe the tasks or workflows you'd like to automate..."
               rows={5}
               required
-              className="px-3 py-2 border border-stone-300 text-sm resize-y min-h-[80px] focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
             />
           </div>
 
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="systems" className="text-sm text-stone-600">
-              What systems or apps do you use?
-            </label>
-            <input
+          <div className="flex flex-col gap-1.5 mb-4">
+            <Label htmlFor="systems">What systems or apps do you use?</Label>
+            <Input
               type="text"
               id="systems"
               placeholder="e.g., Slack, Salesforce, Notion, Jira..."
-              className="px-3 py-2 border border-stone-300 text-sm focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
             />
           </div>
 
-          <div className="flex flex-col gap-1 mb-4">
-            <label htmlFor="additional" className="text-sm text-stone-600">
-              Anything else we should know?
-            </label>
-            <textarea
+          <div className="flex flex-col gap-1.5 mb-4">
+            <Label htmlFor="additional">Anything else we should know?</Label>
+            <Textarea
               id="additional"
               placeholder="Additional context, timeline, or specific requirements..."
               rows={4}
-              className="px-3 py-2 border border-stone-300 text-sm resize-y min-h-[80px] focus:outline-2 focus:outline-stone-800 focus:-outline-offset-2"
             />
           </div>
 

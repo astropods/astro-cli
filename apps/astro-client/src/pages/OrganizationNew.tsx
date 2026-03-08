@@ -4,6 +4,7 @@ import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useCreateAccount, useCheckAccountName } from "../api/queries/accounts";
 import { useAuth } from "../lib/auth";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { InviteInput, type InviteEntry } from "@/components/InviteInput";
 import type { ApiError } from "@/lib/api";
@@ -102,12 +103,9 @@ function OrganizationNewContent() {
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-3">
           <div>
-            <label
-              htmlFor="org-name"
-              className="mb-1.5 block text-sm font-medium"
-            >
+            <Label htmlFor="org-name" className="mb-1.5 block">
               Organization username
-            </label>
+            </Label>
             <div className="relative">
               <Input
                 id="org-name"
@@ -151,9 +149,9 @@ function OrganizationNewContent() {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium">
+            <Label className="mb-1.5 block">
               Invite members
-            </label>
+            </Label>
             <InviteInput entries={invites} onChange={setInvites} exclude={excludeFromInvite} />
             <p className="text-muted-foreground mt-1 text-xs">
               Invitations will be sent after the organization is created.

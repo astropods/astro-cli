@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateAccount, useCheckAccountName } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 function validateName(name: string): string | null {
   if (name.length < 2) return 'Must be at least 2 characters';
@@ -73,28 +75,18 @@ export default function Onboarding() {
     [name, isAvailable, createAccount, checkAuth, navigate]
   );
 
-  const borderColor = name.length === 0
-    ? '#d1d5db'
-    : displayError
-      ? '#ef4444'
-      : isChecking
-        ? '#d1d5db'
-        : isAvailable
-          ? '#22c55e'
-          : '#d1d5db';
-
   return (
-    <div style={{ maxWidth: 480, margin: '80px auto', padding: '0 24px' }}>
-      <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 8 }}>Choose your username</h1>
-      <p style={{ color: '#6b7280', marginBottom: 32, lineHeight: 1.5 }}>
+    <div className="mx-auto max-w-[480px] px-6 pt-20">
+      <h1 className="text-heading-1 font-semibold mb-2">Choose your username</h1>
+      <p className="text-muted-foreground mb-8 leading-relaxed">
         Your username is how others will find your agents. It must be unique and
         can contain lowercase letters, numbers, and hyphens.
       </p>
 
       <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ position: 'relative' }}>
-            <input
+        <div className="mb-4">
+          <div className="relative">
+            <Input
               type="text"
               value={name}
               onChange={(e) => {
@@ -104,67 +96,38 @@ export default function Onboarding() {
               placeholder="username"
               autoFocus
               maxLength={39}
-              style={{
-                width: '100%',
-                padding: '12px 40px 12px 16px',
-                fontSize: 16,
-                border: `2px solid ${borderColor}`,
-                borderRadius: 8,
-                boxSizing: 'border-box',
-                outline: 'none',
-                transition: 'border-color 0.15s',
-              }}
+              aria-invalid={!!displayError || undefined}
+              className={cn(
+                'pr-9',
+                isAvailable && 'border-green-600 focus-visible:border-green-600',
+              )}
             />
-            <span style={{
-              position: 'absolute',
-              right: 12,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: 18,
-              lineHeight: 1,
-            }}>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lg leading-none">
               {name.length === 0 ? '' : isChecking ? '\u2026' : isAvailable ? '\u2713' : displayError ? '\u2717' : ''}
             </span>
           </div>
 
-          <div style={{ minHeight: 24, marginTop: 6 }}>
+          <div className="mt-1.5 min-h-6 text-xs">
             {name.length > 0 && displayError && (
-              <p style={{ margin: 0, fontSize: 13, color: '#ef4444' }}>
-                {displayError}
-              </p>
+              <p className="text-destructive">{displayError}</p>
             )}
             {isChecking && (
-              <p style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>
-                Checking availability...
-              </p>
+              <p className="text-muted-foreground">Checking availability...</p>
             )}
             {isAvailable && (
-              <p style={{ margin: 0, fontSize: 13, color: '#22c55e' }}>
-                Available
-              </p>
+              <p className="text-green-600">Available</p>
             )}
           </div>
         </div>
 
         {error && (
-          <p style={{ color: '#ef4444', marginBottom: 16, fontSize: 14 }}>{error}</p>
+          <p className="text-destructive mb-4 text-sm">{error}</p>
         )}
 
         <button
           type="submit"
           disabled={createAccount.isPending || !isAvailable}
-          style={{
-            width: '100%',
-            padding: '12px 24px',
-            fontSize: 16,
-            fontWeight: 500,
-            backgroundColor: isAvailable ? '#2563eb' : '#94a3b8',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            cursor: isAvailable ? 'pointer' : 'not-allowed',
-            transition: 'background-color 0.15s',
-          }}
+          className="w-full rounded-sm px-6 py-3 font-medium text-white transition-colors bg-primary hover:bg-primary/90 disabled:bg-muted-foreground disabled:cursor-not-allowed"
         >
           {createAccount.isPending ? 'Creating...' : 'Claim username'}
         </button>

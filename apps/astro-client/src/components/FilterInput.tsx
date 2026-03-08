@@ -1,5 +1,6 @@
 import { Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { inputBase, inputFocusWithin } from "./ui/input";
 
 export interface FilterInputProps
   extends Omit<React.ComponentProps<"input">, "type"> {
@@ -14,8 +15,9 @@ export function FilterInput({
   return (
     <div
       className={cn(
-        "flex h-11 items-center gap-2 rounded-sm border border-border bg-[var(--input-background)] px-3.5 has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50",
-        "focus-within:border-teal-600 focus-within:ring-[3px] focus-within:ring-[var(--input-focus-ring)] dark:focus-within:border-teal-400",
+        "flex h-11 items-center gap-2 has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50",
+        inputBase,
+        inputFocusWithin,
         containerClassName
       )}
     >

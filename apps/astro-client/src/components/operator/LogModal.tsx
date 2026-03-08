@@ -2,6 +2,14 @@ import { useState, useCallback } from "react";
 import { X, Loader2, RefreshCw } from "lucide-react";
 import type { AgentDeployment, ApiError, PodDetail } from "../../lib/api";
 import { useDeploymentLogs } from "../../api/queries/deployments";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export interface LogModalProps {
   accountName: string;
@@ -48,35 +56,37 @@ export function LogModal({ accountName, deployment, pod, onClose }: LogModalProp
 
         <div className="flex items-center gap-3 px-4 py-2 border-b border-stone-200 bg-stone-50">
           {pod.containers.length > 1 && (
-            <label className="flex items-center gap-1 text-sm">
-              Container:
-              <select
-                value={selectedContainer}
-                onChange={(e) => setSelectedContainer(e.target.value)}
-                className="border border-stone-300 text-sm px-2 py-1"
-              >
-                {pod.containers.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex items-center gap-1.5">
+              <Label>Container</Label>
+              <Select value={selectedContainer} onValueChange={setSelectedContainer}>
+                <SelectTrigger className="h-8 w-auto min-w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {pod.containers.map((c) => (
+                    <SelectItem key={c.name} value={c.name}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
-          <label className="flex items-center gap-1 text-sm">
-            Tail lines:
-            <select
-              value={tailLines}
-              onChange={(e) => setTailLines(Number(e.target.value))}
-              className="border border-stone-300 text-sm px-2 py-1"
-            >
-              {[50, 100, 200, 500].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex items-center gap-1.5">
+            <Label>Tail Lines</Label>
+            <Select value={String(tailLines)} onValueChange={(v) => setTailLines(Number(v))}>
+              <SelectTrigger className="h-8 w-auto min-w-[80px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[50, 100, 200, 500].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <button
             onClick={() => refetch()}
             disabled={loading}

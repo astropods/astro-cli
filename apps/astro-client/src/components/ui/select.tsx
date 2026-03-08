@@ -3,6 +3,7 @@ import { CheckIcon, ChevronDownIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { inputBase, inputFocusVisible, inputInvalid } from "./input"
 
 function Select({
   ...props
@@ -31,9 +32,10 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "border-input placeholder:text-muted-foreground flex h-11 w-full items-center justify-between rounded-sm border bg-[var(--input-background)] px-3.5 text-body shadow-none transition-[color,box-shadow,border-color] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-        "focus-visible:border-teal-600 focus-visible:ring-[3px] focus-visible:ring-[var(--input-focus-ring)] dark:focus-visible:border-teal-400",
-        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+        "placeholder:text-muted-foreground flex h-11 w-full items-center justify-between [&>span]:line-clamp-1",
+        inputBase,
+        inputFocusVisible,
+        inputInvalid,
         className
       )}
       {...props}

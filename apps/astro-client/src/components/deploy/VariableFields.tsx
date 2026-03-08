@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { Label } from "@/components/ui/label";
 import { VariableField } from "./VariableField";
 
 /** Display-only variable metadata — only the fields the component actually renders. */
@@ -46,9 +47,9 @@ export function VariableFields({ variables, values, onChange, errorKeys }: Varia
           <div key={key} className="pt-5 first:pt-0">
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <label htmlFor={key} className="text-sm font-medium text-foreground">
+                <Label htmlFor={key}>
                   {v.label ?? humanizeKey(key)}
-                </label>
+                </Label>
                 {v.optional && (
                   <span className="text-xs text-muted-foreground">Optional</span>
                 )}

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useCombobox } from "downshift";
 import { X, Mail, User, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { inputBase, inputFocusWithin } from "./ui/input";
 import { useSearchAccounts } from "@/api/queries/accounts";
 
 export type InviteKind = "account" | "email";
@@ -172,8 +173,9 @@ export function InviteInput({
     <div className="relative">
       <div
         className={cn(
-          "border-input flex min-h-9 flex-wrap items-center gap-1.5 rounded border bg-transparent px-2 py-1.5 text-sm transition-[color,box-shadow]",
-          "focus-within:border-teal-700 focus-within:ring-teal-700 focus-within:ring-[2px] focus-within:ring-offset-2",
+          "flex min-h-11 flex-wrap items-center gap-1.5 px-3 py-1.5",
+          inputBase,
+          inputFocusWithin,
           className,
         )}
         onClick={() => inputRef.current?.focus()}
