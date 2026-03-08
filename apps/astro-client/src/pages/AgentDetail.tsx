@@ -153,7 +153,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     initialData: loaderData?.agentsData ?? undefined,
   });
 
-  const accountsMap = loaderData?.accountsMap ?? {};
   const recommendedAgents = (() => {
     if (!agent || !agentsData) return [];
     const currentIntegrations = new Set(getAgentIntegrations(agent));
