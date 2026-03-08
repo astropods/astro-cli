@@ -1,33 +1,29 @@
-import { cn } from "@/lib/utils";
+import { SidebarNav, SidebarNavItem } from "@/components/ui/sidebar-layout";
 
 export interface CategorySidebarProps {
   categories: string[];
   selected: string;
   onSelect: (category: string) => void;
+  className?: string;
 }
 
 export function CategorySidebar({
   categories,
   selected,
   onSelect,
+  className,
 }: CategorySidebarProps) {
   return (
-    <nav className="flex w-full gap-1 overflow-x-auto md:w-36 md:shrink-0 md:flex-col md:overflow-x-visible">
+    <SidebarNav label="Category" className={className}>
       {categories.map((category) => (
-        <button
+        <SidebarNavItem
           key={category}
-          type="button"
+          active={selected === category}
           onClick={() => onSelect(category)}
-          className={cn(
-            "whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm font-medium transition-colors cursor-pointer",
-            selected === category
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-          )}
         >
           {category}
-        </button>
+        </SidebarNavItem>
       ))}
-    </nav>
+    </SidebarNav>
   );
 }

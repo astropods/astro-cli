@@ -1,11 +1,9 @@
 import { useState, useMemo } from "react";
-import { Link } from "react-router";
 import type { Route } from "./+types/Hire";
-import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { AgentCard } from "@/components/AgentCard";
 import { CategorySidebar } from "@/components/browse/CategorySidebar";
+import { SidebarLayout, SidebarBody } from "@/components/ui/sidebar-layout";
 import { useAgents } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { getAgentCategories, getAgentDescription } from "@/lib/agent-utils";
@@ -30,15 +28,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
     initialData: loaderData?.agentsData,
   });
   const agents = data?.agents ?? [];
-  const categories = useMemo(() => {
-    const tagSet = new Set<string>(["Developer Tools", "Getting Started", "Security", "Starter"]);
-    for (const agent of agents) {
-      for (const tag of getAgentCategories(agent)) {
-        tagSet.add(tag);
-      }
-    }
-    return ["All", ...Array.from(tagSet).sort()];
-  }, [agents]);
+  const categories = ["All", "Development", "Data", "Marketing", "Sales", "Support"];
 
   const filteredAgents = useMemo(() => {
     if (selectedCategory === "All") return agents;
@@ -48,7 +38,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
   }, [agents, selectedCategory]);
 
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-4 md:px-8 md:pb-8 md:pt-6 max-w-[1500px] mx-auto">
+    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[1500px] mx-auto">
       {isLoading ? (
         <div role="status" aria-label="Loading agents" className="flex items-center justify-center py-12">
           <Loader2 size={32} className="animate-spin text-muted-foreground" />
@@ -76,33 +66,32 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-6 md:grid md:grid-cols-[9rem_1fr] md:gap-x-6 md:gap-y-6">
-          <div className="flex items-center justify-between md:col-start-2">
-            <h1 className="text-heading-1 font-bold">Browse Agents</h1>
-            <Button asChild className="hidden @[540px]:inline-flex">
-              <Link to="/request-agent">
-                <PaperAirplaneIcon className="size-4" />
-                Request agent
-              </Link>
-            </Button>
-          </div>
+        <SidebarLayout>
           <CategorySidebar
             categories={categories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
           />
-          <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
-            {filteredAgents.map((agent) => (
-              <AgentCard
-                key={`${agent.account}/${agent.name}`}
-                slug={`${agent.account}/${agent.name}`}
-                account={agent.account}
-                name={agent.name}
-                description={getAgentDescription(agent)}
-              />
-            ))}
-          </div>
-        </div>
+          <SidebarBody>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-heading-2 font-bold text-ink">All Agents</h2>
+              <span className="text-mono-md font-mono tracking-normal text-ink-faint">
+                {filteredAgents.length} {filteredAgents.length === 1 ? "agent" : "agents"}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
+              {filteredAgents.map((agent) => (
+                <AgentCard
+                  key={`${agent.account}/${agent.name}`}
+                  slug={`${agent.account}/${agent.name}`}
+                  account={agent.account}
+                  name={agent.name}
+                  description={getAgentDescription(agent)}
+                />
+              ))}
+            </div>
+          </SidebarBody>
+        </SidebarLayout>
       )}
     </div>
   );
