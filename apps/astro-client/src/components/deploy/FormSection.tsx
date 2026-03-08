@@ -11,7 +11,7 @@ export function FormSection({ title, description, children }: FormSectionProps) 
     <section>
       <div className="mb-1.5">
         <h2 className="text-base font-bold text-primary">{title}</h2>
-        <p className="text-[13px] text-[var(--ink-faint)] mt-0.5">{description}</p>
+        <p className="text-[13px] text-ink-faint mt-0.5">{description}</p>
       </div>
       <hr className="border-border-strong mb-5 mt-4" />
       {children}

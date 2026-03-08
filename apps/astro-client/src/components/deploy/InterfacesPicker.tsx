@@ -41,7 +41,7 @@ export function InterfacesPicker({
       <div className="space-y-2">
       {AVAILABLE_ADAPTERS.map((adapter) => {
         const isSelected = selected.includes(adapter.id);
-        const { icon, isBrand } = ADAPTER_ICONS[adapter.id] ?? {};
+        const { icon, isBrand = false } = ADAPTER_ICONS[adapter.id] ?? {};
         const credentialEntries = adapterCredDefs[adapter.id] ?? [];
         const hasCredentials = isSelected && credentialEntries.length > 0;
 
@@ -66,8 +66,8 @@ export function InterfacesPicker({
                 {icon}
               </div>
               <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                <span className="text-[13px] font-semibold text-[var(--ink)]">{adapter.label}</span>
-                <span className="text-[11px] text-[var(--ink-faint)]">{adapter.description}</span>
+                <span className="text-[13px] font-semibold text-ink">{adapter.label}</span>
+                <span className="text-[11px] text-ink-faint">{adapter.description}</span>
               </div>
               <div className={cn(
                 "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors",

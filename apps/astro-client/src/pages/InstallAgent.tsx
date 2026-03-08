@@ -91,7 +91,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
           <div className="flex items-center gap-3">
             <Link
               to={`/${agent.account}/${agent.name}`}
-              className="flex items-center justify-center p-1 text-[var(--ink-faint)] hover:text-foreground transition-colors"
+              className="flex items-center justify-center p-1 text-ink-faint hover:text-foreground transition-colors"
             >
               <ArrowLeft className="size-4" />
             </Link>
@@ -105,7 +105,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
               <div className="text-sm font-bold text-primary">
                 Install {agent.name}
               </div>
-              <div className="font-mono text-[10px] text-[var(--ink-faint)]">
+              <div className="font-mono text-[10px] text-ink-faint">
                 {agent.account}/{agent.name}
               </div>
             </div>
