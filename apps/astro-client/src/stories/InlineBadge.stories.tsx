@@ -1,0 +1,36 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { InlineBadge } from "@/components/InlineBadge";
+
+const meta = {
+  title: "Design System/Primitives/InlineBadge",
+  component: InlineBadge,
+} satisfies Meta<typeof InlineBadge>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {
+  args: { children: "API Agent" },
+};
+
+export const Multiple: Story = {
+  args: { children: "API Agent" },
+  render: () => (
+    <div className="flex items-center gap-2">
+      <InlineBadge>API Agent</InlineBadge>
+      <InlineBadge>Proven</InlineBadge>
+      <InlineBadge>Elite</InlineBadge>
+    </div>
+  ),
+};
+
+export const Categories: Story = {
+  args: { children: "Marketing" },
+  render: () => (
+    <div className="flex flex-wrap gap-1">
+      <InlineBadge>Marketing</InlineBadge>
+      <InlineBadge>Sales</InlineBadge>
+      <InlineBadge>Data Analysis</InlineBadge>
+    </div>
+  ),
+};

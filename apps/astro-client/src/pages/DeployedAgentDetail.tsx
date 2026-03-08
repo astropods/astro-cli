@@ -3,7 +3,8 @@ import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
-import { Badge } from "@/components/Badge";
+import { StatusIndicator } from "@/components/StatusIndicator";
+import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { PodGrid } from "@/components/deployed-agent/PodGrid";
@@ -51,13 +52,6 @@ function DeployedAgentDetailSkeleton() {
     </div>
   );
 }
-
-const statusVariantMap = {
-  active: "active",
-  pending: "pending",
-  error: "error",
-  inactive: "inactive",
-} as const;
 
 function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
   const { account: paramAccount, agentName } = useParams<{ account: string; agentName: string }>();
@@ -115,9 +109,9 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold truncate">{displayName}</h1>
-              <Badge variant={statusVariantMap[status]} showDot>
-                {status}
-              </Badge>
+              <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
+                {deploymentStatusLabel[status]}
+              </StatusIndicator>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               Deployed {formatDate(deployment.created_at)}

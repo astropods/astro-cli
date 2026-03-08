@@ -1,0 +1,30 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as Stories from "./StatusIndicator.stories"
+
+<Meta of={Stories} />
+
+# StatusIndicator
+
+Dot + uppercase mono label for operational state. The dot color always matches the label. The `pulse` prop adds a breathing animation for in-progress states like deploying.
+
+## Import
+
+```tsx
+import { StatusIndicator } from "@/components/StatusIndicator"
+```
+
+## Usage
+
+```tsx
+<StatusIndicator variant="success">Live</StatusIndicator>
+<StatusIndicator variant="muted" pulse>Deploying</StatusIndicator>
+```
+
+## Variants
+
+<Canvas of={Stories.AllVariants} />
+
+## Playground
+
+<Canvas of={Stories.Live} />
+<Controls of={Stories.Live} />

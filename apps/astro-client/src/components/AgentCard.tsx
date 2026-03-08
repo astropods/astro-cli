@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { Download } from "lucide-react";
-import { Badge } from "@/components/Badge";
+import { InlineBadge } from "@/components/InlineBadge";
 import { AgentIdentity } from "./AgentIdentity";
 
 export interface AgentCardProps {
@@ -37,7 +37,7 @@ export function AgentCard({
           {categories.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {categories.slice(0, 2).map((category) => (
-                <Badge key={category}>{category}</Badge>
+                <InlineBadge key={category}>{category}</InlineBadge>
               ))}
             </div>
           )}

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ShieldCheck } from "lucide-react";
-import { Badge } from "@/components/Badge";
+import { InlineBadge } from "@/components/InlineBadge";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { RecommendedAgents } from "@/components/RecommendedAgents";
 import type { RecommendedAgent } from "@/components/RecommendedAgents";
@@ -47,7 +47,7 @@ export function AgentDetailContent({
         {categories.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {categories.map((tag) => (
-              <Badge key={tag}>{tag}</Badge>
+              <InlineBadge key={tag}>{tag}</InlineBadge>
             ))}
           </div>
         )}

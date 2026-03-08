@@ -1,0 +1,30 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as Stories from "./InlineBadge.stories"
+
+<Meta of={Stories} />
+
+# InlineBadge
+
+Outlined mono-text pill for classification and category labels on cards. Uses teal accent color with light/dark surface adaptation.
+
+## Import
+
+```tsx
+import { InlineBadge } from "@/components/InlineBadge"
+```
+
+## Usage
+
+```tsx
+<InlineBadge>API Agent</InlineBadge>
+```
+
+## Examples
+
+<Canvas of={Stories.Multiple} />
+<Canvas of={Stories.Categories} />
+
+## Playground
+
+<Canvas of={Stories.Default} />
+<Controls of={Stories.Default} />

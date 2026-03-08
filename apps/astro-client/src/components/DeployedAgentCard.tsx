@@ -1,24 +1,11 @@
 import { Link } from "react-router";
 import { EllipsisVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Badge, type BadgeVariant } from "@/components/Badge";
+import { StatusIndicator } from "@/components/StatusIndicator";
 import { AgentIdentity } from "@/components/AgentIdentity";
+import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "error";
-
-const statusToBadgeVariant: Record<DeployedAgentStatus, BadgeVariant> = {
-  active: "active",
-  inactive: "inactive",
-  pending: "pending",
-  error: "error",
-};
-
-const statusLabels: Record<DeployedAgentStatus, string> = {
-  active: "Active",
-  inactive: "Inactive",
-  pending: "Pending",
-  error: "Error",
-};
 
 export interface DeployedAgentCardProps {
   name: string;
@@ -100,9 +87,9 @@ export function DeployedAgentCard({
           <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
             {displayName || name}
           </p>
-          <Badge variant={statusToBadgeVariant[status]} showDot>
-            {statusLabels[status]}
-          </Badge>
+          <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
+            {deploymentStatusLabel[status]}
+          </StatusIndicator>
         </div>
       </div>
 

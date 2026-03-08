@@ -1,5 +1,20 @@
 import type { AgentDeployment } from "./api";
 import type { DeployedAgentStatus } from "../components/DeployedAgentCard";
+import type { StatusIndicatorVariant } from "../components/StatusIndicator";
+
+export const deploymentStatusVariant: Record<DeployedAgentStatus, StatusIndicatorVariant> = {
+  active: "success",
+  inactive: "muted",
+  pending: "pending",
+  error: "error",
+};
+
+export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
+  active: "Live",
+  inactive: "Inactive",
+  pending: "Deploying",
+  error: "Error",
+};
 
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
   if (deployment.status === "error" || (deployment.ready === 0 && deployment.replicas > 0)) {
