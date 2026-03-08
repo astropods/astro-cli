@@ -14,8 +14,8 @@ export function FilterInput({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded border border-border bg-background px-3 py-1.5",
-        "focus-within:border-teal-700 focus-within:ring-[2px] focus-within:ring-teal-700 focus-within:ring-offset-2",
+        "flex h-11 items-center gap-2 rounded-sm border border-border bg-[var(--input-background)] px-3.5 has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50",
+        "focus-within:border-teal-600 focus-within:ring-[3px] focus-within:ring-[var(--input-focus-ring)] dark:focus-within:border-teal-400",
         containerClassName
       )}
     >
@@ -23,7 +23,7 @@ export function FilterInput({
       <input
         type="text"
         className={cn(
-          "w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none",
+          "w-full bg-transparent text-body text-foreground placeholder:text-muted-foreground outline-none",
           className
         )}
         {...props}
