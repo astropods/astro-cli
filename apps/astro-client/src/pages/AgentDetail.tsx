@@ -170,14 +170,12 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 2)
-      .map(({ agent: a, integrations, categories }) => ({
+      .map(({ agent: a, integrations }) => ({
         slug: `${a.account}/${a.name}`,
         account: a.account,
         name: a.name,
         description: getAgentDescription(a),
         integrations,
-        categories,
-        ownerPictureUrl: accountsMap[a.account]?.owner?.profile_picture_url,
       }));
   })();
 

@@ -9,23 +9,11 @@ import { CategorySidebar } from "@/components/browse/CategorySidebar";
 import { useAgents } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { getAgentCategories, getAgentDescription } from "@/lib/agent-utils";
-import type { AccountPublic } from "@/lib/api";
-
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const agentsData = await api.listAgents().catch(() => ({ agents: [], count: 0 }));
 
-  // Batch-fetch all unique accounts in parallel to get owner profile pictures
-  const uniqueAccounts = [...new Set(agentsData.agents.map((a) => a.account))];
-  const accountResults = await Promise.all(
-    uniqueAccounts.map((name) => api.getAccount(name).catch(() => null)),
-  );
-  const accountsMap: Record<string, AccountPublic> = {};
-  for (const acc of accountResults) {
-    if (acc) accountsMap[acc.name] = acc;
-  }
-
-  return { agentsData, accountsMap };
+  return { agentsData };
 }
 
 export const meta: Route.MetaFunction = () => [
@@ -42,8 +30,6 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
     initialData: loaderData?.agentsData,
   });
   const agents = data?.agents ?? [];
-  const accountsMap = loaderData?.accountsMap ?? {};
-
   const categories = useMemo(() => {
     const tagSet = new Set<string>(["Developer Tools", "Getting Started", "Security", "Starter"]);
     for (const agent of agents) {
@@ -113,8 +99,6 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
                 account={agent.account}
                 name={agent.name}
                 description={getAgentDescription(agent)}
-                categories={getAgentCategories(agent)}
-                ownerPictureUrl={accountsMap[agent.account]?.owner?.profile_picture_url}
               />
             ))}
           </div>

@@ -27,7 +27,6 @@ const sampleAgents = [
     name: "Ticket Scanner",
     description:
       "Surfaces actionable feedback from support tickets, reviews, and user conversations to guide product decisions.",
-    categories: ["Analytics", "Support"],
   },
   {
     slug: "sentiment-analyzer",
@@ -35,7 +34,6 @@ const sampleAgents = [
     name: "Sentiment Analyzer",
     description:
       "Monitors customer sentiment across channels and flags critical shifts in real time.",
-    categories: ["Analytics"],
   },
 ];
 

@@ -7,8 +7,6 @@ export interface AgentCardProps {
   account: string;
   name: string;
   description: string;
-  categories: string[];
-  ownerPictureUrl?: string;
 }
 
 export function AgentCard({
@@ -20,7 +18,7 @@ export function AgentCard({
   return (
     <Link
       to={`/${slug}`}
-      className="group flex flex-col overflow-hidden rounded-md border border-stone-400 bg-stone-50 shadow-none transition-all duration-200 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
+      className="group flex flex-col overflow-hidden rounded-md border border-stone-400 bg-stone-50 transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
     >
       <div className="flex flex-1 items-start gap-3 p-4 pb-3">
         <AgentIdentity
