@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/InstallAgent";
-import { Loader2, Rocket } from "lucide-react";
+import { ArrowLeft, Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAgent } from "@/api/queries";
@@ -12,7 +12,6 @@ import { InterfacesPicker } from "@/components/deploy/InterfacesPicker";
 import { VariableFields } from "@/components/deploy/VariableFields";
 import { FormSection } from "@/components/deploy/FormSection";
 import { ErrorPanel } from "@/components/deploy/ErrorPanel";
-import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { AgentIdentity } from "@/components/AgentIdentity";
 
 // --- Loader & Meta ---
@@ -60,7 +59,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
   if (isError || !agent) {
     return (
-      <div className="flex flex-col flex-1 bg-white">
+      <div className="flex flex-col flex-1 bg-surface">
         <div className="flex flex-col items-center justify-center py-16 px-6">
           <h1 className="text-xl font-semibold mb-3">Agent not found</h1>
           <p className="text-stone-500 text-sm mb-4">
@@ -87,37 +86,34 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
   return (
     <ProtectedRoute>
-      <div className="flex flex-col flex-1 bg-white">
-        <PageBreadcrumb
-          items={[
-            { label: "Browse Agents", to: "/browse" },
-            {
-              label: (
-                <>
-                  {agent.account} <span className="text-stone-400">/</span> {agent.name}
-                </>
-              ),
-              to: `/${agent.account}/${agent.name}`,
-            },
-            { label: "Install" },
-          ]}
-        />
-
-        <div className="flex-1 overflow-y-auto">
-        <form onSubmit={handleSubmit} className="w-full max-w-3xl mx-auto px-6 pt-8 pb-12 md:px-8 md:pt-10">
-          {/* Header */}
-          <div className="flex items-start gap-4 mb-8">
-            <AgentIdentity account={agent.account} name={agent.name} size={48} className="size-12 shrink-0 rounded-sm overflow-hidden mt-[5px]" />
+      <div className="flex flex-col flex-1 bg-surface">
+        <header className="sticky top-0 z-10 flex items-center justify-between px-6 min-h-[52px] bg-stone-200 border-b border-stone-300 dark:bg-background dark:border-border">
+          <div className="flex items-center gap-3">
+            <Link
+              to={`/${agent.account}/${agent.name}`}
+              className="flex items-center justify-center p-1 text-[var(--ink-faint)] hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+            <AgentIdentity
+              account={agent.account}
+              name={agent.name}
+              size={32}
+              className="size-8 shrink-0 rounded-sm overflow-hidden"
+            />
             <div>
-              <h1 className="text-heading-1 font-bold mb-1">
-                Install <span className="text-muted-foreground font-normal">{agent.account}/</span>{agent.name}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Configure and launch this agent
-              </p>
+              <div className="text-sm font-bold text-primary">
+                Install {agent.name}
+              </div>
+              <div className="font-mono text-[10px] text-[var(--ink-faint)]">
+                {agent.account}/{agent.name}
+              </div>
             </div>
           </div>
+        </header>
 
+        <div className="flex-1 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto px-6 pt-10 pb-20 md:px-8">
           {form.templateErrorMessage && (
             <div className="mb-8">
               <ErrorPanel>{form.templateErrorMessage}</ErrorPanel>
@@ -125,31 +121,36 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
           )}
 
           {form.template && (
-            <div className="space-y-8">
-              {/* Agent name */}
-              <FormSection title="Agent Name" description="What would you like to call your agent?">
-                <Input
-                  value={form.deployName}
-                  onChange={(e) => form.setDeployName(e.target.value)}
-                  placeholder="My Agent"
-                  maxLength={64}
-                  aria-invalid={!!form.errors.deployName}
-                />
-                {form.errors.deployName && (
-                  <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
-                )}
-              </FormSection>
+            <div className="space-y-12">
+              {/* Agent name & account */}
+              <FormSection title="General" description="Choose what to call your agent and where to install it.">
+                <div className="space-y-5">
+                  <div>
+                    <label className="text-[13px] font-semibold text-foreground mb-1 block">Agent Name</label>
+                    <Input
+                      value={form.deployName}
+                      onChange={(e) => form.setDeployName(e.target.value)}
+                      placeholder="My Agent"
+                      maxLength={64}
+                      aria-invalid={!!form.errors.deployName}
+                    />
+                    {form.errors.deployName && (
+                      <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
+                    )}
+                  </div>
 
-              {/* Account picker */}
-              {form.accounts.length > 1 && (
-                <FormSection title="Install to" description="Choose which account to install this agent under.">
-                  <AccountPicker
-                    accounts={form.accounts}
-                    selected={form.targetAccount}
-                    onChange={form.setTargetAccount}
-                  />
-                </FormSection>
-              )}
+                  {form.accounts.length > 1 && (
+                    <div>
+                      <label className="text-[13px] font-semibold text-foreground mb-1 block">Install to</label>
+                      <AccountPicker
+                        accounts={form.accounts}
+                        selected={form.targetAccount}
+                        onChange={form.setTargetAccount}
+                      />
+                    </div>
+                  )}
+                </div>
+              </FormSection>
 
               {/* Interfaces */}
               <FormSection title="Messaging" description="Choose how you want to interact with the agent.">
@@ -198,15 +199,16 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                 <Button
                   type="button"
                   variant="ghost"
-                  size="lg"
+                  size="default"
                   asChild
                 >
                   <Link to={`/${agent.account}/${agent.name}`}>Cancel</Link>
                 </Button>
                 <Button
                   type="submit"
-                  size="lg"
+                  size="default"
                   disabled={form.isDeploying}
+                  className="px-6 has-[>svg]:px-6"
                 >
                   {form.isDeploying ? (
                     <>

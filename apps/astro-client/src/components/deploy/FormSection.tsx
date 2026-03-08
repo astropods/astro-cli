@@ -9,10 +9,11 @@ export interface FormSectionProps {
 export function FormSection({ title, description, children }: FormSectionProps) {
   return (
     <section>
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
+      <div className="mb-1.5">
+        <h2 className="text-base font-bold text-primary">{title}</h2>
+        <p className="text-[13px] text-[var(--ink-faint)] mt-0.5">{description}</p>
       </div>
+      <hr className="border-border-strong mb-5 mt-4" />
       {children}
     </section>
   );

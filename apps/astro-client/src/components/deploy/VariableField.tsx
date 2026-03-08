@@ -52,7 +52,6 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger
           id={fieldKey}
-          className="bg-white"
           aria-invalid={hasError || undefined}
         >
           <SelectValue placeholder={meta.placeholder || "Select an option"} />
@@ -76,7 +75,6 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-        className="bg-white"
         autoComplete="off"
         spellCheck={false}
         aria-invalid={hasError || undefined}
@@ -112,7 +110,6 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-        className="bg-white"
         autoComplete="off"
         aria-invalid={hasError || undefined}
       />
@@ -130,7 +127,6 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="bg-white"
         autoComplete="off"
         spellCheck={false}
         aria-invalid={hasError || undefined}
@@ -151,7 +147,6 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-      className="bg-white"
       autoComplete="off"
       spellCheck={false}
       aria-invalid={hasError || undefined}
@@ -170,7 +165,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError }: VariableFiel
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-        className="bg-white pr-9"
+        className="pr-9"
         autoComplete="off"
         spellCheck={false}
         aria-invalid={hasError || undefined}
