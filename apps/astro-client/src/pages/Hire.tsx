@@ -8,7 +8,7 @@ import { useAgents } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { getAgentCategories, getAgentDescription } from "@/lib/agent-utils";
 
-const CATEGORIES = ["All", "Development", "Data", "Marketing", "Sales", "Support"] as const;
+const CATEGORIES = ["All", "Development", "Data", "Marketing", "Sales", "Support"];
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const agentsData = await api.listAgents().catch(() => ({ agents: [], count: 0 }));
