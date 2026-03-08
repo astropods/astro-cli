@@ -41,7 +41,8 @@ const proseClasses = [
 const remarkPlugins = [remarkGfm];
 
 const markdownComponents = {
-  input: ({ node: _, ...props }: React.ComponentPropsWithoutRef<"input"> & { node?: unknown }) => (
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  input: ({ node, ...props }: React.ComponentPropsWithoutRef<"input"> & { node?: unknown }) => (
     <input {...props} readOnly />
   ),
 };
