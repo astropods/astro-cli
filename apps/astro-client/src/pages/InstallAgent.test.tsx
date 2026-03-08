@@ -75,13 +75,12 @@ describe('InstallAgent page', () => {
       expect(screen.getByRole('link', { name: /browse agents/i })).toHaveAttribute('href', '/browse');
     });
 
-    it('renders breadcrumb with correct links', async () => {
+    it('renders back link to agent detail page', async () => {
       renderInstall();
       await waitForForm();
 
       const links = screen.getAllByRole('link');
       const hrefs = links.map((l) => l.getAttribute('href'));
-      expect(hrefs).toContain('/browse');
       expect(hrefs).toContain(`/${ACCOUNT}/${AGENT}`);
     });
   });

@@ -102,9 +102,9 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
               className="size-8 shrink-0 rounded-sm overflow-hidden"
             />
             <div>
-              <div className="text-sm font-bold text-primary">
+              <h1 className="text-sm font-bold text-primary">
                 Install {agent.name}
-              </div>
+              </h1>
               <div className="font-mono text-[10px] text-ink-faint">
                 {agent.account}/{agent.name}
               </div>
