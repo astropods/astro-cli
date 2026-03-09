@@ -19,6 +19,7 @@ const eventsBatchSize = 100
 // EventsConsumer polls the WorkOS Events API and processes membership events.
 type EventsConsumer struct {
 	eventsClient *events.Client
+	orgClient    *Client
 	accountStore *account.AccountStore
 	db           *sql.DB
 	log          *logger.Logger
@@ -26,9 +27,10 @@ type EventsConsumer struct {
 }
 
 // NewEventsConsumer creates a new events consumer.
-func NewEventsConsumer(apiKey string, accountStore *account.AccountStore, db *sql.DB, log *logger.Logger, interval time.Duration) *EventsConsumer {
+func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, db *sql.DB, log *logger.Logger, interval time.Duration) *EventsConsumer {
 	return &EventsConsumer{
 		eventsClient: &events.Client{APIKey: apiKey},
+		orgClient:    orgClient,
 		accountStore: accountStore,
 		db:           db,
 		log:          log,
@@ -145,12 +147,12 @@ type userEventData struct {
 	ID string `json:"id"`
 }
 
-func (ec *EventsConsumer) processEvent(_ context.Context, event events.Event) error {
+func (ec *EventsConsumer) processEvent(ctx context.Context, event events.Event) error {
 	switch {
 	case strings.HasPrefix(event.Event, "organization_membership."):
 		return ec.processMembershipEvent(event)
 	case strings.HasPrefix(event.Event, "organization."):
-		return ec.processOrganizationEvent(event)
+		return ec.processOrganizationEvent(ctx, event)
 	case strings.HasPrefix(event.Event, "user."):
 		return ec.processUserEvent(event)
 	}
@@ -198,7 +200,7 @@ func (ec *EventsConsumer) processMembershipEvent(event events.Event) error {
 	return nil
 }
 
-func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
+func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event events.Event) error {
 	var data organizationEventData
 	if err := json.Unmarshal(event.Data, &data); err != nil {
 		return fmt.Errorf("unmarshal organization event data: %w", err)
@@ -237,6 +239,14 @@ func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
 			_ = ec.accountStore.DeleteByID(acct.ID)
 			return fmt.Errorf("link external org: %w", err)
 		}
+		// Set external_id on the WorkOS org so the bidirectional link is complete
+		if ec.orgClient != nil {
+			if err := ec.orgClient.UpdateOrganizationExternalID(ctx, data.ID, acct.ID); err != nil {
+				ec.log.Warn("Failed to set external_id on WorkOS organization",
+					"workos_org_id", data.ID, "account_id", acct.ID, "error", err)
+			}
+		}
+
 		ec.log.Info("Created account for external WorkOS organization",
 			"account_id", acct.ID, "workos_org_id", data.ID, "name", data.Name)
 

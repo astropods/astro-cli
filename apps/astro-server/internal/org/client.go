@@ -59,6 +59,18 @@ func (c *Client) DeleteOrganization(ctx context.Context, workosOrgID string) err
 	return nil
 }
 
+// UpdateOrganizationExternalID sets the external_id on a WorkOS organization.
+func (c *Client) UpdateOrganizationExternalID(ctx context.Context, workosOrgID, externalID string) error {
+	_, err := c.orgs.UpdateOrganization(ctx, organizations.UpdateOrganizationOpts{
+		Organization: workosOrgID,
+		ExternalID:   externalID,
+	})
+	if err != nil {
+		return fmt.Errorf("workos: update organization external_id: %w", err)
+	}
+	return nil
+}
+
 // --- Memberships ---
 
 // CreateMembership creates a WorkOS organization membership.

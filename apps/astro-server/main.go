@@ -336,7 +336,7 @@ func runWorker(
 	log.Info("Namespace scanner started")
 
 	if cfg.Auth.WorkOSAPIKey != "" {
-		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, accountStore, db, log, 30*time.Second)
+		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, org.NewClient(cfg.Auth.WorkOSAPIKey), accountStore, db, log, 30*time.Second)
 		go consumer.Start(workerCtx)
 		log.Info("WorkOS events consumer started")
 	} else {

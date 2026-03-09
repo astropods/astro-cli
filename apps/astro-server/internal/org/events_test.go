@@ -22,6 +22,7 @@ func newTestConsumer(t *testing.T) (*EventsConsumer, sqlmock.Sqlmock) {
 	store := account.NewAccountStore(db)
 	ec := &EventsConsumer{
 		accountStore: store,
+		orgClient:    nil, // no WorkOS calls in unit tests
 		db:           db,
 		log:          log,
 	}
