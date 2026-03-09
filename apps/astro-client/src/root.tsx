@@ -48,14 +48,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
 // OnboardingGuard redirects are client-only (<Navigate> doesn't produce HTTP
 // redirects during SSR). This is safe because useAuth().isLoading is always
 // true on the server, so the guard short-circuits and never renders <Navigate>.
+const WAITLIST_URL = "https://blog.astropods.ai/waitlist";
+const isProduction = typeof window !== "undefined" && window.location.hostname === "astropods.ai";
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, login } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      if (location.pathname === "/") {
-        window.location.href = "https://blog.astropods.ai/waitlist";
+      if (isProduction && location.pathname === "/") {
+        window.location.href = WAITLIST_URL;
       } else {
         login();
       }
