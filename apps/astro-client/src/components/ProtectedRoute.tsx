@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { Navigate } from "react-router";
 import { useAuth } from "../lib/auth";
 
 interface ProtectedRouteProps {
@@ -8,10 +9,11 @@ interface ProtectedRouteProps {
 /**
  * ProtectedRoute component that requires authentication.
  * Automatically redirects to login if user is not authenticated.
+ * Redirects to onboarding if user has no personal account.
  * Renders nothing while checking authentication.
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isLoading, isAuthenticated, login, personalAccount, accounts } = useAuth();
+  const { isLoading, isAuthenticated, login, personalAccount } = useAuth();
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -25,17 +27,9 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return null;
   }
 
-  // Every authenticated user must have a personal account to use the app
-  if (accounts.length > 0 && !personalAccount) {
-    return (
-      <div className="flex flex-col items-center justify-center flex-1 px-6 py-16">
-        <h1 className="text-xl font-semibold mb-3">Account error</h1>
-        <p className="text-stone-500 text-sm text-center max-w-md">
-          No personal account found. This is an unexpected state &mdash; please
-          contact support.
-        </p>
-      </div>
-    );
+  // User needs to claim their username before using the app
+  if (!personalAccount) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return <>{children}</>;

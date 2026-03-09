@@ -29,7 +29,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: true,
       error: null,
       accounts,
-      needsOnboarding: accounts.length === 0,
+      needsOnboarding: !accounts.some((a) => a.type === 'personal'),
       refreshVersion: prev.refreshVersion + 1,
     }));
   }, []);
