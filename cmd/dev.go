@@ -3,18 +3,23 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -795,10 +800,22 @@ func hasOllamaModels(s *spec.AstroSpec) bool {
 	return false
 }
 
+const ollamaBaseURL = "http://localhost:11434"
+
 // checkNativeOllama verifies that Ollama is installed and the server is reachable.
 // Returns a user-friendly error with install/start instructions on failure.
 func checkNativeOllama() error {
-	if _, err := exec.LookPath("ollama"); err != nil {
+	// Try the API first — if it responds, Ollama is running regardless of binary location
+	resp, err := http.Get(ollamaBaseURL + "/api/tags") //nolint:gosec,noctx
+	if err == nil {
+		resp.Body.Close() //nolint:errcheck
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+	}
+
+	// API not reachable — check if the binary is installed to give the right error
+	if _, lookErr := exec.LookPath("ollama"); lookErr != nil {
 		red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 		dim := lipgloss.NewStyle().Faint(true)
 		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
@@ -823,65 +840,228 @@ func checkNativeOllama() error {
 		return fmt.Errorf("%s", msg)
 	}
 
-	// Ollama is installed but the server may not be running
-	cmd := exec.Command("ollama", "list")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-		dim := lipgloss.NewStyle().Faint(true)
-		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	// Binary exists but server isn't responding
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
-		msg := red.Render("Ollama is not running") + "\n" +
-			dim.Render("Ollama is installed but the server isn't responding.") + "\n\n"
-		switch runtime.GOOS {
-		case "darwin":
-			msg += hint.Render("  Start in foreground:") + "\n" +
-				"    ollama serve\n\n" +
-				hint.Render("  Or as a background service:") + "\n" +
-				"    brew services start ollama"
-		case "linux":
-			msg += hint.Render("  Start with:") + "\n" +
-				"    ollama serve\n\n" +
-				hint.Render("  Or as a systemd service:") + "\n" +
-				"    sudo systemctl start ollama"
-		default:
-			msg += hint.Render("  Start with:") + "\n" +
-				"    ollama serve"
+	msg := red.Render("Ollama is not running") + "\n" +
+		dim.Render("Ollama is installed but the server isn't responding.") + "\n\n"
+	switch runtime.GOOS {
+	case "darwin":
+		msg += hint.Render("  Start in foreground:") + "\n" +
+			"    ollama serve\n\n" +
+			hint.Render("  Or as a background service:") + "\n" +
+			"    brew services start ollama"
+	case "linux":
+		msg += hint.Render("  Start with:") + "\n" +
+			"    ollama serve\n\n" +
+			hint.Render("  Or as a systemd service:") + "\n" +
+			"    sudo systemctl start ollama"
+	default:
+		msg += hint.Render("  Start with:") + "\n" +
+			"    ollama serve"
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+// ollamaLocalModels returns the set of model names available locally via the Ollama API.
+func ollamaLocalModels() map[string]bool {
+	resp, err := http.Get(ollamaBaseURL + "/api/tags") //nolint:gosec,noctx
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	var result struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+	models := make(map[string]bool, len(result.Models))
+	for _, m := range result.Models {
+		models[m.Name] = true
+		// Also index without :latest so "llama3.2:1b" matches "llama3.2:1b:latest"
+		if strings.HasSuffix(m.Name, ":latest") {
+			models[strings.TrimSuffix(m.Name, ":latest")] = true
 		}
-		return fmt.Errorf("%s", msg)
+	}
+	return models
+}
+
+// ollamaPullModel pulls a model using the Ollama API with streaming progress.
+func ollamaPullModel(name string) error {
+	body, err := json.Marshal(map[string]any{"name": name, "stream": true})
+	if err != nil {
+		return err
+	}
+	resp, err := http.Post(ollamaBaseURL+"/api/pull", "application/json", bytes.NewReader(body)) //nolint:gosec,noctx
+	if err != nil {
+		return fmt.Errorf("failed to connect to Ollama: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ollama pull failed (%d): %s", resp.StatusCode, string(respBody))
 	}
 
+	// Stream pull progress
+	decoder := json.NewDecoder(resp.Body)
+	var lastStatus string
+	for decoder.More() {
+		var event struct {
+			Status    string `json:"status"`
+			Total     int64  `json:"total"`
+			Completed int64  `json:"completed"`
+			Error     string `json:"error"`
+		}
+		if err := decoder.Decode(&event); err != nil {
+			break
+		}
+		if event.Error != "" {
+			return fmt.Errorf("%s", event.Error)
+		}
+		if event.Total > 0 && event.Completed > 0 {
+			pct := float64(event.Completed) / float64(event.Total) * 100
+			fmt.Printf("\r   %s %.0f%%", event.Status, pct)
+		} else if event.Status != lastStatus {
+			if lastStatus != "" {
+				fmt.Println()
+			}
+			fmt.Printf("   %s", event.Status)
+			lastStatus = event.Status
+		}
+	}
+	fmt.Println()
 	return nil
 }
 
 // ensureOllamaModels pulls all required Ollama models on the host if not already present.
+// Before pulling, it checks if the model's estimated size fits the system's available RAM.
 func ensureOllamaModels(s *spec.AstroSpec, verbose bool) error {
+	systemRAM := getSystemRAMBytes()
+	localModels := ollamaLocalModels()
+
 	for _, model := range s.Models {
 		if model.Provider != "ollama" {
 			continue
 		}
 		for _, m := range model.ResolvedModels() {
-			// Check if model is already pulled
-			out, err := exec.Command("ollama", "list").Output() //nolint:gosec
-			if err == nil && strings.Contains(string(out), m) {
+			if localModels[m] {
 				fmt.Printf("%s→%s Model %s already available\n", colorCyan, colorReset, m)
 				continue
 			}
-			fmt.Printf("%s→%s Pulling model %s...\n", colorCyan, colorReset, m)
-			pullCmd := exec.Command("ollama", "pull", m) //nolint:gosec
-			if verbose {
-				pullCmd.Stdout = os.Stdout
-				pullCmd.Stderr = os.Stderr
-			} else {
-				pullCmd.Stdout = io.Discard
-				pullCmd.Stderr = os.Stderr // show errors even in non-verbose
+
+			// Warn if the model is likely too large for this system
+			if systemRAM > 0 {
+				if err := warnIfModelTooLarge(m, systemRAM); err != nil {
+					return err
+				}
 			}
-			if err := pullCmd.Run(); err != nil {
+
+			fmt.Printf("%s→%s Pulling model %s...\n", colorCyan, colorReset, m)
+			if err := ollamaPullModel(m); err != nil {
 				return fmt.Errorf("failed to pull model %s: %w", m, err)
 			}
 			fmt.Printf("%s→%s Model %s ready\n", colorCyan, colorReset, m)
 		}
 	}
 	return nil
+}
+
+// paramSizeRegex extracts the parameter count from a model tag like "llama3.3:70b" or "mistral:7b".
+var paramSizeRegex = regexp.MustCompile(`(\d+(?:\.\d+)?)b`)
+
+// estimateModelRAM returns the approximate RAM (in bytes) a model needs based on its parameter count.
+// Rule of thumb: ~0.5–0.6 bytes per parameter for Q4 quantized models (Ollama default).
+// We use 0.6 as a conservative estimate, plus ~1GB overhead for KV cache and runtime.
+func estimateModelRAM(modelName string) uint64 {
+	// Extract parameter count from model name/tag (e.g. "70b" from "llama3.3:70b")
+	parts := strings.Split(modelName, ":")
+	searchStr := modelName
+	if len(parts) > 1 {
+		searchStr = parts[1] // search the tag portion
+	}
+	matches := paramSizeRegex.FindStringSubmatch(searchStr)
+	if len(matches) < 2 {
+		// Also try the model name portion for patterns like "orca-mini:3b"
+		matches = paramSizeRegex.FindStringSubmatch(parts[0])
+	}
+	if len(matches) < 2 {
+		return 0 // can't estimate
+	}
+	params, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0
+	}
+	// 0.6 bytes per param (Q4 quant) + 1GB overhead
+	return uint64(params*0.6*1e9) + 1<<30
+}
+
+// warnIfModelTooLarge checks estimated model RAM against system RAM and prompts the user.
+func warnIfModelTooLarge(modelName string, systemRAM uint64) error {
+	estimated := estimateModelRAM(modelName)
+	if estimated == 0 || estimated <= systemRAM {
+		return nil
+	}
+
+	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+
+	fmt.Println()
+	fmt.Println(yellow.Render(fmt.Sprintf("  Warning: %s requires ~%dGB RAM but this system has %dGB",
+		modelName, estimated>>30, systemRAM>>30)))
+	fmt.Println(dim.Render("  The model may run very slowly or fail to load."))
+	fmt.Println()
+
+	var confirm bool
+	if err := huh.NewConfirm().
+		Title("Continue pulling this model?").
+		Affirmative("Yes, pull anyway").
+		Negative("No, abort").
+		Value(&confirm).
+		Run(); err != nil {
+		return fmt.Errorf("aborted")
+	}
+	if !confirm {
+		return fmt.Errorf("aborted: model %s is too large for this system", modelName)
+	}
+	return nil
+}
+
+// getSystemRAMBytes returns total physical RAM in bytes, or 0 if unknown.
+func getSystemRAMBytes() uint64 {
+	switch runtime.GOOS {
+	case "darwin":
+		out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+		if err != nil {
+			return 0
+		}
+		val, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+		if err != nil {
+			return 0
+		}
+		return val
+	case "linux":
+		out, err := os.ReadFile("/proc/meminfo")
+		if err != nil {
+			return 0
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(line, "MemTotal:") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					kb, err := strconv.ParseUint(fields[1], 10, 64)
+					if err == nil {
+						return kb * 1024
+					}
+				}
+			}
+		}
+		return 0
+	default:
+		return 0
+	}
 }
