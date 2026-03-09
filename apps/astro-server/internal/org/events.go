@@ -102,6 +102,7 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 					"event_type", event.Event,
 					"error", err,
 				)
+				ec.recordEventError(ctx, event, err)
 				// Persist cursor up to the last successfully processed event.
 				// The failed event will be retried on the next poll cycle.
 				if cursor != "" {
@@ -111,6 +112,7 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 				}
 				return
 			}
+			ec.clearEventError(ctx, event.ID)
 			cursor = event.ID
 		}
 
@@ -373,4 +375,30 @@ func (ec *EventsConsumer) setCursor(ctx context.Context, cursor string) error {
 		return fmt.Errorf("failed to write cursor: %w", err)
 	}
 	return nil
+}
+
+func (ec *EventsConsumer) recordEventError(ctx context.Context, event events.Event, processErr error) {
+	_, err := ec.db.ExecContext(ctx,
+		`INSERT INTO workos_event_errors (event_id, event_type, event_data, error, attempts, first_failed_at, last_failed_at)
+		 VALUES ($1, $2, $3, $4, 1, now(), now())
+		 ON CONFLICT (event_id) DO UPDATE SET
+			error = $4,
+			attempts = workos_event_errors.attempts + 1,
+			last_failed_at = now()`,
+		event.ID, event.Event, string(event.Data), processErr.Error(),
+	)
+	if err != nil {
+		ec.log.Error("Failed to record event error",
+			"event_id", event.ID, "error", err)
+	}
+}
+
+func (ec *EventsConsumer) clearEventError(ctx context.Context, eventID string) {
+	_, err := ec.db.ExecContext(ctx,
+		`DELETE FROM workos_event_errors WHERE event_id = $1`, eventID,
+	)
+	if err != nil {
+		ec.log.Error("Failed to clear event error",
+			"event_id", eventID, "error", err)
+	}
 }

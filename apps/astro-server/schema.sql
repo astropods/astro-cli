@@ -79,6 +79,17 @@ CREATE TABLE public.workos_event_cursor (
     CONSTRAINT workos_event_cursor_singleton CHECK (id = 1)
 );
 
+CREATE TABLE public.workos_event_errors (
+    event_id text NOT NULL,
+    event_type text NOT NULL,
+    event_data text NOT NULL DEFAULT '',
+    error text NOT NULL,
+    attempts integer NOT NULL DEFAULT 1,
+    first_failed_at timestamp NOT NULL DEFAULT now(),
+    last_failed_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT workos_event_errors_pkey PRIMARY KEY (event_id)
+);
+
 CREATE TABLE public.deployments (
     id varchar(11) NOT NULL,
     account_id uuid NOT NULL,
