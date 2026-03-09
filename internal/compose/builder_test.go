@@ -410,6 +410,80 @@ func TestBuildProject_IngestionWebhookDefaultPort(t *testing.T) {
 	}
 }
 
+func TestBuildProject_FrontendInterface(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name: "my-agent",
+		Agent: spec.Container{
+			Image:      "agent:latest",
+			Interfaces: &spec.Interfaces{Frontend: true},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if len(agent.Ports) != 1 {
+		t.Fatalf("agent ports = %d, want 1", len(agent.Ports))
+	}
+	if agent.Ports[0].Target != 80 {
+		t.Errorf("port target = %d, want 80 (default)", agent.Ports[0].Target)
+	}
+	if agent.Ports[0].Published != "3200" {
+		t.Errorf("port published = %q, want 3200", agent.Ports[0].Published)
+	}
+}
+
+func TestBuildProject_FrontendInterfaceCustomPort(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name: "my-agent",
+		Agent: spec.Container{
+			Image:      "agent:latest",
+			Interfaces: &spec.Interfaces{Frontend: true},
+		},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Frontend: &spec.DevFrontend{Port: 3000},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if len(agent.Ports) != 1 {
+		t.Fatalf("agent ports = %d, want 1", len(agent.Ports))
+	}
+	if agent.Ports[0].Target != 3000 {
+		t.Errorf("port target = %d, want 3000 (custom)", agent.Ports[0].Target)
+	}
+}
+
+func TestBuildProject_NoFrontendNoPorts(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name: "my-agent",
+		Agent: spec.Container{
+			Image:      "agent:latest",
+			Interfaces: &spec.Interfaces{Messaging: true},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	agent := project.Services["agent"]
+	if len(agent.Ports) != 0 {
+		t.Errorf("agent should have no ports when frontend is not enabled, got %d", len(agent.Ports))
+	}
+}
+
 func TestBuildProject_CustomProviderPrefixedKeys(t *testing.T) {
 	// When ast configure stores keys as CLOUDFLARE_AI_API_KEY (prefix + var name),
 	// buildEnvironment must find them and inject both prefixed and bare forms.

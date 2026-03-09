@@ -574,7 +574,17 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 	agentService.DependsOn = dependsOn
 
-	// Ports for interfaces — no longer configured via spec; agent exposes 8080 by default
+	// If the agent serves its own frontend, publish the configured dev port (default 80).
+	if s.Agent.HasFrontend() {
+		targetPort := 80
+		if s.Dev != nil && s.Dev.Interfaces != nil && s.Dev.Interfaces.Frontend != nil && s.Dev.Interfaces.Frontend.Port != 0 {
+			targetPort = s.Dev.Interfaces.Frontend.Port
+		}
+		agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
+			Target:    uint32(targetPort),
+			Published: "3200",
+		})
+	}
 
 	// When using native Ollama, the agent container must resolve host.docker.internal
 	// to reach the host's Ollama server.

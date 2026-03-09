@@ -730,6 +730,11 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	lines = append(lines, "✨ "+bold.Render(s.Name)+" is ready")
 	lines = append(lines, "")
 
+	if s.Agent.HasFrontend() {
+		port := 3200
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(fmt.Sprintf("http://localhost:%d", port))+"  "+dim.Render("(frontend)"))
+	}
+
 	if hasWebInterface {
 		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3000"))
 		lines = append(lines, dim.Render("   http://localhost:3100  (API)"))
