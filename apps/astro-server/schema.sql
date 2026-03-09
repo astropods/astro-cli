@@ -74,6 +74,8 @@ CREATE INDEX idx_versions_agent ON public.agent_versions(account_id, name);
 CREATE TABLE public.workos_event_cursor (
     id integer NOT NULL DEFAULT 1,
     cursor_id text NOT NULL DEFAULT '',
+    stuck_event_id text,
+    stuck_since timestamp,
     updated_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT workos_event_cursor_pkey PRIMARY KEY (id),
     CONSTRAINT workos_event_cursor_singleton CHECK (id = 1)

@@ -103,6 +103,7 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 					"error", err,
 				)
 				ec.recordEventError(ctx, event, err)
+				ec.setStuck(ctx, event.ID)
 				// Persist cursor up to the last successfully processed event.
 				// The failed event will be retried on the next poll cycle.
 				if cursor != "" {
@@ -115,6 +116,8 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 			ec.clearEventError(ctx, event.ID)
 			cursor = event.ID
 		}
+
+		ec.clearStuck(ctx)
 
 		// Persist cursor after processing batch
 		if err := ec.setCursor(ctx, cursor); err != nil {
@@ -375,6 +378,29 @@ func (ec *EventsConsumer) setCursor(ctx context.Context, cursor string) error {
 		return fmt.Errorf("failed to write cursor: %w", err)
 	}
 	return nil
+}
+
+func (ec *EventsConsumer) setStuck(ctx context.Context, eventID string) {
+	_, err := ec.db.ExecContext(ctx,
+		`UPDATE workos_event_cursor
+		 SET stuck_event_id = $1, stuck_since = COALESCE(stuck_since, now()), updated_at = now()
+		 WHERE id = 1`,
+		eventID,
+	)
+	if err != nil {
+		ec.log.Error("Failed to set stuck state", "event_id", eventID, "error", err)
+	}
+}
+
+func (ec *EventsConsumer) clearStuck(ctx context.Context) {
+	_, err := ec.db.ExecContext(ctx,
+		`UPDATE workos_event_cursor
+		 SET stuck_event_id = NULL, stuck_since = NULL, updated_at = now()
+		 WHERE id = 1 AND stuck_event_id IS NOT NULL`,
+	)
+	if err != nil {
+		ec.log.Error("Failed to clear stuck state", "error", err)
+	}
 }
 
 func (ec *EventsConsumer) recordEventError(ctx context.Context, event events.Event, processErr error) {
