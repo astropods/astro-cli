@@ -47,22 +47,20 @@ The create command generates a new agent project with the specified language:
 If no name is provided, you will be prompted for one interactively.
 
 Supported languages: ts (TypeScript/Bun)
-Supported templates: mastra (default)
-
-Example:
-  ast create
-  ast create my-agent
-  ast create my-agent --yes
-  ast create my-agent --template mastra
-  ast create my-agent --lang ts
-  ast create my-agent --path /path/to/projects
-  ast create my-agent --force`,
+Supported templates: mastra (default)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runCreate,
 }
 
 func init() {
 	rootCmd.AddCommand(createCmd)
+	createCmd.Example = fmt.Sprintf(`  %[1]s create
+  %[1]s create my-agent
+  %[1]s create my-agent --yes
+  %[1]s create my-agent --template mastra
+  %[1]s create my-agent --lang ts
+  %[1]s create my-agent --path /path/to/projects
+  %[1]s create my-agent --force`, binaryName)
 	createCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
 	createCmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
 	createCmd.Flags().StringVarP(&langFlag, "lang", "l", "ts", "Project language template (ts)")
@@ -170,12 +168,12 @@ func printSuccess(name, targetDir string, usedDefaults bool) {
 
 	addStep("cd "+targetDir, "enter the project directory")
 	if usedDefaults {
-		addStep("ast configure", "set your API keys")
+		addStep(binaryName+" configure", "set your API keys")
 	}
-	addStep("ast dev", "start your agent locally")
+	addStep(binaryName+" dev", "start your agent locally")
 
 	lines = append(lines, "")
-	lines = append(lines, dim.Render("Tip: run ")+cmd.Render("ast explain")+dim.Render(" for a plain-English breakdown of your spec."))
+	lines = append(lines, dim.Render("Tip: run ")+cmd.Render(binaryName+" explain")+dim.Render(" for a plain-English breakdown of your spec."))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

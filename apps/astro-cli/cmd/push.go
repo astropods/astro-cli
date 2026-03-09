@@ -55,13 +55,7 @@ This will:
 Images are pushed through the astro-registry service which proxies to ECR.
 The spec is registered with astro-server which validates and stores it.
 
-Example:
-  ast push
-  ast push --build
-
-Requirements:
-  - Must be authenticated (run 'ast login' first)
-  - Server and registry URLs come from your login profile (set via 'ast login')`,
+Requires authentication (run the login command first).`,
 	RunE: runPush,
 }
 
@@ -127,11 +121,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	if effectiveRegistryURL == "" {
-		return fmt.Errorf("registry URL required: run 'ast login' or use --registry")
+		return fmt.Errorf("registry URL required: run '%s login' or use --registry", binaryName)
 	}
 
 	if effectiveServerURL == "" && !skipRegister {
-		return fmt.Errorf("server URL required for registration: run 'ast login', use --server, or use --skip-register")
+		return fmt.Errorf("server URL required for registration: run '%s login', use --server, or use --skip-register", binaryName)
 	}
 
 	// Parse Astro spec
@@ -154,7 +148,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 	if !noAuth {
 		tokenManager := auth.NewTokenManager(binaryName)
 		if !tokenManager.IsAuthenticated() {
-			return fmt.Errorf("not authenticated. Run 'ast login' to authenticate")
+			return fmt.Errorf("not authenticated. Run '%s login' to authenticate", binaryName)
 		}
 	}
 
@@ -492,7 +486,7 @@ func getUserNamespace(verbose bool) (string, error) {
 	storage := auth.NewStorage(binaryName)
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run 'ast login' to authenticate")
+		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
 	}
 
 	// Try stored account name
@@ -502,7 +496,7 @@ func getUserNamespace(verbose bool) (string, error) {
 	}
 
 	if name == "" {
-		return "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run 'ast login' again")
+		return "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", binaryName)
 	}
 
 	if verbose {
@@ -601,7 +595,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	// Add authentication header if not skipped
 	if !skipAuth {
 		if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
-			return fmt.Errorf("failed to add authentication: %w. Run 'ast login' to re-authenticate", err)
+			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, binaryName)
 		}
 		if verbose {
 			authHeader := req.Header.Get("Authorization")
@@ -655,7 +649,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("authentication failed (401). Server response: %s\nRun 'ast login' to re-authenticate", string(body))
+		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), binaryName)
 	}
 
 	if resp.StatusCode != http.StatusCreated {

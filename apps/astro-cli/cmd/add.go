@@ -180,7 +180,7 @@ func runAddProvider(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Added provider '%s' to %s\n", name, specPath)
-	fmt.Printf("Use 'ast add model/knowledge/tool %s' to activate it in a domain.\n", name)
+	fmt.Printf("Use '%s add model/knowledge/tool %s' to activate it in a domain.\n", binaryName, name)
 	return nil
 }
 
