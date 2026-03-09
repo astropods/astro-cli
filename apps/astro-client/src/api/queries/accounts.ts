@@ -48,3 +48,15 @@ export function useCreateAccount() {
     },
   });
 }
+
+export function useUpdateProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { first_name: string; last_name: string }) =>
+      api.updateProfile(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.profile });
+    },
+  });
+}

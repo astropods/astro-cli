@@ -292,6 +292,49 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 	}
 }
 
+// UpdateProfileRequest represents the request body for updating user profile
+type UpdateProfileRequest struct {
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
+// UpdateProfile handles PATCH /api/v1/me (protected)
+func UpdateProfile(log *logger.Logger, workos *auth.WorkOSClient) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		var req UpdateProfileRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid request body",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		updated, err := workos.UpdateUser(c.Request.Context(), user.ID, req.FirstName, req.LastName)
+		if err != nil {
+			log.Error("Failed to update user profile", "error", err, "user_id", user.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
+			return
+		}
+
+		log.Info("User profile updated", "user_id", user.ID)
+		c.JSON(http.StatusOK, UpdateProfileResponse{
+			User: &ProfileUser{
+				ID:        updated.ID,
+				Email:     updated.Email,
+				FirstName: updated.FirstName,
+				LastName:  updated.LastName,
+			},
+		})
+	}
+}
+
 // GetProfile handles GET /api/v1/me (protected)
 func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentIndex *agentindex.Index) gin.HandlerFunc {
 	return func(c *gin.Context) {

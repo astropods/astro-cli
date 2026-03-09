@@ -11,6 +11,7 @@ export default [
     route("u/:account/:agent", "pages/legacy/AgentPage.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
     route("admin", "pages/Admin.tsx"),
+    route("settings", "pages/Settings.tsx"),
     route("organization/new", "pages/OrganizationNew.tsx"),
     route("organization", "pages/OrganizationRedirect.tsx"),
     route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),

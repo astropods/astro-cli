@@ -1,4 +1,5 @@
-import { ArrowLeftStartOnRectangleIcon } from "@heroicons/react/24/outline";
+import { Link } from "react-router";
+import { ArrowLeftStartOnRectangleIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { getUserDisplayName } from "@/lib/auth";
 import type { User } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -25,6 +26,17 @@ export function UserCard({ user, onSignOut }: UserCardProps) {
         </div>
       </div>
       <Separator />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start gap-2"
+        asChild
+      >
+        <Link to="/settings">
+          <Cog6ToothIcon className="size-4" />
+          Settings
+        </Link>
+      </Button>
       <Button
         variant="ghost"
         size="sm"

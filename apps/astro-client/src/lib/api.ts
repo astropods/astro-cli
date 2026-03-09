@@ -213,9 +213,16 @@ class ApiClient {
     return `${this.authUrl}/auth/logout?redirect=${redirectUrl}`;
   }
 
-  // Profile endpoint
+  // Profile endpoints
   async getProfile(): Promise<ProfileResponse> {
     return this.request<ProfileResponse>('/api/v1/me');
+  }
+
+  async updateProfile(data: { first_name: string; last_name: string }): Promise<{ user: User }> {
+    return this.request<{ user: User }>('/api/v1/me', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
   }
 
   // Account endpoints

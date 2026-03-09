@@ -6,6 +6,7 @@ import {
   ArrowLeftStartOnRectangleIcon,
   BuildingOffice2Icon,
   Cog6ToothIcon,
+  WrenchScrewdriverIcon,
   MagnifyingGlassIcon,
   EllipsisHorizontalIcon,
   PlusIcon,
@@ -248,10 +249,16 @@ export function AppHeader() {
                   </>
                 );
               })()}
+              <DropdownMenuItem asChild className="gap-2">
+                <Link to="/settings">
+                  <Cog6ToothIcon className="size-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
               {hasPermission('admin:view') && (
                 <DropdownMenuItem asChild className="gap-2">
                   <Link to="/admin">
-                    <Cog6ToothIcon className="size-4" />
+                    <WrenchScrewdriverIcon className="size-4" />
                     Admin
                   </Link>
                 </DropdownMenuItem>

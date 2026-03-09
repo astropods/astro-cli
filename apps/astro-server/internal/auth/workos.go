@@ -106,6 +106,20 @@ func (c *WorkOSClient) GetUser(ctx context.Context, userID string) (*User, error
 	return UserFromWorkOS(user), nil
 }
 
+// UpdateUser updates a user's profile fields
+func (c *WorkOSClient) UpdateUser(ctx context.Context, userID string, firstName, lastName string) (*User, error) {
+	user, err := c.client.UpdateUser(ctx, usermanagement.UpdateUserOpts{
+		User:      userID,
+		FirstName: firstName,
+		LastName:  lastName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return UserFromWorkOS(user), nil
+}
+
 // GetLogoutURL returns the WorkOS logout URL with the default frontend URL
 func (c *WorkOSClient) GetLogoutURL(sessionID string) (string, error) {
 	return c.GetLogoutURLWithReturnTo(sessionID, c.frontendURL)

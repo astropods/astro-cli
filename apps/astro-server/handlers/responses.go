@@ -80,6 +80,11 @@ type RenameAccountResponse struct {
 	Name    string `json:"name"`
 }
 
+// UpdateProfileResponse is returned after updating user profile.
+type UpdateProfileResponse struct {
+	User *ProfileUser `json:"user"`
+}
+
 // --- Members ---
 
 // ListMembersResponse wraps the member list.

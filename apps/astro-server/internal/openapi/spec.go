@@ -121,6 +121,11 @@ func (s *Spec) PUT(g *gin.RouterGroup, path, summary string, h gin.HandlerFunc, 
 	s.add("PUT", g.BasePath()+path, summary, opts)
 }
 
+func (s *Spec) PATCH(g *gin.RouterGroup, path, summary string, h gin.HandlerFunc, opts ...Option) {
+	g.PATCH(path, h)
+	s.add("PATCH", g.BasePath()+path, summary, opts)
+}
+
 func (s *Spec) DELETE(g *gin.RouterGroup, path, summary string, h gin.HandlerFunc, opts ...Option) {
 	g.DELETE(path, h)
 	s.add("DELETE", g.BasePath()+path, summary, opts)

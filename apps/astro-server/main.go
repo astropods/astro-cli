@@ -469,6 +469,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.Response(200, &handlers.ProfileResponse{}),
 			)
+			api.PATCH(protected, "/me", "Update current user profile", handlers.UpdateProfile(log, authHandler.GetWorkOSClient()),
+				oapispec.Tags("Profile"),
+				oapispec.BearerAuth(),
+				oapispec.Body(&handlers.UpdateProfileRequest{}),
+				oapispec.Response(200, &handlers.UpdateProfileResponse{}),
+			)
 
 			// Account management
 			api.GET(protected, "/accounts/search", "Search accounts", handlers.SearchAccounts(log, accountStore),
