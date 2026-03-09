@@ -809,7 +809,7 @@ func checkNativeOllama() error {
 		case "darwin":
 			msg += hint.Render("  Install with Homebrew:") + "\n" +
 				"    brew install ollama\n\n" +
-				hint.Render("  Or download from:") + "\n" +
+				hint.Render("  Or download the desktop app:") + "\n" +
 				"    https://ollama.com/download/mac"
 		case "linux":
 			msg += hint.Render("  Install with the official script:") + "\n" +
@@ -836,9 +836,10 @@ func checkNativeOllama() error {
 			dim.Render("Ollama is installed but the server isn't responding.") + "\n\n"
 		switch runtime.GOOS {
 		case "darwin":
-			msg += hint.Render("  Start with:") + "\n" +
+			msg += hint.Render("  Start in foreground:") + "\n" +
 				"    ollama serve\n\n" +
-				dim.Render("  Or open the Ollama app from your Applications folder.")
+				hint.Render("  Or as a background service:") + "\n" +
+				"    brew services start ollama"
 		case "linux":
 			msg += hint.Render("  Start with:") + "\n" +
 				"    ollama serve\n\n" +
