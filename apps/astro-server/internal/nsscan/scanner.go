@@ -3,6 +3,7 @@ package nsscan
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"sync"
 	"time"
 
@@ -133,8 +134,14 @@ func (s *Scanner) Scan(ctx context.Context) (*ScanResult, error) {
 		return nil, err
 	}
 
-	// 2. Upsert into namespace_ownership
-	for ns, d := range dbNamespaces {
+	// 2. Upsert into namespace_ownership (sorted for deterministic order)
+	sortedNS := make([]string, 0, len(dbNamespaces))
+	for ns := range dbNamespaces {
+		sortedNS = append(sortedNS, ns)
+	}
+	sort.Strings(sortedNS)
+	for _, ns := range sortedNS {
+		d := dbNamespaces[ns]
 		_, err := s.db.ExecContext(ctx, `
 			INSERT INTO namespace_ownership (namespace, account_id, agent_name, deployment_id, scanned_at)
 			VALUES ($1, $2, $3, $4, $5)
