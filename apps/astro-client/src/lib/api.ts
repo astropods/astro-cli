@@ -233,6 +233,13 @@ class ApiClient {
     });
   }
 
+  async deleteAccount(account: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      { method: 'DELETE' }
+    );
+  }
+
   async renameAccount(account: string, newName: string): Promise<{ message: string; name: string }> {
     return this.request<{ message: string; name: string }>(
       `/api/v1/accounts/${encodeURIComponent(account)}`,

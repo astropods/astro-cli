@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useBlocker } from "react-router";
-import { UserIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { CheckIcon } from "@heroicons/react/24/outline";
 import { Loader2 } from "lucide-react";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,12 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth, getUserDisplayName } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
-import {
-  SidebarLayout,
-  SidebarNav,
-  SidebarNavItem,
-  SidebarBody,
-} from "@/components/ui/sidebar-layout";
+import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -71,7 +65,6 @@ function ProfileSection() {
 
   const isDirty = displayName !== savedName;
 
-  // Block in-app navigation when there are unsaved changes
   const blocker = useBlocker(isDirty);
 
   useEffect(() => {
@@ -85,7 +78,6 @@ function ProfileSection() {
     }
   }, [blocker]);
 
-  // Handle browser/tab close with beforeunload
   useEffect(() => {
     if (!isDirty) return;
     const handler = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -190,34 +182,41 @@ function AccountSection() {
   );
 }
 
-function SettingsContent() {
+function DangerZone() {
+  const [open, setOpen] = useState(false);
+
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[820px] mx-auto">
-      <SidebarLayout>
-        <SidebarNav label="Settings">
-          <SidebarNavItem active>
-            <span className="flex items-center gap-2">
-              <UserIcon className="size-3.5" />
-              Profile
-            </span>
-          </SidebarNavItem>
-        </SidebarNav>
-        <SidebarBody>
-          <SectionHeader title="Profile" subtitle="Your public identity on Astro" />
-          <ProfileSection />
-          <hr className="my-2 border-border" />
-          <SectionHeader title="Account" subtitle="Email, password, and authentication" />
-          <AccountSection />
-        </SidebarBody>
-      </SidebarLayout>
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/5 px-5 py-4">
+      <div>
+        <div className="text-[13px] font-semibold text-ink">Delete account</div>
+        <p className="text-[12px] text-ink-muted">
+          Permanently delete your account and all associated data. This cannot
+          be undone.
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        className="shrink-0 border-destructive/30 bg-surface text-destructive hover:bg-destructive/[0.08] hover:text-destructive active:bg-destructive/15 active:text-destructive"
+        onClick={() => setOpen(true)}
+      >
+        Delete account
+      </Button>
+      <DeleteAccountDialog open={open} onOpenChange={setOpen} />
     </div>
   );
 }
 
-export default function Settings() {
+export default function AccountSettings() {
   return (
-    <ProtectedRoute>
-      <SettingsContent />
-    </ProtectedRoute>
+    <>
+      <SectionHeader title="Profile" subtitle="Your public identity on Astro" />
+      <ProfileSection />
+      <hr className="my-2 border-border" />
+      <SectionHeader title="Account" subtitle="Email, password, and authentication" />
+      <AccountSection />
+      <hr className="my-2 border-border" />
+      <SectionHeader title="Danger Zone" subtitle="These actions are irreversible" />
+      <DangerZone />
+    </>
   );
 }

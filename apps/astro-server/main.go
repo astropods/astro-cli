@@ -506,6 +506,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.RenameAccountResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
+				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore),
+					oapispec.Tags("Accounts"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(501, &handlers.ErrorResponse{}),
+				)
 			}
 
 			// Member management (requires org:manage permission)

@@ -49,6 +49,12 @@ export function useCreateAccount() {
   });
 }
 
+export function useDeleteAccount() {
+  return useMutation({
+    mutationFn: (account: string) => api.deleteAccount(account),
+  });
+}
+
 export function useRenameAccount() {
   const queryClient = useQueryClient();
 

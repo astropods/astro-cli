@@ -1,4 +1,4 @@
-import { type RouteConfig, route, layout, index } from "@react-router/dev/routes";
+import { type RouteConfig, route, layout, index, prefix } from "@react-router/dev/routes";
 
 export default [
   layout("components/Layout.tsx", [
@@ -11,7 +11,12 @@ export default [
     route("u/:account/:agent", "pages/legacy/AgentPage.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
     route("admin", "pages/Admin.tsx"),
-    route("settings", "pages/Settings.tsx"),
+    ...prefix("settings", [
+      layout("pages/settings/SettingsLayout.tsx", [
+        index("pages/settings/SettingsRedirect.tsx"),
+        route("account", "pages/settings/AccountSettings.tsx"),
+      ]),
+    ]),
     route("organization/new", "pages/OrganizationNew.tsx"),
     route("organization", "pages/OrganizationRedirect.tsx"),
     route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),

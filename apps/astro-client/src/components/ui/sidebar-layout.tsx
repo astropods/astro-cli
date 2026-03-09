@@ -1,3 +1,4 @@
+import { NavLink } from "react-router";
 import { cn } from "@/lib/utils";
 
 /* ── Layout shell: sidebar + body ── */
@@ -41,27 +42,41 @@ export function SidebarNav({
 
 /* ── Individual nav item ── */
 
+const navItemBase =
+  "whitespace-nowrap rounded-sm px-3 py-1.5 text-left text-[13px] transition-colors cursor-pointer";
+const navItemActive = "bg-stone-300 text-ink font-medium";
+const navItemInactive = "text-ink-muted font-normal hover:bg-muted/50 hover:text-foreground";
+
 export function SidebarNavItem({
   active,
+  to,
   className,
   children,
   ...props
 }: {
   active?: boolean;
+  to?: string;
   className?: string;
   children: React.ReactNode;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  if (to) {
+    return (
+      <NavLink
+        to={to}
+        className={({ isActive }) =>
+          cn(navItemBase, isActive ? navItemActive : navItemInactive, className)
+        }
+      >
+        {children}
+      </NavLink>
+    );
+  }
+
   return (
     <button
       type="button"
       aria-current={active ? "true" : undefined}
-      className={cn(
-        "whitespace-nowrap rounded-sm px-3 py-1.5 text-left text-[13px] transition-colors cursor-pointer",
-        active
-          ? "bg-stone-300 text-ink font-medium"
-          : "text-ink-muted font-normal hover:bg-muted/50 hover:text-foreground",
-        className,
-      )}
+      className={cn(navItemBase, active ? navItemActive : navItemInactive, className)}
       {...props}
     >
       {children}

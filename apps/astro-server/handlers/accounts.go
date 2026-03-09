@@ -251,6 +251,26 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 	}
 }
 
+// DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
+// TODO: Not fully implemented. This stub returns success but does not actually
+// delete the account, its agents, deployments, API keys, or any other data.
+// Full implementation needs to tear down all resources before removing the account record.
+func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		log.Warn("DeleteAccount called but not fully implemented", "account_id", acct.ID, "account_name", acct.Name)
+
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"error": "account deletion is not yet implemented",
+		})
+	}
+}
+
 // RenameAccountRequest represents the request body for renaming an account
 type RenameAccountRequest struct {
 	Name string `json:"name" binding:"required"`
