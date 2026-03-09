@@ -15,6 +15,8 @@ func TestScan_TracksActiveDeployments(t *testing.T) {
 	}
 	defer db.Close()
 
+	mock.MatchExpectationsInOrder(false)
+
 	log := logger.New("error", "json")
 	scanner := New(db, nil, log) // no K8s client
 
