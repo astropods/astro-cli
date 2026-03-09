@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
 import { useCheckAccountName } from '@/api/queries/accounts';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
-export function validateAccountName(name: string): string | null {
-  if (name.length < 2) return 'Must be at least 2 characters';
+export function validateAccountName(name: string, minLength = 2): string | null {
+  if (name.length < minLength) return `Must be at least ${minLength} characters`;
   if (name.length > 39) return 'Must be at most 39 characters';
   if (!/^[a-z]/.test(name)) return 'Must start with a letter';
   if (name.endsWith('-')) return 'Must not end with a hyphen';
@@ -15,28 +15,18 @@ export function sanitizeAccountName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9-]/g, '');
 }
 
-export function useAccountNameValidation(name: string) {
-  const [debouncedName, setDebouncedName] = useState('');
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+export function useAccountNameValidation(name: string, minLength = 2) {
+  const clientError = name.length > 0 ? validateAccountName(name, minLength) : null;
+  const shouldCheck = name.length >= minLength && !clientError;
 
-  const clientError = name.length > 0 ? validateAccountName(name) : null;
-  const shouldCheck = name.length >= 2 && !clientError;
-
-  useEffect(() => {
-    if (!shouldCheck) {
-      setDebouncedName('');
-      return;
-    }
-    timerRef.current = setTimeout(() => setDebouncedName(name), 300);
-    return () => clearTimeout(timerRef.current);
-  }, [name, shouldCheck]);
+  const debouncedName = useDebouncedValue(shouldCheck ? name : '', 300);
 
   const nameCheck = useCheckAccountName(debouncedName);
   const isChecking = shouldCheck && (debouncedName !== name || nameCheck.isFetching);
   const serverAvailable = nameCheck.data?.available === true && debouncedName === name;
   const serverReason =
     nameCheck.data?.available === false && debouncedName === name
-      ? (nameCheck.data as { reason?: string }).reason || 'Already taken'
+      ? nameCheck.data?.reason || 'Already taken'
       : null;
 
   const isAvailable = shouldCheck && !isChecking && serverAvailable;

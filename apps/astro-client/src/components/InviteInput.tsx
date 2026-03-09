@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useCombobox } from "downshift";
 import { X, Mail, User, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { inputBase, inputFocusWithin } from "./ui/input";
 import { useSearchAccounts } from "@/api/queries/accounts";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 export type InviteKind = "account" | "email";
 
@@ -51,21 +52,12 @@ export function InviteInput({
   className,
 }: InviteInputProps) {
   const [input, setInput] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const trimmed = input.trim();
   const looksLikeEmail = isValidEmail(trimmed);
   const shouldSearch = trimmed.length >= 3 && !looksLikeEmail;
-
-  // Debounce search input
-  useEffect(() => {
-    const id = setTimeout(
-      () => setDebouncedSearch(shouldSearch ? trimmed : ""),
-      shouldSearch ? 200 : 0,
-    );
-    return () => clearTimeout(id);
-  }, [trimmed, shouldSearch]);
+  const debouncedSearch = useDebouncedValue(shouldSearch ? trimmed : "", 200);
 
   const { data: searchData } = useSearchAccounts(debouncedSearch, { type: "personal" });
 

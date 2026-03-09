@@ -6,7 +6,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth, getUserDisplayName } from "@/lib/auth";
+import { useAuth, getUserDisplayName, splitDisplayName } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
@@ -43,16 +43,6 @@ function useSavedFlash() {
   };
 
   return { showSaved, flash };
-}
-
-function splitDisplayName(name: string): { first_name: string; last_name: string } {
-  const trimmed = name.trim();
-  const spaceIndex = trimmed.indexOf(" ");
-  if (spaceIndex === -1) return { first_name: trimmed, last_name: "" };
-  return {
-    first_name: trimmed.slice(0, spaceIndex),
-    last_name: trimmed.slice(spaceIndex + 1),
-  };
 }
 
 function ProfileSection() {
@@ -113,14 +103,12 @@ function ProfileSection() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-5">
-            <div>
-              <Label size="md">Display name</Label>
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-            </div>
+          <div>
+            <Label size="md">Display name</Label>
+            <Input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
           </div>
 
           <div className="flex items-center gap-2">

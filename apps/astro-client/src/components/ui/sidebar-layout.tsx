@@ -47,18 +47,23 @@ const navItemBase =
 const navItemActive = "bg-stone-300 text-ink font-medium";
 const navItemInactive = "text-ink-muted font-normal hover:bg-muted/50 hover:text-foreground";
 
-export function SidebarNavItem({
-  active,
-  to,
-  className,
-  children,
-  ...props
-}: {
-  active?: boolean;
-  to?: string;
+type SidebarNavLinkProps = {
+  to: string;
+  active?: never;
   className?: string;
   children: React.ReactNode;
-} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+};
+
+type SidebarNavButtonProps = {
+  to?: never;
+  active?: boolean;
+  className?: string;
+  children: React.ReactNode;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>;
+
+export function SidebarNavItem(props: SidebarNavLinkProps | SidebarNavButtonProps) {
+  const { to, className, children } = props;
+
   if (to) {
     return (
       <NavLink
@@ -72,12 +77,13 @@ export function SidebarNavItem({
     );
   }
 
+  const { active, ...buttonProps } = props as SidebarNavButtonProps;
   return (
     <button
       type="button"
       aria-current={active ? "true" : undefined}
       className={cn(navItemBase, active ? navItemActive : navItemInactive, className)}
-      {...props}
+      {...buttonProps}
     >
       {children}
     </button>

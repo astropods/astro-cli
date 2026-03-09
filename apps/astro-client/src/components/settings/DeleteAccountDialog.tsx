@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDeleteAccount } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
+import { DestructiveConfirmCheckbox } from "@/components/ui/destructive-confirm-checkbox";
 
 interface DeleteAccountDialogProps {
   open: boolean;
@@ -75,19 +76,11 @@ export function DeleteAccountDialog({
             autoComplete="off"
           />
         </div>
-        <label className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-            className="mt-0.5 accent-destructive"
-          />
-          <span className="text-[13px] leading-snug text-destructive">
-            I understand that deleting my account is{" "}
-            <strong>irreversible</strong> and that all my existing content
-            will be deleted forever.
-          </span>
-        </label>
+        <DestructiveConfirmCheckbox checked={confirmed} onChange={setConfirmed}>
+          I understand that deleting my account is{" "}
+          <strong>irreversible</strong> and that all my existing content
+          will be deleted forever.
+        </DestructiveConfirmCheckbox>
         {deleteAccount.isError && (
           <p className="text-[13px] text-destructive">
             {(deleteAccount.error as Error)?.message ||

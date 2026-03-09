@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -584,11 +585,28 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 		return nil, err
 	}
 
+	// Run org sync and user fetch concurrently (both are independent HTTP calls)
+	var freshUser *auth.User
+	var userErr error
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		freshUser, userErr = h.workos.GetUser(c.Request.Context(), sessionData.Session.UserID)
+	}()
+
 	// Best-effort: sync org memberships on token refresh
 	if h.orgSync != nil {
 		if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
 			h.log.Warn("Failed to sync memberships on refresh", "error", err, "user_id", sessionData.Session.UserID)
 		}
+	}
+
+	wg.Wait()
+	if userErr != nil {
+		h.log.Warn("Failed to fetch fresh user on refresh, using cached data", "error", userErr)
+		freshUser = sessionData.User
 	}
 
 	// Update session with new tokens and refreshed claims
@@ -604,13 +622,6 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	claims := auth.ExtractTokenClaims(result.AccessToken)
 	newSession.Role = claims.Role
 	newSession.Permissions = claims.Permissions
-
-	// Fetch fresh user data from WorkOS so profile changes are reflected
-	freshUser, err := h.workos.GetUser(c.Request.Context(), sessionData.Session.UserID)
-	if err != nil {
-		h.log.Warn("Failed to fetch fresh user on refresh, using cached data", "error", err)
-		freshUser = sessionData.User
-	}
 
 	newSessionData := &auth.SessionData{
 		Session: newSession,

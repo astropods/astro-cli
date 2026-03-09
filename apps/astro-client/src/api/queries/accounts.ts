@@ -55,26 +55,20 @@ export function useDeleteAccount() {
   });
 }
 
+// No query invalidation here — callers refresh the session via useAuth().refresh()
+// which updates the session cookie with fresh user data from WorkOS.
 export function useRenameAccount() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ account, newName }: { account: string; newName: string }) =>
       api.renameAccount(account, newName),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: accountKeys.profile });
-    },
   });
 }
 
+// No query invalidation here — callers refresh the session via useAuth().refresh()
+// which updates the session cookie with fresh user data from WorkOS.
 export function useUpdateProfile() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (data: { first_name: string; last_name: string }) =>
       api.updateProfile(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: accountKeys.profile });
-    },
   });
 }

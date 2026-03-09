@@ -10,6 +10,17 @@ export function getUserDisplayName(user: User | null): string {
   return user.email;
 }
 
+// Inverse of getUserDisplayName — splits a display name into first/last for API calls
+export function splitDisplayName(name: string): { first_name: string; last_name: string } {
+  const trimmed = name.trim();
+  const spaceIndex = trimmed.indexOf(" ");
+  if (spaceIndex === -1) return { first_name: trimmed, last_name: "" };
+  return {
+    first_name: trimmed.slice(0, spaceIndex),
+    last_name: trimmed.slice(spaceIndex + 1),
+  };
+}
+
 // Utility to get user initials
 export function getUserInitials(user: User | null): string {
   if (!user) return '?';

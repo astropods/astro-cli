@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { useRenameAccount } from "@/api/queries";
 import { useAccountNameValidation } from "@/hooks/use-account-name";
 import { AccountNameInput } from "@/components/AccountNameInput";
+import { DestructiveConfirmCheckbox } from "@/components/ui/destructive-confirm-checkbox";
 
 interface ChangeUsernameDialogProps {
   currentName: string;
@@ -77,19 +78,11 @@ export function ChangeUsernameDialog({
             displayError={displayError}
           />
         </div>
-        <label className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-            className="mt-0.5 accent-destructive"
-          />
-          <span className="text-[13px] leading-snug text-destructive">
-            I understand that changing my username is a destructive action
-            and any existing links to my content on Astro will no longer
-            function.
-          </span>
-        </label>
+        <DestructiveConfirmCheckbox checked={confirmed} onChange={setConfirmed}>
+          I understand that changing my username is a destructive action
+          and any existing links to my content on Astro will no longer
+          function.
+        </DestructiveConfirmCheckbox>
         {renameAccount.isError && (
           <p className="text-[13px] text-destructive">
             {(renameAccount.error as Error)?.message || "Failed to rename account."}

@@ -1,28 +1,17 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { ProtectedRoute } from "../components/ProtectedRoute";
-import { useCreateAccount, useCheckAccountName } from "../api/queries/accounts";
+import { useCreateAccount } from "../api/queries/accounts";
 import { useAuth } from "../lib/auth";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { InviteInput, type InviteEntry } from "@/components/InviteInput";
+import { AccountNameInput } from "@/components/AccountNameInput";
+import { useAccountNameValidation } from "@/hooks/use-account-name";
 import type { ApiError } from "@/lib/api";
-
-function validateName(name: string): string | null {
-  if (name.length < 4) return "Must be at least 4 characters";
-  if (name.length > 39) return "Must be at most 39 characters";
-  if (!/^[a-z]/.test(name)) return "Must start with a letter";
-  if (name.endsWith("-")) return "Must not end with a hyphen";
-  if (/--/.test(name)) return "Must not contain consecutive hyphens";
-  if (!/^[a-z0-9-]+$/.test(name))
-    return "Only lowercase letters, numbers, and hyphens";
-  return null;
-}
 
 function OrganizationNewContent() {
   const [name, setName] = useState("");
-  const [debouncedName, setDebouncedName] = useState("");
   const [invites, setInvites] = useState<InviteEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -32,30 +21,8 @@ function OrganizationNewContent() {
     () => new Set(accounts.filter((a) => a.type === "personal").map((a) => a.name)),
     [accounts]
   );
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const clientError = name.length > 0 ? validateName(name) : null;
-  const shouldCheck = name.length >= 4 && !clientError;
-
-  useEffect(() => {
-    timerRef.current = setTimeout(
-      () => setDebouncedName(shouldCheck ? name : ""),
-      shouldCheck ? 300 : 0,
-    );
-    return () => clearTimeout(timerRef.current);
-  }, [name, shouldCheck]);
-
-  const nameCheck = useCheckAccountName(debouncedName);
-  const isChecking = shouldCheck && (debouncedName !== name || nameCheck.isFetching);
-  const serverAvailable =
-    nameCheck.data?.available === true && debouncedName === name;
-  const serverReason =
-    nameCheck.data?.available === false && debouncedName === name
-      ? (nameCheck.data as { reason?: string }).reason || "Already taken"
-      : null;
-
-  const isAvailable = shouldCheck && !isChecking && serverAvailable;
-  const displayError = clientError || serverReason;
+  const { isChecking, isAvailable, displayError } = useAccountNameValidation(name, 4);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -92,6 +59,14 @@ function OrganizationNewContent() {
     [name, invites, isAvailable, createAccount, checkAuth, navigate]
   );
 
+  const handleChange = useCallback(
+    (value: string) => {
+      setName(value);
+      setError(null);
+    },
+    []
+  );
+
   return (
     <div className="flex flex-1 items-start justify-center p-6 md:p-8">
       <div className="w-full max-w-md pt-12">
@@ -106,46 +81,15 @@ function OrganizationNewContent() {
             <Label htmlFor="org-name" className="mb-1.5 block">
               Organization username
             </Label>
-            <div className="relative">
-              <Input
-                id="org-name"
-                type="text"
-                value={name}
-                onChange={(e) => {
-                  setName(
-                    e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")
-                  );
-                  setError(null);
-                }}
-                placeholder="my-org"
-                autoFocus
-                maxLength={39}
-                aria-invalid={!!displayError || undefined}
-                className="pr-9"
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm">
-                {name.length === 0
-                  ? ""
-                  : isChecking
-                    ? "\u2026"
-                    : isAvailable
-                      ? "\u2713"
-                      : displayError
-                        ? "\u2717"
-                        : ""}
-              </span>
-            </div>
-            <div className="mt-1 min-h-5 text-xs">
-              {name.length > 0 && displayError && (
-                <p className="text-destructive text-pretty">{displayError}</p>
-              )}
-              {isChecking && (
-                <p className="text-muted-foreground">
-                  Checking availability...
-                </p>
-              )}
-              {isAvailable && <p className="text-green-600">Available</p>}
-            </div>
+            <AccountNameInput
+              value={name}
+              onChange={handleChange}
+              placeholder="my-org"
+              autoFocus
+              isChecking={isChecking}
+              isAvailable={isAvailable}
+              displayError={displayError}
+            />
           </div>
 
           <div>
