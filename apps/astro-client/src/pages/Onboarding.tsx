@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateAccount } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
