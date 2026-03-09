@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -259,5 +260,206 @@ func TestUndeploy_MissingDeploymentID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- GetDeploymentTemplate visibility tests ---
+
+// setupTemplateRouter creates a gin engine wired with GetDeploymentTemplate.
+// If userID is non-empty, an auth middleware injects that user.
+func setupTemplateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	store := account.NewAccountStore(accountDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "docker.io/library",
+		},
+	}
+
+	router := gin.New()
+	if userID != "" {
+		router.Use(func(c *gin.Context) {
+			c.Set(string(auth.UserContextKey), &auth.User{ID: userID})
+			c.Next()
+		})
+	}
+	router.GET("/agents/:account/:name/deployment-template",
+		GetDeploymentTemplate(log, index, store, cfg))
+
+	return router, indexMock, accountMock
+}
+
+// expectAgentLookup sets up sqlmock expectations for agentIndex.Get():
+// one query on agents table, one on agent_versions table.
+func expectAgentLookup(mock sqlmock.Sqlmock, visibility string) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "registry.io", visibility, now, now))
+	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", `{"name":"my-agent"}`, "", "[]", now, now))
+}
+
+// expectLatestVersion sets up the sqlmock expectation for agentIndex.GetLatestVersion().
+func expectLatestVersion(mock sqlmock.Sqlmock) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", `{"name":"my-agent"}`, "", "[]", now, now))
+}
+
+// expectAccountLookup sets up sqlmock expectation for accountStore.GetByName().
+func expectAccountLookup(mock sqlmock.Sqlmock) {
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+}
+
+func TestGetDeploymentTemplate_PublicAgent_CrossAccount(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-outside")
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	expectLatestVersion(indexMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public agent should be accessible cross-account, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["spec"] != "deployment-template/v1" {
+		t.Errorf("expected spec 'deployment-template/v1', got %v", resp["spec"])
+	}
+}
+
+func TestGetDeploymentTemplate_PublicAgent_Member(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-1")
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	expectLatestVersion(indexMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public agent should be accessible to members, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDeploymentTemplate_PrivateAgent_Member(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-1")
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "private")
+
+	// IsMember check — is a member
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	expectLatestVersion(indexMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("private agent should be accessible to members, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDeploymentTemplate_PrivateAgent_NonMember(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-outside")
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "private")
+
+	// IsMember check — not a member
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-outside").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("private agent should return 404 to non-members, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDeploymentTemplate_NoAuth(t *testing.T) {
+	router, _, _ := setupTemplateRouter("") // no user
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDeploymentTemplate_AgentNotFound(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-1")
+
+	expectAccountLookup(accountMock)
+
+	// Agent lookup returns no rows
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}))
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDeploymentTemplate_DefaultYAML(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-1")
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	expectLatestVersion(indexMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	ct := rec.Header().Get("Content-Type")
+	if ct != "application/yaml" {
+		t.Errorf("expected Content-Type 'application/yaml', got %q", ct)
 	}
 }

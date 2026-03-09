@@ -1127,9 +1127,19 @@ func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, acc
 		}
 		accountID := acct.ID
 
-		if !isAccountMember(c, accountStore, accountID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+		// Check visibility: public agents are accessible to any authenticated user,
+		// private agents require account membership.
+		agent, err := agentIndex.Get(accountID, name)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
 			return
+		}
+
+		if agent.Visibility == "private" {
+			if !isAccountMember(c, accountStore, accountID, user.ID) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+				return
+			}
 		}
 
 		// Resolve build — specific build_id or latest
