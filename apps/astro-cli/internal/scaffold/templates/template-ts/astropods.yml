@@ -13,7 +13,7 @@ agent:
 
 models:
 {{- if ne .ModelProvider ""}}
-  default:
+  {{.ModelProvider}}:
     provider: {{.ModelProvider}}
 {{- if ne .Model ""}}
     models: [{{.Model}}]
