@@ -43,13 +43,6 @@ func TestValidateAccountName(t *testing.T) {
 		{"underscore", "my_org", true, "lowercase letters, digits, and hyphens"},
 		{"space", "my org", true, "lowercase letters, digits, and hyphens"},
 		{"special char", "my@org", true, "lowercase letters, digits, and hyphens"},
-
-		// Reserved names
-		{"reserved admin", "admin", true, "reserved"},
-		{"reserved login", "login", true, "reserved"},
-		{"reserved agents", "agents", true, "reserved"},
-		{"reserved accounts", "accounts", true, "reserved"},
-		{"reserved settings", "settings", true, "reserved"},
 	}
 
 	for _, tt := range tests {
@@ -66,6 +59,39 @@ func TestValidateAccountName(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Errorf("ValidateAccountName(%q) = %v, want nil", tt.input, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckAccountNameRestricted(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errMsg  string
+	}{
+		{"allowed name", "myorg", false, ""},
+		{"reserved admin", "admin", true, "reserved"},
+		{"reserved login", "login", true, "reserved"},
+		{"reserved agents", "agents", true, "reserved"},
+		{"reserved accounts", "accounts", true, "reserved"},
+		{"reserved settings", "settings", true, "reserved"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckAccountNameRestricted(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("CheckAccountNameRestricted(%q) = nil, want error containing %q", tt.input, tt.errMsg)
+				} else if tt.errMsg != "" && !containsSubstring(err.Error(), tt.errMsg) {
+					t.Errorf("CheckAccountNameRestricted(%q) error = %q, want to contain %q", tt.input, err.Error(), tt.errMsg)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("CheckAccountNameRestricted(%q) = %v, want nil", tt.input, err)
 				}
 			}
 		})

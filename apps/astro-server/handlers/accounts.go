@@ -108,6 +108,15 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			}
 		}
 
+		// Check reserved/denied names for user registration
+		if err := account.CheckAccountNameRestricted(req.Name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid account name",
+				"details": err.Error(),
+			})
+			return
+		}
+
 		// Step 1: Create local account (Astro is source of truth)
 		acct, err := accountStore.Create(req.Name, req.Type, user.ID)
 		if err != nil {
@@ -343,8 +352,15 @@ func CheckAccountName(log *logger.Logger, accountStore *account.AccountStore) gi
 	return func(c *gin.Context) {
 		name := c.Param("name")
 
-		// Validate name format first
+		// Validate name format and restrictions
 		if err := account.ValidateAccountName(name); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"available": false,
+				"reason":    err.Error(),
+			})
+			return
+		}
+		if err := account.CheckAccountNameRestricted(name); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"available": false,
 				"reason":    err.Error(),

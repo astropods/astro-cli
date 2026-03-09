@@ -35,14 +35,12 @@ var reservedNames = map[string]bool{
 	"schema":      true,
 }
 
-// ValidateAccountName validates an account name follows the rules:
+// ValidateAccountName validates an account name format:
 // - 4-39 characters
 // - lowercase alphanumeric + hyphens only
 // - must start with a letter
 // - must not end with a hyphen
 // - no consecutive hyphens
-// - not a reserved name
-// - not a denied name (popular brands and companies)
 func ValidateAccountName(name string) error {
 	if len(name) < 4 {
 		return fmt.Errorf("account name must be at least 4 characters")
@@ -82,15 +80,18 @@ func ValidateAccountName(name string) error {
 		}
 	}
 
-	// Check reserved names
+	return nil
+}
+
+// CheckAccountNameRestricted checks if a name is reserved or denied.
+// Call this in addition to ValidateAccountName for user-facing registration
+// where brand/system names should be blocked.
+func CheckAccountNameRestricted(name string) error {
 	if reservedNames[name] {
 		return fmt.Errorf("account name %q is reserved", name)
 	}
-
-	// Check denied names (popular brands and companies)
 	if deniedNames[name] {
 		return fmt.Errorf("account name %q is reserved for brand use — contact support to request it", name)
 	}
-
 	return nil
 }
