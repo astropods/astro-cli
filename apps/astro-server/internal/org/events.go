@@ -97,12 +97,19 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 
 		for _, event := range resp.Data {
 			if err := ec.processEvent(ctx, event); err != nil {
-				ec.log.Error("Failed to process event",
+				ec.log.Error("Failed to process event, stopping consumer until next poll",
 					"event_id", event.ID,
 					"event_type", event.Event,
 					"error", err,
 				)
-				// Continue processing — don't block on a single event failure
+				// Persist cursor up to the last successfully processed event.
+				// The failed event will be retried on the next poll cycle.
+				if cursor != "" {
+					if err := ec.setCursor(ctx, cursor); err != nil {
+						ec.log.Error("Failed to persist events cursor", "error", err)
+					}
+				}
+				return
 			}
 			cursor = event.ID
 		}
