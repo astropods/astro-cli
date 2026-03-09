@@ -34,13 +34,7 @@ var rootCmd = &cobra.Command{
 	Short: "Astro CLI - Build, push, and develop AI agents",
 	Long: astroBanner() + `
 
-Build, push, and develop AI agents.
-
-It reads an astropods.yml specification file that declares:
-- Self-hosted components (models, knowledge stores, tools)
-- Cloud integrations (Anthropic, GitHub, etc.)
-- Interfaces (Slack, HTTP API)
-- Data ingestion pipelines`,
+Build, push, and develop AI agents.`,
 	Version:       "placeholder",
 	SilenceUsage:  true,
 	SilenceErrors: true,
