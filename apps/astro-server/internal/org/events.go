@@ -269,12 +269,13 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 				"workos_org_id", data.ID)
 			return nil
 		}
-		if acct.Name != data.Name {
-			if err := ec.accountStore.Rename(acct.ID, data.Name); err != nil {
+		newName := slugifyOrgName(data.Name)
+		if acct.Name != newName {
+			if err := ec.accountStore.Rename(acct.ID, newName); err != nil {
 				return fmt.Errorf("rename account for org update: %w", err)
 			}
 			ec.log.Info("Renamed account from org update",
-				"account_id", acct.ID, "old_name", acct.Name, "new_name", data.Name)
+				"account_id", acct.ID, "old_name", acct.Name, "new_name", newName)
 		}
 
 	case "organization.deleted":

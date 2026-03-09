@@ -306,9 +306,10 @@ func TestProcessEvent_OrgUpdated_RenamesAccount(t *testing.T) {
 		WithArgs("new-name", sqlmock.AnyArg(), "acct-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	// WorkOS sends mixed-case "New-Name", slugified to "new-name"
 	event := makeEvent("organization.updated", map[string]any{
 		"id":   "org_1",
-		"name": "new-name",
+		"name": "New-Name",
 	})
 
 	if err := ec.processEvent(context.TODO(), event); err != nil {
@@ -329,11 +330,10 @@ func TestProcessEvent_OrgUpdated_SameName_NoOp(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
 			AddRow("acct-1", "same-name", "organization", "org_1", nil, now, now))
 
-	// No Rename expected
-
+	// No Rename expected — WorkOS sends "Same-Name" which slugifies to "same-name"
 	event := makeEvent("organization.updated", map[string]any{
 		"id":   "org_1",
-		"name": "same-name",
+		"name": "Same-Name",
 	})
 
 	if err := ec.processEvent(context.TODO(), event); err != nil {
