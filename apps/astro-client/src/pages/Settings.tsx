@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useBlocker } from "react-router";
 import { UserIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { Loader2 } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAuth, getUserDisplayName } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
@@ -24,6 +26,31 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   );
 }
 
+function SavedIndicator({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span className="flex items-center gap-1 text-[13px] text-ink-muted">
+      <CheckIcon className="size-3.5" />
+      Saved
+    </span>
+  );
+}
+
+function useSavedFlash() {
+  const [showSaved, setShowSaved] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const flash = () => {
+    setShowSaved(true);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setShowSaved(false), 2000);
+  };
+
+  return { showSaved, flash };
+}
+
 function splitDisplayName(name: string): { first_name: string; last_name: string } {
   const trimmed = name.trim();
   const spaceIndex = trimmed.indexOf(" ");
@@ -34,57 +61,47 @@ function splitDisplayName(name: string): { first_name: string; last_name: string
   };
 }
 
-function ProfileSection({
-  isDirty,
-  onDirtyChange,
-}: {
-  isDirty: boolean;
-  onDirtyChange: (dirty: boolean) => void;
-}) {
+function ProfileSection() {
   const { user, personalAccount, refresh } = useAuth();
   const updateProfile = useUpdateProfile();
   const initialName = user ? getUserDisplayName(user) : "";
   const [displayName, setDisplayName] = useState(initialName);
   const [savedName, setSavedName] = useState(initialName);
+  const { showSaved, flash } = useSavedFlash();
 
-  const dirty = displayName !== savedName;
+  const isDirty = displayName !== savedName;
+
+  // Block in-app navigation when there are unsaved changes
+  const blocker = useBlocker(isDirty);
 
   useEffect(() => {
-    onDirtyChange(dirty);
-  }, [dirty, onDirtyChange]);
+    if (blocker.state === "blocked") {
+      const leave = window.confirm("You have unsaved changes. Are you sure you want to leave?");
+      if (leave) {
+        blocker.proceed();
+      } else {
+        blocker.reset();
+      }
+    }
+  }, [blocker]);
 
-  const [showSaved, setShowSaved] = useState(false);
-  const [showSaving, setShowSaving] = useState(false);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const clearTimers = () => {
-    timersRef.current.forEach(clearTimeout);
-    timersRef.current = [];
-  };
+  // Handle browser/tab close with beforeunload
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const handleSave = () => {
-    clearTimers();
-    setShowSaving(false);
-    timersRef.current.push(setTimeout(() => setShowSaving(true), 500));
     updateProfile.mutate(splitDisplayName(displayName), {
       onSuccess: () => {
-        clearTimers();
-        setShowSaving(false);
         setSavedName(displayName);
         refresh();
-        setShowSaved(true);
-        timersRef.current.push(setTimeout(() => setShowSaved(false), 2000));
-      },
-      onError: () => {
-        clearTimers();
-        setShowSaving(false);
+        flash();
       },
     });
   };
-
-  useEffect(() => () => clearTimers(), []);
-
-  const buttonLabel = showSaving ? "Saving…" : "Save changes";
 
   return (
     <div className="flex flex-col gap-5">
@@ -106,9 +123,7 @@ function ProfileSection({
 
           <div className="flex flex-col gap-5">
             <div>
-              <label className="mb-1.5 block font-mono text-mono-md uppercase tracking-widest text-ink-muted">
-                Display name
-              </label>
+              <Label size="md">Display name</Label>
               <Input
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -122,14 +137,12 @@ function ProfileSection({
               onClick={handleSave}
               className="self-start"
             >
-              {buttonLabel}
+              {updateProfile.isPending && (
+                <Loader2 size={14} className="spinner-delayed" />
+              )}
+              Save changes
             </Button>
-            {showSaved && (
-              <span className="flex items-center gap-1 text-[13px] text-ink-muted">
-                <CheckIcon className="size-3.5" />
-                Saved
-              </span>
-            )}
+            <SavedIndicator visible={showSaved} />
           </div>
         </>
       )}
@@ -140,33 +153,24 @@ function ProfileSection({
 function AccountSection() {
   const { user, personalAccount, refresh } = useAuth();
   const [open, setOpen] = useState(false);
-  const [showSaved, setShowSaved] = useState(false);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => () => clearTimeout(savedTimerRef.current), []);
+  const { showSaved, flash } = useSavedFlash();
 
   const handleSuccess = () => {
     refresh();
     setOpen(false);
-    setShowSaved(true);
-    clearTimeout(savedTimerRef.current);
-    savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
+    flash();
   };
 
   return (
     <div className="flex flex-col gap-5">
       {user && (
         <div>
-          <label className="mb-1.5 block font-mono text-mono-md uppercase tracking-widest text-ink-muted">
-            Email
-          </label>
+          <Label size="md">Email</Label>
           <Input defaultValue={user.email} disabled />
         </div>
       )}
       <div>
-        <label className="mb-1.5 block font-mono text-mono-md uppercase tracking-widest text-ink-muted">
-          Username
-        </label>
+        <Label size="md">Username</Label>
         <div className="flex items-center gap-2">
           <span className="font-mono text-[13px] text-ink">
             @{personalAccount?.name}
@@ -179,12 +183,7 @@ function AccountSection() {
               onSuccess={handleSuccess}
             />
           )}
-          {showSaved && (
-            <span className="flex items-center gap-1 text-[13px] text-ink-muted">
-              <CheckIcon className="size-3.5" />
-              Saved
-            </span>
-          )}
+          <SavedIndicator visible={showSaved} />
         </div>
       </div>
     </div>
@@ -192,32 +191,6 @@ function AccountSection() {
 }
 
 function SettingsContent() {
-  const [isDirty, setIsDirty] = useState(false);
-  const handleDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
-
-  // Block in-app navigation when there are unsaved changes
-  const blocker = useBlocker(isDirty);
-
-  // Handle browser/tab close with beforeunload
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
-
-  // If the user confirms they want to leave, proceed
-  useEffect(() => {
-    if (blocker.state === "blocked") {
-      const leave = window.confirm("You have unsaved changes. Are you sure you want to leave?");
-      if (leave) {
-        blocker.proceed();
-      } else {
-        blocker.reset();
-      }
-    }
-  }, [blocker]);
-
   return (
     <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[820px] mx-auto">
       <SidebarLayout>
@@ -231,7 +204,7 @@ function SettingsContent() {
         </SidebarNav>
         <SidebarBody>
           <SectionHeader title="Profile" subtitle="Your public identity on Astro" />
-          <ProfileSection isDirty={isDirty} onDirtyChange={handleDirtyChange} />
+          <ProfileSection />
           <hr className="my-2 border-border" />
           <SectionHeader title="Account" subtitle="Email, password, and authentication" />
           <AccountSection />

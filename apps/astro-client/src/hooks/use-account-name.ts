@@ -23,10 +23,11 @@ export function useAccountNameValidation(name: string) {
   const shouldCheck = name.length >= 2 && !clientError;
 
   useEffect(() => {
-    timerRef.current = setTimeout(
-      () => setDebouncedName(shouldCheck ? name : ''),
-      shouldCheck ? 300 : 0,
-    );
+    if (!shouldCheck) {
+      setDebouncedName('');
+      return;
+    }
+    timerRef.current = setTimeout(() => setDebouncedName(name), 300);
     return () => clearTimeout(timerRef.current);
   }, [name, shouldCheck]);
 

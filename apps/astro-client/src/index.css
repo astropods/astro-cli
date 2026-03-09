@@ -39,6 +39,19 @@ body {
   animation: spin 1s linear infinite;
 }
 
+/* Delayed spinner: display:none for 500ms, then appears with spin */
+@keyframes delayed-display {
+  from { display: none; }
+  to { display: inline-block; }
+}
+
+.spinner-delayed {
+  display: none;
+  animation:
+    delayed-display 0s 500ms forwards,
+    spin 1s linear infinite;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) / 2);
   --radius-md: var(--radius);

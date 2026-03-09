@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogClose,
@@ -11,9 +10,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { useRenameAccount } from "@/api/queries";
-import { useAccountNameValidation, sanitizeAccountName } from "@/hooks/use-account-name";
-import { cn } from "@/lib/utils";
+import { useAccountNameValidation } from "@/hooks/use-account-name";
+import { AccountNameInput } from "@/components/AccountNameInput";
 
 interface ChangeUsernameDialogProps {
   currentName: string;
@@ -67,36 +67,15 @@ export function ChangeUsernameDialog({
           </DialogDescription>
         </DialogHeader>
         <div>
-          <label className="mb-1.5 block font-mono text-mono-md uppercase tracking-widest text-ink-muted">
-            New username
-          </label>
-          <div className="relative">
-            <Input
-              value={newUsername}
-              onChange={(e) => setNewUsername(sanitizeAccountName(e.target.value))}
-              placeholder={currentName}
-              maxLength={39}
-              aria-invalid={!!displayError || undefined}
-              className={cn(
-                "pr-9",
-                isAvailable && "border-green-600 focus-visible:border-green-600",
-              )}
-            />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lg leading-none">
-              {newUsername.length === 0 ? "" : isChecking ? "\u2026" : isAvailable ? "\u2713" : displayError ? "\u2717" : ""}
-            </span>
-          </div>
-          <div className="mt-1.5 min-h-5 text-xs">
-            {newUsername.length > 0 && displayError && (
-              <p className="text-destructive">{displayError}</p>
-            )}
-            {isChecking && (
-              <p className="text-muted-foreground">Checking availability...</p>
-            )}
-            {isAvailable && (
-              <p className="text-green-600">Available</p>
-            )}
-          </div>
+          <Label size="md">New username</Label>
+          <AccountNameInput
+            value={newUsername}
+            onChange={setNewUsername}
+            placeholder={currentName}
+            isChecking={isChecking}
+            isAvailable={isAvailable}
+            displayError={displayError}
+          />
         </div>
         <label className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 cursor-pointer">
           <input

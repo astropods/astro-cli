@@ -2,9 +2,8 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateAccount } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
-import { useAccountNameValidation, sanitizeAccountName } from '@/hooks/use-account-name';
+import { AccountNameInput } from '@/components/AccountNameInput';
+import { useAccountNameValidation } from '@/hooks/use-account-name';
 
 export default function Onboarding() {
   const [name, setName] = useState('');
@@ -44,6 +43,14 @@ export default function Onboarding() {
     [name, isAvailable, createAccount, checkAuth, navigate]
   );
 
+  const handleChange = useCallback(
+    (value: string) => {
+      setName(value);
+      setError(null);
+    },
+    []
+  );
+
   return (
     <div className="mx-auto max-w-[480px] px-6 pt-20">
       <h1 className="text-heading-1 font-semibold mb-2">Choose your username</h1>
@@ -54,39 +61,15 @@ export default function Onboarding() {
 
       <form onSubmit={handleSubmit}>
         <div className="mb-4">
-          <div className="relative">
-            <Input
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(sanitizeAccountName(e.target.value));
-                setError(null);
-              }}
-              placeholder="username"
-              autoFocus
-              maxLength={39}
-              aria-invalid={!!displayError || undefined}
-              className={cn(
-                'pr-9',
-                isAvailable && 'border-green-600 focus-visible:border-green-600',
-              )}
-            />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lg leading-none">
-              {name.length === 0 ? '' : isChecking ? '\u2026' : isAvailable ? '\u2713' : displayError ? '\u2717' : ''}
-            </span>
-          </div>
-
-          <div className="mt-1.5 min-h-6 text-xs">
-            {name.length > 0 && displayError && (
-              <p className="text-destructive">{displayError}</p>
-            )}
-            {isChecking && (
-              <p className="text-muted-foreground">Checking availability...</p>
-            )}
-            {isAvailable && (
-              <p className="text-green-600">Available</p>
-            )}
-          </div>
+          <AccountNameInput
+            value={name}
+            onChange={handleChange}
+            placeholder="username"
+            autoFocus
+            isChecking={isChecking}
+            isAvailable={isAvailable}
+            displayError={displayError}
+          />
         </div>
 
         {error && (
