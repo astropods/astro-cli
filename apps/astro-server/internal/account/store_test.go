@@ -463,6 +463,96 @@ func TestGetAccountsMissingOpenMeterCustomer_Empty(t *testing.T) {
 	}
 }
 
+func TestCreateWithoutOwner_Success(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectQuery("INSERT INTO accounts").
+		WithArgs("external-org", "organization", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
+			AddRow("acct-1", "external-org", "organization", time.Now(), time.Now()))
+
+	acct, err := store.CreateWithoutOwner("external-org", "organization")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if acct.ID != "acct-1" {
+		t.Errorf("expected ID 'acct-1', got %q", acct.ID)
+	}
+}
+
+func TestCreateWithoutOwner_InvalidName(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	_, err := store.CreateWithoutOwner("ab", "organization")
+	if err == nil {
+		t.Fatal("expected error for short name")
+	}
+}
+
+func TestRemoveUserFromAllAccounts(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
+		WithArgs("user-1").
+		WillReturnResult(sqlmock.NewResult(0, 3))
+
+	n, err := store.RemoveUserFromAllAccounts("user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("expected 3 rows affected, got %d", n)
+	}
+}
+
+func TestRemoveUserFromAllAccounts_NoRows(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
+		WithArgs("user-gone").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	n, err := store.RemoveUserFromAllAccounts("user-gone")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 rows affected, got %d", n)
+	}
+}
+
+func TestMarkDeleted(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("UPDATE accounts SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := store.MarkDeleted("acct-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMarkDeleted_AlreadyDeleted(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("UPDATE accounts SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err := store.MarkDeleted("acct-1")
+	if err == nil {
+		t.Fatal("expected error for already deleted account")
+	}
+}
+
 func TestDeleteByID(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)

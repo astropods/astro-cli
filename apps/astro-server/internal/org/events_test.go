@@ -506,6 +506,271 @@ func TestProcessEvent_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestProcessEvent_OrgCreated_External_SlugifiesName(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	// GetByWorkOSOrganizationID — not found
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_ext").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+
+	// CreateWithoutOwner — name should be slugified from "Acme Corp" to "acme-corp"
+	mock.ExpectQuery("INSERT INTO accounts").
+		WithArgs("acme-corp", "organization", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
+			AddRow("acct-new", "acme-corp", "organization", now, now))
+
+	// SetWorkOSOrganizationID
+	mock.ExpectExec("INSERT INTO account_organizations").
+		WithArgs("acct-new", "org_ext").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	event := makeEvent("organization.created", map[string]any{
+		"id":   "org_ext",
+		"name": "Acme Corp",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_OrgCreated_ExternalID_NotFound_CreatesNew(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	// GetByWorkOSOrganizationID — not found
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_ext").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+
+	// GetByID — external_id doesn't match any account
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("acct-missing").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+
+	// Falls through to CreateWithoutOwner
+	mock.ExpectQuery("INSERT INTO accounts").
+		WithArgs("some-org", "organization", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
+			AddRow("acct-new", "some-org", "organization", now, now))
+
+	// SetWorkOSOrganizationID
+	mock.ExpectExec("INSERT INTO account_organizations").
+		WithArgs("acct-new", "org_ext").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	event := makeEvent("organization.created", map[string]any{
+		"id":          "org_ext",
+		"name":        "some-org",
+		"external_id": "acct-missing",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_OrgCreated_CreateFailure(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+
+	// GetByWorkOSOrganizationID — not found
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_ext").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+
+	// CreateWithoutOwner — fails (e.g. name conflict)
+	mock.ExpectQuery("INSERT INTO accounts").
+		WithArgs("dupe-org", "organization", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(sqlmock.ErrCancelled)
+
+	event := makeEvent("organization.created", map[string]any{
+		"id":   "org_ext",
+		"name": "dupe-org",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error on create failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_OrgUpdated_RenameFailure(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	// GetByWorkOSOrganizationID
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "old-name", "organization", "org_1", nil, now, now))
+
+	// Rename — fails
+	mock.ExpectExec("UPDATE accounts SET name").
+		WithArgs("new-name", sqlmock.AnyArg(), "acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	event := makeEvent("organization.updated", map[string]any{
+		"id":   "org_1",
+		"name": "new-name",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error on rename failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_OrgDeleted_MarkDeletedFailure(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	// GetByWorkOSOrganizationID
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
+
+	// MarkDeleted — fails
+	mock.ExpectExec("UPDATE accounts SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "acct-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	event := makeEvent("organization.deleted", map[string]any{
+		"id":   "org_1",
+		"name": "myorg",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error on mark deleted failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_MembershipUpdated(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	// GetByWorkOSOrganizationID
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
+
+	// UpsertMemberByWorkosMembershipID
+	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
+		WithArgs("acct-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO account_member_workos .+ ON CONFLICT").
+		WithArgs("acct-1", "user-1", "mem-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	event := makeEvent("organization_membership.updated", map[string]any{
+		"id":              "mem-1",
+		"user_id":         "user-1",
+		"organization_id": "org_1",
+		"role":            map[string]string{"slug": "admin"},
+		"status":          "active",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_MembershipUpsertFailure(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	// GetByWorkOSOrganizationID
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
+
+	// UpsertMemberByWorkosMembershipID — fails
+	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
+		WithArgs("acct-1", "user-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	event := makeEvent("organization_membership.created", map[string]any{
+		"id":              "mem-1",
+		"user_id":         "user-1",
+		"organization_id": "org_1",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error on upsert failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_UserDeleted_DBFailure(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+
+	// RemoveUserFromAllAccounts — fails
+	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
+		WithArgs("user-1").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	event := makeEvent("user.deleted", map[string]any{
+		"id": "user-1",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error on DB failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestProcessEvent_InvalidJSON_OrgEvent(t *testing.T) {
+	ec, _ := newTestConsumer(t)
+
+	event := events.Event{
+		ID:    "evt_bad",
+		Event: "organization.created",
+		Data:  json.RawMessage(`{invalid`),
+	}
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestProcessEvent_InvalidJSON_UserEvent(t *testing.T) {
+	ec, _ := newTestConsumer(t)
+
+	event := events.Event{
+		ID:    "evt_bad",
+		Event: "user.deleted",
+		Data:  json.RawMessage(`{invalid`),
+	}
+
+	if err := ec.processEvent(context.TODO(), event); err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
 // --- slugifyOrgName ---
 
 func TestSlugifyOrgName(t *testing.T) {
