@@ -15,12 +15,28 @@ import (
 // lives in hooks so it can be removed cleanly after migration.
 type ScanHook func(ctx context.Context, result *ScanResult) error
 
+// OrphanedNamespace holds metadata about a K8s namespace with no matching DB deployment.
+type OrphanedNamespace struct {
+	Name      string // K8s namespace name
+	AccountID string // from astro.dev/account-id label
+	AgentName string // from astro.dev/agent label
+}
+
 // ScanResult summarises a single reconciliation pass.
 type ScanResult struct {
-	Tracked  int      // namespaces upserted into namespace_ownership
-	Orphaned []string // K8s namespaces with no matching DB deployment
-	Stale    []string // DB deployments whose K8s namespace no longer exists
-	Drifted  []string // namespace_ownership rows not refreshed this scan
+	Tracked          int                 // namespaces upserted into namespace_ownership
+	Orphaned         []OrphanedNamespace // K8s namespaces with no matching DB deployment
+	Stale            []string            // DB deployments whose K8s namespace no longer exists
+	StaleDeployments []staleDeployment   // full info for stale deployments
+	Drifted          []string            // namespace_ownership rows not refreshed this scan
+}
+
+// staleDeployment holds info about a DB deployment whose K8s namespace no longer exists.
+type staleDeployment struct {
+	ID        string
+	AccountID string
+	AgentName string
+	Namespace string
 }
 
 // Scanner periodically reconciles DB deployments against K8s namespaces and
@@ -163,16 +179,26 @@ func (s *Scanner) Scan(ctx context.Context) (*ScanResult, error) {
 			}
 
 			// Orphaned: in K8s but not in DB
-			for ns := range k8sNamespaces {
-				if _, ok := dbNamespaces[ns]; !ok {
-					result.Orphaned = append(result.Orphaned, ns)
+			for _, ns := range nsList.Items {
+				if _, ok := dbNamespaces[ns.Name]; !ok {
+					result.Orphaned = append(result.Orphaned, OrphanedNamespace{
+						Name:      ns.Name,
+						AccountID: ns.Labels["astro.dev/account-id"],
+						AgentName: ns.Labels["astro.dev/agent"],
+					})
 				}
 			}
 
 			// Stale: in DB but not in K8s
-			for ns := range dbNamespaces {
+			for ns, d := range dbNamespaces {
 				if !k8sNamespaces[ns] {
 					result.Stale = append(result.Stale, ns)
+					result.StaleDeployments = append(result.StaleDeployments, staleDeployment{
+						ID:        d.id,
+						AccountID: d.accountID,
+						AgentName: d.agentName,
+						Namespace: ns,
+					})
 				}
 			}
 		}

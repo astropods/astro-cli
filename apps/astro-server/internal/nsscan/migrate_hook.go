@@ -10,30 +10,95 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// MigrationHook returns a ScanHook that detects deployments still using the
-// legacy SHA256-based namespace (pre-multi-deployment). It logs them for
-// visibility; actual migration logic will be added when the migration strategy
-// is finalized.
+// MigrationHook returns a ScanHook that adopts orphaned K8s namespaces by
+// matching them to stale DB deployments via account_id + agent_name. This
+// handles the case where the multi-deployment schema change altered namespace
+// derivation (SHA256-based → deployment-ID-based) but K8s still has the old
+// namespaces running.
 func MigrationHook(db *sql.DB, log *logger.Logger) ScanHook {
 	return func(ctx context.Context, result *ScanResult) error {
-		// Count deployments whose namespace doesn't match the UUID-based
-		// pattern (astro- followed by 20 hex chars from a UUID).
-		// Legacy namespaces use SHA256 hashes which are also hex, so we
-		// identify them by checking if the deployment ID is embedded in
-		// the namespace. For now, just log the stale/orphaned counts as
-		// migration candidates.
+		if len(result.Orphaned) == 0 || len(result.StaleDeployments) == 0 {
+			return nil
+		}
+
+		// Build a lookup from (account_id, agent_name) → orphaned K8s namespace.
+		// If multiple orphaned namespaces share the same key, the last one wins;
+		// this is acceptable because the hook runs every scan cycle and will
+		// adopt the remaining ones on subsequent passes.
+		type adoptCandidate struct {
+			k8sNamespace string
+		}
+		orphanIndex := make(map[string]adoptCandidate) // key: "account_id:agent_name"
+		for _, o := range result.Orphaned {
+			if o.AccountID == "" || o.AgentName == "" {
+				continue // skip namespaces without required labels
+			}
+			key := o.AccountID + ":" + o.AgentName
+			orphanIndex[key] = adoptCandidate{k8sNamespace: o.Name}
+		}
+
+		adopted := 0
+		for _, sd := range result.StaleDeployments {
+			key := sd.AccountID + ":" + sd.AgentName
+			candidate, ok := orphanIndex[key]
+			if !ok {
+				continue
+			}
+
+			// Update the deployment's namespace to the actual K8s namespace.
+			_, err := db.ExecContext(ctx, `
+				UPDATE deployments SET namespace = $1 WHERE id = $2 AND status = 'active'
+			`, candidate.k8sNamespace, sd.ID)
+			if err != nil {
+				log.Warn("Failed to adopt orphaned namespace",
+					"deployment_id", sd.ID,
+					"old_namespace", sd.Namespace,
+					"k8s_namespace", candidate.k8sNamespace,
+					"error", err,
+				)
+				continue
+			}
+
+			// Delete the stale namespace_ownership row (keyed by old namespace).
+			// The next scan cycle will re-create it with the correct K8s namespace.
+			_, err = db.ExecContext(ctx, `
+				DELETE FROM namespace_ownership WHERE namespace = $1
+			`, sd.Namespace)
+			if err != nil {
+				log.Warn("Failed to clean up old namespace_ownership entry",
+					"old_namespace", sd.Namespace,
+					"error", err,
+				)
+			}
+
+			log.Info("Adopted orphaned namespace",
+				"deployment_id", sd.ID,
+				"agent", sd.AgentName,
+				"old_namespace", sd.Namespace,
+				"k8s_namespace", candidate.k8sNamespace,
+			)
+			adopted++
+
+			// Remove from index so we don't double-adopt.
+			delete(orphanIndex, key)
+		}
+
+		if adopted > 0 {
+			log.Info("Migration hook complete", "adopted", adopted)
+		}
+
+		// Also count remaining legacy deployments for visibility.
 		var legacyCount int
 		err := db.QueryRowContext(ctx, `
 			SELECT COUNT(*) FROM deployments
 			WHERE status = 'active'
-			AND namespace NOT LIKE 'astro-' || REPLACE(id::text, '-', '') || '%'
+			AND namespace NOT LIKE 'astro-' || REPLACE(id, '-', '') || '%'
 		`).Scan(&legacyCount)
 		if err != nil {
 			return err
 		}
-
 		if legacyCount > 0 {
-			log.Info("Legacy namespace deployments detected",
+			log.Info("Legacy namespace deployments remaining",
 				"count", legacyCount,
 			)
 		}
