@@ -45,13 +45,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-// OnboardingGuard redirects are client-only (<Navigate> doesn't produce HTTP
-// redirects during SSR). This is safe because useAuth().isLoading is always
-// true on the server, so the guard short-circuits and never renders <Navigate>.
+// Temporary: blocks all unauthenticated access while the waitlist is active.
+// When the waitlist is removed, delete this component and its usage in Root().
+// Protected pages have their own auth via ProtectedRoute; public pages (browse,
+// agent detail, account profiles) will become accessible without login.
 const WAITLIST_URL = "https://blog.astropods.ai/waitlist";
 const isProduction = typeof window !== "undefined" && window.location.hostname === "astropods.ai";
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
+function WaitlistGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, login } = useAuth();
   const location = useLocation();
 
@@ -96,13 +97,13 @@ export default function Root() {
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <QueryAuthSync />
-        <AuthGuard>
+        <WaitlistGuard>
           <AmplitudeProvider>
             <OnboardingGuard>
               <Outlet />
             </OnboardingGuard>
           </AmplitudeProvider>
-        </AuthGuard>
+        </WaitlistGuard>
       </QueryClientProvider>
     </AuthProvider>
   );

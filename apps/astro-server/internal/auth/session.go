@@ -17,7 +17,6 @@ import (
 
 var (
 	ErrInvalidSession   = errors.New("invalid session")
-	ErrSessionExpired   = errors.New("session expired")
 	ErrEncryptionFailed = errors.New("encryption failed")
 	ErrDecryptionFailed = errors.New("decryption failed")
 	ErrInvalidCookie    = errors.New("invalid cookie data")
@@ -94,10 +93,10 @@ func (sm *SessionManager) UnsealSession(sealedData string) (*SessionData, error)
 		return nil, fmt.Errorf("%w: failed to unmarshal session data", ErrDecryptionFailed)
 	}
 
-	// Validate session expiry
-	if data.Session != nil && time.Now().After(data.Session.ExpiresAt) {
-		return nil, ErrSessionExpired
-	}
+	// Session expiry is NOT checked here so that callers (e.g. /me, /auth/refresh)
+	// can read expired sessions and attempt a token refresh using the stored
+	// refresh token. Callers that need to reject expired sessions should use
+	// IsSessionValid after unsealing.
 
 	return &data, nil
 }

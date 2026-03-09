@@ -171,9 +171,19 @@ func TestUnsealSession_ExpiredSession(t *testing.T) {
 		t.Fatalf("SealSession failed: %v", err)
 	}
 
-	_, err = sm.UnsealSession(sealed)
-	if !errors.Is(err, ErrSessionExpired) {
-		t.Errorf("expected ErrSessionExpired, got %v", err)
+	// UnsealSession should succeed for expired sessions so that callers
+	// (e.g. /me, /auth/refresh) can read the refresh token and attempt
+	// a transparent re-authentication. Callers use IsSessionValid to
+	// check expiry where needed.
+	unsealed, err := sm.UnsealSession(sealed)
+	if err != nil {
+		t.Fatalf("UnsealSession should succeed for expired sessions, got %v", err)
+	}
+	if unsealed.Session.ID != "session_123" {
+		t.Errorf("session ID mismatch: got %s, want session_123", unsealed.Session.ID)
+	}
+	if sm.IsSessionValid(unsealed.Session) {
+		t.Error("expected IsSessionValid to return false for expired session")
 	}
 }
 

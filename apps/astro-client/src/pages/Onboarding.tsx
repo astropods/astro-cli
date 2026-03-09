@@ -9,7 +9,16 @@ export default function Onboarding() {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { checkAuth } = useAuth();
+  const { checkAuth, isAuthenticated, isLoading, login } = useAuth();
+
+  // Onboarding requires authentication (can't use ProtectedRoute here because
+  // its personalAccount check would create a redirect loop back to /onboarding).
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      login();
+    }
+  }, [isLoading, isAuthenticated, login]);
+
   const createAccount = useCreateAccount();
 
   const { isChecking, isAvailable, displayError } = useAccountNameValidation(name);

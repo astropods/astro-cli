@@ -15,28 +15,38 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, setState] = useState<AuthState>(initialAuthState);
 
-  const updateFromResponse = useCallback((response: AuthResponse) => {
-    const accounts = response.accounts || [];
+  const updateFromResponse = useCallback(
+    (response: AuthResponse, { isRefresh = false } = {}) => {
+      const accounts = response.accounts || [];
 
-    setState((prev) => ({
-      user: response.user,
-      sessionId: response.session_id,
-      organizationId: response.organization_id || null,
-      role: response.role || null,
-      permissions: response.permissions || [],
-      expiresAt: response.expires_at ? new Date(response.expires_at) : null,
-      isLoading: false,
-      isAuthenticated: true,
-      error: null,
-      accounts,
-      needsOnboarding: !accounts.some((a) => a.type === 'personal'),
-      refreshVersion: prev.refreshVersion + 1,
-    }));
-  }, []);
+      setState((prev) => ({
+        user: response.user,
+        sessionId: response.session_id,
+        organizationId: response.organization_id || null,
+        role: response.role || null,
+        permissions: response.permissions || [],
+        expiresAt: response.expires_at ? new Date(response.expires_at) : null,
+        isLoading: false,
+        isAuthenticated: true,
+        error: null,
+        accounts,
+        needsOnboarding: !accounts.some((a) => a.type === 'personal'),
+        refreshVersion: isRefresh ? prev.refreshVersion + 1 : prev.refreshVersion,
+      }));
+    },
+    [],
+  );
 
   const checkAuth = useCallback(async () => {
     try {
-      setState((prev) => ({ ...prev, isLoading: true, error: null }));
+      // Only show loading state on initial check (not yet authenticated).
+      // When re-checking for an already-authenticated user (e.g. after a 401
+      // from a stale token), skip the loading flag so the page stays visible.
+      setState((prev) => ({
+        ...prev,
+        isLoading: prev.isAuthenticated ? prev.isLoading : true,
+        error: null,
+      }));
       const response = await api.getCurrentUser();
       updateFromResponse(response);
     } catch (err) {
@@ -67,7 +77,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const refresh = useCallback(async () => {
     try {
       const response = await api.refreshSession();
-      updateFromResponse(response);
+      updateFromResponse(response, { isRefresh: true });
     } catch (err) {
       // Network failures (e.g. offline) — don't log the user out, the next
       // visibility/focus event will retry.
@@ -94,45 +104,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Check authentication on mount
   useEffect(() => {
-    let mounted = true;
-
-    const doCheck = async () => {
-      try {
-        setState((prev) => ({ ...prev, isLoading: true, error: null }));
-        const response = await api.getCurrentUser();
-        if (!mounted) return;
-        updateFromResponse(response);
-      } catch (err) {
-        if (!mounted) return;
-        const error = err as ApiError;
-        if (
-          error.error === 'unauthorized' ||
-          error.error === 'session_invalid' ||
-          error.error === 'session_expired'
-        ) {
-          setState({
-            ...initialAuthState,
-            isLoading: false,
-          });
-        } else {
-          setState({
-            ...initialAuthState,
-            isLoading: false,
-            error:
-              error.error_description ||
-              error.error ||
-              'Failed to check authentication',
-          });
-        }
-      }
-    };
-
-    doCheck();
-
-    return () => {
-      mounted = false;
-    };
-  }, [updateFromResponse]);
+    checkAuth();
+  }, [checkAuth]);
 
   // Check if token needs refresh (expiring within 5 minutes)
   const isTokenExpiringSoon = useCallback(() => {

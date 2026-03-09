@@ -176,8 +176,8 @@ func Load() (*Config, error) {
 			CookieDomain:   getEnv("AUTH_COOKIE_DOMAIN", ""),
 			CookieSecure:   getEnv("AUTH_COOKIE_SECURE", "false") == "true",
 			CookieSameSite: getEnv("AUTH_COOKIE_SAMESITE", "Lax"),
-			CookieMaxAge:   getEnvDuration("AUTH_COOKIE_MAX_AGE", 7*24*time.Hour),
-			SessionMaxAge:  getEnvDuration("AUTH_SESSION_MAX_AGE", 24*time.Hour),
+			CookieMaxAge:   getEnvDuration("AUTH_COOKIE_MAX_AGE", 30*24*time.Hour),
+			SessionMaxAge:  getEnvDuration("AUTH_SESSION_MAX_AGE", 30*24*time.Hour),
 			JWTIssuer:      getEnv("AUTH_JWT_ISSUER", "https://api.workos.com"),
 		},
 		Database: DatabaseConfig{
