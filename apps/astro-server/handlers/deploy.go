@@ -136,6 +136,21 @@ func prepareDeployment(
 		return nil, false
 	}
 
+	// Auth: user must have visibility on the source agent.
+	// Public agents are deployable by anyone; private agents require source account membership.
+	sourceAgent, err := agentIndex.Get(sourceAcct.ID, submittedSpec.Source.Name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "source agent not found"})
+		return nil, false
+	}
+	if sourceAgent.Visibility == "private" {
+		isSourceMember, err := accountStore.IsMember(sourceAcct.ID, user.ID)
+		if err != nil || !isSourceMember {
+			c.JSON(http.StatusNotFound, gin.H{"error": "source agent not found"})
+			return nil, false
+		}
+	}
+
 	// Sanitize and validate the optional display name
 	submittedSpec.Target.DisplayName = strings.TrimSpace(submittedSpec.Target.DisplayName)
 	if dn := submittedSpec.Target.DisplayName; dn != "" {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -260,6 +261,194 @@ func TestUndeploy_MissingDeploymentID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- prepareDeployment source-agent visibility tests ---
+// These use the ValidateDeployment handler since it calls prepareDeployment
+// without requiring a K8s client.
+
+// minimalDeploySpec returns a JSON deployment spec body for testing.
+// The source account/name/build are set; the spec is minimal but parseable.
+func minimalDeploySpec(sourceAccount, agentName, buildID string) string {
+	return fmt.Sprintf(`{
+		"spec": "deployment/v1",
+		"source": {"account": %q, "name": %q, "build": %q, "registry": "r.io"},
+		"target": {"runtime": "kubernetes"},
+		"agent": {"image": "r.io/img:latest", "endpoints": {"http": {"port": 8080}}}
+	}`, sourceAccount, agentName, buildID)
+}
+
+// setupValidateRouter creates a gin engine wired with ValidateDeployment.
+func setupValidateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	store := account.NewAccountStore(accountDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "docker.io/library",
+		},
+	}
+
+	router := gin.New()
+	if userID != "" {
+		router.Use(func(c *gin.Context) {
+			c.Set(string(auth.UserContextKey), &auth.User{ID: userID})
+			c.Next()
+		})
+	}
+	router.POST("/deploy/validate", ValidateDeployment(log, index, store, cfg))
+
+	return router, indexMock, accountMock
+}
+
+func TestDeploy_PrivateSourceAgent_NonMember_Rejected(t *testing.T) {
+	router, indexMock, accountMock := setupValidateRouter("user-cross")
+
+	now := time.Now()
+	body := minimalDeploySpec("source-org", "secret-agent", "build-1")
+
+	// Source account lookup
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("source-org").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now))
+
+	// Target == source (no target.account in spec), so no second account lookup
+
+	// IsMember(target=source, user) → member of target
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("src-acct", "user-cross").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// agentIndex.Get → private agent
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("src-acct", "secret-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
+			AddRow("src-acct", "secret-agent", "r.io", "private", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("src-acct", "secret-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", `{"name":"secret-agent"}`, "", "[]", now, now))
+
+	// IsMember(source, user) → NOT a member
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("src-acct", "user-cross").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("private source agent should be hidden from non-members, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["error"] != "source agent not found" {
+		t.Errorf("expected 'source agent not found', got %v", resp["error"])
+	}
+}
+
+func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
+	router, indexMock, accountMock := setupValidateRouter("user-target")
+
+	now := time.Now()
+	// Source and target are different accounts
+	body := `{
+		"spec": "deployment/v1",
+		"source": {"account": "source-org", "name": "secret-agent", "build": "build-1", "registry": "r.io"},
+		"target": {"account": "target-org", "runtime": "kubernetes"},
+		"agent": {"image": "r.io/img:latest", "endpoints": {"http": {"port": 8080}}}
+	}`
+
+	// Source account lookup
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("source-org").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now))
+
+	// Target account lookup (different from source)
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("target-org").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("tgt-acct", "target-org", "organization", nil, nil, now, now))
+
+	// IsMember(target, user) → member of target account
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("tgt-acct", "user-target").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// agentIndex.Get → private agent
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("src-acct", "secret-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
+			AddRow("src-acct", "secret-agent", "r.io", "private", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("src-acct", "secret-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", `{"name":"secret-agent"}`, "", "[]", now, now))
+
+	// IsMember(source, user) → NOT a member of source
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("src-acct", "user-target").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("cross-account deploy of private agent should be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
+	router, indexMock, accountMock := setupValidateRouter("user-1")
+
+	now := time.Now()
+	body := minimalDeploySpec("myorg", "nonexistent", "build-1")
+
+	// Account lookup
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	// IsMember(target=source, user) → member
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// agentIndex.Get → no rows
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "nonexistent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}))
+
+	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
