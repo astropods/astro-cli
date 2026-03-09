@@ -33,12 +33,8 @@ This command initiates the OAuth device authorization flow:
 3. Enter the code and sign in with your account
 4. The CLI automatically receives your credentials
 
-Your Astro credentials and Astro server URL are stored in your system's keychain
-when available, otherwise in ~/.ast/credentials.json with restricted permissions.
-
-Example:
-  ast login
-  ast login --no-browser`,
+Credentials are stored in your system's keychain when available,
+otherwise in the CLI config directory with restricted permissions.`,
 	RunE: runLogin,
 }
 

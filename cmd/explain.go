@@ -17,16 +17,14 @@ var explainCmd = &cobra.Command{
 	Short: "Explain the agent project based on its spec",
 	Long: `Parse the astropods.yml spec and display a human-readable explanation
 of the agent project: its components, what env vars each component
-injects into the agent, and what credentials and inputs are required.
-
-Example:
-  ast explain
-  ast explain -f custom-spec.yml`,
+injects into the agent, and what credentials and inputs are required.`,
 	RunE: runExplain,
 }
 
 func init() {
 	rootCmd.AddCommand(explainCmd)
+	explainCmd.Example = fmt.Sprintf(`  %[1]s explain
+  %[1]s explain -f custom-spec.yml`, binaryName)
 }
 
 func runExplain(cmd *cobra.Command, args []string) error {

@@ -17,10 +17,7 @@ var whoamiCmd = &cobra.Command{
 	Long: `Display information about the currently authenticated user.
 
 This command shows your user details and validates that your credentials
-are still valid, refreshing them if necessary.
-
-Example:
-  ast whoami`,
+are still valid, refreshing them if necessary.`,
 	RunE: runWhoami,
 }
 
@@ -46,18 +43,18 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	// Load current profile
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return fmt.Errorf("not logged in. Run 'ast login' to authenticate")
+		return fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
 	}
 
 	if profile.AccessToken == "" {
-		return fmt.Errorf("not logged in. Run 'ast login' to authenticate")
+		return fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
 	}
 
 	// Validate token is still valid (this will refresh if needed)
 	tokenManager := auth.NewTokenManager(binaryName)
 	_, err = tokenManager.GetValidAccessToken(context.Background())
 	if err != nil {
-		return fmt.Errorf("session expired or invalid. Run 'ast login' to re-authenticate")
+		return fmt.Errorf("session expired or invalid. Run '%s login' to re-authenticate", binaryName)
 	}
 
 	// Reload profile in case it was refreshed

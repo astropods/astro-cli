@@ -23,25 +23,14 @@ var configureCmd = &cobra.Command{
 	Use:     "configure",
 	Aliases: []string{"config"},
 	Short:   "Configure project credentials and inputs",
-	Long: `Interactively set credentials and input values for your agent project.
-
-Reads astropods.yml to determine required variables, presents an interactive
-form to fill them in, and stores values in ~/.ast/project-configs.json.
-
-Stored values are automatically loaded by 'ast dev', removing the need for
-a .env file.`,
-	RunE: runConfigure,
+	RunE:    runConfigure,
 }
 
 var configureSetCmd = &cobra.Command{
 	Use:   "set <KEY> <VALUE>",
 	Short: "Set a single config variable",
-	Long: `Set a single configuration variable for the current project.
-
-The value is stored in ~/.ast/project-configs.json and automatically
-loaded by 'ast dev'.`,
-	Args: cobra.ExactArgs(2),
-	RunE: runConfigureSet,
+	Args:  cobra.ExactArgs(2),
+	RunE:  runConfigureSet,
 }
 
 var configureTelemetryCmd = &cobra.Command{
@@ -58,6 +47,19 @@ func init() {
 	rootCmd.AddCommand(configureCmd)
 	configureCmd.AddCommand(configureSetCmd)
 	configureCmd.AddCommand(configureTelemetryCmd)
+
+	configureCmd.Long = fmt.Sprintf(`Interactively set credentials and input values for your agent project.
+
+Reads astropods.yml to determine required variables, presents an interactive
+form to fill them in, and stores values in ~/.%s/project-configs.json.
+
+Stored values are automatically loaded by '%s dev', removing the need for
+a .env file.`, binaryName, binaryName)
+
+	configureSetCmd.Long = fmt.Sprintf(`Set a single configuration variable for the current project.
+
+The value is stored in ~/.%s/project-configs.json and automatically
+loaded by '%s dev'.`, binaryName, binaryName)
 	configureTelemetryCmd.Flags().Bool("enable", false, "Enable anonymous telemetry")
 	configureTelemetryCmd.Flags().Bool("disable", false, "Disable anonymous telemetry")
 
@@ -466,7 +468,7 @@ func runConfigureSet(cmd *cobra.Command, args []string) error {
 func configsPathDisplay() string {
 	path, err := config.ConfigsPath(binaryName)
 	if err != nil {
-		return "~/.ast/project-configs.json"
+		return fmt.Sprintf("~/.%s/project-configs.json", binaryName)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

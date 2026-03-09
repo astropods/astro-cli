@@ -30,28 +30,12 @@ import (
 var devCmd = &cobra.Command{
 	Use:   "dev",
 	Short: "Manage local development environment",
-	Long: `Manage the local development environment for your agent.
-
-Subcommands:
-  start   Start dev containers (default when no subcommand given)
-  logs    Tail container logs
-  stop    Stop dev containers
-
-Running 'ast dev' without a subcommand is equivalent to 'ast dev start'.
-
-Example:
-  ast dev                  # start containers and exit
-  ast dev start --rebuild  # force rebuild containers
-  ast dev logs             # tail logs
-  ast dev stop             # stop containers
-  ast dev --local          # run agent as local process (blocking)`,
-	RunE: runDevStart,
+	RunE:  runDevStart,
 }
 
 var devStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start dev containers",
-	Long:  `Start the local development environment with Docker containers. In non-local mode, containers start in background and the command exits. Use 'ast dev logs' to tail logs and 'ast dev stop' to stop.`,
 	RunE:  runDevStart,
 }
 
@@ -93,13 +77,30 @@ func init() {
 	devCmd.AddCommand(devStopCmd)
 	devCmd.AddCommand(devTriggerCmd)
 
-	// Flags on both devCmd and devStartCmd so they work with `ast dev` and `ast dev start`
+	devCmd.Long = fmt.Sprintf(`Manage the local development environment for your agent.
+
+Subcommands:
+  start   Start dev containers (default when no subcommand given)
+  logs    Tail container logs
+  stop    Stop dev containers
+
+Running '%[1]s dev' without a subcommand is equivalent to '%[1]s dev start'.`, binaryName)
+
+	devCmd.Example = fmt.Sprintf(`  %[1]s dev                  # start containers and exit
+  %[1]s dev start --rebuild  # force rebuild containers
+  %[1]s dev logs             # tail logs
+  %[1]s dev stop             # stop containers
+  %[1]s dev --local          # run agent as local process (blocking)`, binaryName)
+
+	devStartCmd.Long = fmt.Sprintf(`Start the local development environment with Docker containers. In non-local mode, containers start in background and the command exits. Use '%[1]s dev logs' to tail logs and '%[1]s dev stop' to stop.`, binaryName)
+
+	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
 		cmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
 		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
-		cmd.Flags().BoolVar(&localReset, "local-reset", false, "Remove local package (use after ast dev --local); run 'bun install' to restore deps")
+		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local package (use after %s dev --local); run 'bun install' to restore deps", binaryName))
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
@@ -224,7 +225,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if len(storedVars) > 0 {
 		fmt.Printf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, len(storedVars))
 	} else if len(envVars) == 0 {
-		fmt.Printf("%s→%s %sNo credentials found. Run 'ast configure' to set up.%s\n", colorCyan, colorReset, colorDim, colorReset)
+		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, binaryName, colorReset)
 	}
 	// Check for native Ollama — require host-installed Ollama for dev mode
 	buildOpts := composeBuilder.BuildOptions{}
@@ -425,7 +426,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	}
 
 	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
-	fmt.Printf("  %sTip: run 'ast dev --local-reset' to remove injected local dependencies%s\n", colorDim, colorReset)
+	fmt.Printf("  %sTip: run '%s dev --local-reset' to remove injected local dependencies%s\n", colorDim, binaryName, colorReset)
 
 	return nil
 }
@@ -441,7 +442,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(cPath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
+		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
 	}
 
 	service := "agent"
@@ -478,7 +479,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(cPath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
+		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
 	}
 
 	fmt.Printf("%s→%s Stopping dev containers...\n", colorCyan, colorReset)
@@ -519,7 +520,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s%s%s  %s(%s)%s\n", colorBold, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
 		}
 		fmt.Println()
-		fmt.Printf("Run %sast dev trigger <name>%s to trigger one.\n", colorBold, colorReset)
+		fmt.Printf("Run %s%s dev trigger <name>%s to trigger one.\n", colorBold, binaryName, colorReset)
 		return nil
 	}
 
@@ -541,7 +542,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(cPath); os.IsNotExist(err) {
-		return fmt.Errorf("no dev environment found (missing %s). Run 'ast dev' first", cPath)
+		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
 	}
 
 	fmt.Printf("%s→%s Triggering ingestion: %s\n", colorCyan, colorReset, name)
@@ -743,15 +744,15 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, bold.Render("ast dev logs")+"  — tail logs")
-	lines = append(lines, bold.Render("ast dev stop")+"  — stop")
+	lines = append(lines, bold.Render(binaryName+" dev logs")+"  — tail logs")
+	lines = append(lines, bold.Render(binaryName+" dev stop")+"  — stop")
 
 	// Manual / schedule ingestion hints
 	for name, ingestion := range s.Ingestion {
 		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
 			continue
 		}
-		lines = append(lines, bold.Render(fmt.Sprintf("ast dev trigger %-8s", name))+"— trigger ingestion")
+		lines = append(lines, bold.Render(fmt.Sprintf("%s dev trigger %-8s", binaryName, name))+"— trigger ingestion")
 	}
 
 	box := lipgloss.NewStyle().
