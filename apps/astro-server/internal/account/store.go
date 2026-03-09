@@ -82,16 +82,20 @@ func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, e
 	return &acct, nil
 }
 
-// scanAccount scans an account row with the workos_org_id column.
+// scanAccount scans an account row with the workos_org_id and deleted_at columns.
 func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
-	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &acct.CreatedAt, &acct.UpdatedAt)
+	var deletedAt sql.NullTime
+	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	if workosOrgID.Valid {
 		acct.WorkOSOrganizationID = workosOrgID.String
+	}
+	if deletedAt.Valid {
+		acct.DeletedAt = &deletedAt.Time
 	}
 	return &acct, nil
 }
@@ -99,7 +103,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.created_at, a.updated_at
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.name = $1
@@ -116,7 +120,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.created_at, a.updated_at
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.id = $1
@@ -133,7 +137,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.created_at, a.updated_at
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE ao.workos_org_id = $1
@@ -490,6 +494,25 @@ func (s *AccountStore) RemoveUserFromAllAccounts(userID string) (int64, error) {
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	return n, nil
+}
+
+// MarkDeleted soft-deletes an account by setting deleted_at.
+func (s *AccountStore) MarkDeleted(accountID string) error {
+	result, err := s.db.Exec(`
+		UPDATE accounts SET deleted_at = $1, updated_at = $2
+		WHERE id = $3 AND deleted_at IS NULL
+	`, time.Now(), time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to mark account deleted: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("account not found or already deleted: %s", accountID)
+	}
+	return nil
 }
 
 // DeleteByID deletes an account by its UUID (used for cleanup on org creation failure).

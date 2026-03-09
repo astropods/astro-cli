@@ -235,10 +235,10 @@ func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
 		if err != nil {
 			return nil // already gone — idempotent
 		}
-		if err := ec.accountStore.DeleteByID(acct.ID); err != nil {
-			return fmt.Errorf("delete account for org deletion: %w", err)
+		if err := ec.accountStore.MarkDeleted(acct.ID); err != nil {
+			return fmt.Errorf("mark account deleted for org deletion: %w", err)
 		}
-		ec.log.Info("Deleted account from org deletion",
+		ec.log.Info("Marked account for cleanup from org deletion",
 			"account_id", acct.ID, "workos_org_id", data.ID)
 	}
 

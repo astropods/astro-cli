@@ -47,8 +47,8 @@ func TestProcessEvent_MembershipCreated(t *testing.T) {
 	// GetByWorkOSOrganizationID
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
 
 	// UpsertMemberByWorkosMembershipID
 	mock.ExpectExec("INSERT INTO account_members .+ ON CONFLICT").
@@ -81,8 +81,8 @@ func TestProcessEvent_MembershipDeleted(t *testing.T) {
 	// GetByWorkOSOrganizationID
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
 
 	// GetMemberByWorkosMembershipID
 	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
@@ -116,8 +116,8 @@ func TestProcessEvent_MembershipDeleted_AlreadyGone(t *testing.T) {
 	// GetByWorkOSOrganizationID
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
 
 	// GetMemberByWorkosMembershipID — not found
 	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
@@ -144,7 +144,7 @@ func TestProcessEvent_Membership_NoLocalAccount(t *testing.T) {
 	// GetByWorkOSOrganizationID — not found
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
 
 	event := makeEvent("organization_membership.created", map[string]any{
 		"id":              "mem-1",
@@ -169,8 +169,8 @@ func TestProcessEvent_OrgCreated_AlreadyLinked(t *testing.T) {
 	// GetByWorkOSOrganizationID — found, already linked
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
 
 	event := makeEvent("organization.created", map[string]any{
 		"id":   "org_1",
@@ -192,13 +192,13 @@ func TestProcessEvent_OrgCreated_WithExternalID(t *testing.T) {
 	// GetByWorkOSOrganizationID — not found
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_new").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
 
 	// GetByID — account exists with this external_id
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acct-existing").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-existing", "myorg", "organization", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-existing", "myorg", "organization", nil, nil, now, now))
 
 	// SetWorkOSOrganizationID
 	mock.ExpectExec("INSERT INTO account_organizations").
@@ -226,7 +226,7 @@ func TestProcessEvent_OrgCreated_External(t *testing.T) {
 	// GetByWorkOSOrganizationID — not found
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_ext").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
 
 	// CreateWithoutOwner
 	mock.ExpectQuery("INSERT INTO accounts").
@@ -259,7 +259,7 @@ func TestProcessEvent_OrgCreated_ExternalLinkFailure_Cleans(t *testing.T) {
 	// GetByWorkOSOrganizationID — not found
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_ext").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
 
 	// CreateWithoutOwner
 	mock.ExpectQuery("INSERT INTO accounts").
@@ -297,8 +297,8 @@ func TestProcessEvent_OrgUpdated_RenamesAccount(t *testing.T) {
 	// GetByWorkOSOrganizationID
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "old-name", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "old-name", "organization", "org_1", nil, now, now))
 
 	// Rename
 	mock.ExpectExec("UPDATE accounts SET name").
@@ -325,8 +325,8 @@ func TestProcessEvent_OrgUpdated_SameName_NoOp(t *testing.T) {
 	// GetByWorkOSOrganizationID
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "same-name", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "same-name", "organization", "org_1", nil, now, now))
 
 	// No Rename expected
 
@@ -349,7 +349,7 @@ func TestProcessEvent_OrgUpdated_NoLocalAccount(t *testing.T) {
 	// GetByWorkOSOrganizationID — not found
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
 
 	event := makeEvent("organization.updated", map[string]any{
 		"id":   "org_unknown",
@@ -371,12 +371,12 @@ func TestProcessEvent_OrgDeleted(t *testing.T) {
 	// GetByWorkOSOrganizationID
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_1", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", "org_1", nil, now, now))
 
-	// DeleteByID
-	mock.ExpectExec("DELETE FROM accounts WHERE id").
-		WithArgs("acct-1").
+	// MarkDeleted
+	mock.ExpectExec("UPDATE accounts SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "acct-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	event := makeEvent("organization.deleted", map[string]any{
@@ -398,7 +398,7 @@ func TestProcessEvent_OrgDeleted_AlreadyGone(t *testing.T) {
 	// GetByWorkOSOrganizationID — not found
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_gone").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
 
 	event := makeEvent("organization.deleted", map[string]any{
 		"id":   "org_gone",
