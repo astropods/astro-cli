@@ -226,8 +226,22 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	} else if len(envVars) == 0 {
 		fmt.Printf("%s→%s %sNo credentials found. Run 'ast configure' to set up.%s\n", colorCyan, colorReset, colorDim, colorReset)
 	}
+	// Check for native Ollama — prefer host-installed Ollama over containerized
+	buildOpts := composeBuilder.BuildOptions{}
+	if hasOllamaModels(astroSpec) {
+		if nativeOllamaAvailable() {
+			buildOpts.NativeOllama = true
+			fmt.Printf("%s→%s Using native Ollama (host-installed)\n", colorCyan, colorReset)
+			if err := ensureOllamaModels(astroSpec, verbose); err != nil {
+				return fmt.Errorf("failed to prepare Ollama models: %w", err)
+			}
+		} else {
+			fmt.Printf("%s→%s Ollama not found on host — using containerized Ollama\n", colorCyan, colorReset)
+		}
+	}
+
 	// Build Docker Compose project
-	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
+	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars, buildOpts)
 	if err != nil {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
@@ -769,4 +783,57 @@ func openBrowser(url string) {
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("%s✗%s %sFailed to open browser: %v%s\n", colorRed, colorReset, colorDim, err, colorReset)
 	}
+}
+
+// hasOllamaModels returns true if any model in the spec uses the ollama provider.
+func hasOllamaModels(s *spec.AstroSpec) bool {
+	for _, model := range s.Models {
+		if model.Provider == "ollama" {
+			return true
+		}
+	}
+	return false
+}
+
+// nativeOllamaAvailable returns true if ollama is installed and the server is reachable.
+func nativeOllamaAvailable() bool {
+	if _, err := exec.LookPath("ollama"); err != nil {
+		return false
+	}
+	// Check if the server is responding
+	cmd := exec.Command("ollama", "list")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run() == nil
+}
+
+// ensureOllamaModels pulls all required Ollama models on the host if not already present.
+func ensureOllamaModels(s *spec.AstroSpec, verbose bool) error {
+	for _, model := range s.Models {
+		if model.Provider != "ollama" {
+			continue
+		}
+		for _, m := range model.ResolvedModels() {
+			// Check if model is already pulled
+			out, err := exec.Command("ollama", "list").Output() //nolint:gosec
+			if err == nil && strings.Contains(string(out), m) {
+				fmt.Printf("%s→%s Model %s already available\n", colorCyan, colorReset, m)
+				continue
+			}
+			fmt.Printf("%s→%s Pulling model %s...\n", colorCyan, colorReset, m)
+			pullCmd := exec.Command("ollama", "pull", m) //nolint:gosec
+			if verbose {
+				pullCmd.Stdout = os.Stdout
+				pullCmd.Stderr = os.Stderr
+			} else {
+				pullCmd.Stdout = io.Discard
+				pullCmd.Stderr = os.Stderr // show errors even in non-verbose
+			}
+			if err := pullCmd.Run(); err != nil {
+				return fmt.Errorf("failed to pull model %s: %w", m, err)
+			}
+			fmt.Printf("%s→%s Model %s ready\n", colorCyan, colorReset, m)
+		}
+	}
+	return nil
 }

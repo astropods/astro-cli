@@ -107,8 +107,20 @@ func buildHealthCheckTest(healthcheck *spec.Healthcheck, provider string, port i
 	return nil
 }
 
-// BuildProject converts an AstroSpec to a Docker Compose project
-func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
+// BuildOptions controls optional behavior when generating the Compose project.
+type BuildOptions struct {
+	// NativeOllama skips the Ollama container and points env vars at the
+	// host's native Ollama instance (via host.docker.internal).
+	NativeOllama bool
+}
+
+// BuildProject converts an AstroSpec to a Docker Compose project.
+// An optional BuildOptions can be passed to customize generation.
+func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string, opts ...BuildOptions) (*types.Project, error) {
+	var opt BuildOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	project := &types.Project{
 		Name:       s.Name,
 		WorkingDir: workingDir,
@@ -126,6 +138,10 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	// Add models that deploy a container (skip cloud and custom providers)
 	for name, model := range s.Models {
 		if !model.DeploysContainer(s.Providers) {
+			continue
+		}
+		// Skip Ollama containers when using native Ollama on the host
+		if opt.NativeOllama && model.Provider == "ollama" {
 			continue
 		}
 		resolved := model.ResolvedContainer()
@@ -494,7 +510,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 
 		// Environment variables - inherit from agent
-		service.Environment = BuildEnvironment(s, envVars)
+		service.Environment = BuildEnvironment(s, envVars, opt)
 
 		project.Services[serviceName] = service
 	}
@@ -537,7 +553,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Environment variables
-	agentService.Environment = BuildEnvironment(s, envVars)
+	agentService.Environment = BuildEnvironment(s, envVars, opt)
 
 	// Dependencies - depend on all other services
 	dependsOn := make(types.DependsOnConfig)
@@ -550,6 +566,14 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Ports for interfaces — no longer configured via spec; agent exposes 8080 by default
 
+	// When using native Ollama, the agent container must resolve host.docker.internal
+	// to reach the host's Ollama server.
+	if opt.NativeOllama {
+		agentService.ExtraHosts = types.HostsList{
+			"host.docker.internal": {"host-gateway"},
+		}
+	}
+
 	// Add agent service last
 	project.Services["agent"] = agentService
 
@@ -558,12 +582,36 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 // BuildEnvironment creates environment variables for the agent container.
 // Exported so buildLocalAgentEnv can reuse it for --local mode.
-func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
+func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...BuildOptions) types.MappingWithEquals {
+	var opt BuildOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	env := make(types.MappingWithEquals)
 
 	// Auto-inject connection strings for container-deploying components;
 	// inject credentials for cloud providers.
 	for name, model := range s.Models {
+		// Native Ollama: inject env vars pointing at host, skip container logic.
+		if opt.NativeOllama && model.Provider == "ollama" {
+			prov := spec.GetModelProvider("ollama")
+			host := "host.docker.internal"
+			port := fmt.Sprintf("%d", prov.DefaultPort)
+			if prov.EnvPrefix != "" {
+				env[prov.EnvPrefix+"_HOST"] = &host
+				env[prov.EnvPrefix+"_PORT"] = &port
+				modelURL := fmt.Sprintf("http://%s:%s", host, port)
+				env[prov.EnvPrefix+"_URL"] = &modelURL
+				baseURL := fmt.Sprintf("http://%s:%s/api", host, port)
+				env[prov.EnvPrefix+"_BASE_URL"] = &baseURL
+			}
+			if len(model.ResolvedModels()) > 0 && prov.EnvPrefix != "" {
+				m := strings.Join(model.ResolvedModels(), ",")
+				env[prov.EnvPrefix+"_MODEL"] = &m
+			}
+			continue
+		}
+
 		if !model.DeploysContainer(s.Providers) {
 			// Cloud provider — inject credentials from .env
 			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
