@@ -60,6 +60,28 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 	return &acct, nil
 }
 
+// CreateWithoutOwner creates a new account with no initial member.
+// Used when syncing externally-created WorkOS organizations.
+func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, error) {
+	if err := ValidateAccountName(name); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	var acct Account
+	err := s.db.QueryRow(`
+		INSERT INTO accounts (name, type, created_at, updated_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, name, type, created_at, updated_at
+	`, name, accountType, now, now).Scan(
+		&acct.ID, &acct.Name, &acct.Type, &acct.CreatedAt, &acct.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create account: %w", err)
+	}
+	return &acct, nil
+}
+
 // scanAccount scans an account row with the workos_org_id column.
 func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
@@ -455,6 +477,19 @@ func (s *AccountStore) GetAccountsMissingOpenMeterCustomer(limit int) ([]Account
 		accounts = append(accounts, a)
 	}
 	return accounts, nil
+}
+
+// RemoveUserFromAllAccounts removes a user from every account they belong to.
+func (s *AccountStore) RemoveUserFromAllAccounts(userID string) (int64, error) {
+	result, err := s.db.Exec(`DELETE FROM account_members WHERE user_id = $1`, userID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to remove user from all accounts: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return n, nil
 }
 
 // DeleteByID deletes an account by its UUID (used for cleanup on org creation failure).
