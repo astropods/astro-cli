@@ -91,6 +91,8 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 			return
 		}
 
+		ec.log.Debug("Processing WorkOS events batch", "count", len(resp.Data))
+
 		for _, event := range resp.Data {
 			if err := ec.processEvent(ctx, event); err != nil {
 				ec.log.Error("Failed to process event",
@@ -108,6 +110,9 @@ func (ec *EventsConsumer) poll(ctx context.Context) {
 			ec.log.Error("Failed to persist events cursor", "error", err)
 			return
 		}
+
+		ec.log.Info("Processed WorkOS events batch",
+			"count", len(resp.Data), "cursor", cursor)
 
 		// If fewer events than limit, we've caught up
 		if len(resp.Data) < eventsBatchSize {
@@ -161,23 +166,33 @@ func (ec *EventsConsumer) processMembershipEvent(event events.Event) error {
 	// Look up local account by WorkOS org ID
 	acct, err := ec.accountStore.GetByWorkOSOrganizationID(data.OrganizationID)
 	if err != nil {
-		// No local account for this org — skip silently
+		ec.log.Debug("Skipping membership event — no local account",
+			"event_type", event.Event, "workos_org_id", data.OrganizationID)
 		return nil
 	}
 
 	switch event.Event {
 	case "organization_membership.created", "organization_membership.updated":
-		return ec.accountStore.UpsertMemberByWorkosMembershipID(
-			acct.ID, data.UserID, data.ID,
-		)
+		if err := ec.accountStore.UpsertMemberByWorkosMembershipID(acct.ID, data.UserID, data.ID); err != nil {
+			return err
+		}
+		ec.log.Info("Upserted member from membership event",
+			"event_type", event.Event, "account_id", acct.ID,
+			"user_id", data.UserID, "membership_id", data.ID)
 
 	case "organization_membership.deleted":
 		member, err := ec.accountStore.GetMemberByWorkosMembershipID(data.ID)
 		if err != nil {
-			// Already deleted locally — idempotent
+			ec.log.Debug("Membership already removed locally",
+				"membership_id", data.ID)
 			return nil
 		}
-		return ec.accountStore.RemoveMember(member.AccountID, member.UserID)
+		if err := ec.accountStore.RemoveMember(member.AccountID, member.UserID); err != nil {
+			return err
+		}
+		ec.log.Info("Removed member from membership deletion",
+			"account_id", member.AccountID, "user_id", member.UserID,
+			"membership_id", data.ID)
 	}
 
 	return nil
@@ -193,14 +208,21 @@ func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
 	case "organization.created":
 		// Check if we already have a local account linked to this WorkOS org
 		if _, err := ec.accountStore.GetByWorkOSOrganizationID(data.ID); err == nil {
-			return nil // already linked — created via Astro's own flow
+			ec.log.Debug("Skipping org created — already linked",
+				"workos_org_id", data.ID)
+			return nil
 		}
 
 		// If the WorkOS org has an external_id, it was created by Astro and the
 		// account should already exist. Link them.
 		if data.ExternalID != "" {
 			if _, err := ec.accountStore.GetByID(data.ExternalID); err == nil {
-				return ec.accountStore.SetWorkOSOrganizationID(data.ExternalID, data.ID)
+				if err := ec.accountStore.SetWorkOSOrganizationID(data.ExternalID, data.ID); err != nil {
+					return err
+				}
+				ec.log.Info("Linked existing account to WorkOS organization",
+					"account_id", data.ExternalID, "workos_org_id", data.ID)
+				return nil
 			}
 		}
 
@@ -220,7 +242,9 @@ func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
 	case "organization.updated":
 		acct, err := ec.accountStore.GetByWorkOSOrganizationID(data.ID)
 		if err != nil {
-			return nil // no local account — skip
+			ec.log.Debug("Skipping org updated — no local account",
+				"workos_org_id", data.ID)
+			return nil
 		}
 		if acct.Name != data.Name {
 			if err := ec.accountStore.Rename(acct.ID, data.Name); err != nil {
@@ -233,7 +257,9 @@ func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
 	case "organization.deleted":
 		acct, err := ec.accountStore.GetByWorkOSOrganizationID(data.ID)
 		if err != nil {
-			return nil // already gone — idempotent
+			ec.log.Debug("Skipping org deleted — no local account",
+				"workos_org_id", data.ID)
+			return nil
 		}
 		if err := ec.accountStore.MarkDeleted(acct.ID); err != nil {
 			return fmt.Errorf("mark account deleted for org deletion: %w", err)
