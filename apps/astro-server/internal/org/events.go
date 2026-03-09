@@ -227,7 +227,8 @@ func (ec *EventsConsumer) processOrganizationEvent(event events.Event) error {
 		}
 
 		// Externally-created WorkOS org — create a local account and link it
-		acct, err := ec.accountStore.CreateWithoutOwner(data.Name, "organization")
+		slug := slugifyOrgName(data.Name)
+		acct, err := ec.accountStore.CreateWithoutOwner(slug, "organization")
 		if err != nil {
 			return fmt.Errorf("create account for external org: %w", err)
 		}
@@ -294,6 +295,43 @@ func (ec *EventsConsumer) processUserEvent(event events.Event) error {
 	}
 
 	return nil
+}
+
+// slugifyOrgName converts a free-form WorkOS organization name into a valid
+// account name slug: lowercase, alphanumeric + hyphens, 4-39 chars.
+// e.g. "Acme Corp" → "acme-corp", "My  Great--Org!" → "my-great-org"
+func slugifyOrgName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+
+	var b strings.Builder
+	prevHyphen := false
+	for _, ch := range name {
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= '0' && ch <= '9':
+			b.WriteRune(ch)
+			prevHyphen = false
+		default:
+			// Replace any non-alphanumeric with a single hyphen
+			if !prevHyphen && b.Len() > 0 {
+				b.WriteByte('-')
+				prevHyphen = true
+			}
+		}
+	}
+
+	slug := strings.TrimRight(b.String(), "-")
+
+	// Pad to minimum length if too short
+	for len(slug) < 4 {
+		slug += "-org"
+	}
+
+	// Truncate to max length, trim trailing hyphen
+	if len(slug) > 39 {
+		slug = strings.TrimRight(slug[:39], "-")
+	}
+
+	return slug
 }
 
 func (ec *EventsConsumer) getCursor(ctx context.Context) (string, error) {

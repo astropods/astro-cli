@@ -504,3 +504,31 @@ func TestProcessEvent_InvalidJSON(t *testing.T) {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
+
+// --- slugifyOrgName ---
+
+func TestSlugifyOrgName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Acme Corp", "acme-corp"},
+		{"My  Great--Org!", "my-great-org"},
+		{"UPPERCASE", "uppercase"},
+		{"hello_world", "hello-world"},
+		{"  spaces  ", "spaces"},
+		{"a-b", "a-b-org"},
+		{"ab", "ab-org"},
+		{"already-valid-name", "already-valid-name"},
+		{"Org With (Parens) & Symbols!", "org-with-parens-symbols"},
+		{"a-very-long-organization-name-that-exceeds-the-limit", "a-very-long-organization-name-that-exce"},
+		{"123numeric", "123numeric"},
+	}
+
+	for _, tt := range tests {
+		got := slugifyOrgName(tt.input)
+		if got != tt.want {
+			t.Errorf("slugifyOrgName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
