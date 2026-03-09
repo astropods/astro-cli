@@ -808,7 +808,7 @@ func checkNativeOllama() error {
 	// Try the API first — if it responds, Ollama is running regardless of binary location
 	resp, err := http.Get(ollamaBaseURL + "/api/tags") //nolint:gosec,noctx
 	if err == nil {
-		resp.Body.Close() //nolint:errcheck
+		resp.Body.Close() //nolint:errcheck,gosec
 		if resp.StatusCode == http.StatusOK {
 			return nil
 		}
@@ -871,7 +871,7 @@ func ollamaLocalModels() map[string]bool {
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck,gosec
 	var result struct {
 		Models []struct {
 			Name string `json:"name"`
@@ -901,7 +901,7 @@ func ollamaPullModel(name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to Ollama: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close() //nolint:errcheck,gosec
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("ollama pull failed (%d): %s", resp.StatusCode, string(respBody))
