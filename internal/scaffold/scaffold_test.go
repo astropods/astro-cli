@@ -127,8 +127,8 @@ func TestAstroYml_FullInfrastructure(t *testing.T) {
 	if len(s.Models) != 3 {
 		t.Errorf("expected 3 models, got %d: %v", len(s.Models), s.Models)
 	}
-	if s.Models["default"].Provider != "ollama" {
-		t.Errorf("expected default model provider=ollama, got %q", s.Models["default"].Provider)
+	if s.Models["ollama"].Provider != "ollama" {
+		t.Errorf("expected ollama model provider=ollama, got %q", s.Models["ollama"].Provider)
 	}
 	if s.Models["anthropic"].Provider != "anthropic" {
 		t.Errorf("expected anthropic model provider=anthropic, got %q", s.Models["anthropic"].Provider)
@@ -198,11 +198,10 @@ func TestAstroYml_MinimalConfig(t *testing.T) {
 // models block for each model selection (ollama+name, anthropic, openai, combined).
 func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 	tests := []struct {
-		name             string
-		config           ScaffoldConfig
-		wantModels       []string // expected keys under models: (e.g. "default", "anthropic")
-		wantDefault      string   // if non-empty, default model provider
-		wantDefaultModel string   // if non-empty, default model name (e.g. "llama3")
+		name       string
+		config     ScaffoldConfig
+		wantModels []string // expected keys under models: (e.g. "ollama", "anthropic")
+		wantModel  string   // if non-empty, expected model name on the ModelProvider key
 	}{
 		{
 			name: "ollama with model name",
@@ -211,9 +210,8 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 				ModelProvider: "ollama", Model: "llama3",
 				Integrations: nil, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
-			wantModels:       []string{"default"},
-			wantDefault:      "ollama",
-			wantDefaultModel: "llama3",
+			wantModels: []string{"ollama"},
+			wantModel:  "llama3",
 		},
 		{
 			name: "ollama without model name",
@@ -222,9 +220,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 				ModelProvider: "ollama", Model: "",
 				Integrations: nil, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
-			wantModels:       []string{"default"},
-			wantDefault:      "ollama",
-			wantDefaultModel: "",
+			wantModels: []string{"ollama"},
 		},
 		{
 			name: "anthropic only",
@@ -233,8 +229,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 				ModelProvider: "", Model: "",
 				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
-			wantModels:  []string{"anthropic"},
-			wantDefault: "",
+			wantModels: []string{"anthropic"},
 		},
 		{
 			name: "openai only",
@@ -243,8 +238,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 				ModelProvider: "", Model: "",
 				Integrations: []string{"openai"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
-			wantModels:  []string{"openai"},
-			wantDefault: "",
+			wantModels: []string{"openai"},
 		},
 		{
 			name: "ollama and anthropic",
@@ -253,9 +247,8 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 				ModelProvider: "ollama", Model: "mistral",
 				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
-			wantModels:       []string{"default", "anthropic"},
-			wantDefault:      "ollama",
-			wantDefaultModel: "mistral",
+			wantModels: []string{"ollama", "anthropic"},
+			wantModel:  "mistral",
 		},
 	}
 	for _, tt := range tests {
@@ -273,19 +266,60 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 					t.Errorf("expected models to contain %q, got %v", key, s.Models)
 				}
 			}
-			if tt.wantDefault != "" {
-				def, ok := s.Models["default"]
+			if len(s.Models) != len(tt.wantModels) {
+				t.Errorf("expected %d model(s), got %d: %v", len(tt.wantModels), len(s.Models), s.Models)
+			}
+			if tt.config.ModelProvider != "" {
+				m, ok := s.Models[tt.config.ModelProvider]
 				if !ok {
-					t.Errorf("expected default model, got %v", s.Models)
-				} else if def.Provider != tt.wantDefault {
-					t.Errorf("default provider = %q, want %q", def.Provider, tt.wantDefault)
+					t.Errorf("expected model key %q, got %v", tt.config.ModelProvider, s.Models)
+				} else if m.Provider != tt.config.ModelProvider {
+					t.Errorf("model %q provider = %q, want %q", tt.config.ModelProvider, m.Provider, tt.config.ModelProvider)
 				}
-				resolved := def.ResolvedModels()
-				if tt.wantDefaultModel != "" && (len(resolved) == 0 || resolved[0] != tt.wantDefaultModel) {
-					t.Errorf("default model = %v, want %q", resolved, tt.wantDefaultModel)
+				if tt.wantModel != "" {
+					resolved := m.ResolvedModels()
+					if len(resolved) == 0 || resolved[0] != tt.wantModel {
+						t.Errorf("model %q models = %v, want %q", tt.config.ModelProvider, resolved, tt.wantModel)
+					}
 				}
 			}
 		})
+	}
+}
+
+// TestAstroYml_ModelKeyMatchesProvider ensures every model key in the generated
+// spec matches its provider name — no model should be keyed as "default".
+func TestAstroYml_ModelKeyMatchesProvider(t *testing.T) {
+	configs := []ScaffoldConfig{
+		{
+			Name: "a", Description: "d", Interfaces: []string{"web"},
+			ModelProvider: "ollama", Model: "llama3",
+			Integrations: []string{"anthropic", "openai"}, IntegrationKeys: map[string]string{},
+			Knowledge: nil, Ingestions: []string{},
+		},
+		{
+			Name: "a", Description: "d", Interfaces: []string{"web"},
+			ModelProvider: "ollama", Model: "",
+			Integrations: nil, IntegrationKeys: map[string]string{},
+			Knowledge: nil, Ingestions: []string{},
+		},
+		{
+			Name: "a", Description: "d", Interfaces: []string{"web"},
+			Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{},
+			Knowledge: nil, Ingestions: []string{},
+		},
+	}
+	for _, cfg := range configs {
+		yaml := renderAstroYml(t, cfg)
+		s, err := spec.ParseString(yaml)
+		if err != nil {
+			t.Fatalf("ParseString failed:\n%s\nerror: %v", yaml, err)
+		}
+		for key, m := range s.Models {
+			if key != m.Provider {
+				t.Errorf("model key %q does not match provider %q", key, m.Provider)
+			}
+		}
 	}
 }
 
