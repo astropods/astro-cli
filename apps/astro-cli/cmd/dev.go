@@ -226,17 +226,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	} else if len(envVars) == 0 {
 		fmt.Printf("%s→%s %sNo credentials found. Run 'ast configure' to set up.%s\n", colorCyan, colorReset, colorDim, colorReset)
 	}
-	// Check for native Ollama — prefer host-installed Ollama over containerized
+	// Check for native Ollama — require host-installed Ollama for dev mode
 	buildOpts := composeBuilder.BuildOptions{}
 	if hasOllamaModels(astroSpec) {
-		if nativeOllamaAvailable() {
-			buildOpts.NativeOllama = true
-			fmt.Printf("%s→%s Using native Ollama (host-installed)\n", colorCyan, colorReset)
-			if err := ensureOllamaModels(astroSpec, verbose); err != nil {
-				return fmt.Errorf("failed to prepare Ollama models: %w", err)
-			}
-		} else {
-			fmt.Printf("%s→%s Ollama not found on host — using containerized Ollama\n", colorCyan, colorReset)
+		if err := checkNativeOllama(); err != nil {
+			return err
+		}
+		buildOpts.NativeOllama = true
+		fmt.Printf("%s→%s Using native Ollama (host-installed)\n", colorCyan, colorReset)
+		if err := ensureOllamaModels(astroSpec, verbose); err != nil {
+			return fmt.Errorf("failed to prepare Ollama models: %w", err)
 		}
 	}
 
@@ -795,16 +794,63 @@ func hasOllamaModels(s *spec.AstroSpec) bool {
 	return false
 }
 
-// nativeOllamaAvailable returns true if ollama is installed and the server is reachable.
-func nativeOllamaAvailable() bool {
+// checkNativeOllama verifies that Ollama is installed and the server is reachable.
+// Returns a user-friendly error with install/start instructions on failure.
+func checkNativeOllama() error {
 	if _, err := exec.LookPath("ollama"); err != nil {
-		return false
+		red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+		dim := lipgloss.NewStyle().Faint(true)
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+
+		msg := red.Render("Ollama is not installed") + "\n" +
+			dim.Render("Your spec uses Ollama models, which require a local Ollama installation.") + "\n\n"
+		switch runtime.GOOS {
+		case "darwin":
+			msg += hint.Render("  Install with Homebrew:") + "\n" +
+				"    brew install ollama\n\n" +
+				hint.Render("  Or download from:") + "\n" +
+				"    https://ollama.com/download/mac"
+		case "linux":
+			msg += hint.Render("  Install with the official script:") + "\n" +
+				"    curl -fsSL https://ollama.com/install.sh | sh\n\n" +
+				hint.Render("  Or visit:") + "\n" +
+				"    https://ollama.com/download/linux"
+		default:
+			msg += hint.Render("  Download from:") + "\n" +
+				"    https://ollama.com/download"
+		}
+		return fmt.Errorf("%s", msg)
 	}
-	// Check if the server is responding
+
+	// Ollama is installed but the server may not be running
 	cmd := exec.Command("ollama", "list")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	return cmd.Run() == nil
+	if err := cmd.Run(); err != nil {
+		red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+		dim := lipgloss.NewStyle().Faint(true)
+		hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+
+		msg := red.Render("Ollama is not running") + "\n" +
+			dim.Render("Ollama is installed but the server isn't responding.") + "\n\n"
+		switch runtime.GOOS {
+		case "darwin":
+			msg += hint.Render("  Start with:") + "\n" +
+				"    ollama serve\n\n" +
+				dim.Render("  Or open the Ollama app from your Applications folder.")
+		case "linux":
+			msg += hint.Render("  Start with:") + "\n" +
+				"    ollama serve\n\n" +
+				hint.Render("  Or as a systemd service:") + "\n" +
+				"    sudo systemctl start ollama"
+		default:
+			msg += hint.Render("  Start with:") + "\n" +
+				"    ollama serve"
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	return nil
 }
 
 // ensureOllamaModels pulls all required Ollama models on the host if not already present.
