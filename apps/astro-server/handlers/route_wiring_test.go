@@ -65,8 +65,8 @@ func TestRoutePermissionWiring(t *testing.T) {
 			// ResolveAccount: return org account
 			mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 				WithArgs("myorg").
-				WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-					AddRow("acct-1", "myorg", "organization", "org_123", time.Now(), time.Now()))
+				WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+					AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now()))
 
 			router := gin.New()
 			// Inject authenticated user with JWT scoped to the target org
