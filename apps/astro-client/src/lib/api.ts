@@ -233,6 +233,16 @@ class ApiClient {
     });
   }
 
+  async renameAccount(account: string, newName: string): Promise<{ message: string; name: string }> {
+    return this.request<{ message: string; name: string }>(
+      `/api/v1/accounts/${encodeURIComponent(account)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ name: newName }),
+      }
+    );
+  }
+
   async getAccount(name: string): Promise<AccountPublic> {
     return this.request<AccountPublic>(
       `/api/v1/accounts/${encodeURIComponent(name)}`

@@ -1,12 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useBlocker } from "react-router";
-import { UserIcon } from "@heroicons/react/24/outline";
+import { UserIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth, getUserDisplayName } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
+import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import {
   SidebarLayout,
   SidebarNav,
@@ -40,20 +41,50 @@ function ProfileSection({
   isDirty: boolean;
   onDirtyChange: (dirty: boolean) => void;
 }) {
-  const { user, personalAccount } = useAuth();
+  const { user, personalAccount, refresh } = useAuth();
   const updateProfile = useUpdateProfile();
   const initialName = user ? getUserDisplayName(user) : "";
   const [displayName, setDisplayName] = useState(initialName);
+  const [savedName, setSavedName] = useState(initialName);
 
-  const dirty = displayName !== initialName;
+  const dirty = displayName !== savedName;
 
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
 
-  const handleSave = () => {
-    updateProfile.mutate(splitDisplayName(displayName));
+  const [showSaved, setShowSaved] = useState(false);
+  const [showSaving, setShowSaving] = useState(false);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearTimers = () => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
   };
+
+  const handleSave = () => {
+    clearTimers();
+    setShowSaving(false);
+    timersRef.current.push(setTimeout(() => setShowSaving(true), 500));
+    updateProfile.mutate(splitDisplayName(displayName), {
+      onSuccess: () => {
+        clearTimers();
+        setShowSaving(false);
+        setSavedName(displayName);
+        refresh();
+        setShowSaved(true);
+        timersRef.current.push(setTimeout(() => setShowSaved(false), 2000));
+      },
+      onError: () => {
+        clearTimers();
+        setShowSaving(false);
+      },
+    });
+  };
+
+  useEffect(() => () => clearTimers(), []);
+
+  const buttonLabel = showSaving ? "Saving…" : "Save changes";
 
   return (
     <div className="flex flex-col gap-5">
@@ -85,13 +116,21 @@ function ProfileSection({
             </div>
           </div>
 
-          <Button
-            disabled={!isDirty || updateProfile.isPending}
-            onClick={handleSave}
-            className="self-start"
-          >
-            {updateProfile.isPending ? "Saving…" : "Save changes"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              disabled={!isDirty || updateProfile.isPending}
+              onClick={handleSave}
+              className="self-start"
+            >
+              {buttonLabel}
+            </Button>
+            {showSaved && (
+              <span className="flex items-center gap-1 text-[13px] text-ink-muted">
+                <CheckIcon className="size-3.5" />
+                Saved
+              </span>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -99,7 +138,20 @@ function ProfileSection({
 }
 
 function AccountSection() {
-  const { user, personalAccount } = useAuth();
+  const { user, personalAccount, refresh } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [showSaved, setShowSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(savedTimerRef.current), []);
+
+  const handleSuccess = () => {
+    refresh();
+    setOpen(false);
+    setShowSaved(true);
+    clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -115,13 +167,24 @@ function AccountSection() {
         <label className="mb-1.5 block font-mono text-mono-md uppercase tracking-widest text-ink-muted">
           Username
         </label>
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2">
           <span className="font-mono text-[13px] text-ink">
             @{personalAccount?.name}
           </span>
-          <Button variant="link" className="h-auto p-0 text-[13px]">
-            Change username
-          </Button>
+          {personalAccount && (
+            <ChangeUsernameDialog
+              currentName={personalAccount.name}
+              open={open}
+              onOpenChange={setOpen}
+              onSuccess={handleSuccess}
+            />
+          )}
+          {showSaved && (
+            <span className="flex items-center gap-1 text-[13px] text-ink-muted">
+              <CheckIcon className="size-3.5" />
+              Saved
+            </span>
+          )}
         </div>
       </div>
     </div>

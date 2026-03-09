@@ -1,0 +1,94 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as DialogStories from "./Dialog.stories"
+
+<Meta of={DialogStories} />
+
+# Dialog
+
+A modal dialog built on [Radix Dialog](https://www.radix-ui.com/primitives/docs/components/dialog). Centers on screen with a backdrop overlay, traps focus, and closes on overlay click or `Escape`.
+
+## Import
+
+```tsx
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+```
+
+## Usage
+
+Wrap a trigger element with `DialogTrigger` using `asChild`, and place content inside `DialogContent`. The `DialogHeader` with `DialogTitle` and `DialogDescription` provides accessible labeling.
+
+```tsx
+<Dialog>
+  <DialogTrigger asChild>
+    <Button variant="outline">Open</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Title</DialogTitle>
+      <DialogDescription>Description text.</DialogDescription>
+    </DialogHeader>
+  </DialogContent>
+</Dialog>
+```
+
+<Canvas of={DialogStories.Default} />
+
+## With Footer
+
+Use `DialogFooter` to add action buttons. Wrap cancel buttons with `DialogClose asChild` to close the dialog on click.
+
+<Canvas of={DialogStories.WithFooter} />
+
+## With Form
+
+Dialogs can contain form fields for user input like changing a username.
+
+<Canvas of={DialogStories.WithForm} />
+
+## Destructive
+
+For dangerous or irreversible actions, pair a destructive trigger with a confirmation dialog.
+
+<Canvas of={DialogStories.Destructive} />
+
+## Without Close Button
+
+Set `showCloseButton={false}` on `DialogContent` to hide the top-right X button. Make sure to provide an alternative way to close the dialog.
+
+<Canvas of={DialogStories.NoCloseButton} />
+
+## Footer Close Button
+
+`DialogFooter` accepts a `showCloseButton` prop to render a built-in "Close" outline button alongside your actions.
+
+<Canvas of={DialogStories.FooterCloseButton} />
+
+## Controlled
+
+Use the `open` and `onOpenChange` props on `Dialog` for controlled state.
+
+```tsx
+const [open, setOpen] = useState(false)
+
+<Dialog open={open} onOpenChange={setOpen}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Controlled</DialogTitle>
+    </DialogHeader>
+  </DialogContent>
+</Dialog>
+```
+
+## Playground
+
+<Canvas of={DialogStories.Default} />
+<Controls of={DialogStories.Default} />

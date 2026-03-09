@@ -1,50 +1,19 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router';
-import { useCreateAccount, useCheckAccountName } from '../api/queries/accounts';
+import { useCreateAccount } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-
-function validateName(name: string): string | null {
-  if (name.length < 2) return 'Must be at least 2 characters';
-  if (name.length > 39) return 'Must be at most 39 characters';
-  if (!/^[a-z]/.test(name)) return 'Must start with a letter';
-  if (name.endsWith('-')) return 'Must not end with a hyphen';
-  if (/--/.test(name)) return 'Must not contain consecutive hyphens';
-  if (!/^[a-z0-9-]+$/.test(name)) return 'Only lowercase letters, numbers, and hyphens';
-  return null;
-}
+import { useAccountNameValidation, sanitizeAccountName } from '@/hooks/use-account-name';
 
 export default function Onboarding() {
   const [name, setName] = useState('');
-  const [debouncedName, setDebouncedName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { checkAuth } = useAuth();
   const createAccount = useCreateAccount();
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const clientError = name.length > 0 ? validateName(name) : null;
-  const shouldCheck = name.length >= 2 && !clientError;
-
-  // Debounce the server check
-  useEffect(() => {
-    timerRef.current = setTimeout(
-      () => setDebouncedName(shouldCheck ? name : ''),
-      shouldCheck ? 300 : 0,
-    );
-    return () => clearTimeout(timerRef.current);
-  }, [name, shouldCheck]);
-
-  const nameCheck = useCheckAccountName(debouncedName);
-  const isChecking = shouldCheck && (debouncedName !== name || nameCheck.isFetching);
-  const serverAvailable = nameCheck.data?.available === true && debouncedName === name;
-  const serverReason = nameCheck.data?.available === false && debouncedName === name
-    ? (nameCheck.data as { reason?: string }).reason || 'Already taken'
-    : null;
-
-  const isAvailable = shouldCheck && !isChecking && serverAvailable;
-  const displayError = clientError || serverReason;
+  const { isChecking, isAvailable, displayError } = useAccountNameValidation(name);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -90,7 +59,7 @@ export default function Onboarding() {
               type="text"
               value={name}
               onChange={(e) => {
-                setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                setName(sanitizeAccountName(e.target.value));
                 setError(null);
               }}
               placeholder="username"

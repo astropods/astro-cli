@@ -605,9 +605,16 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	newSession.Role = claims.Role
 	newSession.Permissions = claims.Permissions
 
+	// Fetch fresh user data from WorkOS so profile changes are reflected
+	freshUser, err := h.workos.GetUser(c.Request.Context(), sessionData.Session.UserID)
+	if err != nil {
+		h.log.Warn("Failed to fetch fresh user on refresh, using cached data", "error", err)
+		freshUser = sessionData.User
+	}
+
 	newSessionData := &auth.SessionData{
 		Session: newSession,
-		User:    sessionData.User,
+		User:    freshUser,
 	}
 
 	// Seal and update cookie

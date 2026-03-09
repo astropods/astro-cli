@@ -49,6 +49,18 @@ export function useCreateAccount() {
   });
 }
 
+export function useRenameAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ account, newName }: { account: string; newName: string }) =>
+      api.renameAccount(account, newName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.profile });
+    },
+  });
+}
+
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
 
