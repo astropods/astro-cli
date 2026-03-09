@@ -39,8 +39,11 @@ func ConfigDir(binaryName string) (string, error) {
 		return "", err
 	}
 	dir := ".ast"
-	if binaryName == "ast-preview" {
+	switch binaryName {
+	case "ast-preview":
 		dir = ".ast-preview"
+	case "ast-dev":
+		dir = ".ast-dev"
 	}
 	return filepath.Join(home, dir), nil
 }
