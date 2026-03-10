@@ -137,7 +137,7 @@ Runs the agent and all supporting containers locally.
 | Subcommand | Description |
 |---|---|
 | `ast dev` / `ast dev start` | Build and start all containers (exits after start) |
-| `ast dev logs [service]` | Tail container logs (default: agent) |
+| `ast dev logs [service]` | Tail container logs (default: all services) |
 | `ast dev stop` | Stop and remove all containers |
 | `ast dev trigger <name>` | Manually trigger a named ingestion job |
 
