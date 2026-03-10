@@ -125,7 +125,7 @@ type TemplateInput struct {
 }
 ```
 
-Change `resolveImage` to use `input.ECRNamespace` instead of `parts[0]`:
+Change `resolveImage` to use `input.ECRNamespace` instead of `parts[0]`, with fallback to the image path when empty (backward compat):
 
 ```go
 // 1. Tenant image → ECR tenant repo
@@ -134,44 +134,18 @@ if input.ProxyRegistryHost != "" && input.RegistryURL != "" &&
     pathWithTag := strings.TrimPrefix(image, input.ProxyRegistryHost+"/")
     parts := strings.SplitN(pathWithTag, "/", 2)
     if len(parts) >= 2 {
+        ns := input.ECRNamespace
+        if ns == "" {
+            ns = parts[0] // fallback: parse from image path
+        }
         return fmt.Sprintf("%s/%s-tenant-%s/%s",
             stripScheme(input.RegistryURL),
             input.Environment,
-            input.ECRNamespace, // was: parts[0]
+            ns,
             parts[1])
     }
     return image
 }
-```
-
-### image_resolver.go
-
-**`apps/astro-server/internal/k8s/image_resolver.go`**
-
-Add `ecrNamespace` field:
-
-```go
-type ImageResolver struct {
-    proxyRegistryHost string
-    ecrRegistryURL    string
-    environment       string
-    ecrNamespace      string
-}
-
-func NewImageResolver(proxyRegistryHost, ecrRegistryURL, environment, ecrNamespace string) *ImageResolver {
-    return &ImageResolver{
-        proxyRegistryHost: proxyRegistryHost,
-        ecrRegistryURL:    ecrRegistryURL,
-        environment:       environment,
-        ecrNamespace:      ecrNamespace,
-    }
-}
-```
-
-In `ResolveImage`:
-
-```go
-tenantNamespace := r.environment + "-tenant-" + r.ecrNamespace // was: namespace
 ```
 
 ### deploy.go
@@ -208,8 +182,7 @@ POST /api/v1/agents/{account}/{agent}/transfer
 1. **Auth**: caller must be member of both source and target accounts.
 2. **Collision check**: agent name must not exist in target account. Reject with 409.
 3. **Transfer**: `agentIndex.Transfer(sourceAcct.ID, targetAcct.ID, agentName)`.
-4. **Namespace ownership**: update `source_account` for active deployments of this agent.
-5. **Active deployments**: keep running. Each version's `ecr_namespace` still resolves to the correct ECR repos. No redeployment required.
+4. **Active deployments**: keep running. Each version's `ecr_namespace` still resolves to the correct ECR repos. No redeployment required.
 
 ### Post-transfer behavior
 
@@ -226,20 +199,20 @@ Agent `myagent` transferred from `alice` to `bob`:
 - **Registry proxy** (`apps/astro-registry/handlers/registry_proxy.go`): no changes. Continues mapping `{account_name}` → `{env}-tenant-{account_name}`.
 - **CLI** (`apps/astro-cli/cmd/push.go`): no changes. Pushes to `registry.host/{account_name}/agent:build`.
 - **Account store** (`apps/astro-server/internal/account/store.go`): no changes.
+- **Image resolver** (`apps/astro-server/internal/k8s/image_resolver.go`): no changes. The Applier's `ResolveImage` operates on already-resolved ECR paths from the template generator, so tenant prefix logic is never hit at apply time.
 - **Schema for `accounts` and `agents`**: no changes.
 
 ---
 
 ## Change Summary
 
-| File | Change | Breaking? |
-|------|--------|-----------|
-| `schema.sql` | Add `ecr_namespace` to `agent_versions` | No (additive, backfilled) |
-| `agentindex/index.go` | Read/write `ecr_namespace` on versions; add `Transfer()` | No |
-| `template.go` | Add `ECRNamespace` to `TemplateInput`; use in `resolveImage` | No |
-| `image_resolver.go` | Accept `ecrNamespace` param | No |
-| `deploy.go` | Pass version `ECRNamespace` into template input | No |
-| New: `handlers/transfer.go` | Transfer API endpoint | N/A (new) |
+| File                        | Change                                                                     | Breaking?                 |
+| --------------------------- | -------------------------------------------------------------------------- | ------------------------- |
+| `schema.sql`                | Add `ecr_namespace` to `agent_versions`                                    | No (additive, backfilled) |
+| `agentindex/index.go`       | Read/write `ecr_namespace` on versions; add `Transfer()`                   | No                        |
+| `template.go`               | Add `ECRNamespace` to `TemplateInput`; use in `resolveImage` with fallback | No                        |
+| `deploy.go`                 | Pass version `ECRNamespace` into template input                            | No                        |
+| New: `handlers/transfer.go` | Transfer API endpoint                                                      | N/A (new)                 |
 
 ## Rollout Order
 
@@ -249,6 +222,38 @@ Agent `myagent` transferred from `alice` to `bob`:
 4. **Transfer API** — new endpoint. Works immediately for all agents, no preconditions.
 5. **Client UI / CLI** — add transfer command/UI as needed.
 
+---
+
 ## Account Rename
 
-After rename (`alice` → `alice2`), existing versions keep `ecr_namespace = "alice"` and resolve correctly — those ECR repos still exist. New pushes under `alice2` create new ECR repos and new versions get `ecr_namespace = "alice2"`. Optional cleanup: background job to copy old manifests to new-name repos and update `ecr_namespace` on affected version rows.
+Account rename is a destructive operation. Users should expect to re-authenticate the CLI and manually trigger redeployments after renaming.
+
+### What works automatically
+
+- **Running deployments**: unaffected. K8s pods pull directly from ECR using fully-resolved image URLs; the account name is not in the pull path.
+- **Existing agent versions**: `ecr_namespace` is frozen at push time (e.g. `"alice"`). Deploy-time resolution reads this column, not the current account name. Old versions continue to resolve to the correct ECR repos (`{env}-tenant-alice/...`).
+- **New pushes**: CLI pushes to `registry.host/{new_name}/...`, registry proxy creates ECR repos under `{env}-tenant-{new_name}/...`, and the register handler sets `ecr_namespace = "{new_name}"` on new versions.
+
+### What breaks (expected)
+
+- **CLI credentials**: the CLI caches `AccountName` in `~/.ast/credentials.json`. After rename the cached name no longer matches, so pushes fail with a membership error. User must run `ast login` again.
+- **Stored deployment specs**: active deployments store `source.account: "old_name"` in `deployments.deployment_spec_json`. If the UI re-submits this spec for a redeploy, the server calls `GetByName("old_name")` which returns 404. The user must create a fresh deployment from the template endpoint, which uses the current account name.
+- **`namespace_ownership.source_account`**: stores the old name as a string. Low impact — this column defaults to `''` and is not actively read by any code path. It updates on the next namespace scan cycle.
+
+### What does NOT need fixing
+
+- **`agents.registry`**: stores the registry host (e.g. `registry.astropods.ai`), not the account name.
+- **Template generator cosmetics**: `DeploymentSource.Account` uses the current account name from `input.Account`, which is always the current name at request time.
+- **Image resolver in Applier**: operates on already-resolved ECR paths; tenant prefix logic is never hit.
+
+---
+
+## Gap Summary
+
+| Gap                                                    | Severity | Action                                                     |
+| ------------------------------------------------------ | -------- | ---------------------------------------------------------- |
+| Rename breaks CLI credentials                          | Expected | User runs `ast login` again                                |
+| Rename breaks redeploy of stored specs                 | Expected | User creates fresh deployment from template                |
+| Transfer: `namespace_ownership.source_account` stale   | Low      | Scanner reconciles on next cycle; column is unused         |
+| Transfer: ECR repos orphaned if source account deleted | Low      | Only matters for old version redeploys; no GC exists today |
+| Transfer: public catalog URLs change                   | Low      | Expected ownership change behavior                         |
