@@ -31,9 +31,23 @@ Both parts are OPTIONAL. A valid agent card MAY be an empty file, a file with on
 
 ## 2. Frontmatter Schema
 
-All frontmatter fields are OPTIONAL.
+All frontmatter fields are OPTIONAL unless noted otherwise.
 
-### 2.1 `authors`
+### 2.1 `description`
+
+A short summary of the agent. This is the canonical source for the agent's description — it replaces the `meta.description` field previously defined in `astropods.yml`.
+
+```yaml
+---
+description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowledge graph"
+---
+```
+
+The description is used for agent cards, sidebar display, and SEO meta tags. It SHOULD be a single sentence or short phrase (under 200 characters).
+
+> **Migration:** The `meta.description` field is removed from the `astropods.yml` spec (`package/v1`). Existing agents that have not yet adopted an `AGENT.md` will show their agent name as the description fallback. The `meta` object in `astropods.yml` retains `tags` and `visibility`.
+
+### 2.3 `authors`
 
 A list of people or organizations who built the agent.
 
@@ -55,7 +69,7 @@ authors:
 | `name`    | string | **REQUIRED** | Display name of the author. |
 | `account` | string | OPTIONAL     | Platform account handle. When present, clients link to `/{account}`. |
 
-### 2.2 `capabilities`
+### 2.4 `capabilities`
 
 A list of high-level capabilities the agent provides. These are short, human-readable phrases that describe what the agent can do. They serve as discovery hints and are displayed on the agent's detail page.
 
@@ -72,17 +86,15 @@ capabilities:
 
 Each entry MUST be a string. Entries SHOULD be concise (under 100 characters) and written as verb phrases describing an action the agent performs.
 
-### 2.3 `integrations`
+### 2.5 `integrations`
 
 A list of third-party services or platforms the agent connects to. Used to display brand logos and connection requirements on the agent's detail page.
 
-Each entry is a string. When the string matches a **known integration** (see Section 2.3.1), the client renders the corresponding brand icon. Unknown strings are displayed with a generic icon and the raw name as a label.
+Each entry is a string. When the string matches a **known integration** (see Section 2.5.2), the client renders the corresponding brand icon. Unknown strings are displayed with a generic icon and the raw name as a label.
 
 ```yaml
 ---
 integrations:
-  - Slack
-  - GitHub
   - Jira
   - My Custom API
 ---
@@ -90,7 +102,24 @@ integrations:
 
 Matching is **case-insensitive** — `slack`, `Slack`, and `SLACK` all resolve to the same known integration.
 
-#### 2.3.1 Known Integrations
+#### 2.5.1 Hybrid Derivation
+
+The final integrations list displayed for an agent is a **merge** of two sources:
+
+1. **Derived from `astropods.yml`** — The platform inspects the `integrations` section of the agent's spec. Each entry with a `provider` value that maps to a known integration (e.g., `provider: github` → GitHub) is automatically included. This means agents that use platform-managed integration containers (Slack, GitHub, etc.) do not need to redundantly list them in the agent card.
+
+2. **Manually declared in `AGENT.md`** — The agent card's `integrations` frontmatter captures integrations that cannot be inferred from the spec. For example, an agent that calls the Jira API internally using a user-supplied token does not declare a Jira integration in `astropods.yml`, but the author can list `Jira` in the agent card so it appears in the UI.
+
+The merge is performed at display time by the client:
+
+1. Collect derived integrations from `spec.integrations[*].provider`.
+2. Collect manually declared integrations from agent card frontmatter.
+3. Normalize all entries (lowercase, trim) and deduplicate.
+4. Resolve each entry against the known integrations registry.
+
+This ensures that an agent using `provider: github` in its spec and also listing `GitHub` in its agent card does not show GitHub twice.
+
+#### 2.5.2 Known Integrations
 
 The platform maintains a registry of known integrations with brand icons. This registry is defined in `packages/astro-spec/agent_card_integrations.json` and serves as the canonical list.
 
@@ -128,7 +157,7 @@ The initial registry:
 
 New integrations are added by appending to the JSON registry and adding a corresponding icon asset to the client. The registry is intentionally broader than the current client icon set — entries without a client icon yet fall back to the generic icon until one is added.
 
-#### 2.3.2 Matching Rules
+#### 2.5.3 Matching Rules
 
 To resolve an agent card integration string to a known integration:
 
@@ -180,7 +209,7 @@ During `astro push`, the CLI:
 
 The server stores the raw agent card content in `agent_versions.readme`. The client parses frontmatter on read to extract structured metadata for display.
 
-> **Migration:** Existing agents without an `AGENT.md` continue to work. The `readme` field remains empty or contains any previously submitted content. No breaking changes to the registration API are required — the field name and storage remain the same.
+> **Migration:** Existing agents without an `AGENT.md` continue to work. The `readme` field remains empty or contains any previously submitted content. No breaking changes to the registration API are required — the field name and storage remain the same. Agents that previously used `meta.description` in `astropods.yml` should move that value into the agent card's `description` frontmatter field.
 
 ---
 
@@ -191,7 +220,7 @@ The client renders the agent card on the agent detail page:
 - **Frontmatter metadata** is displayed in structured UI elements (author links, capability chips/badges, integration icons).
 - **Integrations** are rendered as brand icons (known) or generic icons with labels (unknown), using the existing `IntegrationIconStack` component pattern.
 - **Body** is rendered as styled Markdown using the existing `StyledMarkdown` component.
-- **Description** continues to come from `astropods.yml` `meta.description` and is displayed separately (sidebar, cards, SEO).
+- **Description** is extracted from the agent card frontmatter and displayed separately (sidebar, cards, SEO). Falls back to the agent name if absent.
 
 ---
 
@@ -199,6 +228,7 @@ The client renders the agent card on the agent detail page:
 
 ```markdown
 ---
+description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowledge graph"
 authors:
   - name: Jane Doe
     account: janedoe
@@ -208,8 +238,7 @@ capabilities:
   - Builds and maintains a Neo4j knowledge graph
   - Answers natural-language queries about issue history
 integrations:
-  - GitHub
-  - Slack
+  - Jira
   - My Custom Webhook
 ---
 
