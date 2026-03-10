@@ -45,7 +45,24 @@ description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowl
 
 The description is used for agent cards, sidebar display, and SEO meta tags. It SHOULD be a single sentence or short phrase (under 200 characters).
 
-> **Migration:** The `meta.description` field is removed from the `astropods.yml` spec (`package/v1`). Existing agents that have not yet adopted an `AGENT.md` will show their agent name as the description fallback. The `meta` object in `astropods.yml` retains `tags` and `visibility`.
+> **Migration:** The `meta.description` field is removed from the `astropods.yml` spec (`package/v1`). Existing agents that have not yet adopted an `AGENT.md` will show their agent name as the description fallback. The `meta` object in `astropods.yml` retains only `visibility`.
+
+### 2.2 `tags`
+
+A list of broad category labels for discovery and filtering. Tags help users find agents by topic when browsing or searching. This replaces the `meta.tags` field previously defined in `astropods.yml`.
+
+```yaml
+---
+tags:
+  - analytics
+  - data-processing
+  - knowledge-graph
+---
+```
+
+Each entry MUST be a lowercase string using only letters, numbers, and hyphens. Tags are used for filtering on browse pages and are distinct from `capabilities` (which describe specific behaviors in natural language).
+
+> **Migration:** The `meta.tags` field is removed from `astropods.yml`. Existing tags should be moved to the agent card frontmatter.
 
 ### 2.3 `authors`
 
@@ -209,7 +226,7 @@ During `astro push`, the CLI:
 
 The server stores the raw agent card content in `agent_versions.readme`. The client parses frontmatter on read to extract structured metadata for display.
 
-> **Migration:** Existing agents without an `AGENT.md` continue to work. The `readme` field remains empty or contains any previously submitted content. No breaking changes to the registration API are required — the field name and storage remain the same. Agents that previously used `meta.description` in `astropods.yml` should move that value into the agent card's `description` frontmatter field.
+> **Migration:** Existing agents without an `AGENT.md` continue to work. The `readme` field remains empty or contains any previously submitted content. No breaking changes to the registration API are required — the field name and storage remain the same. Agents that previously used `meta.description` or `meta.tags` in `astropods.yml` should move those values into the agent card frontmatter.
 
 ---
 
@@ -229,6 +246,9 @@ The client renders the agent card on the agent detail page:
 ```markdown
 ---
 description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowledge graph"
+tags:
+  - analytics
+  - knowledge-graph
 authors:
   - name: Jane Doe
     account: janedoe
