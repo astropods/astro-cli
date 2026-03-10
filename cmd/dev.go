@@ -302,13 +302,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
-	buildArgs := []string{"compose", "--profile", "ingestion", "-f", cPath, "build"}
-	if rebuild {
-		buildArgs = append(buildArgs, "--no-cache")
-	}
-	if !noPull {
-		buildArgs = append(buildArgs, "--pull")
-	}
+	buildArgs := composeBuildArgs(cPath, rebuild, noPull)
 	buildTitle := "Building services..."
 	if rebuild {
 		buildTitle = "Building services (no cache)..."
@@ -572,6 +566,19 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("%s→%s Ingestion '%s' completed\n", colorCyan, colorReset, name)
 	return nil
+}
+
+// composeBuildArgs returns the docker compose build command arguments.
+// docker compose build does not pull base images by default; --pull opts in.
+func composeBuildArgs(composePath string, rebuild, noPull bool) []string {
+	args := []string{"compose", "--profile", "ingestion", "-f", composePath, "build"}
+	if rebuild {
+		args = append(args, "--no-cache")
+	}
+	if !noPull {
+		args = append(args, "--pull")
+	}
+	return args
 }
 
 // resolveAstroSourceRoot returns the Astro monorepo root from ASTRO_ROOT.
