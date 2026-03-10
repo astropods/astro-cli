@@ -8,6 +8,8 @@ const twMerge = extendTailwindMerge({
         "text-display",
         "text-heading-1",
         "text-heading-2",
+        "text-heading-3",
+        "text-heading-4",
         "text-body",
         "text-body-sm",
         "text-label",

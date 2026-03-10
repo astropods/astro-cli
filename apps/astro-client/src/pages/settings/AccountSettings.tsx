@@ -11,11 +11,24 @@ import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+const headingClass = {
+  h1: "text-heading-1",
+  h2: "text-heading-2",
+} as const;
+
+function SectionHeader({
+  as: Heading = "h2",
+  title,
+  subtitle,
+}: {
+  as?: "h1" | "h2";
+  title: string;
+  subtitle: string;
+}) {
   return (
     <div className="space-y-1">
-      <h2 className="text-heading-2 font-bold text-ink">{title}</h2>
-      <p className="text-[13px] text-ink-muted">{subtitle}</p>
+      <Heading className={`${headingClass[Heading]} text-foreground`}>{title}</Heading>
+      <p className="text-[13px] text-muted-foreground">{subtitle}</p>
     </div>
   );
 }
@@ -23,7 +36,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
 function SavedIndicator({ visible }: { visible: boolean }) {
   if (!visible) return null;
   return (
-    <span className="flex items-center gap-1 text-[13px] text-ink-muted">
+    <span className="flex items-center gap-1 text-[13px] text-muted-foreground">
       <CheckIcon className="size-3.5" />
       Saved
     </span>
@@ -92,11 +105,11 @@ function ProfileSection() {
           <div className="flex items-center gap-4">
             <UserAvatar user={user} className="size-[72px] text-2xl" />
             <div>
-              <div className="text-sm font-semibold text-ink">
+              <div className="text-sm font-semibold text-foreground">
                 {getUserDisplayName(user)}
               </div>
               {personalAccount && (
-                <div className="font-mono text-xs text-ink-faint">
+                <div className="font-mono text-xs text-faint-foreground">
                   @{personalAccount.name}
                 </div>
               )}
@@ -152,7 +165,7 @@ function AccountSection() {
       <div>
         <Label size="md">Username</Label>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[13px] text-ink">
+          <span className="font-mono text-[13px] text-foreground">
             @{personalAccount?.name}
           </span>
           {personalAccount && (
@@ -176,8 +189,8 @@ function DangerZone() {
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/5 px-5 py-4">
       <div>
-        <div className="text-[13px] font-semibold text-ink">Delete account</div>
-        <p className="text-[12px] text-ink-muted">
+        <div className="text-[13px] font-semibold text-foreground">Delete account</div>
+        <p className="text-[12px] text-muted-foreground">
           Permanently delete your account and all associated data. This cannot
           be undone.
         </p>

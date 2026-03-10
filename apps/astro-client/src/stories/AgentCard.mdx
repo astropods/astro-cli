@@ -21,7 +21,6 @@ import { AgentCard } from "@/components/AgentCard"
   account="acme"
   name="Customer Insight Engine"
   description="Analyzes customer feedback to surface actionable insights and trends."
-  categories={["Analytics"]}
 />
 ```
 
@@ -35,15 +34,19 @@ Descriptions are clamped to 2 lines.
 
 <Canvas of={AgentCardStories.LongDescription} />
 
-## Few Categories
+## Short Description
 
-<Canvas of={AgentCardStories.FewCategories} />
+<Canvas of={AgentCardStories.ShortDescription} />
 
-## Many Categories
+## Different Account
 
-Only the first 2 categories are shown.
+<Canvas of={AgentCardStories.DifferentAccount} />
 
-<Canvas of={AgentCardStories.ManyCategories} />
+## Grid
+
+Cards laid out in a responsive grid.
+
+<Canvas of={AgentCardStories.Grid} />
 
 ## Props
 

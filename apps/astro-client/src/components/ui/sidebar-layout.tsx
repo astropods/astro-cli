@@ -1,4 +1,6 @@
-import { NavLink } from "react-router";
+import * as React from "react";
+import { NavLink, useLocation } from "react-router";
+import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ── Layout shell: sidebar + body ── */
@@ -28,24 +30,153 @@ export function SidebarNav({
   className?: string;
   children: React.ReactNode;
 }) {
+  const pillsRef = React.useRef<HTMLDivElement>(null);
+  const [overflowing, setOverflowing] = React.useState(false);
+
+  // Check overflow synchronously after every render + on resize
+  const checkOverflow = React.useCallback(() => {
+    const el = pillsRef.current;
+    if (!el) return;
+    setOverflowing(el.scrollWidth > el.clientWidth);
+  }, []);
+
+  React.useLayoutEffect(checkOverflow);
+
+  React.useEffect(() => {
+    const el = pillsRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(checkOverflow);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [checkOverflow]);
+
   return (
-    <nav className={cn("flex w-full gap-1 overflow-x-auto md:w-36 md:shrink-0 md:flex-col md:overflow-x-visible", className)}>
+    <nav
+      className={cn(
+        "flex w-full flex-col gap-1 md:w-36 md:shrink-0 md:pt-2 md:overflow-x-visible",
+        className,
+      )}
+    >
       {label && (
-        <span className="hidden md:block text-mono-sm font-mono uppercase tracking-widest text-ink-faint px-3 pb-1">
+        <span className="hidden md:block text-mono-sm font-mono uppercase tracking-widest text-faint-foreground px-3 pb-1">
           {label}
         </span>
       )}
-      {children}
+
+      {/* Mobile: pills (also serves as measurement container when hidden) */}
+      <div
+        ref={pillsRef}
+        aria-hidden={overflowing || undefined}
+        className={cn(
+          "flex gap-1 md:hidden",
+          overflowing
+            ? "h-0 overflow-hidden pointer-events-none"
+            : "overflow-x-auto",
+        )}
+      >
+        {children}
+      </div>
+
+      {/* Mobile: dropdown when pills overflow */}
+      {overflowing && (
+        <MobileNavDropdown label={label}>{children}</MobileNavDropdown>
+      )}
+
+      {/* Desktop: vertical sidebar */}
+      <div className="hidden md:flex md:flex-col md:gap-1">{children}</div>
     </nav>
   );
+}
+
+/* ── Mobile nav dropdown ── */
+
+function MobileNavDropdown({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+  const location = useLocation();
+
+  // Close when route changes
+  React.useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
+
+  // Close on click outside
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const activeLabel = getActiveLabel(children, location.pathname);
+
+  return (
+    <div ref={ref} className="relative md:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          navItemBase,
+          "flex w-full items-center justify-between gap-2 bg-stone-200 text-foreground",
+        )}
+      >
+        <span className="truncate">{activeLabel ?? label ?? "Menu"}</span>
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <div
+          className="absolute top-full left-0 right-0 z-10 mt-1 flex flex-col gap-0.5 rounded-md border bg-popover p-1 shadow-md"
+          onClick={() => setOpen(false)}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Extract the active item's children for the dropdown trigger label. */
+function getActiveLabel(
+  children: React.ReactNode,
+  pathname: string,
+): React.ReactNode | null {
+  let active: React.ReactNode = null;
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return;
+    const props = child.props as Record<string, unknown>;
+    // NavLink item
+    if (typeof props.to === "string" && pathname.startsWith(props.to)) {
+      active = props.children as React.ReactNode;
+    }
+    // Button item
+    if (props.active) {
+      active = props.children as React.ReactNode;
+    }
+  });
+  return active;
 }
 
 /* ── Individual nav item ── */
 
 const navItemBase =
   "whitespace-nowrap rounded-sm px-3 py-1.5 text-left text-[13px] transition-colors cursor-pointer";
-const navItemActive = "bg-stone-300 text-ink font-medium";
-const navItemInactive = "text-ink-muted font-normal hover:bg-muted/50 hover:text-foreground";
+const navItemActive = "bg-stone-300 text-foreground font-medium";
+const navItemInactive = "text-muted-foreground font-normal hover:bg-muted/50 hover:text-foreground";
 
 type SidebarNavLinkProps = {
   to: string;

@@ -66,8 +66,8 @@ export function InterfacesPicker({
                 {icon}
               </div>
               <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                <span className="text-[13px] font-semibold text-ink">{adapter.label}</span>
-                <span className="text-[11px] text-ink-faint">{adapter.description}</span>
+                <span className="text-[13px] font-semibold text-foreground">{adapter.label}</span>
+                <span className="text-[11px] text-faint-foreground">{adapter.description}</span>
               </div>
               <div className={cn(
                 "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors",

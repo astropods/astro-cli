@@ -19,9 +19,11 @@ export const FullScale: Story = {
   render: () => (
     <div className="flex flex-col gap-6">
       {[
-        { name: "Display", className: "text-display font-bold", sample: "Hero Headline" },
-        { name: "Heading 1", className: "text-heading-1 font-bold", sample: "Page Title" },
-        { name: "Heading 2", className: "text-heading-2 font-semibold", sample: "Section Heading" },
+        { name: "Display", className: "text-display", sample: "Hero Headline" },
+        { name: "Heading 1", className: "text-heading-1", sample: "Page Title" },
+        { name: "Heading 2", className: "text-heading-2", sample: "Section Heading" },
+        { name: "Heading 3", className: "text-heading-3", sample: "Subsection Heading" },
+        { name: "Heading 4", className: "text-heading-4", sample: "Group Heading" },
         { name: "Body", className: "text-body", sample: "Body copy used for descriptions and general content. The quick brown fox jumps over the lazy dog." },
         { name: "Body Small", className: "text-body-sm", sample: "Small body text for supporting information and secondary content." },
         { name: "Label", className: "text-label font-mono uppercase", sample: "Status Label" },
@@ -41,15 +43,23 @@ export const FullScale: Story = {
 }
 
 export const Display: Story = {
-  render: () => <p className="text-display font-bold text-foreground">Hero Headline</p>,
+  render: () => <p className="text-display text-foreground">Hero Headline</p>,
 }
 
 export const Heading1: Story = {
-  render: () => <p className="text-heading-1 font-bold text-foreground">Page Title</p>,
+  render: () => <p className="text-heading-1 text-foreground">Page Title</p>,
 }
 
 export const Heading2: Story = {
-  render: () => <p className="text-heading-2 font-semibold text-foreground">Section Heading</p>,
+  render: () => <p className="text-heading-2 text-foreground">Section Heading</p>,
+}
+
+export const Heading3: Story = {
+  render: () => <p className="text-heading-3 text-foreground">Subsection Heading</p>,
+}
+
+export const Heading4: Story = {
+  render: () => <p className="text-heading-4 text-foreground">Group Heading</p>,
 }
 
 export const Body: Story = {

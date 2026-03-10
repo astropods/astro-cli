@@ -71,6 +71,9 @@ function generateTypographyCSS(): string {
     if ("letterSpacing" in variant) {
       lines.push(`  --text-${name}--letter-spacing: ${variant.letterSpacing};`);
     }
+    if ("fontWeight" in variant) {
+      lines.push(`  --text-${name}--font-weight: ${variant.fontWeight};`);
+    }
   }
 
   lines.push("}");

@@ -84,9 +84,7 @@ body {
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
-  --color-ink: var(--ink);
-  --color-ink-muted: var(--ink-muted);
-  --color-ink-faint: var(--ink-faint);
+  --color-faint-foreground: var(--faint-foreground);
   --color-surface: var(--surface);
   --color-border-strong: var(--border-strong);
   --color-code-text: var(--code-text);

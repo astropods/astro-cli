@@ -75,12 +75,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
             onSelect={setSelectedCategory}
           />
           <SidebarBody>
-            <div className="flex items-baseline gap-2">
-              <h2 className="text-heading-2 font-bold text-ink">{selectedCategory === "All" ? "All Agents" : selectedCategory}</h2>
-              <span className="text-mono-md font-mono tracking-normal text-ink-faint">
-                {filteredAgents.length} {filteredAgents.length === 1 ? "agent" : "agents"}
-              </span>
-            </div>
+            <h1 className="text-heading-1 text-foreground">{selectedCategory === "All" ? "All Agents" : selectedCategory}</h1>
             <div className="grid grid-cols-1 gap-3 @[540px]:grid-cols-2 @[900px]:grid-cols-3 content-start">
               {filteredAgents.map((agent) => (
                 <AgentCard

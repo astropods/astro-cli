@@ -28,22 +28,22 @@ export function AgentCard({
           className="size-9 shrink-0 rounded-sm overflow-hidden"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h3 className="truncate text-[13px] font-semibold text-ink transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
+          <h3 className="truncate text-heading-4 text-foregroundtransition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
             {name}
           </h3>
-          <p className="line-clamp-3 text-body-sm text-ink-muted">
+          <p className="line-clamp-3 text-body-sm text-muted-foreground">
             {description}
           </p>
         </div>
       </div>
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
         <div className="flex items-center gap-1.5">
-          <Download size={11} className="text-ink-faint" />
-          <span className="text-mono-sm font-mono text-ink-faint">
+          <Download size={11} className="text-faint-foreground" />
+          <span className="text-mono-sm font-mono text-faint-foreground">
             1.2K
           </span>
         </div>
-        <span className="text-mono-sm font-mono text-ink-faint">
+        <span className="text-mono-sm font-mono text-faint-foreground">
           {account}
         </span>
       </div>

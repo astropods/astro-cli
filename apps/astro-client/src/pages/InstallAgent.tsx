@@ -91,7 +91,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
           <div className="flex items-center gap-3">
             <Link
               to={`/${agent.account}/${agent.name}`}
-              className="flex items-center justify-center p-1 text-ink-faint hover:text-foreground transition-colors"
+              className="flex items-center justify-center p-1 text-faint-foreground hover:text-foreground transition-colors"
             >
               <ArrowLeft className="size-4" />
             </Link>
@@ -102,11 +102,11 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
               className="size-8 shrink-0 rounded-sm overflow-hidden"
             />
             <div>
-              <h1 className="text-sm font-bold text-primary">
-                Install {agent.name}
+              <h1 className="text-sm font-bold text-foreground">
+                Install {agent.account}/{agent.name}
               </h1>
-              <div className="font-mono text-[10px] text-ink-faint">
-                {agent.account}/{agent.name}
+              <div className="text-body-sm text-faint-foreground">
+                Configure and deploy this agent to your account
               </div>
             </div>
           </div>

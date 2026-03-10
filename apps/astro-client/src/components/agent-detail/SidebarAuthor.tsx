@@ -30,7 +30,7 @@ export function SidebarAuthor({
           )}
           <div className="flex flex-col">
             <span className="text-[13px] font-medium text-foreground">{name}</span>
-            <span className="text-[11px] text-[var(--ink-faint)] font-mono">
+            <span className="text-[11px] text-[var(--faint-foreground)] font-mono">
               @{handle}
             </span>
           </div>

@@ -62,7 +62,7 @@ export default function Onboarding() {
 
   return (
     <div className="mx-auto max-w-[480px] px-6 pt-20">
-      <h1 className="text-heading-1 font-semibold mb-2">Choose your username</h1>
+      <h1 className="text-heading-1 mb-2">Choose your username</h1>
       <p className="text-muted-foreground mb-8 leading-relaxed">
         Your username is how others will find your agents. It must be unique and
         can contain lowercase letters, numbers, and hyphens.

@@ -5,7 +5,7 @@ import * as TypographyStories from "./Typography.stories"
 
 # Typography
 
-Composite font-size tokens that apply size, line-height, and letter-spacing in one Tailwind class. Pair with standard utilities for weight, family, and text-transform.
+Composite font-size tokens that apply size, line-height, letter-spacing, and (for headings) font-weight in one Tailwind class. Pair with standard utilities for family and text-transform.
 
 ## Full Scale
 
@@ -15,19 +15,21 @@ Composite font-size tokens that apply size, line-height, and letter-spacing in o
 
 | Token class | Size | Line-height | Letter-spacing | Typical pairing |
 |---|---|---|---|---|
-| `text-display` | 46px | 1.1 | -0.025em | `font-bold` |
-| `text-heading-1` | 28px | 1 | -0.02em | `font-bold` |
-| `text-heading-2` | 18px | 1 | -0.01em | `font-semibold` |
+| `text-display` | 46px | 1.1 | -0.025em | semibold (built-in) |
+| `text-heading-1` | 28px | 1 | -0.02em | semibold (built-in) |
+| `text-heading-2` | 18px | 1 | -0.01em | semibold (built-in) |
+| `text-heading-3` | 16px | 1 | -0.01em | semibold (built-in) |
+| `text-heading-4` | 14px | 1 | — | semibold (built-in) |
 | `text-body` | 14px | 1.65 | — | — |
 | `text-body-sm` | 12px | 1.55 | — | — |
 | `text-label` | 11px | 1 | 0.18em | `font-mono uppercase` |
-| `text-mono-md` | 12px | 1 | 0.04em | `font-mono` |
-| `text-mono-sm` | 10px | 1 | 0.14em | `font-mono` |
+| `text-mono-md` | 14px | 1 | 0.02em | `font-mono` |
+| `text-mono-sm` | 12px | 1 | 0.07em | `font-mono` |
 
 ## Usage
 
 ```tsx
-<h1 className="text-heading-1 font-bold">Page Title</h1>
+<h1 className="text-heading-1">Page Title</h1>
 <p className="text-body">Description text goes here.</p>
 <span className="text-label font-mono uppercase">Active</span>
 ```
@@ -49,6 +51,18 @@ Page-level titles.
 Section headings within a page.
 
 <Canvas of={TypographyStories.Heading2} />
+
+## Heading 3
+
+Subsection headings within a section.
+
+<Canvas of={TypographyStories.Heading3} />
+
+## Heading 4
+
+Group headings and small titled areas.
+
+<Canvas of={TypographyStories.Heading4} />
 
 ## Body
 

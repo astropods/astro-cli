@@ -159,7 +159,7 @@ export function AppHeader() {
                   "whitespace-nowrap text-[13px] transition-colors hover:text-foreground",
                   !item.external && isActive
                     ? "font-semibold text-primary"
-                    : "font-normal text-[var(--ink-muted)]",
+                    : "font-normal text-[var(--muted-foreground)]",
                   i >= ALWAYS_VISIBLE && "hidden lg:block",
                 )
               }
@@ -169,7 +169,7 @@ export function AppHeader() {
           ))}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 text-[var(--ink-muted)] lg:hidden">
+              <Button variant="ghost" size="icon" className="shrink-0 text-[var(--muted-foreground)] lg:hidden">
                 <EllipsisHorizontalIcon className="size-5" />
               </Button>
             </DropdownMenuTrigger>

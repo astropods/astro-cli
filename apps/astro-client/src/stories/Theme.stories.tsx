@@ -249,3 +249,87 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Palette: Story = {}
+
+const semanticTokens = [
+  {
+    group: "Foreground",
+    desc: "Text colors for content hierarchy.",
+    tokens: [
+      { name: "foreground", bg: "bg-foreground", text: "text-background", desc: "Default body text", light: "stone-950", dark: "stone-100" },
+      { name: "muted-foreground", bg: "bg-muted-foreground", text: "text-white", desc: "Subdued text", light: "stone-700", dark: "stone-600" },
+      { name: "faint-foreground", bg: "bg-faint-foreground", text: "text-white", desc: "Tertiary / disabled text", light: "stone-600", dark: "stone-600" },
+      { name: "primary-foreground", bg: "bg-primary-foreground", text: "text-primary", desc: "Text on primary", light: "#fff", dark: "teal-950" },
+      { name: "secondary-foreground", bg: "bg-secondary-foreground", text: "text-white", desc: "Text on secondary", light: "stone-800", dark: "stone-100" },
+      { name: "accent-foreground", bg: "bg-accent-foreground", text: "text-white", desc: "Text on accent", light: "stone-800", dark: "stone-100" },
+      { name: "popover-foreground", bg: "bg-popover-foreground", text: "text-white", desc: "Text in popovers", light: "foreground", dark: "stone-100" },
+      { name: "destructive", bg: "bg-destructive", text: "text-white", desc: "Error / danger text", light: "red-700", dark: "red-800" },
+    ],
+  },
+  {
+    group: "Surface & Background",
+    desc: "Background fills for pages, panels, and overlays.",
+    tokens: [
+      { name: "background", bg: "bg-background", text: "text-foreground", desc: "Page background", light: "stone-50", dark: "teal-950" },
+      { name: "surface", bg: "bg-surface", text: "text-foreground", desc: "Elevated surface", light: "stone-100", dark: "oklch(13% 0.0105 198.266)" },
+      { name: "popover", bg: "bg-popover", text: "text-foreground", desc: "Popover / dropdown", light: "stone-25", dark: "stone-950" },
+      { name: "primary", bg: "bg-primary", text: "text-primary-foreground", desc: "Primary action fill", light: "teal-800", dark: "teal-400" },
+      { name: "secondary", bg: "bg-secondary", text: "text-secondary-foreground", desc: "Secondary action fill", light: "stone-200", dark: "teal-800" },
+      { name: "accent", bg: "bg-accent", text: "text-accent-foreground", desc: "Accent / hover fill", light: "stone-200", dark: "teal-800" },
+      { name: "muted", bg: "bg-muted", text: "text-muted-foreground", desc: "Muted background", light: "stone-200", dark: "teal-800" },
+    ],
+  },
+  {
+    group: "Border & Input",
+    desc: "Stroke and input chrome tokens.",
+    tokens: [
+      { name: "border", bg: "bg-border", text: "text-foreground", desc: "Default border", light: "stone-300", dark: "teal-300 @ 15%" },
+      { name: "border-strong", bg: "bg-border-strong", text: "text-white", desc: "Emphasized border", light: "stone-400", dark: "teal-300 @ 25%" },
+      { name: "input", bg: "bg-input", text: "text-foreground", desc: "Input border", light: "stone-300", dark: "teal-300 @ 20%" },
+      { name: "input-background", bg: "bg-[var(--input-background)]", text: "text-foreground", desc: "Input fill", light: "stone-25", dark: "stone-100 @ 5%" },
+      { name: "ring", bg: "bg-ring", text: "text-white", desc: "Focus ring", light: "teal-500", dark: "teal-500" },
+      { name: "input-focus-ring", bg: "bg-[var(--input-focus-ring)]", text: "text-foreground", desc: "Input focus ring", light: "teal-600 @ 20%", dark: "teal-400 @ 15%" },
+    ],
+  },
+  {
+    group: "Misc",
+    desc: "Specialty tokens.",
+    tokens: [
+      { name: "code-text", bg: "bg-code-text", text: "text-black", desc: "Inline code text color", light: "oklch(82.90% 0.0224 182.6)", dark: "teal-300" },
+    ],
+  },
+]
+
+function SemanticTokens() {
+  return (
+    <div className="flex flex-col gap-10 p-6 font-sans">
+      {semanticTokens.map((group) => (
+        <div key={group.group}>
+          <h3 className="text-heading-3 text-foreground">{group.group}</h3>
+          <p className="text-body-sm text-muted-foreground mt-1 mb-4">{group.desc}</p>
+          <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-x-6 gap-y-3 items-center">
+            <div className="text-label font-mono uppercase text-faint-foreground">Swatch</div>
+            <div className="text-label font-mono uppercase text-faint-foreground">Token</div>
+            <div className="text-label font-mono uppercase text-faint-foreground">Purpose</div>
+            <div className="text-label font-mono uppercase text-faint-foreground">Value (light / dark)</div>
+            {group.tokens.map((t) => (
+              <>
+                <div
+                  key={`${t.name}-swatch`}
+                  className={`h-9 w-20 rounded-md border border-black/8 ${t.bg}`}
+                />
+                <code key={`${t.name}-name`} className="text-mono-sm font-mono text-foreground">{t.name}</code>
+                <span key={`${t.name}-desc`} className="text-body-sm text-muted-foreground">{t.desc}</span>
+                <span key={`${t.name}-value`} className="text-mono-sm font-mono text-faint-foreground">{t.light} / {t.dark}</span>
+              </>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export const SemanticTokensStory: StoryObj = {
+  name: "Semantic Tokens",
+  render: () => <SemanticTokens />,
+}

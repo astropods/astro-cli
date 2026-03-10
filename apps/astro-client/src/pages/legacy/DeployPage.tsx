@@ -568,7 +568,7 @@ export default function DeployPage() {
           </button>
           <div className="flex items-end justify-between">
             <div>
-              <h1 className="text-heading-1 font-bold mb-1">
+              <h1 className="text-heading-1 mb-1">
                 Deploy <span className="font-normal text-stone-500">{account}/</span>{name}
               </h1>
               {template && (
