@@ -12,7 +12,7 @@ Fixed multiple bugs preventing `ast dev --local` from working, and added conveni
 
 **Image stripping scope** — `ImageNameForLocal` was applied to all compose services, incorrectly stripping `qdrant/qdrant:latest` to `qdrant:latest`. Now only strips images with the `astropods/` prefix and clears their `pull_policy` so compose uses local builds without attempting a pull.
 
-**`--pull` flag fix** — `docker compose build` treats `--pull` as a boolean flag, so `--pull=never` was invalid. Changed to pass `--pull` in normal mode (always pull base images) and omit it in `--local` mode (no pull).
+**`--pull` flag fix** — `docker compose build` treats `--pull` as a boolean flag, so `--pull=never` was invalid. Changed to pass `--pull` in normal mode (always pull base images) and `--pull=false` in `--local` mode (explicitly skip pulling).
 
 **Auto-build SDKs** — Replaced the "check dist/ and error" pattern with automatic `bun install && bun run build` for each SDK when `dist/index.js` is missing. Covers `@astropods/messaging`, `@astropods/adapter-core`, and `@astropods/adapter-mastra`.
 
@@ -24,7 +24,7 @@ Fixed multiple bugs preventing `ast dev --local` from working, and added conveni
 
 **Extracted `composeBuildArgs`** — Pulled the `docker compose build` argument construction out of `runDevStart` into a standalone `composeBuildArgs()` function for testability.
 
-**Tests** — Added `TestComposeBuildArgs` in `cmd/dev_test.go` covering normal/local/rebuild/combined modes, asserting `--pull` presence, `--no-cache` presence, and that the invalid `--pull=never` syntax never appears. Extended `utils_test.go` with `astropods/`-prefixed image cases and a new `TestImageStrippingStrategy` that verifies only `astropods/*` images are stripped while third-party images like `qdrant/qdrant:latest` pass through unchanged.
+**Tests** — Added `TestComposeBuildArgs` in `cmd/dev_test.go` covering normal/local/rebuild/combined modes, asserting `--pull` vs `--pull=false` presence and mutual exclusivity, and `--no-cache` presence. Extended `utils_test.go` with `astropods/`-prefixed image cases and a new `TestImageStrippingStrategy` that verifies only `astropods/*` images are stripped while third-party images like `qdrant/qdrant:latest` pass through unchanged.
 
 ## Migration
 
