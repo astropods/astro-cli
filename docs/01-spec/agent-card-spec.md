@@ -200,7 +200,7 @@ The body is free-form GitHub-Flavored Markdown (GFM). There is no required struc
 
 ## 4. Parsing
 
-The `astro-spec` package MUST provide a parser that accepts the raw content of an `AGENT.md` file and returns:
+The server MUST provide a parser that accepts the raw content of an `AGENT.md` file and returns:
 
 1. A structured representation of the frontmatter (with zero-value defaults for absent fields).
 2. The body as a raw Markdown string.
@@ -221,10 +221,9 @@ The parser MUST reject:
 During `astro push`, the CLI:
 
 1. Reads `AGENT.md` from the project root (if present).
-2. Parses frontmatter and body using the spec parser.
-3. Submits the full raw content of `AGENT.md` as the `readme` field in the registration payload (replacing the current readme mechanism).
+2. Submits the raw content of `AGENT.md` as the `readme` field in the registration payload (replacing the current readme mechanism). The CLI does not parse the frontmatter.
 
-The server stores the raw agent card content in `agent_versions.readme`. The client parses frontmatter on read to extract structured metadata for display.
+The server receives the raw agent card content, parses the YAML frontmatter to extract structured metadata, and stores both the raw content and the parsed metadata. The client consumes the structured data from the server API for display.
 
 > **Migration:** Existing agents without an `AGENT.md` continue to work. The `readme` field remains empty or contains any previously submitted content. No breaking changes to the registration API are required — the field name and storage remain the same. Agents that previously used `meta.description` or `meta.tags` in `astropods.yml` should move those values into the agent card frontmatter.
 
