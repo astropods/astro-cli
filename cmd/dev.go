@@ -188,7 +188,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if local {
 		noPull = true
 		if os.Getenv("ASTRO_ROOT") == "" {
-			return fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)")
+			return fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)\n\n  Set it to the path of your astro monorepo, e.g.:\n    export ASTRO_ROOT=$HOME/astro/astro")
 		}
 	}
 
@@ -251,11 +251,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
 
-	// Strip remote registry prefix from images so we use locally built images
+	// Strip astropods/ prefix from images so we use locally built images
 	if local {
 		for name, svc := range project.Services {
-			if svc.Image != "" {
+			if svc.Image != "" && strings.HasPrefix(svc.Image, "astropods/") {
 				svc.Image = utils.ImageNameForLocal(svc.Image, true)
+				svc.PullPolicy = ""
 				project.Services[name] = svc
 			}
 		}
@@ -305,8 +306,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if rebuild {
 		buildArgs = append(buildArgs, "--no-cache")
 	}
-	if noPull {
-		buildArgs = append(buildArgs, "--pull=never")
+	if !noPull {
+		buildArgs = append(buildArgs, "--pull")
 	}
 	buildTitle := "Building services..."
 	if rebuild {
@@ -362,18 +363,32 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		agentCancel()
 		return fmt.Errorf("link local packages: %w", err)
 	}
-	// Ensure messaging SDK is built (package main points to dist/index.js)
-	msgSDK := filepath.Join(astroRoot, "packages", "messaging", "sdk", "node")
-	if _, err := os.Stat(filepath.Join(msgSDK, "dist", "index.js")); err != nil {
-		agentCancel()
-		return fmt.Errorf("messaging SDK not built: run 'moon run messaging:sdk-build' first")
+	// Build local SDKs if dist/ is missing
+	sdksToBuild := []struct{ name, dir string }{
+		{"@astropods/messaging", filepath.Join(astroRoot, "modules", "messaging", "sdk", "node")},
+		{"@astropods/adapter-core", filepath.Join(astroRoot, "modules", "adapters", "packages", "core")},
+		{"@astropods/adapter-mastra", filepath.Join(astroRoot, "modules", "adapters", "packages", "mastra")},
 	}
-	// Ensure SDKs are built
-	adaptersRoot := filepath.Join(astroRoot, "packages", "adapters")
-	adapterCore := filepath.Join(adaptersRoot, "packages", "core")
-	if _, err := os.Stat(filepath.Join(adapterCore, "dist", "index.js")); err != nil {
-		agentCancel()
-		return fmt.Errorf("adapters not built: run 'moon run adapters:build' first")
+	for _, sdk := range sdksToBuild {
+		if _, err := os.Stat(filepath.Join(sdk.dir, "dist", "index.js")); err != nil {
+			fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, sdk.name)
+			installCmd := exec.Command("bun", "install")
+			installCmd.Dir = sdk.dir
+			installCmd.Stdout = os.Stdout
+			installCmd.Stderr = os.Stderr
+			if err := installCmd.Run(); err != nil {
+				agentCancel()
+				return fmt.Errorf("failed to install deps for %s: %w", sdk.name, err)
+			}
+			buildCmd := exec.Command("bun", "run", "build")
+			buildCmd.Dir = sdk.dir
+			buildCmd.Stdout = os.Stdout
+			buildCmd.Stderr = os.Stderr
+			if err := buildCmd.Run(); err != nil {
+				agentCancel()
+				return fmt.Errorf("failed to build %s: %w", sdk.name, err)
+			}
+		}
 	}
 	fmt.Printf("%s→%s Using local packages from %s\n", colorCyan, colorReset, astroRoot)
 
@@ -449,11 +464,10 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
 	}
 
-	service := "agent"
+	logsArgs := []string{"compose", "-f", cPath, "logs", "-f"}
 	if len(args) > 0 {
-		service = args[0]
+		logsArgs = append(logsArgs, args[0])
 	}
-	logsArgs := []string{"compose", "-f", cPath, "logs", "-f", service}
 
 	logsCmd := exec.Command("docker", logsArgs...) //nolint:gosec
 	logsCmd.Stdout = os.Stdout
@@ -565,7 +579,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 func resolveAstroSourceRoot() (string, error) {
 	p := os.Getenv("ASTRO_ROOT")
 	if p == "" {
-		return "", fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)")
+		return "", fmt.Errorf("ASTRO_ROOT is not set (required for --local to use local packages)\n\n  Set it to the path of your astro monorepo, e.g.:\n    export ASTRO_ROOT=$HOME/astro/astro")
 	}
 	return filepath.Clean(p), nil
 }
@@ -579,9 +593,9 @@ type localPackage struct {
 
 // localAstroPackages are the packages we link in --local and remove in --local-reset.
 var localAstroPackages = []localPackage{
-	{"@astropods", "messaging", "packages/messaging/sdk/node"},
-	{"@astropods", "adapter-core", "packages/adapters/packages/core"},
-	{"@astropods", "adapter-mastra", "packages/adapters/packages/mastra"},
+	{"@astropods", "messaging", "modules/messaging/sdk/node"},
+	{"@astropods", "adapter-core", "modules/adapters/packages/core"},
+	{"@astropods", "adapter-mastra", "modules/adapters/packages/mastra"},
 }
 
 // linkLocalPackages symlinks node_modules/<scope>/<name> to the given Astro repo path
