@@ -25,11 +25,20 @@ jobs:
             const commentMarker = '<!-- pr-changelog-bot -->';
 
             // Match exactly {branch}-YYYY-MM-DD.md to avoid false positives
-            // from similarly-prefixed branches (e.g. "spec-update" vs "spec-update-v2")
+            // from similarly-prefixed branches (e.g. "spec-update" vs "spec-update-v2").
+            // Reads recursively so branch names with slashes (e.g. "fix/foo") map to subdirectories.
             const pattern = new RegExp(`^${branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d{4}-\\d{2}-\\d{2}\\.md$`);
-            const files = fs.existsSync(changelogDir)
-              ? fs.readdirSync(changelogDir).filter(f => pattern.test(f)).sort().reverse()
-              : [];
+            const walk = (dir) => {
+              if (!fs.existsSync(dir)) return [];
+              let results = [];
+              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const rel = path.relative(changelogDir, path.join(dir, entry.name));
+                if (entry.isDirectory()) results.push(...walk(path.join(dir, entry.name)));
+                else if (pattern.test(rel)) results.push(rel);
+              }
+              return results;
+            };
+            const files = walk(changelogDir).sort().reverse();
 
             // Find any existing bot comment
             const { data: comments } = await github.rest.issues.listComments({
@@ -50,6 +59,8 @@ jobs:
                 '> ```',
                 `> docs/changelog/${branch}-${today}.md`,
                 '> ```',
+                '>',
+                '> For branches with slashes (e.g. `fix/my-change`), create subdirectories to match.',
                 '>',
                 '> This file should describe what changed and why. See existing files in `docs/changelog/` for examples.',
               ].join('\n');

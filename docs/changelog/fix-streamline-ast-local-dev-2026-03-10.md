@@ -20,6 +20,8 @@ Fixed multiple bugs preventing `ast dev --local` from working, and added conveni
 
 **Error messages** — `ASTRO_ROOT` errors now include an example `export` command.
 
+**PR changelog action** — `pr-changelog.yml` now searches `docs/changelog/` recursively, so branches with slashes (e.g. `fix/my-change`) can use matching subdirectories (e.g. `docs/changelog/fix/my-change-YYYY-MM-DD.md`). Flat filenames continue to work as before. Updated `CLAUDE.md` guidance to reflect both conventions.
+
 ## Migration
 
 No action required. Existing `moon run deployment:*` tasks still produce the same primary tags; the new secondary tags are additive.

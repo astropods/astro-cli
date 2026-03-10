@@ -38,7 +38,7 @@ All server data integration uses TanStack Query. See [docs/04-guides/tanstack-qu
 
 # Changelogs
 
-Every PR must include a changelog file at `docs/changelog/{branch-name}-YYYY-MM-DD.md`. A GitHub Action warns on PRs missing one and auto-updates the PR description from it.
+Every PR must include a changelog file at `docs/changelog/{branch-name}-YYYY-MM-DD.md`. The filename must match the branch name exactly; for branches with slashes (e.g. `fix/my-change`), use subdirectories (e.g. `docs/changelog/fix/my-change-2026-03-10.md`). A GitHub Action warns on PRs missing one and auto-updates the PR description from it.
 
 Changelogs must focus on **architecture and design**, not file-by-file diffs:
 - **Summary** — The problem being solved and why the change exists.
