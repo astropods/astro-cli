@@ -7,39 +7,44 @@ import (
 
 func TestComposeBuildArgs(t *testing.T) {
 	tests := []struct {
-		name      string
-		rebuild   bool
-		noPull    bool
-		wantPull  bool
-		wantCache bool
+		name           string
+		rebuild        bool
+		noPull         bool
+		wantPull       bool
+		wantPullFalse  bool
+		wantNoCache    bool
 	}{
 		{
-			name:      "normal mode pulls base images",
-			rebuild:   false,
-			noPull:    false,
-			wantPull:  true,
-			wantCache: true,
+			name:          "normal mode pulls base images",
+			rebuild:       false,
+			noPull:        false,
+			wantPull:      true,
+			wantPullFalse: false,
+			wantNoCache:   false,
 		},
 		{
-			name:      "local mode skips pull",
-			rebuild:   false,
-			noPull:    true,
-			wantPull:  false,
-			wantCache: true,
+			name:          "local mode explicitly disables pull",
+			rebuild:       false,
+			noPull:        true,
+			wantPull:      false,
+			wantPullFalse: true,
+			wantNoCache:   false,
 		},
 		{
-			name:      "rebuild disables cache and pulls",
-			rebuild:   true,
-			noPull:    false,
-			wantPull:  true,
-			wantCache: false,
+			name:          "rebuild disables cache and pulls",
+			rebuild:       true,
+			noPull:        false,
+			wantPull:      true,
+			wantPullFalse: false,
+			wantNoCache:   true,
 		},
 		{
-			name:      "rebuild + no-pull disables both",
-			rebuild:   true,
-			noPull:    true,
-			wantPull:  false,
-			wantCache: false,
+			name:          "rebuild + no-pull disables cache and pull",
+			rebuild:       true,
+			noPull:        true,
+			wantPull:      false,
+			wantPullFalse: true,
+			wantNoCache:   true,
 		},
 	}
 
@@ -52,13 +57,18 @@ func TestComposeBuildArgs(t *testing.T) {
 				t.Errorf("--pull present = %v, want %v (args: %v)", hasPull, tt.wantPull, args)
 			}
 
-			hasNoCache := slices.Contains(args, "--no-cache")
-			if hasNoCache == tt.wantCache {
-				t.Errorf("--no-cache present = %v, want %v (args: %v)", hasNoCache, !tt.wantCache, args)
+			hasPullFalse := slices.Contains(args, "--pull=false")
+			if hasPullFalse != tt.wantPullFalse {
+				t.Errorf("--pull=false present = %v, want %v (args: %v)", hasPullFalse, tt.wantPullFalse, args)
 			}
 
-			if hasPull && slices.Contains(args, "--pull=never") {
-				t.Error("--pull=never must not appear; --pull is a boolean flag on docker compose build")
+			if hasPull && hasPullFalse {
+				t.Errorf("--pull and --pull=false are mutually exclusive (args: %v)", args)
+			}
+
+			hasNoCache := slices.Contains(args, "--no-cache")
+			if hasNoCache != tt.wantNoCache {
+				t.Errorf("--no-cache present = %v, want %v (args: %v)", hasNoCache, tt.wantNoCache, args)
 			}
 		})
 	}
