@@ -172,16 +172,16 @@ const designerTeal: Record<string, string> = {
 };
 
 const designerStone: Record<string, string> = {
-  "50": "#f5f1e8",  // remapped from designer's stone-75
-  "100": "#ede7d9", // remapped from designer's stone-150
-  "200": "#e5dece",
-  "300": "#d4c9b5",
-  "400": "#b5a48e",
-  "500": "#9a8a72",
-  "600": "#7e7060",
-  "700": "#5c5047",
-  "800": "#3d342c",
-  "900": "#1e1a15",
+  "50": "#fffefa",
+  "100": "#fcf7f0",
+  "200": "#f3eee8",
+  "300": "#e0d9d2",
+  "400": "#bdb5ac",
+  "500": "#a39a91",
+  "600": "#87807a",
+  "700": "#655f5c",
+  "800": "#46423f",
+  "900": "#282624",
 };
 
 // --- Additional semantic colors for reference ---

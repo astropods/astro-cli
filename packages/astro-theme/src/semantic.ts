@@ -22,7 +22,7 @@ export const lightTheme = {
   "secondary-foreground": "var(--color-stone-800)",
   muted: "var(--color-stone-200)",
   "muted-foreground": "var(--color-stone-700)",
-  surface: "oklch(92.89% 0.0197 87.537)",
+  surface: "var(--color-stone-100)",
   ink: "oklch(32.72% 0.0524 193.0)",
   "ink-muted": "oklch(46.51% 0.0244 192.7)",
   "ink-faint": "oklch(57.71% 0.0225 188.9)",
