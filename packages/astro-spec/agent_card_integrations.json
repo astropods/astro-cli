@@ -1,0 +1,22 @@
+[
+  { "id": "slack", "name": "Slack" },
+  { "id": "github", "name": "GitHub" },
+  { "id": "linear", "name": "Linear" },
+  { "id": "notion", "name": "Notion" },
+  { "id": "google-drive", "name": "Google Drive" },
+  { "id": "gmail", "name": "Gmail" },
+  { "id": "jira", "name": "Jira" },
+  { "id": "confluence", "name": "Confluence" },
+  { "id": "discord", "name": "Discord" },
+  { "id": "microsoft-teams", "name": "Microsoft Teams" },
+  { "id": "salesforce", "name": "Salesforce" },
+  { "id": "zendesk", "name": "Zendesk" },
+  { "id": "twilio", "name": "Twilio" },
+  { "id": "stripe", "name": "Stripe" },
+  { "id": "shopify", "name": "Shopify" },
+  { "id": "asana", "name": "Asana" },
+  { "id": "trello", "name": "Trello" },
+  { "id": "figma", "name": "Figma" },
+  { "id": "dropbox", "name": "Dropbox" },
+  { "id": "airtable", "name": "Airtable" }
+]
