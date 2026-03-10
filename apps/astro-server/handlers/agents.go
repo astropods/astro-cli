@@ -264,7 +264,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		warningsBytes, _ := json.Marshal(validationWarnings)
 		validationWarningsJSON = string(warningsBytes)
 
-		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, specMap, req.Readme, validationWarningsJSON); err != nil {
+		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, accountName, specMap, req.Readme, validationWarningsJSON); err != nil {
 			log.Error("Failed to register agent", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to register agent",

@@ -80,6 +80,14 @@ type RenameAccountResponse struct {
 	Name    string `json:"name"`
 }
 
+// TransferAgentResponse is returned after transferring an agent to another account.
+type TransferAgentResponse struct {
+	Message       string `json:"message"`
+	Agent         string `json:"agent"`
+	SourceAccount string `json:"source_account"`
+	TargetAccount string `json:"target_account"`
+}
+
 // UpdateProfileResponse is returned after updating user profile.
 type UpdateProfileResponse struct {
 	User *ProfileUser `json:"user"`

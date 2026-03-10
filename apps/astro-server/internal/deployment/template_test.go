@@ -1462,3 +1462,144 @@ func TestTemplate_EndToEnd_WebhookIngestionWithKnowledge(t *testing.T) {
 		t.Errorf("round-trip port: expected 3001, got %d", spec.PrimaryPort(parsed.Ingestion["data"].Endpoints))
 	}
 }
+
+// ===== Phase 14: ECR Namespace Backward Compatibility =====
+
+// Tests that the ECRNamespace field in TemplateInput is used for ECR path
+// construction, and that omitting it (empty string) falls back to parsing
+// the account name from the image path — preserving pre-migration behavior.
+
+func TestResolveImage_ECRNamespace_UsedWhenSet(t *testing.T) {
+	input := proxyInput()
+	input.ECRNamespace = "target-account"
+
+	// Image path says "acme" but ECRNamespace says "target-account"
+	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-target-account/my-app:v1"
+	if got != expected {
+		t.Errorf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestResolveImage_ECRNamespace_FallbackWhenEmpty(t *testing.T) {
+	input := proxyInput()
+	input.ECRNamespace = "" // not set — pre-migration behavior
+
+	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-acme/my-app:v1"
+	if got != expected {
+		t.Errorf("expected fallback to image path account, got %s", got)
+	}
+}
+
+func TestResolveImage_ECRNamespace_TransferScenario(t *testing.T) {
+	// Simulates: agent was pushed under "alice", transferred to "bob".
+	// The stored image path still says "alice" but ECRNamespace is "alice"
+	// (frozen at push time). Images resolve to alice's ECR repos.
+	input := proxyInput()
+	input.Account = "bob"        // current owner after transfer
+	input.ECRNamespace = "alice" // where images physically are
+
+	got := resolveImage("proxy.registry.io/alice/my-agent:abc123", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-alice/my-agent:abc123"
+	if got != expected {
+		t.Errorf("transferred agent should resolve to original ECR namespace, got %s", got)
+	}
+}
+
+func TestResolveImage_ECRNamespace_NewPushAfterTransfer(t *testing.T) {
+	// After transfer to "bob", bob pushes a new build. The new version's
+	// ECRNamespace is "bob" and images are in bob's ECR repos.
+	input := proxyInput()
+	input.Account = "bob"
+	input.ECRNamespace = "bob"
+
+	got := resolveImage("proxy.registry.io/bob/my-agent:newbuild", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-bob/my-agent:newbuild"
+	if got != expected {
+		t.Errorf("new push should resolve to new owner's ECR namespace, got %s", got)
+	}
+}
+
+func TestResolveImage_ECRNamespace_DoesNotAffectPublicImages(t *testing.T) {
+	input := proxyInput()
+	input.ECRNamespace = "some-namespace"
+
+	// Public images go through the pull-through cache regardless of ECRNamespace
+	got := resolveImage("ollama/ollama:latest", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/ollama/ollama:latest"
+	if got != expected {
+		t.Errorf("public images should be unaffected by ECRNamespace, got %s", got)
+	}
+}
+
+func TestResolveImage_ECRNamespace_DoesNotAffectThirdParty(t *testing.T) {
+	input := proxyInput()
+	input.ECRNamespace = "some-namespace"
+
+	image := "gcr.io/my-project/my-app:v1"
+	got := resolveImage(image, input)
+	if got != image {
+		t.Errorf("third-party images should be unaffected by ECRNamespace, got %s", got)
+	}
+}
+
+func TestTemplate_ECRNamespace_AllComponentsUseIt(t *testing.T) {
+	// Verify that ECRNamespace flows through to all component types
+	input := proxyInput()
+	input.ECRNamespace = "original-owner"
+	input.Spec.Agent.Image = "proxy.registry.io/acme/agent:v1"
+	input.Spec.Models = map[string]spec.Model{
+		"m": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/model:v1", Port: 8000}},
+	}
+	input.Spec.Knowledge = map[string]spec.Knowledge{
+		"k": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/knowledge:v1", Port: 5000}},
+	}
+	input.Spec.Tools = map[string]spec.Tool{
+		"t": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/tool:v1", Port: 3000}},
+	}
+	input.Spec.Ingestion = map[string]spec.Ingestion{
+		"i": {
+			Container: spec.ContainerConfig{Image: "proxy.registry.io/acme/ingest:v1"},
+			Trigger:   spec.IngestionTrigger{Type: "startup"},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// All tenant images should resolve using "original-owner", not "acme"
+	prefix := "123456789.dkr.ecr.us-east-1.amazonaws.com/prod-tenant-original-owner/"
+	checks := map[string]string{
+		"agent":     ds.Agent.Image,
+		"model":     ds.Models["m"].Image,
+		"knowledge": ds.Knowledge["k"].Image,
+		"tool":      ds.Tools["t"].Image,
+		"ingestion": ds.Ingestion["i"].Image,
+	}
+	for component, image := range checks {
+		if !strings.HasPrefix(image, prefix) {
+			t.Errorf("%s image should use ECRNamespace 'original-owner': expected prefix %s, got %s", component, prefix, image)
+		}
+	}
+}
+
+func TestTemplate_ECRNamespace_MixedTenantAndPublic(t *testing.T) {
+	// Tenant images use ECRNamespace; public images are unaffected
+	input := proxyInput()
+	input.ECRNamespace = "transferred-ns"
+	input.Spec.Models = map[string]spec.Model{
+		"custom": {Container: &spec.ContainerConfig{Image: "proxy.registry.io/acme/custom:v1", Port: 8000}},
+		"public": {Container: &spec.ContainerConfig{Image: "ollama/ollama:latest", Port: 11434}},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// Custom model uses ECRNamespace
+	if !strings.Contains(ds.Models["custom"].Image, "prod-tenant-transferred-ns") {
+		t.Errorf("tenant model should use ECRNamespace, got %s", ds.Models["custom"].Image)
+	}
+	// Public model uses pull-through cache
+	if !strings.Contains(ds.Models["public"].Image, "dockerhub/ollama") {
+		t.Errorf("public model should use pull-through cache, got %s", ds.Models["public"].Image)
+	}
+}

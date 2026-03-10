@@ -623,6 +623,15 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
+				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore),
+					oapispec.Tags("Agents"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Source account name"),
+					oapispec.PathParam("name", "Agent name"),
+					oapispec.Body(&handlers.TransferAgentRequest{}),
+					oapispec.Response(200, &handlers.TransferAgentResponse{}),
+					oapispec.Response(409, &handlers.ErrorResponse{}),
+				)
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)

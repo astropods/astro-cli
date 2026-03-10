@@ -26,7 +26,8 @@ func providerEnvKeys(basePrefix, name, suffix string, isDuplicate, isFirst bool)
 // TemplateInput holds the parameters needed to generate a deployment template.
 type TemplateInput struct {
 	Spec              *spec.AstroSpec
-	Account           string
+	Account           string // account name (display, used in DeploymentSource)
+	ECRNamespace      string // where this version's images physically live in ECR
 	BuildID           string
 	RegistryURL       string
 	ProxyRegistryHost string // Host of the tenant's private image registry (e.g. "registry.astropods.ai")
@@ -576,7 +577,13 @@ func resolveImage(image string, input TemplateInput) string {
 		pathWithTag := strings.TrimPrefix(image, input.ProxyRegistryHost+"/")
 		parts := strings.SplitN(pathWithTag, "/", 2)
 		if len(parts) >= 2 {
-			return fmt.Sprintf("%s/%s-tenant-%s/%s", stripScheme(input.RegistryURL), input.Environment, parts[0], parts[1])
+			// Use ECRNamespace (frozen at push time) instead of the account name
+			// parsed from the image path, so transferred agents resolve correctly.
+			ns := input.ECRNamespace
+			if ns == "" {
+				ns = parts[0]
+			}
+			return fmt.Sprintf("%s/%s-tenant-%s/%s", stripScheme(input.RegistryURL), input.Environment, ns, parts[1])
 		}
 		return image
 	}

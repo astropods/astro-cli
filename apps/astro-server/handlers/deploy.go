@@ -203,6 +203,7 @@ func prepareDeployment(
 	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:              &astroSpec,
 		Account:           sourceAccountName,
+		ECRNamespace:      agentVersion.ECRNamespace,
 		BuildID:           buildID,
 		RegistryURL:       cfg.Deployment.RegistryURL,
 		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
@@ -1189,6 +1190,7 @@ func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, acc
 		template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 			Spec:              &astroSpec,
 			Account:           accountName,
+			ECRNamespace:      agentVersion.ECRNamespace,
 			BuildID:           agentVersion.BuildID,
 			RegistryURL:       cfg.Deployment.RegistryURL,
 			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,

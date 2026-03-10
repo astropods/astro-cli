@@ -60,6 +60,7 @@ CREATE TABLE public.agent_versions (
     account_id uuid NOT NULL,
     name text NOT NULL,
     build_id text NOT NULL,
+    ecr_namespace text NOT NULL DEFAULT '',
     spec_json text NOT NULL,
     readme text NOT NULL DEFAULT '',
     validation_warnings text NOT NULL DEFAULT '',

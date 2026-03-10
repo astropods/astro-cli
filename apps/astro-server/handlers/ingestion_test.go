@@ -195,8 +195,8 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 	specJSON := `{"ingestion":{"data":{"container":{"image":"img"},"trigger":{"type":"schedule"}}}}`
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions").
 		WithArgs("acct-1", "my-agent", "build-1").
-		WillReturnRows(sqlmock.NewRows([]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", specJSON, "", "[]", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "acme", specJSON, "", "[]", time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/deployments/test-ns/ingestion/data/trigger?account=acme", nil)
@@ -247,8 +247,8 @@ func TestTriggerIngestion_IngestionNotInSpec(t *testing.T) {
 	specJSON := `{"agent":{"image":"img"}}`
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions").
 		WithArgs("acct-1", "my-agent", "build-1").
-		WillReturnRows(sqlmock.NewRows([]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", specJSON, "", "[]", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "acme", specJSON, "", "[]", time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/deployments/test-ns/ingestion/data/trigger?account=acme", nil)
@@ -305,8 +305,8 @@ func TestTriggerIngestion_Success(t *testing.T) {
 	specJSON := `{"ingestion":{"data":{"container":{"image":"my-agent:latest"},"trigger":{"type":"manual"}}}}`
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions").
 		WithArgs("acct-1", "my-agent", "build-1").
-		WillReturnRows(sqlmock.NewRows([]string{"build_id", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", specJSON, "", "[]", time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "acme", specJSON, "", "[]", time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/deployments/test-ns/ingestion/data/trigger?account=acme", nil)

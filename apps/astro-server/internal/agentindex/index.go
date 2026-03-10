@@ -13,6 +13,7 @@ import (
 // AgentVersion represents a specific published build of an agent
 type AgentVersion struct {
 	BuildID            string           `json:"build_id"`
+	ECRNamespace       string           `json:"ecr_namespace"`
 	Spec               map[string]any   `json:"spec"`
 	Readme             string           `json:"readme"`
 	ValidationWarnings []map[string]any `json:"validation_warnings,omitempty"`
@@ -80,7 +81,7 @@ func parseValidationWarnings(raw string) []map[string]any {
 }
 
 // Register adds or updates an agent build in the index
-func (idx *Index) Register(accountID, name, buildID, registry string, spec map[string]any, readme string, validationWarnings string) error {
+func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace string, spec map[string]any, readme string, validationWarnings string) error {
 	tx, err := idx.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -107,10 +108,10 @@ func (idx *Index) Register(accountID, name, buildID, registry string, spec map[s
 
 	// Insert or update version using ON CONFLICT
 	_, err = tx.Exec(`
-		INSERT INTO agent_versions (account_id, name, build_id, spec_json, readme, validation_warnings, published_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (account_id, name, build_id) DO UPDATE SET spec_json = $4, readme = $5, validation_warnings = $6, updated_at = $8
-	`, accountID, name, buildID, string(specJSON), readme, validationWarnings, now, now)
+		INSERT INTO agent_versions (account_id, name, build_id, ecr_namespace, spec_json, readme, validation_warnings, published_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (account_id, name, build_id) DO UPDATE SET spec_json = $5, readme = $6, validation_warnings = $7, updated_at = $9
+	`, accountID, name, buildID, ecrNamespace, string(specJSON), readme, validationWarnings, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to insert version: %w", err)
 	}
@@ -136,7 +137,7 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 
 	// Load versions ordered newest first
 	rows, err := idx.db.Query(`
-		SELECT build_id, spec_json, readme, validation_warnings, published_at, updated_at
+		SELECT build_id, ecr_namespace, spec_json, readme, validation_warnings, published_at, updated_at
 		FROM agent_versions
 		WHERE account_id = $1 AND name = $2
 		ORDER BY published_at DESC
@@ -149,7 +150,7 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	for rows.Next() {
 		var v AgentVersion
 		var specJSON, warningsJSON string
-		if err := rows.Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan version: %w", err)
 		}
 
@@ -169,10 +170,10 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 	var v AgentVersion
 	var specJSON, warningsJSON string
 	err := idx.db.QueryRow(`
-		SELECT build_id, spec_json, readme, validation_warnings, published_at, updated_at
+		SELECT build_id, ecr_namespace, spec_json, readme, validation_warnings, published_at, updated_at
 		FROM agent_versions
 		WHERE account_id = $1 AND name = $2 AND build_id = $3
-	`, accountID, name, buildID).Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
+	`, accountID, name, buildID).Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("build not found: %s", buildID)
@@ -210,7 +211,7 @@ func (idx *Index) List() ([]*Agent, error) {
 
 		// Load versions ordered newest first
 		versionRows, err := idx.db.Query(`
-			SELECT build_id, spec_json, readme, validation_warnings, published_at, updated_at
+			SELECT build_id, ecr_namespace, spec_json, readme, validation_warnings, published_at, updated_at
 			FROM agent_versions
 			WHERE account_id = $1 AND name = $2
 			ORDER BY published_at DESC
@@ -222,7 +223,7 @@ func (idx *Index) List() ([]*Agent, error) {
 		for versionRows.Next() {
 			var v AgentVersion
 			var specJSON, warningsJSON string
-			if err := versionRows.Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
+			if err := versionRows.Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
 				_ = versionRows.Close()
 				return nil, fmt.Errorf("failed to scan version: %w", err)
 			}
@@ -262,7 +263,7 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 		}
 
 		versionRows, err := idx.db.Query(`
-			SELECT build_id, spec_json, readme, validation_warnings, published_at, updated_at
+			SELECT build_id, ecr_namespace, spec_json, readme, validation_warnings, published_at, updated_at
 			FROM agent_versions
 			WHERE account_id = $1 AND name = $2
 			ORDER BY published_at DESC
@@ -274,7 +275,7 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 		for versionRows.Next() {
 			var v AgentVersion
 			var specJSON, warningsJSON string
-			if err := versionRows.Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
+			if err := versionRows.Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
 				_ = versionRows.Close()
 				return nil, fmt.Errorf("failed to scan version: %w", err)
 			}
@@ -386,7 +387,7 @@ func (idx *Index) SetVisibility(accountID, name, visibility string) error {
 func (idx *Index) ListPublicAgents() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
 		SELECT a.account_id, a.name, a.registry, a.visibility, a.created_at, a.updated_at,
-		       v.build_id, v.spec_json, v.readme, v.published_at, v.updated_at
+		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.published_at, v.updated_at
 		FROM agents a
 		JOIN agent_versions v ON a.account_id = v.account_id AND a.name = v.name
 		WHERE a.visibility = 'public'
@@ -409,7 +410,7 @@ func (idx *Index) ListPublicAgents() ([]*Agent, error) {
 
 		if err := rows.Scan(
 			&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt,
-			&v.BuildID, &specJSON, &v.Readme, &v.PublishedAt, &v.UpdatedAt,
+			&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &v.PublishedAt, &v.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -430,12 +431,12 @@ func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error
 	var v AgentVersion
 	var specJSON, warningsJSON string
 	err := idx.db.QueryRow(`
-		SELECT build_id, spec_json, readme, validation_warnings, published_at, updated_at
+		SELECT build_id, ecr_namespace, spec_json, readme, validation_warnings, published_at, updated_at
 		FROM agent_versions
 		WHERE account_id = $1 AND name = $2
 		ORDER BY published_at DESC
 		LIMIT 1
-	`, accountID, name).Scan(&v.BuildID, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
+	`, accountID, name).Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &warningsJSON, &v.PublishedAt, &v.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no builds found for agent: %s", name)
@@ -452,3 +453,40 @@ func (idx *Index) GetLatestVersion(accountID, name string) (*AgentVersion, error
 	return &v, nil
 }
 
+// Transfer moves an agent and all its versions from one account to another.
+// The ecr_namespace on each version is intentionally left unchanged so that
+// existing images continue to resolve to their original ECR repositories.
+func (idx *Index) Transfer(sourceAccountID, targetAccountID, agentName string) error {
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	now := time.Now()
+
+	result, err := tx.Exec(`
+		UPDATE agents SET account_id = $1, updated_at = $2
+		WHERE account_id = $3 AND name = $4
+	`, targetAccountID, now, sourceAccountID, agentName)
+	if err != nil {
+		return fmt.Errorf("failed to transfer agent: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("agent not found: %s", agentName)
+	}
+
+	_, err = tx.Exec(`
+		UPDATE agent_versions SET account_id = $1, updated_at = $2
+		WHERE account_id = $3 AND name = $4
+	`, targetAccountID, now, sourceAccountID, agentName)
+	if err != nil {
+		return fmt.Errorf("failed to transfer versions: %w", err)
+	}
+
+	return tx.Commit()
+}
