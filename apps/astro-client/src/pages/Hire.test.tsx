@@ -108,10 +108,12 @@ describe('Hire page', () => {
       renderHire();
       await waitForAgents();
 
-      expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Development' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Data' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Support' })).toBeInTheDocument();
+      // SidebarNav renders children in both mobile and desktop containers,
+      // so multiple matching buttons are expected.
+      expect(screen.getAllByRole('button', { name: 'All' }).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByRole('button', { name: 'Development' }).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByRole('button', { name: 'Data' }).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByRole('button', { name: 'Support' }).length).toBeGreaterThanOrEqual(1);
     });
 
     it('filters agents by selected category', async () => {
@@ -119,7 +121,7 @@ describe('Hire page', () => {
       renderHire();
       await waitForAgents();
 
-      await user.click(screen.getByRole('button', { name: 'Data' }));
+      await user.click(screen.getAllByRole('button', { name: 'Data' })[0]);
 
       await waitFor(() => {
         expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
@@ -132,14 +134,14 @@ describe('Hire page', () => {
       renderHire();
       await waitForAgents();
 
-      // Filter by Analytics first
-      await user.click(screen.getByRole('button', { name: 'Data' }));
+      // Filter by Data first
+      await user.click(screen.getAllByRole('button', { name: 'Data' })[0]);
       await waitFor(() => {
         expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
       });
 
       // Reset with All
-      await user.click(screen.getByRole('button', { name: 'All' }));
+      await user.click(screen.getAllByRole('button', { name: 'All' })[0]);
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /code-reviewer/ })).toBeInTheDocument();
       });
