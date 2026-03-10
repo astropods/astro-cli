@@ -22,6 +22,10 @@ Fixed multiple bugs preventing `ast dev --local` from working, and added conveni
 
 **PR changelog action** — `pr-changelog.yml` now searches `docs/changelog/` recursively, so branches with slashes (e.g. `fix/my-change`) can use matching subdirectories (e.g. `docs/changelog/fix/my-change-YYYY-MM-DD.md`). Flat filenames continue to work as before. Updated `CLAUDE.md` guidance to reflect both conventions.
 
+**Extracted `composeBuildArgs`** — Pulled the `docker compose build` argument construction out of `runDevStart` into a standalone `composeBuildArgs()` function for testability.
+
+**Tests** — Added `TestComposeBuildArgs` in `cmd/dev_test.go` covering normal/local/rebuild/combined modes, asserting `--pull` presence, `--no-cache` presence, and that the invalid `--pull=never` syntax never appears. Extended `utils_test.go` with `astropods/`-prefixed image cases and a new `TestImageStrippingStrategy` that verifies only `astropods/*` images are stripped while third-party images like `qdrant/qdrant:latest` pass through unchanged.
+
 ## Migration
 
 No action required. If you have scripts referencing `astro-messaging:latest` or `astro-playground:latest`, update them to `messaging:latest` / `playground:latest`.
