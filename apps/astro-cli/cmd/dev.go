@@ -569,13 +569,15 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 }
 
 // composeBuildArgs returns the docker compose build command arguments.
-// docker compose build does not pull base images by default; --pull opts in.
+// --pull is a boolean flag: true = always pull base images, false = use cache.
 func composeBuildArgs(composePath string, rebuild, noPull bool) []string {
 	args := []string{"compose", "--profile", "ingestion", "-f", composePath, "build"}
 	if rebuild {
 		args = append(args, "--no-cache")
 	}
-	if !noPull {
+	if noPull {
+		args = append(args, "--pull=false")
+	} else {
 		args = append(args, "--pull")
 	}
 	return args
