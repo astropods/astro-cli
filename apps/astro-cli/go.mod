@@ -25,6 +25,7 @@ require (
 	github.com/moby/buildkit v0.21.1
 	github.com/moby/go-archive v0.2.0
 	github.com/moby/moby v28.5.2+incompatible
+	github.com/moby/patternmatcher v0.6.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/quic-go/quic-go v0.59.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
@@ -103,7 +104,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
-	github.com/moby/patternmatcher v0.6.0 // indirect
 	github.com/moby/sys/sequential v0.6.0 // indirect
 	github.com/moby/sys/user v0.4.0 // indirect
 	github.com/moby/sys/userns v0.1.0 // indirect

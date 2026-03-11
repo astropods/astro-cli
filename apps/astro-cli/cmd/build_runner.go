@@ -23,6 +23,7 @@ import (
 	"github.com/moby/buildkit/session/secrets/secretsprovider"
 	"github.com/moby/go-archive"
 	"github.com/moby/moby/client"
+	"github.com/moby/patternmatcher/ignorefile"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 
@@ -358,12 +359,30 @@ func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, doc
 	}
 }
 
+func readDockerignore(contextPath string) ([]string, error) {
+	f, err := os.Open(filepath.Join(contextPath, ".dockerignore"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close() //nolint:errcheck
+	return ignorefile.ReadAll(f)
+}
+
 func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, secrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool, platform string) error {
 	// Pre-pull base images so BuildKit resolves them from local cache
 	prePullBaseImages(ctx, cli, contextPath, dockerfile, buildArgs, platform, quiet)
 
+	excludes, err := readDockerignore(contextPath)
+	if err != nil {
+		return fmt.Errorf("failed to read .dockerignore: %w", err)
+	}
 	// Create build context tar
-	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{})
+	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{
+		ExcludePatterns: excludes,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create build context: %w", err)
 	}
