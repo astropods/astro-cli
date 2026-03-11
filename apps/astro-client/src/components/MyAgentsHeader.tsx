@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import { Grid2x2, List } from "lucide-react";
-import { PlusIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { FilterInput } from "@/components/FilterInput";
@@ -48,9 +47,8 @@ export function MyAgentsHeader({
           </ToggleGroupItem>
         </ToggleGroup>
 
-        <Button variant="outline" size="sm" asChild>
+        <Button asChild>
           <Link to="/browse">
-            <PlusIcon className="size-4" />
             Browse agents
           </Link>
         </Button>
