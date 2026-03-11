@@ -83,7 +83,6 @@ moon run astro-server:dev
 
 Starts Postgres, runs migrations, and the server with hot reload on http://localhost:8080. Run the client in a separate terminal to use the full platform UI.
 
-
 ## Astro Agent Local Development
 
 Run an agent as a local process with hot-reload, using local packages and Docker images from this repo. Useful for developing agents and packages together.
@@ -125,10 +124,10 @@ ast-dev dev --local
 
 ## Deployments
 
-| Environment | URL | Notes |
-|-------------|-----|-------|
-| Preview / Staging | https://astropod.ai | Requires beta VPN |
-| Production | https://astropods.ai | Invite-only — contact a Postman team member for access |
+| Environment       | URL                  | Notes                                                  |
+| ----------------- | -------------------- | ------------------------------------------------------ |
+| Preview / Staging | https://astropod.ai  | Requires beta VPN                                      |
+| Production        | https://astropods.ai | Invite-only — contact a Postman team member for access |
 
 **Preview** — Automatically deployed on every merge to `main`. No manual action required.
 
