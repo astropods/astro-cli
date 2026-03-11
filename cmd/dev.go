@@ -618,10 +618,10 @@ func checkComposeHealth(composePath string) {
 			status = parts[2]
 		}
 
-		switch {
-		case state == "running":
+		switch state {
+		case "running":
 			fmt.Printf("  %s✓%s %s %s(%s)%s\n", colorGreen, colorReset, name, colorDim, status, colorReset)
-		case state == "exited" || state == "dead":
+		case "exited", "dead":
 			fmt.Printf("  %s✗%s %s %s— %s%s\n", colorRed, colorReset, name, colorRed, status, colorReset)
 		default:
 			fmt.Printf("  %s?%s %s %s(%s)%s\n", colorYellow, colorReset, name, colorDim, status, colorReset)
