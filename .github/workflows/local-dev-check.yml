@@ -20,18 +20,21 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: apps/astro-cli/go.mod
           cache-dependency-path: apps/astro-cli/go.sum
 
       - name: Install dependencies
         working-directory: apps/astro-cli
         run: go mod download
 
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
       - name: Run local-dev regression tests
         working-directory: apps/astro-cli
         run: |
-          go test -v -run "TestLocalAstroPackages|TestLocalDockerImages|TestComposeBuildArgs|TestDevLogsArgs|TestResolveAstroSourceRoot" ./cmd/...
-          go test -v -run "TestImageNameForLocal|TestImageStrippingStrategy" ./internal/utils/...
+          gotestsum --format pkgname -- -v -run "TestLocalAstroPackages|TestLocalDockerImages|TestComposeBuildArgs|TestDevLogsArgs|TestResolveAstroSourceRoot" ./cmd/...
+          gotestsum --format pkgname -- -v -run "TestImageNameForLocal|TestImageStrippingStrategy" ./internal/utils/...
 
       - name: Verify CLI builds with production ldflags
         working-directory: apps/astro-cli
