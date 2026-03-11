@@ -3,20 +3,32 @@ import { useAccount } from "../api/queries/accounts";
 import { useDeployments } from "../api/queries/deployments";
 import { useAuth } from "../lib/auth";
 import { DeployedAgentCard } from "../components/DeployedAgentCard";
+import { AgentCard } from "../components/AgentCard";
+import { useAccountAgents } from "../api/queries/agents";
+import { getAgentDescription } from "../lib/agent-utils";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
+import { ShieldCheck } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function AccountProfileContent() {
   const { account } = useParams<{ account: string }>();
   const { data, isLoading } = useAccount(account ?? "");
   const { isAuthenticated, accounts } = useAuth();
 
-  const isOrg = data?.type === "organization";
   const isMember = isAuthenticated && accounts.some((a) => a.name === data?.name);
 
   const { data: deploymentsData } = useDeployments(
     data?.name ?? "",
-    isOrg && isMember,
+    isMember,
   );
+
+  const { data: agentsData } = useAccountAgents(data?.name ?? "", !!data);
+  const accountAgents = agentsData?.agents ?? [];
 
   if (isLoading) {
     return (
@@ -38,14 +50,43 @@ function AccountProfileContent() {
 
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
-      <h1 className="text-2xl font-bold">{data.name}</h1>
-      <p className="text-muted-foreground mt-1">
-        {isOrg ? "Organization profile" : "Personal account profile"}
-      </p>
+      <div className="flex items-center gap-4">
+        {data.owner?.profile_picture_url ? (
+          <img
+            src={data.owner.profile_picture_url}
+            alt={data.name}
+            className="size-16 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <div className="flex size-16 shrink-0 items-center justify-center rounded-full bg-teal-800 text-xl font-medium text-white">
+            {(data.owner?.first_name?.[0] ?? data.name[0] ?? "").toUpperCase()}
+          </div>
+        )}
+        <div>
+          {data.owner?.first_name && (
+            <h1 className="text-2xl font-bold">
+              {[data.owner.first_name, data.owner.last_name].filter(Boolean).join(" ")}
+            </h1>
+          )}
+          <p className="text-muted-foreground">@{data.name}</p>
+        </div>
+      </div>
 
-      {isOrg && isMember && (
+      {isMember && (
         <div className="mt-8">
-          <h2 className="text-lg font-semibold">Installed agents</h2>
+          <h3 className="flex items-center gap-1.5 text-xl font-semibold">
+            Installed agents
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ShieldCheck className="size-4 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  Only visible to members with access
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </h3>
           {deployments.length === 0 ? (
             <p className="text-muted-foreground mt-3">No agents installed</p>
           ) : (
@@ -68,6 +109,29 @@ function AccountProfileContent() {
           )}
         </div>
       )}
+
+      <div className="mt-8">
+        <h3 className="text-xl font-semibold">Agent templates</h3>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Agents published by this account
+        </p>
+        {accountAgents.length === 0 ? (
+          <p className="text-muted-foreground mt-3">No agent templates published</p>
+        ) : (
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            {accountAgents.map((agent) => (
+              <AgentCard
+                key={agent.name}
+                slug={`${data.name}/${agent.name}`}
+                account={data.name}
+                name={agent.name}
+                description={getAgentDescription(agent)}
+                visibility={agent.visibility}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

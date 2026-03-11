@@ -230,6 +230,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         <AgentDetailContent
           account={agent.account}
           name={agent.name}
+          visibility={agent.visibility}
           categories={getAgentCategories(agent)}
           readme={readme}
           safetyPermissions={safetyPermissions}

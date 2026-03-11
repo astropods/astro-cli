@@ -104,6 +104,67 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 	}
 }
 
+// ListAccountAgents handles GET /api/v1/agents/:account
+// Lists all public agents for an account. Members also see private agents.
+func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember := false
+		if user, exists := middleware.GetUser(c); exists {
+			if ok, err := accountStore.IsMember(acct.ID, user.ID); err == nil && ok {
+				isMember = true
+			}
+		}
+
+		agents, err := index.ListForAccount(acct.ID)
+		if err != nil {
+			log.Error("Failed to list agents for account", "error", err, "account", accountName)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to list agents",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		responses := make([]AgentResponse, 0, len(agents))
+		for _, agent := range agents {
+			if agent.Visibility == "private" && !isMember {
+				continue
+			}
+
+			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
+			for _, v := range agent.Versions {
+				versions = append(versions, AgentVersionResponse{
+					BuildID:     v.BuildID,
+					Spec:        v.Spec,
+					Readme:      v.Readme,
+					PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
+				})
+			}
+
+			responses = append(responses, AgentResponse{
+				Account:    accountName,
+				Name:       agent.Name,
+				Registry:   agent.Registry,
+				Visibility: agent.Visibility,
+				Versions:   versions,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"agents": responses,
+			"count":  len(responses),
+		})
+	}
+}
+
 // GetAgent handles GET /api/v1/agents/:account/:name
 // Private agents are only visible to account members; public agents are visible to all
 func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {

@@ -11,6 +11,7 @@ export const accountKeys = {
 
 export const agentKeys = {
   all: ['agents'] as const,
+  byAccount: (account: string) => ['agents', 'account', account] as const,
   detail: (account: string, name: string) => ['agents', account, name] as const,
   template: (account: string, name: string) =>
     ['agents', account, name, 'template'] as const,

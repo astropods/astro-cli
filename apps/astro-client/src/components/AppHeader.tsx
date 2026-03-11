@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth, getUserDisplayName } from "@/lib/auth";
+import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserCard } from "@/components/UserCard";
@@ -68,7 +69,7 @@ function ExternalOrNavLink({ to, external, children, className }: { to: string; 
 const ALWAYS_VISIBLE = 2;
 
 export function AppHeader() {
-  const { user, accounts, isLoading, isAuthenticated, login, logout, hasPermission } = useAuth();
+  const { user, accounts, isLoading, isAuthenticated, login, logout, hasPermission, personalAccount } = useAuth();
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -222,6 +223,17 @@ export function AppHeader() {
                 </div>
               </div>
               <DropdownMenuSeparator />
+              {personalAccount && (
+                <>
+                  <DropdownMenuItem asChild className="gap-2">
+                    <Link to={`/${personalAccount.name}`}>
+                      <UserCircleIcon className="size-4" />
+                      Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {(() => {
                 const orgs = accounts.filter((a) => a.type === "organization");
                 return (

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
+import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { InlineBadge } from "@/components/InlineBadge";
 import { AgentIdentity } from "@/components/AgentIdentity";
@@ -9,6 +10,7 @@ import type { RecommendedAgent } from "@/components/RecommendedAgents";
 export interface AgentDetailContentProps {
   account: string;
   name: string;
+  visibility?: string;
   categories: string[];
   readme?: string;
   safetyPermissions: string[];
@@ -19,6 +21,7 @@ export interface AgentDetailContentProps {
 export function AgentDetailContent({
   account,
   name,
+  visibility,
   categories,
   readme,
   safetyPermissions,
@@ -26,7 +29,7 @@ export function AgentDetailContent({
   mobileSidebar,
 }: AgentDetailContentProps) {
   return (
-    <div className="flex-1 min-w-0 p-6 md:p-8 min-[900px]:max-w-3xl">
+    <div className="flex-1 min-w-0 p-6 md:p-8">
       {/* Header */}
       <header className="mb-4">
         <div className="flex items-start gap-4">
@@ -37,10 +40,11 @@ export function AgentDetailContent({
             className="size-14 shrink-0 rounded-md overflow-hidden border border-stone-200 dark:border-border"
           />
           <div className="min-w-0">
-            <h1 className="font-mono text-lg font-bold text-foreground">
+            <h1 className="flex flex-wrap items-center gap-2 font-mono text-xl font-bold text-foreground">
               {name}
+              {visibility === "private" && <PrivacyBadge />}
             </h1>
-            <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
+            <p className="font-mono text-body-sm text-muted-foreground mt-0.5">
               by {account}
               {categories.length > 0 && <> · {categories[0]}</>}
             </p>

@@ -1,12 +1,14 @@
 import { Link } from "react-router";
 import { Download } from "lucide-react";
 import { AgentIdentity } from "./AgentIdentity";
+import { PrivacyBadge } from "@/components/PrivacyBadge";
 
 export interface AgentCardProps {
   slug: string;
   account: string;
   name: string;
   description: string;
+  visibility?: string;
 }
 
 export function AgentCard({
@@ -14,6 +16,7 @@ export function AgentCard({
   account,
   name,
   description,
+  visibility,
 }: AgentCardProps) {
   return (
     <Link
@@ -28,8 +31,11 @@ export function AgentCard({
           className="size-9 shrink-0 rounded-sm overflow-hidden"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h3 className="truncate text-heading-4 text-foregroundtransition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
-            {name}
+          <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foregroundtransition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
+            <span className="truncate">{name}</span>
+            {visibility === "private" && (
+              <PrivacyBadge onClick={(e) => e.preventDefault()} />
+            )}
           </h3>
           <p className="line-clamp-3 text-body-sm text-muted-foreground">
             {description}

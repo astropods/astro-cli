@@ -11,6 +11,14 @@ export function useAgents(opts?: { initialData?: AgentsListResponse }) {
   });
 }
 
+export function useAccountAgents(account: string, enabled = true) {
+  return useQuery({
+    queryKey: agentKeys.byAccount(account),
+    queryFn: () => api.listAccountAgents(account),
+    enabled: !!account && enabled,
+  });
+}
+
 export function useAgent(account: string, name: string, opts?: { initialData?: Agent }) {
   return useQuery({
     queryKey: agentKeys.detail(account, name),

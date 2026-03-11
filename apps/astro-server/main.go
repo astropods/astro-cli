@@ -437,6 +437,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		agentDetail := v1.Group("")
 		agentDetail.Use(authMw.OptionalAuth())
 		{
+			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore),
+				oapispec.Tags("Agents"),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.Response(200, &handlers.ListAgentsResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+			)
 			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),

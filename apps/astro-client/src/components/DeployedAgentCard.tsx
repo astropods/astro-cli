@@ -49,7 +49,7 @@ export function DeployedAgentCard({
     <Link
       to={href}
       className={cn(
-        "group relative flex flex-col gap-3 rounded-sm border border-border bg-background p-4 transition-colors hover:bg-accent",
+        "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-background px-4 py-3 transition-all duration-150 hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400",
         className,
       )}
     >

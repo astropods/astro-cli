@@ -279,6 +279,12 @@ class ApiClient {
     return this.request<AgentsListResponse>('/api/v1/agents');
   }
 
+  async listAccountAgents(account: string): Promise<AgentsListResponse> {
+    return this.request<AgentsListResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}`
+    );
+  }
+
   async getAgent(account: string, name: string): Promise<Agent> {
     return this.request<Agent>(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`
@@ -482,6 +488,7 @@ export interface Agent {
   name: string;
   account: string;
   registry: string;
+  visibility?: string;
   versions: AgentVersion[];
 }
 
