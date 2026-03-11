@@ -12,7 +12,10 @@ import (
 	"runtime"
 	"strings"
 
+	"bufio"
+
 	"github.com/docker/docker/api/types/build"
+	dockerimage "github.com/docker/docker/api/types/image"
 	controlapi "github.com/moby/buildkit/api/services/control"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
@@ -258,7 +261,107 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// parseDockerfileBaseImages reads a Dockerfile and returns the base images from FROM instructions.
+// It resolves build arg references (e.g. FROM ${BASE_IMAGE}) using the provided buildArgs map.
+// Images named "scratch" and build stage aliases are excluded.
+func parseDockerfileBaseImages(dockerfilePath string, buildArgs map[string]string) ([]string, error) {
+	f, err := os.Open(dockerfilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close() //nolint:errcheck
+
+	var images []string
+	stages := make(map[string]bool) // track named build stages
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(strings.ToUpper(line), "FROM ") {
+			continue
+		}
+
+		// Parse: FROM [--platform=...] image [:tag] [AS name]
+		fields := strings.Fields(line)[1:] // drop "FROM"
+		if len(fields) == 0 {
+			continue
+		}
+
+		// Skip --platform or other flags
+		idx := 0
+		for idx < len(fields) && strings.HasPrefix(fields[idx], "--") {
+			idx++
+		}
+		if idx >= len(fields) {
+			continue
+		}
+
+		img := fields[idx]
+
+		// Resolve build arg references like ${VAR} or $VAR
+		img = os.Expand(img, func(key string) string {
+			if v, ok := buildArgs[key]; ok {
+				return v
+			}
+			return ""
+		})
+
+		// Track "AS name" for multi-stage builds
+		if idx+2 < len(fields) && strings.EqualFold(fields[idx+1], "AS") {
+			stages[fields[idx+2]] = true
+		}
+
+		if img != "" && !strings.EqualFold(img, "scratch") && !stages[img] {
+			images = append(images, img)
+		}
+	}
+
+	return images, scanner.Err()
+}
+
+// prePullBaseImages pulls the base images referenced in a Dockerfile so that BuildKit
+// can resolve them from the local cache instead of timing out on registry metadata fetches.
+func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, dockerfile string, buildArgs map[string]string, platform string, quiet bool) {
+	dockerfilePath := filepath.Join(contextPath, dockerfile)
+	images, err := parseDockerfileBaseImages(dockerfilePath, buildArgs)
+	if err != nil {
+		// Non-fatal: if we can't parse, let the build handle it
+		return
+	}
+
+	pullOpts := dockerimage.PullOptions{}
+	if platform != "" {
+		pullOpts.Platform = platform
+	}
+
+	seen := make(map[string]bool)
+	for _, img := range images {
+		if seen[img] {
+			continue
+		}
+		seen[img] = true
+
+		if !quiet {
+			fmt.Printf("      %sPre-pulling %s%s\n", colorDim, img, colorReset)
+		}
+
+		reader, err := cli.ImagePull(ctx, img, pullOpts)
+		if err != nil {
+			if !quiet {
+				fmt.Printf("      %sPre-pull skipped (%s): %s%s\n", colorDim, img, err, colorReset)
+			}
+			continue
+		}
+		// Drain the pull output to completion
+		io.Copy(io.Discard, reader) //nolint:errcheck
+		reader.Close()              //nolint:errcheck
+	}
+}
+
 func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, secrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool, platform string) error {
+	// Pre-pull base images so BuildKit resolves them from local cache
+	prePullBaseImages(ctx, cli, contextPath, dockerfile, buildArgs, platform, quiet)
+
 	// Create build context tar
 	buildContext, err := archive.TarWithOptions(contextPath, &archive.TarOptions{})
 	if err != nil {
