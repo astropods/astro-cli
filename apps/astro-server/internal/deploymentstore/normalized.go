@@ -602,3 +602,80 @@ func (s *Store) GetWorkloads(deploymentID string) ([]*Workload, error) {
 	}
 	return workloads, rows.Err()
 }
+
+// WorkloadSummary is a lightweight view of a workload for API responses and metering.
+type WorkloadSummary struct {
+	ComponentKind string
+	ComponentKey  string
+	WorkloadType  string
+	Image         string
+	Replicas      int
+	CPURequest    string
+	MemoryRequest string
+}
+
+// GetWorkloadSummaries returns lightweight workload data for a deployment.
+// Used by API responses and admin gRPC to avoid full spec JSON parsing.
+func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT component_kind, component_key, workload_type, image, replicas, cpu_request, memory_request
+		FROM deployment_workloads
+		WHERE deployment_id = $1
+		ORDER BY id
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query workload summaries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []*WorkloadSummary
+	for rows.Next() {
+		var w WorkloadSummary
+		if err := rows.Scan(&w.ComponentKind, &w.ComponentKey, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest); err != nil {
+			return nil, fmt.Errorf("scan workload summary: %w", err)
+		}
+		result = append(result, &w)
+	}
+	return result, rows.Err()
+}
+
+// ActiveDeploymentWorkload holds the fields the openmeter heartbeat needs per workload.
+type ActiveDeploymentWorkload struct {
+	AccountID     string
+	AgentName     string
+	Namespace     string
+	DeploymentID  string
+	ComponentKind string
+	ComponentKey  string
+	Replicas      int
+	CPURequest    string
+	MemoryRequest string
+}
+
+// GetActiveDeploymentWorkloads queries workloads for all active deployments directly,
+// replacing the JSON parsing path in the openmeter heartbeat.
+func (s *Store) GetActiveDeploymentWorkloads() ([]*ActiveDeploymentWorkload, error) {
+	rows, err := s.db.Query(`
+		SELECT d.account_id, d.agent_name, d.namespace, d.id,
+			w.component_kind, w.component_key, w.replicas, w.cpu_request, w.memory_request
+		FROM deployments d
+		JOIN deployment_workloads w ON w.deployment_id = d.id
+		WHERE d.status = 'active'
+		ORDER BY d.id, w.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query active deployment workloads: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []*ActiveDeploymentWorkload
+	for rows.Next() {
+		var w ActiveDeploymentWorkload
+		if err := rows.Scan(&w.AccountID, &w.AgentName, &w.Namespace, &w.DeploymentID,
+			&w.ComponentKind, &w.ComponentKey, &w.Replicas, &w.CPURequest, &w.MemoryRequest); err != nil {
+			return nil, fmt.Errorf("scan active workload: %w", err)
+		}
+		result = append(result, &w)
+	}
+	return result, rows.Err()
+}

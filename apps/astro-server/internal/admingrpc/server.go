@@ -85,6 +85,19 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 		if req.Namespace != "" && d.Namespace != req.Namespace {
 			continue
 		}
+
+		// Populate components from normalized workloads table
+		components := []string{}
+		if summaries, err := s.deployStore.GetWorkloadSummaries(d.ID); err == nil && len(summaries) > 0 {
+			for _, ws := range summaries {
+				name := ws.ComponentKind
+				if ws.ComponentKey != "" {
+					name += "/" + ws.ComponentKey
+				}
+				components = append(components, name)
+			}
+		}
+
 		results = append(results, &adminv1.AdminDeployment{
 			Name:        d.AgentName,
 			BuildID:     d.BuildID,
@@ -92,7 +105,7 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 			Status:      d.Status,
 			CreatedAt:   d.DeployedAt.Format(time.RFC3339),
 			AccountName: d.AccountName,
-			Components:  []string{},
+			Components:  components,
 		})
 	}
 

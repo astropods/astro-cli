@@ -504,3 +504,194 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 
 	_ = enc // used above for documentation; real encrypt test is in envelope_test.go
 }
+
+// --- Phase 2: Read query tests ---
+
+func TestGetWorkloadSummaries(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: "summary-agent", Build: "build-1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/agent:latest", Replicas: 2,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+		},
+		Models: map[string]spec.DeploymentModel{
+			"llm": {
+				Image: "ollama:latest", Replicas: 1,
+				Resources: spec.DeploymentResources{CPU: "2", Memory: "8Gi"},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 11434}},
+			},
+		},
+		Observability: spec.DeploymentObservability{Enabled: true, Image: "collector:latest"},
+	}
+	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
+
+	deploymentID := newID()
+	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+		ID: deploymentID, AccountID: accountID, AgentName: "summary-agent",
+		DisplayName: "Summary", BuildID: "build-1", Namespace: "ns-summary",
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	summaries, err := store.GetWorkloadSummaries(d.ID)
+	if err != nil {
+		t.Fatalf("GetWorkloadSummaries: %v", err)
+	}
+
+	// agent + llm model + collector = 3
+	if len(summaries) != 3 {
+		t.Fatalf("expected 3 summaries, got %d", len(summaries))
+	}
+
+	// Verify agent summary
+	var agentSummary *WorkloadSummary
+	for _, s := range summaries {
+		if s.ComponentKind == "agent" {
+			agentSummary = s
+		}
+	}
+	if agentSummary == nil {
+		t.Fatal("agent summary not found")
+	}
+	if agentSummary.Replicas != 2 {
+		t.Errorf("agent replicas: got %d, want 2", agentSummary.Replicas)
+	}
+	if agentSummary.CPURequest != "100m" {
+		t.Errorf("agent cpu: got %q, want '100m'", agentSummary.CPURequest)
+	}
+	if agentSummary.WorkloadType != "deployment" {
+		t.Errorf("agent type: got %q, want 'deployment'", agentSummary.WorkloadType)
+	}
+	if agentSummary.Image != "r.io/agent:latest" {
+		t.Errorf("agent image: got %q", agentSummary.Image)
+	}
+}
+
+func TestGetWorkloadSummaries_Empty(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Old-style deployment without normalized data
+	d, err := store.SaveDeployment(newID(), accountID, "old-agent", "Old", "build-1", "ns-old", `{}`)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	summaries, err := store.GetWorkloadSummaries(d.ID)
+	if err != nil {
+		t.Fatalf("GetWorkloadSummaries: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Errorf("expected 0 summaries for old deployment, got %d", len(summaries))
+	}
+}
+
+func TestGetActiveDeploymentWorkloads(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: "active-wl-agent", Build: "build-1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/agent:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "500m", Memory: "1Gi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+		},
+		Tools: map[string]spec.DeploymentTool{
+			"search": {
+				Image: "r.io/search:latest", Replicas: 2,
+				Resources: spec.DeploymentResources{CPU: "200m", Memory: "512Mi"},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+			},
+		},
+	}
+	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
+
+	deploymentID := newID()
+	_, err := store.SaveDeploymentFull(SaveDeploymentParams{
+		ID: deploymentID, AccountID: accountID, AgentName: "active-wl-agent",
+		DisplayName: "ActiveWL", BuildID: "build-1", Namespace: "ns-active-wl",
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	workloads, err := store.GetActiveDeploymentWorkloads()
+	if err != nil {
+		t.Fatalf("GetActiveDeploymentWorkloads: %v", err)
+	}
+
+	// Find our deployment's workloads
+	var ours []*ActiveDeploymentWorkload
+	for _, w := range workloads {
+		if w.DeploymentID == deploymentID {
+			ours = append(ours, w)
+		}
+	}
+
+	// agent + search tool = 2
+	if len(ours) != 2 {
+		t.Fatalf("expected 2 workloads for our deployment, got %d", len(ours))
+	}
+
+	// Verify fields
+	for _, w := range ours {
+		if w.AccountID != accountID {
+			t.Errorf("account_id mismatch: got %q", w.AccountID)
+		}
+		if w.AgentName != "active-wl-agent" {
+			t.Errorf("agent_name: got %q", w.AgentName)
+		}
+		if w.Namespace != "ns-active-wl" {
+			t.Errorf("namespace: got %q", w.Namespace)
+		}
+	}
+
+	// Verify component data
+	byKind := map[string]*ActiveDeploymentWorkload{}
+	for _, w := range ours {
+		key := w.ComponentKind
+		if w.ComponentKey != "" {
+			key += "/" + w.ComponentKey
+		}
+		byKind[key] = w
+	}
+
+	agent := byKind["agent"]
+	if agent == nil {
+		t.Fatal("agent workload not found")
+	}
+	if agent.CPURequest != "500m" {
+		t.Errorf("agent cpu: got %q, want '500m'", agent.CPURequest)
+	}
+	if agent.Replicas != 1 {
+		t.Errorf("agent replicas: got %d, want 1", agent.Replicas)
+	}
+
+	tool := byKind["tool/search"]
+	if tool == nil {
+		t.Fatal("tool/search workload not found")
+	}
+	if tool.CPURequest != "200m" {
+		t.Errorf("tool cpu: got %q, want '200m'", tool.CPURequest)
+	}
+	if tool.Replicas != 2 {
+		t.Errorf("tool replicas: got %d, want 2", tool.Replicas)
+	}
+}

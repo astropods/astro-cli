@@ -98,41 +98,70 @@ type containerUsage struct {
 }
 
 // emitComputeUsage calculates CU-hours per container for each active deployment and emits compute_usage events.
+// Reads from normalized deployment_workloads table, falling back to JSON parsing for old deployments.
 func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
-	deployments, err := h.getActiveDeployments(ctx)
-	if err != nil {
-		h.log.Error("Heartbeat: failed to query active deployments", "error", err)
-		return
-	}
-
-	if len(deployments) == 0 {
-		return
-	}
-
 	intervalHours := heartbeatInterval.Hours()
 	var events []CloudEvent
 
-	for _, d := range deployments {
-		var depSpec spec.AstroDeploymentSpec
-		if err := json.Unmarshal([]byte(d.SpecJSON), &depSpec); err != nil {
-			h.log.Error("Heartbeat: failed to parse deployment spec", "error", err, "account_id", d.AccountID, "agent", d.AgentName)
-			continue
-		}
+	// Try normalized workloads table first
+	workloads, err := h.getActiveWorkloads(ctx)
+	if err != nil {
+		h.log.Warn("Heartbeat: normalized workloads query failed, falling back to JSON", "error", err)
+		workloads = nil
+	}
 
-		containers := containerBreakdown(&depSpec)
-		for _, c := range containers {
-			if c.CU <= 0 {
+	if len(workloads) > 0 {
+		for _, w := range workloads {
+			component := w.ComponentKind
+			if w.ComponentKey != "" {
+				component += "/" + w.ComponentKey
+			}
+			replicas := w.Replicas
+			if replicas <= 0 {
+				replicas = 1
+			}
+			cu := containerCU(spec.DeploymentResources{CPU: w.CPURequest, Memory: w.MemoryRequest}, replicas)
+			if cu <= 0 {
 				continue
 			}
-			events = append(events, NewCloudEvent("compute_usage", d.AccountID, map[string]any{
-				"compute_unit_hours": c.CU * intervalHours,
-				"agent_name":         d.AgentName,
-				"namespace":          d.Namespace,
-				"component":          c.Component,
-				"cpu":                c.CPU,
-				"memory":             c.Memory,
-				"replicas":           c.Replicas,
+			events = append(events, NewCloudEvent("compute_usage", w.AccountID, map[string]any{
+				"compute_unit_hours": cu * intervalHours,
+				"agent_name":         w.AgentName,
+				"namespace":          w.Namespace,
+				"component":          component,
+				"cpu":                w.CPURequest,
+				"memory":             w.MemoryRequest,
+				"replicas":           replicas,
 			}))
+		}
+	} else {
+		// Fallback: parse JSON for deployments without normalized data
+		deployments, err := h.getActiveDeployments(ctx)
+		if err != nil {
+			h.log.Error("Heartbeat: failed to query active deployments", "error", err)
+			return
+		}
+		for _, d := range deployments {
+			var depSpec spec.AstroDeploymentSpec
+			if err := json.Unmarshal([]byte(d.SpecJSON), &depSpec); err != nil {
+				h.log.Error("Heartbeat: failed to parse deployment spec", "error", err, "account_id", d.AccountID, "agent", d.AgentName)
+				continue
+			}
+			containers := containerBreakdown(&depSpec)
+			for _, c := range containers {
+				if c.CU <= 0 {
+					continue
+				}
+				events = append(events, NewCloudEvent("compute_usage", d.AccountID, map[string]any{
+					"compute_unit_hours": c.CU * intervalHours,
+					"agent_name":         d.AgentName,
+					"namespace":          d.Namespace,
+					"component":          c.Component,
+					"cpu":                c.CPU,
+					"memory":             c.Memory,
+					"replicas":           c.Replicas,
+				}))
+			}
 		}
 	}
 
@@ -141,6 +170,43 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 			h.log.Error("Heartbeat: failed to emit compute_usage events", "error", err)
 		}
 	}
+}
+
+// activeWorkloadRow holds workload data from the normalized tables.
+type activeWorkloadRow struct {
+	AccountID     string
+	AgentName     string
+	Namespace     string
+	ComponentKind string
+	ComponentKey  string
+	Replicas      int
+	CPURequest    string
+	MemoryRequest string
+}
+
+func (h *Heartbeat) getActiveWorkloads(ctx context.Context) ([]activeWorkloadRow, error) {
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT d.account_id, d.agent_name, d.namespace,
+			w.component_kind, w.component_key, w.replicas, w.cpu_request, w.memory_request
+		FROM deployments d
+		JOIN deployment_workloads w ON w.deployment_id = d.id
+		WHERE d.status = 'active'
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []activeWorkloadRow
+	for rows.Next() {
+		var r activeWorkloadRow
+		if err := rows.Scan(&r.AccountID, &r.AgentName, &r.Namespace,
+			&r.ComponentKind, &r.ComponentKey, &r.Replicas, &r.CPURequest, &r.MemoryRequest); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
 }
 
 // emitActiveDeployments counts active deployments per account and emits active_deployments events.
