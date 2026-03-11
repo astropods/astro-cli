@@ -679,3 +679,54 @@ func (s *Store) GetActiveDeploymentWorkloads() ([]*ActiveDeploymentWorkload, err
 	}
 	return result, rows.Err()
 }
+
+// GetServices returns all services for a deployment (across all workloads).
+func (s *Store) GetServices(deploymentID string) ([]*Service, error) {
+	rows, err := s.db.Query(`
+		SELECT ds.id, ds.workload_id, ds.name, ds.port, ds.target_port, ds.protocol
+		FROM deployment_services ds
+		JOIN deployment_workloads dw ON dw.id = ds.workload_id
+		WHERE dw.deployment_id = $1
+		ORDER BY ds.id
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query services: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []*Service
+	for rows.Next() {
+		var svc Service
+		if err := rows.Scan(&svc.ID, &svc.WorkloadID, &svc.Name, &svc.Port, &svc.TargetPort, &svc.Protocol); err != nil {
+			return nil, fmt.Errorf("scan service: %w", err)
+		}
+		result = append(result, &svc)
+	}
+	return result, rows.Err()
+}
+
+// GetIngresses returns all ingresses for a deployment.
+func (s *Store) GetIngresses(deploymentID string) ([]*Ingress, error) {
+	rows, err := s.db.Query(`
+		SELECT di.id, di.service_id, di.hostname, di.path, di.tls_enabled
+		FROM deployment_ingresses di
+		JOIN deployment_services ds ON ds.id = di.service_id
+		JOIN deployment_workloads dw ON dw.id = ds.workload_id
+		WHERE dw.deployment_id = $1
+		ORDER BY di.id
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query ingresses: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []*Ingress
+	for rows.Next() {
+		var ing Ingress
+		if err := rows.Scan(&ing.ID, &ing.ServiceID, &ing.Hostname, &ing.Path, &ing.TLSEnabled); err != nil {
+			return nil, fmt.Errorf("scan ingress: %w", err)
+		}
+		result = append(result, &ing)
+	}
+	return result, rows.Err()
+}
