@@ -12,6 +12,8 @@ The README project structure diagram was outdated and the local development inst
 
 **Typo** — Fixed "SKDs" to "SDKs".
 
+**Removed Releasing section** — Releasing has moved to the respective open-source repos, so the section was outdated and removed.
+
 ## Migration
 
 No action required.
