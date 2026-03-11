@@ -29,11 +29,11 @@ export function useAgent(account: string, name: string, opts?: { initialData?: A
   });
 }
 
-export function useDeploymentTemplate(account: string, name: string, opts?: { initialData?: DeploymentTemplate }) {
+export function useDeploymentTemplate(account: string, name: string, opts?: { initialData?: DeploymentTemplate; enabled?: boolean }) {
   return useQuery({
     queryKey: agentKeys.template(account, name),
     queryFn: () => api.getDeploymentTemplate(account, name),
-    enabled: !!account && !!name,
+    enabled: (opts?.enabled ?? true) && !!account && !!name,
     initialData: opts?.initialData,
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });

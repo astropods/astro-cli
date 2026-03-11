@@ -6,8 +6,24 @@ import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError }
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 
+export interface DeployFormInitialValues {
+  deployName?: string;
+  variableValues?: Record<string, string>;
+  selectedAdapters?: string[];
+  adapterCredentials?: Record<string, string>;
+  targetAccount?: string;
+}
+
 export interface UseDeployFormOptions {
   initialTemplate?: DeploymentTemplate;
+  /** Pre-fill form state (e.g. from an existing deployment's spec). */
+  initialValues?: DeployFormInitialValues;
+  /**
+   * When true, skip fetching the template from the API and rely entirely
+   * on `initialTemplate`. Used on the settings page where the template
+   * is derived from the existing deployment.
+   */
+  skipTemplateFetch?: boolean;
 }
 
 // --- Adapter configuration (must match server) ---
@@ -113,21 +129,27 @@ export interface FormErrors {
 
 export function useDeployForm(account: string, name: string, opts?: UseDeployFormOptions) {
   const { accounts, personalAccount } = useAuth();
+  const iv = opts?.initialValues;
 
-  const [targetAccount, setTargetAccount] = useState(personalAccount?.name ?? "");
+  const [targetAccount, setTargetAccount] = useState(iv?.targetAccount ?? personalAccount?.name ?? "");
 
   const {
-    data: template,
+    data: fetchedTemplate,
     isLoading: templateLoading,
     error: templateError,
-  } = useDeploymentTemplate(account, name, { initialData: opts?.initialTemplate });
+  } = useDeploymentTemplate(account, name, {
+    initialData: opts?.initialTemplate,
+    enabled: !opts?.skipTemplateFetch,
+  });
+
+  const template = opts?.skipTemplateFetch ? (opts.initialTemplate ?? null) : fetchedTemplate;
 
   const deployMutation = useDeployAgent(targetAccount);
 
-  const [deployName, setDeployName] = useState(() => slugToTitle(name));
-  const [variableValues, setVariableValues] = useState<Record<string, string>>({});
-  const [selectedAdapters, setSelectedAdapters] = useState<string[]>(["web"]);
-  const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>({});
+  const [deployName, setDeployName] = useState(() => iv?.deployName ?? slugToTitle(name));
+  const [variableValues, setVariableValues] = useState<Record<string, string>>(iv?.variableValues ?? {});
+  const [selectedAdapters, setSelectedAdapters] = useState<string[]>(iv?.selectedAdapters ?? ["web"]);
+  const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
   const [deployError, setDeployError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 

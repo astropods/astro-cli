@@ -2,17 +2,11 @@ import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/InstallAgent";
 import { ArrowLeft, Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAgent } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
-import { AccountPicker } from "@/components/deploy/AccountPicker";
-import { InterfacesPicker } from "@/components/deploy/InterfacesPicker";
-import { VariableFields } from "@/components/deploy/VariableFields";
-import { FormSection } from "@/components/deploy/FormSection";
-import { ErrorPanel } from "@/components/deploy/ErrorPanel";
+import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { AgentIdentity } from "@/components/AgentIdentity";
 
 // --- Loader & Meta ---
@@ -115,88 +109,13 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
         <div className="flex-1 overflow-y-auto">
         <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto px-6 pt-10 pb-20 md:px-8">
-          {form.templateErrorMessage && (
-            <div className="mb-8">
-              <ErrorPanel>{form.templateErrorMessage}</ErrorPanel>
-            </div>
-          )}
+          <DeployFormFields form={form} />
 
           {form.template && (
-            <div className="space-y-12">
-              {/* Agent name & account */}
-              <FormSection title="General" description="Choose what to call your agent and where to install it.">
-                <div className="space-y-5">
-                  <div>
-                    <Label size="md">Agent Name</Label>
-                    <Input
-                      value={form.deployName}
-                      onChange={(e) => form.setDeployName(e.target.value)}
-                      placeholder="My Agent"
-                      maxLength={64}
-                      aria-invalid={!!form.errors.deployName}
-                    />
-                    {form.errors.deployName && (
-                      <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
-                    )}
-                  </div>
-
-                  {form.accounts.length > 1 && (
-                    <div>
-                      <Label size="md">Install to</Label>
-                      <AccountPicker
-                        accounts={form.accounts}
-                        selected={form.targetAccount}
-                        onChange={form.setTargetAccount}
-                      />
-                    </div>
-                  )}
-                </div>
-              </FormSection>
-
-              {/* Interfaces */}
-              <FormSection title="Messaging" description="Choose how you want to interact with the agent.">
-                <InterfacesPicker
-                  selected={form.selectedAdapters}
-                  onChange={form.setSelectedAdapters}
-                  adapterCredDefs={form.allAdapterCredDefs}
-                  adapterCredentials={form.adapterCredentials}
-                  onAdapterCredentialsChange={form.setAdapterCredentials}
-                  showError={!!form.errors.adapters}
-                  adapterErrorKeys={form.errors.adapterCredentials}
-                />
-              </FormSection>
-
-              {/* Required variables */}
-              {form.requiredVariables.length > 0 && (
-                <FormSection title="Configuration" description="Required configuration for this agent.">
-                  <VariableFields
-                    variables={form.requiredVariables}
-                    values={form.variableValues}
-                    onChange={form.setVariableValues}
-                    errorKeys={form.errors.credentials}
-                  />
-                </FormSection>
-              )}
-
-              {/* Optional variables */}
-              {form.optionalVariables.length > 0 && (
-                <FormSection title="Optional credentials" description="These are not required but enable additional functionality.">
-                  <VariableFields
-                    variables={form.optionalVariables}
-                    values={form.variableValues}
-                    onChange={form.setVariableValues}
-                  />
-                </FormSection>
-              )}
-
-              {/* Error */}
-              {form.deployError && (
-                <ErrorPanel title="Deployment failed">{form.deployError}</ErrorPanel>
-              )}
-
+            <>
               {/* Deploy button */}
-              <hr className="border-border" />
-              <div className="flex justify-end gap-3">
+              <hr className="border-border mt-12" />
+              <div className="flex justify-end gap-3 mt-12">
                 <Button
                   type="button"
                   variant="ghost"
@@ -224,7 +143,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                   )}
                 </Button>
               </div>
-            </div>
+            </>
           )}
         </form>
         </div>

@@ -98,7 +98,7 @@ function AccountProfileContent() {
                   displayName={deployment.display_name}
                   deploymentId={deployment.id}
                   account={data.name}
-                  href={`/${data.name}/agents/${deployment.name}`}
+                  href={`/${data.name}/agents/${deployment.id}`}
                   status={mapDeploymentStatus(deployment)}
                   requests={0}
                   lastActive="—"

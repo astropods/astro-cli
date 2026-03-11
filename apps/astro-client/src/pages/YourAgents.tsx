@@ -53,7 +53,7 @@ function YourAgentsContent() {
               displayName={deployment.display_name}
               deploymentId={deployment.id}
               account={userAccount}
-              href={`/${userAccount}/agents/${deployment.name}`}
+              href={`/${userAccount}/agents/${deployment.id}`}
               status={mapDeploymentStatus(deployment)}
               requests={0}
               lastActive="—"

@@ -1,5 +1,6 @@
 import { useParams, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
+import { Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
@@ -17,16 +18,16 @@ import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const account = params.account ?? "";
-  const agentName = params.agentName ?? "";
+  const deploymentId = params.deploymentId ?? "";
 
   const deploymentsData = await api.listDeployments(account).catch(() => ({ deployments: [], count: 0 }));
-  const deployment = deploymentsData.deployments.find((d) => d.name === agentName) ?? null;
+  const deployment = deploymentsData.deployments.find((d) => d.id === deploymentId) ?? null;
 
-  return { deploymentsData, deployment, account, agentName };
+  return { deploymentsData, deployment, account, deploymentId };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
-  const name = data?.deployment?.display_name || data?.agentName || "Agent";
+  const name = data?.deployment?.display_name || data?.deployment?.name || "Agent";
   return [{ title: `${name} | Astro` }];
 };
 
@@ -54,7 +55,7 @@ function DeployedAgentDetailSkeleton() {
 }
 
 function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
-  const { account: paramAccount, agentName } = useParams<{ account: string; agentName: string }>();
+  const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
   const [searchParams] = useSearchParams();
@@ -63,7 +64,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
 
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
-  const deployment = deployments.find((d) => d.name === agentName) ?? loaderData?.deployment ?? null;
+  const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
 
   if (!deployment) {
     return (
@@ -83,7 +84,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const displayName = deployment.display_name || deployment.name;
   const pods = deployment.pods ?? [];
   const selectedPod = podName ? pods.find((p) => p.name === podName) ?? null : null;
-  const basePath = `/${account}/agents/${deployment.name}`;
+  const basePath = `/${account}/agents/${deployment.id}`;
 
   const isPersonal = personalAccount?.name === account;
   const breadcrumbItems = [
@@ -100,7 +101,17 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 
   return (
     <div className="flex flex-1 flex-col">
-      <PageBreadcrumb items={breadcrumbItems} />
+      <PageBreadcrumb
+        items={breadcrumbItems}
+        actions={
+          <Button variant="outline" size="sm" asChild>
+            <Link to={`${basePath}/settings`}>
+              <Settings className="size-3.5" />
+              Configure
+            </Link>
+          </Button>
+        }
+      />
 
       <div className={`mx-auto w-full ${selectedPod ? "max-w-6xl" : "max-w-3xl"}`}>
         {/* Header */}
