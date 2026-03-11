@@ -1083,35 +1083,46 @@
     "dev": {
       "properties": {
         "interfaces": {
-          "properties": {
-            "frontend": {
-              "properties": {
-                "port": {
-                  "type": "integer",
-                  "description": "Port the agent serves on locally. Platform proxies port 80 to this. Default: 80"
-                }
+          "oneOf": [
+            {
+              "items": {
+                "type": "string"
               },
-              "additionalProperties": false,
-              "type": "object",
-              "description": "Local dev configuration for the agent frontend"
+              "type": "array",
+              "description": "Legacy format: list of adapter names (treated as messaging.adapters)"
             },
-            "messaging": {
+            {
               "properties": {
-                "adapters": {
-                  "items": {
-                    "type": "string"
+                "frontend": {
+                  "properties": {
+                    "port": {
+                      "type": "integer",
+                      "description": "Port the agent serves on locally. Platform proxies port 80 to this. Default: 80"
+                    }
                   },
-                  "type": "array",
-                  "description": "Messaging adapters to enable locally (e.g. slack)"
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Local dev configuration for the agent frontend"
+                },
+                "messaging": {
+                  "properties": {
+                    "adapters": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array",
+                      "description": "Messaging adapters to enable locally (e.g. slack)"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Local dev configuration for messaging"
                 }
               },
               "additionalProperties": false,
-              "type": "object",
-              "description": "Local dev configuration for messaging"
+              "type": "object"
             }
-          },
-          "additionalProperties": false,
-          "type": "object",
+          ],
           "description": "Local dev configuration for frontend and messaging interfaces"
         },
         "schedules": {

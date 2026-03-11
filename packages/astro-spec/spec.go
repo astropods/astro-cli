@@ -2,7 +2,12 @@
 // This package is used by both astro-cli and astro-server to ensure consistent parsing.
 package spec
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/invopop/jsonschema"
+)
 
 // AstroSpec represents the complete Astro specification
 type AstroSpec struct {
@@ -264,6 +269,53 @@ type DevInterfaces struct {
 	Messaging *DevMessaging `json:"messaging,omitempty" yaml:"messaging,omitempty" jsonschema:"description=Local dev configuration for messaging"`
 }
 
+// JSONSchema returns a schema that accepts both the legacy string-array format
+// (["web", "slack"]) and the structured object format ({frontend: ..., messaging: ...}).
+func (DevInterfaces) JSONSchema() *jsonschema.Schema {
+	portProps := jsonschema.NewProperties()
+	portProps.Set("port", &jsonschema.Schema{
+		Type:        "integer",
+		Description: "Port the agent serves on locally. Platform proxies port 80 to this. Default: 80",
+	})
+
+	adaptersProps := jsonschema.NewProperties()
+	adaptersProps.Set("adapters", &jsonschema.Schema{
+		Type:        "array",
+		Items:       &jsonschema.Schema{Type: "string"},
+		Description: "Messaging adapters to enable locally (e.g. slack)",
+	})
+
+	structuredProps := jsonschema.NewProperties()
+	structuredProps.Set("frontend", &jsonschema.Schema{
+		Type:                 "object",
+		Properties:           portProps,
+		AdditionalProperties: jsonschema.FalseSchema,
+		Description:          "Local dev configuration for the agent frontend",
+	})
+	structuredProps.Set("messaging", &jsonschema.Schema{
+		Type:                 "object",
+		Properties:           adaptersProps,
+		AdditionalProperties: jsonschema.FalseSchema,
+		Description:          "Local dev configuration for messaging",
+	})
+
+	return &jsonschema.Schema{
+		OneOf: []*jsonschema.Schema{
+			{
+				Type:        "array",
+				Items:       &jsonschema.Schema{Type: "string"},
+				Description: "Legacy format: list of adapter names (treated as messaging.adapters)",
+			},
+			{
+				Type:                 "object",
+				Properties:           structuredProps,
+				AdditionalProperties: jsonschema.FalseSchema,
+			},
+		},
+		Description: "Local dev configuration for frontend and messaging interfaces",
+	}
+}
+
 // UnmarshalYAML supports the legacy string-array format for backward compatibility.
 func (d *DevInterfaces) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	// Try legacy format first: [slack, web]
@@ -276,6 +328,26 @@ func (d *DevInterfaces) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type devInterfacesAlias DevInterfaces
 	var alias devInterfacesAlias
 	if err := unmarshal(&alias); err != nil {
+		return err
+	}
+	*d = DevInterfaces(alias)
+	return nil
+}
+
+// UnmarshalJSON supports the legacy string-array format for backward compatibility.
+// This mirrors UnmarshalYAML so that specs stored as JSON (e.g. in the agent index)
+// can be deserialized back into AstroSpec correctly.
+func (d *DevInterfaces) UnmarshalJSON(data []byte) error {
+	// Try legacy format first: ["slack", "web"]
+	var legacy []string
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		d.Messaging = &DevMessaging{Adapters: legacy}
+		return nil
+	}
+	// Structured format
+	type devInterfacesAlias DevInterfaces
+	var alias devInterfacesAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
 		return err
 	}
 	*d = DevInterfaces(alias)
