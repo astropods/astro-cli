@@ -50,7 +50,7 @@ function ToggleGroup({
     <ToggleGroupContext.Provider value={{ value: activeValue, items }}>
       <ToggleGroupPrimitive.Root
         className={cn(
-          "relative inline-flex items-center gap-1 rounded-sm border border-border bg-stone-50 dark:bg-background p-1",
+          "relative inline-flex items-center gap-1 rounded-sm bg-secondary dark:bg-secondary p-1",
           className
         )}
         type={type}
@@ -65,7 +65,7 @@ function ToggleGroup({
       >
         {activeIndex >= 0 && (
           <div
-            className="absolute rounded-[4px] bg-primary/10 dark:bg-primary/15 transition-transform duration-200 ease-in-out"
+            className="absolute rounded-sm bg-background dark:bg-background transition-transform duration-200 ease-in-out shadow-sm"
             style={{
               width: itemSize,
               height: itemSize,
