@@ -81,7 +81,8 @@ Run your agent locally:
 
 ```bash
 ast dev                        # start all containers
-ast dev logs [service]         # tail logs (default: agent)
+ast dev logs [service]         # tail agent logs (default)
+ast dev logs --all             # tail all service logs
 ast dev stop                   # stop and remove containers
 ast dev trigger <name>         # manually trigger an ingestion job
 ```
