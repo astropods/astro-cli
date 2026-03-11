@@ -9,7 +9,7 @@ const labelVariants = cva(
     variants: {
       size: {
         sm: "text-mono-sm",
-        md: "mb-1.5 block text-mono-md tracking-widest text-muted-foreground",
+        md: "mb-1 block text-[13px] font-sans normal-case font-semibold text-foreground",
       },
     },
     defaultVariants: {

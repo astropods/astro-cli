@@ -93,9 +93,10 @@ function AccountProfileContent() {
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
               {deployments.map((deployment) => (
                 <DeployedAgentCard
-                  key={deployment.name}
+                  key={deployment.id}
                   name={deployment.name}
                   displayName={deployment.display_name}
+                  deploymentId={deployment.id}
                   account={data.name}
                   href={`/${data.name}/agents/${deployment.name}`}
                   status={mapDeploymentStatus(deployment)}

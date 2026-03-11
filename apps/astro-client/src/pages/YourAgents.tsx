@@ -48,9 +48,10 @@ function YourAgentsContent() {
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           {filtered.map((deployment) => (
             <DeployedAgentCard
-              key={deployment.name}
+              key={deployment.id}
               name={deployment.name}
               displayName={deployment.display_name}
+              deploymentId={deployment.id}
               account={userAccount}
               href={`/${userAccount}/agents/${deployment.name}`}
               status={mapDeploymentStatus(deployment)}

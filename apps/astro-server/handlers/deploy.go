@@ -612,7 +612,7 @@ type JobDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	ID               string                `json:"id,omitempty"`
+	ID               string                `json:"id"`
 	Name             string                `json:"name"`
 	DisplayName      string                `json:"display_name,omitempty"`
 	BuildID          string                `json:"build_id"`
@@ -707,6 +707,10 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		// Aggregate deployments across all per-deployment namespaces
 		var allDeployments []AgentDeployment
 		for _, ns := range nsList.Items {
+			// Skip namespaces that are being deleted (e.g. after undeploy)
+			if ns.DeletionTimestamp != nil {
+				continue
+			}
 			manualIngestions := parseManualIngestions(ns.Annotations)
 			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name, manualIngestions)
 			if err != nil {

@@ -1,20 +1,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useRenameAccount } from "@/api/queries";
 import { useAccountNameValidation } from "@/hooks/use-account-name";
 import { AccountNameInput } from "@/components/AccountNameInput";
-import { DestructiveConfirmCheckbox } from "@/components/ui/destructive-confirm-checkbox";
+import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 
 interface ChangeUsernameDialogProps {
   currentName: string;
@@ -30,77 +20,62 @@ export function ChangeUsernameDialog({
   onSuccess,
 }: ChangeUsernameDialogProps) {
   const [newUsername, setNewUsername] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
   const renameAccount = useRenameAccount();
   const { isChecking, isAvailable, displayError } = useAccountNameValidation(
     open ? newUsername : "",
   );
 
-  const handleOpenChange = (o: boolean) => {
-    onOpenChange(o);
-    if (!o) {
-      setNewUsername("");
-      setConfirmed(false);
-      renameAccount.reset();
-    }
-  };
-
-  const handleRename = () => {
-    renameAccount.mutate(
-      { account: currentName, newName: newUsername.trim() },
-      { onSuccess },
-    );
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="link" className="h-auto p-0 text-[13px]">
-          Change username
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Change username</DialogTitle>
-          <DialogDescription>
-            Changing your username will break any existing links or CLI
-            configurations that reference your current name.
-          </DialogDescription>
-        </DialogHeader>
-        <div>
-          <Label size="md">New username</Label>
-          <AccountNameInput
-            value={newUsername}
-            onChange={setNewUsername}
-            placeholder={currentName}
-            isChecking={isChecking}
-            isAvailable={isAvailable}
-            displayError={displayError}
-          />
-        </div>
-        <DestructiveConfirmCheckbox checked={confirmed} onChange={setConfirmed}>
+    <ConfirmationDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Change username"
+      description={
+        <>
+          Changing your username will break any existing links or CLI
+          configurations that reference your current name.
+        </>
+      }
+      checkboxLabel={
+        <>
           I understand that changing my username is a destructive action
           and any existing links to my content on Astro will no longer
           function.
-        </DestructiveConfirmCheckbox>
-        {renameAccount.isError && (
-          <p className="text-[13px] text-destructive">
-            {(renameAccount.error as Error)?.message || "Failed to rename account."}
-          </p>
-        )}
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button
-            variant="destructive"
-            disabled={!confirmed || !isAvailable || renameAccount.isPending}
-            onClick={handleRename}
-          >
-            {renameAccount.isPending ? "Changing…" : "Change username"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+      actionLabel="Change username"
+      pendingLabel="Changing…"
+      error={renameAccount.isError ? (renameAccount.error as Error) : null}
+      defaultErrorMessage="Failed to rename account."
+      isPending={renameAccount.isPending}
+      canConfirm={isAvailable}
+      onConfirm={() => {
+        renameAccount.mutate(
+          { account: currentName, newName: newUsername.trim() },
+          { onSuccess },
+        );
+      }}
+      onReset={() => {
+        setNewUsername("");
+        renameAccount.reset();
+      }}
+      trigger={
+        <Button variant="link" className="h-auto p-0 text-[13px]">
+          Change username
+        </Button>
+      }
+    >
+      <div>
+        <Label size="md">New username</Label>
+        <AccountNameInput
+          value={newUsername}
+          onChange={setNewUsername}
+          placeholder={currentName}
+          isChecking={isChecking}
+          isAvailable={isAvailable}
+          displayError={displayError}
+        />
+      </div>
+    </ConfirmationDialog>
   );
 }

@@ -3,6 +3,7 @@ import type { Route } from "./+types/InstallAgent";
 import { ArrowLeft, Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useAgent } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -126,7 +127,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
               <FormSection title="General" description="Choose what to call your agent and where to install it.">
                 <div className="space-y-5">
                   <div>
-                    <label className="text-[13px] font-semibold text-foreground mb-1 block">Agent Name</label>
+                    <Label size="md">Agent Name</Label>
                     <Input
                       value={form.deployName}
                       onChange={(e) => form.setDeployName(e.target.value)}
@@ -141,7 +142,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
                   {form.accounts.length > 1 && (
                     <div>
-                      <label className="text-[13px] font-semibold text-foreground mb-1 block">Install to</label>
+                      <Label size="md">Install to</Label>
                       <AccountPicker
                         accounts={form.accounts}
                         selected={form.targetAccount}

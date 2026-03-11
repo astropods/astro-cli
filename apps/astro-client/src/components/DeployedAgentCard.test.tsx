@@ -7,6 +7,7 @@ afterEach(cleanup);
 
 const baseProps = {
   name: 'code-reviewer',
+  deploymentId: 'dep-123',
   account: 'testuser',
   href: '/testuser/code-reviewer',
   status: 'active' as const,

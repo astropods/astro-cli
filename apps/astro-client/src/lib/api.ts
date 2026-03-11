@@ -624,7 +624,7 @@ export interface JobDetail {
 }
 
 export interface AgentDeployment {
-  id?: string;
+  id: string;
   name: string;
   display_name?: string;
   build_id: string;

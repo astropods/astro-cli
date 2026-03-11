@@ -22,6 +22,7 @@ type Story = StoryObj<typeof meta>;
 export const Active: Story = {
   args: {
     name: "Incident Command",
+    deploymentId: "dep-incident-command",
     account: "acme",
     href: "/agents/incident-command/review/v2",
     status: "active",
@@ -35,6 +36,7 @@ export const Active: Story = {
 export const Inactive: Story = {
   args: {
     name: "Security Monitor",
+    deploymentId: "dep-security-monitor",
     account: "acme",
     href: "/agents/security-monitor/review/v1",
     status: "inactive",
@@ -48,6 +50,7 @@ export const Inactive: Story = {
 export const Pending: Story = {
   args: {
     name: "Customer Insight Engine",
+    deploymentId: "dep-customer-insight-engine",
     account: "acme",
     href: "/agents/customer-insight-engine/review/v1",
     status: "pending",
@@ -61,6 +64,7 @@ export const Pending: Story = {
 export const Error: Story = {
   args: {
     name: "Data Pipeline Orchestrator",
+    deploymentId: "dep-data-pipeline",
     account: "acme",
     href: "/agents/data-pipeline/review/v3",
     status: "error",
@@ -74,6 +78,7 @@ export const Error: Story = {
 export const WithCustomAvatar: Story = {
   args: {
     name: "Incident Command",
+    deploymentId: "dep-incident-command",
     account: "acme",
     href: "/agents/incident-command/review/v2",
     status: "active",
@@ -88,6 +93,7 @@ export const WithCustomAvatar: Story = {
 export const LongName: Story = {
   args: {
     name: "Automated Personalized Customer Support Response Generator",
+    deploymentId: "dep-support-response",
     account: "enterprise-corp",
     href: "/agents/support-response/review/v1",
     status: "active",
@@ -101,6 +107,7 @@ export const LongName: Story = {
 export const AllStatuses: Story = {
   args: {
     name: "Incident Command",
+    deploymentId: "dep-incident-command",
     account: "acme",
     href: "/agents/incident-command/review/v2",
     status: "active",
@@ -122,6 +129,7 @@ export const AllStatuses: Story = {
     <>
       <DeployedAgentCard
         name="Incident Command"
+        deploymentId="dep-incident-command"
         account="acme"
         href="/agents/incident-command/review/v2"
         status="active"
@@ -132,6 +140,7 @@ export const AllStatuses: Story = {
       />
       <DeployedAgentCard
         name="Security Monitor"
+        deploymentId="dep-security-monitor"
         account="acme"
         href="/agents/security-monitor/review/v1"
         status="inactive"
@@ -142,6 +151,7 @@ export const AllStatuses: Story = {
       />
       <DeployedAgentCard
         name="Customer Insight Engine"
+        deploymentId="dep-customer-insight-engine"
         account="acme"
         href="/agents/customer-insight-engine/review/v1"
         status="pending"
@@ -152,6 +162,7 @@ export const AllStatuses: Story = {
       />
       <DeployedAgentCard
         name="Data Pipeline Orchestrator"
+        deploymentId="dep-data-pipeline"
         account="acme"
         href="/agents/data-pipeline/review/v3"
         status="error"
