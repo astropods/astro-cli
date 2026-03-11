@@ -113,7 +113,6 @@ moon run astro-server:deps     # Download and tidy dependencies
 
 | Endpoint                                      | Description             |
 | --------------------------------------------- | ----------------------- |
-| `GET /api/v1/agents/:name/:version/config`    | Get agent config        |
 | `POST /api/v1/agents/register`                | Register agent          |
 | `POST /api/v1/deploy`                         | Deploy agent to K8s     |
 | `POST /api/v1/undeploy`                       | Undeploy agent from K8s |

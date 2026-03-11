@@ -592,16 +592,6 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				)
 			}
 
-			// Agent config (protected read, resolves latest build)
-			api.GET(protected, "/agents/:account/:name/config", "Get agent deployment config", handlers.GetAgentConfig(log, agentIndex, accountStore),
-				oapispec.Tags("Agents"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.QueryParam("interfaces", "Comma-separated interface filter (e.g. slack,web)", false),
-				oapispec.Response(200, &handlers.AgentConfigResponse{}),
-			)
-
 			// Deployment template generation
 			api.GET(protected, "/agents/:account/:name/deployment-template", "Get deployment template",
 				handlers.GetDeploymentTemplate(log, agentIndex, accountStore, cfg),

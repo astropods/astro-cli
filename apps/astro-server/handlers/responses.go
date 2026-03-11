@@ -54,13 +54,6 @@ type SetVisibilityResponse struct {
 	Visibility string `json:"visibility"`
 }
 
-// AgentConfigResponse is returned by the agent config endpoint.
-type AgentConfigResponse struct {
-	Agent       string `json:"agent"`
-	BuildID     string `json:"build_id"`
-	Credentials any    `json:"credentials"`
-}
-
 // --- Accounts ---
 
 // CheckAccountNameResponse indicates whether an account name is available.
