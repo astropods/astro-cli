@@ -265,7 +265,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 // It resolves build arg references (e.g. FROM ${BASE_IMAGE}) using the provided buildArgs map.
 // Images named "scratch" and build stage aliases are excluded.
 func parseDockerfileBaseImages(dockerfilePath string, buildArgs map[string]string) ([]string, error) {
-	f, err := os.Open(dockerfilePath)
+	f, err := os.Open(filepath.Clean(dockerfilePath))
 	if err != nil {
 		return nil, err
 	}
@@ -353,8 +353,8 @@ func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, doc
 			continue
 		}
 		// Drain the pull output to completion
-		io.Copy(io.Discard, reader) //nolint:errcheck
-		reader.Close()              //nolint:errcheck
+		_, _ = io.Copy(io.Discard, reader) //nolint:errcheck
+		_ = reader.Close()                 //nolint:errcheck
 	}
 }
 
