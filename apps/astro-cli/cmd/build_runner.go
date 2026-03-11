@@ -360,7 +360,7 @@ func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, doc
 }
 
 func readDockerignore(contextPath string) ([]string, error) {
-	f, err := os.Open(filepath.Join(contextPath, ".dockerignore"))
+	f, err := os.Open(filepath.Clean(filepath.Join(contextPath, ".dockerignore")))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
