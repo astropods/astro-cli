@@ -42,19 +42,27 @@ The pre-commit hook runs `gofmt` on staged Go files.
 ## Project Structure
 
 ```
-├── agents/                 # Agent examples                         (git submodule)
 ├── apps/
-│   ├── astro-client/       # React frontend application
 │   ├── astro-cli/          # ast CLI (Go)
-│   ├── cli-public/         # Public ast CLI repo                    (git submodule)
+│   ├── astro-client/       # React frontend application
+│   ├── astro-queen/        # Bubbletea TUI admin client (Go)
 │   ├── astro-registry/     # Container registry proxy (Go)
 │   └── astro-server/       # Platform backend — agent registry, deployments, auth (Go)
 ├── packages/
-│   ├── identity-gen/       # Identity avatar generation
-│   ├── adapters/           # Messaging adapters                     (git submodule)
-│   ├── messaging/          # Messaging adapters (Slack, MCP, etc.)  (git submodule)
-│   └── playground/         # Chat UI for agents (used in ast dev)   (git submodule)
-├── website/                # Astro marketing website                 (git submodule)
+│   ├── astro-collector/    # OpenTelemetry Collector distribution
+│   ├── astro-identity-gen/ # Procedural SVG avatar generator
+│   ├── astro-proto/        # Protobuf definitions and generated gRPC code
+│   ├── astro-spec/         # YAML spec parser and types for astropods.yml
+│   └── astro-theme/        # Shared UI theme
+├── modules/                # Git submodules
+│   ├── adapters/           # Messaging adapters (Slack, MCP, etc.)
+│   ├── agents/             # Agent examples
+│   ├── cli-public/         # Public ast CLI repo
+│   ├── messaging/          # Messaging SDK
+│   ├── playground/         # Chat UI for agents (used in ast dev)
+│   └── website/            # Astro marketing website
+├── deployment/             # Dockerfiles and moon tasks for service images
+└── docs/                   # Internal documentation and guides
 ```
 
 ## Astro AI Service Development
@@ -87,7 +95,7 @@ Run an agent as a local process with hot-reload, using local packages and Docker
 bun install
 bun run build
 
-# 2. Build SKDs required by agents
+# 2. Build SDKs required by agents
 moon run messaging:sdk-build
 moon run adapters:build
 
@@ -103,7 +111,7 @@ moon run astro-cli:build
 
 ```bash
 export ASTRO_ROOT=/path/to/astro   # repo root
-./apps/astro-cli/bin/ast dev --local
+./apps/astro-cli/bin/ast-dev dev --local
 ```
 
 Or add the CLI to PATH and run:
@@ -112,7 +120,7 @@ Or add the CLI to PATH and run:
 export ASTRO_ROOT=/path/to/astro
 export PATH="$PWD/apps/astro-cli/bin:$PATH"
 cd example-agent
-ast dev --local
+ast-dev dev --local
 ```
 
 ## Releasing
