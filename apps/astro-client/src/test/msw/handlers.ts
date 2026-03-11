@@ -71,6 +71,7 @@ export const mockAgents: Agent[] = [
 export const mockDeployments: DeploymentsListResponse = {
   deployments: [
     {
+      id: 'dep-code-reviewer',
       name: 'code-reviewer',
       display_name: 'Code Reviewer',
       build_id: 'b2c3d4e5f6a7',
