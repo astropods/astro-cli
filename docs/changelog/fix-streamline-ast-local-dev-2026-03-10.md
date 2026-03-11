@@ -38,6 +38,8 @@ Fixed multiple bugs preventing `ast dev --local` from working, and added conveni
 
 **Docs** — Updated `cmd/docs/ast.md`, `docs/02-cli/cli-design.md`, and `apps/astro-cli/README.md` to reflect `--all` flag, `moon run astro-cli:link`, and config namespacing.
 
+**Local dev CI action** — Added `.github/workflows/local-dev-check.yml` that runs the local-dev regression tests and verifies the CLI builds with production ldflags on PRs touching `apps/astro-cli/`, `deployment/moon.yml`, or `.gitmodules`. No secrets or submodules required.
+
 ## Migration
 
 No action required. If you have scripts referencing `astro-messaging:latest` or `astro-playground:latest`, update them to `messaging:latest` / `playground:latest`.

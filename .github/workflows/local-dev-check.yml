@@ -1,0 +1,39 @@
+name: Local Dev Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'apps/astro-cli/**'
+      - 'deployment/moon.yml'
+      - '.gitmodules'
+
+jobs:
+  local-dev-lint:
+    runs-on: ubuntu-latest
+    name: Verify ast dev --local invariants
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: apps/astro-cli/go.sum
+
+      - name: Install dependencies
+        working-directory: apps/astro-cli
+        run: go mod download
+
+      - name: Run local-dev regression tests
+        working-directory: apps/astro-cli
+        run: |
+          go test -v -run "TestLocalAstroPackages|TestLocalDockerImages|TestComposeBuildArgs|TestDevLogsArgs|TestResolveAstroSourceRoot" ./cmd/...
+          go test -v -run "TestImageNameForLocal|TestImageStrippingStrategy" ./internal/utils/...
+
+      - name: Verify CLI builds with production ldflags
+        working-directory: apps/astro-cli
+        run: |
+          go build -ldflags="-X github.com/astropods/astro/apps/astro-cli/internal/buildinfo.BinaryName=ast-dev -X github.com/astropods/astro/apps/astro-cli/cmd.commit=$(git rev-parse --short HEAD)" -o /dev/null .
