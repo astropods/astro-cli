@@ -45,11 +45,14 @@ jobs:
 
       - name: Generate migration plan
         id: plan
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
           OUTPUT=$(atlas schema diff \
-            --from "${{ secrets.DATABASE_URL }}" \
+            --from "$DATABASE_URL" \
             --to "file://apps/astro-server/schema.sql" \
-            --dev-url "${{ secrets.DEV_DATABASE_URL }}" 2>&1)
+            --dev-url "$DEV_DATABASE_URL" 2>&1)
           STATUS=$?
           if [ $STATUS -ne 0 ]; then
             echo "has_changes=error" >> "$GITHUB_OUTPUT"

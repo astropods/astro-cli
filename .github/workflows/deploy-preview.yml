@@ -92,12 +92,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run schema migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
           curl -sSf https://atlasgo.sh | sh
           atlas schema apply \
-            --url "${{ secrets.DATABASE_URL }}" \
+            --url "$DATABASE_URL" \
             --to "file://apps/astro-server/schema.sql" \
-            --dev-url "${{ secrets.DEV_DATABASE_URL }}" \
+            --dev-url "$DEV_DATABASE_URL" \
             --auto-approve
 
   # ---------------------------------------------------------------------------
