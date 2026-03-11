@@ -123,3 +123,11 @@ cd example-agent
 ast-dev dev --local
 ```
 
+## Deployments
+
+**Preview** — Automatically deployed on every merge to `main`. No manual action required.
+
+**Production** — Deployed manually. After changes land in `main` and are verified in preview, go to the **Actions** tab in GitHub, select the **"Deploy (Prod)"** workflow, and click **"Run workflow"**. You must select at least one service to deploy: `astro-server`, `astro-client`, or `astro-registry`.
+
+To release the CLI to production, use the separate **"Release CLI (Prod)"** workflow.
+
