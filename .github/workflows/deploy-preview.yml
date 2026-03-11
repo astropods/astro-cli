@@ -79,6 +79,28 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
+  # Migrate: apply schema changes directly to preview DB
+  # ---------------------------------------------------------------------------
+  migrate:
+    needs: [changes, validate]
+    if: contains(fromJson(needs.changes.outputs.services), 'astro-server')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: preview
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run schema migration
+        run: |
+          curl -sSf https://atlasgo.sh | sh
+          atlas schema apply \
+            --url "${{ secrets.DATABASE_URL }}" \
+            --to "file://apps/astro-server/schema.sql" \
+            --dev-url "${{ secrets.DEV_DATABASE_URL }}" \
+            --auto-approve
+
+  # ---------------------------------------------------------------------------
   # Build: multi-arch images, push by digest to preview ECR
   # ---------------------------------------------------------------------------
   build:
@@ -158,8 +180,12 @@ jobs:
   # Deploy to preview
   # ---------------------------------------------------------------------------
   deploy:
-    needs: [changes, validate, build]
-    if: needs.changes.outputs.services != '[]'
+    needs: [changes, validate, migrate, build]
+    if: |
+      always() &&
+      needs.changes.outputs.services != '[]' &&
+      needs.build.result == 'success' &&
+      (needs.migrate.result == 'success' || needs.migrate.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: preview
@@ -222,18 +248,3 @@ jobs:
             echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
           fi
 
-      - name: Upload schema to S3
-        if: matrix.service == 'astro-server'
-        run: |
-          aws s3 cp apps/astro-server/schema.sql \
-            "s3://as0-schema-migrations-${{ secrets.AWS_ACCOUNT_ID }}/astro/${{ vars.ENV_NAME }}/schema.sql"
-      - name: Run schema migration
-        if: matrix.service == 'astro-server'
-        run: |
-          kubectl create job astro-migrate-${{ github.run_id }} \
-            --from=cronjob/astro-schema-migrate \
-            --namespace=astro
-          kubectl wait --for=condition=complete \
-            job/astro-migrate-${{ github.run_id }} \
-            --namespace=astro \
-            --timeout=120s
