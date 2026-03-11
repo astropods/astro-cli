@@ -191,11 +191,13 @@ func prepareDeployment(
 	var astroSpec spec.AstroSpec
 	specBytes, err := json.Marshal(agentVersion.Spec)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process registered spec"})
+		log.Error("Failed to marshal stored spec", "error", err, "agent", agentName, "build", buildID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process registered spec", "details": err.Error()})
 		return nil, false
 	}
 	if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse registered spec"})
+		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "agent", agentName, "build", buildID, "raw", string(specBytes))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse registered spec", "details": err.Error()})
 		return nil, false
 	}
 
@@ -1177,12 +1179,14 @@ func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, acc
 		// Parse spec from stored map
 		specBytes, err := json.Marshal(agentVersion.Spec)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
+			log.Error("Failed to marshal stored spec", "error", err, "account", accountName, "agent", name)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec", "details": err.Error()})
 			return
 		}
 		var astroSpec spec.AstroSpec
 		if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec"})
+			log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", accountName, "agent", name, "raw", string(specBytes))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec", "details": err.Error()})
 			return
 		}
 
