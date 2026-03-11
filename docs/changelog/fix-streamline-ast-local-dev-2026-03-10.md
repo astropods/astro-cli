@@ -16,15 +16,27 @@ Fixed multiple bugs preventing `ast dev --local` from working, and added conveni
 
 **Auto-build SDKs** — Replaced the "check dist/ and error" pattern with automatic `bun install && bun run build` for each SDK when `dist/index.js` is missing. Covers `@astropods/messaging`, `@astropods/adapter-core`, and `@astropods/adapter-mastra`.
 
-**`ast dev logs` default** — Previously defaulted to the `agent` service, which doesn't exist in `--local` mode. Now defaults to all services when no argument is provided.
+**Auto-build Docker images** — `--local` now always builds `messaging:latest` and `playground:latest` from `$ASTRO_ROOT/modules/`. Docker layer caching keeps repeat builds fast. `--rebuild` additionally passes `--no-cache`.
+
+**Orphan cleanup on startup** — Runs `docker compose down --remove-orphans` before `up -d` to clean up leftover containers from a force-killed previous session.
+
+**Graceful shutdown** — Agent process now runs in its own process group (`Setpgid`); shutdown kills the entire group instead of just the shell. `signal.Stop` after first Ctrl+C restores default handling so a second Ctrl+C force-exits. `docker compose down` runs with a 30s timeout.
+
+**Service health check** — After starting services, prints color-coded status for each container (running/exited/unknown).
+
+**Background log streaming** — Docker compose logs are streamed alongside the agent output so service failures are visible without a separate terminal.
+
+**`ast dev logs` default** — Defaults to the `agent` service. Added `--all` flag to tail all services.
 
 **Error messages** — `ASTRO_ROOT` errors now include an example `export` command.
 
 **PR changelog action** — `pr-changelog.yml` now searches `docs/changelog/` recursively, so branches with slashes (e.g. `fix/my-change`) can use matching subdirectories (e.g. `docs/changelog/fix/my-change-YYYY-MM-DD.md`). Flat filenames continue to work as before. Updated `CLAUDE.md` guidance to reflect both conventions.
 
-**Extracted `composeBuildArgs`** — Pulled the `docker compose build` argument construction out of `runDevStart` into a standalone `composeBuildArgs()` function for testability.
+**Extracted helpers** — Pulled `composeBuildArgs()`, `devLogsArgs()`, `killProcessGroup()`, `checkComposeHealth()`, and `buildLocalImages()` into standalone functions for testability and clarity.
 
-**Tests** — Added `TestComposeBuildArgs` in `cmd/dev_test.go` covering normal/local/rebuild/combined modes, asserting `--pull` vs `--pull=false` presence and mutual exclusivity, and `--no-cache` presence. Extended `utils_test.go` with `astropods/`-prefixed image cases and a new `TestImageStrippingStrategy` that verifies only `astropods/*` images are stripped while third-party images like `qdrant/qdrant:latest` pass through unchanged.
+**Tests** — Added `TestComposeBuildArgs`, `TestDevLogsArgs`, `TestLocalAstroPackagesPointToModules`, `TestLocalDockerImagesConsistency`, and `TestResolveAstroSourceRoot` in `cmd/dev_test.go`. Extended `utils_test.go` with `astropods/`-prefixed image cases and `TestImageStrippingStrategy`.
+
+**Docs** — Updated `cmd/docs/ast.md`, `docs/02-cli/cli-design.md`, and `apps/astro-cli/README.md` to reflect `--all` flag, `moon run astro-cli:link`, and config namespacing.
 
 ## Migration
 

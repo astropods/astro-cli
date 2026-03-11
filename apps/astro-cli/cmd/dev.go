@@ -47,7 +47,7 @@ var devStartCmd = &cobra.Command{
 var devLogsCmd = &cobra.Command{
 	Use:   "logs [service]",
 	Short: "Tail container logs",
-	Long:  `Tail logs from the running dev containers. Defaults to the agent container. Optionally specify a service name (e.g. astro-messaging, playground) to tail a different container.`,
+	Long:  `Tail logs from the running dev containers. Defaults to the agent container. Use --all to tail all services. Optionally specify a service name (e.g. astro-messaging, playground) to tail a different container.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDevLogs,
 }
@@ -73,6 +73,7 @@ var (
 	noPull     bool
 	local      bool
 	localReset bool
+	logsAll    bool
 )
 
 func init() {
@@ -93,7 +94,8 @@ Running '%[1]s dev' without a subcommand is equivalent to '%[1]s dev start'.`, b
 
 	devCmd.Example = fmt.Sprintf(`  %[1]s dev                  # start containers and exit
   %[1]s dev start --rebuild  # force rebuild containers
-  %[1]s dev logs             # tail logs
+  %[1]s dev logs             # tail agent logs
+  %[1]s dev logs --all       # tail all service logs
   %[1]s dev stop             # stop containers
   %[1]s dev --local          # run agent as local process (blocking)`, binaryName)
 
@@ -109,6 +111,8 @@ Running '%[1]s dev' without a subcommand is equivalent to '%[1]s dev start'.`, b
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
+
+	devLogsCmd.Flags().BoolVar(&logsAll, "all", false, "Tail logs from all services (not just agent)")
 }
 
 // checkDockerRunning verifies Docker is installed and the daemon is accessible.
@@ -300,6 +304,14 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	sort.Strings(serviceNames)
 	fmt.Printf("%s→%s Services: %s\n", colorCyan, colorReset, strings.Join(serviceNames, ", "))
 
+	// --local: build Docker images for services that don't have a compose build directive.
+	// These are pre-built images (messaging, playground) that compose can't build on its own.
+	if local {
+		if err := buildLocalImages(rebuild); err != nil {
+			return err
+		}
+	}
+
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
 	buildArgs := composeBuildArgs(cPath, rebuild, noPull)
@@ -312,6 +324,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}); err != nil {
 		return fmt.Errorf("failed to build services: %w", err)
 	}
+
+	// Tear down leftover containers from a previous run (e.g. force-killed with Ctrl+C).
+	// This is fast and idempotent when nothing is running.
+	_ = runCmd(exec.Command("docker", "compose", "-f", cPath, "down", "--remove-orphans"), verbose) //nolint:gosec
 
 	// Start non-profiled services (already built above)
 	if err := withSpinner("Starting services...", verbose, func() error {
@@ -392,20 +408,30 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 		startCommand = astroSpec.Dev.Command
 	}
 
-	// Run via shell so the command string is interpreted correctly
+	// Run via shell so the command string is interpreted correctly.
+	// Setpgid gives the process its own group so we can kill the entire tree.
 	agentCmd := exec.CommandContext(agentCtx, "sh", "-c", startCommand) //nolint:gosec
 	agentCmd.Dir = workingDir
 	agentCmd.Env = agentEnv
 	agentCmd.Stdout = os.Stdout
 	agentCmd.Stderr = os.Stderr
+	agentCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := agentCmd.Start(); err != nil {
 		agentCancel()
 		return fmt.Errorf("failed to start agent: %w", err)
 	}
 	fmt.Printf("%s→%s Agent running as local process %s(%s)%s\n", colorCyan, colorReset, colorDim, startCommand, colorReset)
 
+	checkComposeHealth(cPath)
+
+	// Stream docker compose logs in the background so service failures are visible
+	logsCtx, logsCancel := context.WithCancel(context.Background())
+	composeLogsCmd := exec.CommandContext(logsCtx, "docker", "compose", "-f", cPath, "logs", "-f", "--no-log-prefix") //nolint:gosec
+	composeLogsCmd.Stdout = os.Stdout
+	composeLogsCmd.Stderr = os.Stderr
+	_ = composeLogsCmd.Start()
+
 	if hasWebInterface {
-		// Open playground in browser
 		go func() {
 			time.Sleep(2 * time.Second)
 			openBrowser("http://localhost:3000")
@@ -421,21 +447,26 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir, cPat
 	fmt.Println()
 
 	<-sigChan
+	signal.Stop(sigChan)
 
 	fmt.Println()
-	fmt.Printf("%s→%s Shutting down...\n", colorCyan, colorReset)
+	fmt.Printf("%s→%s Shutting down (Ctrl+C again to force)...\n", colorCyan, colorReset)
 
-	agentCancel()
-	if agentCmd.Process != nil {
-		_ = agentCmd.Process.Kill()
+	logsCancel()
+	if composeLogsCmd.Process != nil {
+		_ = composeLogsCmd.Wait()
 	}
 
-	// Stop all services
-	downCmd := exec.Command("docker", "compose", "-f", cPath, "down") //nolint:gosec
+	agentCancel()
+	killProcessGroup(agentCmd)
+
+	downCtx, downCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer downCancel()
+	downCmd := exec.CommandContext(downCtx, "docker", "compose", "-f", cPath, "down", "--timeout", "15") //nolint:gosec
 	downCmd.Stdout = os.Stdout
 	downCmd.Stderr = os.Stderr
 	if err := downCmd.Run(); err != nil {
-		return fmt.Errorf("failed to stop services: %w", err)
+		fmt.Fprintf(os.Stderr, "%s→%s Warning: docker compose down failed: %v\n", colorCyan, colorReset, err)
 	}
 
 	fmt.Printf("%s→%s Cleanup complete\n", colorCyan, colorReset)
@@ -458,10 +489,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment found (missing %s). Run '%s dev' first", cPath, binaryName)
 	}
 
-	logsArgs := []string{"compose", "-f", cPath, "logs", "-f"}
-	if len(args) > 0 {
-		logsArgs = append(logsArgs, args[0])
-	}
+	logsArgs := devLogsArgs(cPath, args, logsAll)
 
 	logsCmd := exec.Command("docker", logsArgs...) //nolint:gosec
 	logsCmd.Stdout = os.Stdout
@@ -565,6 +593,106 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("ingestion '%s' failed: %w", name, err)
 	}
 	fmt.Printf("%s→%s Ingestion '%s' completed\n", colorCyan, colorReset, name)
+	return nil
+}
+
+// checkComposeHealth waits briefly then prints the status of each compose service.
+// Services that exited or are restarting are flagged so the user knows immediately.
+func checkComposeHealth(composePath string) {
+	time.Sleep(3 * time.Second)
+
+	out, err := exec.Command("docker", "compose", "-f", composePath, "ps", "--format", "{{.Name}}\t{{.State}}\t{{.Status}}").Output() //nolint:gosec
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		name, state := parts[0], strings.ToLower(parts[1])
+		status := ""
+		if len(parts) == 3 {
+			status = parts[2]
+		}
+
+		switch {
+		case state == "running":
+			fmt.Printf("  %s✓%s %s %s(%s)%s\n", colorGreen, colorReset, name, colorDim, status, colorReset)
+		case state == "exited" || state == "dead":
+			fmt.Printf("  %s✗%s %s %s— %s%s\n", colorRed, colorReset, name, colorRed, status, colorReset)
+		default:
+			fmt.Printf("  %s?%s %s %s(%s)%s\n", colorYellow, colorReset, name, colorDim, status, colorReset)
+		}
+	}
+	fmt.Println()
+}
+
+// killProcessGroup sends SIGKILL to the entire process group of cmd.
+// Falls back to killing just the process if the group kill fails.
+func killProcessGroup(cmd *exec.Cmd) {
+	if cmd.Process == nil {
+		return
+	}
+	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	if err == nil {
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	} else {
+		_ = cmd.Process.Kill()
+	}
+	_ = cmd.Wait()
+}
+
+// devLogsArgs returns the docker compose logs command arguments.
+// Defaults to the agent service; --all tails everything; a specific service overrides both.
+func devLogsArgs(composePath string, args []string, all bool) []string {
+	logsArgs := []string{"compose", "-f", composePath, "logs", "-f"}
+	if len(args) > 0 {
+		logsArgs = append(logsArgs, args[0])
+	} else if !all {
+		logsArgs = append(logsArgs, "agent")
+	}
+	return logsArgs
+}
+
+// localDockerImage describes a Docker image to build in --local mode.
+type localDockerImage struct {
+	tag        string // e.g. "messaging:latest"
+	dockerfile string // relative to ASTRO_ROOT, e.g. "modules/messaging/Dockerfile"
+	context    string // relative to ASTRO_ROOT, e.g. "modules/messaging"
+}
+
+var localDockerImages = []localDockerImage{
+	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
+	{"playground:latest", "modules/playground/Dockerfile", "modules/playground"},
+}
+
+// buildLocalImages builds Docker images that don't have compose build directives.
+// Always rebuilds to avoid stale images; Docker layer caching keeps repeat builds fast.
+func buildLocalImages(rebuild bool) error {
+	astroRoot := os.Getenv("ASTRO_ROOT")
+	if astroRoot == "" {
+		return fmt.Errorf("ASTRO_ROOT is not set")
+	}
+
+	for _, img := range localDockerImages {
+		fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, img.tag)
+		dockerfile := filepath.Join(astroRoot, img.dockerfile)
+		ctx := filepath.Join(astroRoot, img.context)
+		args := []string{"build", "-t", img.tag, "-f", dockerfile}
+		if rebuild {
+			args = append(args, "--no-cache")
+		}
+		args = append(args, ctx)
+		buildCmd := exec.Command("docker", args...) //nolint:gosec
+		buildCmd.Stdout = os.Stdout
+		buildCmd.Stderr = os.Stderr
+		if err := buildCmd.Run(); err != nil {
+			return fmt.Errorf("failed to build %s: %w", img.tag, err)
+		}
+	}
 	return nil
 }
 

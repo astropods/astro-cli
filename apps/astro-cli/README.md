@@ -25,14 +25,15 @@ From repo root:
 moon run astro-cli:build
 ```
 
-Output: `apps/astro-cli/bin/ast`.
+Output: `apps/astro-cli/bin/ast-dev`.
 
-Plain Go build (no moon):
+To build and symlink into `~/go/bin/ast-dev` (must be on `$PATH`):
 
 ```bash
-cd apps/astro-cli
-go build -o bin/ast .
+moon run astro-cli:link
 ```
+
+**Config namespacing**: `ast-dev` stores credentials in `~/.ast-dev/`, separate from production `ast` (`~/.ast/`). After linking, run `ast-dev configure` in your agent project to set up API keys. To share credentials with `ast`, symlink the config: `ln -sf ~/.ast/project-configs.json ~/.ast-dev/project-configs.json`.
 
 ## Testing
 
