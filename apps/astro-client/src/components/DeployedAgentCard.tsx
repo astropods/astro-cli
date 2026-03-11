@@ -65,14 +65,13 @@ export function DeployedAgentCard({
           className,
         )}
       >
-        <div className="absolute top-3 right-3">
+        <div className="absolute top-3 right-3" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
                 aria-label="Agent options"
-                onClick={(e) => e.stopPropagation()}
               >
                 <EllipsisVertical className="h-4 w-4" />
               </button>
