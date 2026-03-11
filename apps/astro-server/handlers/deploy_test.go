@@ -659,3 +659,402 @@ func TestGetDeploymentTemplate_DefaultYAML(t *testing.T) {
 		t.Errorf("expected Content-Type 'application/yaml', got %q", ct)
 	}
 }
+
+// --- Template: deployment_id presence tests ---
+
+func TestGetDeploymentTemplate_NoDeploymentID(t *testing.T) {
+	router, indexMock, accountMock := setupTemplateRouter("user-1")
+
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	expectLatestVersion(indexMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	target, ok := resp["target"].(map[string]any)
+	if !ok {
+		t.Fatal("expected target to be an object")
+	}
+	if _, exists := target["deployment_id"]; exists {
+		t.Errorf("plain template should not contain deployment_id, got %v", target["deployment_id"])
+	}
+}
+
+func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "docker.io/library",
+		},
+	}
+
+	depID := "dep-123"
+	acctID := "acct-1"
+	now := time.Now()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	// generateTemplate expectations: account lookup, agent lookup, latest version
+	expectAccountLookup(accountMock)
+	expectAgentLookup(indexMock, "public")
+	expectLatestVersion(indexMock)
+
+	// GetDeploymentByID
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}).AddRow(
+			depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{"interfaces":{"adapters":["slack"]}}`, nil, nil,
+			"active", now, nil,
+		))
+
+	// IsMember check for deployment's account
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetDeploymentVariables
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "secret", "optional", "targets", "nonce",
+		}))
+
+	// GetByID for account name resolution
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/"+depID+"?format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	target, ok := resp["target"].(map[string]any)
+	if !ok {
+		t.Fatal("expected target to be an object")
+	}
+	if target["deployment_id"] != depID {
+		t.Errorf("expected deployment_id=%q, got %v", depID, target["deployment_id"])
+	}
+	if target["display_name"] != "My Deploy" {
+		t.Errorf("expected display_name='My Deploy', got %v", target["display_name"])
+	}
+}
+
+// --- Deploy endpoint: deployment_id handling tests ---
+
+// setupDeployRouter creates a gin engine wired with DeployAgent and ValidateDeployment.
+// Returns (router, indexMock, accountMock, deployMock).
+func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "docker.io/library",
+		},
+	}
+
+	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Success"}`))
+	})
+	k8sClient := newMockK8sClient(k8sHandler)
+
+	router := gin.New()
+	if userID != "" {
+		router.Use(func(c *gin.Context) {
+			c.Set(string(auth.UserContextKey), &auth.User{ID: userID})
+			c.Next()
+		})
+	}
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, k8sClient, deployStore))
+
+	return router, indexMock, accountMock, deployMock
+}
+
+// expectDeployPrep sets up mocks for the full prepareDeployment flow: account lookup,
+// membership check, agent+version lookup for both agentIndex.Get and the build lookup.
+func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
+	now := time.Now()
+
+	// accountStore.GetByName("myorg") — source account
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	// IsMember(target=source, user) → yes
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// agentIndex.Get (visibility check)
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "[]", now, now))
+
+	// agentIndex.GetVersion (exact build lookup)
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "[]", now, now))
+}
+
+// deployableSpec builds a JSON deployment spec that matches the template the server
+// generates from the agent spec `{"name":"my-agent"}` with RegistryURL "docker.io/library".
+// The caller can optionally set deploymentID to test the in-place update path.
+func deployableSpec(deploymentID string) string {
+	targetExtra := ""
+	if deploymentID != "" {
+		targetExtra = fmt.Sprintf(`, "deployment_id": %q`, deploymentID)
+	}
+	return fmt.Sprintf(`{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "docker.io/library"},
+		"target": {"runtime": "kubernetes"%s},
+		"agent": {
+			"image": "docker.io/library/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%%", "max_surge": "25%%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]}
+		},
+		"observability": {"enabled": true, "provider": "galileo"}
+	}`, targetExtra)
+}
+
+func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	// No deployment_id in spec → new deployment path.
+	// No display name lookup needed (empty display_name).
+	// No existing deployment lookup (GetActiveDeployment returns no rows).
+	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment
+						WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}))
+
+	// SaveDeploymentFull transaction
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 0))
+	deployMock.ExpectQuery(`INSERT INTO deployments`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at",
+		}).AddRow("new-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "active", time.Now()))
+	// Normalized spec inserts (agent workload + service + collector workload + services + variables)
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := deployableSpec("")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Accept 200 (success) or 207 (partial — K8s mock may not return expected resources)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusMultiStatus {
+		t.Fatalf("expected 200 or 207, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["name"] != "my-agent" {
+		t.Errorf("expected name 'my-agent', got %v", resp["name"])
+	}
+}
+
+func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	depID := "existing-dep-id"
+	now := time.Now()
+
+	// GetDeploymentByID for the provided deployment_id
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}).AddRow(
+			depID, "acct-1", "my-agent", "build-1", "astro-existing",
+			"My Agent", `{}`, nil, nil,
+			"active", now, nil,
+		))
+
+	// IsMember check for deployment's account
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// UpdateDeploymentFull transaction
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`UPDATE deployments`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at",
+		}).AddRow(depID, "acct-1", "my-agent", "build-1", "astro-existing", "My Agent", "{}", "active", now))
+	deployMock.ExpectExec(`DELETE FROM deployment_workloads`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`DELETE FROM deployment_variables`).WillReturnResult(sqlmock.NewResult(0, 0))
+	// Normalized spec re-inserts (agent workload + service + collector workload + services + variables)
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := deployableSpec(depID)
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK && rec.Code != http.StatusMultiStatus {
+		t.Fatalf("expected 200 or 207, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	// Should reuse the existing namespace
+	if resp["k8s_namespace"] != "astro-existing" {
+		t.Errorf("expected k8s_namespace 'astro-existing', got %v", resp["k8s_namespace"])
+	}
+}
+
+func TestDeploy_WithDeploymentID_NotFound(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	// GetDeploymentByID returns no rows
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}))
+
+	body := deployableSpec("nonexistent")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	now := time.Now()
+	later := now.Add(time.Hour)
+
+	// GetDeploymentByID returns inactive deployment
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}).AddRow(
+			"dep-inactive", "acct-1", "my-agent", "build-1", "astro-old",
+			"Old", `{}`, nil, nil,
+			"undeployed", now, later,
+		))
+
+	body := deployableSpec("dep-inactive")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for inactive deployment, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
