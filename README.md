@@ -125,9 +125,13 @@ ast-dev dev --local
 
 ## Deployments
 
+| Environment | URL | Notes |
+|-------------|-----|-------|
+| Preview / Staging | https://astropod.ai | Requires beta VPN |
+| Production | https://astropods.ai | Invite-only — contact a Postman team member for access |
+
 **Preview** — Automatically deployed on every merge to `main`. No manual action required.
 
 **Production** — Deployed manually. After changes land in `main` and are verified in preview, go to the **Actions** tab in GitHub, select the **"Deploy (Prod)"** workflow, and click **"Run workflow"**. You must select at least one service to deploy: `astro-server`, `astro-client`, or `astro-registry`.
 
 To release the CLI to production, use the separate **"Release CLI (Prod)"** workflow.
-
