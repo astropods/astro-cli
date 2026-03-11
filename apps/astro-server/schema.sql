@@ -101,6 +101,8 @@ CREATE TABLE public.deployments (
     namespace varchar NOT NULL,
     display_name varchar(64) NOT NULL DEFAULT '',
     deployment_spec_json text NOT NULL,
+    encrypted_data_key bytea,
+    kms_key_arn varchar,
     status varchar NOT NULL DEFAULT 'active',
     deployed_at timestamp NOT NULL DEFAULT now(),
     undeployed_at timestamp,
@@ -111,6 +113,103 @@ CREATE TABLE public.deployments (
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
 
 CREATE UNIQUE INDEX idx_deployments_active_display_name ON public.deployments(account_id, display_name) WHERE status = 'active' AND display_name != '';
+
+-- Normalized deployment spec tables (Phase 1: dual-write alongside deployment_spec_json)
+
+CREATE TABLE public.deployment_workloads (
+    id serial NOT NULL,
+    deployment_id varchar(11) NOT NULL,
+    name varchar NOT NULL,
+    component_kind varchar NOT NULL,
+    component_key varchar NOT NULL DEFAULT '',
+    workload_type varchar NOT NULL,
+    image varchar NOT NULL,
+    replicas int NOT NULL DEFAULT 1,
+    cpu_request varchar NOT NULL DEFAULT '',
+    memory_request varchar NOT NULL DEFAULT '',
+    cpu_limit varchar NOT NULL DEFAULT '',
+    memory_limit varchar NOT NULL DEFAULT '',
+    gpu_vram varchar,
+    gpu_runtime varchar,
+    gpu_count int,
+    update_strategy varchar,
+    update_max_unavailable varchar,
+    update_max_surge varchar,
+    healthcheck_path varchar,
+    healthcheck_port int,
+    healthcheck_interval varchar,
+    healthcheck_timeout varchar,
+    healthcheck_retries int,
+    healthcheck_test text,
+    trigger_type varchar,
+    trigger_schedule varchar,
+    persistent boolean NOT NULL DEFAULT false,
+    distributed boolean NOT NULL DEFAULT false,
+    CONSTRAINT deployment_workloads_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_workloads_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_deployment_workloads_name ON public.deployment_workloads(deployment_id, name);
+
+CREATE TABLE public.deployment_services (
+    id serial NOT NULL,
+    workload_id int NOT NULL,
+    name varchar NOT NULL,
+    port int NOT NULL,
+    target_port int NOT NULL,
+    protocol varchar NOT NULL DEFAULT 'http',
+    CONSTRAINT deployment_services_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_services_workload_id_fkey FOREIGN KEY (workload_id) REFERENCES public.deployment_workloads(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_deployment_services_name ON public.deployment_services(workload_id, name);
+
+CREATE TABLE public.deployment_ingresses (
+    id serial NOT NULL,
+    service_id int NOT NULL,
+    hostname varchar NOT NULL,
+    path varchar NOT NULL DEFAULT '/',
+    tls_enabled boolean NOT NULL DEFAULT true,
+    CONSTRAINT deployment_ingresses_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_ingresses_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.deployment_services(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_deployment_ingresses_service ON public.deployment_ingresses(service_id);
+
+CREATE TABLE public.deployment_volumes (
+    id serial NOT NULL,
+    workload_id int NOT NULL,
+    mount_path varchar NOT NULL,
+    size varchar NOT NULL DEFAULT '10Gi',
+    storage_class varchar,
+    access_mode varchar NOT NULL DEFAULT 'ReadWriteOnce',
+    CONSTRAINT deployment_volumes_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_volumes_workload_id_fkey FOREIGN KEY (workload_id) REFERENCES public.deployment_workloads(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_deployment_volumes_path ON public.deployment_volumes(workload_id, mount_path);
+
+CREATE TABLE public.deployment_env_vars (
+    workload_id int NOT NULL,
+    key varchar NOT NULL,
+    value text NOT NULL DEFAULT '',
+    source varchar NOT NULL DEFAULT 'direct',
+    nonce bytea,
+    CONSTRAINT deployment_env_vars_pkey PRIMARY KEY (workload_id, key),
+    CONSTRAINT deployment_env_vars_workload_id_fkey FOREIGN KEY (workload_id) REFERENCES public.deployment_workloads(id) ON DELETE CASCADE
+);
+
+CREATE TABLE public.deployment_variables (
+    deployment_id varchar(11) NOT NULL,
+    name varchar NOT NULL,
+    value text NOT NULL DEFAULT '',
+    secret boolean NOT NULL DEFAULT false,
+    optional boolean NOT NULL DEFAULT false,
+    targets text[] NOT NULL DEFAULT '{}',
+    nonce bytea,
+    CONSTRAINT deployment_variables_pkey PRIMARY KEY (deployment_id, name),
+    CONSTRAINT deployment_variables_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
 
 CREATE TABLE public.namespace_ownership (
     namespace varchar NOT NULL,

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,10 +17,13 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -364,13 +368,54 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		// Persist resolved spec (secret values stripped)
+		// Persist resolved spec (JSON blob + normalized tables in same transaction)
 		if deployStore != nil {
 			stripped := spec.StripSecretVariableValues(dctx.resolveResult.Spec)
-			if specJSON, marshalErr := json.Marshal(stripped); marshalErr != nil {
+			specJSON, marshalErr := json.Marshal(stripped)
+			if marshalErr != nil {
 				log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
-			} else if _, storeErr := deployStore.SaveDeployment(dctx.deploymentID, dctx.acct.ID, dctx.agentName, dctx.displayName, dctx.buildID, dctx.k8sNS, string(specJSON)); storeErr != nil {
-				log.Error("Failed to save deployment record", "error", storeErr)
+			} else {
+				// Resolve env vars for normalized storage
+				rctx := deployment.ResolveContext{
+					Namespace:  dctx.k8sNS,
+					AgentName:  dctx.agentName,
+					BuildID:    dctx.buildID,
+					SecretName: deployment.GenerateSecretName(dctx.agentName, dctx.buildID),
+				}
+				resolved := deployment.ResolveDeploymentSpecEnv(dctx.resolveResult.Spec, rctx)
+
+				// Create encryptor if KMS is configured
+				var enc *envelope.Encryptor
+				if cfg.Deployment.KMSKeyARN != "" {
+					awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
+					if awsErr != nil {
+						log.Error("Failed to load AWS config for KMS", "error", awsErr)
+					} else {
+						kmsClient := kms.NewFromConfig(awsCfg)
+						enc, awsErr = envelope.NewEncryptor(c.Request.Context(), kmsClient, cfg.Deployment.KMSKeyARN)
+						if awsErr != nil {
+							log.Error("Failed to create KMS encryptor", "error", awsErr)
+						}
+					}
+				}
+
+				params := deploymentstore.SaveDeploymentParams{
+					ID: dctx.deploymentID, AccountID: dctx.acct.ID,
+					AgentName: dctx.agentName, DisplayName: dctx.displayName,
+					BuildID: dctx.buildID, Namespace: dctx.k8sNS,
+					SpecJSON: string(specJSON),
+				}
+				if enc != nil {
+					params.EncryptedDataKey = enc.EncryptedDataKey
+					params.KMSKeyARN = enc.KMSKeyARN
+				}
+
+				_, storeErr := deployStore.SaveDeploymentFull(params, func(tx *sql.Tx, deploymentID string) error {
+					return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc)
+				})
+				if storeErr != nil {
+					log.Error("Failed to save deployment record", "error", storeErr)
+				}
 			}
 		}
 

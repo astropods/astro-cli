@@ -115,6 +115,8 @@ type DeploymentConfig struct {
 	IngestionALBGroupName  string // ALB group name for ingestion ALB (separate from agents)
 	// NetworkPolicy isolation: private subnet CIDRs where cluster pods run (comma-separated)
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
+	// KMS envelope encryption for deployment secrets
+	KMSKeyARN string // KMS_KEY_ARN — ARN of the KMS key for secret encryption (optional — secrets stripped if unset)
 	// Observability (Galileo) — injected into every collector sidecar
 	GalileoAPIKey      string // GALILEO_API_KEY
 	GalileoProject     string // GALILEO_PROJECT — name, injected into collector sidecars
@@ -161,6 +163,7 @@ func Load() (*Config, error) {
 			IngestionACMCertARN:    getEnv("INGESTION_ACM_CERTIFICATE_ARN", ""),
 			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
 			PodSubnetCIDRs:         getEnvSlice("POD_SUBNET_CIDRS", nil),
+			KMSKeyARN:              getEnv("KMS_KEY_ARN", ""),
 			GalileoAPIKey:          getEnv("GALILEO_API_KEY", ""),
 			GalileoProject:         getEnv("GALILEO_PROJECT", ""),
 			GalileoProjectID:       getEnv("GALILEO_PROJECT_ID", ""),
