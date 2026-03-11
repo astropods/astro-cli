@@ -578,7 +578,7 @@ export default function DeployPage() {
             {template && (
               <div className="flex gap-4 text-sm text-stone-500">
                 <span>Runtime: <span className="font-mono text-stone-700">{template.target.runtime}</span></span>
-                <span>Namespace: <span className="font-mono text-stone-700">{template.target.namespace}</span></span>
+                {template.target.deployment_id && <span>Deployment: <span className="font-mono text-stone-700">{template.target.deployment_id}</span></span>}
               </div>
             )}
           </div>

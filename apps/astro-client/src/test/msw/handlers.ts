@@ -89,13 +89,13 @@ export const mockDeployments: DeploymentsListResponse = {
 export const mockTemplate: DeploymentTemplate = {
   spec: 'deployment-template/v1',
   source: { account: 'testuser', name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
-  target: { runtime: 'kubernetes', namespace: '' },
+  target: { runtime: 'kubernetes' },
   agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
   variables: {
     OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key for the model provider' },
     SENTRY_DSN: { default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN for error tracking' },
   },
-  editable: ['variables.*.value', 'target.namespace', 'interfaces.adapters'],
+  editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
 export const handlers = [
