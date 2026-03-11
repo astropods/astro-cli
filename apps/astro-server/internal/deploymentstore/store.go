@@ -25,6 +25,8 @@ type Deployment struct {
 	Namespace          string     `json:"namespace"`
 	DisplayName        string     `json:"display_name,omitempty"`
 	DeploymentSpecJSON string     `json:"deployment_spec_json"`
+	EncryptedDataKey   []byte     `json:"-"`
+	KMSKeyARN          *string    `json:"-"`
 	Status             string     `json:"status"`
 	DeployedAt         time.Time  `json:"deployed_at"`
 	UndeployedAt       *time.Time `json:"undeployed_at,omitempty"`
@@ -111,6 +113,56 @@ func (s *Store) SaveDeploymentFull(p SaveDeploymentParams, txFn func(tx *sql.Tx,
 	return &d, nil
 }
 
+// UpdateDeploymentFull updates an existing active deployment record in-place.
+// It updates the build, spec, and encryption fields, then deletes and re-inserts
+// normalized data via txFn within the same transaction.
+func (s *Store) UpdateDeploymentFull(p SaveDeploymentParams, txFn func(tx *sql.Tx, deploymentID string) error) (*Deployment, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Update existing row
+	var d Deployment
+	err = tx.QueryRow(`
+		UPDATE deployments
+		SET build_id = $2, deployment_spec_json = $3, encrypted_data_key = $4,
+		    kms_key_arn = $5, deployed_at = NOW()
+		WHERE id = $1 AND status = 'active'
+		RETURNING id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at
+	`, p.ID, p.BuildID, p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN)).Scan(
+		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
+		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update deployment: %w", err)
+	}
+
+	// Delete old normalized data (cascades from deployment_workloads)
+	_, err = tx.Exec(`DELETE FROM deployment_workloads WHERE deployment_id = $1`, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete old workloads: %w", err)
+	}
+	_, err = tx.Exec(`DELETE FROM deployment_variables WHERE deployment_id = $1`, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete old variables: %w", err)
+	}
+
+	// Re-insert normalized data
+	if txFn != nil {
+		if err := txFn(tx, d.ID); err != nil {
+			return nil, fmt.Errorf("failed to save normalized spec: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return &d, nil
+}
+
 func nilIfEmpty(s string) interface{} {
 	if s == "" {
 		return nil
@@ -122,12 +174,15 @@ func nilIfEmpty(s string) interface{} {
 func (s *Store) GetDeploymentByID(id string) (*Deployment, error) {
 	var d Deployment
 	err := s.db.QueryRow(`
-		SELECT id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at, undeployed_at
+		SELECT id, account_id, agent_name, build_id, namespace, display_name,
+		       deployment_spec_json, encrypted_data_key, kms_key_arn,
+		       status, deployed_at, undeployed_at
 		FROM deployments
 		WHERE id = $1
 	`, id).Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
-		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
+		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN,
+		&d.Status, &d.DeployedAt, &d.UndeployedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil

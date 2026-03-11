@@ -614,6 +614,18 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Returns a deployment spec template for the agent. Defaults to YAML unless ?format=json."),
 				oapispec.Response(200, nil),
 			)
+			api.GET(protected, "/agents/:account/:name/deployment-template/:deploymentID", "Get pre-filled deployment template",
+				handlers.GetPrefilledDeploymentTemplate(log, agentIndex, accountStore, cfg, deploymentStore),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.PathParam("deploymentID", "Existing deployment ID to pre-fill from"),
+				oapispec.QueryParam("build", "Specific build ID (default: latest)", false),
+				oapispec.QueryParam("format", "Response format: json or yaml (default: yaml)", false),
+				oapispec.Desc("Returns a deployment spec template pre-filled with values from an existing deployment."),
+				oapispec.Response(200, nil),
+			)
 
 			// Agent write operations (requires agents:write permission)
 			agentWriteRoutes := protected.Group("/agents/:account/:name")

@@ -14,7 +14,7 @@ func httpEndpoints(port int) map[string]spec.Endpoint {
 func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123"},
-		Target: spec.DeploymentTarget{Namespace: "prod"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "agent:latest",
 			Endpoints: httpEndpoints(8080),
@@ -59,7 +59,7 @@ func TestResolveDeploymentSpecEnv_ModelReferences(t *testing.T) {
 func TestResolveDeploymentSpecEnv_KnowledgeReferences(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -88,7 +88,7 @@ func TestResolveDeploymentSpecEnv_KnowledgeReferences(t *testing.T) {
 func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -116,7 +116,7 @@ func TestResolveDeploymentSpecEnv_ToolReferences(t *testing.T) {
 func TestResolveDeploymentSpecEnv_VariableReferences(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -146,7 +146,7 @@ func TestResolveDeploymentSpecEnv_VariableReferences(t *testing.T) {
 func TestResolveDeploymentSpecEnv_SourceReferences(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123", Account: "acme"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -175,7 +175,7 @@ func TestResolveDeploymentSpecEnv_SourceReferences(t *testing.T) {
 func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -203,7 +203,7 @@ func TestResolveDeploymentSpecEnv_CompositeReferences(t *testing.T) {
 func TestResolveDeploymentSpecEnv_PlainValues(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -228,7 +228,7 @@ func TestResolveDeploymentSpecEnv_PlainValues(t *testing.T) {
 func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "my-agent", Build: "abc123"},
-		Target: spec.DeploymentTarget{Namespace: "prod"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 	}
 
@@ -256,7 +256,7 @@ func TestResolveDeploymentSpecEnv_PlatformVars(t *testing.T) {
 func TestResolveDeploymentSpecEnv_OTELCustomPort(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Observability: spec.DeploymentObservability{
 			Enabled: true,
@@ -276,7 +276,7 @@ func TestResolveDeploymentSpecEnv_OTELCustomPort(t *testing.T) {
 func TestResolveDeploymentSpecEnv_OTELDefaultPort(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Observability: spec.DeploymentObservability{
 			Enabled: true,
@@ -296,7 +296,7 @@ func TestResolveDeploymentSpecEnv_OTELDefaultPort(t *testing.T) {
 func TestResolveDeploymentSpecEnv_ObservabilityEnv(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Observability: spec.DeploymentObservability{
 			Enabled: true,
@@ -317,7 +317,7 @@ func TestResolveDeploymentSpecEnv_ObservabilityEnv(t *testing.T) {
 func TestResolveDeploymentSpecEnv_InterfacesGRPCAddr(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Interfaces: &spec.DeploymentInterfaces{
 			Adapters: []string{"slack", "web"},
@@ -341,7 +341,7 @@ func TestResolveDeploymentSpecEnv_InterfacesGRPCAddr(t *testing.T) {
 func TestResolveDeploymentSpecEnv_InterfacesCustomPort(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Interfaces: &spec.DeploymentInterfaces{
 			Adapters: []string{"slack"},
@@ -364,7 +364,7 @@ func TestResolveDeploymentSpecEnv_InterfacesCustomPort(t *testing.T) {
 func TestResolveDeploymentSpecEnv_InterfacesDefaultPort(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Interfaces: &spec.DeploymentInterfaces{
 			Adapters: []string{"slack"},
@@ -385,7 +385,7 @@ func TestResolveDeploymentSpecEnv_InterfacesDefaultPort(t *testing.T) {
 func TestResolveDeploymentSpecEnv_InterfaceEnvVariableRefs(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Interfaces: &spec.DeploymentInterfaces{
 			Adapters: []string{"slack"},
@@ -427,7 +427,7 @@ func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
 	// resolve to the actual values.
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent: spec.DeploymentAgent{
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
@@ -472,7 +472,7 @@ func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
 func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
-		Target: spec.DeploymentTarget{Namespace: "ns"},
+		Target: spec.DeploymentTarget{},
 		Agent:  spec.DeploymentAgent{Image: "x", Endpoints: httpEndpoints(8080)},
 		Variables: map[string]spec.Variable{
 			"EMPTY_KEY": {Value: "", Secret: true},

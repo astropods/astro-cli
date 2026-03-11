@@ -14,7 +14,6 @@ source:
   registry: registry.example.com
 target:
   runtime: kubernetes
-  namespace: prod
 agent:
   image: registry.example.com/my-agent:abc123
   endpoints:
@@ -224,7 +223,6 @@ source:
   registry: registry.example.com
 target:
   runtime: kubernetes
-  namespace: prod
 agent:
   image: agent:latest
   endpoints:
@@ -327,7 +325,6 @@ observability:
   provider: galileo
 editable:
   - variables.*.value
-  - target.namespace
 `
 	ds, err := ParseDeploymentSpec([]byte(yaml))
 	if err != nil {
@@ -357,8 +354,8 @@ editable:
 	if ds.Ingestion["sync"].Trigger.Schedule != "0 */6 * * *" {
 		t.Errorf("ingestion trigger.schedule: got %s", ds.Ingestion["sync"].Trigger.Schedule)
 	}
-	if len(ds.Editable) != 2 {
-		t.Errorf("editable: expected 2, got %d", len(ds.Editable))
+	if len(ds.Editable) != 1 {
+		t.Errorf("editable: expected 1, got %d", len(ds.Editable))
 	}
 }
 
@@ -371,7 +368,7 @@ func TestSerializeDeploymentSpec_RoundTrip(t *testing.T) {
 			Build:    "b1",
 			Registry: "reg.io",
 		},
-		Target: DeploymentTarget{Runtime: "kubernetes", Namespace: "prod"},
+		Target: DeploymentTarget{Runtime: "kubernetes"},
 		Agent: DeploymentAgent{
 			Image: "agent:latest",
 			Endpoints: map[string]Endpoint{
@@ -679,7 +676,6 @@ source:
   registry: r
 target:
   runtime: ecs
-  namespace: prod
 agent:
   image: x
   endpoints:
@@ -701,7 +697,6 @@ source:
   registry: r
 target:
   runtime: kubernetes
-  namespace: prod
 agent:
   image: x
   endpoints:

@@ -118,7 +118,7 @@ func TestSaveDeploymentFull_WithNormalizedSpec(t *testing.T) {
 		Source: spec.DeploymentSource{
 			Account: "test-acct", Name: "my-agent", Build: "build-1", Registry: "r.io",
 		},
-		Target: spec.DeploymentTarget{Runtime: "kubernetes", Namespace: "ns-test"},
+		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
 		Agent: spec.DeploymentAgent{
 			Image:    "r.io/my-agent:latest",
 			Replicas: 2,

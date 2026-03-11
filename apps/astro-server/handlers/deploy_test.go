@@ -100,10 +100,12 @@ func TestUndeploy_Success(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
 		}).AddRow(
 			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, "active", now, nil,
+			"My Agent", `{}`, nil, nil,
+			"active", now, nil,
 		))
 
 	// IsMember check (SELECT COUNT(*) FROM account_members)
@@ -150,7 +152,8 @@ func TestUndeploy_NotFound(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
 		}))
 
 	body := `{"deployment_id":"` + depID + `"}`
@@ -176,10 +179,12 @@ func TestUndeploy_InactiveDeployment(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
 		}).AddRow(
 			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, "undeployed", now, later,
+			"My Agent", `{}`, nil, nil,
+			"undeployed", now, later,
 		))
 
 	body := `{"deployment_id":"` + depID + `"}`
@@ -204,10 +209,12 @@ func TestUndeploy_Forbidden(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
 		}).AddRow(
 			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, "active", now, nil,
+			"My Agent", `{}`, nil, nil,
+			"active", now, nil,
 		))
 
 	// IsMember returns count=0 (user is not a member)

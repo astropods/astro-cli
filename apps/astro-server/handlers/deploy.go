@@ -76,6 +76,7 @@ type deployContext struct {
 	deploymentID  string
 	buildID       string
 	k8sNS         string
+	isUpdate      bool // true when deployment_id was provided (in-place update)
 	resolveResult *deployment.ResolveResult
 }
 
@@ -241,7 +242,27 @@ func prepareDeployment(
 
 	// Resolve namespace: reuse existing if this is a redeploy, otherwise generate new
 	var k8sNamespace, deploymentID string
-	if displayName != "" && deployStore != nil {
+	var isUpdate bool
+	if submittedSpec.Target.DeploymentID != "" && deployStore != nil {
+		// Explicit deployment_id: in-place update
+		existing, _ := deployStore.GetDeploymentByID(submittedSpec.Target.DeploymentID)
+		if existing == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found for given deployment_id"})
+			return nil, false
+		}
+		if existing.Status != "active" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active"})
+			return nil, false
+		}
+		if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
+			return nil, false
+		}
+		deploymentID = existing.ID
+		k8sNamespace = existing.Namespace
+		isUpdate = true
+	}
+	if k8sNamespace == "" && displayName != "" && deployStore != nil {
 		existing, _ := deployStore.GetActiveDeploymentByDisplayName(targetAcct.ID, displayName)
 		if existing != nil {
 			// Redeploy — reuse namespace
@@ -263,12 +284,11 @@ func prepareDeployment(
 		k8sNamespace = deploymentNamespace(deploymentID)
 	}
 
-	submittedSpec.Target.Namespace = k8sNamespace
-
 	// Rule 19: reject any change to server-owned fields
 	// Sync user-supplied target fields so EnforceEditable doesn't reject them
 	template.Target.Account = submittedSpec.Target.Account
 	template.Target.DisplayName = submittedSpec.Target.DisplayName
+	template.Target.DeploymentID = submittedSpec.Target.DeploymentID
 	if editErrs := spec.EnforceEditable(template, submittedSpec); len(editErrs) > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "server-owned fields were modified",
@@ -301,6 +321,7 @@ func prepareDeployment(
 		deploymentID:  deploymentID,
 		buildID:       buildID,
 		k8sNS:         k8sNamespace,
+		isUpdate:      isUpdate,
 		resolveResult: resolveResult,
 	}, true
 }
@@ -410,9 +431,15 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 					params.KMSKeyARN = enc.KMSKeyARN
 				}
 
-				_, storeErr := deployStore.SaveDeploymentFull(params, func(tx *sql.Tx, deploymentID string) error {
+				txFn := func(tx *sql.Tx, deploymentID string) error {
 					return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc)
-				})
+				}
+				var storeErr error
+				if dctx.isUpdate {
+					_, storeErr = deployStore.UpdateDeploymentFull(params, txFn)
+				} else {
+					_, storeErr = deployStore.SaveDeploymentFull(params, txFn)
+				}
 				if storeErr != nil {
 					log.Error("Failed to save deployment record", "error", storeErr)
 				}
@@ -1168,113 +1195,205 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 	}
 }
 
+// generateTemplate resolves an agent build and generates a deployment template.
+// Shared by GetDeploymentTemplate and GetPrefilledDeploymentTemplate.
+func generateTemplate(
+	c *gin.Context,
+	log *logger.Logger,
+	agentIndex *agentindex.Index,
+	accountStore *account.AccountStore,
+	cfg *config.Config,
+) (*spec.AstroDeploymentSpec, bool) {
+	accountName := c.Param("account")
+	name := c.Param("name")
+
+	user, exists := middleware.GetUser(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return nil, false
+	}
+
+	acct, err := accountStore.GetByName(accountName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return nil, false
+	}
+	accountID := acct.ID
+
+	agent, err := agentIndex.Get(accountID, name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return nil, false
+	}
+
+	if agent.Visibility == "private" {
+		if !isAccountMember(c, accountStore, accountID, user.ID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+			return nil, false
+		}
+	}
+
+	var agentVersion *agentindex.AgentVersion
+	if buildParam := c.Query("build"); buildParam != "" {
+		agentVersion, err = agentIndex.GetVersion(accountID, name, buildParam)
+	} else {
+		agentVersion, err = agentIndex.GetLatestVersion(accountID, name)
+	}
+	if err != nil {
+		log.Error("Failed to get agent build", "error", err)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "no builds found for agent",
+			"details": err.Error(),
+		})
+		return nil, false
+	}
+
+	specBytes, err := json.Marshal(agentVersion.Spec)
+	if err != nil {
+		log.Error("Failed to marshal stored spec", "error", err, "account", accountName, "agent", name)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec", "details": err.Error()})
+		return nil, false
+	}
+	var astroSpec spec.AstroSpec
+	if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
+		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", accountName, "agent", name, "raw", string(specBytes))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec", "details": err.Error()})
+		return nil, false
+	}
+
+	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
+		Spec:              &astroSpec,
+		Account:           accountName,
+		ECRNamespace:      agentVersion.ECRNamespace,
+		BuildID:           agentVersion.BuildID,
+		RegistryURL:       cfg.Deployment.RegistryURL,
+		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
+		Environment:       cfg.Deployment.Environment,
+	})
+	if err != nil {
+		log.Error("Failed to generate deployment template", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "failed to generate deployment template",
+			"details": err.Error(),
+		})
+		return nil, false
+	}
+
+	return template, true
+}
+
+// respondWithTemplate sends the template as JSON or YAML based on query param.
+func respondWithTemplate(c *gin.Context, template *spec.AstroDeploymentSpec) {
+	if c.Query("format") == "json" {
+		c.JSON(http.StatusOK, template)
+		return
+	}
+	yamlBytes, err := spec.SerializeDeploymentSpec(template)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize template"})
+		return
+	}
+	c.Data(http.StatusOK, "application/yaml", yamlBytes)
+}
+
 // GetDeploymentTemplate returns a handler for generating deployment spec templates.
 // GET /api/v1/agents/:account/:name/deployment-template
 // Optional query: ?build=<build_id>
 func GetDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		accountName := c.Param("account")
-		name := c.Param("name")
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg)
+		if !ok {
+			return
+		}
+		respondWithTemplate(c, template)
+	}
+}
 
-		log.Info("Generating deployment template",
-			"account", accountName,
-			"name", name,
-		)
+// GetPrefilledDeploymentTemplate returns a handler for generating a deployment template
+// pre-filled with values from an existing deployment.
+// GET /api/v1/agents/:account/:name/deployment-template/:deploymentID
+func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		deploymentID := c.Param("deploymentID")
 
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		template, ok := generateTemplate(c, log, agentIndex, accountStore, cfg)
+		if !ok {
 			return
 		}
 
-		acct, err := accountStore.GetByName(accountName)
+		// Look up existing deployment
+		existing, err := deployStore.GetDeploymentByID(deploymentID)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			log.Error("Failed to get deployment", "error", err, "deployment_id", deploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
 			return
 		}
-		accountID := acct.ID
+		if existing == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
 
-		// Check visibility: public agents are accessible to any authenticated user,
-		// private agents require account membership.
-		agent, err := agentIndex.Get(accountID, name)
+		// Verify requesting user is a member of deployment's account
+		user, _ := middleware.GetUser(c)
+		if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for deployment's account"})
+			return
+		}
+
+		// Get stored variables
+		storedVars, err := deployStore.GetDeploymentVariables(deploymentID)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+			log.Error("Failed to get deployment variables", "error", err, "deployment_id", deploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
 			return
 		}
 
-		if agent.Visibility == "private" {
-			if !isAccountMember(c, accountStore, accountID, user.ID) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
-				return
+		// Decrypt secrets if KMS is configured and deployment has an encrypted data key
+		var dec *envelope.Decryptor
+		if len(existing.EncryptedDataKey) > 0 && cfg.Deployment.KMSKeyARN != "" {
+			awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
+			if awsErr == nil {
+				kmsClient := kms.NewFromConfig(awsCfg)
+				dec, _ = envelope.NewDecryptor(c.Request.Context(), kmsClient, existing.EncryptedDataKey)
 			}
 		}
 
-		// Resolve build — specific build_id or latest
-		var agentVersion *agentindex.AgentVersion
-		if buildParam := c.Query("build"); buildParam != "" {
-			agentVersion, err = agentIndex.GetVersion(accountID, name, buildParam)
-		} else {
-			agentVersion, err = agentIndex.GetLatestVersion(accountID, name)
-		}
-		if err != nil {
-			log.Error("Failed to get agent build", "error", err)
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "no builds found for agent",
-				"details": err.Error(),
-			})
-			return
+		// Merge stored values into template
+		template.Target.DeploymentID = deploymentID
+		template.Target.DisplayName = existing.DisplayName
+
+		// Resolve account name for target.account
+		acct, err := accountStore.GetByID(existing.AccountID)
+		if err == nil && acct != nil {
+			template.Target.Account = acct.Name
 		}
 
-		// Parse spec from stored map
-		specBytes, err := json.Marshal(agentVersion.Spec)
-		if err != nil {
-			log.Error("Failed to marshal stored spec", "error", err, "account", accountName, "agent", name)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec", "details": err.Error()})
-			return
-		}
-		var astroSpec spec.AstroSpec
-		if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-			log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", accountName, "agent", name, "raw", string(specBytes))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec", "details": err.Error()})
-			return
-		}
-
-		// Generate deployment template
-		template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
-			Spec:              &astroSpec,
-			Account:           accountName,
-			ECRNamespace:      agentVersion.ECRNamespace,
-			BuildID:           agentVersion.BuildID,
-			RegistryURL:       cfg.Deployment.RegistryURL,
-			ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
-			Environment:       cfg.Deployment.Environment,
-		})
-		if err != nil {
-			log.Error("Failed to generate deployment template", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to generate deployment template",
-				"details": err.Error(),
-			})
-			return
+		// Merge variable values
+		for _, sv := range storedVars {
+			if tv, ok := template.Variables[sv.Name]; ok {
+				val := sv.Value
+				if sv.Secret && dec != nil && len(sv.Nonce) > 0 {
+					plaintext, decErr := dec.Decrypt([]byte(val), sv.Nonce)
+					if decErr == nil {
+						val = string(plaintext)
+					}
+				}
+				tv.Value = val
+				template.Variables[sv.Name] = tv
+			}
 		}
 
-		// Namespace is generated at deploy time from the deployment UUID
-		template.Target.Namespace = "<generated-on-deploy>"
-
-		// Return JSON or YAML based on format query param
-		if c.Query("format") == "json" {
-			c.JSON(http.StatusOK, template)
-			return
+		// Merge adapters from stored spec
+		if existing.DeploymentSpecJSON != "" && template.Interfaces != nil {
+			var storedSpec spec.AstroDeploymentSpec
+			if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
+				if storedSpec.Interfaces != nil {
+					template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
+				}
+			}
 		}
 
-		// Default: serialize to YAML
-		yamlBytes, err := spec.SerializeDeploymentSpec(template)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize template"})
-			return
-		}
-
-		c.Data(http.StatusOK, "application/yaml", yamlBytes)
+		respondWithTemplate(c, template)
 	}
 }
 

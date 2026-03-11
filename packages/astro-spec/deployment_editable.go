@@ -25,7 +25,7 @@ func CloneDeploymentSpec(ds *AstroDeploymentSpec) *AstroDeploymentSpec {
 // parsing the path strings generically, this function encodes the invariants directly
 // from the canonical editable set produced by defaultEditableFields:
 //
-//	Editable:   target.namespace, agent.replicas, agent.resources, agent.environment,
+//	Editable:   agent.replicas, agent.resources, agent.environment,
 //	            agent.healthcheck, agent.update, agent.endpoints.*.expose,
 //	            models/knowledge/tools.*.replicas/resources/gpu/environment/healthcheck/update,
 //	            knowledge.*.storage, ingestion.*.resources/trigger.schedule/environment,

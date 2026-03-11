@@ -33,6 +33,7 @@ type e2eResult struct {
 	ApplyResult    *ApplyResult
 	DeploymentSpec *spec.AstroDeploymentSpec
 	Clientset      kubernetes.Interface
+	Namespace      string
 }
 
 // runE2E executes the full pipeline: parse YAML → generate template → fill values → resolve env → apply to fake k8s.
@@ -71,7 +72,6 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 	}
 
 	// Step 3: Fill user-provided values
-	ds.Target.Namespace = opts.Namespace
 
 	// Fill credential/variable values
 	for key, val := range opts.Credentials {
@@ -112,7 +112,7 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 	fakeClient := fake.NewClientset()
 	applier := &Applier{
 		clientset:       fakeClient,
-		namespace:       "default",
+		namespace:       opts.Namespace,
 		registryURL:     opts.RegistryURL,
 		imageResolver:   NewImageResolver("", opts.RegistryURL, "test"),
 		imagePullPolicy: corev1.PullNever,
@@ -129,6 +129,7 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 		ApplyResult:    result,
 		DeploymentSpec: ds,
 		Clientset:      fakeClient,
+		Namespace:      opts.Namespace,
 	}
 }
 
@@ -249,7 +250,7 @@ models:
 	}
 
 	// ConfigMap should have resolved OLLAMA_HOST to a service DNS
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	cmName := deployment.GenerateConfigMapName("my-agent", "build-001")
 	cm := r.getConfigMap(t, ns, cmName)
 	ollamaHost := cm.Data["OLLAMA_HOST"]
@@ -284,7 +285,7 @@ models:
 	}
 
 	// Secret should contain the credential
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["ANTHROPIC_API_KEY"]) != "sk-ant-test-key" {
@@ -390,7 +391,7 @@ integrations:
 	}
 
 	// Secret should have GITHUB_TOKEN
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["GITHUB_TOKEN"]) != "ghp_test123" {
@@ -435,7 +436,7 @@ integrations:
 	requireNoErrors(t, r)
 
 	// Secret should have both integration credentials (keys are {UPPER(provider)}_{varName})
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["JIRA_API_TOKEN"]) != "token-abc" {
@@ -626,7 +627,7 @@ ingestion:
 	}
 
 	// Verify env wiring in ConfigMap
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	cmName := deployment.GenerateConfigMapName("my-agent", "build-001")
 	cm := r.getConfigMap(t, ns, cmName)
 
@@ -671,7 +672,7 @@ ingestion:
 // assertConfigMapValues checks that every key in want exists in the ConfigMap with the expected value.
 func assertConfigMapValues(t *testing.T, r *e2eResult, want map[string]string) {
 	t.Helper()
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	cmName := deployment.GenerateConfigMapName(r.DeploymentSpec.Source.Name, r.DeploymentSpec.Source.Build)
 	cm := r.getConfigMap(t, ns, cmName)
 	for key, expected := range want {
@@ -689,7 +690,7 @@ func assertConfigMapValues(t *testing.T, r *e2eResult, want map[string]string) {
 // assertConfigMapAbsent checks that none of the given keys exist in the ConfigMap.
 func assertConfigMapAbsent(t *testing.T, r *e2eResult, keys []string) {
 	t.Helper()
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	cmName := deployment.GenerateConfigMapName(r.DeploymentSpec.Source.Name, r.DeploymentSpec.Source.Build)
 	cm := r.getConfigMap(t, ns, cmName)
 	for _, key := range keys {
@@ -807,7 +808,7 @@ models:
 	requireNoErrors(t, r)
 
 	// Cloud provider → credential in Secret, reference resolved in ConfigMap
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["OPENAI_API_KEY"]) != "sk-openai-test" {
@@ -846,7 +847,7 @@ models:
 
 	requireNoErrors(t, r)
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1002,7 +1003,7 @@ knowledge:
 	}
 
 	// Credential in Secret
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["PINECONE_API_KEY"]) != "pc-test-key" {
@@ -1059,7 +1060,7 @@ integrations:
 		t.Error("did not expect Deployment for cloud tool provider")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 	if string(secret.Data["GITLAB_TOKEN"]) != "glpat-test" {
@@ -1168,7 +1169,7 @@ providers:
 
 	requireNoErrors(t, r)
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 
 	// All credential values should be in the Secret
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
@@ -1228,7 +1229,7 @@ knowledge:
 		t.Error("expected Service for secondary qdrant")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	primaryDNS := serviceDNS("my-agent-knowledge-primary", ns)
 	secondaryDNS := serviceDNS("my-agent-knowledge-secondary", ns)
 
@@ -1280,7 +1281,7 @@ models:
 		t.Error("expected Service for big model")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	bigDNS := serviceDNS("my-agent-model-big", ns)
 	fastDNS := serviceDNS("my-agent-model-fast", ns)
 
@@ -1334,7 +1335,7 @@ models:
 	}
 
 	// Provider-prefixed keys in the Secret
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1384,7 +1385,7 @@ integrations:
 		t.Error("did not expect Deployments for cloud tools")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1426,7 +1427,7 @@ models:
 		t.Error("did not expect Deployments for cloud providers")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1474,7 +1475,7 @@ models:
 		t.Error("did not expect Deployments for cloud providers")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1522,7 +1523,7 @@ models:
 		t.Error("did not expect Deployments for cloud providers")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1570,7 +1571,7 @@ models:
 		t.Error("did not expect Deployments for cloud providers")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1622,7 +1623,7 @@ knowledge:
 		t.Error("did not expect container resources for cloud knowledge")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1674,7 +1675,7 @@ integrations:
 		t.Error("did not expect Deployments for cloud tools")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	secretName := deployment.GenerateSecretName("my-agent", "build-001")
 	secret := r.getSecret(t, ns, secretName)
 
@@ -1735,7 +1736,7 @@ knowledge:
 		t.Error("expected Service for durable redis")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	durableDNS := serviceDNS("my-agent-knowledge-durable", ns)
 	sessionsDNS := serviceDNS("my-agent-knowledge-sessions", ns)
 
@@ -1787,7 +1788,7 @@ knowledge:
 		t.Error("expected Service for users postgres")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	analyticsDNS := serviceDNS("my-agent-knowledge-analytics", ns)
 	usersDNS := serviceDNS("my-agent-knowledge-users", ns)
 
@@ -1841,7 +1842,7 @@ knowledge:
 		t.Error("expected Service for products neo4j")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	friendsDNS := serviceDNS("my-agent-knowledge-friends", ns)
 	productsDNS := serviceDNS("my-agent-knowledge-products", ns)
 
@@ -1889,7 +1890,7 @@ knowledge:
 		t.Error("expected Deployment for container knowledge")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	qdrantDNS := serviceDNS("my-agent-knowledge-vectors", ns)
 	embeddingsDNS := serviceDNS("my-agent-knowledge-embeddings", ns)
 
@@ -1937,7 +1938,7 @@ integrations:
 		t.Error("expected Deployment for rerank tool")
 	}
 
-	ns := r.DeploymentSpec.Target.Namespace
+	ns := r.Namespace
 	searchDNS := serviceDNS("my-agent-tool-search", ns)
 	rerankDNS := serviceDNS("my-agent-tool-rerank", ns)
 

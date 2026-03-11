@@ -122,15 +122,12 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 		}
 	}
 
-	// 7. Validate target namespace
-	if submitted.Target.Namespace == "" {
-		errs = append(errs, "target.namespace: namespace is required")
-	}
-
-	// 8. Validate agent.distributed / replicas rule
+	// 7. Validate agent.distributed / replicas rule
 	if !submitted.Agent.Distributed && submitted.Agent.Replicas > 1 {
 		errs = append(errs, "agent.replicas must be 1 when agent.distributed is false")
 	}
+
+	// 8. (reserved)
 
 	if len(errs) > 0 {
 		result.Errors = errs

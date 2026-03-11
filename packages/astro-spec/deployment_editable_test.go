@@ -19,8 +19,6 @@ func baseTemplate() *AstroDeploymentSpec {
 func TestEnforceEditable_NoChanges(t *testing.T) {
 	tmpl := baseTemplate()
 	subm := CloneDeploymentSpec(tmpl)
-	// Only set editable field
-	subm.Target.Namespace = "prod"
 	errs := EnforceEditable(tmpl, subm)
 	if len(errs) > 0 {
 		t.Errorf("expected no errors, got: %v", errs)

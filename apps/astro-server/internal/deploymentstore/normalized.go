@@ -565,6 +565,30 @@ func SaveNormalizedSpec(
 	return nil
 }
 
+// GetDeploymentVariables returns all variables for a deployment.
+func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) {
+	rows, err := s.db.Query(`
+		SELECT deployment_id, name, value, secret, optional, targets, nonce
+		FROM deployment_variables
+		WHERE deployment_id = $1
+		ORDER BY name
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query deployment variables: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []Variable
+	for rows.Next() {
+		var v Variable
+		if err := rows.Scan(&v.DeploymentID, &v.Name, &v.Value, &v.Secret, &v.Optional, pq.Array(&v.Targets), &v.Nonce); err != nil {
+			return nil, fmt.Errorf("scan variable: %w", err)
+		}
+		result = append(result, v)
+	}
+	return result, rows.Err()
+}
+
 // GetWorkloads returns all workloads for a deployment.
 func (s *Store) GetWorkloads(deploymentID string) ([]*Workload, error) {
 	rows, err := s.db.Query(`

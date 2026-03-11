@@ -85,9 +85,6 @@ func TestTemplate_TargetDefaults(t *testing.T) {
 	if ds.Target.Runtime != "kubernetes" {
 		t.Errorf("target.runtime: expected kubernetes, got %s", ds.Target.Runtime)
 	}
-	if ds.Target.Namespace != "" {
-		t.Errorf("target.namespace: expected empty placeholder, got %s", ds.Target.Namespace)
-	}
 }
 
 func TestTemplate_ObservabilityDefaults(t *testing.T) {
@@ -110,7 +107,6 @@ func TestTemplate_EditableFieldsPresent(t *testing.T) {
 
 	// Spot-check critical editable paths
 	expected := []string{
-		"target.namespace",
 		"agent.replicas",
 		"agent.environment",
 		"variables.*.value",

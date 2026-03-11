@@ -14,7 +14,7 @@ func baseDeploymentSpec() *spec.AstroDeploymentSpec {
 	return &spec.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1", Account: "acme"},
-		Target: spec.DeploymentTarget{Namespace: "prod", Runtime: "kubernetes"},
+		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
 		Agent:  spec.DeploymentAgent{Image: "agent:latest", Endpoints: agentEndpoints()},
 	}
 }
@@ -30,27 +30,6 @@ func TestValidateAndResolve_Valid(t *testing.T) {
 	}
 	if result.Spec == nil {
 		t.Fatal("expected resolved spec")
-	}
-}
-
-func TestValidateAndResolve_MissingNamespace(t *testing.T) {
-	ds := baseDeploymentSpec()
-	ds.Target.Namespace = ""
-	result, err := ValidateAndResolve(ds)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Errors) == 0 {
-		t.Fatal("expected validation errors for missing namespace")
-	}
-	found := false
-	for _, e := range result.Errors {
-		if e == "target.namespace: namespace is required" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected namespace error, got %v", result.Errors)
 	}
 }
 

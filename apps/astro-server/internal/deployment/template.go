@@ -52,8 +52,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			Registry: input.RegistryURL,
 		},
 		Target: spec.DeploymentTarget{
-			Runtime:   "kubernetes",
-			Namespace: "",
+			Runtime: "kubernetes",
 		},
 		Observability: spec.DeploymentObservability{
 			Enabled:   true,
@@ -633,7 +632,6 @@ func stripScheme(url string) string {
 
 func defaultEditableFields() []string {
 	return []string{
-		"target.namespace",
 		"agent.replicas",
 		"agent.resources",
 		"agent.environment",

@@ -30,7 +30,7 @@ func minimalDeploymentSpec() *spec.AstroDeploymentSpec {
 	return &spec.AstroDeploymentSpec{
 		Spec:   "deployment/v1",
 		Source: spec.DeploymentSource{Name: "my-agent", Build: "build-123", Account: "acme"},
-		Target: spec.DeploymentTarget{Namespace: "test-ns", Runtime: "kubernetes"},
+		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
 		Agent: spec.DeploymentAgent{
 			Image:     "test-registry.example.com/my-agent:latest",
 			Endpoints: httpEp(8080),
@@ -74,10 +74,6 @@ func TestApplyDeploymentSpec_MinimalAgent(t *testing.T) {
 		t.Error("expected agent-http service endpoint")
 	}
 
-	// Verify namespace was set
-	if a.namespace != "test-ns" {
-		t.Errorf("expected namespace to be test-ns, got %s", a.namespace)
-	}
 }
 
 func TestApplyDeploymentSpec_WithModel(t *testing.T) {
@@ -487,42 +483,6 @@ func TestApplyDeploymentSpec_WithIngestionWebhook(t *testing.T) {
 	}
 }
 
-func TestApplyDeploymentSpec_NamespaceFallback(t *testing.T) {
-	a := newTestApplier()
-	a.namespace = "fallback-ns"
-	ds := minimalDeploymentSpec()
-	ds.Target.Namespace = "" // empty should fall back
-
-	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Errors) > 0 {
-		t.Errorf("expected no errors, got %v", result.Errors)
-	}
-
-	// Should have used fallback namespace
-	if a.namespace != "fallback-ns" {
-		t.Errorf("expected namespace fallback-ns, got %s", a.namespace)
-	}
-}
-
-func TestApplyDeploymentSpec_NamespaceOverride(t *testing.T) {
-	a := newTestApplier()
-	a.namespace = "old-ns"
-	ds := minimalDeploymentSpec()
-	ds.Target.Namespace = "new-ns"
-
-	_, err := a.ApplyDeploymentSpec(context.Background(), ds)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if a.namespace != "new-ns" {
-		t.Errorf("expected namespace new-ns, got %s", a.namespace)
-	}
-}
-
 func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	a := newTestApplier()
 	a.galileoAPIKey = "gal-key"
@@ -616,8 +576,8 @@ func TestApplyDeploymentSpec_ResourceStatusNames(t *testing.T) {
 		if r.Status != "created" {
 			t.Errorf("resource %s/%s: expected status 'created', got %s", r.Kind, r.Name, r.Status)
 		}
-		if r.Namespace != "test-ns" {
-			t.Errorf("resource %s/%s: expected namespace test-ns, got %s", r.Kind, r.Name, r.Namespace)
+		if r.Namespace != "default" {
+			t.Errorf("resource %s/%s: expected namespace default, got %s", r.Kind, r.Name, r.Namespace)
 		}
 	}
 }

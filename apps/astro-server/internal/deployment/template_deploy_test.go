@@ -56,7 +56,6 @@ func setVarValue(ds *spec.AstroDeploymentSpec, key, value string) {
 
 func TestTemplateDeploy_MinimalSpec(t *testing.T) {
 	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 	})
 	if len(editErrs) > 0 {
 		t.Fatalf("EnforceEditable errors: %v", editErrs)
@@ -73,7 +72,6 @@ func TestTemplateDeploy_MinimalSpec(t *testing.T) {
 
 func TestTemplateDeploy_SlackAdapter_WithTokens(t *testing.T) {
 	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Update only the value — preserve optional/secret/targets from the template
 		setVarValue(ds, "SLACK_BOT_TOKEN", "xoxb-test-token")
@@ -89,7 +87,6 @@ func TestTemplateDeploy_SlackAdapter_WithTokens(t *testing.T) {
 
 func TestTemplateDeploy_SlackAdapter_MissingBotToken(t *testing.T) {
 	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Only fill app token, leave bot token empty
 		setVarValue(ds, "SLACK_APP_TOKEN", "xapp-test-token")
@@ -113,7 +110,6 @@ func TestTemplateDeploy_SlackAdapter_MissingBotToken(t *testing.T) {
 
 func TestTemplateDeploy_SlackAdapter_MissingAppToken(t *testing.T) {
 	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Only fill bot token, leave app token empty
 		setVarValue(ds, "SLACK_BOT_TOKEN", "xoxb-test-token")
@@ -137,7 +133,6 @@ func TestTemplateDeploy_SlackAdapter_MissingAppToken(t *testing.T) {
 
 func TestTemplateDeploy_SlackAdapter_MissingBothTokens(t *testing.T) {
 	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Interfaces.Adapters = []string{"slack"}
 		// Variables are in the template but left empty — user forgot to fill them in
 	})
@@ -153,7 +148,6 @@ func TestTemplateDeploy_SlackAdapter_MissingBothTokens(t *testing.T) {
 
 func TestTemplateDeploy_WebAdapter(t *testing.T) {
 	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Interfaces.Adapters = []string{"web"}
 	})
 	if len(editErrs) > 0 {
@@ -173,7 +167,6 @@ func TestTemplateDeploy_AnthropicModel_WithCredential(t *testing.T) {
 	}
 
 	result, editErrs := fillAndDeploy(t, input, func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		setVarValue(ds, "ANTHROPIC_API_KEY", "sk-ant-test")
 	})
 	if len(editErrs) > 0 {
@@ -191,7 +184,6 @@ func TestTemplateDeploy_AnthropicModel_MissingCredential(t *testing.T) {
 	}
 
 	result, editErrs := fillAndDeploy(t, input, func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		// ANTHROPIC_API_KEY left empty — user forgot to fill it in
 	})
 	if len(editErrs) > 0 {
@@ -211,7 +203,6 @@ func TestTemplateDeploy_SlackAndAnthropicModel(t *testing.T) {
 	}
 
 	result, editErrs := fillAndDeploy(t, input, func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Interfaces.Adapters = []string{"slack"}
 		setVarValue(ds, "ANTHROPIC_API_KEY", "sk-ant-test")
 		setVarValue(ds, "SLACK_BOT_TOKEN", "xoxb-test-token")
@@ -229,22 +220,9 @@ func TestTemplateDeploy_SlackAndAnthropicModel(t *testing.T) {
 
 func TestTemplateDeploy_EnforceEditable_RejectsImageChange(t *testing.T) {
 	_, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "prod"
 		ds.Agent.Image = "attacker/evil:latest" // not user-editable
 	})
 	if len(editErrs) == 0 {
 		t.Fatal("expected EnforceEditable to reject agent image change")
-	}
-}
-
-func TestTemplateDeploy_EnforceEditable_AllowsNamespaceChange(t *testing.T) {
-	result, editErrs := fillAndDeploy(t, baseInput(), func(ds *spec.AstroDeploymentSpec) {
-		ds.Target.Namespace = "my-namespace"
-	})
-	if len(editErrs) > 0 {
-		t.Fatalf("EnforceEditable should allow namespace change, got errors: %v", editErrs)
-	}
-	if len(result.Errors) > 0 {
-		t.Fatalf("unexpected validation errors: %v", result.Errors)
 	}
 }

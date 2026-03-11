@@ -29,10 +29,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	agentName := ds.Source.Name
 	buildID := ds.Source.Build
 
-	// Use the deployment spec's target namespace, falling back to the applier default
-	if ds.Target.Namespace != "" {
-		a.namespace = ds.Target.Namespace
-	}
+	// Namespace always comes from ApplierConfig (server-owned)
 
 	// Resolve all ${} references and build ConfigMap/Secret data
 	rctx := deployment.ResolveContext{
