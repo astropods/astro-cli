@@ -773,6 +773,114 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 	}
 }
 
+func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	indexDB, indexMock, _ := sqlmock.New()
+	accountDB, accountMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	index := agentindex.NewIndexWithDB(indexDB)
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{
+		Deployment: config.DeploymentConfig{
+			RegistryURL: "docker.io/library",
+		},
+	}
+
+	depID := "dep-123"
+	acctID := "acct-1"
+	now := time.Now()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/agents/:account/:name/deployment-template/:deploymentID",
+		GetPrefilledDeploymentTemplate(log, index, accountStore, cfg, deployStore))
+
+	// generateTemplate expectations with ?build=build-2
+	expectAccountLookup(accountMock)
+	// agentIndex.Get (visibility check) — returns build-1 as latest but we request build-2
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "registry.io", "public", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "[]", now, now))
+	// agentIndex.GetVersion for the specific build-2
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-2").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-2", "myorg", `{"name":"my-agent"}`, "", "[]", now, now))
+
+	// GetDeploymentByID (old deployment was build-1)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}).AddRow(
+			depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{}`, nil, nil,
+			"active", now, nil,
+		))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT COUNT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetDeploymentVariables
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"deployment_id", "name", "value", "secret", "optional", "targets", "nonce",
+		}))
+
+	// GetByID for account name resolution
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow(acctID, "myorg", "organization", nil, nil, now, now))
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/agents/myorg/my-agent/deployment-template/"+depID+"?build=build-2&format=json", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	// Template should use the new build
+	source, ok := resp["source"].(map[string]any)
+	if !ok {
+		t.Fatal("expected source to be an object")
+	}
+	if source["build"] != "build-2" {
+		t.Errorf("expected source.build='build-2', got %v", source["build"])
+	}
+
+	// But should still carry over the deployment_id and display_name from the old deployment
+	target := resp["target"].(map[string]any)
+	if target["deployment_id"] != depID {
+		t.Errorf("expected deployment_id=%q, got %v", depID, target["deployment_id"])
+	}
+	if target["display_name"] != "My Deploy" {
+		t.Errorf("expected display_name='My Deploy', got %v", target["display_name"])
+	}
+}
+
 // --- Deploy endpoint: deployment_id handling tests ---
 
 // setupDeployRouter creates a gin engine wired with DeployAgent and ValidateDeployment.
