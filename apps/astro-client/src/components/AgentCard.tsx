@@ -9,6 +9,7 @@ export interface AgentCardProps {
   name: string;
   description: string;
   visibility?: string;
+  compact?: boolean;
 }
 
 export function AgentCard({
@@ -17,13 +18,14 @@ export function AgentCard({
   name,
   description,
   visibility,
+  compact = false,
 }: AgentCardProps) {
   return (
     <Link
       to={`/${slug}`}
       className="group flex flex-col overflow-hidden rounded-md border border-stone-400 bg-stone-50 transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
     >
-      <div className="flex flex-1 items-start gap-3 p-4 pb-3">
+      <div className={`flex flex-1 items-start gap-3 p-4 ${compact ? "pb-4" : "pb-3"}`}>
         <AgentIdentity
           account={account}
           name={name}
@@ -37,9 +39,11 @@ export function AgentCard({
               <PrivacyBadge onClick={(e) => e.preventDefault()} />
             )}
           </h3>
-          <p className="line-clamp-3 text-body-sm text-muted-foreground">
-            {description}
-          </p>
+          {!compact && (
+            <p className="line-clamp-3 text-body-sm text-muted-foreground">
+              {description}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">

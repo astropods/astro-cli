@@ -3,9 +3,8 @@ import type { ReactNode } from "react";
 import { ShieldCheck, FileText } from "lucide-react";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
-import { RecommendedAgents } from "@/components/RecommendedAgents";
-import type { RecommendedAgent } from "@/components/RecommendedAgents";
-import { AgentDetailHeader } from "./AgentDetailHeader";
+import { InlineBadge } from "@/components/InlineBadge";
+import { AgentIdentity } from "@/components/AgentIdentity";
 
 export interface AgentDetailContentProps {
   account: string;
@@ -14,7 +13,7 @@ export interface AgentDetailContentProps {
   summary?: string;
   categories: string[];
   readme?: string;
-  recommendedAgents: RecommendedAgent[];
+  safetyPermissions: string[];
   mobileSidebar?: ReactNode;
 }
 
@@ -25,10 +24,10 @@ export function AgentDetailContent({
   summary,
   categories,
   readme,
-  recommendedAgents,
+  safetyPermissions,
   mobileSidebar,
 }: AgentDetailContentProps) {
-  const resumeContent = (() => {
+  const readmeContent = (() => {
     if (!readme) return readme;
 
     const lines = readme.split("\n");
@@ -39,6 +38,7 @@ export function AgentDetailContent({
       }
     }
 
+    // TODO: Remove this heuristic once API returns resume-only markdown content.
     // Keep content unchanged unless we can safely remove one intro section.
     if (headingIndices.length < 2) return readme;
 
@@ -52,7 +52,7 @@ export function AgentDetailContent({
 
   useEffect(() => {
     const el = resumeScrollRef.current;
-    if (!el || !resumeContent) return;
+    if (!el || !readmeContent) return;
 
     const updateResumeHint = () => {
       const canScroll = el.scrollHeight - el.clientHeight > 4;
@@ -75,7 +75,7 @@ export function AgentDetailContent({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", updateResumeHint);
     };
-  }, [resumeContent]);
+  }, [readmeContent]);
 
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
@@ -119,21 +119,21 @@ export function AgentDetailContent({
       )}
 
       {/* README */}
-      {resumeContent && (
+      {readmeContent && (
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
-              Resume
+              ReadMe
             </span>
           </div>
           <div className="relative">
             <div ref={resumeScrollRef} className="max-h-[640px] overflow-y-auto px-6 py-5">
               <StyledMarkdown className="prose-headings:font-mono prose-p:font-mono prose-li:font-mono prose-a:font-mono prose-strong:font-mono prose-th:font-mono prose-td:font-mono [&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
-                {resumeContent}
+                {readmeContent}
               </StyledMarkdown>
               {safetyPermissions.length > 0 && (
-                <section className="mt-6 border-t border-border-strong pt-5">
+                <section className="mt-6 border-t border-border-strong pt-5 font-mono">
                   <h2 className="mb-3 text-[15px] font-bold text-foreground">
                     Safety & Permissions
                   </h2>
@@ -159,8 +159,6 @@ export function AgentDetailContent({
           </div>
         </section>
       )}
-
-      <RecommendedAgents agents={recommendedAgents} />
     </div>
   );
 }

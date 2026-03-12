@@ -18,6 +18,7 @@ import {
   getAgentAuthors,
   getAgentCapabilities,
 } from "@/lib/agent-utils";
+import { recommendedAgentsPreview } from "@/lib/recommended-agents-preview";
 import type { AccountPublic } from "@/lib/api";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -178,6 +179,8 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         description: getAgentDescription(a),
       }));
   })();
+  const recommendedAgentsForDisplay =
+    recommendedAgents.length > 0 ? recommendedAgents : recommendedAgentsPreview;
 
   if (isLoading) {
     return <AgentDetailSkeleton />;
@@ -230,14 +233,14 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           summary={description}
           categories={getAgentCategories(agent)}
           readme={readme}
-          recommendedAgents={recommendedAgents}
+          safetyPermissions={safetyPermissions}
           mobileSidebar={
             <SidebarCard
               agent={agent}
               description={description}
               integrations={integrations}
-              capabilities={capabilities}
-              authors={authors}
+              permissions={safetyPermissions}
+              recommendedAgents={recommendedAgentsForDisplay}
               initialAccountData={loaderData?.accountData ?? undefined}
             />
           }
@@ -247,8 +250,8 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           agent={agent}
           description={description}
           integrations={integrations}
-          capabilities={capabilities}
-          authors={authors}
+          permissions={safetyPermissions}
+          recommendedAgents={recommendedAgentsForDisplay}
           initialAccountData={loaderData?.accountData ?? undefined}
         />
       </div>

@@ -6,6 +6,7 @@ import { PermissionsPreview } from "./PermissionsPreview";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarStats } from "./SidebarStats";
 import { SidebarSection } from "./SidebarSection";
+import { AgentCard, type AgentCardProps } from "@/components/AgentCard";
 import { formatDate } from "@/lib/utils";
 import { useAccount } from "@/api/queries";
 import type { Agent, AccountPublic, AgentCardAuthor, ResolvedIntegration } from "@/lib/api";
@@ -19,6 +20,7 @@ export interface SidebarCardProps {
   installs?: number;
   teammateInstallCount?: number;
   teammateInitials?: string[];
+  recommendedAgents?: AgentCardProps[];
   initialAccountData?: AccountPublic;
 }
 
@@ -30,6 +32,7 @@ export function SidebarCard({
   installs,
   teammateInstallCount,
   teammateInitials,
+  recommendedAgents = [],
   initialAccountData,
 }: SidebarCardProps) {
   const latestVersion = agent.versions[0];
@@ -56,7 +59,7 @@ export function SidebarCard({
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
-        <Button asChild size="default" className="h-11 w-full gap-2 rounded-md px-4 font-mono text-[14px] font-semibold text-stone-100">
+        <Button asChild size="default" className="h-11 w-full">
           <Link to={`/deploy/${agent.account}/${agent.name}`}>
             Hire this agent
             <ArrowRight className="h-4 w-4" />
@@ -103,11 +106,25 @@ export function SidebarCard({
               <RequiredAppsList integrations={integrations} title="Connected apps" />
             )}
             {integrations.length > 0 && permissions.length > 0 && (
-              <div className="h-px bg-border-strong/90" />
+              <div className="-mx-4 h-px bg-border" />
             )}
             {permissions.length > 0 && (
               <PermissionsPreview permissions={permissions} title="Permissions" />
             )}
+          </div>
+        </SidebarSection>
+      )}
+
+      {recommendedAgents.length > 0 && (
+        <SidebarSection title="Often used together">
+          <div className="space-y-2.5">
+            {recommendedAgents.map((recommendedAgent) => (
+              <AgentCard
+                key={recommendedAgent.slug}
+                {...recommendedAgent}
+                compact
+              />
+            ))}
           </div>
         </SidebarSection>
       )}

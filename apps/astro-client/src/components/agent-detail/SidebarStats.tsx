@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Star } from "lucide-react";
 import { SidebarSection } from "./SidebarSection";
 
@@ -19,42 +20,60 @@ export function SidebarStats({
 }: SidebarStatsProps) {
   if (rating == null && installs == null && !version && !updatedAt) return null;
 
+  const rows: Array<{
+    label: string;
+    value: ReactNode;
+  }> = [];
+
+  if (rating != null) {
+    rows.push({
+      label: "Rating",
+      value: (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          <Star className="h-3 w-3 fill-current text-yellow-500" />
+          {rating.toFixed(1)}
+        </span>
+      ),
+    });
+  }
+
+  if (installs != null) {
+    rows.push({
+      label: "Installs",
+      value: new Intl.NumberFormat("en-US").format(installs),
+    });
+  }
+
+  if (version) {
+    rows.push({
+      label: "Version",
+      value: isSemver ? `v${version}` : version,
+    });
+  }
+
+  if (updatedAt) {
+    rows.push({
+      label: "Last updated",
+      value: updatedAt,
+    });
+  }
+
   return (
     <SidebarSection title="Details" bodyClassName="px-0 py-0">
       <dl>
-        {rating != null && (
-          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3.5 last:border-b-0">
-            <dt className="text-[13px] text-muted-foreground">Rating</dt>
-            <dd className="inline-flex items-center gap-1 text-[14px] font-semibold text-foreground font-mono">
-              <Star className="h-3 w-3 fill-current text-yellow-500" />
-              {rating.toFixed(1)}
-            </dd>
+        {rows.map((row, index) => (
+          <div key={row.label}>
+            <div className="py-2">
+              <div className="flex items-center justify-between gap-6">
+                <dt className="text-[13px] text-muted-foreground">{row.label}</dt>
+                <dd className="text-right font-mono text-mono-sm font-medium text-foreground">
+                  {row.value}
+                </dd>
+              </div>
+            </div>
+            {index < rows.length - 1 && <div className="-mx-4 h-px bg-border" />}
           </div>
-        )}
-        {installs != null && (
-          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3.5 last:border-b-0">
-            <dt className="text-[13px] text-muted-foreground">Installs</dt>
-            <dd className="text-[14px] font-semibold text-foreground font-mono">
-              {new Intl.NumberFormat("en-US").format(installs)}
-            </dd>
-          </div>
-        )}
-        {version && (
-          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3.5 last:border-b-0">
-            <dt className="text-[13px] text-muted-foreground">Version</dt>
-            <dd className="text-[14px] font-semibold text-foreground font-mono">
-              {isSemver ? `v${version}` : version}
-            </dd>
-          </div>
-        )}
-        {updatedAt && (
-          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3.5 last:border-b-0">
-            <dt className="text-[13px] text-muted-foreground">Last updated</dt>
-            <dd className="text-[14px] font-semibold text-foreground font-mono">
-              {updatedAt}
-            </dd>
-          </div>
-        )}
+        ))}
       </dl>
     </SidebarSection>
   );

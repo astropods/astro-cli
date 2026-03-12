@@ -35,7 +35,20 @@ const mockAccount: AccountPublic = {
   updated_at: "2026-01-15T00:00:00Z",
 };
 
-const ri = (id: string, name: string): ResolvedIntegration => ({ id, name });
+const recommendedAgents = [
+  {
+    slug: "acme/incident-briefing-bot",
+    account: "acme",
+    name: "incident-briefing-bot",
+    description: "Summarizes incidents and drafts stakeholder updates.",
+  },
+  {
+    slug: "acme/oncall-optimizer",
+    account: "acme",
+    name: "oncall-optimizer",
+    description: "Prioritizes alerts and routes handoffs to the right owner.",
+  },
+];
 
 const meta = {
   title: "Features/Agents/AgentDetailSidebar",
@@ -73,6 +86,7 @@ export const Default: Story = {
     installs: 2841,
     teammateInstallCount: 3,
     teammateInitials: ["AK", "MF", "BL"],
+    recommendedAgents,
     initialAccountData: mockAccount,
   },
 };
@@ -100,6 +114,7 @@ export const Full: Story = {
     installs: 12481,
     teammateInstallCount: 7,
     teammateInitials: ["SO", "JD", "PK"],
+    recommendedAgents,
     initialAccountData: mockAccount,
   },
 };
