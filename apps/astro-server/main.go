@@ -274,6 +274,15 @@ func runAPI(
 	// Wire gin router as HTTP handler for admin ProxyHTTP
 	adminSrv.SetHTTPHandler(router)
 
+	// Wire River UI handler (internal only — accessible via admin gRPC ProxyHTTP, not the public HTTP port)
+	riverUIHandler, _, riverUIErr := riverqueue.UIHandler(context.Background(), cfg.Database.URL, log.Logger)
+	if riverUIErr != nil {
+		log.Warn("River UI disabled", "error", riverUIErr)
+	} else {
+		adminSrv.SetRiverUIHandler(riverUIHandler)
+		log.Info("River UI enabled (admin gRPC only)")
+	}
+
 	// Wire WorkOS client ID for admin GetAuthConfig
 	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
 

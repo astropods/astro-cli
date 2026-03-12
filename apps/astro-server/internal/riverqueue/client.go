@@ -60,6 +60,11 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}, nil
 }
 
+// Client returns the underlying River client (e.g. for River UI).
+func (q *Queue) Client() *river.Client[pgx.Tx] {
+	return q.client
+}
+
 // Start starts the River client (begins processing jobs).
 func (q *Queue) Start(ctx context.Context) error {
 	if err := q.client.Start(ctx); err != nil {

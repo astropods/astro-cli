@@ -58,6 +58,9 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /api/auth/device", s.handleDeviceAuthStart)
 	mux.HandleFunc("POST /api/auth/device/poll", s.handleDeviceAuthPoll)
 
+	// River UI proxy (served internally by admin gRPC server, proxied via ProxyHTTP)
+	s.registerRiverUIRoutes(mux)
+
 	// SPA fallback
 	s.registerSPAHandler(mux)
 
@@ -103,8 +106,8 @@ func (s *Server) registerSPAHandler(mux *http.ServeMux) {
 	fileServer := http.FileServer(http.FS(s.webFS))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// API routes are handled by their own handlers
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// API and River UI routes are handled by their own handlers
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/riverui/") {
 			http.NotFound(w, r)
 			return
 		}

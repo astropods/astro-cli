@@ -38,6 +38,7 @@ type Server struct {
 	openMeterURL   string
 	cmdDispatch    CommandDispatcher
 	httpHandler    http.Handler
+	riverUIHandler http.Handler
 	workosClientID string
 }
 
@@ -66,6 +67,11 @@ func New(
 		db:           db,
 		openMeterURL: strings.TrimRight(openMeterURL, "/"),
 	}
+}
+
+// SetRiverUIHandler sets the internal River UI HTTP handler, only reachable via ProxyHTTP.
+func (s *Server) SetRiverUIHandler(h http.Handler) {
+	s.riverUIHandler = h
 }
 
 // SetCommandDispatcher sets the dispatcher for sending commands to connected devices.
@@ -841,8 +847,18 @@ func (s *Server) GetAuthConfig(_ context.Context, _ *adminv1.GetAuthConfigReques
 }
 
 // ProxyHTTP dispatches an HTTP request to the gin router running in the same process.
+// Requests to /riverui/ are routed to the internal River UI handler (not exposed on the public HTTP port).
 func (s *Server) ProxyHTTP(_ context.Context, req *adminv1.HTTPProxyRequest) (*adminv1.HTTPProxyResponse, error) {
-	if s.httpHandler == nil {
+	// Route /riverui/ requests to the internal River UI handler.
+	handler := s.httpHandler
+	if strings.HasPrefix(req.Path, "/riverui/") || req.Path == "/riverui" {
+		if s.riverUIHandler == nil {
+			return nil, fmt.Errorf("River UI not configured")
+		}
+		handler = s.riverUIHandler
+	}
+
+	if handler == nil {
 		return nil, fmt.Errorf("HTTP handler not configured")
 	}
 
@@ -855,7 +871,7 @@ func (s *Server) ProxyHTTP(_ context.Context, req *adminv1.HTTPProxyRequest) (*a
 	}
 
 	rec := httptest.NewRecorder()
-	s.httpHandler.ServeHTTP(rec, httpReq)
+	handler.ServeHTTP(rec, httpReq)
 
 	result := rec.Result()
 	defer result.Body.Close() //nolint:errcheck
