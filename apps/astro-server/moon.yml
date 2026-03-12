@@ -55,16 +55,3 @@ tasks:
       - "go.mod"
     outputs:
       - "go.sum"
-
-  # Generate self-signed mTLS certs for local admin gRPC development.
-  # Outputs land in .certs/ (gitignored). Also writes ~/.astro-queen/config.yaml.
-  gen-admin-certs:
-    command: "bash scripts/gen-admin-certs.sh"
-    outputs:
-      - ".certs/ca.crt"
-      - ".certs/server.crt"
-      - ".certs/server.key"
-      - ".certs/client.crt"
-      - ".certs/client.key"
-    options:
-      cache: false
