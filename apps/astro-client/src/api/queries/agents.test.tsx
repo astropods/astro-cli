@@ -78,7 +78,7 @@ describe('useDeployAgent', () => {
     // Prime the deployments cache so we can verify invalidation
     queryClient.setQueryData(deploymentKeys.all(testAccount), { deployments: [], count: 0, namespace: 'test' });
 
-    const { result } = renderHook(() => useDeployAgent(testAccount), { wrapper });
+    const { result } = renderHook(() => useDeployAgent(testAccount, 'code-reviewer'), { wrapper });
 
     result.current.mutate({
       spec: 'deployment/v1',

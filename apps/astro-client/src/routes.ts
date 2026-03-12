@@ -22,7 +22,13 @@ export default [
     route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),
     route(":account", "pages/AccountProfile.tsx"),
     route(":account/agents/:deploymentId", "pages/DeployedAgentDetail.tsx"),
-    route(":account/agents/:deploymentId/settings", "pages/DeployedAgentSettings.tsx"),
+    ...prefix(":account/agents/:deploymentId/configure", [
+      layout("pages/DeployedAgentSettings.tsx", [
+        index("pages/configure/ConfigureRedirect.tsx"),
+        route("deployment", "pages/configure/ConfigureDeployment.tsx"),
+        route("danger-zone", "pages/configure/ConfigureDangerZone.tsx"),
+      ]),
+    ]),
     route(":account/:agentSlug", "pages/AgentDetail.tsx", { id: "agent-detail" }),
     route("*", "pages/NotFound.tsx"),
   ]),

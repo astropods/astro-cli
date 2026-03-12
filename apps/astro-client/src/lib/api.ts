@@ -321,6 +321,13 @@ class ApiClient {
     );
   }
 
+  // Get deployment template pre-filled with values from an existing deployment
+  async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string): Promise<DeploymentTemplate> {
+    return this.request<DeploymentTemplate>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template/${encodeURIComponent(deploymentId)}?format=json`
+    );
+  }
+
   // List current deployments for an account
   async listDeployments(account: string): Promise<DeploymentsListResponse> {
     return this.request<DeploymentsListResponse>(

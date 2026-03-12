@@ -15,6 +15,8 @@ export const agentKeys = {
   detail: (account: string, name: string) => ['agents', account, name] as const,
   template: (account: string, name: string) =>
     ['agents', account, name, 'template'] as const,
+  prefilledTemplate: (account: string, name: string, deploymentId: string) =>
+    ['agents', account, name, 'template', deploymentId] as const,
 };
 
 export const observabilityKeys = {

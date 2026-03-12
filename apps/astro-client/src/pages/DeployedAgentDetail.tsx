@@ -14,6 +14,7 @@ import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
+import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -84,7 +85,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const displayName = deployment.display_name || deployment.name;
   const pods = deployment.pods ?? [];
   const selectedPod = podName ? pods.find((p) => p.name === podName) ?? null : null;
-  const basePath = `/${account}/agents/${deployment.id}`;
+  const basePath = deploymentPath(account, deployment.id);
 
   const isPersonal = personalAccount?.name === account;
   const breadcrumbItems = [
@@ -105,7 +106,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
         items={breadcrumbItems}
         actions={
           <Button variant="outline" size="sm" asChild>
-            <Link to={`${basePath}/settings`}>
+            <Link to={deploymentConfigurePath(account, deployment.id)}>
               <Settings className="size-3.5" />
               Configure
             </Link>

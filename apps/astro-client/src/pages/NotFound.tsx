@@ -1,12 +1,8 @@
 import { Link } from "react-router";
 
-export function loader() {
-  throw new Response("Not Found", { status: 404 });
-}
-
-export function ErrorBoundary() {
+export default function NotFound() {
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-48px)]">
+    <div className="flex items-center justify-center flex-1">
       <div className="text-center">
         <h1 className="text-7xl font-extrabold mb-2">404</h1>
         <p className="text-xl font-semibold mb-2">Oops! Page not found</p>

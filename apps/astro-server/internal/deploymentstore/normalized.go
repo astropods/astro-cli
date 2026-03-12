@@ -546,9 +546,9 @@ func SaveNormalizedSpec(
 			}
 			val = string(ciphertext)
 			nonce = n
-		} else if v.Secret {
-			val = "" // Strip if no encryptor available
 		}
+		// When no encryptor is available, store plaintext so the
+		// pre-filled template can return the value for reconfiguration.
 		targets := v.Targets
 		if targets == nil {
 			targets = []string{}

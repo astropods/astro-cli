@@ -39,13 +39,24 @@ export function useDeploymentTemplate(account: string, name: string, opts?: { in
   });
 }
 
-export function useDeployAgent(account: string) {
+export function usePrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: agentKeys.prefilledTemplate(account, name, deploymentId),
+    queryFn: () => api.getPrefilledDeploymentTemplate(account, name, deploymentId),
+    enabled: (opts?.enabled ?? true) && !!account && !!name && !!deploymentId,
+  });
+}
+
+export function useDeployAgent(account: string, agentName: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: api.deployAgent.bind(api),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      // Invalidate this agent's template cache (includes pre-filled templates)
+      // so the settings page fetches fresh data after a deploy or redeploy.
+      queryClient.invalidateQueries({ queryKey: agentKeys.template(account, agentName) });
     },
   });
 }

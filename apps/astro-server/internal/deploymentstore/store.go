@@ -128,10 +128,10 @@ func (s *Store) UpdateDeploymentFull(p SaveDeploymentParams, txFn func(tx *sql.T
 	err = tx.QueryRow(`
 		UPDATE deployments
 		SET build_id = $2, deployment_spec_json = $3, encrypted_data_key = $4,
-		    kms_key_arn = $5, deployed_at = NOW()
+		    kms_key_arn = $5, display_name = $6, deployed_at = NOW()
 		WHERE id = $1 AND status = 'active'
 		RETURNING id, account_id, agent_name, build_id, namespace, display_name, deployment_spec_json, status, deployed_at
-	`, p.ID, p.BuildID, p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN)).Scan(
+	`, p.ID, p.BuildID, p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), p.DisplayName).Scan(
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)

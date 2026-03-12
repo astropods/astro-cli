@@ -9,6 +9,7 @@ import { DeployedAgentCard } from "../components/DeployedAgentCard";
 import { useDeployments } from "../api/queries/deployments";
 import { useAuth } from "../lib/auth";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
+import { deploymentPath } from "../lib/routes";
 
 function YourAgentsContent() {
   const [filter, setFilter] = useState("");
@@ -53,7 +54,7 @@ function YourAgentsContent() {
               displayName={deployment.display_name}
               deploymentId={deployment.id}
               account={userAccount}
-              href={`/${userAccount}/agents/${deployment.id}`}
+              href={deploymentPath(userAccount, deployment.id)}
               status={mapDeploymentStatus(deployment)}
               requests={0}
               lastActive="—"

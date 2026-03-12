@@ -144,7 +144,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   const template = opts?.skipTemplateFetch ? (opts.initialTemplate ?? null) : fetchedTemplate;
 
-  const deployMutation = useDeployAgent(targetAccount);
+  const deployMutation = useDeployAgent(targetAccount, name);
 
   const [deployName, setDeployName] = useState(() => iv?.deployName ?? slugToTitle(name));
   const [variableValues, setVariableValues] = useState<Record<string, string>>(iv?.variableValues ?? {});
@@ -354,5 +354,13 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     deploy,
     isDeploying: deployMutation.isPending,
     deployError,
+
+    reset(values?: DeployFormInitialValues) {
+      const v = values ?? iv;
+      setDeployName(v?.deployName ?? slugToTitle(name));
+      setVariableValues(v?.variableValues ?? {});
+      setSelectedAdapters(v?.selectedAdapters ?? ["web"]);
+      setAdapterCredentials(v?.adapterCredentials ?? {});
+    },
   };
 }

@@ -388,7 +388,7 @@ export default function DeployPage() {
     error: templateError,
   } = useDeploymentTemplate(account ?? "", name ?? "");
 
-  const deployMutation = useDeployAgent(userAccount);
+  const deployMutation = useDeployAgent(userAccount, name ?? "");
   const validateMutation = useValidateDeployment();
 
   // Check for existing deployment to distinguish deploy vs redeploy

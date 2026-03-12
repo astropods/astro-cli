@@ -11,6 +11,8 @@ interface DeleteDeploymentDialogProps {
   deploymentName: string;
   displayName?: string;
   account: string;
+  /** Called after the deployment is successfully deleted. */
+  onDeleted?: () => void;
 }
 
 export function DeleteDeploymentDialog({
@@ -20,6 +22,7 @@ export function DeleteDeploymentDialog({
   deploymentName,
   displayName,
   account,
+  onDeleted,
 }: DeleteDeploymentDialogProps) {
   const [confirmation, setConfirmation] = useState("");
   const undeploy = useUndeployAgent(account);
@@ -53,11 +56,11 @@ export function DeleteDeploymentDialog({
       error={undeploy.isError ? (undeploy.error as Error) : null}
       defaultErrorMessage="Failed to delete deployment."
       isPending={undeploy.isPending}
-      canConfirm={confirmation === deploymentName}
+      canConfirm={confirmation === label}
       onConfirm={() => {
         undeploy.mutate(
           { deployment_id: deploymentId },
-          { onSuccess: () => onOpenChange(false) },
+          { onSuccess: () => { onOpenChange(false); onDeleted?.(); } },
         );
       }}
       onReset={() => {
@@ -68,12 +71,13 @@ export function DeleteDeploymentDialog({
       <div>
         <Label size="md">
           Type{" "}
-          <span className="font-mono font-semibold">{deploymentName}</span> to
+          <span className="font-semibold">&ldquo;{label}&rdquo;</span> to
           confirm
         </Label>
         <Input
           value={confirmation}
           onChange={(e) => setConfirmation(e.target.value)}
+          placeholder={label}
           autoComplete="off"
         />
       </div>

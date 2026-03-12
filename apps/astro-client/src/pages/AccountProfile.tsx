@@ -7,6 +7,7 @@ import { AgentCard } from "../components/AgentCard";
 import { useAccountAgents } from "../api/queries/agents";
 import { getAgentDescription } from "../lib/agent-utils";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
+import { deploymentPath } from "../lib/routes";
 import { ShieldCheck } from "lucide-react";
 import {
   Tooltip,
@@ -98,7 +99,7 @@ function AccountProfileContent() {
                   displayName={deployment.display_name}
                   deploymentId={deployment.id}
                   account={data.name}
-                  href={`/${data.name}/agents/${deployment.id}`}
+                  href={deploymentPath(data.name, deployment.id)}
                   status={mapDeploymentStatus(deployment)}
                   requests={0}
                   lastActive="—"
