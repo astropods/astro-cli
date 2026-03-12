@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/url"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,17 +31,7 @@ type Queue struct {
 // New creates a Queue: opens a pgxpool, registers workers, and builds the River client.
 // The River schema tables must already exist (managed via Bytebase).
 func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
-	// River tables live in the "river" schema; set search_path so River finds
-	// its tables there while workers can still query public tables.
-	u, err := url.Parse(databaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("riverqueue: parse url: %w", err)
-	}
-	q := u.Query()
-	q.Set("search_path", "river,public")
-	u.RawQuery = q.Encode()
-
-	pool, err := pgxpool.New(ctx, u.String())
+	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("riverqueue: pgxpool: %w", err)
 	}
@@ -51,6 +40,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Schema: "river",
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 		},
