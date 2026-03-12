@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
 func TestComposeBuildArgs(t *testing.T) {
@@ -166,6 +168,107 @@ func TestLocalDockerImagesConsistency(t *testing.T) {
 			contextDir := img.context[strings.LastIndex(img.context, "/")+1:]
 			if tagName != contextDir {
 				t.Errorf("tag name %q doesn't match context dir %q", tagName, contextDir)
+			}
+		})
+	}
+}
+
+func TestRewriteDockerHostsToLocalhost(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    *spec.AstroSpec
+		envMap  map[string]string
+		wantEnv map[string]string
+	}{
+		{
+			name: "rewrites knowledge host to localhost",
+			spec: &spec.AstroSpec{
+				Knowledge: map[string]spec.Knowledge{
+					"graph": {Provider: "neo4j"},
+				},
+			},
+			envMap: map[string]string{
+				"NEO4J_HOST": "knowledge-graph",
+				"NEO4J_PORT": "7474",
+				"OTHER_VAR":  "untouched",
+			},
+			wantEnv: map[string]string{
+				"NEO4J_HOST": "localhost",
+				"NEO4J_PORT": "7474",
+				"OTHER_VAR":  "untouched",
+			},
+		},
+		{
+			name: "rewrites model host and embedded URLs",
+			spec: &spec.AstroSpec{
+				Models: map[string]spec.Model{
+					"llm": {Provider: "ollama"},
+				},
+			},
+			envMap: map[string]string{
+				"OLLAMA_HOST":     "model-llm",
+				"OLLAMA_URL":      "http://model-llm:11434",
+				"OLLAMA_BASE_URL": "http://model-llm:11434/api",
+			},
+			wantEnv: map[string]string{
+				"OLLAMA_HOST":     "localhost",
+				"OLLAMA_URL":      "http://localhost:11434",
+				"OLLAMA_BASE_URL": "http://localhost:11434/api",
+			},
+		},
+		{
+			name: "skips cloud providers that dont deploy containers",
+			spec: &spec.AstroSpec{
+				Models: map[string]spec.Model{
+					"claude": {Provider: "anthropic"},
+				},
+			},
+			envMap: map[string]string{
+				"ANTHROPIC_API_KEY": "sk-test",
+			},
+			wantEnv: map[string]string{
+				"ANTHROPIC_API_KEY": "sk-test",
+			},
+		},
+		{
+			name: "rewrites multiple services simultaneously",
+			spec: &spec.AstroSpec{
+				Knowledge: map[string]spec.Knowledge{
+					"graph": {Provider: "neo4j"},
+					"cache": {Provider: "redis"},
+				},
+			},
+			envMap: map[string]string{
+				"NEO4J_HOST": "knowledge-graph",
+				"REDIS_HOST": "knowledge-cache",
+			},
+			wantEnv: map[string]string{
+				"NEO4J_HOST": "localhost",
+				"REDIS_HOST": "localhost",
+			},
+		},
+		{
+			name: "no-op when spec has no container services",
+			spec: &spec.AstroSpec{},
+			envMap: map[string]string{
+				"HOME": "/Users/test",
+			},
+			wantEnv: map[string]string{
+				"HOME": "/Users/test",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.spec.Providers == nil {
+				tt.spec.Providers = map[string]spec.CustomProvider{}
+			}
+			rewriteDockerHostsToLocalhost(tt.spec, tt.envMap)
+			for k, want := range tt.wantEnv {
+				if got := tt.envMap[k]; got != want {
+					t.Errorf("%s = %q, want %q", k, got, want)
+				}
 			}
 		})
 	}

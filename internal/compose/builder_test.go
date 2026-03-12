@@ -283,6 +283,69 @@ func TestBuildProject_KnowledgeStore(t *testing.T) {
 	}
 }
 
+func TestBuildProject_KnowledgeExtraPortsPublished(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"graph": {Provider: "neo4j"},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc, ok := project.Services["knowledge-graph"]
+	if !ok {
+		t.Fatal("missing knowledge-graph service")
+	}
+
+	hasBoltPort := false
+	hasDefaultPort := false
+	for _, p := range svc.Ports {
+		if p.Target == 7687 && p.Published == "7687" {
+			hasBoltPort = true
+		}
+		if p.Target == 7474 && p.Published == "7474" {
+			hasDefaultPort = true
+		}
+	}
+	if !hasDefaultPort {
+		t.Error("Neo4j default HTTP port 7474 should be published")
+	}
+	if !hasBoltPort {
+		t.Error("Neo4j bolt port 7687 should be published via ExtraPorts")
+	}
+}
+
+func TestBuildProject_QdrantExtraPortsPublished(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Knowledge: map[string]spec.Knowledge{
+			"docs": {Provider: "qdrant"},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	svc := project.Services["knowledge-docs"]
+	hasGrpcPort := false
+	for _, p := range svc.Ports {
+		if p.Target == 6334 && p.Published == "6334" {
+			hasGrpcPort = true
+		}
+	}
+	if !hasGrpcPort {
+		t.Error("Qdrant gRPC port 6334 should be published via ExtraPorts")
+	}
+}
+
 func TestBuildProject_IngestionScheduleHasProfile(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",

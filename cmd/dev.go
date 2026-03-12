@@ -799,16 +799,53 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 		}
 	}
 
+	rewriteDockerHostsToLocalhost(s, envMap)
+
 	if s.Dev.HasMessagingAdapters() {
 		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
 	}
-	// Point at the collector container's published port for auto OTel
 	envMap["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
 	out := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// rewriteDockerHostsToLocalhost rewrites Docker-internal service hostnames to
+// localhost in the agent env map. In --local mode the agent runs on the host,
+// so Docker service names (model-*, knowledge-*, tool-*) won't resolve.
+// Containers publish their ports to the host, so localhost works instead.
+func rewriteDockerHostsToLocalhost(s *spec.AstroSpec, envMap map[string]string) {
+	serviceNames := make(map[string]bool)
+	for name, m := range s.Models {
+		if m.DeploysContainer(s.Providers) {
+			serviceNames[fmt.Sprintf("model-%s", name)] = true
+		}
+	}
+	for name, k := range s.Knowledge {
+		if k.DeploysContainer(s.Providers) {
+			serviceNames[fmt.Sprintf("knowledge-%s", name)] = true
+		}
+	}
+	for name, t := range s.Tools {
+		if t.DeploysContainer(s.Providers) {
+			serviceNames[fmt.Sprintf("tool-%s", name)] = true
+		}
+	}
+
+	for k, v := range envMap {
+		for svc := range serviceNames {
+			if v == svc {
+				envMap[k] = "localhost"
+				break
+			}
+			if replaced := strings.ReplaceAll(v, svc, "localhost"); replaced != v {
+				envMap[k] = replaced
+				break
+			}
+		}
+	}
 }
 
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.

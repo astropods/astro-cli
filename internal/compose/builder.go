@@ -329,6 +329,16 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 			}
 		}
 
+		// Publish extra ports defined by the provider (e.g. Neo4j bolt on 7687)
+		if prov := spec.GetProvider(knowledge.Provider); len(prov.ExtraPorts) > 0 {
+			for _, ep := range prov.ExtraPorts {
+				service.Ports = append(service.Ports, types.ServicePortConfig{
+					Target:    uint32(ep.Port), //nolint:gosec
+					Published: fmt.Sprintf("%d", ep.Port),
+				})
+			}
+		}
+
 		// Add healthcheck only if defined in spec
 		if container.Healthcheck != nil {
 			interval := types.Duration(10000000000) // 10 seconds
