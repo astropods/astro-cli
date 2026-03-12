@@ -68,6 +68,14 @@ API_KEY=sk-123
     expect(parseEnvText('FOO=bar # this is a comment')).toEqual({ FOO: 'bar' });
   });
 
+  it('preserves # inside double-quoted values', () => {
+    expect(parseEnvText('FOO="bar # baz"')).toEqual({ FOO: 'bar # baz' });
+  });
+
+  it('preserves # inside single-quoted values', () => {
+    expect(parseEnvText("FOO='bar # baz'")).toEqual({ FOO: 'bar # baz' });
+  });
+
   it('returns empty object for empty input', () => {
     expect(parseEnvText('')).toEqual({});
   });

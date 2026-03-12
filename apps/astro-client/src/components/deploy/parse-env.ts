@@ -17,17 +17,17 @@ export function parseEnvText(text: string): Record<string, string> {
 
     if (!key) continue;
 
-    // Strip surrounding quotes (double or single)
-    if (
+    // Track and strip surrounding quotes (double or single)
+    const wasQuoted =
       (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
+      (value.startsWith("'") && value.endsWith("'"));
+    if (wasQuoted) {
       value = value.slice(1, -1);
     }
 
-    // Strip inline comments (only for unquoted values)
+    // Strip inline comments (only for values that were originally unquoted)
     const commentIndex = value.indexOf(" #");
-    if (commentIndex !== -1 && !raw.slice(eqIndex + 1).trim().startsWith('"')) {
+    if (commentIndex !== -1 && !wasQuoted) {
       value = value.slice(0, commentIndex).trim();
     }
 

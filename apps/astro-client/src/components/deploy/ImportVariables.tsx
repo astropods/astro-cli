@@ -1,7 +1,13 @@
-import { useState, useRef, useCallback } from "react";
-import { Import, Check, X } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Import, Check, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { parseVariables } from "./parse-env";
 
 export interface ImportResult {
@@ -9,182 +15,199 @@ export interface ImportResult {
   skipped: string[];
 }
 
-interface ImportVariablesTriggerProps {
-  open: boolean;
-  onToggle: () => void;
-}
-
-/** Button that goes in the FormSection header `action` slot. */
-export function ImportVariablesTrigger({ open, onToggle }: ImportVariablesTriggerProps) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className="gap-1.5 text-xs"
-      onClick={onToggle}
-    >
-      {open ? (
-        <>
-          <X className="size-3.5" />
-          Close
-        </>
-      ) : (
-        <>
-          <Import className="size-3.5" />
-          Import
-        </>
-      )}
-    </Button>
-  );
-}
-
-interface ImportVariablesContentProps {
+interface ImportVariablesProps {
   onImport: (values: Record<string, string>) => ImportResult;
-  onClose: () => void;
 }
 
 const ALLOWED_FILE_PATTERN = /(\.(env|json|txt)(\.?\w*)$)|(^\.env)/i;
 const MAX_FILE_SIZE = 256 * 1024; // 256 KB
 
-/** Expandable content that renders inside FormSection children, above the fields. */
-export function ImportVariablesContent({ onImport, onClose }: ImportVariablesContentProps) {
-  const [pasteValue, setPasteValue] = useState("");
+export function ImportVariables({ onImport }: ImportVariablesProps) {
+  const [open, setOpen] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleApply = useCallback(() => {
-    const parsed = parseVariables(pasteValue);
-    if (Object.keys(parsed).length === 0) {
-      setParseError("No variables found. Paste KEY=VALUE lines (.env format) or a JSON object.");
-      return;
+  const clearAutoClose = useCallback(() => {
+    if (autoCloseTimer.current) {
+      clearTimeout(autoCloseTimer.current);
+      autoCloseTimer.current = null;
     }
+  }, []);
+
+  useEffect(() => clearAutoClose, [clearAutoClose]);
+
+  const reset = useCallback(() => {
+    clearAutoClose();
+    setResult(null);
     setParseError(null);
-    const importResult = onImport(parsed);
-    setResult(importResult);
-    setPasteValue("");
+    setIsDragging(false);
+  }, [clearAutoClose]);
 
-    setTimeout(() => onClose(), importResult.matched.length > 0 ? 3000 : 5000);
-  }, [pasteValue, onImport, onClose]);
+  const handleClose = useCallback(() => {
+    setOpen(false);
+    reset();
+  }, [reset]);
 
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
+  const processFile = useCallback(
+    (file: File) => {
       if (!ALLOWED_FILE_PATTERN.test(file.name)) {
         setParseError(`"${file.name}" is not a supported file type. Use a .env, .json, or .txt file.`);
-        e.target.value = "";
         return;
       }
 
       if (file.size > MAX_FILE_SIZE) {
         setParseError("File is too large. Maximum size is 256 KB.");
-        e.target.value = "";
         return;
       }
+
+      setParseError(null);
 
       const reader = new FileReader();
       reader.onload = (event) => {
         const text = event.target?.result;
-        if (typeof text === "string") {
-          setPasteValue(text);
-          setResult(null);
-          setParseError(null);
+        if (typeof text !== "string") return;
+
+        const parsed = parseVariables(text);
+        if (Object.keys(parsed).length === 0) {
+          setParseError(`No variables found in "${file.name}". Expected KEY=VALUE lines or a JSON object.`);
+          return;
         }
+
+        const importResult = onImport(parsed);
+        setResult(importResult);
+        clearAutoClose();
+        autoCloseTimer.current = setTimeout(() => handleClose(), importResult.matched.length > 0 ? 3000 : 5000);
       };
       reader.readAsText(file);
+    },
+    [onImport, handleClose],
+  );
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) processFile(file);
       e.target.value = "";
     },
-    [],
+    [processFile],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      const file = e.dataTransfer.files?.[0];
+      if (file) processFile(file);
+    },
+    [processFile],
   );
 
   return (
-    <div className="mb-5">
-      {result ? (
-        <div className="rounded-[6px] bg-stone-100 p-4 dark:bg-stone-800">
-          <div className="flex items-center gap-1.5">
-            <Check size={16} className="text-green-700 dark:text-green-400 shrink-0" />
-            <span className="text-sm font-medium text-foreground">
-              Filled {result.matched.length} variable{result.matched.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-          {result.matched.length > 0 && (
-            <ul className="mt-2 space-y-0.5 pl-6">
-              {result.matched.map((key) => (
-                <li key={key} className="text-xs text-muted-foreground font-mono">{key}</li>
-              ))}
-            </ul>
-          )}
-          {result.skipped.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs text-muted-foreground">
-                Skipped {result.skipped.length} unrecognized key{result.skipped.length !== 1 ? "s" : ""}:
-              </p>
-              <ul className="mt-1 space-y-0.5 pl-6">
-                {result.skipped.map((key) => (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); else { reset(); setOpen(true); } }}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 text-xs"
+        onClick={() => { reset(); setOpen(true); }}
+      >
+        <Import className="size-3.5" />
+        Import
+      </Button>
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Import variables</DialogTitle>
+          <DialogDescription>
+            Upload a .env, .json, or .txt file to auto-fill matching variables.
+          </DialogDescription>
+        </DialogHeader>
+
+        {result ? (
+          <div className="rounded-[6px] bg-stone-100 p-4 dark:bg-stone-800">
+            <div className="flex items-center gap-1.5">
+              <Check size={16} className="text-green-700 dark:text-green-400 shrink-0" />
+              <span className="text-sm font-medium text-foreground">
+                Filled {result.matched.length} variable{result.matched.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            {result.matched.length > 0 && (
+              <ul className="mt-2 space-y-0.5 pl-6">
+                {result.matched.map((key) => (
                   <li key={key} className="text-xs text-muted-foreground font-mono">{key}</li>
                 ))}
               </ul>
-            </div>
-          )}
-          {result.matched.length === 0 && result.skipped.length === 0 && (
-            <p className="text-xs text-muted-foreground mt-1">
-              No keys matched the expected variables. Check that your key names match exactly.
-            </p>
-          )}
-        </div>
-      ) : (
-        <>
-          <Textarea
-            value={pasteValue}
-            onChange={(e) => {
-              setPasteValue(e.target.value);
-              setParseError(null);
-            }}
-            placeholder={"OPENAI_API_KEY=sk-...\nQDRANT_API_KEY=...\n\nor paste a JSON object"}
-            rows={5}
-            aria-invalid={!!parseError}
-          />
-          <div className="flex items-center justify-between mt-3">
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-muted-foreground">
-                Supports KEY=VALUE (.env) and JSON formats
+            )}
+            {result.skipped.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs text-muted-foreground">
+                  Skipped {result.skipped.length} unrecognized key{result.skipped.length !== 1 ? "s" : ""}:
+                </p>
+                <ul className="mt-1 space-y-0.5 pl-6">
+                  {result.skipped.map((key) => (
+                    <li key={key} className="text-xs text-muted-foreground font-mono">{key}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.matched.length === 0 && result.skipped.length === 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                No keys matched the expected variables. Check that your key names match exactly.
               </p>
+            )}
+          </div>
+        ) : (
+          <>
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex flex-col items-center justify-center gap-2 rounded-[6px] border-2 border-dashed p-8 cursor-pointer transition-colors ${
+                isDragging
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-muted-foreground"
+              }`}
+            >
+              <Upload className="size-5 text-muted-foreground" />
+              <div className="text-center">
+                <p className="text-sm text-foreground">
+                  Drop a file here or <span className="text-primary underline">browse</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Supports .env, .json, and .txt files
+                </p>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
                 className="hidden"
                 onChange={handleFileChange}
               />
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors underline"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                or load a file
-              </button>
             </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={!pasteValue.trim()}
-                onClick={handleApply}
-              >
-                Apply
-              </Button>
-            </div>
-          </div>
-          {parseError && (
-            <p className="text-xs text-destructive mt-2">{parseError}</p>
-          )}
-        </>
-      )}
-    </div>
+            {parseError && (
+              <p className="text-xs text-destructive mt-2">{parseError}</p>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
