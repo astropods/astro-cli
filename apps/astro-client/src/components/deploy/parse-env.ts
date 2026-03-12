@@ -1,0 +1,65 @@
+/**
+ * Parse .env-formatted text into a flat key-value map.
+ * Handles comments, blank lines, and quoted values.
+ */
+export function parseEnvText(text: string): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const eqIndex = line.indexOf("=");
+    if (eqIndex === -1) continue;
+
+    const key = line.slice(0, eqIndex).trim();
+    let value = line.slice(eqIndex + 1).trim();
+
+    if (!key) continue;
+
+    // Strip surrounding quotes (double or single)
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    // Strip inline comments (only for unquoted values)
+    const commentIndex = value.indexOf(" #");
+    if (commentIndex !== -1 && !raw.slice(eqIndex + 1).trim().startsWith('"')) {
+      value = value.slice(0, commentIndex).trim();
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+}
+
+/**
+ * Auto-detect format (JSON or .env) and parse into a flat key-value map.
+ * JSON values that aren't strings are stringified.
+ */
+export function parseVariables(text: string): Record<string, string> {
+  const trimmed = text.trim();
+  if (!trimmed) return {};
+
+  // Try JSON first
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        const result: Record<string, string> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          result[key] = typeof value === "string" ? value : JSON.stringify(value);
+        }
+        return result;
+      }
+    } catch {
+      // Fall through to .env parser
+    }
+  }
+
+  return parseEnvText(trimmed);
+}

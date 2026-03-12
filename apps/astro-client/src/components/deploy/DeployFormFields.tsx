@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AccountPicker } from "./AccountPicker";
@@ -5,6 +6,7 @@ import { InterfacesPicker } from "./InterfacesPicker";
 import { VariableFields } from "./VariableFields";
 import { FormSection } from "./FormSection";
 import { ErrorPanel } from "./ErrorPanel";
+import { ImportVariablesTrigger, ImportVariablesContent } from "./ImportVariables";
 import type { useDeployForm } from "./useDeployForm";
 
 type DeployForm = ReturnType<typeof useDeployForm>;
@@ -16,6 +18,8 @@ export interface DeployFormFieldsProps {
 }
 
 export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsProps) {
+  const [importOpen, setImportOpen] = useState(false);
+  const showImport = (form.requiredVariables.length + form.optionalVariables.length) > 1;
   if (form.templateErrorMessage) {
     return <ErrorPanel>{form.templateErrorMessage}</ErrorPanel>;
   }
@@ -69,7 +73,21 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
 
       {/* Required variables */}
       {form.requiredVariables.length > 0 && (
-        <FormSection title="Configuration" description="Required configuration for this agent.">
+        <FormSection
+          title="Configuration"
+          description="Required configuration for this agent."
+          action={
+            showImport
+              ? <ImportVariablesTrigger open={importOpen} onToggle={() => setImportOpen((v) => !v)} />
+              : undefined
+          }
+        >
+          {importOpen && (
+            <ImportVariablesContent
+              onImport={(values) => form.bulkSetVariables(values)}
+              onClose={() => setImportOpen(false)}
+            />
+          )}
           <VariableFields
             variables={form.requiredVariables}
             values={form.variableValues}

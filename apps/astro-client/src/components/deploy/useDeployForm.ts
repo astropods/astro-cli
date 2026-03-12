@@ -355,6 +355,45 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     isDeploying: deployMutation.isPending,
     deployError,
 
+    /**
+     * Bulk-import parsed key-value pairs into the correct form state.
+     * Keys matching template variables go into variableValues; keys matching
+     * adapter credentials go into adapterCredentials; the rest are skipped.
+     * Returns the list of matched and skipped keys for UI feedback.
+     */
+    bulkSetVariables(imported: Record<string, string>): { matched: string[]; skipped: string[] } {
+      const variableKeys = new Set(variableEntries.map(([k]) => k));
+      const adapterKeys = new Set(
+        Object.values(allAdapterCredDefs).flatMap((defs) => defs.map(([k]) => k)),
+      );
+
+      const matched: string[] = [];
+      const skipped: string[] = [];
+      const newVarValues: Record<string, string> = {};
+      const newAdapterValues: Record<string, string> = {};
+
+      for (const [key, value] of Object.entries(imported)) {
+        if (variableKeys.has(key)) {
+          newVarValues[key] = value;
+          matched.push(key);
+        } else if (adapterKeys.has(key)) {
+          newAdapterValues[key] = value;
+          matched.push(key);
+        } else {
+          skipped.push(key);
+        }
+      }
+
+      if (Object.keys(newVarValues).length > 0) {
+        setVariableValues((prev) => ({ ...prev, ...newVarValues }));
+      }
+      if (Object.keys(newAdapterValues).length > 0) {
+        setAdapterCredentials((prev) => ({ ...prev, ...newAdapterValues }));
+      }
+
+      return { matched, skipped };
+    },
+
     reset(values?: DeployFormInitialValues) {
       const v = values ?? iv;
       setDeployName(v?.deployName ?? slugToTitle(name));

@@ -136,6 +136,94 @@ describe('useDeployForm with pre-filled template', () => {
     expect(result.current.variableValues.OPENAI_API_KEY).toBe('sk-test-key-123');
   });
 
+  it('bulkSetVariables fills matching variable keys and returns matched/skipped', async () => {
+    const prefilledTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        OPENAI_API_KEY: { value: '', default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI key' },
+        SENTRY_DSN: { value: '', default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN' },
+        SLACK_BOT_TOKEN: { value: '', default: '', targets: ['interface.slack'], secret: true, optional: true, description: 'Slack token' },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplate: prefilledTemplate,
+          skipTemplateFetch: true,
+          initialValues: {
+            deployName: 'My Agent',
+            targetAccount: 'testuser',
+            variableValues: {},
+            selectedAdapters: ['web'],
+            adapterCredentials: {},
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {});
+
+    let importResult: { matched: string[]; skipped: string[] };
+    act(() => {
+      importResult = result.current.bulkSetVariables({
+        OPENAI_API_KEY: 'sk-imported-123',
+        SENTRY_DSN: 'https://sentry.io/456',
+        UNKNOWN_KEY: 'should-be-skipped',
+        ANOTHER_UNKNOWN: 'also-skipped',
+      });
+    });
+
+    expect(importResult!.matched).toContain('OPENAI_API_KEY');
+    expect(importResult!.matched).toContain('SENTRY_DSN');
+    expect(importResult!.matched).toHaveLength(2);
+    expect(importResult!.skipped).toContain('UNKNOWN_KEY');
+    expect(importResult!.skipped).toContain('ANOTHER_UNKNOWN');
+    expect(importResult!.skipped).toHaveLength(2);
+
+    expect(result.current.variableValues.OPENAI_API_KEY).toBe('sk-imported-123');
+    expect(result.current.variableValues.SENTRY_DSN).toBe('https://sentry.io/456');
+  });
+
+  it('bulkSetVariables does not overwrite keys that were not imported', async () => {
+    const prefilledTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        OPENAI_API_KEY: { value: '', default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI key' },
+        SENTRY_DSN: { value: '', default: '', targets: ['agent'], secret: false, optional: true, description: 'Sentry DSN' },
+      },
+    };
+
+    const { wrapper } = createAuthWrapper();
+
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplate: prefilledTemplate,
+          skipTemplateFetch: true,
+          initialValues: {
+            deployName: 'My Agent',
+            targetAccount: 'testuser',
+            variableValues: { SENTRY_DSN: 'existing-value' },
+            selectedAdapters: ['web'],
+            adapterCredentials: {},
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {});
+
+    act(() => {
+      result.current.bulkSetVariables({ OPENAI_API_KEY: 'sk-new' });
+    });
+
+    expect(result.current.variableValues.OPENAI_API_KEY).toBe('sk-new');
+    expect(result.current.variableValues.SENTRY_DSN).toBe('existing-value');
+  });
+
   it('uses template as form template when skipTemplateFetch is true', () => {
     const prefilledTemplate: DeploymentTemplate = {
       ...mockTemplate,

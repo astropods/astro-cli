@@ -4,13 +4,18 @@ export interface FormSectionProps {
   title: string;
   description: string;
   children: ReactNode;
+  /** Optional action element rendered to the right of the title. */
+  action?: ReactNode;
 }
 
-export function FormSection({ title, description, children }: FormSectionProps) {
+export function FormSection({ title, description, children, action }: FormSectionProps) {
   return (
     <section>
       <div className="mb-1.5">
-        <h2 className="text-base font-bold text-foreground">{title}</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold text-foreground">{title}</h2>
+          {action}
+        </div>
         <p className="text-[13px] text-faint-foreground mt-0.5">{description}</p>
       </div>
       <hr className="border-border-strong mb-5 mt-4" />
