@@ -41,7 +41,10 @@ func UIHandler(ctx context.Context, databaseURL string, logger *slog.Logger) (ht
 		return nil, nil, fmt.Errorf("riverui: handler: %w", err)
 	}
 
-	handler.Start(ctx)
+	if err := handler.Start(ctx); err != nil {
+		pool.Close()
+		return nil, nil, fmt.Errorf("riverui: start: %w", err)
+	}
 
 	return handler, func() { pool.Close() }, nil
 }

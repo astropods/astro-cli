@@ -853,7 +853,7 @@ func (s *Server) ProxyHTTP(_ context.Context, req *adminv1.HTTPProxyRequest) (*a
 	handler := s.httpHandler
 	if strings.HasPrefix(req.Path, "/riverui/") || req.Path == "/riverui" {
 		if s.riverUIHandler == nil {
-			return nil, fmt.Errorf("River UI not configured")
+			return nil, fmt.Errorf("river UI not configured")
 		}
 		handler = s.riverUIHandler
 	}
