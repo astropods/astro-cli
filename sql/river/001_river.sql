@@ -8,6 +8,7 @@ CREATE TYPE river.river_job_state AS ENUM(
   'cancelled',
   'completed',
   'discarded',
+  'pending',
   'retryable',
   'running',
   'scheduled'
@@ -112,9 +113,6 @@ ALTER TABLE river.river_job ALTER COLUMN args DROP DEFAULT;
 ALTER TABLE river.river_job ALTER COLUMN metadata SET DEFAULT '{}';
 UPDATE river.river_job SET metadata = '{}' WHERE metadata IS NULL;
 ALTER TABLE river.river_job ALTER COLUMN metadata SET NOT NULL;
-
--- The 'pending' job state will be used for upcoming functionality:
-ALTER TYPE river.river_job_state ADD VALUE IF NOT EXISTS 'pending' AFTER 'discarded';
 
 ALTER TABLE river.river_job DROP CONSTRAINT finalized_or_finalized_at_null;
 ALTER TABLE river.river_job ADD CONSTRAINT finalized_or_finalized_at_null CHECK (
