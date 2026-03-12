@@ -159,7 +159,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
               ) : (
                 <>
                   <RotateCcw className={`size-4 ${restartMutation.isPending ? "animate-spin" : ""}`} />
-                  Restart Pod
+                  Restart Container
                 </>
               )}
             </Button>
