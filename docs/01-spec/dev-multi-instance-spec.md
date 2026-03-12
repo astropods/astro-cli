@@ -214,5 +214,4 @@ Port allocation happens AFTER the builder returns and BEFORE the compose file is
 ## 13. Migration
 
 - The old fixed compose path `.ast/docker-compose.yml` is no longer written. Existing users who have a running `ast dev` session from a previous CLI version will need to run `docker compose -f .ast/docker-compose.yml down` manually or let `docker compose down` handle it on next `ast dev stop`.
-- The `--port-offset` flag (if present in any branch) is removed. Auto-allocation supersedes it entirely.
 - Single-instance workflows (`ast dev` → `ast dev logs` → `ast dev stop`) are fully backward-compatible — no extra flags required.
