@@ -37,6 +37,9 @@ type DeploymentConfig struct {
 	Tolerations      []corev1.Toleration          // Tolerations for tainted nodes (e.g., GPU)
 	ExtraEnv         []corev1.EnvVar              // Additional env vars to inject
 	PostStartCommand []string                     // Lifecycle postStart exec command (e.g., model pull)
+	// Sidecar containers colocated in the same pod
+	Messaging *MessagingDeploymentConfig // nil means no messaging sidecar
+	Collector *CollectorDeploymentConfig // nil means no collector sidecar
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -59,7 +62,9 @@ type MessagingDeploymentConfig struct {
 	Environment     map[string]string            // Resolved env from interfaces.environment
 }
 
-// BuildDeployment creates a Kubernetes Deployment manifest
+// BuildDeployment creates a Kubernetes Deployment manifest.
+// Optional sidecar containers (messaging, collector) are colocated in the same
+// pod when provided, so they share localhost networking with the main container.
 func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
@@ -72,9 +77,21 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	// Build container spec
 	container := buildContainer(cfg)
 
+	containers := []corev1.Container{container}
+
+	// Colocate messaging sidecar in the same pod
+	if cfg.Messaging != nil {
+		containers = append(containers, buildMessagingContainer(*cfg.Messaging))
+	}
+
+	// Colocate collector sidecar in the same pod
+	if cfg.Collector != nil {
+		containers = append(containers, buildCollectorContainer(*cfg.Collector))
+	}
+
 	// Build pod spec
 	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
+		Containers: containers,
 	}
 
 	// Add node selector: explicit config takes precedence over GPU auto-detection
@@ -119,48 +136,6 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	}
 
 	return depl
-}
-
-// BuildMessagingDeployment creates a Kubernetes Deployment for messaging sidecars
-func BuildMessagingDeployment(cfg MessagingDeploymentConfig) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
-
-	replicas := int32(1)
-
-	// Build container with messaging-specific env vars
-	container := buildMessagingContainer(cfg)
-
-	// Build pod spec
-	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
-	}
-
-	deploy := &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cfg.Name,
-			Namespace: cfg.Namespace,
-			Labels:    labels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: selector,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: podSpec,
-			},
-		},
-	}
-
-	return deploy
 }
 
 // buildMessagingContainer creates a container spec for messaging sidecars
@@ -282,46 +257,6 @@ type CollectorDeploymentConfig struct {
 	GalileoAPIKey    string
 	GalileoProject   string
 	GalileoLogStream string
-}
-
-// BuildCollectorDeployment creates a Kubernetes Deployment for the observability collector sidecar
-func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
-
-	replicas := int32(1)
-
-	container := buildCollectorContainer(cfg)
-
-	podSpec := corev1.PodSpec{
-		Containers: []corev1.Container{container},
-	}
-
-	deploy := &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cfg.Name,
-			Namespace: cfg.Namespace,
-			Labels:    labels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: selector,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: podSpec,
-			},
-		},
-	}
-
-	return deploy
 }
 
 // buildCollectorContainer creates a container spec for the collector sidecar

@@ -285,21 +285,18 @@ func TestApplyDeploymentSpec_WithObservability(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
+	// Collector is colocated in the agent pod — no separate deployment, but service still exists
 	hasCollectorService := false
-	hasCollectorDeployment := false
 	for _, r := range result.Resources {
 		if r.Kind == "Service" && r.Name == "my-agent-collector" {
 			hasCollectorService = true
 		}
 		if r.Kind == "Deployment" && r.Name == "my-agent-collector" {
-			hasCollectorDeployment = true
+			t.Error("collector should be a sidecar, not a separate deployment")
 		}
 	}
 	if !hasCollectorService {
 		t.Error("expected collector service")
-	}
-	if !hasCollectorDeployment {
-		t.Error("expected collector deployment")
 	}
 }
 
@@ -326,21 +323,18 @@ func TestApplyDeploymentSpec_ObservabilityCustomImage(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
+	// Collector is colocated in the agent pod — service exists but no separate deployment
 	hasCollectorService := false
-	hasCollectorDeployment := false
 	for _, r := range result.Resources {
 		if r.Kind == "Service" && r.Name == "my-agent-collector" {
 			hasCollectorService = true
 		}
 		if r.Kind == "Deployment" && r.Name == "my-agent-collector" {
-			hasCollectorDeployment = true
+			t.Error("collector should be a sidecar, not a separate deployment")
 		}
 	}
 	if !hasCollectorService {
 		t.Error("expected collector service")
-	}
-	if !hasCollectorDeployment {
-		t.Error("expected collector deployment")
 	}
 }
 
@@ -360,14 +354,11 @@ func TestApplyDeploymentSpec_ObservabilityCustomPort(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
-	hasCollectorDeployment := false
+	// Collector is colocated — just verify no separate deployment was created
 	for _, r := range result.Resources {
 		if r.Kind == "Deployment" && r.Name == "my-agent-collector" {
-			hasCollectorDeployment = true
+			t.Error("collector should be a sidecar, not a separate deployment")
 		}
-	}
-	if !hasCollectorDeployment {
-		t.Error("expected collector deployment with custom port")
 	}
 }
 
@@ -540,17 +531,17 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 		counts[r.Kind]++
 	}
 
-	// Expected: 1 Secret + 1 ConfigMap + 4 Services (model, knowledge, tool, agent) + 1 collector service
-	//           + 1 model Deployment + 1 knowledge StatefulSet + 1 tool Deployment + 1 agent Deployment
-	//           + 1 collector Deployment + 1 CronJob
+	// Expected: 1 Secret + 1 ConfigMap + 5 Services (model, knowledge, tool, agent, collector)
+	//           + 1 model Deployment + 1 knowledge StatefulSet + 1 tool Deployment
+	//           + 1 agent Deployment (with collector sidecar) + 1 CronJob
 	if counts["Secret"] != 1 {
 		t.Errorf("expected 1 Secret, got %d", counts["Secret"])
 	}
 	if counts["ConfigMap"] != 1 {
 		t.Errorf("expected 1 ConfigMap, got %d", counts["ConfigMap"])
 	}
-	if counts["Service"] < 4 {
-		t.Errorf("expected at least 4 Services, got %d", counts["Service"])
+	if counts["Service"] < 5 {
+		t.Errorf("expected at least 5 Services (model, knowledge, tool, agent, collector), got %d", counts["Service"])
 	}
 	if counts["Deployment"] < 3 {
 		t.Errorf("expected at least 3 Deployments (model, tool, agent), got %d", counts["Deployment"])
@@ -610,21 +601,18 @@ func TestApplyDeploymentSpec_WithSlackInterface(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
+	// Messaging is colocated in the agent pod — service exists but no separate deployment
 	hasMsgService := false
-	hasMsgDeployment := false
 	for _, r := range result.Resources {
 		if r.Kind == "Service" && r.Name == "my-agent-messaging" {
 			hasMsgService = true
 		}
 		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
-			hasMsgDeployment = true
+			t.Error("messaging should be a sidecar, not a separate deployment")
 		}
 	}
 	if !hasMsgService {
 		t.Error("expected messaging service")
-	}
-	if !hasMsgDeployment {
-		t.Error("expected messaging deployment")
 	}
 }
 
@@ -659,7 +647,6 @@ func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	}
 
 	hasMsgService := false
-	hasMsgDeployment := false
 	hasIngress := false
 	hasEndpoint := false
 	for _, r := range result.Resources {
@@ -667,7 +654,7 @@ func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 			hasMsgService = true
 		}
 		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
-			hasMsgDeployment = true
+			t.Error("messaging should be a sidecar, not a separate deployment")
 		}
 		if r.Kind == "Ingress" && r.Name == "my-agent-ingress-messaging" {
 			hasIngress = true
@@ -680,9 +667,6 @@ func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	}
 	if !hasMsgService {
 		t.Error("expected messaging service")
-	}
-	if !hasMsgDeployment {
-		t.Error("expected messaging deployment")
 	}
 	if !hasIngress {
 		t.Error("expected ingress for web adapter")
@@ -793,15 +777,11 @@ func TestApplyDeploymentSpec_InterfaceCustomResources(t *testing.T) {
 		t.Errorf("expected no errors, got %v", result.Errors)
 	}
 
-	// Verify the deployment was created with the custom port
-	hasMsgDeployment := false
+	// Messaging is colocated — verify no separate deployment
 	for _, r := range result.Resources {
 		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
-			hasMsgDeployment = true
+			t.Error("messaging should be a sidecar, not a separate deployment")
 		}
-	}
-	if !hasMsgDeployment {
-		t.Error("expected messaging deployment with custom port")
 	}
 }
 
@@ -847,8 +827,8 @@ func TestApplyDeploymentSpec_WithFrontendExpose(t *testing.T) {
 
 	// Should NOT have messaging resources
 	for _, r := range result.Resources {
-		if r.Kind == "Deployment" && r.Name == "my-agent-messaging" {
-			t.Error("should not have messaging deployment when interfaces is nil")
+		if r.Kind == "Service" && r.Name == "my-agent-messaging" {
+			t.Error("should not have messaging service when interfaces is nil")
 		}
 	}
 }

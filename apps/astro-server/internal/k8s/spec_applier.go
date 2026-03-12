@@ -440,36 +440,9 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 
-	// Main agent deployment
-	agentContainer := spec.ContainerConfig{Image: ds.Agent.Image}
-	resolvedAgentContainer, err := a.resolveContainerImage(agentContainer)
-	if err != nil {
-		result.Errors = append(result.Errors, deployment.DeploymentError{
-			Resource: agentResourceName, Kind: "Deployment",
-			Error: fmt.Sprintf("failed to resolve image: %v", err),
-		})
-	} else {
-		cfg := DeploymentConfig{
-			Name: agentResourceName, Namespace: a.namespace, AgentName: agentName,
-			BuildID: buildID, Component: "agent",
-			Container: resolvedAgentContainer, Port: agentPort,
-			SecretName: secretName, ConfigMapName: configMapName,
-			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
-			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
-			Resources: BuildResourceRequirements(ds.Agent.Resources),
-			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
-		}
-		agentDepl := BuildDeployment(cfg)
-		status, err := a.applyDeployment(ctx, agentDepl)
-		result.Resources = append(result.Resources, status)
-		if err != nil {
-			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: agentDepl.Name, Kind: "Deployment", Error: err.Error(),
-			})
-		}
-	}
-
-	// Phase 5b: Messaging interfaces
+	// Build optional sidecar configs for messaging and collector.
+	// These are colocated in the agent pod instead of separate deployments.
+	var msgSidecar *MessagingDeploymentConfig
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 		// Resolve interface grpc port: prefer "grpc" endpoint, fall back to primary, default 9090
 		grpcPort := int32(0)
@@ -523,27 +496,13 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		resourceName := deployment.GenerateAgentResourceName(agentName, "messaging")
 
-		// Service
-		msgSvc := BuildService(ServiceConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
-			BuildID: buildID, Component: "messaging",
-			Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
-		})
-		msgSvc.Spec.Ports[0].Name = "grpc"
-		if webEnabled {
-			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, corev1.ServicePort{
-				Name: "http", Protocol: corev1.ProtocolTCP,
-				Port: webPort, TargetPort: intstr.FromInt(int(webPort)),
-			})
-		}
-		a.applyServiceAndRecord(ctx, msgSvc, result)
-
-		// Deployment
+		// Messaging image
 		msgImage := ds.Interfaces.Image
 		if msgImage == "" {
 			msgImage = "astropods/messaging:latest"
 		}
-		msgCfg := MessagingDeploymentConfig{
+
+		msgSidecar = &MessagingDeploymentConfig{
 			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
 			BuildID: buildID, Component: "messaging",
 			Image: msgImage, Port: grpcPort, SecretName: secretName,
@@ -554,14 +513,21 @@ func (a *Applier) ApplyDeploymentSpec(
 			Resources:       msgResources,
 			Environment:     resolvedIfaceEnv,
 		}
-		msgDepl := BuildMessagingDeployment(msgCfg)
-		status, err := a.applyDeployment(ctx, msgDepl)
-		result.Resources = append(result.Resources, status)
-		if err != nil {
-			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: msgDepl.Name, Kind: "Deployment", Error: err.Error(),
+
+		// Service — selects the agent pod (messaging is a sidecar container)
+		msgSvc := BuildService(ServiceConfig{
+			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			BuildID: buildID, Component: "agent",
+			Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
+		})
+		msgSvc.Spec.Ports[0].Name = "grpc"
+		if webEnabled {
+			msgSvc.Spec.Ports = append(msgSvc.Spec.Ports, corev1.ServicePort{
+				Name: "http", Protocol: corev1.ProtocolTCP,
+				Port: webPort, TargetPort: intstr.FromInt(int(webPort)),
 			})
 		}
+		a.applyServiceAndRecord(ctx, msgSvc, result)
 
 		// Ingress — expose web adapter if configured
 		if webEnabled {
@@ -580,7 +546,7 @@ func (a *Applier) ApplyDeploymentSpec(
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
 					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
 				})
-				status, err = a.applyIngress(ctx, ingress)
+				status, err := a.applyIngress(ctx, ingress)
 				result.Resources = append(result.Resources, status)
 				if err != nil {
 					result.Errors = append(result.Errors, deployment.DeploymentError{
@@ -596,7 +562,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 
-	// Phase 6: Collector sidecar for observability
+	var collectorSidecar *CollectorDeploymentConfig
 	if ds.Observability.Enabled {
 		collectorResourceName := deployment.GenerateAgentResourceName(agentName, "collector")
 
@@ -621,27 +587,13 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 		}
 
-		// Collector service
-		collectorSvc := BuildService(ServiceConfig{
-			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
-			BuildID: buildID, Component: "collector",
-			Port: otlpGRPCPort, ServiceType: corev1.ServiceTypeClusterIP,
-		})
-		collectorSvc.Spec.Ports[0].Name = "otlp-grpc"
-		collectorSvc.Spec.Ports = append(collectorSvc.Spec.Ports, corev1.ServicePort{
-			Name: "otlp-http", Protocol: corev1.ProtocolTCP,
-			Port: otlpHTTPPort, TargetPort: intstr.FromInt(int(otlpHTTPPort)),
-		})
-		a.applyServiceAndRecord(ctx, collectorSvc, result)
-
 		// Collector image from deployment spec, fallback to registry default
 		collectorImage := ds.Observability.Image
 		if collectorImage == "" {
 			collectorImage = fmt.Sprintf("%s/prod-astro-collector:latest", a.registryURL)
 		}
 
-		// Collector deployment
-		collectorCfg := CollectorDeploymentConfig{
+		collectorSidecar = &CollectorDeploymentConfig{
 			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
 			AgentVersion: ds.Source.Build,
 			BuildID:      buildID, Component: "collector",
@@ -657,12 +609,48 @@ func (a *Applier) ApplyDeploymentSpec(
 			Resources:        collectorResources,
 			Environment:      resolvedObsEnv,
 		}
-		collectorDepl := BuildCollectorDeployment(collectorCfg)
-		status, err := a.applyDeployment(ctx, collectorDepl)
+
+		// Collector service — selects the agent pod (collector is a sidecar container)
+		collectorSvc := BuildService(ServiceConfig{
+			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
+			BuildID: buildID, Component: "agent",
+			Port: otlpGRPCPort, ServiceType: corev1.ServiceTypeClusterIP,
+		})
+		collectorSvc.Spec.Ports[0].Name = "otlp-grpc"
+		collectorSvc.Spec.Ports = append(collectorSvc.Spec.Ports, corev1.ServicePort{
+			Name: "otlp-http", Protocol: corev1.ProtocolTCP,
+			Port: otlpHTTPPort, TargetPort: intstr.FromInt(int(otlpHTTPPort)),
+		})
+		a.applyServiceAndRecord(ctx, collectorSvc, result)
+	}
+
+	// Main agent deployment — messaging and collector are colocated as sidecar containers
+	agentContainer := spec.ContainerConfig{Image: ds.Agent.Image}
+	resolvedAgentContainer, err := a.resolveContainerImage(agentContainer)
+	if err != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: agentResourceName, Kind: "Deployment",
+			Error: fmt.Sprintf("failed to resolve image: %v", err),
+		})
+	} else {
+		cfg := DeploymentConfig{
+			Name: agentResourceName, Namespace: a.namespace, AgentName: agentName,
+			BuildID: buildID, Component: "agent",
+			Container: resolvedAgentContainer, Port: agentPort,
+			SecretName: secretName, ConfigMapName: configMapName,
+			Healthcheck: ds.Agent.Healthcheck, ImagePullPolicy: a.imagePullPolicy,
+			Replicas:  int32(ds.Agent.Replicas), //nolint:gosec
+			Resources: BuildResourceRequirements(ds.Agent.Resources),
+			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
+			Messaging: msgSidecar,
+			Collector: collectorSidecar,
+		}
+		agentDepl := BuildDeployment(cfg)
+		status, err := a.applyDeployment(ctx, agentDepl)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
-				Resource: collectorDepl.Name, Kind: "Deployment", Error: err.Error(),
+				Resource: agentDepl.Name, Kind: "Deployment", Error: err.Error(),
 			})
 		}
 	}
