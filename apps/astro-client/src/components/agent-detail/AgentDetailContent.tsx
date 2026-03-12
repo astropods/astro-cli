@@ -11,6 +11,7 @@ export interface AgentDetailContentProps {
   account: string;
   name: string;
   visibility?: string;
+  summary?: string;
   categories: string[];
   readme?: string;
   recommendedAgents: RecommendedAgent[];
@@ -21,6 +22,7 @@ export function AgentDetailContent({
   account,
   name,
   visibility,
+  summary,
   categories,
   readme,
   recommendedAgents,
@@ -74,13 +76,17 @@ export function AgentDetailContent({
             </h1>
             <p className="font-mono text-body-sm text-muted-foreground mt-0.5">
               @{account}
-              {categories.length > 0 && <> · {categories[0]}</>}
             </p>
           </div>
         </div>
+        {summary && (
+          <p className="mt-4 max-w-4xl text-[14px] leading-[1.65] text-foreground/85">
+            {summary}
+          </p>
+        )}
         {/* Category tags */}
         {categories.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className="mt-3.5 flex flex-wrap gap-2">
             {categories.map((tag) => (
               <InlineBadge key={tag}>{tag}</InlineBadge>
             ))}
@@ -95,7 +101,7 @@ export function AgentDetailContent({
 
       {/* README */}
       {readme && (
-        <section className="mb-8 overflow-hidden rounded-xl border border-border-strong bg-surface">
+        <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
@@ -104,7 +110,9 @@ export function AgentDetailContent({
           </div>
           <div className="relative">
             <div ref={resumeScrollRef} className="max-h-[640px] overflow-y-auto px-6 py-5">
-              <StyledMarkdown>{readme}</StyledMarkdown>
+              <StyledMarkdown className="[&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
+                {readme}
+              </StyledMarkdown>
               {safetyPermissions.length > 0 && (
                 <section className="mt-6 border-t border-border-strong pt-5">
                   <h2 className="mb-3 text-[15px] font-bold text-foreground">

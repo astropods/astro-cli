@@ -82,7 +82,7 @@ function AgentDetailSkeleton() {
       </div>
 
       {/* Content skeleton */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-y-auto">
         {/* Left column */}
         <div className="flex-1 min-w-0 p-6 md:p-8 max-w-3xl">
           <Skeleton className="h-7 w-64 mb-3" />
@@ -221,12 +221,13 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
       <AgentDetailBreadcrumb account={agent.account} agentName={agent.name} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-y-auto">
       <div className="flex min-w-0 flex-1 max-w-[1200px] mx-auto">
         <AgentDetailContent
           account={agent.account}
           name={agent.name}
           visibility={agent.visibility}
+          summary={description}
           categories={getAgentCategories(agent)}
           readme={readme}
           recommendedAgents={recommendedAgents}

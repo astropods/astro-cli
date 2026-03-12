@@ -55,7 +55,7 @@ export function SidebarCard({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
+      <div className="rounded-md border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
         <Button asChild size="default" className="h-11 w-full gap-2 rounded-md px-4 font-mono text-[14px] font-semibold text-stone-100">
           <Link to={`/deploy/${agent.account}/${agent.name}`}>
             Hire this agent

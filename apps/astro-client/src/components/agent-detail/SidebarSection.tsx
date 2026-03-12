@@ -9,7 +9,7 @@ export interface SidebarSectionProps {
 
 export function SidebarSection({ title, children, className, bodyClassName }: SidebarSectionProps) {
   return (
-    <section className={`overflow-hidden rounded-xl border border-border-strong bg-surface ${className ?? ""}`}>
+    <section className={`overflow-hidden rounded-md border border-border-strong bg-surface ${className ?? ""}`}>
       <header className="border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
         <span className="block text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
           {title}

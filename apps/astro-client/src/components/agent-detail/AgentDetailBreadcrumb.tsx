@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Heart, Share2 } from "lucide-react";
+import { Check, Share2, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 
@@ -47,22 +47,29 @@ export function AgentDetailBreadcrumb({
       actions={
         <>
           <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled
-            className="text-muted-foreground"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md px-3 text-[13px] font-semibold text-muted-foreground"
           >
-            <Heart className="h-4 w-4" />
+            <Star className="h-3.5 w-3.5" />
+            Like
           </Button>
           <Button
-            variant="ghost"
-            size="icon-sm"
+            variant="outline"
+            size="sm"
             onClick={handleShare}
+            className="h-8 rounded-md px-3 text-[13px] font-semibold text-muted-foreground"
           >
             {copied ? (
-              <Check className="h-4 w-4 text-green-500" />
+              <>
+                <Check className="h-3.5 w-3.5 text-green-500" />
+                Copied
+              </>
             ) : (
-              <Share2 className="h-4 w-4" />
+              <>
+                <Share2 className="h-3.5 w-3.5" />
+                Share
+              </>
             )}
           </Button>
         </>
