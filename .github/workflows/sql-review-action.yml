@@ -23,31 +23,91 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Review against test and prod
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
-          FILE_PATTERN: "sql/astro-server/schema.sql"
-        run: |
-          bytebase-action check --url=${{ env.BYTEBASE_URL }} --project=${{ env.BYTEBASE_PROJECT }} --targets=${{ env.BYTEBASE_TARGETS }} --file-pattern=${{ env.FILE_PATTERN }} --declarative
 
-  sql-review-river:
-    permissions:
-      contents: read
-      pull-requests: write
-    runs-on: ubuntu-latest
-    container:
-      image: docker://bytebase/bytebase-action:latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Review declarative schema
+        id: review-schema
+        env:
+          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
+        run: |
+          OUTPUT=$(bytebase-action check \
+            --url=${{ env.BYTEBASE_URL }} \
+            --project=${{ env.BYTEBASE_PROJECT }} \
+            --targets=${{ env.BYTEBASE_TARGETS }} \
+            --file-pattern="sql/astro-server/schema.sql" \
+            --declarative 2>&1) || true
+          {
+            echo "output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Review River migrations
+        id: review-river
+        env:
+          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
+        run: |
+          OUTPUT=$(bytebase-action check \
+            --url=${{ env.BYTEBASE_URL }} \
+            --project=${{ env.BYTEBASE_PROJECT }} \
+            --targets=${{ env.BYTEBASE_TARGETS }} \
+            --file-pattern="sql/river/*.sql" 2>&1) || true
+          {
+            echo "output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
-          FILE_PATTERN: "sql/river/*.sql"
-        run: |
-          bytebase-action check --url=${{ env.BYTEBASE_URL }} --project=${{ env.BYTEBASE_PROJECT }} --targets=${{ env.BYTEBASE_TARGETS }} --file-pattern=${{ env.FILE_PATTERN }}
+        with:
+          script: |
+            const marker = '<!-- bytebase-sql-review -->';
+            const schemaOutput = `${{ steps.review-schema.outputs.output }}`;
+            const riverOutput = `${{ steps.review-river.outputs.output }}`;
+
+            const body = [
+              marker,
+              '## Bytebase SQL Review',
+              '',
+              '### Declarative Schema',
+              '',
+              '```',
+              schemaOutput || 'No issues found.',
+              '```',
+              '',
+              '### River Migrations',
+              '',
+              '```',
+              riverOutput || 'No issues found.',
+              '```',
+              '',
+              `<sub>Reviewed by Bytebase \u00b7 ${new Date().toISOString().slice(0, 10)}</sub>`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   schema-plan:
     runs-on: ubuntu-latest
@@ -62,7 +122,7 @@ jobs:
       - name: Install Atlas
         run: curl -sSf https://atlasgo.sh | sh
 
-      - name: Generate migration plan
+      - name: Generate declarative schema plan
         id: plan
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -87,6 +147,30 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Check pending River migrations
+        id: river
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          OUTPUT=$(atlas migrate status \
+            --url "$DATABASE_URL" \
+            --dir "file://sql/river" \
+            --revisions-schema atlas_schema_revisions 2>&1)
+          STATUS=$?
+          PENDING=$(echo "$OUTPUT" | grep -c "^  --" || true)
+          if [ $STATUS -ne 0 ]; then
+            echo "status=error" >> "$GITHUB_OUTPUT"
+          elif [ "$PENDING" -gt 0 ]; then
+            echo "status=pending" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=current" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Comment on PR
         uses: actions/github-script@v7
         with:
@@ -94,12 +178,15 @@ jobs:
             const marker = '<!-- atlas-schema-plan -->';
             const hasChanges = '${{ steps.plan.outputs.has_changes }}';
             const diff = `${{ steps.plan.outputs.diff }}`;
+            const riverStatus = '${{ steps.river.outputs.status }}';
+            const riverOutput = `${{ steps.river.outputs.output }}`;
 
-            let body;
+            // --- Declarative schema section ---
+            const sections = [];
+
             if (hasChanges === 'error') {
-              body = [
-                marker,
-                '## Schema Plan — Preview',
+              sections.push(
+                '### Declarative Schema',
                 '',
                 '> [!CAUTION]',
                 '> Atlas failed to generate a migration plan.',
@@ -112,15 +199,14 @@ jobs:
                 '```',
                 '',
                 '</details>',
-              ].join('\n');
+              );
             } else if (hasChanges === 'false') {
-              body = [
-                marker,
-                '## Schema Plan — Preview',
+              sections.push(
+                '### Declarative Schema',
                 '',
                 '> [!NOTE]',
                 '> No schema changes detected. The preview database already matches `schema.sql`.',
-              ].join('\n');
+              );
             } else {
               const lines = diff.split('\n');
               const adds = lines.filter(l => l.startsWith('+')).length;
@@ -133,9 +219,8 @@ jobs:
                 alters > 0 ? `**${alters}** alteration${alters > 1 ? 's' : ''}` : '',
               ].filter(Boolean).join(', ');
 
-              body = [
-                marker,
-                '## Schema Plan — Preview',
+              sections.push(
+                '### Declarative Schema',
                 '',
                 '> [!IMPORTANT]',
                 '> The following SQL will be applied to the **preview** database on merge.',
@@ -144,10 +229,50 @@ jobs:
                 '```sql',
                 diff,
                 '```',
-                '',
-                `<sub>Generated by Atlas \u00b7 ${new Date().toISOString().slice(0, 10)}</sub>`,
-              ].join('\n');
+              );
             }
+
+            // --- River versioned migrations section ---
+            sections.push('', '### River Migrations', '');
+
+            if (riverStatus === 'error') {
+              sections.push(
+                '> [!CAUTION]',
+                '> Failed to check River migration status.',
+                '',
+                '<details>',
+                '<summary>Error output</summary>',
+                '',
+                '```',
+                riverOutput,
+                '```',
+                '',
+                '</details>',
+              );
+            } else if (riverStatus === 'pending') {
+              sections.push(
+                '> [!IMPORTANT]',
+                '> Pending River migrations will be applied on merge.',
+                '',
+                '```',
+                riverOutput,
+                '```',
+              );
+            } else {
+              sections.push(
+                '> [!NOTE]',
+                '> All River migrations are up to date.',
+              );
+            }
+
+            const body = [
+              marker,
+              '## Migration Plan — Preview',
+              '',
+              ...sections,
+              '',
+              `<sub>Generated by Atlas \u00b7 ${new Date().toISOString().slice(0, 10)}</sub>`,
+            ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
