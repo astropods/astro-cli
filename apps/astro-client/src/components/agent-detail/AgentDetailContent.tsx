@@ -28,12 +28,31 @@ export function AgentDetailContent({
   recommendedAgents,
   mobileSidebar,
 }: AgentDetailContentProps) {
+  const resumeContent = (() => {
+    if (!readme) return readme;
+
+    const lines = readme.split("\n");
+    const headingIndices: number[] = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      if (/^\s{0,3}#{1,6}\s+\S+/.test(lines[i])) {
+        headingIndices.push(i);
+      }
+    }
+
+    // Keep content unchanged unless we can safely remove one intro section.
+    if (headingIndices.length < 2) return readme;
+
+    const secondHeadingLine = headingIndices[1];
+    const sliced = lines.slice(secondHeadingLine).join("\n").trim();
+    return sliced || readme;
+  })();
+
   const resumeScrollRef = useRef<HTMLDivElement | null>(null);
   const [showResumeHint, setShowResumeHint] = useState(false);
 
   useEffect(() => {
     const el = resumeScrollRef.current;
-    if (!el || !readme) return;
+    if (!el || !resumeContent) return;
 
     const updateResumeHint = () => {
       const canScroll = el.scrollHeight - el.clientHeight > 4;
@@ -56,7 +75,7 @@ export function AgentDetailContent({
       resizeObserver?.disconnect();
       window.removeEventListener("resize", updateResumeHint);
     };
-  }, [readme]);
+  }, [resumeContent]);
 
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
@@ -100,7 +119,7 @@ export function AgentDetailContent({
       )}
 
       {/* README */}
-      {readme && (
+      {resumeContent && (
         <section className="mb-8 overflow-hidden rounded-md border border-border-strong bg-surface">
           <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
@@ -110,8 +129,8 @@ export function AgentDetailContent({
           </div>
           <div className="relative">
             <div ref={resumeScrollRef} className="max-h-[640px] overflow-y-auto px-6 py-5">
-              <StyledMarkdown className="[&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
-                {readme}
+              <StyledMarkdown className="prose-headings:font-mono prose-p:font-mono prose-li:font-mono prose-a:font-mono prose-strong:font-mono prose-th:font-mono prose-td:font-mono [&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
+                {resumeContent}
               </StyledMarkdown>
               {safetyPermissions.length > 0 && (
                 <section className="mt-6 border-t border-border-strong pt-5">
