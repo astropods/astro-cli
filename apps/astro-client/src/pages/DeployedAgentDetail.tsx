@@ -9,6 +9,7 @@ import { StatusIndicator } from "@/components/StatusIndicator";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ExternalUrls } from "@/components/deployed-agent/ExternalUrls";
 import { PodGrid } from "@/components/deployed-agent/PodGrid";
 import { PodLogViewer } from "@/components/deployed-agent/PodLogViewer";
 import { useDeployments, useRestartPod } from "@/api/queries/deployments";
@@ -167,6 +168,11 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
         </div>
 
         <div className="mx-6 border-t border-border" />
+
+        {/* External URLs */}
+        {deployment.external_urls && deployment.external_urls.length > 0 && (
+          <ExternalUrls urls={deployment.external_urls} />
+        )}
 
         {/* Body */}
         <div className="px-6 py-6">
