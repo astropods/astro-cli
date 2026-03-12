@@ -10,15 +10,17 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
 // Config holds dependencies that River workers need.
 type Config struct {
-	DB       *sql.DB
-	OMClient *openmeter.Client
-	Logger   *logger.Logger
+	DB           *sql.DB
+	OMClient     *openmeter.Client
+	AccountStore *account.AccountStore
+	Logger       *logger.Logger
 }
 
 // Queue wraps a River client and its pgxpool connection.

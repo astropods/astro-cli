@@ -20,5 +20,16 @@ func periodicJobs() []*river.PeriodicJob {
 			},
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ReconcilerArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 24 * time.Hour,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
 	}
 }

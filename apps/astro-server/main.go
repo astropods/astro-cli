@@ -362,16 +362,12 @@ func runWorker(
 		log.Warn("WorkOS API key not configured, events consumer will not start")
 	}
 
-	if omClient != nil {
-		reconciler := openmeter.NewReconciler(omClient, accountStore, log)
-		go reconciler.Run(workerCtx)
-	}
-
-	// Start River queue (handles heartbeat and future periodic jobs)
+	// Start River queue (handles heartbeat, reconciler, and future periodic jobs)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
-		DB:       db,
-		OMClient: omClient,
-		Logger:   log,
+		DB:           db,
+		OMClient:     omClient,
+		AccountStore: accountStore,
+		Logger:       log,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
