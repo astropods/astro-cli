@@ -63,7 +63,16 @@ export const Default: Story = {
     agent: mockAgent,
     description:
       "Analyzes customer feedback to surface actionable insights and trends across all channels.",
-    integrations: [ri("slack", "Slack"), ri("github", "GitHub")],
+    integrations: ["Slack", "GitHub"],
+    permissions: [
+      "Read Slack messages",
+      "Send Slack messages",
+      "Access GitHub repositories",
+    ],
+    rating: 4.8,
+    installs: 2841,
+    teammateInstallCount: 3,
+    teammateInitials: ["AK", "MF", "BL"],
     initialAccountData: mockAccount,
   },
 };
@@ -87,6 +96,10 @@ export const Full: Story = {
       "Read Notion pages",
       "Send email notifications",
     ],
+    rating: 4.9,
+    installs: 12481,
+    teammateInstallCount: 7,
+    teammateInitials: ["SO", "JD", "PK"],
     initialAccountData: mockAccount,
   },
 };
@@ -96,6 +109,10 @@ export const Minimal: Story = {
     agent: mockAgent,
     description: "",
     integrations: [],
+    permissions: [],
+    rating: undefined,
+    installs: undefined,
+    teammateInstallCount: 0,
     initialAccountData: mockAccount,
   },
 };

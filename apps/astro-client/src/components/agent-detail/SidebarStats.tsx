@@ -1,4 +1,9 @@
+import { Star } from "lucide-react";
+import { SidebarSection } from "./SidebarSection";
+
 export interface SidebarStatsProps {
+  rating?: number;
+  installs?: number;
   version?: string;
   /** Whether the version is a semver string (will be prefixed with "v") */
   isSemver?: boolean;
@@ -6,33 +11,51 @@ export interface SidebarStatsProps {
 }
 
 export function SidebarStats({
+  rating,
+  installs,
   version,
   isSemver,
   updatedAt,
 }: SidebarStatsProps) {
-  if (!version && !updatedAt) return null;
+  if (rating == null && installs == null && !version && !updatedAt) return null;
 
   return (
-    <>
-      <div className="my-5 h-px bg-border-strong" />
-      <div className="grid grid-cols-2 gap-3">
+    <SidebarSection title="Details" bodyClassName="px-0 py-0">
+      <dl>
+        {rating != null && (
+          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3 last:border-b-0">
+            <dt className="text-[13px] text-muted-foreground">Rating</dt>
+            <dd className="inline-flex items-center gap-1 text-[13px] font-medium text-foreground font-mono">
+              <Star className="h-3 w-3 fill-current text-yellow-500" />
+              {rating.toFixed(1)}
+            </dd>
+          </div>
+        )}
+        {installs != null && (
+          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3 last:border-b-0">
+            <dt className="text-[13px] text-muted-foreground">Installs</dt>
+            <dd className="text-[13px] font-medium text-foreground font-mono">
+              {new Intl.NumberFormat("en-US").format(installs)}
+            </dd>
+          </div>
+        )}
         {version && (
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] text-[var(--faint-foreground)]">Version</span>
-            <span className="text-[13px] font-normal text-foreground font-mono">
+          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3 last:border-b-0">
+            <dt className="text-[13px] text-muted-foreground">Version</dt>
+            <dd className="text-[13px] font-medium text-foreground font-mono">
               {isSemver ? `v${version}` : version}
-            </span>
+            </dd>
           </div>
         )}
         {updatedAt && (
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] text-[var(--faint-foreground)]">Updated</span>
-            <span className="text-[13px] font-normal text-foreground font-mono">
+          <div className="flex items-center justify-between border-b border-border-strong px-4 py-3 last:border-b-0">
+            <dt className="text-[13px] text-muted-foreground">Last updated</dt>
+            <dd className="text-[13px] font-medium text-foreground font-mono">
               {updatedAt}
-            </span>
+            </dd>
           </div>
         )}
-      </div>
-    </>
+      </dl>
+    </SidebarSection>
   );
 }
