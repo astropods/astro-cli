@@ -1,6 +1,7 @@
+import { useState, useEffect } from "react";
 import { useParams, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
-import { Settings } from "lucide-react";
+import { Settings, RotateCcw, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
@@ -10,11 +11,12 @@ import { AgentIdentity } from "@/components/AgentIdentity";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { PodGrid } from "@/components/deployed-agent/PodGrid";
 import { PodLogViewer } from "@/components/deployed-agent/PodLogViewer";
-import { useDeployments } from "@/api/queries/deployments";
+import { useDeployments, useRestartPod } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
+import { getPodStableName, getPodDisplayName } from "@/lib/pod-utils";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -63,6 +65,19 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const podName = searchParams.get("pod");
 
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
+  const restartMutation = useRestartPod(account);
+  const [showRestarted, setShowRestarted] = useState(false);
+
+  useEffect(() => {
+    if (restartMutation.isSuccess) {
+      setShowRestarted(true);
+      const timer = setTimeout(() => {
+        setShowRestarted(false);
+        restartMutation.reset();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [restartMutation.isSuccess]);
 
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
@@ -84,7 +99,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const status = mapDeploymentStatus(deployment);
   const displayName = deployment.display_name || deployment.name;
   const pods = deployment.pods ?? [];
-  const selectedPod = podName ? pods.find((p) => p.name === podName) ?? null : null;
+  const selectedPod = podName ? pods.find((p) => getPodStableName(p.name) === podName) ?? null : null;
   const basePath = deploymentPath(account, deployment.id);
 
   const isPersonal = personalAccount?.name === account;
@@ -95,7 +110,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     ...(selectedPod
       ? [
           { label: displayName, to: basePath },
-          { label: selectedPod.name },
+          { label: getPodDisplayName(getPodStableName(selectedPod.name), deployment.name) },
         ]
       : [{ label: displayName }]),
   ];
@@ -129,6 +144,26 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
               Deployed {formatDate(deployment.created_at)}
             </p>
           </div>
+          {selectedPod && (
+            <Button
+              variant="outline"
+              className="ml-auto"
+              disabled={restartMutation.isPending || showRestarted}
+              onClick={() => restartMutation.mutate({ namespace: deployment.namespace, pod: selectedPod.name, account })}
+            >
+              {showRestarted ? (
+                <>
+                  <Check className="size-4 text-green-600" />
+                  Restarted
+                </>
+              ) : (
+                <>
+                  <RotateCcw className={`size-4 ${restartMutation.isPending ? "animate-spin" : ""}`} />
+                  Restart Pod
+                </>
+              )}
+            </Button>
+          )}
         </div>
 
         <div className="mx-6 border-t border-border" />
@@ -138,7 +173,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
           {selectedPod ? (
             <PodLogViewer account={account} namespace={deployment.namespace} pod={selectedPod} />
           ) : (
-            <PodGrid pods={pods} basePath={basePath} />
+            <PodGrid pods={pods} basePath={basePath} agentName={deployment.name} />
           )}
         </div>
       </div>

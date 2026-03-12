@@ -18,7 +18,6 @@ export function PodLogViewer({ account, namespace, pod }: { account: string; nam
   const { data: logs, isLoading, error: logsError, refetch } = useDeploymentLogs(
     account, namespace, pod.name, selectedContainer, tailLines,
   );
-
   const lines = useMemo(() => (logs ?? "").split("\n"), [logs]);
   const listRef = useRef<HTMLDivElement>(null);
 
