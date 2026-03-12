@@ -13,6 +13,8 @@ import {
   UserCircle,
   ClipboardList,
   Zap,
+  Waves,
+  ExternalLink,
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
@@ -29,6 +31,7 @@ const sections = [
       { to: "/admin/cluster", label: "Cluster", icon: Server },
       { to: "/admin/devices", label: "Devices", icon: Wifi },
       { to: "/admin/api-client", label: "API Client", icon: Send },
+      { to: "/riverui/", label: "River UI", icon: Waves, external: true },
     ],
   },
   {
@@ -59,23 +62,36 @@ function TreeSection({
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-1">
-        {section.links.map((link) => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            title={link.label}
-            className={({ isActive }) =>
-              cn(
-                "flex size-7 items-center justify-center rounded transition-colors",
-                isActive
-                  ? "bg-pollen/80 text-honey-dark"
-                  : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
-              )
-            }
-          >
-            <link.icon className="size-3.5" />
-          </NavLink>
-        ))}
+        {section.links.map((link) =>
+          "external" in link && link.external ? (
+            <a
+              key={link.to}
+              href={link.to}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={link.label}
+              className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-glass-light hover:text-foreground transition-colors"
+            >
+              <link.icon className="size-3.5" />
+            </a>
+          ) : (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              title={link.label}
+              className={({ isActive }) =>
+                cn(
+                  "flex size-7 items-center justify-center rounded transition-colors",
+                  isActive
+                    ? "bg-pollen/80 text-honey-dark"
+                    : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
+                )
+              }
+            >
+              <link.icon className="size-3.5" />
+            </NavLink>
+          )
+        )}
       </div>
     );
   }
@@ -109,23 +125,37 @@ function TreeSection({
       </div>
       {open && (
         <nav className="ml-1.5 border-l border-glass-border-honey pl-2 mt-0.5">
-          {section.links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-1.5 rounded px-1.5 py-[3px] text-xs transition-colors",
-                  isActive
-                    ? "bg-pollen/80 text-honey-dark"
-                    : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
-                )
-              }
-            >
-              <link.icon className="size-3 shrink-0" />
-              {link.label}
-            </NavLink>
-          ))}
+          {section.links.map((link) =>
+            "external" in link && link.external ? (
+              <a
+                key={link.to}
+                href={link.to}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded px-1.5 py-[3px] text-xs text-muted-foreground hover:bg-glass-light hover:text-foreground transition-colors"
+              >
+                <link.icon className="size-3 shrink-0" />
+                {link.label}
+                <ExternalLink className="ml-auto size-2.5 opacity-50" />
+              </a>
+            ) : (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-1.5 rounded px-1.5 py-[3px] text-xs transition-colors",
+                    isActive
+                      ? "bg-pollen/80 text-honey-dark"
+                      : "text-muted-foreground hover:bg-glass-light hover:text-foreground"
+                  )
+                }
+              >
+                <link.icon className="size-3 shrink-0" />
+                {link.label}
+              </NavLink>
+            )
+          )}
         </nav>
       )}
     </div>
