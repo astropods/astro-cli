@@ -77,7 +77,7 @@ export function SidebarAuthor({
 
   return (
     <SidebarSection title="Creator">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3.5">
         {profilePictureUrl ? (
           <img
             src={profilePictureUrl}
@@ -90,8 +90,8 @@ export function SidebarAuthor({
           </div>
         )}
         <div className="flex flex-col">
-          <span className="text-[13px] font-medium text-foreground">{name}</span>
-          <span className="text-[11px] font-mono text-muted-foreground">
+          <span className="text-[15px] leading-5 font-semibold text-foreground">{name}</span>
+          <span className="text-[12px] leading-4 font-mono text-muted-foreground">
             @{handle}
           </span>
         </div>

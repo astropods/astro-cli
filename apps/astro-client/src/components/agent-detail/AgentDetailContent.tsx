@@ -1,4 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { ShieldCheck, FileText } from "lucide-react";
+import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { RecommendedAgents } from "@/components/RecommendedAgents";
 import type { RecommendedAgent } from "@/components/RecommendedAgents";
@@ -23,10 +26,40 @@ export function AgentDetailContent({
   recommendedAgents,
   mobileSidebar,
 }: AgentDetailContentProps) {
+  const resumeScrollRef = useRef<HTMLDivElement | null>(null);
+  const [showResumeHint, setShowResumeHint] = useState(false);
+
+  useEffect(() => {
+    const el = resumeScrollRef.current;
+    if (!el || !readme) return;
+
+    const updateResumeHint = () => {
+      const canScroll = el.scrollHeight - el.clientHeight > 4;
+      const atTop = el.scrollTop <= 2;
+      setShowResumeHint(canScroll && atTop);
+    };
+
+    updateResumeHint();
+    el.addEventListener("scroll", updateResumeHint, { passive: true });
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updateResumeHint)
+        : null;
+    resizeObserver?.observe(el);
+    window.addEventListener("resize", updateResumeHint);
+
+    return () => {
+      el.removeEventListener("scroll", updateResumeHint);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateResumeHint);
+    };
+  }, [readme]);
+
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
       {/* Header */}
-      <header className="mb-4">
+      <header className="mb-6 border-b border-border-strong pb-6">
         <div className="flex items-start gap-4">
           <AgentIdentity
             account={account}
@@ -62,8 +95,41 @@ export function AgentDetailContent({
 
       {/* README */}
       {readme && (
-        <section className="mb-8">
-          <StyledMarkdown>{readme}</StyledMarkdown>
+        <section className="mb-8 overflow-hidden rounded-xl border border-border-strong bg-surface">
+          <div className="flex items-center gap-2 border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30">
+            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
+              Resume
+            </span>
+          </div>
+          <div className="relative">
+            <div ref={resumeScrollRef} className="max-h-[640px] overflow-y-auto px-6 py-5">
+              <StyledMarkdown>{readme}</StyledMarkdown>
+              {safetyPermissions.length > 0 && (
+                <section className="mt-6 border-t border-border-strong pt-5">
+                  <h2 className="mb-3 text-[15px] font-bold text-foreground">
+                    Safety & Permissions
+                  </h2>
+                  <ul className="space-y-2.5">
+                    {safetyPermissions.map((permission, i) => (
+                      <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed">
+                        <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="text-muted-foreground">{permission}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+            {showResumeHint && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0">
+                <div className="h-16 bg-gradient-to-t from-surface via-surface/90 to-transparent" />
+                <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] leading-4 font-mono uppercase tracking-[0.12em] text-muted-foreground">
+                  Scroll to read more
+                </span>
+              </div>
+            )}
+          </div>
         </section>
       )}
 

@@ -10,12 +10,19 @@ import { Gmail } from "@/components/ui/svgs/gmail";
 
 // Keyed by canonical integration ID
 export const integrationIconMap: Record<string, ReactNode> = {
-  slack: <Slack />,
+  Slack: <Slack />,
+  GitHub: <GithubLight />,
+  Github: <GithubLight />,
   github: <GithubLight />,
+  Linear: <Linear />,
   linear: <Linear />,
+  Notion: <Notion />,
   notion: <Notion />,
-  "google-drive": <Drive />,
-  "google-sheets": <Drive />,
+  "Google Drive": <Drive />,
+  "Google Docs": <Drive />,
+  Drive: <Drive />,
+  drive: <Drive />,
+  Gmail: <Gmail />,
   gmail: <Gmail />,
 };
 

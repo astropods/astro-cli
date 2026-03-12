@@ -1,0 +1,31 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks";
+import * as Stories from "./IntegrationBadgeExtended.stories";
+
+<Meta of={Stories} />
+
+# IntegrationBadgeExtended
+
+Extended integration badge patterns used for connected app pills in the agent detail sidebar.
+
+## Usage
+
+Use these badge styles for compact, icon-led integration labels such as:
+- Connected apps rows
+- Requirement summaries
+- Mixed known/unknown integration sets
+
+## Connected Apps Row
+
+<Canvas of={Stories.ConnectedAppsRow} />
+
+## Extended Set
+
+<Canvas of={Stories.ExtendedSet} />
+
+## With Fallback Icon
+
+<Canvas of={Stories.WithFallbackIcon} />
+
+## Controls
+
+<Controls of={Stories.ConnectedAppsRow} />

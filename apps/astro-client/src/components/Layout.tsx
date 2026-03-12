@@ -34,7 +34,7 @@ export default function Layout() {
   const displayError = authError || callbackError;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       <AppHeader />
       {displayError && (
         <div
