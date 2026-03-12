@@ -73,7 +73,7 @@ func (s *Scanner) Start(ctx context.Context, interval time.Duration) {
 		if err != nil {
 			s.log.Error("Initial namespace scan failed", "error", err)
 		} else {
-			s.logResult(result)
+			s.LogResult(result)
 		}
 
 		ticker := time.NewTicker(interval)
@@ -86,7 +86,7 @@ func (s *Scanner) Start(ctx context.Context, interval time.Duration) {
 				if err != nil {
 					s.log.Error("Periodic namespace scan failed", "error", err)
 				} else {
-					s.logResult(r)
+					s.LogResult(r)
 				}
 			case <-ctx.Done():
 				return
@@ -214,7 +214,7 @@ func (s *Scanner) Scan(ctx context.Context) (*ScanResult, error) {
 	return result, nil
 }
 
-func (s *Scanner) logResult(r *ScanResult) {
+func (s *Scanner) LogResult(r *ScanResult) {
 	s.log.Info("Namespace scan complete",
 		"tracked", r.Tracked,
 		"orphaned", len(r.Orphaned),

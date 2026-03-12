@@ -32,7 +32,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	"github.com/astropods/astro/apps/astro-server/internal/nsscan"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
@@ -339,11 +338,6 @@ func runWorker(
 		log.Warn("Worker: K8s client unavailable, namespace scanner will skip K8s reconciliation", "error", k8sErr)
 		k8sClient = nil
 	}
-
-	scanner := nsscan.New(db, k8sClient, log)
-	scanner.AddHook(nsscan.MigrationHook(db, log)) // TEMPORARY — remove after migration
-	scanner.Start(workerCtx, 10*time.Minute)
-	log.Info("Namespace scanner started")
 
 	if cfg.Auth.WorkOSAPIKey != "" {
 		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, org.NewClient(cfg.Auth.WorkOSAPIKey), accountStore, db, log, 30*time.Second)

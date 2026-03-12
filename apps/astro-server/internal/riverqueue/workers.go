@@ -21,4 +21,9 @@ func addWorkers(workers *river.Workers, cfg Config) {
 		k8sClient: cfg.K8sClient,
 		log:       cfg.Logger,
 	})
+	river.AddWorker(workers, &NsScanWorker{
+		db:        cfg.DB,
+		k8sClient: cfg.K8sClient,
+		log:       cfg.Logger,
+	})
 }
