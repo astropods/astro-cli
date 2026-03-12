@@ -71,13 +71,17 @@ Keep `ca.key` secure — it signs everything below. The CA is valid for 10 years
 
 Generate a cert for each environment the server runs in.
 
+Server certs must include a SAN (Subject Alternative Name) — Go's TLS library rejects certs that only use the legacy CN field.
+
 **Production (`admin.astropods.ai`)**
 
 ```bash
 cd .certs
 openssl genrsa -out prod.key 2048
-openssl req -new -key prod.key -out prod.csr -subj "/CN=admin.astropods.ai"
-openssl x509 -req -days 365 -in prod.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out prod.crt
+openssl req -new -key prod.key -out prod.csr -subj "/CN=admin.astropods.ai" \
+  -addext "subjectAltName=DNS:admin.astropods.ai"
+openssl x509 -req -days 365 -in prod.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -copy_extensions copyall -out prod.crt
 ```
 
 **Preview (`admin.astropod.ai`)**
@@ -85,8 +89,10 @@ openssl x509 -req -days 365 -in prod.csr -CA ca.crt -CAkey ca.key -CAcreateseria
 ```bash
 cd .certs
 openssl genrsa -out preview.key 2048
-openssl req -new -key preview.key -out preview.csr -subj "/CN=admin.astropod.ai"
-openssl x509 -req -days 365 -in preview.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out preview.crt
+openssl req -new -key preview.key -out preview.csr -subj "/CN=admin.astropod.ai" \
+  -addext "subjectAltName=DNS:admin.astropod.ai"
+openssl x509 -req -days 365 -in preview.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -copy_extensions copyall -out preview.crt
 ```
 
 **Local (`localhost`)**
@@ -94,8 +100,10 @@ openssl x509 -req -days 365 -in preview.csr -CA ca.crt -CAkey ca.key -CAcreatese
 ```bash
 cd .certs
 openssl genrsa -out local-server.key 2048
-openssl req -new -key local-server.key -out local-server.csr -subj "/CN=localhost"
-openssl x509 -req -days 365 -in local-server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out local-server.crt
+openssl req -new -key local-server.key -out local-server.csr -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+openssl x509 -req -days 365 -in local-server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -copy_extensions copyall -out local-server.crt
 ```
 
 Or use the shortcut for local: `moon run astro-server:gen-admin-certs`
