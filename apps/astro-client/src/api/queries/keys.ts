@@ -36,8 +36,4 @@ export const deploymentKeys = {
     ['deployments', account, name, 'spec'] as const,
   history: (account: string, name: string) =>
     ['deployments', account, name, 'history'] as const,
-  configmap: (account: string, namespace: string, cmname: string) =>
-    ['deployments', account, namespace, 'configmap', cmname] as const,
-  secretKeys: (account: string, namespace: string, secretName: string) =>
-    ['deployments', account, namespace, 'secret', secretName, 'keys'] as const,
 };

@@ -80,7 +80,7 @@ export function AppHeader() {
   }, [location.pathname]);
 
   const navItems: NavItem[] = isAuthenticated
-    ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1), { label: "Dashboard", to: "/operator" }]
+    ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1)]
     : publicNav;
 
   if (isMobile) {

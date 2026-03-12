@@ -59,24 +59,6 @@ export function useDeploymentHistory(account: string, name: string, enabled = tr
   });
 }
 
-export function useConfigMapData(account: string, namespace: string, cmname: string, enabled = true) {
-  const api = useApiClient();
-  return useQuery({
-    queryKey: deploymentKeys.configmap(account, namespace, cmname),
-    queryFn: () => api.getConfigMapData(namespace, cmname, account),
-    enabled: !!account && !!namespace && !!cmname && enabled,
-  });
-}
-
-export function useSecretKeys(account: string, namespace: string, secretName: string, enabled = true) {
-  const api = useApiClient();
-  return useQuery({
-    queryKey: deploymentKeys.secretKeys(account, namespace, secretName),
-    queryFn: () => api.getSecretKeys(namespace, secretName, account),
-    enabled: !!account && !!namespace && !!secretName && enabled,
-  });
-}
-
 export function useTriggerIngestion(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
