@@ -36,7 +36,7 @@ func (h *Heartbeat) Start(ctx context.Context) {
 	h.log.Info("OpenMeter heartbeat started", "interval", heartbeatInterval.String())
 
 	// Run immediately, then on interval
-	h.tick(ctx)
+	h.Tick(ctx)
 
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
@@ -47,12 +47,13 @@ func (h *Heartbeat) Start(ctx context.Context) {
 			h.log.Info("OpenMeter heartbeat stopping")
 			return
 		case <-ticker.C:
-			h.tick(ctx)
+			h.Tick(ctx)
 		}
 	}
 }
 
-func (h *Heartbeat) tick(ctx context.Context) {
+// Tick runs a single heartbeat iteration: emits compute usage, active deployments, and active agents.
+func (h *Heartbeat) Tick(ctx context.Context) {
 	h.emitComputeUsage(ctx)
 	h.emitActiveDeployments(ctx)
 	h.emitActiveAgents(ctx)

@@ -37,6 +37,7 @@ import (
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
 )
 
@@ -355,9 +356,28 @@ func runWorker(
 	if omClient != nil {
 		reconciler := openmeter.NewReconciler(omClient, accountStore, log)
 		go reconciler.Run(workerCtx)
+	}
 
-		heartbeat := openmeter.NewHeartbeat(omClient, db, log)
-		go heartbeat.Start(workerCtx)
+	// Start River queue (handles heartbeat and future periodic jobs)
+	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
+		DB:       db,
+		OMClient: omClient,
+		Logger:   log,
+	})
+	if rqErr != nil {
+		log.Error("Failed to create River queue", "error", rqErr)
+	} else {
+		if startErr := rq.Start(workerCtx); startErr != nil {
+			log.Error("Failed to start River queue", "error", startErr)
+		} else {
+			// Stop River on context cancellation
+			go func() {
+				<-workerCtx.Done()
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer stopCancel()
+				_ = rq.Stop(stopCtx)
+			}()
+		}
 	}
 
 	return cancel

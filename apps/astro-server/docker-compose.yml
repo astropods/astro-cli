@@ -15,13 +15,14 @@ services:
       timeout: 5s
       retries: 5
 
+  # Declarative schema migration (Atlas diffes schema.sql against the live DB)
   migrate:
     image: arigaio/atlas:latest
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./schema.sql:/schema.sql
+      - ../../sql/astro-server/schema.sql:/schema.sql
     command:
       - schema
       - apply
@@ -31,7 +32,28 @@ services:
       - file://schema.sql
       - --dev-url
       - postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+      - --exclude
+      - atlas_schema_revisions,river
       - --auto-approve
+
+  # Versioned migrations for River queue tables (Atlas migrate apply)
+  migrate-river:
+    image: arigaio/atlas:latest
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ../../sql/river:/migrations
+    command:
+      - migrate
+      - apply
+      - --url
+      - postgres://postgres:postgres@postgres:5432/astro?sslmode=disable
+      - --dir
+      - file:///migrations
+      - --revisions-schema
+      - atlas_schema_revisions
+      - --allow-dirty
 
 volumes:
   postgres_data:

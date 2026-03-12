@@ -5,7 +5,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "apps/astro-server/schema.sql"
+      - "sql/astro-server/schema.sql"
+      - "sql/river/**"
 
 concurrency:
   group: ${{ github.workflow }}
@@ -19,7 +20,7 @@ env:
   BYTEBASE_SERVICE_ACCOUNT: github-bot@service.bytebase.com
   BYTEBASE_SERVICE_ACCOUNT_SECRET: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT_SECRET }}
   BYTEBASE_PROJECT: "projects/astro"
-  FILE_PATTERN: "apps/astro-server/schema.sql"
+  FILE_PATTERN: "sql/astro-server/schema.sql"
 
 jobs:
   create-rollout:
@@ -57,3 +58,31 @@ jobs:
         run: |
           PLAN=$(jq -r .plan ${{ runner.temp }}/bytebase-metadata.json)
           echo "plan=$PLAN" >> $GITHUB_OUTPUT
+
+  create-river-rollout:
+    runs-on: ubuntu-latest
+    container:
+      image: bytebase/bytebase-action:latest
+    steps:
+      - name: Check required variables
+        env:
+          BYTEBASE_SERVICE_ACCOUNT_SECRET: ${{ secrets.BYTEBASE_SERVICE_ACCOUNT_SECRET }}
+        run: |
+          if [ -z "$BYTEBASE_SERVICE_ACCOUNT_SECRET" ]; then
+            echo "::error::Missing required secret: BYTEBASE_SERVICE_ACCOUNT_SECRET"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Create River rollout plan
+        env:
+          BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
+          BYTEBASE_OUTPUT: ${{ runner.temp }}/bytebase-river-metadata.json
+        run: |
+          bytebase-action rollout \
+            --url=${{ env.BYTEBASE_URL }} \
+            --project=${{ env.BYTEBASE_PROJECT }} \
+            --file-pattern="sql/river/*.sql" \
+            --targets=${{ env.BYTEBASE_TARGETS }} \
+            --output=${{ env.BYTEBASE_OUTPUT }}

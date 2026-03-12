@@ -37,7 +37,7 @@ jobs:
           changed=$(git diff --name-only HEAD^ HEAD)
           services='[]'
 
-          if echo "$changed" | grep -qE '^(apps/astro-server|deployment/Dockerfile\.astro-server|packages/astro-spec)/'; then
+          if echo "$changed" | grep -qE '^(apps/astro-server|deployment/Dockerfile\.astro-server|packages/astro-spec|sql)/'; then
             services=$(echo "$services" | jq -c '. + ["astro-server"]')
           fi
           if echo "$changed" | grep -qE '^(apps/astro-client|deployment/Dockerfile\.astro-client|packages/astro-identity-gen)/'; then
@@ -91,17 +91,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run schema migration
+      - name: Install Atlas
+        run: curl -sSf https://atlasgo.sh | sh
+
+      - name: Apply declarative schema
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
-          curl -sSf https://atlasgo.sh | sh
           atlas schema apply \
             --url "$DATABASE_URL" \
-            --to "file://apps/astro-server/schema.sql" \
+            --to "file://sql/astro-server/schema.sql" \
             --dev-url "$DEV_DATABASE_URL" \
+            --exclude "atlas_schema_revisions,river" \
             --auto-approve
+
+      - name: Apply River migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          atlas migrate apply \
+            --url "$DATABASE_URL" \
+            --dir "file://sql/river" \
+            --revisions-schema atlas_schema_revisions \
+            --allow-dirty
 
   # ---------------------------------------------------------------------------
   # Build: multi-arch images, push by digest to preview ECR

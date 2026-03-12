@@ -38,6 +38,10 @@ docker compose up -d --wait postgres
 echo "==> Applying schema..."
 docker compose run --rm migrate
 
+# Apply River queue migrations (idempotent — CREATE IF NOT EXISTS)
+echo "==> Applying River migrations..."
+docker compose run --rm migrate-river
+
 # Start the server with hot reload
 echo "==> Starting astro-server (hot reload via air)..."
 air &

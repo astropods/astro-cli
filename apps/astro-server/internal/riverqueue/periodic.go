@@ -1,0 +1,24 @@
+package riverqueue
+
+import (
+	"time"
+
+	"github.com/riverqueue/river"
+)
+
+// periodicJobs returns the periodic job definitions for the River client.
+func periodicJobs() []*river.PeriodicJob {
+	return []*river.PeriodicJob{
+		river.NewPeriodicJob(
+			river.PeriodicInterval(5*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return HeartbeatArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 5 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+	}
+}
