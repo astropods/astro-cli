@@ -29,7 +29,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
-	"github.com/astropods/astro/apps/astro-server/internal/driftcheck"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -346,14 +345,6 @@ func runWorker(
 	scanner.Start(workerCtx, 10*time.Minute)
 	log.Info("Namespace scanner started")
 
-	// Start drift checker (report-only mode)
-	if k8sClient != nil {
-		deployStore := deploymentstore.NewStore(db)
-		dc := driftcheck.New(deployStore, k8sClient, log)
-		dc.Start(workerCtx, 10*time.Minute)
-		log.Info("Drift checker started (report-only)")
-	}
-
 	if cfg.Auth.WorkOSAPIKey != "" {
 		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, org.NewClient(cfg.Auth.WorkOSAPIKey), accountStore, db, log, 30*time.Second)
 		go consumer.Start(workerCtx)
@@ -367,6 +358,7 @@ func runWorker(
 		DB:           db,
 		OMClient:     omClient,
 		AccountStore: accountStore,
+		K8sClient:    k8sClient,
 		Logger:       log,
 	})
 	if rqErr != nil {

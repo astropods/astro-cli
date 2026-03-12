@@ -62,7 +62,7 @@ func New(deployStore *deploymentstore.Store, k8sClient k8s.ClusterClient, log *l
 func (c *Checker) Start(ctx context.Context, interval time.Duration) {
 	go func() {
 		report := c.Check(ctx)
-		c.logReport(report)
+		c.LogReport(report)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -74,7 +74,7 @@ func (c *Checker) Start(ctx context.Context, interval time.Duration) {
 				return
 			case <-ticker.C:
 				report := c.Check(ctx)
-				c.logReport(report)
+				c.LogReport(report)
 			}
 		}
 	}()
@@ -305,7 +305,7 @@ func (c *Checker) checkIngresses(ctx context.Context, dep *deploymentstore.Deplo
 	return drifts
 }
 
-func (c *Checker) logReport(r *Report) {
+func (c *Checker) LogReport(r *Report) {
 	if len(r.Drifts) == 0 {
 		c.log.Info("Drift check complete — no drift detected",
 			"deployments_checked", r.DeploymentsChecked,

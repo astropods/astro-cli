@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
@@ -20,6 +21,7 @@ type Config struct {
 	DB           *sql.DB
 	OMClient     *openmeter.Client
 	AccountStore *account.AccountStore
+	K8sClient    k8s.ClusterClient
 	Logger       *logger.Logger
 }
 

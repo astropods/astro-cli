@@ -449,9 +449,9 @@ func TestLogReport(t *testing.T) {
 	c := &Checker{log: log}
 
 	// Should not panic for any case
-	c.logReport(&Report{DeploymentsChecked: 0})
-	c.logReport(&Report{DeploymentsChecked: 5, Drifts: nil})
-	c.logReport(&Report{
+	c.LogReport(&Report{DeploymentsChecked: 0})
+	c.LogReport(&Report{DeploymentsChecked: 5, Drifts: nil})
+	c.LogReport(&Report{
 		DeploymentsChecked: 1,
 		Drifts: []Drift{{
 			DeploymentID: "d1", Namespace: "ns", AgentName: "a",

@@ -16,4 +16,9 @@ func addWorkers(workers *river.Workers, cfg Config) {
 		accountStore: cfg.AccountStore,
 		log:          cfg.Logger,
 	})
+	river.AddWorker(workers, &DriftCheckWorker{
+		db:        cfg.DB,
+		k8sClient: cfg.K8sClient,
+		log:       cfg.Logger,
+	})
 }
