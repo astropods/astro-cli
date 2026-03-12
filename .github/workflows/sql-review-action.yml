@@ -27,6 +27,7 @@ jobs:
       - name: Review declarative schema
         id: review-schema
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
         run: |
           OUTPUT=$(bytebase-action check \
@@ -44,6 +45,7 @@ jobs:
       - name: Review River migrations
         id: review-river
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
         run: |
           OUTPUT=$(bytebase-action check \
