@@ -1,7 +1,9 @@
 package deploymentstore
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"os"
 	"testing"
 
@@ -503,6 +505,103 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 	}
 
 	_ = enc // used above for documentation; real encrypt test is in envelope_test.go
+}
+
+// TestSaveNormalizedSpec_EncryptedBase64 verifies that encrypted secret values are
+// stored as valid UTF-8 (base64-encoded) so Postgres text columns accept them, and
+// that the stored value can be decoded back to the original ciphertext.
+func TestSaveNormalizedSpec_EncryptedBase64(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Create an encryptor with a random AES-256 key (no KMS needed)
+	aesKey := make([]byte, 32)
+	if _, err := rand.Read(aesKey); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := envelope.NewTestEncryptor(aesKey)
+	if err != nil {
+		t.Fatalf("NewTestEncryptor: %v", err)
+	}
+
+	ds := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: "b64-agent", Build: "build-1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/agent:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+		},
+		Variables: map[string]spec.Variable{
+			"API_KEY":   {Value: "sk-secret-key-with-binary-unsafe-bytes", Secret: true, Targets: []string{"agent"}},
+			"PLAIN_VAR": {Value: "hello", Secret: false, Targets: []string{"agent"}},
+		},
+	}
+	resolved := &deployment.ResolvedEnv{
+		ConfigMapData: map[string]string{"PLAIN_VAR": "hello"},
+		SecretData:    map[string]string{"API_KEY": "sk-secret-key-with-binary-unsafe-bytes"},
+	}
+
+	deploymentID := newID()
+	_, err = store.SaveDeploymentFull(SaveDeploymentParams{
+		ID: deploymentID, AccountID: accountID, AgentName: "b64-agent",
+		DisplayName: "Base64Test", BuildID: "build-1", Namespace: "ns-b64",
+		SpecJSON: `{}`, EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: "arn:test",
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, enc)
+	})
+	if err != nil {
+		t.Fatalf("SaveDeploymentFull failed: %v", err)
+	}
+
+	// Read back the encrypted variable and verify it's valid base64
+	vars, err := store.GetDeploymentVariables(deploymentID)
+	if err != nil {
+		t.Fatalf("GetDeploymentVariables: %v", err)
+	}
+
+	var found bool
+	for _, v := range vars {
+		if v.Name == "API_KEY" {
+			found = true
+			if !v.Secret {
+				t.Error("API_KEY should be marked as secret")
+			}
+			// Value should be valid base64 (not raw binary)
+			ciphertext, err := base64.StdEncoding.DecodeString(v.Value)
+			if err != nil {
+				t.Fatalf("stored value is not valid base64: %v", err)
+			}
+			if len(ciphertext) == 0 {
+				t.Fatal("ciphertext should not be empty")
+			}
+			// Decrypt and verify roundtrip
+			dec, err := envelope.NewTestDecryptor(aesKey, enc.EncryptedDataKey)
+			if err != nil {
+				t.Fatalf("NewTestDecryptor: %v", err)
+			}
+			plaintext, err := dec.Decrypt(ciphertext, v.Nonce)
+			if err != nil {
+				t.Fatalf("Decrypt failed: %v", err)
+			}
+			if string(plaintext) != "sk-secret-key-with-binary-unsafe-bytes" {
+				t.Errorf("decrypted value mismatch: got %q", plaintext)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("API_KEY variable not found")
+	}
 }
 
 // --- Phase 2: Read query tests ---

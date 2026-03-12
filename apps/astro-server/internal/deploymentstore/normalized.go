@@ -2,6 +2,7 @@ package deploymentstore
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -544,7 +545,7 @@ func SaveNormalizedSpec(
 			if err != nil {
 				return fmt.Errorf("encrypt variable %s: %w", name, err)
 			}
-			val = string(ciphertext)
+			val = base64.StdEncoding.EncodeToString(ciphertext)
 			nonce = n
 		}
 		// When no encryptor is available, store plaintext so the

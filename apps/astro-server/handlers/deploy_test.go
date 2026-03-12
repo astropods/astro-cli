@@ -167,6 +167,415 @@ func TestUndeploy_NotFound(t *testing.T) {
 	}
 }
 
+// --- ListDeployments tests ---
+
+// setupListDeploymentsTest creates a gin engine wired with the ListDeployments handler.
+// The k8sHandler receives all K8s API requests so the test can control responses.
+func setupListDeploymentsTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{}
+
+	k8sClient := newMockK8sClient(k8sHandler)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, deployStore))
+
+	return router, deployMock, accountMock
+}
+
+// k8sListHandler returns an http.Handler that serves K8s API requests for
+// ListDeployments: namespace GET, deployments LIST, ingresses LIST, pods LIST, jobs LIST.
+// It uses the provided namespace/agent/build to populate the response objects.
+func k8sListHandler(namespace, agentName, buildID string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		// GET /api/v1/namespaces/{ns}
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/namespaces/"+namespace) {
+			fmt.Fprintf(w, `{
+				"kind":"Namespace",
+				"apiVersion":"v1",
+				"metadata":{"name":%q,"labels":{"astro.dev/account-id":"acct-1"}}
+			}`, namespace)
+			return
+		}
+
+		// LIST /apis/apps/v1/namespaces/{ns}/deployments
+		if strings.Contains(path, "/deployments") {
+			fmt.Fprintf(w, `{
+				"kind":"DeploymentList",
+				"apiVersion":"apps/v1",
+				"items":[{
+					"metadata":{
+						"name":"%s-agent",
+						"namespace":%q,
+						"creationTimestamp":"2026-03-12T21:08:24Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"agent"
+						}
+					},
+					"spec":{"replicas":1},
+					"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}
+				}]
+			}`, agentName, namespace, agentName, buildID)
+			return
+		}
+
+		// LIST ingresses
+		if strings.Contains(path, "/ingresses") {
+			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+			return
+		}
+
+		// LIST pods
+		if strings.Contains(path, "/pods") {
+			fmt.Fprintf(w, `{
+				"kind":"PodList",
+				"apiVersion":"v1",
+				"items":[{
+					"metadata":{
+						"name":"%s-agent-abc123",
+						"namespace":%q,
+						"creationTimestamp":"2026-03-12T21:08:24Z",
+						"labels":{
+							"app.kubernetes.io/managed-by":"astro-server",
+							"astro.dev/agent":%q,
+							"app.kubernetes.io/version":%q,
+							"app.kubernetes.io/component":"agent"
+						}
+					},
+					"status":{
+						"phase":"Running",
+						"podIP":"10.0.0.1",
+						"containerStatuses":[{
+							"name":"app",
+							"ready":true,
+							"restartCount":0,
+							"state":{"running":{"startedAt":"2026-03-12T21:08:24Z"}}
+						}]
+					},
+					"spec":{"containers":[{"name":"app"}]}
+				}]
+			}`, agentName, namespace, agentName, buildID)
+			return
+		}
+
+		// LIST jobs
+		if strings.Contains(path, "/jobs") {
+			_, _ = w.Write([]byte(`{"kind":"JobList","apiVersion":"batch/v1","items":[]}`))
+			return
+		}
+
+		// Default: 404
+		w.WriteHeader(http.StatusNotFound)
+	})
+}
+
+func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
+	depID := deployid.New()
+	namespace := "astro-abc123def-0"
+	agentName := "my-agent"
+	buildID := "build-1"
+
+	router, deployMock, accountMock := setupListDeploymentsTest(t, k8sListHandler(namespace, agentName, buildID))
+
+	now := time.Now()
+
+	// accountStore.GetByName
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	// IsMember
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetActiveDeploymentsByAccount
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+		}).AddRow(
+			depID, "acct-1", agentName, buildID, namespace,
+			"My Agent", `{}`, "active", now, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count       int               `json:"count"`
+		Deployments []AgentDeployment `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected count=1, got %d", resp.Count)
+	}
+	dep := resp.Deployments[0]
+	if dep.ID != depID {
+		t.Errorf("expected ID %q, got %q", depID, dep.ID)
+	}
+	if dep.DisplayName != "My Agent" {
+		t.Errorf("expected display_name 'My Agent', got %q", dep.DisplayName)
+	}
+	if dep.Name != agentName {
+		t.Errorf("expected name %q, got %q", agentName, dep.Name)
+	}
+}
+
+func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
+	// K8s namespace exists but no DB record → deployment should NOT appear
+	router, deployMock, accountMock := setupListDeploymentsTest(t,
+		k8sListHandler("astro-orphan-0", "orphan-agent", "build-1"))
+
+	now := time.Now()
+
+	// accountStore.GetByName
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	// IsMember
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetActiveDeploymentsByAccount returns no rows
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+		}))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count       int               `json:"count"`
+		Deployments []AgentDeployment `json:"deployments"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Count != 0 {
+		t.Errorf("expected count=0 when no DB records, got %d", resp.Count)
+	}
+}
+
+func TestListDeployments_MissingAccountParam(t *testing.T) {
+	router, _, _ := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListDeployments_NotMember(t *testing.T) {
+	router, _, accountMock := setupListDeploymentsTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	now := time.Now()
+
+	// accountStore.GetByName
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	// IsMember returns 0
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListDeployments_MultipleDeployments(t *testing.T) {
+	depID1 := deployid.New()
+	depID2 := deployid.New()
+	ns1 := "astro-aaa111bbb-0"
+	ns2 := "astro-ccc222ddd-0"
+
+	// K8s handler that responds to both namespaces
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		// Namespace GET for ns1
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/namespaces/"+ns1) {
+			fmt.Fprintf(w, `{"kind":"Namespace","apiVersion":"v1","metadata":{"name":%q}}`, ns1)
+			return
+		}
+		// Namespace GET for ns2
+		if r.Method == http.MethodGet && strings.HasSuffix(path, "/namespaces/"+ns2) {
+			fmt.Fprintf(w, `{"kind":"Namespace","apiVersion":"v1","metadata":{"name":%q}}`, ns2)
+			return
+		}
+
+		// Deployments list — respond based on namespace in path
+		if strings.Contains(path, "/deployments") {
+			agent := "agent-a"
+			ns := ns1
+			if strings.Contains(path, ns2) {
+				agent = "agent-b"
+				ns = ns2
+			}
+			fmt.Fprintf(w, `{
+				"kind":"DeploymentList","apiVersion":"apps/v1",
+				"items":[{
+					"metadata":{
+						"name":"%s-agent","namespace":%q,
+						"creationTimestamp":"2026-03-12T21:08:24Z",
+						"labels":{"app.kubernetes.io/managed-by":"astro-server","astro.dev/agent":%q,"app.kubernetes.io/version":"b1","app.kubernetes.io/component":"agent"}
+					},
+					"spec":{"replicas":1},
+					"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}
+				}]
+			}`, agent, ns, agent)
+			return
+		}
+
+		if strings.Contains(path, "/ingresses") {
+			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+			return
+		}
+
+		if strings.Contains(path, "/pods") {
+			_, _ = w.Write([]byte(`{"kind":"PodList","apiVersion":"v1","items":[]}`))
+			return
+		}
+
+		if strings.Contains(path, "/jobs") {
+			_, _ = w.Write([]byte(`{"kind":"JobList","apiVersion":"batch/v1","items":[]}`))
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	router, deployMock, accountMock := setupListDeploymentsTest(t, handler)
+
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// Two active deployments
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+		}).AddRow(
+			depID1, "acct-1", "agent-a", "b1", ns1,
+			"Agent A", `{}`, "active", now, nil,
+		).AddRow(
+			depID2, "acct-1", "agent-b", "b1", ns2,
+			"Agent B", `{}`, "active", now, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count       int               `json:"count"`
+		Deployments []AgentDeployment `json:"deployments"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp.Count != 2 {
+		t.Fatalf("expected 2 deployments, got %d", resp.Count)
+	}
+
+	ids := map[string]bool{}
+	for _, d := range resp.Deployments {
+		ids[d.ID] = true
+	}
+	if !ids[depID1] {
+		t.Errorf("missing deployment ID %q", depID1)
+	}
+	if !ids[depID2] {
+		t.Errorf("missing deployment ID %q", depID2)
+	}
+}
+
+func TestListDeployments_NilDeployStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	accountStore := account.NewAccountStore(accountDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{}
+	k8sClient := newMockK8sClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, nil))
+
+	now := time.Now()
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when deploy store is nil, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUndeploy_InactiveDeployment(t *testing.T) {
 	router, deployMock, _ := setupUndeployTest(t)
 

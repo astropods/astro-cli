@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -700,13 +701,17 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// List namespaces belonging to this account
-		nsSelector := fmt.Sprintf("astro.dev/account-id=%s,app.kubernetes.io/managed-by=astro-server", acct.ID)
-		nsList, err := k8sClient.Clientset().CoreV1().Namespaces().List(
-			c.Request.Context(), metav1.ListOptions{LabelSelector: nsSelector},
-		)
+		if deployStore == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "deployment store not configured",
+			})
+			return
+		}
+
+		// DB is the source of truth for deployments — query active deployments first
+		dbDeps, err := deployStore.GetActiveDeploymentsByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list namespaces", "error", err)
+			log.Error("Failed to load deployments from DB", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "failed to list deployments",
 				"details": err.Error(),
@@ -714,41 +719,34 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// Build namespace → DB deployment info map
-		type nsInfo struct {
-			ID          string
-			DisplayName string
-		}
-		nsDeployments := make(map[string]nsInfo)
-		if deployStore != nil {
-			dbDeps, dbErr := deployStore.GetActiveDeploymentsByAccount(acct.ID)
-			if dbErr != nil {
-				log.Warn("Failed to load deployments from DB", "error", dbErr)
-			} else {
-				for _, d := range dbDeps {
-					nsDeployments[d.Namespace] = nsInfo{ID: d.ID, DisplayName: d.DisplayName}
-				}
-			}
-		}
-
-		// Aggregate deployments across all per-deployment namespaces
+		// For each DB deployment, fetch live K8s status from its namespace
 		var allDeployments []AgentDeployment
-		for _, ns := range nsList.Items {
-			// Skip namespaces that are being deleted (e.g. after undeploy)
+		for _, dbDep := range dbDeps {
+			// Read manual ingestions from namespace annotations
+			ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
+				c.Request.Context(), dbDep.Namespace, metav1.GetOptions{},
+			)
+			if nsErr != nil {
+				log.Warn("Namespace not found for deployment, skipping",
+					"deployment_id", dbDep.ID, "namespace", dbDep.Namespace, "error", nsErr)
+				continue
+			}
 			if ns.DeletionTimestamp != nil {
 				continue
 			}
+
 			manualIngestions := parseManualIngestions(ns.Annotations)
-			deps, err := listAstroDeployments(c.Request.Context(), k8sClient, ns.Name, manualIngestions)
-			if err != nil {
-				log.Warn("Failed to list deployments in namespace", "namespace", ns.Name, "error", err)
+			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
+			if k8sErr != nil {
+				log.Warn("Failed to list K8s resources for deployment",
+					"deployment_id", dbDep.ID, "namespace", dbDep.Namespace, "error", k8sErr)
 				continue
 			}
-			if info, ok := nsDeployments[ns.Name]; ok {
-				for i := range deps {
-					deps[i].ID = info.ID
-					deps[i].DisplayName = info.DisplayName
-				}
+
+			// Populate DB-owned fields on all K8s deployment entries for this namespace
+			for i := range deps {
+				deps[i].ID = dbDep.ID
+				deps[i].DisplayName = dbDep.DisplayName
 			}
 			allDeployments = append(allDeployments, deps...)
 		}
@@ -1373,9 +1371,12 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			if tv, ok := template.Variables[sv.Name]; ok {
 				val := sv.Value
 				if sv.Secret && dec != nil && len(sv.Nonce) > 0 {
-					plaintext, decErr := dec.Decrypt([]byte(val), sv.Nonce)
-					if decErr == nil {
-						val = string(plaintext)
+					ciphertext, b64Err := base64.StdEncoding.DecodeString(val)
+					if b64Err == nil {
+						plaintext, decErr := dec.Decrypt(ciphertext, sv.Nonce)
+						if decErr == nil {
+							val = string(plaintext)
+						}
 					}
 				}
 				tv.Value = val
