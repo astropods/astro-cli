@@ -25,91 +25,27 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Review declarative schema
-        id: review-schema
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
         run: |
-          OUTPUT=$(bytebase-action check \
+          bytebase-action check \
             --url=${{ env.BYTEBASE_URL }} \
             --project=${{ env.BYTEBASE_PROJECT }} \
             --targets=${{ env.BYTEBASE_TARGETS }} \
             --file-pattern="sql/astro-server/schema.sql" \
-            --declarative 2>&1) || true
-          {
-            echo "output<<EOF"
-            echo "$OUTPUT"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+            --declarative
 
       - name: Review River migrations
-        id: review-river
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BYTEBASE_TARGETS: "instances/prod-postgresql/databases/astro"
         run: |
-          OUTPUT=$(bytebase-action check \
+          bytebase-action check \
             --url=${{ env.BYTEBASE_URL }} \
             --project=${{ env.BYTEBASE_PROJECT }} \
             --targets=${{ env.BYTEBASE_TARGETS }} \
-            --file-pattern="sql/river/*.sql" 2>&1) || true
-          {
-            echo "output<<EOF"
-            echo "$OUTPUT"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Comment on PR
-        uses: actions/github-script@v7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          script: |
-            const marker = '<!-- bytebase-sql-review -->';
-            const schemaOutput = `${{ steps.review-schema.outputs.output }}`;
-            const riverOutput = `${{ steps.review-river.outputs.output }}`;
-
-            const body = [
-              marker,
-              '## Bytebase SQL Review',
-              '',
-              '### Declarative Schema',
-              '',
-              '```',
-              schemaOutput || 'No issues found.',
-              '```',
-              '',
-              '### River Migrations',
-              '',
-              '```',
-              riverOutput || 'No issues found.',
-              '```',
-              '',
-              `<sub>Reviewed by Bytebase \u00b7 ${new Date().toISOString().slice(0, 10)}</sub>`,
-            ].join('\n');
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existing = comments.find(c => c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+            --file-pattern="sql/river/*.sql"
 
   schema-plan:
     runs-on: ubuntu-latest
