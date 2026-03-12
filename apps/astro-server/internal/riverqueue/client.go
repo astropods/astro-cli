@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
+	"github.com/astropods/astro/apps/astro-server/internal/org"
 )
 
 // Config holds dependencies that River workers need.
@@ -22,6 +23,8 @@ type Config struct {
 	OMClient     *openmeter.Client
 	AccountStore *account.AccountStore
 	K8sClient    k8s.ClusterClient
+	WorkOSAPIKey string
+	OrgClient    *org.Client
 	Logger       *logger.Logger
 }
 
@@ -47,9 +50,10 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		Schema: "river",
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
+			queueWorkOS:        {MaxWorkers: 1},
 		},
 		Workers:      workers,
-		PeriodicJobs: periodicJobs(),
+		PeriodicJobs: periodicJobs(cfg),
 		Logger:       cfg.Logger.Logger,
 	})
 	if err != nil {

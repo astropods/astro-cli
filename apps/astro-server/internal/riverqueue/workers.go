@@ -26,4 +26,11 @@ func addWorkers(workers *river.Workers, cfg Config) {
 		k8sClient: cfg.K8sClient,
 		log:       cfg.Logger,
 	})
+	river.AddWorker(workers, &WorkOSEventsWorker{
+		workOSAPIKey: cfg.WorkOSAPIKey,
+		orgClient:    cfg.OrgClient,
+		accountStore: cfg.AccountStore,
+		db:           cfg.DB,
+		log:          cfg.Logger,
+	})
 }

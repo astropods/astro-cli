@@ -43,7 +43,7 @@ func (ec *EventsConsumer) Start(ctx context.Context) {
 	ec.log.Info("WorkOS events consumer started", "interval", ec.interval.String())
 
 	// Run immediately on start, then on interval
-	ec.poll(ctx)
+	ec.Poll(ctx)
 
 	ticker := time.NewTicker(ec.interval)
 	defer ticker.Stop()
@@ -54,12 +54,12 @@ func (ec *EventsConsumer) Start(ctx context.Context) {
 			ec.log.Info("WorkOS events consumer stopping")
 			return
 		case <-ticker.C:
-			ec.poll(ctx)
+			ec.Poll(ctx)
 		}
 	}
 }
 
-func (ec *EventsConsumer) poll(ctx context.Context) {
+func (ec *EventsConsumer) Poll(ctx context.Context) {
 	cursor, err := ec.getCursor(ctx)
 	if err != nil {
 		ec.log.Error("Failed to get events cursor", "error", err)

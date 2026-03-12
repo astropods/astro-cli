@@ -7,8 +7,8 @@ import (
 )
 
 // periodicJobs returns the periodic job definitions for the River client.
-func periodicJobs() []*river.PeriodicJob {
-	return []*river.PeriodicJob{
+func periodicJobs(cfg Config) []*river.PeriodicJob {
+	jobs := []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(5*time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) {
@@ -54,4 +54,21 @@ func periodicJobs() []*river.PeriodicJob {
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
 	}
+
+	if cfg.WorkOSAPIKey != "" {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(30*time.Second),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return WorkOSEventsArgs{}, &river.InsertOpts{
+					Queue: queueWorkOS,
+					UniqueOpts: river.UniqueOpts{
+						ByQueue: true,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	return jobs
 }

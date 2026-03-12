@@ -106,7 +106,7 @@ func main() {
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, db, omClient)
+		eventsCancel = runWorker(log, cfg, accountStore, db, omClient, orgClient)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -310,13 +310,14 @@ func runAPI(
 	return srv, grpcServer, connectServer, probeHandler
 }
 
-// runWorker starts background workers (events consumer, OpenMeter reconciler, namespace scanner) and returns a cancel func.
+// runWorker starts the River queue for all background job processing and returns a cancel func.
 func runWorker(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
 	db *sql.DB,
 	omClient *openmeter.Client,
+	orgClient *org.Client,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
@@ -339,20 +340,14 @@ func runWorker(
 		k8sClient = nil
 	}
 
-	if cfg.Auth.WorkOSAPIKey != "" {
-		consumer := org.NewEventsConsumer(cfg.Auth.WorkOSAPIKey, org.NewClient(cfg.Auth.WorkOSAPIKey), accountStore, db, log, 30*time.Second)
-		go consumer.Start(workerCtx)
-		log.Info("WorkOS events consumer started")
-	} else {
-		log.Warn("WorkOS API key not configured, events consumer will not start")
-	}
-
-	// Start River queue (handles heartbeat, reconciler, and future periodic jobs)
+	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:           db,
 		OMClient:     omClient,
 		AccountStore: accountStore,
 		K8sClient:    k8sClient,
+		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,
+		OrgClient:    orgClient,
 		Logger:       log,
 	})
 	if rqErr != nil {
