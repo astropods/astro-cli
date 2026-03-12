@@ -85,7 +85,7 @@ func (c *Client) ListMeterGroupByValues(idOrSlug, groupByKey, params string) (js
 // IngestEvent sends a CloudEvents-formatted event via POST /api/v1/events.
 func (c *Client) IngestEvent(body json.RawMessage) error {
 	reader := bytes.NewReader(body)
-	req, err := http.NewRequest("POST", c.base+"/api/v1/events", reader)
+	req, err := http.NewRequest(http.MethodPost, c.base+"/api/v1/events", reader)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (c *Client) IngestEvent(body json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -234,7 +234,7 @@ func (c *Client) do(method, path string, body json.RawMessage) (json.RawMessage,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

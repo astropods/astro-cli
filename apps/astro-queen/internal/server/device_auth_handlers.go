@@ -49,7 +49,7 @@ func (s *Server) handleDeviceAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := url.Values{"client_id": {clientID}}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, //nolint:gosec // baseURL from trusted admin gRPC config
 		baseURL+"/user_management/authorize/device",
 		strings.NewReader(data.Encode()))
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *Server) handleDeviceAuthPoll(w http.ResponseWriter, r *http.Request) {
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, //nolint:gosec // baseURL from trusted admin gRPC config
 		baseURL+"/user_management/authenticate",
 		strings.NewReader(data.Encode()))
 	if err != nil {

@@ -80,7 +80,7 @@ func loadClientTLS(certFile, keyFile, caFile string) (credentials.TransportCrede
 		return nil, fmt.Errorf("load key pair: %w", err)
 	}
 
-	caBytes, err := os.ReadFile(caFile)
+	caBytes, err := os.ReadFile(caFile) //nolint:gosec // path from trusted config dir
 	if err != nil {
 		return nil, fmt.Errorf("read CA: %w", err)
 	}

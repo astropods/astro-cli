@@ -36,7 +36,7 @@ func Load(path string) (*Config, error) {
 		path = DefaultPath()
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from trusted config dir
 	if os.IsNotExist(err) {
 		return &Config{}, nil
 	}

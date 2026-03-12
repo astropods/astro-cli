@@ -65,8 +65,9 @@ func (s *Server) ListenAndServe() error {
 	s.registerSPAHandler(mux)
 
 	s.httpSrv = &http.Server{
-		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),
-		Handler: mux,
+		Addr:              fmt.Sprintf("127.0.0.1:%d", s.port),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	ln, err := net.Listen("tcp", s.httpSrv.Addr)
@@ -116,7 +117,7 @@ func (s *Server) registerSPAHandler(mux *http.ServeMux) {
 		if r.URL.Path != "/" {
 			f, err := s.webFS.Open(strings.TrimPrefix(r.URL.Path, "/"))
 			if err == nil {
-				f.Close()
+				_ = f.Close()
 				fileServer.ServeHTTP(w, r)
 				return
 			}
@@ -124,6 +125,6 @@ func (s *Server) registerSPAHandler(mux *http.ServeMux) {
 
 		// SPA fallback: serve index.html directly (avoids FileServer redirect loop)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(indexHTML) //nolint:errcheck
+		_, _ = w.Write(indexHTML)
 	})
 }

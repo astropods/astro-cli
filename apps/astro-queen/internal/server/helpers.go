@@ -11,7 +11,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if v != nil {
-		json.NewEncoder(w).Encode(v) //nolint:errcheck
+		_ = json.NewEncoder(w).Encode(v) //nolint:errchkjson
 	}
 }
 
@@ -19,7 +19,7 @@ func writeRawJSON(w http.ResponseWriter, status int, data json.RawMessage) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if data != nil {
-		w.Write(data) //nolint:errcheck
+		_, _ = w.Write(data)
 	}
 }
 
@@ -28,7 +28,7 @@ func readJSON(r *http.Request, v interface{}) error {
 	if err != nil {
 		return fmt.Errorf("read body: %w", err)
 	}
-	defer r.Body.Close()
+	defer r.Body.Close() //nolint:errcheck
 	if len(body) == 0 {
 		return nil
 	}

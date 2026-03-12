@@ -42,5 +42,5 @@ func (s *Server) astroReverseProxy(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(k, v)
 	}
 	w.WriteHeader(int(resp.StatusCode))
-	w.Write(resp.Body) //nolint:errcheck
+	_, _ = w.Write(resp.Body)
 }

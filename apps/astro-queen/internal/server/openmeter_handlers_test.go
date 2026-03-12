@@ -60,6 +60,12 @@ func (m *mockAdminClient) ListConnectedDevices(context.Context, *adminv1.ListCon
 func (m *mockAdminClient) SendCommand(context.Context, *adminv1.SendCommandRequest, ...grpc.CallOption) (*adminv1.SendCommandResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) ProxyHTTP(context.Context, *adminv1.HTTPProxyRequest, ...grpc.CallOption) (*adminv1.HTTPProxyResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) GetAuthConfig(context.Context, *adminv1.GetAuthConfigRequest, ...grpc.CallOption) (*adminv1.GetAuthConfigResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

@@ -92,7 +92,7 @@ func (c *Client) FindWorkflowRun(ctx context.Context, name, action string) (*Fou
 		}
 
 		for _, run := range runs.WorkflowRuns {
-			if run.CreatedAt.Time.Before(cutoff) {
+			if run.CreatedAt.Before(cutoff) {
 				continue
 			}
 			return &FoundRun{ID: run.GetID(), HTMLURL: run.GetHTMLURL()}, nil

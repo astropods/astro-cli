@@ -81,11 +81,11 @@ func devenvShowCmd() *cobra.Command {
 			e := envs[0]
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintf(w, "Name:\t%s\n", e.Name)
-			fmt.Fprintf(w, "Index:\t%d\n", e.Index)
-			fmt.Fprintf(w, "Primary CIDR:\t%s\n", e.PrimaryCIDR)
-			fmt.Fprintf(w, "Managed CIDR:\t%s\n", e.ManagedCIDR)
-			fmt.Fprintf(w, "Domain:\t%s\n", e.Domain)
+			fmt.Fprintf(w, "Name:\t%s\n", e.Name)                //nolint:errcheck
+			fmt.Fprintf(w, "Index:\t%d\n", e.Index)              //nolint:errcheck
+			fmt.Fprintf(w, "Primary CIDR:\t%s\n", e.PrimaryCIDR) //nolint:errcheck
+			fmt.Fprintf(w, "Managed CIDR:\t%s\n", e.ManagedCIDR) //nolint:errcheck
+			fmt.Fprintf(w, "Domain:\t%s\n", e.Domain)            //nolint:errcheck
 			return w.Flush()
 		},
 	}
