@@ -134,7 +134,7 @@ capabilities:
 ---
 ```
 
-Entries exceeding 100 characters are truncated silently.
+Implementations MUST truncate entries exceeding 100 characters silently.
 
 ### 2.5 `integrations`
 
@@ -155,7 +155,7 @@ integrations:
 
 #### 2.5.1 Derivation
 
-Integrations are derived from two sources: the `integrations` section of `astropods.yml` (via `provider` fields) and the `integrations` frontmatter in `AGENT.md`. The platform combines and deduplicates both sources for display. Use the agent card to declare integrations that cannot be inferred from the spec.
+Integrations are derived from two sources: the `integrations` section of `astropods.yml` (via `provider` fields) and the `integrations` frontmatter in `AGENT.md`. The platform MUST combine and deduplicate both sources for display. Use the agent card to declare integrations that cannot be inferred from the spec.
 
 #### 2.5.2 Matching
 
@@ -163,65 +163,13 @@ Matching is case-insensitive. Each integration string is resolved against the kn
 
 #### 2.5.3 Known Integrations Registry
 
-The platform maintains a registry of known integrations. Each entry contains:
-
-| Field     | Type     | Description |
-| --------- | -------- | ----------- |
-| `id`      | string   | Canonical lowercase identifier used for matching. |
-| `name`    | string   | Display name rendered in the UI. |
-| `aliases` | string[] | Alternative strings that resolve to this integration. |
-
-The current registry:
-
-| ID | Display Name | Aliases |
-| -- | ------------ | ------- |
-| `slack` | Slack | slackbot, slack-bot |
-| `github` | GitHub | gh, github.com, github-api |
-| `linear` | Linear | — |
-| `notion` | Notion | — |
-| `google-drive` | Google Drive | gdrive, drive, google-docs, google docs |
-| `gmail` | Gmail | google-mail |
-| `jira` | Jira | jira-cloud, jira-server |
-| `confluence` | Confluence | — |
-| `discord` | Discord | discord-bot |
-| `microsoft-teams` | Microsoft Teams | ms-teams, msteams, teams |
-| `salesforce` | Salesforce | sfdc |
-| `zendesk` | Zendesk | — |
-| `twilio` | Twilio | — |
-| `stripe` | Stripe | — |
-| `shopify` | Shopify | — |
-| `asana` | Asana | — |
-| `trello` | Trello | — |
-| `figma` | Figma | — |
-| `dropbox` | Dropbox | — |
-| `airtable` | Airtable | — |
-| `hubspot` | HubSpot | — |
-| `intercom` | Intercom | — |
-| `pagerduty` | PagerDuty | — |
-| `datadog` | Datadog | — |
-| `sentry` | Sentry | — |
-| `mongodb` | MongoDB | mongo |
-| `postgresql` | PostgreSQL | postgres, pg |
-| `redis` | Redis | — |
-| `elasticsearch` | Elasticsearch | elastic, es |
-| `snowflake` | Snowflake | — |
-| `bigquery` | BigQuery | google-bigquery |
-| `aws` | AWS | amazon-web-services |
-| `google-cloud` | Google Cloud | gcp, google-cloud-platform |
-| `azure` | Azure | microsoft-azure |
-| `vercel` | Vercel | — |
-| `supabase` | Supabase | — |
-| `firebase` | Firebase | google-firebase |
-| `pinecone` | Pinecone | — |
-| `weaviate` | Weaviate | — |
-| `neo4j` | Neo4j | — |
-| `qdrant` | Qdrant | — |
+The platform maintains a registry of known integrations, each with an `id`, `name`, and optional `aliases`. See [Known Integrations](/known-integrations) for the full list.
 
 ---
 
 ## 3. Body
 
-The body is free-form GitHub-Flavored Markdown (GFM). There is no required structure, but authors are encouraged to cover:
+The body is free-form GitHub-Flavored Markdown (GFM). There is no required structure, but authors SHOULD cover:
 
 - **Overview** — What the agent does and why it exists.
 - **Usage** — How to interact with the agent (APIs, protocols, chat, etc.).
@@ -275,7 +223,7 @@ The client renders the agent card on the agent detail page:
 
 ---
 
-## 7. Example
+## Appendix A: Example
 
 ```yaml AGENT.md
 ---

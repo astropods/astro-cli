@@ -58,6 +58,9 @@ navigation:
           - page: Agent Card Spec
             path: docs/pages/agent-card-spec.mdx
             icon: fa-duotone fa-file-lines
+          - page: Known Integrations
+            path: docs/pages/known-integrations.mdx
+            icon: fa-duotone fa-plug
   #     - section: Changelog
   #       contents:
   #         - changelog: docs/changelog
