@@ -45,11 +45,14 @@ This spec covers the requirements, interface contracts, and publishing pipeline 
 │  ast create --lang py                                   │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  template-py/          (shared Python files)      │  │
-│  │  ├── Dockerfile        (multi-stage Python build) │  │
+│  │  ├── Dockerfile                                   │  │
+│  │  ├── Dockerfile.ingestion                         │  │
 │  │  ├── astropods.yml     (reused from template-ts/) │  │
 │  │  ├── gitignore.tmpl                               │  │
 │  │  ├── dockerignore.tmpl                            │  │
-│  │  └── README.md.tmpl                               │  │
+│  │  ├── agents.md.tmpl                               │  │
+│  │  ├── README.md.tmpl                               │  │
+│  │  └── postman/collections/                         │  │
 │  └───────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  template-py-langchain/  (LangChain-specific)     │  │
@@ -203,10 +206,15 @@ apps/astro-cli/internal/scaffold/templates/
 ├── template-ts-mastra/       (existing, unchanged)
 ├── template-py/              NEW: shared Python files
 │   ├── Dockerfile
+│   ├── Dockerfile.ingestion
 │   ├── gitignore.tmpl
 │   ├── dockerignore.tmpl
 │   ├── agents.md.tmpl
-│   └── README.md.tmpl
+│   ├── README.md.tmpl
+│   └── postman/
+│       └── collections/
+│           ├── messaging.postman_collection.json
+│           └── webhook.postman_collection.json
 └── template-py-langchain/    NEW: LangChain-specific files
     ├── agent/
     │   └── main.py
