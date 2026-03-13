@@ -14,7 +14,7 @@ The Astropods Spec defines a declarative YAML format for describing the topology
 
 | Version | Date       | Changes                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------- |
-| v1.1    | 2026-03-07 | Added `agent.interfaces` (frontend + messaging). Added `models` (string array) to model entries; deprecated `model`. |
+| v1.1    | 2026-03-07 | Added `agent.interfaces` (frontend + messaging). Added `models` (string array) to model entries; deprecated `model`. Deprecated `meta.description` and `meta.tags` in favor of [Agent Card](/agent-card-spec) frontmatter. |
 | v1.0    | 2026-02-27 | Initial draft.                                                          |
 
 ## Conventions
@@ -73,8 +73,8 @@ Map keys serve as entry names and are used in credential injection (see [Section
 
 | Field         | Type     | Required | Description                       |
 | ------------- | -------- | -------- | --------------------------------- |
-| `description` | string   | OPTIONAL | Human-readable agent description. |
-| `tags`        | string[] | OPTIONAL | Classification tags.              |
+| `description` | string   | **DEPRECATED** | Human-readable agent description. Moved to [Agent Card](/agent-card-spec) frontmatter. |
+| `tags`        | string[] | **DEPRECATED** | Classification tags. Moved to [Agent Card](/agent-card-spec) frontmatter. |
 | `visibility`  | string   | OPTIONAL | Agent visibility. MUST be one of `public` or `private`. |
 
 ---
