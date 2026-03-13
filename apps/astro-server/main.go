@@ -29,6 +29,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
+	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -207,6 +208,7 @@ func runAPI(
 	agentIndex := agentindex.NewIndexWithDB(db)
 	deploymentStore := deploymentstore.NewStore(db)
 	waitlistStore := waitlist.NewStore(db)
+	heartStore := heartstore.New(db)
 	log.Info("Agent index and stores initialized")
 
 	// Initialize Kubernetes client
@@ -248,7 +250,7 @@ func runAPI(
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL)
@@ -370,7 +372,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -445,20 +447,20 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		)
 
 		// Agent registry endpoints (public read, with optional auth for visibility)
-		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore),
+		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore),
 			oapispec.Tags("Agents"),
 			oapispec.Response(200, &handlers.ListAgentsResponse{}),
 		)
 		agentDetail := v1.Group("")
 		agentDetail.Use(authMw.OptionalAuth())
 		{
-			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore),
+			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.Response(200, &handlers.ListAgentsResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
 			)
-			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore),
+			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.PathParam("name", "Agent name"),
@@ -621,6 +623,22 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("format", "Response format: json or yaml (default: yaml)", false),
 				oapispec.Desc("Returns a deployment spec template pre-filled with values from an existing deployment."),
 				oapispec.Response(200, nil),
+			)
+
+			// Agent heart (requires auth, no account permission needed)
+			api.PUT(protected, "/agents/:account/:name/heart", "Heart an agent", handlers.HeartAgent(log, heartStore, accountStore),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Response(200, &handlers.HeartResponse{}),
+			)
+			api.DELETE(protected, "/agents/:account/:name/heart", "Unheart an agent", handlers.UnheartAgent(log, heartStore, accountStore),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Response(200, &handlers.HeartResponse{}),
 			)
 
 			// Agent write operations (requires agents:write permission)

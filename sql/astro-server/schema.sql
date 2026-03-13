@@ -246,6 +246,17 @@ CREATE TABLE public.connected_devices (
 
 CREATE INDEX idx_connected_devices_account_status ON public.connected_devices(account_id, status);
 
+CREATE TABLE public.agent_hearts (
+    account_id uuid NOT NULL,
+    agent_name text NOT NULL,
+    user_id text NOT NULL,
+    created_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT agent_hearts_pkey PRIMARY KEY (account_id, agent_name, user_id),
+    CONSTRAINT agent_hearts_agent_fkey FOREIGN KEY (account_id, agent_name) REFERENCES public.agents(account_id, name) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_agent_hearts_agent ON public.agent_hearts(account_id, agent_name);
+
 CREATE TABLE public.waitlist (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name text NOT NULL,

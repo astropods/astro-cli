@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
@@ -25,6 +26,8 @@ type AgentResponse struct {
 	Registry   string                 `json:"registry"`
 	Visibility string                 `json:"visibility"`
 	Versions   []AgentVersionResponse `json:"versions"`
+	HeartCount int                    `json:"heart_count"`
+	Hearted    bool                   `json:"hearted"`
 }
 
 // AgentVersionResponse represents a specific version of an agent
@@ -159,7 +162,7 @@ type RegisterAgentRequest struct {
 
 // ListAgents handles GET /api/v1/agents
 // Lists agents with visibility='public' (public catalog)
-func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Info("Listing public agents from index")
 
@@ -176,6 +179,9 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 		// Build a cache of account ID -> name to avoid repeated lookups
 		accountNames := make(map[string]string)
 
+		// Bulk-fetch heart counts per account to avoid N+1
+		heartCounts := make(map[string]map[string]int) // accountID -> agentName -> count
+
 		responses := make([]AgentResponse, 0, len(agents))
 		for _, agent := range agents {
 			// Resolve account name
@@ -190,6 +196,15 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				accountNames[agent.AccountID] = accountName
 			}
 
+			// Lazy-load heart counts for this account
+			if _, ok := heartCounts[agent.AccountID]; !ok {
+				counts, err := hearts.BulkCount(c.Request.Context(), agent.AccountID)
+				if err != nil {
+					counts = map[string]int{}
+				}
+				heartCounts[agent.AccountID] = counts
+			}
+
 			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
 			for _, v := range agent.Versions {
 				versions = append(versions, buildVersionResponse(v))
@@ -201,6 +216,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				Registry:   agent.Registry,
 				Visibility: agent.Visibility,
 				Versions:   versions,
+				HeartCount: heartCounts[agent.AccountID][agent.Name],
 			})
 		}
 
@@ -213,7 +229,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 // ListAccountAgents handles GET /api/v1/agents/:account
 // Lists all public agents for an account. Members also see private agents.
-func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -240,6 +256,12 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			return
 		}
 
+		// Bulk-fetch heart counts for this account
+		counts, _ := hearts.BulkCount(c.Request.Context(), acct.ID)
+		if counts == nil {
+			counts = map[string]int{}
+		}
+
 		responses := make([]AgentResponse, 0, len(agents))
 		for _, agent := range agents {
 			if agent.Visibility == "private" && !isMember {
@@ -257,6 +279,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				Registry:   agent.Registry,
 				Visibility: agent.Visibility,
 				Versions:   versions,
+				HeartCount: counts[agent.Name],
 			})
 		}
 
@@ -269,7 +292,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 
 // GetAgent handles GET /api/v1/agents/:account/:name
 // Private agents are only visible to account members; public agents are visible to all
-func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		name := c.Param("name")
@@ -295,7 +318,9 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 
 		// Check if the caller is an authenticated account member
 		isMember := false
+		userID := ""
 		if user, exists := middleware.GetUser(c); exists {
+			userID = user.ID
 			if ok, err := accountStore.IsMember(acct.ID, user.ID); err == nil && ok {
 				isMember = true
 			}
@@ -316,13 +341,22 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			versions = append(versions, resp)
 		}
 
-		c.JSON(http.StatusOK, AgentResponse{
+		// Heart info
+		heartInfo, _ := hearts.Info(c.Request.Context(), acct.ID, name, userID)
+
+		resp := AgentResponse{
 			Account:    accountName,
 			Name:       agent.Name,
 			Registry:   agent.Registry,
 			Visibility: agent.Visibility,
 			Versions:   versions,
-		})
+		}
+		if heartInfo != nil {
+			resp.HeartCount = heartInfo.Count
+			resp.Hearted = heartInfo.Hearted
+		}
+
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

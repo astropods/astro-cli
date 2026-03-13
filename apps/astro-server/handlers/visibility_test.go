@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -156,9 +157,11 @@ func setupAgentGetRouter(withUser bool, userID string) (*gin.Engine, *agentindex
 
 	indexDB, indexMock, _ := sqlmock.New()
 	accountDB, accountMock, _ := sqlmock.New()
+	heartDB, _, _ := sqlmock.New()
 
 	index := agentindex.NewIndexWithDB(indexDB)
 	store := account.NewAccountStore(accountDB)
+	hearts := heartstore.New(heartDB)
 	log := logger.New("error", "json")
 
 	router := gin.New()
@@ -168,7 +171,7 @@ func setupAgentGetRouter(withUser bool, userID string) (*gin.Engine, *agentindex
 			c.Next()
 		})
 	}
-	router.GET("/agents/:account/:name", GetAgent(log, index, store))
+	router.GET("/agents/:account/:name", GetAgent(log, index, store, hearts))
 
 	return router, index, store, indexMock, accountMock
 }
@@ -394,13 +397,15 @@ func TestListAgents_OnlyPublic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	indexDB, indexMock, _ := sqlmock.New()
 	accountDB, accountMock, _ := sqlmock.New()
+	heartDB, _, _ := sqlmock.New()
 
 	index := agentindex.NewIndexWithDB(indexDB)
 	store := account.NewAccountStore(accountDB)
+	hearts := heartstore.New(heartDB)
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/agents", ListAgents(log, index, store))
+	router.GET("/agents", ListAgents(log, index, store, hearts))
 
 	now := time.Now()
 
@@ -449,13 +454,15 @@ func TestListAgents_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	indexDB, indexMock, _ := sqlmock.New()
 	accountDB, _, _ := sqlmock.New()
+	heartDB, _, _ := sqlmock.New()
 
 	index := agentindex.NewIndexWithDB(indexDB)
 	store := account.NewAccountStore(accountDB)
+	hearts := heartstore.New(heartDB)
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/agents", ListAgents(log, index, store))
+	router.GET("/agents", ListAgents(log, index, store, hearts))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents a.+WHERE a.visibility = 'public'").
 		WillReturnRows(sqlmock.NewRows([]string{

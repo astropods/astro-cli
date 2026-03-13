@@ -461,6 +461,19 @@ class ApiClient {
     );
   }
 
+  async heartAgent(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,
+      { method: 'PUT' }
+    );
+  }
+
+  async unheartAgent(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,
+      { method: 'DELETE' }
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -517,6 +530,8 @@ export interface Agent {
   registry: string;
   visibility?: string;
   versions: AgentVersion[];
+  heart_count: number;
+  hearted: boolean;
 }
 
 export interface AgentsListResponse {
