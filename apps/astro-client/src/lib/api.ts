@@ -467,6 +467,16 @@ class ApiClient {
       { method: 'POST' }
     );
   }
+
+  async getAccountUsage(
+    account: string,
+    params?: { from?: string; to?: string },
+  ): Promise<AccountUsageResponse> {
+    const qs = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])}` : '';
+    return this.request<AccountUsageResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/usage${qs}`
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -756,6 +766,21 @@ export interface TriggerIngestionResponse {
   status: string;
   job_name: string;
   namespace: string;
+}
+
+export interface UsageMeter {
+  value: number;
+  limit?: number;
+}
+
+export interface AccountUsageResponse {
+  account_id: string;
+  period_start: string;
+  period_end: string;
+  compute_unit_hours: UsageMeter;
+  agent_builds: UsageMeter;
+  active_deployments: UsageMeter;
+  active_agents: UsageMeter;
 }
 
 // Export singleton instance

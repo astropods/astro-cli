@@ -144,6 +144,56 @@ func (c *Client) IngestEvents(ctx context.Context, events []CloudEvent) error {
 	return nil
 }
 
+// MeterQueryRow represents a single row in a meter query response.
+type MeterQueryRow struct {
+	Value       float64           `json:"value"`
+	WindowStart string            `json:"windowStart"`
+	WindowEnd   string            `json:"windowEnd"`
+	Subject     string            `json:"subject,omitempty"`
+	GroupBy     map[string]string `json:"groupBy,omitempty"`
+}
+
+// MeterQueryResult represents the response from a meter query.
+type MeterQueryResult struct {
+	Data []MeterQueryRow `json:"data"`
+}
+
+// QueryMeter queries a meter for a given subject over a time range.
+// windowSize can be MINUTE, HOUR, DAY, or empty for total aggregation.
+func (c *Client) QueryMeter(ctx context.Context, meterSlug, subject string, from, to time.Time, windowSize string) (*MeterQueryResult, error) {
+	url := fmt.Sprintf("%s/api/v1/meters/%s/query?subject=%s&from=%s&to=%s",
+		c.baseURL, meterSlug, subject,
+		from.UTC().Format(time.RFC3339),
+		to.UTC().Format(time.RFC3339),
+	)
+	if windowSize != "" {
+		url += "&windowSize=" + windowSize
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
+	if err != nil {
+		return nil, fmt.Errorf("query meter request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("query meter: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result MeterQueryResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode meter query response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // Entitlement represents an OpenMeter entitlement check result.
 type Entitlement struct {
 	HasAccess bool   `json:"hasAccess"`

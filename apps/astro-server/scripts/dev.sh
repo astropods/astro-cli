@@ -21,6 +21,10 @@ fi
 cleanup() {
   echo ""
   echo "==> Shutting down..."
+  if [ -n "${FAKEMETER_PID:-}" ]; then
+    kill "$FAKEMETER_PID" 2>/dev/null
+    wait "$FAKEMETER_PID" 2>/dev/null || true
+  fi
   if [ -n "${SERVER_PID:-}" ]; then
     kill "$SERVER_PID" 2>/dev/null
     wait "$SERVER_PID" 2>/dev/null || true
@@ -41,6 +45,14 @@ docker compose run --rm migrate
 # Apply River queue migrations (idempotent — CREATE IF NOT EXISTS)
 echo "==> Applying River migrations..."
 docker compose run --rm migrate-river
+
+# Start fake OpenMeter if OPENMETER_URL points to localhost
+if grep -q 'OPENMETER_URL=http://localhost:8888' .env 2>/dev/null; then
+  echo "==> Starting fake OpenMeter on :8888..."
+  go run ./cmd/fakeopenmeter &
+  FAKEMETER_PID=$!
+  sleep 1
+fi
 
 # Start the server with hot reload
 echo "==> Starting astro-server (hot reload via air)..."

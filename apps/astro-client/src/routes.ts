@@ -12,6 +12,7 @@ export default [
       layout("pages/settings/SettingsLayout.tsx", [
         index("pages/settings/SettingsRedirect.tsx"),
         route("account", "pages/settings/AccountSettings.tsx"),
+        route("usage", "pages/settings/UsageSettings.tsx"),
       ]),
     ]),
     route("organization/new", "pages/OrganizationNew.tsx"),

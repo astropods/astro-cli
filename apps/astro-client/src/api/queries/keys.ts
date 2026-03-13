@@ -28,6 +28,10 @@ export const observabilityKeys = {
     ['observability', 'traces', account, name, params] as const,
 };
 
+export const usageKeys = {
+  byAccount: (account: string) => ['usage', account] as const,
+};
+
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
   logs: (account: string, namespace: string, pod: string, container: string, tailLines?: number) =>

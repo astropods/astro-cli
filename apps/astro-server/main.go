@@ -536,6 +536,15 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(501, &handlers.ErrorResponse{}),
 				)
+				api.GET(accountAdmin, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
+					oapispec.Tags("Usage"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.UsageResponse{}),
+					oapispec.Response(503, &handlers.ErrorResponse{}),
+				)
 			}
 
 			// Member management (requires org:manage permission)
