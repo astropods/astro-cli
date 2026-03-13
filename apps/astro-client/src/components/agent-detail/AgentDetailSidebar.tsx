@@ -13,7 +13,6 @@ import type { Agent, AccountPublic, AgentCardAuthor, ResolvedIntegration } from 
 
 export interface SidebarCardProps {
   agent: Agent;
-  description: string;
   integrations: ResolvedIntegration[];
   capabilities?: string[];
   authors?: AgentCardAuthor[];

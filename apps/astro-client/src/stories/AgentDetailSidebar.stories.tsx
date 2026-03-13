@@ -74,8 +74,6 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     agent: mockAgent,
-    description:
-      "Analyzes customer feedback to surface actionable insights and trends across all channels.",
     integrations: [
       { id: "slack", name: "Slack" },
       { id: "github", name: "GitHub" },
@@ -95,8 +93,6 @@ export const Default: Story = {
 export const Full: Story = {
   args: {
     agent: mockAgent,
-    description:
-      "This agent monitors your production environment 24/7 and detects anomalies in real-time.",
     integrations: [
       { id: "slack", name: "Slack" },
       { id: "github", name: "GitHub" },
@@ -121,7 +117,6 @@ export const Full: Story = {
 export const Minimal: Story = {
   args: {
     agent: mockAgent,
-    description: "",
     integrations: [],
     capabilities: [],
     rating: undefined,
@@ -133,7 +128,6 @@ export const Minimal: Story = {
 export const NoAvatar: Story = {
   args: {
     agent: mockAgent,
-    description: "A lightweight monitoring agent.",
     integrations: [{ id: "slack", name: "Slack" }],
     capabilities: ["Read Slack messages"],
     initialAccountData: {
@@ -154,7 +148,6 @@ export const BuildIdVersion: Story = {
         },
       ],
     },
-    description: "Uses a build ID instead of semver.",
     integrations: [{ id: "github", name: "GitHub" }],
     capabilities: ["Access GitHub repositories"],
     initialAccountData: mockAccount,

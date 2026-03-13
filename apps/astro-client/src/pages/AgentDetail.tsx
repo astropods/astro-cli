@@ -156,7 +156,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           mobileSidebar={
             <SidebarCard
               agent={agent}
-              description={description}
               integrations={integrations}
               capabilities={capabilities}
               authors={authors}
@@ -168,7 +167,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
 
         <AgentDetailSidebar
           agent={agent}
-          description={description}
           integrations={integrations}
           capabilities={capabilities}
           authors={authors}
