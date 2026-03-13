@@ -1,4 +1,4 @@
-name: fern-docs
+name: Fern Docs
 
 on:
   pull_request:
