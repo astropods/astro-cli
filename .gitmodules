@@ -13,6 +13,9 @@
 [submodule "modules/playground"]
 	path = modules/playground
 	url = git@github.com:astropods/playground.git
-[submodule "modules/website"]
-	path = modules/website
+[submodule "modules/blog"]
+	path = modules/blog
 	url = git@github.com:postman-eng/astro-website.git
+[submodule "modules/astro-ai-website"]
+	path = modules/astro-ai-website
+	url = git@github.com:postman-eng/astro-ai-website.git
