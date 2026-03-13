@@ -9,9 +9,9 @@ describe("RequiredAppsList", () => {
       <RequiredAppsList integrations={["Slack", "Google Drive", "github", "custom-app"]} />,
     );
 
-    expect(screen.getByText("SLACK")).toBeInTheDocument();
-    expect(screen.getByText("GOOGLE_DRIVE")).toBeInTheDocument();
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.getByText("Google drive")).toBeInTheDocument();
     expect(screen.getByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByText("CUSTOM_APP")).toBeInTheDocument();
+    expect(screen.getByText("Custom app")).toBeInTheDocument();
   });
 });

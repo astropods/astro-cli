@@ -11,13 +11,13 @@ export interface RequiredAppsListProps {
 function formatIntegrationLabel(name: string): string {
   const normalized = name.trim().toLowerCase();
   if (normalized === "github") return "GitHub";
-  return name
+  const cleaned = name
     .trim()
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
+    .toLowerCase();
+
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 export function RequiredAppsList({ integrations, title = "Connected apps" }: RequiredAppsListProps) {
