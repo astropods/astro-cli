@@ -10,15 +10,15 @@ const baseProps = {
   account: "acme",
   name: "signal-watcher",
   categories: ["MONITORING"],
-  safetyPermissions: [],
+  recommendedAgents: [],
 };
 
 describe("AgentDetailContent", () => {
-  it("starts content from second heading when multiple headings exist", () => {
+  it("renders full markdown content as provided", () => {
     const readme = [
       "# API Changelog Writer",
       "",
-      "Small starter intro block that should be skipped.",
+      "Small starter intro block that should be shown.",
       "",
       "## Quick start",
       "",
@@ -32,32 +32,9 @@ describe("AgentDetailContent", () => {
       />,
     );
 
+    expect(screen.getByRole("heading", { name: /api changelog writer/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /quick start/i })).toBeInTheDocument();
-    expect(screen.queryByText(/API Changelog Writer/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/should be skipped/i)).not.toBeInTheDocument();
-  });
-
-  it("removes the topmost section even for quick start/prompts patterns", () => {
-    const readme = [
-      "# Quick start",
-      "",
-      "Install deps and run setup.",
-      "",
-      "## Prompts",
-      "",
-      "Use these prompts in your workflow.",
-    ].join("\n");
-
-    renderWithProviders(
-      <AgentDetailContent
-        {...baseProps}
-        readme={readme}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: /prompts/i })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /quick start/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Install deps and run setup/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/should be shown/i)).toBeInTheDocument();
   });
 
   it("keeps content unchanged when only one heading exists", () => {

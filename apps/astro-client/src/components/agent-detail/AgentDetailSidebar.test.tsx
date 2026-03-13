@@ -38,8 +38,12 @@ const mockAccount: AccountPublic = {
 const baseProps = {
   agent: mockAgent,
   description: "Monitors API behavior and alert conditions.",
-  integrations: ["GitHub", "Slack"],
-  permissions: ["Read-only access", "Send channel notifications"],
+  integrations: [
+    { id: "github", name: "GitHub" },
+    { id: "slack", name: "Slack" },
+  ],
+  capabilities: ["Read-only access", "Send channel notifications"],
+  authors: [{ name: "Steve Jobs", account: "acme" }],
   initialAccountData: mockAccount,
 };
 

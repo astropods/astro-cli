@@ -4,20 +4,8 @@ import { integrationIconMap } from "@/lib/integrationIcons";
 import { InlineBadge } from "@/components/InlineBadge";
 
 export interface RequiredAppsListProps {
-  integrations: string[];
+  integrations: ResolvedIntegration[];
   title?: string;
-}
-
-function formatIntegrationLabel(name: string): string {
-  const normalized = name.trim().toLowerCase();
-  if (normalized === "github") return "GitHub";
-  const cleaned = name
-    .trim()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 export function RequiredAppsList({ integrations, title = "Connected apps" }: RequiredAppsListProps) {
@@ -27,7 +15,9 @@ export function RequiredAppsList({ integrations, title = "Connected apps" }: Req
     <div className="space-y-3">
       <h4 className="text-[13px] font-semibold text-foreground">{title}</h4>
       <div className="flex flex-wrap gap-2">
-        {integrations.map((name) => {
+        {integrations.map((integration) => {
+          const name = integration.name;
+          const key = integration.id;
           const icon: ReactNode = integrationIconMap[name];
           return (
             <InlineBadge

@@ -47,11 +47,7 @@ export const Default: Story = {
       "Summarizes API changes into concise release notes and migration guidance for product and engineering teams.",
     categories: ["PRODUCTIVITY", "ENGINEERING"],
     readme: longReadme,
-    safetyPermissions: [
-      "Reads changelog documents",
-      "Generates text summaries",
-      "Cannot mutate external systems",
-    ],
+    recommendedAgents: [],
   },
 };
 
@@ -61,6 +57,6 @@ export const NoSummaryNoPermissions: Story = {
     name: "api-changelog-writer",
     categories: [],
     readme: "## ReadMe\n\nMinimal content block.",
-    safetyPermissions: [],
+    recommendedAgents: [],
   },
 };

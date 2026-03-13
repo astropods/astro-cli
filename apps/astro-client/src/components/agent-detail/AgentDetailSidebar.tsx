@@ -14,8 +14,9 @@ import type { Agent, AccountPublic, AgentCardAuthor, ResolvedIntegration } from 
 export interface SidebarCardProps {
   agent: Agent;
   description: string;
-  integrations: string[];
-  permissions: string[];
+  integrations: ResolvedIntegration[];
+  capabilities?: string[];
+  authors?: AgentCardAuthor[];
   rating?: number;
   installs?: number;
   teammateInstallCount?: number;
@@ -27,7 +28,8 @@ export interface SidebarCardProps {
 export function SidebarCard({
   agent,
   integrations,
-  permissions,
+  capabilities = [],
+  authors = [],
   rating,
   installs,
   teammateInstallCount,
@@ -99,17 +101,17 @@ export function SidebarCard({
         updatedAt={updatedAt ?? undefined}
       />
 
-      {(integrations.length > 0 || permissions.length > 0) && (
+      {(integrations.length > 0 || capabilities.length > 0) && (
         <SidebarSection title="What it needs">
           <div className="space-y-5">
             {integrations.length > 0 && (
               <RequiredAppsList integrations={integrations} title="Connected apps" />
             )}
-            {integrations.length > 0 && permissions.length > 0 && (
+            {integrations.length > 0 && capabilities.length > 0 && (
               <div className="-mx-4 h-px bg-border" />
             )}
-            {permissions.length > 0 && (
-              <PermissionsPreview permissions={permissions} title="Permissions" />
+            {capabilities.length > 0 && (
+              <PermissionsPreview permissions={capabilities} title="Capabilities" />
             )}
           </div>
         </SidebarSection>

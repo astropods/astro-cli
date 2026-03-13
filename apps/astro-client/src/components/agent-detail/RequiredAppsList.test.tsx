@@ -6,7 +6,12 @@ import { RequiredAppsList } from "./RequiredAppsList";
 describe("RequiredAppsList", () => {
   it("renders integration labels as provided by data", () => {
     renderWithProviders(
-      <RequiredAppsList integrations={["Slack", "Google Drive", "github", "custom-app"]} />,
+      <RequiredAppsList integrations={[
+        { id: "slack", name: "Slack" },
+        { id: "google-drive", name: "Google Drive" },
+        { id: "github", name: "github" },
+        { id: "custom-app", name: "custom-app" },
+      ]} />,
     );
 
     expect(screen.getByText("Slack")).toBeInTheDocument();

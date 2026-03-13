@@ -188,8 +188,10 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   }
 
   const recommendedAgents = (() => {
-    if (!agentsData) return [];
-    const currentIntegrations = new Set(getAgentIntegrations(agent));
+    if (!agent || !agentsData) return [];
+    const currentIntegrations = new Set(
+      getAgentIntegrations(agent).map((integration) => integration.id.toLowerCase()),
+    );
     const currentCategories = new Set(getAgentCategories(agent));
     return agentsData.agents
       .filter((a) => a.name !== agentSlug)
@@ -213,14 +215,10 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
 
   const description = getAgentDescription(agent);
   const integrations = getAgentIntegrations(agent);
-  const spec = getLatestSpec(agent);
-  const readme = agent.versions[0]?.readme;
-  const credentials = spec?.integrations
-    ? Object.values(spec.integrations)
-    : [];
-  const safetyPermissions = credentials.map(
-    (i) => `Access to ${i.provider}`,
-  );
+  const categories = getAgentCategories(agent);
+  const readme = getAgentReadme(agent);
+  const authors = getAgentAuthors(agent);
+  const capabilities = getAgentCapabilities(agent);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
@@ -235,13 +233,14 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           summary={description}
           categories={getAgentCategories(agent)}
           readme={readme}
-          safetyPermissions={safetyPermissions}
+          recommendedAgents={recommendedAgents}
           mobileSidebar={
             <SidebarCard
               agent={agent}
               description={description}
               integrations={integrations}
-              permissions={safetyPermissions}
+              capabilities={capabilities}
+              authors={authors}
               recommendedAgents={recommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
             />
@@ -252,7 +251,8 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           agent={agent}
           description={description}
           integrations={integrations}
-          permissions={safetyPermissions}
+          capabilities={capabilities}
+          authors={authors}
           recommendedAgents={recommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}
         />

@@ -76,8 +76,11 @@ export const Default: Story = {
     agent: mockAgent,
     description:
       "Analyzes customer feedback to surface actionable insights and trends across all channels.",
-    integrations: ["Slack", "GitHub"],
-    permissions: [
+    integrations: [
+      { id: "slack", name: "Slack" },
+      { id: "github", name: "GitHub" },
+    ],
+    capabilities: [
       "Read Slack messages",
       "Send Slack messages",
       "Access GitHub repositories",
@@ -97,10 +100,10 @@ export const Full: Story = {
     description:
       "This agent monitors your production environment 24/7 and detects anomalies in real-time.",
     integrations: [
-      ri("slack", "Slack"),
-      ri("github", "GitHub"),
-      ri("linear", "Linear"),
-      ri("notion", "Notion"),
+      { id: "slack", name: "Slack" },
+      { id: "github", name: "GitHub" },
+      { id: "linear", name: "Linear" },
+      { id: "notion", name: "Notion" },
     ],
     capabilities: [
       "Read Slack messages",
@@ -124,7 +127,7 @@ export const Minimal: Story = {
     agent: mockAgent,
     description: "",
     integrations: [],
-    permissions: [],
+    capabilities: [],
     rating: undefined,
     installs: undefined,
     teammateInstallCount: 0,
@@ -136,7 +139,8 @@ export const NoAvatar: Story = {
   args: {
     agent: mockAgent,
     description: "A lightweight monitoring agent.",
-    integrations: [ri("slack", "Slack")],
+    integrations: [{ id: "slack", name: "Slack" }],
+    capabilities: ["Read Slack messages"],
     initialAccountData: {
       ...mockAccount,
       owner: { first_name: "Acme", last_name: "Corp" },
@@ -156,7 +160,8 @@ export const BuildIdVersion: Story = {
       ],
     },
     description: "Uses a build ID instead of semver.",
-    integrations: [ri("github", "GitHub")],
+    integrations: [{ id: "github", name: "GitHub" }],
+    capabilities: ["Access GitHub repositories"],
     initialAccountData: mockAccount,
   },
 };
