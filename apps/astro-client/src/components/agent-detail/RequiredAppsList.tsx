@@ -36,14 +36,14 @@ export function RequiredAppsList({ integrations, title = "Integrations" }: Requi
           return (
             <InlineBadge
               key={getIntegrationKey(integration)}
-              className="gap-2 rounded-md border-border-strong bg-stone-200 px-3.5 py-1.5 font-sans text-[13px] font-medium normal-case tracking-normal text-foreground dark:border-border-strong dark:bg-muted/30 dark:text-foreground"
+              className="gap-1.5 rounded-full border-border-strong bg-stone-200 px-2.5 py-1 font-sans text-[12px] font-medium normal-case tracking-normal text-foreground dark:border-border-strong dark:bg-muted/30 dark:text-foreground"
             >
               {icon && (
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
                   {icon}
                 </span>
               )}
-              <span>{getIntegrationName(integration)}</span>
+              <span className="whitespace-nowrap">{getIntegrationName(integration)}</span>
             </InlineBadge>
           );
         })}
