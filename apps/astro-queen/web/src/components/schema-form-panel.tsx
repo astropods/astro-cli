@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +26,7 @@ interface SchemaFormPanelProps {
   hiddenFields?: string[];
   defaults?: Record<string, unknown>;
   error?: string;
+  className?: string;
 }
 
 export function SchemaFormPanel({
@@ -37,6 +39,7 @@ export function SchemaFormPanel({
   hiddenFields = [],
   defaults = {},
   error: externalError,
+  className: customClassName,
 }: SchemaFormPanelProps) {
   const { data: spec, isLoading: schemaLoading } = useOpenAPISchema();
   const schema = spec ? extractSchema(spec, SCHEMA_REFS[schemaRef]) : null;
@@ -104,7 +107,7 @@ export function SchemaFormPanel({
   const handleReset = () => setResetKey((k) => k + 1);
 
   return (
-    <div className="w-72 shrink-0 rounded-lg glass p-3 space-y-2 self-start sticky top-4">
+    <div className={cn("w-72 shrink-0 rounded-lg glass p-3 space-y-2 self-start sticky top-4", customClassName)}>
       {schemaLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : (

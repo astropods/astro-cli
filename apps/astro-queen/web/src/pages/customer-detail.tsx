@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Trash2, ChevronDown, XCircle } from "lucide-react";
+import { Trash2, ChevronDown, XCircle, Plus } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { SchemaFormPanel } from "@/components/schema-form-panel";
 import type { Entitlement, Customer } from "@/types/openmeter";
@@ -196,6 +196,7 @@ function EntitlementRow({ customerId, entitlement }: { customerId: string; entit
   const { data: value } = useEntitlementValue(customerId, entitlement.id);
   const { data: grants } = useEntitlementGrants(customerId, entitlement.id);
   const createGrant = useCreateGrant();
+  const [showGrant, setShowGrant] = useState(false);
 
   return (
     <Collapsible className="mb-2 rounded-lg glass">
@@ -227,15 +228,31 @@ function EntitlementRow({ customerId, entitlement }: { customerId: string; entit
           </div>
         )}
         <div className="mt-2">
-          <SchemaFormPanel
-            title="Add Grant"
-            description="Add a usage grant to this entitlement."
-            schemaRef="GrantCreate"
-            submitLabel="Add"
-            defaults={{ effectiveAt: new Date().toISOString(), priority: 1 }}
-            onSubmit={(body) => createGrant.mutate({ customerId, entitlementId: entitlement.id, body })}
-            isPending={createGrant.isPending}
-          />
+          {showGrant ? (
+            <>
+              <SchemaFormPanel
+                title="Add Grant"
+                description="Add a usage grant to this entitlement."
+                schemaRef="GrantCreate"
+                submitLabel="Add"
+                defaults={{ effectiveAt: new Date().toISOString(), priority: 1 }}
+                onSubmit={(body) => {
+                  createGrant.mutate({ customerId, entitlementId: entitlement.id, body }, {
+                    onSuccess: () => setShowGrant(false),
+                  });
+                }}
+                isPending={createGrant.isPending}
+                className="w-full static"
+              />
+              <div className="flex justify-end mt-1">
+                <Button variant="ghost" size="xs" onClick={() => setShowGrant(false)}>Cancel</Button>
+              </div>
+            </>
+          ) : (
+            <Button variant="outline" size="xs" onClick={() => setShowGrant(true)}>
+              <Plus className="size-3 mr-1" /> Add Grant
+            </Button>
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>

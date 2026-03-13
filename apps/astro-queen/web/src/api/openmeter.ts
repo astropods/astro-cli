@@ -188,10 +188,12 @@ export function useCustomerApps(id: string) {
 export function useCustomerEntitlements(id: string) {
   return useQuery({
     queryKey: openmeterKeys.customerEntitlements(id),
-    queryFn: () =>
-      api.get<Entitlement[]>(
+    queryFn: async () => {
+      const res = await api.get<{ items: Entitlement[] } | Entitlement[]>(
         `/api/openmeter/api/v2/customers/${encodeURIComponent(id)}/entitlements`
-      ),
+      );
+      return Array.isArray(res) ? res : res.items;
+    },
     enabled: !!id,
   });
 }
@@ -253,10 +255,12 @@ export function useEntitlementValue(custId: string, entId: string) {
 export function useEntitlementGrants(custId: string, entId: string) {
   return useQuery({
     queryKey: openmeterKeys.entitlementGrants(custId, entId),
-    queryFn: () =>
-      api.get<Grant[]>(
+    queryFn: async () => {
+      const res = await api.get<{ items: Grant[] } | Grant[]>(
         `/api/openmeter/api/v2/customers/${encodeURIComponent(custId)}/entitlements/${encodeURIComponent(entId)}/grants`
-      ),
+      );
+      return Array.isArray(res) ? res : res.items;
+    },
     enabled: !!custId && !!entId,
   });
 }

@@ -137,12 +137,12 @@ Tracks how many members belong to each account (gauge via periodic snapshot).
 
 ### Account-to-Customer Mapping
 
-| Astro | OpenMeter |
-|---|---|
-| `accounts.id` (UUID) | Customer `key` + subject key |
-| `accounts.name` | Customer `name` |
-| `accounts.type` | Customer `metadata.type` |
-| Owner email (from WorkOS) | Customer `primaryEmail` |
+| Astro                     | OpenMeter                    |
+| ------------------------- | ---------------------------- |
+| `accounts.id` (UUID)      | Customer `key` + subject key |
+| `accounts.name`           | Customer `name`              |
+| `accounts.type`           | Customer `metadata.type`     |
+| Owner email (from WorkOS) | Customer `primaryEmail`      |
 
 ### Schema Change
 
@@ -269,36 +269,169 @@ Event ingestion is **async fire-and-forget** (buffered channel or goroutine) so 
 
 ## 4. Plans and Subscriptions
 
-### Example Plans
+### Features
 
-**Free**
-- `compute`: metered entitlement, 100 CU-hours/month, hard limit
-- `agent_registrations`: metered entitlement, 5/month, hard limit
-- `agent_deployments`: metered entitlement, 10/month, hard limit
-- `members`: metered entitlement, 1/account, hard limit
-- Flat fee: $0
+One feature per meter, used as the entitlement key for limit checks.
 
-**Pro**
-- `compute`: usage-based, $0.05/CU-hour
-- `agent_registrations`: unlimited (soft limit)
-- `agent_deployments`: metered entitlement, 100/month
-- `members`: metered entitlement, 10/account, hard limit
-- Flat fee: $49/month
+`POST /api/v1/features` for each:
 
-**Enterprise**
-- Custom rate cards, negotiated per customer
-- Soft limits on all meters
+```json
+{
+  "key": "compute",
+  "name": "Compute",
+  "meterSlug": "compute",
+  "metadata": { "unit": "CU-hours" }
+}
+```
+```json
+{
+  "key": "agents",
+  "name": "Agents",
+  "meterSlug": "agents",
+  "metadata": { "unit": "agents" }
+}
+```
+```json
+{
+  "key": "agent_builds",
+  "name": "Agent Builds",
+  "meterSlug": "agent_builds",
+  "metadata": { "unit": "builds" }
+}
+```
+```json
+{
+  "key": "agent_deployments",
+  "name": "Deployments",
+  "meterSlug": "agent_deployments",
+  "metadata": { "unit": "deployments" }
+}
+```
+```json
+{
+  "key": "members",
+  "name": "Members",
+  "meterSlug": "members",
+  "metadata": { "unit": "members" }
+}
+```
+
+### Plan: Private Beta
+
+Single plan, free, hard limits on everything. All accounts are auto-subscribed on creation.
+
+`POST /api/v1/plans`
+
+```json
+{
+  "key": "private_beta",
+  "name": "Private Beta",
+  "description": "Free tier for private beta users with hard limits on all resources.",
+  "currency": "USD",
+  "billingCadence": "P1M",
+  "phases": [
+    {
+      "key": "beta",
+      "name": "Private Beta",
+      "description": "Single phase — free access with hard-capped entitlements.",
+      "duration": null,
+      "rateCards": [
+        {
+          "type": "usage_based",
+          "key": "compute",
+          "name": "Compute",
+          "description": "Compute-unit-hours consumed by active deployments (1 CU = 1 vCPU + 2 GB RAM per hour).",
+          "featureKey": "compute",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 100
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agents",
+          "name": "Agents",
+          "description": "Number of distinct agents registered in the account.",
+          "featureKey": "agents",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_builds",
+          "name": "Agent Builds",
+          "description": "Number of agent builds pushed to the registry per billing period.",
+          "featureKey": "agent_builds",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 50
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "agent_deployments",
+          "name": "Deployments",
+          "description": "Number of concurrently active agent deployments.",
+          "featureKey": "agent_deployments",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 10
+          },
+          "price": null
+        },
+        {
+          "type": "usage_based",
+          "key": "members",
+          "name": "Members",
+          "description": "Number of members in the account.",
+          "featureKey": "members",
+          "billingCadence": "P1M",
+          "entitlementTemplate": {
+            "type": "metered",
+            "isSoftLimit": false,
+            "issueAfterReset": 5
+          },
+          "price": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Private Beta Limits
+
+| Feature             | Limit          | Period  | Type |
+| ------------------- | -------------- | ------- | ---- |
+| `compute`           | 100 CU-hours   | Monthly | Hard |
+| `agents`            | 5 agents       | Monthly | Hard |
+| `agent_builds`      | 50 builds      | Monthly | Hard |
+| `agent_deployments` | 10 deployments | Monthly | Hard |
+| `members`           | 5 members      | Monthly | Hard |
 
 ### Subscription Creation
 
-When an account upgrades (triggered from billing UI or admin action):
+Auto-subscribe on account creation (in `handlers/accounts.go` after OpenMeter customer is created):
 
 ```
 POST /api/v1/subscriptions
 {
-  "name": "<account.name> - <plan_name>",
+  "name": "<account.name> - Private Beta",
   "customerId": "<openmeter_customer_id>",
-  "plan": { "key": "<plan_key>", "version": 1 },
+  "plan": { "key": "private_beta", "version": 1 },
   "activeFrom": "<now>",
   "billingCadence": "P1M",
   "billingAnchor": "<now>"
@@ -349,13 +482,13 @@ Initialized with `OPENMETER_URL` (no auth). Passed into handlers via dependency 
 
 ## 7. Implementation Order
 
-| Phase | Status | Work | Files |
-|---|---|---|---|
-| ~~Phase 1~~ | Done | OpenMeter client + customer creation on account create + backfill migration | `internal/openmeter/client.go`, `handlers/accounts.go`, `schema.sql`, migration script |
-| ~~Phase 2~~ | Done | Inline meters: `agent_deployments` + `agent_registrations` event emission | `internal/openmeter/events.go`, `handlers/deploy.go`, `handlers/agents.go` |
-| ~~Phase 3~~ | Done | Background meters: `compute` heartbeat | `internal/openmeter/sync.go` |
-| **Phase 4** | Next | `members` meter: inline emission on member add/remove + background heartbeat reconciliation | `internal/openmeter/events.go`, `handlers/members.go`, `internal/openmeter/sync.go` |
-| **Phase 5** | Planned | Plan/subscription management + entitlement enforcement middleware | `internal/openmeter/middleware.go`, plan definitions in OpenMeter |
+| Phase       | Status  | Work                                                                                        | Files                                                                                  |
+| ----------- | ------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| ~~Phase 1~~ | Done    | OpenMeter client + customer creation on account create + backfill migration                 | `internal/openmeter/client.go`, `handlers/accounts.go`, `schema.sql`, migration script |
+| ~~Phase 2~~ | Done    | Inline meters: `agent_deployments` + `agent_registrations` event emission                   | `internal/openmeter/events.go`, `handlers/deploy.go`, `handlers/agents.go`             |
+| ~~Phase 3~~ | Done    | Background meters: `compute` heartbeat                                                      | `internal/openmeter/sync.go`                                                           |
+| **Phase 4** | Next    | `members` meter: inline emission on member add/remove + background heartbeat reconciliation | `internal/openmeter/events.go`, `handlers/members.go`, `internal/openmeter/sync.go`    |
+| **Phase 5** | Planned | Plan/subscription management + entitlement enforcement middleware                           | `internal/openmeter/middleware.go`, plan definitions in OpenMeter                      |
 
 ---
 

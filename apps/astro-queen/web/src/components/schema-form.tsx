@@ -22,6 +22,19 @@ interface SchemaFormProps {
 }
 
 export function SchemaForm({ schema, value, onChange, hiddenFields = [], defaults }: SchemaFormProps) {
+  // Root-level oneOf with discriminator (e.g. EntitlementV2CreateInputs)
+  if (schema.oneOf && schema.discriminator && !schema.properties) {
+    return (
+      <DiscriminatorField
+        name=""
+        schema={schema}
+        value={value}
+        onChange={onChange}
+        required={false}
+      />
+    );
+  }
+
   const properties = (schema.properties ?? {}) as Record<string, Schema>;
   const required = (schema.required ?? []) as string[];
 

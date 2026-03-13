@@ -265,13 +265,12 @@ function CreatePlanForm({ onDone }: { onDone: () => void }) {
         return card;
       });
 
-      const p: Record<string, unknown> = {
+      return {
         key: phase.key,
         name: phase.name,
+        duration: phase.duration || null,
         rateCards,
       };
-      if (phase.duration) p.duration = phase.duration;
-      return p;
     });
 
     return {
@@ -307,7 +306,50 @@ function CreatePlanForm({ onDone }: { onDone: () => void }) {
     setJsonMode(true);
   };
 
+  const parseJsonToForm = (json: string): PlanForm | null => {
+    try {
+      const obj = JSON.parse(json);
+      const phases: PhaseForm[] = (obj.phases ?? []).map((phase: Record<string, unknown>) => {
+        const rateCards: RateCardForm[] = ((phase.rateCards as Record<string, unknown>[]) ?? []).map((rc) => {
+          const ent = rc.entitlementTemplate as Record<string, unknown> | undefined;
+          return {
+            type: (rc.type as string) || "flat_fee",
+            key: (rc.key as string) || "",
+            name: (rc.name as string) || "",
+            featureKey: (rc.featureKey as string) || "",
+            billingCadence: (rc.billingCadence as string) || "",
+            priceAmount: rc.price && typeof rc.price === "object" ? String((rc.price as Record<string, unknown>).amount ?? "") : "",
+            entitlementType: ent ? (ent.type as string) || "" : "",
+            issueAfterReset: ent?.issueAfterReset != null ? String(ent.issueAfterReset) : "",
+            isSoftLimit: ent?.isSoftLimit === true,
+            staticConfig: ent?.type === "static" ? (ent.config as string) || "{}" : "{}",
+          };
+        });
+        return {
+          key: (phase.key as string) || "",
+          name: (phase.name as string) || "",
+          duration: (phase.duration as string) || "",
+          rateCards: rateCards.length > 0 ? rateCards : [{ ...EMPTY_RATE_CARD }],
+        };
+      });
+      return {
+        name: obj.name || "",
+        key: obj.key || "",
+        description: obj.description || "",
+        currency: obj.currency || "USD",
+        billingCadence: obj.billingCadence || "P1M",
+        phases: phases.length > 0 ? phases : [{ ...EMPTY_PHASE, key: "default", name: "Default" }],
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const switchToPretty = () => {
+    const parsed = parseJsonToForm(rawJson);
+    if (parsed) {
+      setForm(parsed);
+    }
     setJsonMode(false);
     setErr(""); setValidated(false);
   };
@@ -889,23 +931,52 @@ function PlanRow({
                       <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Key</th>
                       <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
                       <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Feature</th>
-                      <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Billing</th>
+                      <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Entitlement</th>
+                      <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Limit</th>
+                      <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Price</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {phase.rateCards.map((rc) => (
-                      <tr key={rc.key} className="border-t border-glass-border-honey">
-                        <td className="px-2 py-0.5">
-                          <span className={rc.type === "flat_fee" ? "text-purple-500" : "text-blue-500"}>
-                            {rc.type}
-                          </span>
-                        </td>
-                        <td className="px-2 py-0.5 font-mono text-amber">{rc.key}</td>
-                        <td className="px-2 py-0.5">{rc.name}</td>
-                        <td className="px-2 py-0.5 text-muted-foreground">{rc.featureKey || "-"}</td>
-                        <td className="px-2 py-0.5 text-muted-foreground">{rc.billingCadence || "-"}</td>
-                      </tr>
-                    ))}
+                    {phase.rateCards.map((rc) => {
+                      const ent = rc.entitlementTemplate as Record<string, unknown> | undefined;
+                      const entType = ent?.type as string | undefined;
+                      const price = rc.price as Record<string, unknown> | undefined;
+                      return (
+                        <tr key={rc.key} className="border-t border-glass-border-honey">
+                          <td className="px-2 py-0.5">
+                            <span className={rc.type === "flat_fee" ? "text-purple-500" : "text-blue-500"}>
+                              {rc.type}
+                            </span>
+                          </td>
+                          <td className="px-2 py-0.5 font-mono text-amber">{rc.key}</td>
+                          <td className="px-2 py-0.5">{rc.name}</td>
+                          <td className="px-2 py-0.5 text-muted-foreground">{rc.featureKey || "-"}</td>
+                          <td className="px-2 py-0.5">
+                            {entType ? (
+                              <span className={
+                                entType === "metered" ? "text-blue-500" :
+                                entType === "boolean" ? "text-green-600" :
+                                entType === "static" ? "text-purple-500" : ""
+                              }>
+                                {entType}{entType === "metered" && ent?.isSoftLimit === false ? " (hard)" : entType === "metered" ? " (soft)" : ""}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground italic">none</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-0.5 text-muted-foreground">
+                            {entType === "metered" && ent?.issueAfterReset != null
+                              ? String(ent.issueAfterReset)
+                              : entType === "static" && ent?.config
+                              ? <span className="font-mono">{String(ent.config)}</span>
+                              : "-"}
+                          </td>
+                          <td className="px-2 py-0.5 text-muted-foreground">
+                            {price ? `${price.amount ?? "?"}/${rc.billingCadence || plan.billingCadence}` : "free"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
