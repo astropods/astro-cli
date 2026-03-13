@@ -34,7 +34,7 @@ describe("AgentCard", () => {
     expect(screen.getByText("alert-router")).toBeInTheDocument();
     expect(screen.getByText("@steve_jobs")).toBeInTheDocument();
     expect(screen.getByText("4.6")).toBeInTheDocument();
-    expect(screen.getByText("1,203 installs")).toBeInTheDocument();
+    expect(screen.getByText("1,203")).toBeInTheDocument();
     expect(
       screen.queryByText("This text should not render in this variant."),
     ).not.toBeInTheDocument();

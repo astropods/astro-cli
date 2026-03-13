@@ -1,5 +1,6 @@
 import { Link } from "react-router";
-import { Download, Star } from "lucide-react";
+import { Star } from "lucide-react";
+import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import { AgentIdentity } from "./AgentIdentity";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
 
@@ -24,6 +25,10 @@ export function AgentCard({
   rating,
   installs,
 }: AgentCardProps) {
+  const formattedInstalls = installs != null
+    ? new Intl.NumberFormat("en-US").format(installs)
+    : null;
+
   if (variant === "oftenUsedTogether") {
     return (
       <Link
@@ -53,7 +58,10 @@ export function AgentCard({
               )}
               {rating != null && installs != null && <span className="text-faint-foreground">·</span>}
               {installs != null && (
-                <span>{new Intl.NumberFormat("en-US").format(installs)} installs</span>
+                <span className="inline-flex items-center gap-1">
+                  <ArrowDownTrayIcon className="h-3.5 w-3.5" />
+                  <span>{formattedInstalls}</span>
+                </span>
               )}
             </p>
           )}
@@ -88,9 +96,9 @@ export function AgentCard({
       </div>
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
         <div className="flex items-center gap-1.5">
-          <Download size={11} className="text-faint-foreground" />
+          <ArrowDownTrayIcon className="h-3.5 w-3.5 text-faint-foreground" />
           <span className="text-mono-sm font-mono text-faint-foreground">
-            1.2K
+            {formattedInstalls ?? "1.2K"}
           </span>
         </div>
         <span className="text-mono-sm font-mono text-faint-foreground">

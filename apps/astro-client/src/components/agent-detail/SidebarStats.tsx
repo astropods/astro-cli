@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Star } from "lucide-react";
+import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import { SidebarSection } from "./SidebarSection";
 
 export interface SidebarStatDetail {
@@ -47,7 +48,12 @@ export function SidebarStats({
   if (installs != null) {
     rows.push({
       label: "Installs",
-      value: new Intl.NumberFormat("en-US").format(installs),
+      value: (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          <ArrowDownTrayIcon className="h-3.5 w-3.5 text-faint-foreground" />
+          {new Intl.NumberFormat("en-US").format(installs)}
+        </span>
+      ),
     });
   }
 
