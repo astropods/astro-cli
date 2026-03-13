@@ -530,8 +530,8 @@ export interface Agent {
   registry: string;
   visibility?: string;
   versions: AgentVersion[];
-  heart_count: number;
-  hearted: boolean;
+  heart_count?: number;
+  hearted?: boolean;
 }
 
 export interface AgentsListResponse {
