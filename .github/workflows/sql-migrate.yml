@@ -65,10 +65,21 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
+  # Gate: require manual approval before applying migrations
+  # ---------------------------------------------------------------------------
+  approve:
+    needs: [plan]
+    runs-on: ubuntu-latest
+    environment: gate
+    steps:
+      - name: Approved
+        run: echo "Migration approved — proceeding to apply."
+
+  # ---------------------------------------------------------------------------
   # Apply: run migrations (requires manual approval via environment protection)
   # ---------------------------------------------------------------------------
   apply:
-    needs: [plan]
+    needs: [approve]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: prod
