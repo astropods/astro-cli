@@ -1,0 +1,116 @@
+name: SQL Migrate (Prod)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Plan: show exactly what SQL will run against production (no changes made)
+  # ---------------------------------------------------------------------------
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Atlas
+        run: curl -sSf https://atlasgo.sh | sh
+
+      - name: Schema diff
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+        run: |
+          DIFF=$(atlas schema diff \
+            --from "$DATABASE_URL" \
+            --to "file://sql/astro-server/schema.sql" \
+            --dev-url "$DEV_DATABASE_URL" \
+            --exclude "atlas_schema_revisions,river" 2>&1) || true
+
+          if [ -z "$DIFF" ]; then
+            echo "### Declarative Schema" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> No changes — production already matches \`schema.sql\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Declarative Schema" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```sql' >> "$GITHUB_STEP_SUMMARY"
+            echo "$DIFF" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: River migration status
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          STATUS=$(atlas migrate status \
+            --url "$DATABASE_URL" \
+            --dir "file://sql/river" \
+            --revisions-schema atlas_schema_revisions 2>&1) || true
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### River Migrations" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Apply: run migrations (requires manual approval via environment protection)
+  # ---------------------------------------------------------------------------
+  apply:
+    needs: [plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Atlas
+        run: curl -sSf https://atlasgo.sh | sh
+
+      - name: Apply declarative schema
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+        run: |
+          OUTPUT=$(atlas schema apply \
+            --url "$DATABASE_URL" \
+            --to "file://sql/astro-server/schema.sql" \
+            --dev-url "$DEV_DATABASE_URL" \
+            --exclude "atlas_schema_revisions,river" \
+            --auto-approve 2>&1)
+
+          echo "### Declarative Schema — Applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply River migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          OUTPUT=$(atlas migrate apply \
+            --url "$DATABASE_URL" \
+            --dir "file://sql/river" \
+            --revisions-schema atlas_schema_revisions \
+            --allow-dirty 2>&1)
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### River Migrations — Applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
