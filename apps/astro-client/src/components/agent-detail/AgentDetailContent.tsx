@@ -76,7 +76,12 @@ export function AgentDetailContent({
         {categories.length > 0 && (
           <div className="mt-3.5 flex flex-wrap gap-2">
             {categories.map((tag) => (
-              <InlineBadge key={tag}>{tag}</InlineBadge>
+              <InlineBadge
+                key={tag}
+                className="rounded-[4px] bg-surface text-muted-foreground dark:bg-surface dark:text-muted-foreground"
+              >
+                {tag}
+              </InlineBadge>
             ))}
           </div>
         )}
