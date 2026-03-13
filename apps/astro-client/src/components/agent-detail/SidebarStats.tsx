@@ -46,14 +46,14 @@ export function SidebarStats({
 
   if (version) {
     rows.push({
-      label: "Version",
+      label: "Build Number",
       value: isSemver ? `v${version}` : version,
     });
   }
 
   if (updatedAt) {
     rows.push({
-      label: "Last updated",
+      label: "Updated",
       value: updatedAt,
     });
   }
