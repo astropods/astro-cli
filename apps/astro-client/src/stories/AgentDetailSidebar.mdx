@@ -1,6 +1,5 @@
 import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
 import * as SidebarStories from "./AgentDetailSidebar.stories"
-import * as AboutStories from "./SidebarAbout.stories"
 import * as AuthorStories from "./SidebarAuthor.stories"
 import * as StatsStories from "./SidebarStats.stories"
 import * as AppsStories from "./RequiredAppsList.stories"
@@ -11,7 +10,7 @@ import * as PermissionsStories from "./PermissionsPreview.stories"
 
 # AgentDetailSidebar
 
-The right-hand sidebar shown on the agent detail page. It composes several sub-components into a sticky card containing an install CTA, about section, author info, version stats, required apps, and permissions.
+The right-hand sidebar shown on the agent detail page. It composes several sub-components into a sticky card containing an install CTA, author info, version stats, required apps, and permissions.
 
 Hidden on viewports below `lg` via `hidden lg:block`.
 
@@ -84,27 +83,6 @@ import { SidebarSection } from "@/components/agent-detail"
 <Canvas of={SectionStories.Default} />
 
 <Controls of={SectionStories.Default} />
-
----
-
-## SidebarAbout
-
-Displays the agent description beneath an "About" label.
-
-```tsx
-import { SidebarAbout } from "@/components/agent-detail"
-```
-
-```tsx
-<SidebarAbout description="Analyzes customer feedback." />
-```
-
-<Canvas of={AboutStories.Default} />
-<Canvas of={AboutStories.Long} />
-
-<Controls of={AboutStories.Default} />
-
----
 
 ## SidebarAuthor
 

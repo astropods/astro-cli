@@ -6,7 +6,6 @@ export type { SidebarCardProps } from "./AgentDetailSidebar";
 export { AgentDetailSkeleton } from "./AgentDetailSkeleton";
 export { CapabilitiesList } from "./CapabilitiesList";
 export { RequiredAppsList } from "./RequiredAppsList";
-export { SidebarAbout } from "./SidebarAbout";
 export { SidebarAuthor } from "./SidebarAuthor";
 export { SidebarSection } from "./SidebarSection";
 export { SidebarStats } from "./SidebarStats";
