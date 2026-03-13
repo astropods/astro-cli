@@ -29,12 +29,11 @@ jobs:
       - name: Schema diff
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
           DIFF=$(atlas schema diff \
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
-            --dev-url "$DEV_DATABASE_URL" \
+            --dev-url "docker://postgres/17/dev" \
             --exclude "atlas_schema_revisions,river" 2>&1) || true
 
           if [ -z "$DIFF" ]; then
@@ -83,12 +82,11 @@ jobs:
       - name: Apply declarative schema
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
           OUTPUT=$(atlas schema apply \
             --url "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
-            --dev-url "$DEV_DATABASE_URL" \
+            --dev-url "docker://postgres/17/dev" \
             --exclude "atlas_schema_revisions,river" \
             --auto-approve 2>&1)
 

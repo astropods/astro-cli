@@ -24,12 +24,11 @@ jobs:
         id: plan
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
           OUTPUT=$(atlas schema diff \
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
-            --dev-url "$DEV_DATABASE_URL" \
+            --dev-url "docker://postgres/17/dev" \
             --exclude "atlas_schema_revisions,river" 2>&1) && STATUS=0 || STATUS=$?
           if [ $STATUS -ne 0 ]; then
             echo "has_changes=error" >> "$GITHUB_OUTPUT"
@@ -208,12 +207,11 @@ jobs:
         id: plan
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
         run: |
           OUTPUT=$(atlas schema diff \
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
-            --dev-url "$DEV_DATABASE_URL" \
+            --dev-url "docker://postgres/17/dev" \
             --exclude "atlas_schema_revisions,river" 2>&1) && STATUS=0 || STATUS=$?
           if [ $STATUS -ne 0 ]; then
             echo "has_changes=error" >> "$GITHUB_OUTPUT"
