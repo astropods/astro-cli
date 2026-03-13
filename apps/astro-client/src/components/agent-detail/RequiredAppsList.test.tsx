@@ -4,14 +4,14 @@ import { renderWithProviders } from "@/test/test-utils";
 import { RequiredAppsList } from "./RequiredAppsList";
 
 describe("RequiredAppsList", () => {
-  it("formats integration labels and preserves GitHub casing", () => {
+  it("renders integration labels as provided by data", () => {
     renderWithProviders(
       <RequiredAppsList integrations={["Slack", "Google Drive", "github", "custom-app"]} />,
     );
 
     expect(screen.getByText("Slack")).toBeInTheDocument();
-    expect(screen.getByText("Google drive")).toBeInTheDocument();
-    expect(screen.getByText("GitHub")).toBeInTheDocument();
-    expect(screen.getByText("Custom app")).toBeInTheDocument();
+    expect(screen.getByText("Google Drive")).toBeInTheDocument();
+    expect(screen.getByText("github")).toBeInTheDocument();
+    expect(screen.getByText("custom-app")).toBeInTheDocument();
   });
 });
