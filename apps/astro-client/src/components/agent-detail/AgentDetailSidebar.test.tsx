@@ -15,12 +15,7 @@ const mockAgent: Agent = {
     {
       build_id: "a1b2c3d4e5f6g7h8",
       version: "1.2.0",
-      spec: {
-        meta: {
-          description: "Monitors API behavior and alert conditions.",
-          tags: ["monitoring"],
-        },
-      },
+      spec: {},
       readme: "",
       published_at: "2026-02-28T00:00:00Z",
     },

@@ -11,11 +11,7 @@ const mockAgent: Agent = {
     {
       build_id: "a1b2c3d4e5f6g7h8",
       version: "1.2.3",
-      spec: {
-        meta: {
-          visibility: "public",
-        },
-      },
+      spec: {},
       readme: "",
       published_at: "2026-01-15T12:00:00Z",
     },
