@@ -1,5 +1,6 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkUnwrapImages from "@/lib/remark-unwrap-images";
 import { cn } from "@/lib/utils";
 
 export interface StyledMarkdownProps {
@@ -37,9 +38,12 @@ const proseClasses = [
   "[&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:text-xs [&_:not(pre)>code]:text-foreground",
   "[&_:not(pre)>code]:font-normal [&_:not(pre)>code]:before:content-[''] [&_:not(pre)>code]:after:content-['']",
   "dark:[&_:not(pre)>code]:bg-teal-900/40 dark:[&_:not(pre)>code]:border-teal-300/20 dark:[&_:not(pre)>code]:text-teal-300",
+  // images: block images get max-width, unwrapped consecutive images render inline
+  "prose-img:max-w-full prose-img:rounded",
+  "[&>img]:inline [&>a>img]:inline",
 ].join(" ");
 
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfm, remarkUnwrapImages];
 
 const markdownComponents = {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

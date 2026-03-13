@@ -2,19 +2,20 @@ import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
-import { PermissionsPreview } from "./PermissionsPreview";
+import { CapabilitiesList } from "./CapabilitiesList";
 import { SidebarAbout } from "./SidebarAbout";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarStats } from "./SidebarStats";
 import { formatDate } from "@/lib/utils";
 import { useAccount } from "@/api/queries";
-import type { Agent, AccountPublic } from "@/lib/api";
+import type { Agent, AccountPublic, AgentCardAuthor, ResolvedIntegration } from "@/lib/api";
 
 export interface SidebarCardProps {
   agent: Agent;
   description: string;
-  integrations: string[];
-  permissions: string[];
+  integrations: ResolvedIntegration[];
+  capabilities?: string[];
+  authors?: AgentCardAuthor[];
   initialAccountData?: AccountPublic;
 }
 
@@ -22,7 +23,8 @@ export function SidebarCard({
   agent,
   description,
   integrations,
-  permissions,
+  capabilities = [],
+  authors = [],
   initialAccountData,
 }: SidebarCardProps) {
   const latestVersion = agent.versions[0];
@@ -52,9 +54,10 @@ export function SidebarCard({
       <SidebarAbout description={description} />
 
       <SidebarAuthor
-        name={ownerName}
-        handle={agent.account}
-        profilePictureUrl={owner?.profile_picture_url}
+        authors={authors}
+        ownerName={ownerName}
+        ownerHandle={agent.account}
+        ownerProfilePictureUrl={owner?.profile_picture_url}
       />
 
       <SidebarStats
@@ -63,7 +66,7 @@ export function SidebarCard({
         updatedAt={updatedAt ?? undefined}
       />
 
-      {/* Required Apps */}
+      {/* Integrations */}
       {integrations.length > 0 && (
         <>
           <div className="my-5 h-px bg-border-strong" />
@@ -71,11 +74,11 @@ export function SidebarCard({
         </>
       )}
 
-      {/* Permissions */}
-      {permissions.length > 0 && (
+      {/* Capabilities */}
+      {capabilities.length > 0 && (
         <>
           <div className="my-5 h-px bg-border-strong" />
-          <PermissionsPreview permissions={permissions} />
+          <CapabilitiesList capabilities={capabilities} />
         </>
       )}
     </div>

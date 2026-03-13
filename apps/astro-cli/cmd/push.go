@@ -134,6 +134,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
+	warnDeprecatedMetaFields(specPath, workingDir)
 
 	// Generate random build ID (8-char hex)
 	pushTag = generateBuildID()
@@ -402,9 +403,9 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	// Register agent spec with server
 	if !skipRegister && effectiveServerURL != "" {
-		// Read README.md if it exists
+		// Read AGENT.md if it exists (agent card file)
 		readmeContent := ""
-		readmePath := filepath.Join(workingDir, "README.md")
+		readmePath := filepath.Join(workingDir, "AGENT.md")
 		if readmeData, err := os.ReadFile(readmePath); err == nil { //nolint:gosec
 			readmeContent = string(readmeData)
 		}
@@ -695,6 +696,24 @@ const (
 
 // colorCyan uses the primary accent color from the theme (teal in prod, pink in preview).
 var colorCyan = theme.PrimaryANSI
+
+// warnDeprecatedMetaFields reads a spec file and prints deprecation warnings
+// for meta.description and meta.tags that have moved to AGENT.md frontmatter.
+// It also warns if no AGENT.md file exists in the working directory.
+func warnDeprecatedMetaFields(specPath, workingDir string) {
+	data, err := os.ReadFile(specPath) //nolint:gosec
+	if err != nil {
+		return
+	}
+	for _, msg := range spec.DeprecatedMetaFields(data) {
+		fmt.Fprintf(os.Stderr, "%s⚠%s  %s\n", colorYellow, colorReset, msg)
+	}
+
+	agentMdPath := filepath.Join(workingDir, "AGENT.md")
+	if _, err := os.Stat(agentMdPath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "%s⚠%s  No AGENT.md found - Add one to make your agent more discoverable\n", colorYellow, colorReset)
+	}
+}
 
 // agentServerInfo holds metadata about an agent fetched from the server.
 type agentServerInfo struct {

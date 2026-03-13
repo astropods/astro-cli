@@ -66,12 +66,6 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 
 	// ── Header ──────────────────────────────────────────────────────────────
 	fmt.Printf("%s%s%s%s\n", colorBold, colorGreen, astroSpec.Name, colorReset)
-	if astroSpec.Meta.Description != "" {
-		fmt.Printf("%s%s%s\n", colorDim, astroSpec.Meta.Description, colorReset)
-	}
-	if len(astroSpec.Meta.Tags) > 0 {
-		fmt.Printf("%stags: %v%s\n", colorDim, astroSpec.Meta.Tags, colorReset)
-	}
 	fmt.Println()
 
 	// ── Container ───────────────────────────────────────────────────────────

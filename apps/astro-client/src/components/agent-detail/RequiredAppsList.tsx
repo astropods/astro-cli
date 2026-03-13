@@ -2,32 +2,33 @@ import type { ReactNode } from "react";
 import { Puzzle } from "lucide-react";
 import { integrationIconMap } from "@/lib/integrationIcons";
 import { SidebarSection } from "./SidebarSection";
+import type { ResolvedIntegration } from "@/lib/api";
 
 export interface RequiredAppsListProps {
-  integrations: string[];
+  integrations: ResolvedIntegration[];
 }
 
 export function RequiredAppsList({ integrations }: RequiredAppsListProps) {
   if (integrations.length === 0) return null;
 
   return (
-    <SidebarSection title="Required Apps">
+    <SidebarSection title="Integrations">
       <div className="flex flex-col gap-2">
-        {integrations.map((name) => {
-          const icon: ReactNode = integrationIconMap[name];
+        {integrations.map((integration) => {
+          const icon: ReactNode = integrationIconMap[integration.id];
           return (
             <div
-              key={name}
-              className="flex items-center gap-3 rounded-lg border border-border-strong bg-stone-50 px-3 py-2 dark:bg-background"
+              key={integration.id}
+              className="flex items-center gap-2.5"
             >
               {icon ? (
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:size-full">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:size-full">
                   {icon}
                 </span>
               ) : (
-                <Puzzle className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <Puzzle className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
-              <span className="text-[13px] font-medium text-foreground">{name}</span>
+              <span className="text-[13px] text-foreground">{integration.name}</span>
             </div>
           );
         })}

@@ -19,14 +19,18 @@ export const mockAgents: Agent[] = [
         build_id: 'a1b2c3d4e5f6',
         spec: {
           model: 'gpt-4o',
-          meta: {
-            description: 'Automated code review agent that analyzes pull requests for quality and security issues.',
-            tags: ['Development', 'Support'],
-          },
           integrations: {
             github: { provider: 'GitHub', type: 'tool' },
             slack: { provider: 'Slack', type: 'tool' },
           },
+        },
+        agent_card: {
+          description: 'Automated code review agent that analyzes pull requests for quality and security issues.',
+          tags: ['Development', 'Support'],
+          integrations: [
+            { id: 'github', name: 'GitHub' },
+            { id: 'slack', name: 'Slack' },
+          ],
         },
         published_at: '2025-02-01T00:00:00Z',
       },
@@ -34,10 +38,13 @@ export const mockAgents: Agent[] = [
         build_id: 'b2c3d4e5f6a7',
         spec: {
           model: 'gpt-4',
-          meta: {
-            description: 'Automated code review agent.',
-            tags: ['Development'],
-          },
+        },
+        agent_card: {
+          description: 'Automated code review agent.',
+          tags: ['Development'],
+          integrations: [
+            { id: 'github', name: 'GitHub' },
+          ],
         },
         published_at: '2025-01-01T00:00:00Z',
       },
@@ -52,15 +59,20 @@ export const mockAgents: Agent[] = [
         build_id: 'c3d4e5f6a7b8',
         spec: {
           model: 'claude-3',
-          meta: {
-            description: 'Analyzes datasets and generates visual reports with actionable insights.',
-            tags: ['Data'],
-          },
           integrations: {
             snowflake: { provider: 'Snowflake', type: 'tool' },
             slack: { provider: 'Slack', type: 'tool' },
             gsheets: { provider: 'Google Sheets', type: 'tool' },
           },
+        },
+        agent_card: {
+          description: 'Analyzes datasets and generates visual reports with actionable insights.',
+          tags: ['Data'],
+          integrations: [
+            { id: 'snowflake', name: 'Snowflake' },
+            { id: 'slack', name: 'Slack' },
+            { id: 'google-sheets', name: 'Google Sheets' },
+          ],
         },
         published_at: '2025-03-01T00:00:00Z',
       },

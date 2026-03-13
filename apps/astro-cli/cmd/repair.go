@@ -376,7 +376,7 @@ func configFromSpec(s *spec.AstroSpec) scaffold.ScaffoldConfig {
 	config := scaffold.ScaffoldConfig{
 		IntegrationKeys: map[string]string{},
 		Name:            s.Name,
-		Description:     s.Meta.Description,
+		Description:     "",
 	}
 
 	// Interfaces from dev section

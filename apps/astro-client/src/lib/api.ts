@@ -477,9 +477,28 @@ export interface SecretKeysResponse {
 
 // Response types
 export interface AgentSpec {
-  meta?: { description?: string; tags?: string[] };
+  meta?: { visibility?: string };
   integrations?: Record<string, { provider: string; type?: string }>;
   [key: string]: unknown;
+}
+
+export interface AgentCardAuthor {
+  name: string;
+  account?: string;
+}
+
+export interface ResolvedIntegration {
+  id: string;
+  name: string;
+}
+
+export interface AgentCardData {
+  description?: string;
+  tags?: string[];
+  authors?: AgentCardAuthor[];
+  capabilities?: string[];
+  integrations?: ResolvedIntegration[];
+  body?: string;
 }
 
 export interface AgentVersion {
@@ -487,6 +506,7 @@ export interface AgentVersion {
   version?: string;
   spec: AgentSpec;
   readme?: string;
+  agent_card?: AgentCardData;
   published_at: string;
   validation_warnings?: ValidationError[];
 }

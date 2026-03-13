@@ -29,11 +29,123 @@ type AgentResponse struct {
 
 // AgentVersionResponse represents a specific version of an agent
 type AgentVersionResponse struct {
-	BuildID            string           `json:"build_id"`
-	Spec               map[string]any   `json:"spec"`
-	Readme             string           `json:"readme"`
-	PublishedAt        string           `json:"published_at"`
-	ValidationWarnings []map[string]any `json:"validation_warnings,omitempty"`
+	BuildID            string                `json:"build_id"`
+	Spec               map[string]any        `json:"spec"`
+	Readme             string                `json:"readme"`
+	AgentCard          *spec.ParsedAgentCard `json:"agent_card,omitempty"`
+	PublishedAt        string                `json:"published_at"`
+	ValidationWarnings []map[string]any      `json:"validation_warnings,omitempty"`
+}
+
+// buildVersionResponse converts an agentindex.Version into an AgentVersionResponse.
+// The agent card is deserialized from the pre-parsed JSON stored at registration time.
+// For agents that predate the agent card feature, it synthesizes a card from legacy
+// spec fields (meta.description, meta.tags) so existing agents continue to display correctly.
+func buildVersionResponse(v *agentindex.AgentVersion) AgentVersionResponse {
+	resp := AgentVersionResponse{
+		BuildID:     v.BuildID,
+		Spec:        v.Spec,
+		Readme:      v.Readme,
+		PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if v.AgentCardJSON != "" {
+		var card spec.ParsedAgentCard
+		if err := json.Unmarshal([]byte(v.AgentCardJSON), &card); err == nil {
+			resp.AgentCard = &card
+		}
+	} else {
+		// Fallback: synthesize an agent card from legacy spec fields and raw readme
+		resp.AgentCard = buildLegacyAgentCard(v.Spec, v.Readme)
+	}
+	return resp
+}
+
+// buildLegacyAgentCard constructs a ParsedAgentCard for agents that don't have
+// a pre-parsed agent_card_json. It first tries to parse the readme as an AGENT.md
+// (with YAML frontmatter). If that yields no structured metadata, it falls back to
+// legacy spec fields (meta.description, meta.tags). This covers both:
+//   - Agents pushed with AGENT.md before the agent_card_json column existed
+//   - Old agents that only had a plain README and meta fields in the spec
+func buildLegacyAgentCard(specMap map[string]any, readme string) *spec.ParsedAgentCard {
+	// Try parsing readme as AGENT.md with frontmatter
+	var card *spec.ParsedAgentCard
+	if readme != "" {
+		if parsed, err := spec.ParseAgentCard(readme); err == nil && parsed != nil {
+			card = parsed
+		}
+	}
+	if card == nil {
+		card = &spec.ParsedAgentCard{}
+	}
+
+	// Fill in gaps from legacy spec.meta fields
+	legacyDesc, legacyTags := spec.ExtractLegacyMeta(specMap)
+	if card.Description == "" && legacyDesc != "" {
+		card.Description = legacyDesc
+	}
+	if len(card.Tags) == 0 && len(legacyTags) > 0 {
+		card.Tags = legacyTags
+	}
+	if card.Body == "" && readme != "" {
+		card.Body = readme
+	}
+
+	// Merge spec-derived integrations into whatever the frontmatter already resolved
+	card.ResolvedIntegrations = spec.MergeResolvedIntegrations(
+		card.ResolvedIntegrations,
+		extractSpecProviders(specMap),
+	)
+
+	// Only return the card if it has some content
+	if card.Description == "" && len(card.Tags) == 0 && card.Body == "" && len(card.ResolvedIntegrations) == 0 {
+		return nil
+	}
+	return card
+}
+
+// buildAgentCardJSON parses the raw AGENT.md content and merges spec-derived integrations,
+// returning the serialized JSON for storage. Returns empty string on parse failure.
+func buildAgentCardJSON(readme string, specMap map[string]any) string {
+	if readme == "" {
+		return ""
+	}
+	card, err := spec.ParseAgentCard(readme)
+	if err != nil || card == nil {
+		return ""
+	}
+
+	// Extract provider IDs from spec integrations and merge into resolved list
+	card.ResolvedIntegrations = spec.MergeResolvedIntegrations(
+		card.ResolvedIntegrations,
+		extractSpecProviders(specMap),
+	)
+
+	data, err := json.Marshal(card)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// extractSpecProviders pulls provider strings from the spec's integrations map.
+func extractSpecProviders(specMap map[string]any) []string {
+	integrations, ok := specMap["integrations"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	var providers []string
+	for _, v := range integrations {
+		entry, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		provider, ok := entry["provider"].(string)
+		if !ok || provider == "" {
+			continue
+		}
+		providers = append(providers, provider)
+	}
+	return providers
 }
 
 // RegisterAgentRequest represents the request to register an agent
@@ -80,12 +192,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
 			for _, v := range agent.Versions {
-				versions = append(versions, AgentVersionResponse{
-					BuildID:     v.BuildID,
-					Spec:        v.Spec,
-					Readme:      v.Readme,
-					PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
-				})
+				versions = append(versions, buildVersionResponse(v))
 			}
 
 			responses = append(responses, AgentResponse{
@@ -141,12 +248,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 
 			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
 			for _, v := range agent.Versions {
-				versions = append(versions, AgentVersionResponse{
-					BuildID:     v.BuildID,
-					Spec:        v.Spec,
-					Readme:      v.Readme,
-					PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
-				})
+				versions = append(versions, buildVersionResponse(v))
 			}
 
 			responses = append(responses, AgentResponse{
@@ -207,12 +309,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 
 		versions := make([]AgentVersionResponse, 0, len(agent.Versions))
 		for _, v := range agent.Versions {
-			resp := AgentVersionResponse{
-				BuildID:     v.BuildID,
-				Spec:        v.Spec,
-				Readme:      v.Readme,
-				PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
-			}
+			resp := buildVersionResponse(v)
 			if isMember {
 				resp.ValidationWarnings = v.ValidationWarnings
 			}
@@ -325,7 +422,10 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		warningsBytes, _ := json.Marshal(validationWarnings)
 		validationWarningsJSON = string(warningsBytes)
 
-		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, accountName, specMap, req.Readme, validationWarningsJSON); err != nil {
+		// Parse agent card from readme and merge spec-derived integrations at registration time
+		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)
+
+		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, accountName, specMap, req.Readme, agentCardJSON, validationWarningsJSON); err != nil {
 			log.Error("Failed to register agent", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to register agent",

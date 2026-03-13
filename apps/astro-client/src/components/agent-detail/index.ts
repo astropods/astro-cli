@@ -1,9 +1,11 @@
 export { AgentDetailBreadcrumb } from "./AgentDetailBreadcrumb";
 export { AgentDetailContent } from "./AgentDetailContent";
+export { AgentDetailHeader } from "./AgentDetailHeader";
 export { AgentDetailSidebar, SidebarCard } from "./AgentDetailSidebar";
 export type { SidebarCardProps } from "./AgentDetailSidebar";
+export { AgentDetailSkeleton } from "./AgentDetailSkeleton";
+export { CapabilitiesList } from "./CapabilitiesList";
 export { RequiredAppsList } from "./RequiredAppsList";
-export { PermissionsPreview } from "./PermissionsPreview";
 export { SidebarAbout } from "./SidebarAbout";
 export { SidebarAuthor } from "./SidebarAuthor";
 export { SidebarSection } from "./SidebarSection";

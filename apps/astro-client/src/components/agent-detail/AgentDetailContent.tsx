@@ -1,11 +1,8 @@
 import type { ReactNode } from "react";
-import { ShieldCheck } from "lucide-react";
-import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
-import { InlineBadge } from "@/components/InlineBadge";
-import { AgentIdentity } from "@/components/AgentIdentity";
 import { RecommendedAgents } from "@/components/RecommendedAgents";
 import type { RecommendedAgent } from "@/components/RecommendedAgents";
+import { AgentDetailHeader } from "./AgentDetailHeader";
 
 export interface AgentDetailContentProps {
   account: string;
@@ -13,7 +10,6 @@ export interface AgentDetailContentProps {
   visibility?: string;
   categories: string[];
   readme?: string;
-  safetyPermissions: string[];
   recommendedAgents: RecommendedAgent[];
   mobileSidebar?: ReactNode;
 }
@@ -24,41 +20,17 @@ export function AgentDetailContent({
   visibility,
   categories,
   readme,
-  safetyPermissions,
   recommendedAgents,
   mobileSidebar,
 }: AgentDetailContentProps) {
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
-      {/* Header */}
-      <header className="mb-4">
-        <div className="flex items-start gap-4">
-          <AgentIdentity
-            account={account}
-            name={name}
-            size={56}
-            className="size-14 shrink-0 rounded-md overflow-hidden border border-stone-200 dark:border-border"
-          />
-          <div className="min-w-0">
-            <h1 className="flex flex-wrap items-center gap-2 font-mono text-xl font-bold text-foreground">
-              {name}
-              {visibility === "private" && <PrivacyBadge />}
-            </h1>
-            <p className="font-mono text-body-sm text-muted-foreground mt-0.5">
-              by {account}
-              {categories.length > 0 && <> · {categories[0]}</>}
-            </p>
-          </div>
-        </div>
-        {/* Category tags */}
-        {categories.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {categories.map((tag) => (
-              <InlineBadge key={tag}>{tag}</InlineBadge>
-            ))}
-          </div>
-        )}
-      </header>
+      <AgentDetailHeader
+        account={account}
+        name={name}
+        visibility={visibility}
+        categories={categories}
+      />
 
       {/* Sidebar content inlined on mobile */}
       {mobileSidebar && (
@@ -69,23 +41,6 @@ export function AgentDetailContent({
       {readme && (
         <section className="mb-8">
           <StyledMarkdown>{readme}</StyledMarkdown>
-        </section>
-      )}
-
-      {/* Safety & Permissions */}
-      {safetyPermissions.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-[15px] font-bold text-foreground mb-3.5 pb-2.5 border-b border-border-strong">
-            Safety & Permissions
-          </h2>
-          <ul className="space-y-2.5">
-            {safetyPermissions.map((permission, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed">
-                <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground mt-0.5" />
-                <span className="text-muted-foreground">{permission}</span>
-              </li>
-            ))}
-          </ul>
         </section>
       )}
 

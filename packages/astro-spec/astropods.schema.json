@@ -12,15 +12,6 @@
     },
     "meta": {
       "properties": {
-        "description": {
-          "type": "string"
-        },
-        "tags": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "visibility": {
           "type": "string",
           "enum": [

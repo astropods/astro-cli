@@ -25,9 +25,7 @@ type AstroSpec struct {
 }
 
 type Meta struct {
-	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Visibility  string   `json:"visibility,omitempty" yaml:"visibility,omitempty" jsonschema:"description=Agent visibility: public or private,enum=public,enum=private"`
+	Visibility string `json:"visibility,omitempty" yaml:"visibility,omitempty" jsonschema:"description=Agent visibility: public or private,enum=public,enum=private"`
 }
 
 type Container struct {

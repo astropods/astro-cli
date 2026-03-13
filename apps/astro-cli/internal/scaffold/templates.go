@@ -21,6 +21,7 @@ type TemplatePaths struct {
 	AgentIndex               string
 	IngestionIndex           string
 	LlmMd                    string
+	AgentMd                  string
 	Readme                   string
 	PostmanCollection        string
 	PostmanWebhookCollection string
@@ -44,6 +45,7 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			Npmrc:                    "templates/template-ts/npmrc.tmpl",
 			IngestionIndex:           "templates/template-ts/ingestion/index.ts",
 			LlmMd:                    "templates/template-ts/agents.md.tmpl",
+			AgentMd:                  "templates/template-ts/AGENT.md.tmpl",
 			Readme:                   "templates/template-ts/README.md.tmpl",
 			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
