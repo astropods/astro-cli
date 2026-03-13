@@ -844,17 +844,20 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 	for _, name := range s.Dev.MessagingAdapters() {
 		switch name {
 		case "slack":
-			// Enable Slack adapter
+			// Enable Slack adapter only when credentials are present;
+			// the messaging service hard-fails if SLACK_ENABLED=true without a token.
+			botToken, hasBotToken := envVars["SLACK_BOT_TOKEN"]
+			appToken, hasAppToken := envVars["SLACK_APP_TOKEN"]
+			if !hasBotToken {
+				fmt.Println("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run 'ast configure' to add it)")
+				continue
+			}
 			enabled := "true"
 			env["SLACK_ENABLED"] = &enabled
 			env["SLACK_SOCKET_MODE"] = &enabled
-
-			// Slack credentials from .env
-			if val, ok := envVars["SLACK_BOT_TOKEN"]; ok {
-				env["SLACK_BOT_TOKEN"] = &val
-			}
-			if val, ok := envVars["SLACK_APP_TOKEN"]; ok {
-				env["SLACK_APP_TOKEN"] = &val
+			env["SLACK_BOT_TOKEN"] = &botToken
+			if hasAppToken {
+				env["SLACK_APP_TOKEN"] = &appToken
 			}
 
 		case "web":
