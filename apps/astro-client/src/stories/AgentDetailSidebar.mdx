@@ -4,7 +4,6 @@ import * as AuthorStories from "./SidebarAuthor.stories"
 import * as StatsStories from "./SidebarStats.stories"
 import * as AppsStories from "./RequiredAppsList.stories"
 import * as SectionStories from "./SidebarSection.stories"
-import * as PermissionsStories from "./PermissionsPreview.stories"
 
 <Meta of={SidebarStories} />
 
@@ -176,30 +175,3 @@ Falls back to a puzzle icon when no branded icon is mapped.
 
 ---
 
-## PermissionsPreview
-
-Shows the first 3 permissions and collapses the rest behind a "Show N more" toggle.
-
-```tsx
-import { PermissionsPreview } from "@/components/agent-detail"
-```
-
-```tsx
-<PermissionsPreview permissions={["Read Slack messages", "Send email"]} />
-```
-
-### Few Permissions
-
-<Canvas of={PermissionsStories.FewPermissions} />
-
-### Exactly Three
-
-<Canvas of={PermissionsStories.ExactlyThree} />
-
-### With Collapsible
-
-More than 3 permissions shows the expand/collapse toggle.
-
-<Canvas of={PermissionsStories.WithCollapsible} />
-
-<Controls of={PermissionsStories.WithCollapsible} />
