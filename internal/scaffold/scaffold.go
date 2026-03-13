@@ -239,6 +239,7 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
 		{filepath.Join(targetDir, "CLAUDE.md"), paths.LlmMd},
 		{filepath.Join(targetDir, "AGENTS.md"), paths.LlmMd},
+		{filepath.Join(targetDir, "AGENT.md"), paths.AgentMd},
 		{filepath.Join(targetDir, "README.md"), paths.Readme},
 	}
 

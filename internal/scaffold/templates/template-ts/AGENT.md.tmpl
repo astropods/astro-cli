@@ -1,0 +1,16 @@
+---
+description: "{{.Description}}"
+tags: []
+authors: []
+capabilities: []
+integrations:
+{{- if gt (len .Integrations) 0}}
+{{- range .Integrations}}
+  - "{{.}}"
+{{- end}}
+{{- else}}
+  []
+{{- end}}
+---
+
+{{.Description}}

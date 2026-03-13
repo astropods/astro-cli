@@ -204,6 +204,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
+	warnDeprecatedMetaFields(specPath, workingDir)
 
 	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 

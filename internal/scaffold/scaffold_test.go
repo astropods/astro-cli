@@ -421,6 +421,7 @@ func TestAllTemplatesRender(t *testing.T) {
 		{"ingestion/<type>/index.ts", paths.IngestionIndex},
 		{"ingestion/webhook/index.ts", paths.IngestionWebhookIndex},
 		{"agents.md", paths.LlmMd},
+		{"AGENT.md", paths.AgentMd},
 		{"README.md", paths.Readme},
 	}
 
