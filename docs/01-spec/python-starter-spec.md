@@ -248,7 +248,7 @@ The CLI `create` command MUST support `--lang py` in addition to the existing `-
 
 ### 5.2 Language-Aware Scaffold Generation (Phase 2)
 
-Scaffold file generation MUST be language-aware. TypeScript-only files (`tsconfig.json`, `.npmrc`, `package.json`) MUST be skipped when `lang=py`. Python-only files (`requirements.txt`, `agent/main.py`, `ingestion/main.py`, `ingestion/webhook.py`) MUST be skipped when `lang=ts`. The messaging Postman collection MUST be generated for both languages. The webhook Postman collection MUST be generated for Python when webhook ingestion is selected.
+Scaffold file generation MUST be language-aware. TypeScript-only files (`tsconfig.json`, `package.json`) MUST be skipped when `lang=py`. Python-only files (`requirements.txt`, `agent/main.py`, `ingestion/main.py`, `ingestion/webhook.py`) MUST be skipped when `lang=ts`. The messaging Postman collection MUST be generated for both languages. The webhook Postman collection MUST be generated for Python when webhook ingestion is selected.
 
 ### 5.3 Language Selection in TUI (Phase 3)
 

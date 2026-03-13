@@ -17,7 +17,6 @@ type TemplatePaths struct {
 	Tsconfig                 string
 	Gitignore                string
 	Dockerignore             string
-	Npmrc                    string
 	AgentIndex               string
 	IngestionIndex           string
 	LlmMd                    string
@@ -42,7 +41,6 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			Tsconfig:                 "templates/template-ts/tsconfig.json",
 			Gitignore:                "templates/template-ts/gitignore.tmpl",
 			Dockerignore:             "templates/template-ts/dockerignore.tmpl",
-			Npmrc:                    "templates/template-ts/npmrc.tmpl",
 			IngestionIndex:           "templates/template-ts/ingestion/index.ts",
 			LlmMd:                    "templates/template-ts/agents.md.tmpl",
 			AgentMd:                  "templates/template-ts/AGENT.md.tmpl",

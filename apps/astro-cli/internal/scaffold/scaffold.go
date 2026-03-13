@@ -235,7 +235,6 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
 		{filepath.Join(targetDir, ".gitignore"), paths.Gitignore},
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
-		{filepath.Join(targetDir, ".npmrc"), paths.Npmrc},
 		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
 		{filepath.Join(targetDir, "CLAUDE.md"), paths.LlmMd},
 		{filepath.Join(targetDir, "AGENTS.md"), paths.LlmMd},
