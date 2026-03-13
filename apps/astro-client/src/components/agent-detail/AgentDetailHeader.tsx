@@ -15,9 +15,11 @@ export function AgentDetailHeader({
   visibility,
   categories,
 }: AgentDetailHeaderProps) {
+  const hasCategories = categories.length > 0;
+
   return (
     <header className="mb-6 border-b border-border-strong pb-6">
-      <div className="flex items-start gap-4">
+      <div className={`flex gap-4 ${hasCategories ? "items-start" : "items-center"}`}>
         <AgentIdentity
           account={account}
           name={name}
@@ -29,7 +31,7 @@ export function AgentDetailHeader({
             {name}
             {visibility === "private" && <PrivacyBadge />}
           </h1>
-          {categories.length > 0 && (
+          {hasCategories && (
             <div className="mt-2 flex flex-wrap gap-2">
               {categories.map((tag) => (
                 <InlineBadge

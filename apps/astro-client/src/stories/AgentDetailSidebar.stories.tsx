@@ -114,6 +114,37 @@ export const Full: Story = {
   },
 };
 
+export const DenseDetails: Story = {
+  args: {
+    agent: mockAgent,
+    integrations: [
+      { id: "slack", name: "Slack" },
+      { id: "github", name: "GitHub" },
+      { id: "linear", name: "Linear" },
+      { id: "notion", name: "Notion" },
+      { id: "google-drive", name: "Google Drive" },
+    ],
+    capabilities: [
+      "Read Slack messages",
+      "Send Slack messages",
+      "Access GitHub repositories",
+      "Create Linear issues",
+    ],
+    rating: 4.8,
+    installs: 2841,
+    additionalDetails: [
+      { label: "Runtime", value: "Node.js 20" },
+      { label: "Region", value: "us-east-1" },
+      { label: "Latency p95", value: "420ms" },
+      { label: "Cost / 1k runs", value: "$0.37" },
+      { label: "Success rate", value: "99.4%" },
+      { label: "Last deploy", value: "Mar 12, 2026" },
+    ],
+    recommendedAgents,
+    initialAccountData: mockAccount,
+  },
+};
+
 export const Minimal: Story = {
   args: {
     agent: mockAgent,

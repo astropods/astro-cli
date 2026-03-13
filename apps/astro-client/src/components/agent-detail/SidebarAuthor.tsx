@@ -76,62 +76,60 @@ export function SidebarAuthor({
   const compact = hasCardAuthors && authors.length > AVATAR_THRESHOLD;
 
   return (
-    <div className="pt-5 mt-5 border-t border-border-strong">
-      <SidebarSection title="Authors">
-        {hasCardAuthors ? (
-          compact ? (
-            // >3 authors: avatar-only row with tooltips
-            <TooltipProvider>
-              <div className="flex flex-wrap gap-2">
-                {authors.map((author, i) => (
-                  <Tooltip key={`${author.name}-${i}`}>
-                    <TooltipTrigger asChild>
-                      {author.account ? (
-                        <Link to={`/${author.account}`} className="hover:opacity-80 transition-opacity">
-                          <AuthorAvatar name={author.name} className="h-8 w-8 text-xs" />
-                        </Link>
-                      ) : (
-                        <div>
-                          <AuthorAvatar name={author.name} className="h-8 w-8 text-xs" />
-                        </div>
-                      )}
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={4}>
-                      {author.name}{author.account ? ` (@${author.account})` : ""}
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            </TooltipProvider>
-          ) : (
-            // ≤3 authors: full cards
-            <div className="flex flex-col gap-3">
+    <SidebarSection title="Authors">
+      {hasCardAuthors ? (
+        compact ? (
+          // >3 authors: avatar-only row with tooltips
+          <TooltipProvider>
+            <div className="flex flex-wrap gap-2">
               {authors.map((author, i) => (
-                <AuthorFullCard key={`${author.name}-${i}`} author={author} />
+                <Tooltip key={`${author.name}-${i}`}>
+                  <TooltipTrigger asChild>
+                    {author.account ? (
+                      <Link to={`/${author.account}`} className="hover:opacity-80 transition-opacity">
+                        <AuthorAvatar name={author.name} className="h-8 w-8 text-xs" />
+                      </Link>
+                    ) : (
+                      <div>
+                        <AuthorAvatar name={author.name} className="h-8 w-8 text-xs" />
+                      </div>
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={4}>
+                    {author.name}{author.account ? ` (@${author.account})` : ""}
+                  </TooltipContent>
+                </Tooltip>
               ))}
             </div>
-          )
+          </TooltipProvider>
         ) : (
-          // Fallback: account owner
-          <div className="flex items-center gap-3">
-            {ownerProfilePictureUrl ? (
-              <img
-                src={ownerProfilePictureUrl}
-                alt={ownerName}
-                className="h-9 w-9 shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <AuthorAvatar name={ownerName} />
-            )}
-            <div className="flex flex-col">
-              <span className="text-[13px] font-medium text-foreground">{ownerName}</span>
-              <span className="text-[11px] text-[var(--faint-foreground)] font-mono">
-                @{ownerHandle}
-              </span>
-            </div>
+          // ≤3 authors: full cards
+          <div className="flex flex-col gap-3">
+            {authors.map((author, i) => (
+              <AuthorFullCard key={`${author.name}-${i}`} author={author} />
+            ))}
           </div>
-        )}
-      </SidebarSection>
-    </div>
+        )
+      ) : (
+        // Fallback: account owner
+        <div className="flex items-center gap-3">
+          {ownerProfilePictureUrl ? (
+            <img
+              src={ownerProfilePictureUrl}
+              alt={ownerName}
+              className="h-9 w-9 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <AuthorAvatar name={ownerName} />
+          )}
+          <div className="flex flex-col">
+            <span className="text-[13px] font-medium text-foreground">{ownerName}</span>
+            <span className="text-[11px] text-[var(--faint-foreground)] font-mono">
+              @{ownerHandle}
+            </span>
+          </div>
+        </div>
+      )}
+    </SidebarSection>
   );
 }

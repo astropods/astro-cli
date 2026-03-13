@@ -2,6 +2,11 @@ import type { ReactNode } from "react";
 import { Star } from "lucide-react";
 import { SidebarSection } from "./SidebarSection";
 
+export interface SidebarStatDetail {
+  label: string;
+  value: ReactNode;
+}
+
 export interface SidebarStatsProps {
   rating?: number;
   installs?: number;
@@ -9,6 +14,7 @@ export interface SidebarStatsProps {
   /** Whether the version is a semver string (will be prefixed with "v") */
   isSemver?: boolean;
   updatedAt?: string;
+  additionalDetails?: SidebarStatDetail[];
 }
 
 export function SidebarStats({
@@ -17,8 +23,11 @@ export function SidebarStats({
   version,
   isSemver,
   updatedAt,
+  additionalDetails = [],
 }: SidebarStatsProps) {
-  if (rating == null && installs == null && !version && !updatedAt) return null;
+  if (rating == null && installs == null && !version && !updatedAt && additionalDetails.length === 0) {
+    return null;
+  }
 
   const rows: Array<{
     label: string;
@@ -58,12 +67,14 @@ export function SidebarStats({
     });
   }
 
+  rows.push(...additionalDetails);
+
   return (
-    <SidebarSection title="Details" bodyClassName="px-0 py-0">
+    <SidebarSection title="Details" headerClassName="py-2" bodyClassName="px-0 py-0">
       <dl>
         {rows.map((row, index) => (
           <div key={row.label}>
-            <div className="py-2 [@media(max-height:1000px)]:py-1">
+            <div className={index === 0 ? "pt-2 pb-2.5" : "py-2.5"}>
               <div className="flex items-center justify-between gap-6">
                 <dt className="text-[13px] text-muted-foreground">{row.label}</dt>
                 <dd className="text-right font-mono text-mono-sm font-medium text-foreground">

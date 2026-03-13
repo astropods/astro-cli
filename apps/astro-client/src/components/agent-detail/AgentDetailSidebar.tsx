@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
 import { CapabilitiesList } from "./CapabilitiesList";
 import { SidebarAuthor } from "./SidebarAuthor";
-import { SidebarStats } from "./SidebarStats";
+import { SidebarStats, type SidebarStatDetail } from "./SidebarStats";
 import { SidebarSection } from "./SidebarSection";
 import { AgentCard, type AgentCardProps } from "@/components/AgentCard";
 import { formatDate } from "@/lib/utils";
@@ -18,6 +18,7 @@ export interface SidebarCardProps {
   authors?: AgentCardAuthor[];
   rating?: number;
   installs?: number;
+  additionalDetails?: SidebarStatDetail[];
   recommendedAgents?: AgentCardProps[];
   initialAccountData?: AccountPublic;
 }
@@ -29,6 +30,7 @@ export function SidebarCard({
   authors = [],
   rating,
   installs,
+  additionalDetails = [],
   recommendedAgents = [],
   initialAccountData,
 }: SidebarCardProps) {
@@ -70,20 +72,15 @@ export function SidebarCard({
         version={version}
         isSemver={!!latestVersion?.version}
         updatedAt={updatedAt ?? undefined}
+        additionalDetails={additionalDetails}
       />
 
       {integrations.length > 0 && (
-        <>
-          <div className="my-5 h-px bg-border-strong" />
-          <RequiredAppsList integrations={integrations} title="Integrations" />
-        </>
+        <RequiredAppsList integrations={integrations} title="Integrations" />
       )}
 
       {capabilities.length > 0 && (
-        <>
-          <div className="my-5 h-px bg-border-strong" />
-          <CapabilitiesList capabilities={capabilities} />
-        </>
+        <CapabilitiesList capabilities={capabilities} />
       )}
 
       {recommendedAgents.length > 0 && (
