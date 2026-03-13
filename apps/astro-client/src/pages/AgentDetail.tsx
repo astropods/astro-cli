@@ -208,8 +208,39 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         account: a.account,
         name: a.name,
         description: getAgentDescription(a),
+        rating: 4.7,
+        installs: 1200,
       }));
   })();
+  const previewRecommendedAgents =
+    recommendedAgents.length > 0
+      ? recommendedAgents
+      : [
+          {
+            slug: "steve_jobs/alert-router",
+            account: "steve_jobs",
+            name: "alert-router",
+            description: "Routes alerts to the right team.",
+            rating: 4.6,
+            installs: 1203,
+          },
+          {
+            slug: "steve_jobs/data-classifier",
+            account: "steve_jobs",
+            name: "data-classifier",
+            description: "Classifies incoming events by urgency.",
+            rating: 4.9,
+            installs: 3571,
+          },
+          {
+            slug: "steve_jobs/trend-detector",
+            account: "steve_jobs",
+            name: "trend-detector",
+            description: "Finds anomalous changes in API usage.",
+            rating: 4.7,
+            installs: 482,
+          },
+        ];
 
   const description = getAgentDescription(agent);
   const integrations = getAgentIntegrations(agent);
@@ -221,6 +252,14 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const safetyPermissions = credentials.map(
     (i) => `Access to ${i.provider}`,
   );
+  const previewPermissions =
+    safetyPermissions.length > 1
+      ? safetyPermissions
+      : [
+          "Read-only access",
+          "Send channel notifications",
+          "No data stored after runs",
+        ];
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
@@ -235,14 +274,14 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           summary={description}
           categories={getAgentCategories(agent)}
           readme={readme}
-          safetyPermissions={safetyPermissions}
+          safetyPermissions={previewPermissions}
           mobileSidebar={
             <SidebarCard
               agent={agent}
               description={description}
               integrations={integrations}
-              permissions={safetyPermissions}
-              recommendedAgents={recommendedAgents}
+              permissions={previewPermissions}
+              recommendedAgents={previewRecommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
             />
           }
@@ -252,8 +291,8 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           agent={agent}
           description={description}
           integrations={integrations}
-          permissions={safetyPermissions}
-          recommendedAgents={recommendedAgents}
+          permissions={previewPermissions}
+          recommendedAgents={previewRecommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}
         />
       </div>

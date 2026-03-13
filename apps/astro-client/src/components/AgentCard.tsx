@@ -36,15 +36,15 @@ export function AgentCard({
           size={36}
           className="size-9 shrink-0 rounded-sm overflow-hidden"
         />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h3 className="truncate text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
             {name}
           </h3>
-          <p className="mt-0.5 text-body-sm text-muted-foreground [@media(max-height:1000px)]:text-[12px]">
+          <p className="font-mono text-mono-sm text-muted-foreground">
             @{account}
           </p>
           {(rating != null || installs != null) && (
-            <p className="mt-1 inline-flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground [@media(max-height:1000px)]:mt-0.5">
+            <p className="inline-flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
               {rating != null && (
                 <>
                   <Star className="h-3 w-3 fill-current text-yellow-500" />

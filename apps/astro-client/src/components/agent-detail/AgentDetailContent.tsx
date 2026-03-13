@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ShieldCheck, FileText } from "lucide-react";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
@@ -46,36 +45,6 @@ export function AgentDetailContent({
     const sliced = lines.slice(secondHeadingLine).join("\n").trim();
     return sliced || readme;
   })();
-
-  const resumeScrollRef = useRef<HTMLDivElement | null>(null);
-  const [showResumeHint, setShowResumeHint] = useState(false);
-
-  useEffect(() => {
-    const el = resumeScrollRef.current;
-    if (!el || !readmeContent) return;
-
-    const updateResumeHint = () => {
-      const canScroll = el.scrollHeight - el.clientHeight > 4;
-      const atTop = el.scrollTop <= 2;
-      setShowResumeHint(canScroll && atTop);
-    };
-
-    updateResumeHint();
-    el.addEventListener("scroll", updateResumeHint, { passive: true });
-
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(updateResumeHint)
-        : null;
-    resizeObserver?.observe(el);
-    window.addEventListener("resize", updateResumeHint);
-
-    return () => {
-      el.removeEventListener("scroll", updateResumeHint);
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", updateResumeHint);
-    };
-  }, [readmeContent]);
 
   return (
     <div className="flex-1 min-w-0 p-6 md:p-8">
@@ -127,8 +96,7 @@ export function AgentDetailContent({
               ReadMe
             </span>
           </div>
-          <div className="relative">
-            <div ref={resumeScrollRef} className="max-h-[640px] overflow-y-auto px-6 py-5">
+          <div className="px-6 py-5">
               <StyledMarkdown className="prose-headings:font-mono prose-p:font-mono prose-li:font-mono prose-a:font-mono prose-strong:font-mono prose-th:font-mono prose-td:font-mono [&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
                 {readmeContent}
               </StyledMarkdown>
@@ -137,7 +105,7 @@ export function AgentDetailContent({
                   <h2 className="mb-3 text-[15px] font-bold text-foreground">
                     Safety & Permissions
                   </h2>
-                  <ul className="space-y-2.5">
+                  <ul className="space-y-1.5">
                     {safetyPermissions.map((permission, i) => (
                       <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed">
                         <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
@@ -147,15 +115,6 @@ export function AgentDetailContent({
                   </ul>
                 </section>
               )}
-            </div>
-            {showResumeHint && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0">
-                <div className="h-16 bg-gradient-to-t from-surface via-surface/90 to-transparent" />
-                <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] leading-4 font-mono uppercase tracking-[0.12em] text-muted-foreground">
-                  Scroll to read more
-                </span>
-              </div>
-            )}
           </div>
         </section>
       )}
