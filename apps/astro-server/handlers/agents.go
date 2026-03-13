@@ -48,7 +48,7 @@ func buildVersionResponse(v *agentindex.AgentVersion) AgentVersionResponse {
 		Readme:      v.Readme,
 		PublishedAt: v.PublishedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
-	if v.AgentCardJSON != "" {
+	if v.AgentCardJSON != "" && v.AgentCardJSON != "{}" {
 		var card spec.ParsedAgentCard
 		if err := json.Unmarshal([]byte(v.AgentCardJSON), &card); err == nil {
 			resp.AgentCard = &card

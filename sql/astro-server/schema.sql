@@ -63,7 +63,7 @@ CREATE TABLE public.agent_versions (
     ecr_namespace text NOT NULL DEFAULT '',
     spec_json text NOT NULL,
     readme text NOT NULL DEFAULT '',
-    agent_card_json text NOT NULL DEFAULT '',
+    agent_card_json jsonb NOT NULL DEFAULT '{}',
     validation_warnings text NOT NULL DEFAULT '',
     published_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
