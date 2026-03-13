@@ -91,6 +91,16 @@ func main() {
 	omClient := openmeter.NewClient(cfg.OpenMeterURL)
 	if omClient != nil {
 		log.Info("OpenMeter client initialized", "url", cfg.OpenMeterURL)
+
+		// Validate that all required meters exist
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		missing, err := omClient.ValidateMeters(ctx)
+		cancel()
+		if err != nil {
+			log.Error("Failed to validate OpenMeter meters", "error", err)
+		} else if len(missing) > 0 {
+			log.Error("OpenMeter is missing required meters", "missing", missing)
+		}
 	}
 
 	// Track components for graceful shutdown

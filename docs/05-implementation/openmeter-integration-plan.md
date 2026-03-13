@@ -14,7 +14,7 @@ Integrate OpenMeter into astro-server for usage metering, billing, and entitleme
 
 ## 1. Meters
 
-Three core meters, mapped to the primary billable dimensions of the platform.
+Five core meters, mapped to the primary billable dimensions of the platform.
 
 ### 1a. `compute` -- Compute and Memory Consumed
 
@@ -56,6 +56,15 @@ Tracks how many agents are currently deployed (gauge via periodic snapshot).
 - GroupBy: *(none — account-level total)*
 - Emission: Background job (Phase 3) queries `deployments WHERE status = 'active'` per account every 5 minutes and emits the current count
 
+### 1e. `members` -- Account Members
+
+Tracks how many members belong to each account (gauge via periodic snapshot).
+
+- Event type: `active_members`
+- Aggregation: `LATEST` on `$.count`
+- GroupBy: *(none — account-level total)*
+- Emission: Inline on member add/remove (`handlers/members.go`), plus background job (Phase 3) snapshots `account_members` count per account every 5 minutes as reconciliation
+
 ### Meter Creation Payloads
 
 `POST /api/v1/meters` for each:
@@ -93,6 +102,17 @@ Tracks how many agents are currently deployed (gauge via periodic snapshot).
   "name": "Active Deployments",
   "description": "Number of currently active agent deployments per account",
   "eventType": "active_deployments",
+  "aggregation": "LATEST",
+  "valueProperty": "$.count"
+}
+```
+
+```json
+{
+  "slug": "members",
+  "name": "Account Members",
+  "description": "Number of members in each account",
+  "eventType": "active_members",
   "aggregation": "LATEST",
   "valueProperty": "$.count"
 }
@@ -227,6 +247,22 @@ All events use CloudEvents format with `subject` = `account.id`. Below are the e
 }
 ```
 
+### `active_members` (inline on member change + heartbeat reconciliation)
+
+```json
+{
+  "id": "<uuid>",
+  "source": "astro-server",
+  "specversion": "1.0",
+  "type": "active_members",
+  "subject": "<account.id>",
+  "time": "<RFC3339>",
+  "data": {
+    "count": 4
+  }
+}
+```
+
 Event ingestion is **async fire-and-forget** (buffered channel or goroutine) so it never blocks request handling. Failed events are logged and can be retried.
 
 ---
@@ -239,12 +275,14 @@ Event ingestion is **async fire-and-forget** (buffered channel or goroutine) so 
 - `compute`: metered entitlement, 100 CU-hours/month, hard limit
 - `agent_registrations`: metered entitlement, 5/month, hard limit
 - `agent_deployments`: metered entitlement, 10/month, hard limit
+- `members`: metered entitlement, 1/account, hard limit
 - Flat fee: $0
 
 **Pro**
 - `compute`: usage-based, $0.05/CU-hour
 - `agent_registrations`: unlimited (soft limit)
 - `agent_deployments`: metered entitlement, 100/month
+- `members`: metered entitlement, 10/account, hard limit
 - Flat fee: $49/month
 
 **Enterprise**
@@ -275,6 +313,7 @@ Before resource-consuming operations, check entitlements:
 
 - **DeployAgent**: Check `agent_deployments` and `compute` entitlements
 - **RegisterAgent**: Check `agent_registrations` entitlement
+- **AddMember**: Check `members` entitlement
 
 Entitlement checks are **sync** (block the request). Cache with short TTL (~30s) to avoid per-request latency.
 
@@ -310,12 +349,13 @@ Initialized with `OPENMETER_URL` (no auth). Passed into handlers via dependency 
 
 ## 7. Implementation Order
 
-| Phase | Work | Files |
-|---|---|---|
-| **Phase 1** | OpenMeter client + customer creation on account create + backfill migration | `internal/openmeter/client.go`, `handlers/accounts.go`, `schema.sql`, migration script |
-| **Phase 2** | Inline meters: `agent_deployments` + `agent_registrations` event emission | `internal/openmeter/events.go`, `handlers/deploy.go`, `handlers/agents.go` |
-| **Phase 3** | Background meters: `compute` heartbeat | `internal/openmeter/sync.go` |
-| **Phase 4** | Plan/subscription management + entitlement enforcement middleware | `internal/openmeter/middleware.go`, plan definitions in OpenMeter |
+| Phase | Status | Work | Files |
+|---|---|---|---|
+| ~~Phase 1~~ | Done | OpenMeter client + customer creation on account create + backfill migration | `internal/openmeter/client.go`, `handlers/accounts.go`, `schema.sql`, migration script |
+| ~~Phase 2~~ | Done | Inline meters: `agent_deployments` + `agent_registrations` event emission | `internal/openmeter/events.go`, `handlers/deploy.go`, `handlers/agents.go` |
+| ~~Phase 3~~ | Done | Background meters: `compute` heartbeat | `internal/openmeter/sync.go` |
+| **Phase 4** | Next | `members` meter: inline emission on member add/remove + background heartbeat reconciliation | `internal/openmeter/events.go`, `handlers/members.go`, `internal/openmeter/sync.go` |
+| **Phase 5** | Planned | Plan/subscription management + entitlement enforcement middleware | `internal/openmeter/middleware.go`, plan definitions in OpenMeter |
 
 ---
 

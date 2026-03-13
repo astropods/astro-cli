@@ -194,6 +194,68 @@ func (c *Client) QueryMeter(ctx context.Context, meterSlug, subject string, from
 	return &result, nil
 }
 
+// Meter represents an OpenMeter meter definition.
+type Meter struct {
+	Slug string `json:"slug"`
+}
+
+// RequiredMeters is the set of meter slugs that must exist in OpenMeter.
+var RequiredMeters = []string{
+	"compute",
+	"agents",
+	"agent_builds",
+	"agent_deployments",
+	"members",
+}
+
+// ListMeters fetches all meters from OpenMeter.
+func (c *Client) ListMeters(ctx context.Context) ([]Meter, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/meters", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
+	if err != nil {
+		return nil, fmt.Errorf("list meters request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list meters: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var meters []Meter
+	if err := json.NewDecoder(resp.Body).Decode(&meters); err != nil {
+		return nil, fmt.Errorf("decode meters response: %w", err)
+	}
+
+	return meters, nil
+}
+
+// ValidateMeters checks that all required meters exist in OpenMeter.
+// Returns a list of missing meter slugs, or an error if the API call fails.
+func (c *Client) ValidateMeters(ctx context.Context) (missing []string, err error) {
+	meters, err := c.ListMeters(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	existing := make(map[string]bool, len(meters))
+	for _, m := range meters {
+		existing[m.Slug] = true
+	}
+
+	for _, slug := range RequiredMeters {
+		if !existing[slug] {
+			missing = append(missing, slug)
+		}
+	}
+
+	return missing, nil
+}
+
 // Entitlement represents an OpenMeter entitlement check result.
 type Entitlement struct {
 	HasAccess bool   `json:"hasAccess"`
