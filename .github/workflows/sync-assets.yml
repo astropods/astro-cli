@@ -1,0 +1,55 @@
+name: Sync Assets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "assets/**"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-assets
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  sync-preview:
+    name: Sync to Preview
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync assets to S3
+        run: aws s3 sync assets/ s3://preview-astro-assets/ --delete
+
+  sync-prod:
+    name: Sync to Prod
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ vars.IAM_ROLE_SUFFIX }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync assets to S3
+        run: aws s3 sync assets/ s3://prod-astro-assets/ --delete
