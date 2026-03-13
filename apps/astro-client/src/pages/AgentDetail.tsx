@@ -119,7 +119,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         const ints = getAgentIntegrations(a);
         const cats = getAgentCategories(a);
         const score =
-          ints.filter((i) => currentIntegrations.has(i)).length +
+          ints.filter((i) => currentIntegrations.has(i.id.toLowerCase())).length +
           cats.filter((c) => currentCategories.has(c)).length;
         return { agent: a, score };
       })
