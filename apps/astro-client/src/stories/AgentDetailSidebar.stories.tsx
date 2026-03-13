@@ -37,18 +37,18 @@ const mockAccount: AccountPublic = {
 
 const recommendedAgents = [
   {
-    slug: "acme/incident-briefing-bot",
-    account: "acme",
-    name: "incident-briefing-bot",
-    description: "Summarizes incidents and drafts stakeholder updates.",
+    slug: "steve_jobs/alert-router",
+    account: "steve_jobs",
+    name: "alert-router",
+    description: "Routes alerts to the right team.",
     rating: 4.6,
     installs: 1203,
   },
   {
-    slug: "acme/oncall-optimizer",
-    account: "acme",
-    name: "oncall-optimizer",
-    description: "Prioritizes alerts and routes handoffs to the right owner.",
+    slug: "steve_jobs/data-classifier",
+    account: "steve_jobs",
+    name: "data-classifier",
+    description: "Classifies incoming events by urgency.",
     rating: 4.9,
     installs: 3571,
   },

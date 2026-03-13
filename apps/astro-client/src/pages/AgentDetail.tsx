@@ -18,8 +18,7 @@ import {
   getAgentAuthors,
   getAgentCapabilities,
 } from "@/lib/agent-utils";
-import { recommendedAgentsPreview } from "@/lib/recommended-agents-preview";
-import type { AccountPublic } from "@/lib/api";
+import type { AccountPublic, Agent as ApiAgent } from "@/lib/api";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -32,11 +31,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     account ? api.getAccount(account).catch(() => null) : null,
   ]);
 
-  // Batch-fetch accounts for recommended agent cards (profile pictures)
-  // Seed with the already-fetched current account to avoid a duplicate request
+  // Batch-fetch accounts for agent cards (profile pictures)
+  // Seed with the already-fetched current account to avoid a duplicate request.
+  const agentsForAccounts: ApiAgent[] = agent ? [agent] : [];
   const accountsMap: Record<string, AccountPublic> = {};
   if (accountData) accountsMap[accountData.name] = accountData;
-  const uniqueAccounts = [...new Set(agentsData.agents.map((a) => a.account))]
+  const uniqueAccounts = [...new Set(agentsForAccounts.map((a) => a.account))]
     .filter((name) => !(name in accountsMap));
   const accountResults = await Promise.all(
     uniqueAccounts.map((name) => api.getAccount(name).catch(() => null)),
@@ -155,33 +155,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const { data: agentsData } = useAgents({
     initialData: loaderData?.agentsData ?? undefined,
   });
-
-  const recommendedAgents = (() => {
-    if (!agent || !agentsData) return [];
-    const currentIntegrationIds = new Set(getAgentIntegrations(agent).map((i) => i.id));
-    const currentCategories = new Set(getAgentCategories(agent));
-    return agentsData.agents
-      .filter((a) => a.name !== agentSlug)
-      .map((a) => {
-        const ints = getAgentIntegrations(a);
-        const cats = getAgentCategories(a);
-        const score =
-          ints.filter((i) => currentIntegrationIds.has(i.id)).length +
-          cats.filter((c) => currentCategories.has(c)).length;
-        return { agent: a, score };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 2)
-      .map(({ agent: a }) => ({
-        slug: `${a.account}/${a.name}`,
-        account: a.account,
-        name: a.name,
-        description: getAgentDescription(a),
-      }));
-  })();
-  const recommendedAgentsForDisplay =
-    recommendedAgents.length > 0 ? recommendedAgents : recommendedAgentsPreview;
-
   if (isLoading) {
     return <AgentDetailSkeleton />;
   }
@@ -214,12 +187,32 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
     );
   }
 
+  const recommendedAgents = (() => {
+    if (!agentsData) return [];
+    const currentIntegrations = new Set(getAgentIntegrations(agent));
+    const currentCategories = new Set(getAgentCategories(agent));
+    return agentsData.agents
+      .filter((a) => a.name !== agentSlug)
+      .map((a) => {
+        const ints = getAgentIntegrations(a);
+        const cats = getAgentCategories(a);
+        const score =
+          ints.filter((i) => currentIntegrations.has(i)).length +
+          cats.filter((c) => currentCategories.has(c)).length;
+        return { agent: a, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(({ agent: a }) => ({
+        slug: `${a.account}/${a.name}`,
+        account: a.account,
+        name: a.name,
+        description: getAgentDescription(a),
+      }));
+  })();
+
   const description = getAgentDescription(agent);
   const integrations = getAgentIntegrations(agent);
-  const previewIntegrations =
-    integrations.length > 1
-      ? integrations
-      : ["GitHub", "Slack", "Linear"];
   const spec = getLatestSpec(agent);
   const readme = agent.versions[0]?.readme;
   const credentials = spec?.integrations
@@ -228,17 +221,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
   const safetyPermissions = credentials.map(
     (i) => `Access to ${i.provider}`,
   );
-  const previewPermissions =
-    safetyPermissions.length > 1
-      ? safetyPermissions
-      : [
-          "Read-only access",
-          "Send channel notifications",
-          "No data stored after runs",
-        ];
-  // Temporary preview values so Details always renders full design state.
-  const previewRating = 4.8;
-  const previewInstalls = 2841;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
@@ -253,16 +235,14 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           summary={description}
           categories={getAgentCategories(agent)}
           readme={readme}
-          safetyPermissions={previewPermissions}
+          safetyPermissions={safetyPermissions}
           mobileSidebar={
             <SidebarCard
               agent={agent}
               description={description}
-              integrations={previewIntegrations}
-              permissions={previewPermissions}
-              rating={previewRating}
-              installs={previewInstalls}
-              recommendedAgents={recommendedAgentsForDisplay}
+              integrations={integrations}
+              permissions={safetyPermissions}
+              recommendedAgents={recommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
             />
           }
@@ -271,11 +251,9 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         <AgentDetailSidebar
           agent={agent}
           description={description}
-          integrations={previewIntegrations}
-          permissions={previewPermissions}
-          rating={previewRating}
-          installs={previewInstalls}
-          recommendedAgents={recommendedAgentsForDisplay}
+          integrations={integrations}
+          permissions={safetyPermissions}
+          recommendedAgents={recommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}
         />
       </div>

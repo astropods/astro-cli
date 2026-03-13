@@ -128,6 +128,7 @@ export function SidebarCard({
           </div>
         </SidebarSection>
       )}
+
     </div>
   );
 }
