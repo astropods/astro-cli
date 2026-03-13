@@ -3,7 +3,6 @@ package riverqueue
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 
@@ -24,7 +23,7 @@ func UIHandler(ctx context.Context, databaseURL string, logger *slog.Logger) (ht
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger: slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
 		pool.Close()

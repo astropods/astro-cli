@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/rand/v2"
+	"math/rand/v2" //nolint:gosec // fake dev data, not security-sensitive
 	"net/http"
 	"os"
 	"strings"
@@ -56,13 +56,18 @@ func main() {
 
 	// Catch-all for other OpenMeter endpoints we don't need
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[fakeopenmeter] %s %s (unhandled, returning 200)", r.Method, r.URL.Path)
+		log.Printf("[fakeopenmeter] %s %s (unhandled, returning 200)", r.Method, r.URL.EscapedPath()) //nolint:gosec // dev-only server, path is logged for debugging
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	log.Printf("[fakeopenmeter] listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	log.Printf("[fakeopenmeter] listening on :%s", port) //nolint:gosec // port is from env, not user input
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -75,9 +80,11 @@ func handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"id": fmt.Sprintf("fake-cust-%d", time.Now().UnixMilli()),
-	})
+	}); err != nil {
+		log.Printf("[fakeopenmeter] encode error: %v", err)
+	}
 }
 
 func handleIngestEvents(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +107,7 @@ func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 	meterSlug := r.PathValue("meterSlug")
 	subject := r.URL.Query().Get("subject")
 
-	log.Printf("[fakeopenmeter] GET /api/v1/meters/%s/query subject=%s", meterSlug, subject)
+	log.Printf("[fakeopenmeter] GET /api/v1/meters/%s/query subject=%s", meterSlug, subject) //nolint:gosec // path values are from route params, not raw input
 
 	// First check if we have real ingested events for this meter+subject
 	value := aggregateEvents(meterSlug, subject)
@@ -111,7 +118,7 @@ func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"data": []map[string]any{
 			{
 				"value":       value,
@@ -121,7 +128,9 @@ func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 				"groupBy":     map[string]string{},
 			},
 		},
-	})
+	}); err != nil {
+		log.Printf("[fakeopenmeter] encode error: %v", err)
+	}
 }
 
 // featureLimits defines fake plan limits for each entitlement feature.
@@ -143,11 +152,13 @@ func handleEntitlement(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[fakeopenmeter] GET entitlement subject=%s feature=%s → limit=%d", subject, feature, limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"hasAccess": true,
 		"usage":     0,
 		"limit":     limit,
-	})
+	}); err != nil {
+		log.Printf("[fakeopenmeter] encode error: %v", err)
+	}
 }
 
 // aggregateEvents sums up values from ingested events matching the meter type and subject.
@@ -191,11 +202,11 @@ func aggregateEvents(meterSlug, subject string) float64 {
 func seedValue(meterSlug string) float64 {
 	switch meterSlug {
 	case "compute_usage":
-		return math.Round((12.5+rand.Float64()*5)*100) / 100 // 12.5–17.5 CU-hours
+		return math.Round((12.5+rand.Float64()*5)*100) / 100 //nolint:gosec // fake dev data
 	case "agent_build":
-		return float64(3 + rand.IntN(8)) // 3–10 builds
+		return float64(3 + rand.IntN(8)) //nolint:gosec // fake dev data
 	case "active_deployments":
-		return float64(1 + rand.IntN(4)) // 1–4 deployments
+		return float64(1 + rand.IntN(4)) //nolint:gosec // fake dev data
 	case "active_agents":
 		return float64(2 + rand.IntN(5)) // 2–6 agents
 	default:
