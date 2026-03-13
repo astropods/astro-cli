@@ -461,17 +461,10 @@ class ApiClient {
     );
   }
 
-  async heartAgent(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
+  async toggleHeart(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,
-      { method: 'PUT' }
-    );
-  }
-
-  async unheartAgent(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
-    return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,
-      { method: 'DELETE' }
+      { method: 'POST' }
     );
   }
 }

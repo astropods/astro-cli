@@ -80,6 +80,48 @@ func TestUnheart_NotExists(t *testing.T) {
 	}
 }
 
+func TestToggle_AddHeart(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	s := New(db)
+	ctx := context.Background()
+
+	mock.ExpectQuery("WITH toggled AS").
+		WithArgs("acct-1", "my-agent", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"hearted", "count"}).AddRow(true, 5))
+
+	hearted, count, err := s.Toggle(ctx, "acct-1", "my-agent", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hearted {
+		t.Error("expected hearted=true")
+	}
+	if count != 5 {
+		t.Errorf("expected count=5, got %d", count)
+	}
+}
+
+func TestToggle_RemoveHeart(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	s := New(db)
+	ctx := context.Background()
+
+	mock.ExpectQuery("WITH toggled AS").
+		WithArgs("acct-1", "my-agent", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"hearted", "count"}).AddRow(false, 4))
+
+	hearted, count, err := s.Toggle(ctx, "acct-1", "my-agent", "user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hearted {
+		t.Error("expected hearted=false")
+	}
+	if count != 4 {
+		t.Errorf("expected count=4, got %d", count)
+	}
+}
+
 func TestCount(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	s := New(db)

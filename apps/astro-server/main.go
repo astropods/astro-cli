@@ -625,15 +625,8 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, nil),
 			)
 
-			// Agent heart (requires auth, no account permission needed)
-			api.PUT(protected, "/agents/:account/:name/heart", "Heart an agent", handlers.HeartAgent(log, heartStore, accountStore),
-				oapispec.Tags("Agents"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.Response(200, &handlers.HeartResponse{}),
-			)
-			api.DELETE(protected, "/agents/:account/:name/heart", "Unheart an agent", handlers.UnheartAgent(log, heartStore, accountStore),
+			// Agent heart toggle (requires auth, no account permission needed)
+			api.POST(protected, "/agents/:account/:name/heart", "Toggle heart on an agent", handlers.ToggleHeart(log, heartStore, accountStore),
 				oapispec.Tags("Agents"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

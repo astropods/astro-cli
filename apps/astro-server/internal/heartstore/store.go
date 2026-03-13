@@ -60,6 +60,31 @@ func (s *Store) Unheart(ctx context.Context, accountID, agentName, userID string
 	return n > 0, nil
 }
 
+// Toggle atomically adds or removes a heart and returns the new state + count.
+func (s *Store) Toggle(ctx context.Context, accountID, agentName, userID string) (hearted bool, count int, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		WITH toggled AS (
+			DELETE FROM agent_hearts
+			WHERE account_id = $1 AND agent_name = $2 AND user_id = $3
+			RETURNING true
+		),
+		inserted AS (
+			INSERT INTO agent_hearts (account_id, agent_name, user_id)
+			SELECT $1, $2, $3
+			WHERE NOT EXISTS (SELECT 1 FROM toggled)
+			RETURNING true
+		)
+		SELECT
+			EXISTS (SELECT 1 FROM inserted),
+			(SELECT COUNT(*) FROM agent_hearts WHERE account_id = $1 AND agent_name = $2)`,
+		accountID, agentName, userID,
+	).Scan(&hearted, &count)
+	if err != nil {
+		return false, 0, fmt.Errorf("toggle heart: %w", err)
+	}
+	return hearted, count, nil
+}
+
 // Count returns the total heart count for an agent.
 func (s *Store) Count(ctx context.Context, accountID, agentName string) (int, error) {
 	var count int

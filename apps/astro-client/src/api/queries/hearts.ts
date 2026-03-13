@@ -6,8 +6,7 @@ export function useToggleHeart(account: string, name: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (hearted: boolean) =>
-      hearted ? api.unheartAgent(account, name) : api.heartAgent(account, name),
+    mutationFn: () => api.toggleHeart(account, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, name) });
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
