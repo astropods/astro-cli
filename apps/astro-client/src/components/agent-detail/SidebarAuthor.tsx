@@ -21,14 +21,20 @@ export function SidebarAuthor({
   ownerHandle,
   ownerProfilePictureUrl,
 }: SidebarAuthorProps) {
-  const primaryAuthor = authors[0];
+  const validAuthors = authors.filter((author) => author.name.trim().length > 0);
+  const resolvedAuthors = validAuthors.length > 0
+    ? validAuthors
+    : [{ name: ownerName, account: ownerHandle }];
+
+  const primaryAuthor = resolvedAuthors[0];
+  const secondaryAuthors = resolvedAuthors.slice(1);
   const name = primaryAuthor?.name ?? ownerName;
   const handle = primaryAuthor?.account ?? ownerHandle;
   const profilePictureUrl = ownerProfilePictureUrl;
   const initial = name.charAt(0).toUpperCase();
 
   return (
-    <SidebarSection title="Creator">
+    <SidebarSection title="Authors">
       <div className="flex items-center gap-3.5">
         {profilePictureUrl ? (
           <img
@@ -48,6 +54,16 @@ export function SidebarAuthor({
           </span>
         </div>
       </div>
+      {secondaryAuthors.length > 0 && (
+        <div className="mt-2.5 space-y-1">
+          {secondaryAuthors.map((author) => (
+            <p key={`${author.name}-${author.account ?? "unknown"}`} className="text-[12px] leading-4 font-mono text-muted-foreground">
+              {author.name}
+              {author.account ? ` (@${author.account})` : ""}
+            </p>
+          ))}
+        </div>
+      )}
     </SidebarSection>
   );
 }

@@ -2,7 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
-import { PermissionsPreview } from "./PermissionsPreview";
+import { CapabilitiesList } from "./CapabilitiesList";
 import { SidebarAuthor } from "./SidebarAuthor";
 import { SidebarStats } from "./SidebarStats";
 import { SidebarSection } from "./SidebarSection";
@@ -19,8 +19,6 @@ export interface SidebarCardProps {
   authors?: AgentCardAuthor[];
   rating?: number;
   installs?: number;
-  teammateInstallCount?: number;
-  teammateInitials?: string[];
   recommendedAgents?: AgentCardProps[];
   initialAccountData?: AccountPublic;
 }
@@ -32,8 +30,6 @@ export function SidebarCard({
   authors = [],
   rating,
   installs,
-  teammateInstallCount,
-  teammateInitials,
   recommendedAgents = [],
   initialAccountData,
 }: SidebarCardProps) {
@@ -50,13 +46,6 @@ export function SidebarCard({
   const ownerName = owner?.first_name && owner?.last_name
     ? `${owner.first_name} ${owner.last_name}`
     : agent.account;
-  const teammateBadges = teammateInitials?.slice(0, 3) ?? [];
-  const teammateLabel = teammateInstallCount ?? teammateBadges.length;
-  const teammateBadgeClasses = [
-    "bg-indigo-600 text-white",
-    "bg-teal-600 text-white",
-    "bg-amber-700 text-white",
-  ];
 
   return (
     <div className="space-y-4">
@@ -67,23 +56,6 @@ export function SidebarCard({
             <ArrowRight className="h-4 w-4" />
           </Link>
         </Button>
-        {teammateLabel > 0 && (
-          <div className="mt-3.5 flex items-center gap-2.5 text-[13px] text-muted-foreground">
-            <div className="flex -space-x-1.5">
-              {teammateBadges.map((label, idx) => (
-                <span
-                  key={`${label}-${idx}`}
-                  className={`inline-flex h-5 w-5 items-center justify-center rounded-full border border-surface text-[9px] font-mono ${teammateBadgeClasses[idx % teammateBadgeClasses.length]}`}
-                >
-                  {label.slice(0, 2).toUpperCase()}
-                </span>
-              ))}
-            </div>
-            <span>
-              {teammateLabel} of your teammates installed this
-            </span>
-          </div>
-        )}
       </div>
 
       <SidebarAuthor
@@ -101,20 +73,18 @@ export function SidebarCard({
         updatedAt={updatedAt ?? undefined}
       />
 
-      {(integrations.length > 0 || capabilities.length > 0) && (
-        <SidebarSection title="What it needs">
-          <div className="space-y-5">
-            {integrations.length > 0 && (
-              <RequiredAppsList integrations={integrations} title="Connected apps" />
-            )}
-            {integrations.length > 0 && capabilities.length > 0 && (
-              <div className="-mx-4 h-px bg-border" />
-            )}
-            {capabilities.length > 0 && (
-              <PermissionsPreview permissions={capabilities} title="Capabilities" />
-            )}
-          </div>
-        </SidebarSection>
+      {integrations.length > 0 && (
+        <>
+          <div className="my-5 h-px bg-border-strong" />
+          <RequiredAppsList integrations={integrations} title="Integrations" />
+        </>
+      )}
+
+      {capabilities.length > 0 && (
+        <>
+          <div className="my-5 h-px bg-border-strong" />
+          <CapabilitiesList capabilities={capabilities} />
+        </>
       )}
 
       {recommendedAgents.length > 0 && (

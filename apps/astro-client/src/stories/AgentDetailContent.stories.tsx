@@ -47,16 +47,14 @@ export const Default: Story = {
       "Summarizes API changes into concise release notes and migration guidance for product and engineering teams.",
     categories: ["PRODUCTIVITY", "ENGINEERING"],
     readme: longReadme,
-    recommendedAgents: [],
   },
 };
 
-export const NoSummaryNoPermissions: Story = {
+export const NoSummary: Story = {
   args: {
     account: "sohumonlocal",
     name: "api-changelog-writer",
     categories: [],
     readme: "## ReadMe\n\nMinimal content block.",
-    recommendedAgents: [],
   },
 };

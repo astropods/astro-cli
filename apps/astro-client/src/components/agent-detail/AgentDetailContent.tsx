@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { FileText } from "lucide-react";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { AgentDetailHeader } from "./AgentDetailHeader";
-import type { RecommendedAgent } from "@/components/RecommendedAgents";
 
 export interface AgentDetailContentProps {
   account: string;
@@ -11,7 +10,6 @@ export interface AgentDetailContentProps {
   summary?: string;
   categories: string[];
   readme?: string;
-  recommendedAgents?: RecommendedAgent[];
   mobileSidebar?: ReactNode;
 }
 

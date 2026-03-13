@@ -31,27 +31,24 @@ export function AgentDetailHeader({
             {name}
             {visibility === "private" && <PrivacyBadge />}
           </h1>
-          <p className="font-mono text-body-sm text-muted-foreground mt-0.5">
-            @{account}
-          </p>
+          {categories.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {categories.map((tag) => (
+                <InlineBadge
+                  key={tag}
+                  className="rounded-[4px] bg-surface text-muted-foreground dark:bg-surface dark:text-muted-foreground"
+                >
+                  {tag}
+                </InlineBadge>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       {summary && (
         <p className="mt-4 max-w-4xl text-[14px] leading-[1.65] text-foreground/85">
           {summary}
         </p>
-      )}
-      {categories.length > 0 && (
-        <div className="mt-3.5 flex flex-wrap gap-2">
-          {categories.map((tag) => (
-            <InlineBadge
-              key={tag}
-              className="rounded-[4px] bg-surface text-muted-foreground dark:bg-surface dark:text-muted-foreground"
-            >
-              {tag}
-            </InlineBadge>
-          ))}
-        </div>
       )}
     </header>
   );

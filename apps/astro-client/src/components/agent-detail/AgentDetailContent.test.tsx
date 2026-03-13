@@ -10,7 +10,6 @@ const baseProps = {
   account: "acme",
   name: "signal-watcher",
   categories: ["MONITORING"],
-  recommendedAgents: [],
 };
 
 describe("AgentDetailContent", () => {
