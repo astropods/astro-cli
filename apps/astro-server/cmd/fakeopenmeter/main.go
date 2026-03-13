@@ -149,7 +149,7 @@ func handleEntitlement(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		limit = 1000
 	}
-	log.Printf("[fakeopenmeter] GET entitlement subject=%s feature=%s → limit=%d", subject, feature, limit)
+	log.Printf("[fakeopenmeter] GET entitlement subject=%s feature=%s → limit=%d", subject, feature, limit) //nolint:gosec // path values are from route params
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
@@ -208,7 +208,7 @@ func seedValue(meterSlug string) float64 {
 	case "active_deployments":
 		return float64(1 + rand.IntN(4)) //nolint:gosec // fake dev data
 	case "active_agents":
-		return float64(2 + rand.IntN(5)) // 2–6 agents
+		return float64(2 + rand.IntN(5)) //nolint:gosec // fake dev data
 	default:
 		return 0
 	}
