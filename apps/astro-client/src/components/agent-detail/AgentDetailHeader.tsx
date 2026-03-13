@@ -6,7 +6,6 @@ export interface AgentDetailHeaderProps {
   account: string;
   name: string;
   visibility?: string;
-  summary?: string;
   categories: string[];
 }
 
@@ -14,7 +13,6 @@ export function AgentDetailHeader({
   account,
   name,
   visibility,
-  summary,
   categories,
 }: AgentDetailHeaderProps) {
   return (
@@ -45,11 +43,6 @@ export function AgentDetailHeader({
           )}
         </div>
       </div>
-      {summary && (
-        <p className="mt-4 max-w-4xl text-[14px] leading-[1.65] text-foreground/85">
-          {summary}
-        </p>
-      )}
     </header>
   );
 }

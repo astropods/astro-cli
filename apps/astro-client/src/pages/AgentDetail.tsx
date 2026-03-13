@@ -133,7 +133,6 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
       }));
   })();
 
-  const description = getAgentDescription(agent);
   const integrations = getAgentIntegrations(agent);
   const categories = getAgentCategories(agent);
   const readme = getAgentReadme(agent);
@@ -150,8 +149,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           account={agent.account}
           name={agent.name}
           visibility={agent.visibility}
-          summary={description}
-          categories={getAgentCategories(agent)}
+          categories={categories}
           readme={readme}
           mobileSidebar={
             <SidebarCard

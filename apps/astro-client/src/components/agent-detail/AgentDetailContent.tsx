@@ -7,7 +7,6 @@ export interface AgentDetailContentProps {
   account: string;
   name: string;
   visibility?: string;
-  summary?: string;
   categories: string[];
   readme?: string;
   mobileSidebar?: ReactNode;
@@ -17,7 +16,6 @@ export function AgentDetailContent({
   account,
   name,
   visibility,
-  summary,
   categories,
   readme,
   mobileSidebar,
@@ -30,7 +28,6 @@ export function AgentDetailContent({
         account={account}
         name={name}
         visibility={visibility}
-        summary={summary}
         categories={categories}
       />
 
