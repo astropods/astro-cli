@@ -62,6 +62,19 @@ export const DifferentAccount: Story = {
   },
 };
 
+export const OftenUsedTogether: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "steve_jobs/alert-router",
+    account: "steve_jobs",
+    name: "alert-router",
+    description: "Routes alerts to the correct responders.",
+    variant: "oftenUsedTogether",
+    rating: 4.6,
+    installs: 1203,
+  },
+};
+
 const gridCards = [
   { slug: "acme/customer-insight-engine", account: "acme", name: "Customer Insight Engine", description: "Analyzes customer feedback to surface actionable insights and trends." },
   { slug: "acme/personalized-support-responses", account: "acme", name: "Personalized Support Responses", description: "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history and context." },

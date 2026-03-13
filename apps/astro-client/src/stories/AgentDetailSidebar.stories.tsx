@@ -41,12 +41,16 @@ const recommendedAgents = [
     account: "acme",
     name: "incident-briefing-bot",
     description: "Summarizes incidents and drafts stakeholder updates.",
+    rating: 4.6,
+    installs: 1203,
   },
   {
     slug: "acme/oncall-optimizer",
     account: "acme",
     name: "oncall-optimizer",
     description: "Prioritizes alerts and routes handoffs to the right owner.",
+    rating: 4.9,
+    installs: 3571,
   },
 ];
 

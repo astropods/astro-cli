@@ -122,7 +122,7 @@ export function SidebarCard({
               <AgentCard
                 key={recommendedAgent.slug}
                 {...recommendedAgent}
-                compact
+                variant="oftenUsedTogether"
               />
             ))}
           </div>

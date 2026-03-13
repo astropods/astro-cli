@@ -216,9 +216,29 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
 
   const description = getAgentDescription(agent);
   const integrations = getAgentIntegrations(agent);
-  const readme = getAgentReadme(agent);
-  const authors = getAgentAuthors(agent);
-  const capabilities = getAgentCapabilities(agent);
+  const previewIntegrations =
+    integrations.length > 1
+      ? integrations
+      : ["GitHub", "Slack", "Linear"];
+  const spec = getLatestSpec(agent);
+  const readme = agent.versions[0]?.readme;
+  const credentials = spec?.integrations
+    ? Object.values(spec.integrations)
+    : [];
+  const safetyPermissions = credentials.map(
+    (i) => `Access to ${i.provider}`,
+  );
+  const previewPermissions =
+    safetyPermissions.length > 1
+      ? safetyPermissions
+      : [
+          "Read-only access",
+          "Send channel notifications",
+          "No data stored after runs",
+        ];
+  // Temporary preview values so Details always renders full design state.
+  const previewRating = 4.8;
+  const previewInstalls = 2841;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
@@ -233,13 +253,15 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           summary={description}
           categories={getAgentCategories(agent)}
           readme={readme}
-          safetyPermissions={safetyPermissions}
+          safetyPermissions={previewPermissions}
           mobileSidebar={
             <SidebarCard
               agent={agent}
               description={description}
-              integrations={integrations}
-              permissions={safetyPermissions}
+              integrations={previewIntegrations}
+              permissions={previewPermissions}
+              rating={previewRating}
+              installs={previewInstalls}
               recommendedAgents={recommendedAgentsForDisplay}
               initialAccountData={loaderData?.accountData ?? undefined}
             />
@@ -249,8 +271,10 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         <AgentDetailSidebar
           agent={agent}
           description={description}
-          integrations={integrations}
-          permissions={safetyPermissions}
+          integrations={previewIntegrations}
+          permissions={previewPermissions}
+          rating={previewRating}
+          installs={previewInstalls}
           recommendedAgents={recommendedAgentsForDisplay}
           initialAccountData={loaderData?.accountData ?? undefined}
         />

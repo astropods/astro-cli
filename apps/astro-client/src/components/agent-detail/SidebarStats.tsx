@@ -63,7 +63,7 @@ export function SidebarStats({
       <dl>
         {rows.map((row, index) => (
           <div key={row.label}>
-            <div className="py-2">
+            <div className="py-2 [@media(max-height:1000px)]:py-1">
               <div className="flex items-center justify-between gap-6">
                 <dt className="text-[13px] text-muted-foreground">{row.label}</dt>
                 <dd className="text-right font-mono text-mono-sm font-medium text-foreground">

@@ -5,7 +5,7 @@ import * as AgentCardStories from "./AgentCard.stories"
 
 # AgentCard
 
-A card component for the agent marketplace grid. Displays an agent's avatar, name, description, and category badges. The entire card is a link to the agent detail page.
+A card component for agent discovery surfaces. The default variant is used in marketplace/grid contexts, and the `oftenUsedTogether` variant is used in the sidebar recommendation stack on agent detail pages.
 
 ## Import
 
@@ -24,13 +24,27 @@ import { AgentCard } from "@/components/AgentCard"
 />
 ```
 
+### Often Used Together Variant
+
+```tsx
+<AgentCard
+  slug="steve_jobs/alert-router"
+  account="steve_jobs"
+  name="alert-router"
+  description="Routes alerts to the correct responders."
+  variant="oftenUsedTogether"
+  rating={4.6}
+  installs={1203}
+/>
+```
+
 ## Default
 
 <Canvas of={AgentCardStories.Default} />
 
 ## Long Description
 
-Descriptions are clamped to 2 lines.
+Descriptions are clamped to 3 lines in the default variant.
 
 <Canvas of={AgentCardStories.LongDescription} />
 
@@ -41,6 +55,12 @@ Descriptions are clamped to 2 lines.
 ## Different Account
 
 <Canvas of={AgentCardStories.DifferentAccount} />
+
+## Often Used Together
+
+Compact recommendation card variant with contrast background and metadata line.
+
+<Canvas of={AgentCardStories.OftenUsedTogether} />
 
 ## Grid
 

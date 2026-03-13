@@ -11,7 +11,13 @@ export interface RequiredAppsListProps {
 function formatIntegrationLabel(name: string): string {
   const normalized = name.trim().toLowerCase();
   if (normalized === "github") return "GitHub";
-  return name.trim().replace(/[\s-]+/g, "_").toUpperCase();
+  return name
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export function RequiredAppsList({ integrations, title = "Connected apps" }: RequiredAppsListProps) {
@@ -26,7 +32,7 @@ export function RequiredAppsList({ integrations, title = "Connected apps" }: Req
           return (
             <InlineBadge
               key={name}
-              className="gap-2 rounded-md border-border-strong bg-surface px-3.5 py-2 font-sans text-[13px] font-medium normal-case tracking-normal text-foreground dark:border-border-strong dark:bg-surface dark:text-foreground"
+              className="gap-2 rounded-md border-border-strong bg-stone-200 px-3.5 py-2 font-sans text-[13px] font-medium normal-case tracking-normal text-foreground dark:border-border-strong dark:bg-muted/30 dark:text-foreground"
             >
               {icon ? (
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:size-full [&>svg]:text-muted-foreground">
