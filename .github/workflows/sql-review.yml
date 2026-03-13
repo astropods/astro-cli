@@ -30,8 +30,7 @@ jobs:
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
             --dev-url "$DEV_DATABASE_URL" \
-            --exclude "atlas_schema_revisions,river" 2>&1)
-          STATUS=$?
+            --exclude "atlas_schema_revisions,river" 2>&1) && STATUS=0 || STATUS=$?
           if [ $STATUS -ne 0 ]; then
             echo "has_changes=error" >> "$GITHUB_OUTPUT"
           elif [ -z "$OUTPUT" ]; then
@@ -53,8 +52,7 @@ jobs:
           OUTPUT=$(atlas migrate status \
             --url "$DATABASE_URL" \
             --dir "file://sql/river" \
-            --revisions-schema atlas_schema_revisions 2>&1)
-          STATUS=$?
+            --revisions-schema atlas_schema_revisions 2>&1) && STATUS=0 || STATUS=$?
           PENDING=$(echo "$OUTPUT" | grep -c "^  --" || true)
           if [ $STATUS -ne 0 ]; then
             echo "status=error" >> "$GITHUB_OUTPUT"
@@ -216,8 +214,7 @@ jobs:
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
             --dev-url "$DEV_DATABASE_URL" \
-            --exclude "atlas_schema_revisions,river" 2>&1)
-          STATUS=$?
+            --exclude "atlas_schema_revisions,river" 2>&1) && STATUS=0 || STATUS=$?
           if [ $STATUS -ne 0 ]; then
             echo "has_changes=error" >> "$GITHUB_OUTPUT"
           elif [ -z "$OUTPUT" ]; then
@@ -239,8 +236,7 @@ jobs:
           OUTPUT=$(atlas migrate status \
             --url "$DATABASE_URL" \
             --dir "file://sql/river" \
-            --revisions-schema atlas_schema_revisions 2>&1)
-          STATUS=$?
+            --revisions-schema atlas_schema_revisions 2>&1) && STATUS=0 || STATUS=$?
           PENDING=$(echo "$OUTPUT" | grep -c "^  --" || true)
           if [ $STATUS -ne 0 ]; then
             echo "status=error" >> "$GITHUB_OUTPUT"
