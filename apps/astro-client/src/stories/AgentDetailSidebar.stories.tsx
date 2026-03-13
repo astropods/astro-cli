@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MemoryRouter } from "react-router";
 import { AgentDetailSidebar } from "@/components/agent-detail/AgentDetailSidebar";
-import type { Agent, AccountPublic, ResolvedIntegration } from "@/lib/api";
+import type { Agent, AccountPublic } from "@/lib/api";
 
 const mockAgent: Agent = {
   name: "customer-insight-engine",
