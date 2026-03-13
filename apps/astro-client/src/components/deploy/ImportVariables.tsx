@@ -155,18 +155,11 @@ export function ImportVariables({ onImport }: ImportVariablesProps) {
                 ))}
               </ul>
             )}
-            {result.skipped.length > 0 && (
-              <div className="mt-3">
-                <p className="text-xs text-muted-foreground">
-                  Skipped {result.skipped.length} unrecognized key{result.skipped.length !== 1 ? "s" : ""}:
-                </p>
-                <ul className="mt-1 space-y-0.5 pl-6">
-                  {result.skipped.map((key) => (
-                    <li key={key} className="text-xs text-muted-foreground font-mono">{key}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+          {result.skipped.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {result.skipped.length} unrecognized key{result.skipped.length !== 1 ? "s were" : " was"} skipped.
+            </p>
+          )}
             {result.matched.length === 0 && result.skipped.length === 0 && (
               <p className="text-xs text-muted-foreground mt-1">
                 No keys matched the expected variables. Check that your key names match exactly.
