@@ -24,6 +24,13 @@ Astro AI is a platform for deploying and running AI agents. It provides agent-na
     Install the CLI, create an agent, and run locally in three steps
   </Card>
   <Card
+    title="Make your agent discoverable"
+    icon="duotone id-card"
+    href="/agent-card"
+  >
+    Describe your agent with an AGENT.md file for discovery and display
+  </Card>
+  <Card
     title="Publish to registry"
     icon="duotone cloud-arrow-up"
     href="/publish-to-registry"
@@ -42,6 +49,7 @@ Astro AI is a platform for deploying and running AI agents. It provides agent-na
 ## Concepts
 
 - **Astropods Spec** — Declarative YAML format (<code>astropods.yml</code>) that describes an agent's topology: container, models, knowledge stores, tools, and ingestion. See [Astropods Spec](/astropods-package-spec).
+- **Agent Card** — A Markdown file with YAML frontmatter (<code>AGENT.md</code>) that describes what an agent does, who built it, and what it connects to. See [Make your agent discoverable](/agent-card).
 - **Agent** — A deployable unit defined by an <code>astropods.yml</code> spec: container image, models, knowledge stores, tools, and integrations.
 - **Registry** — Astro AI registry where agent images and spec artifacts are published.
 

@@ -1,0 +1,213 @@
+---
+title: Make your agent discoverable
+subtitle: Find and deploy your agent with an AGENT.md file
+slug: agent-card
+---
+
+When you publish an agent to the registry, other users see it on browse pages, search results, and detail pages. An **agent card** (`AGENT.md`) controls what they see — a description, tags for filtering, author attribution, capability badges, and integration icons.
+
+Create an `AGENT.md` file at the root of your project (next to `astropods.yml`). It's published automatically when you run `ast push`.
+
+## Quick example
+
+```yaml AGENT.md
+---
+description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowledge graph"
+tags:
+  - analytics
+  - knowledge-graph
+authors:
+  - name: Jane Doe
+    account: janedoe
+  - name: Bob Smith
+capabilities:
+  - Analyzes GitHub issues and extracts patterns
+  - Builds and maintains a Neo4j knowledge graph
+  - Answers natural-language queries about issue history
+integrations:
+  - Jira
+  - My Custom Webhook
+---
+
+# GitHub Issue Analyzer
+
+This agent ingests GitHub issues into a Neo4j knowledge graph and provides
+natural-language querying over the resulting data.
+
+## How It Works
+
+1. Connect your GitHub repository via the `GITHUB_TOKEN` input.
+2. The agent polls for new issues on a configurable schedule.
+3. Each issue is analyzed using an LLM to extract entities and relationships.
+4. Results are stored in Neo4j and queryable via the agent's chat interface.
+
+## Limitations
+
+- Only processes issue bodies and comments; PR reviews are not yet supported.
+- Large repositories (>10k issues) may require extended initial ingestion time.
+```
+
+## What's in an agent card
+
+An agent card has two parts:
+
+1. **Frontmatter** — A YAML block between `---` delimiters at the top of the file. Powers structured UI elements like tags, author links, and integration icons.
+2. **Body** — Free-form Markdown after the frontmatter. Rendered as the main content on your agent's detail page.
+
+Both parts are optional — even a file with just a description in the frontmatter improves discoverability. For the full format specification, see the [Agent Card Spec](/agent-card-spec).
+
+---
+
+## Frontmatter fields
+
+All fields are optional.
+
+### `description`
+
+The most important field for discoverability. This short summary appears on cards, search results, and the detail page sidebar. Keep it under 200 characters.
+
+```yaml
+---
+description: "Slack bot that summarizes daily standups into action items"
+---
+```
+
+If no description is provided, the agent name is used as a fallback.
+
+<Note>
+  The `description` field replaces the deprecated `meta.description` in `astropods.yml`. If you previously set a description there, move it to your agent card.
+</Note>
+
+### `tags`
+
+Category labels that help users find your agent when browsing or filtering. Each tag must be lowercase, using only letters, numbers, and hyphens. Maximum 10 tags. See [normalization rules](/agent-card-spec#4-normalization) for how tags are processed.
+
+```yaml
+---
+tags:
+  - devops
+  - monitoring
+  - slack
+---
+```
+
+<Note>
+  The `tags` field replaces the deprecated `meta.tags` in `astropods.yml`. Move any existing tags to your agent card.
+</Note>
+
+### `authors`
+
+A list of people or organizations who built the agent. Each entry requires a `name` and optionally an `account` that links to a platform profile.
+
+```yaml
+---
+authors:
+  - name: Alice Chen
+    account: alicechen
+  - name: Acme Corp
+    account: acme
+  - name: External Contributor
+---
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name of the author. |
+| `account` | string | No | Platform account handle. When present, links to that account's profile. |
+
+### `capabilities`
+
+Short verb phrases describing what the agent can do. These appear as badges on the detail page and help users understand the agent's functionality at a glance. Keep each under 100 characters.
+
+```yaml
+---
+capabilities:
+  - Monitors pull requests for security vulnerabilities
+  - Generates weekly summary reports
+  - Responds to Slack commands in real time
+---
+```
+
+### `integrations`
+
+Third-party services your agent connects to. Known integrations are displayed with brand icons; unknown ones show a generic icon with the name as a label.
+
+```yaml
+---
+integrations:
+  - Slack
+  - Jira
+  - My Custom API
+---
+```
+
+Matching is case-insensitive — `slack`, `Slack`, and `SLACK` all resolve the same way.
+
+Integrations declared in your `astropods.yml` (via the `integrations` section with a `provider` field) are automatically derived and displayed on your agent's detail page. Use the agent card to declare additional integrations that aren't in the spec — for example, services your agent calls directly using user-supplied credentials.
+
+Each integration string is matched against a list of known integrations (Slack, GitHub, Jira, Notion, Linear, Google Drive, Discord, Microsoft Teams, and many more). Known integrations are displayed with brand icons. Any string that doesn't match a known integration is displayed with a generic icon and the original text as a label.
+
+For the full list of known integrations and matching rules, see the [Agent Card Spec](/agent-card-spec#253-known-integrations-registry).
+
+---
+
+## Body
+
+The Markdown body below the frontmatter is rendered as the main content on your agent's detail page. There's no required structure, but consider covering:
+
+- **Overview** — What the agent does and why it exists.
+- **Usage** — How to interact with the agent (APIs, chat, scheduled tasks, etc.).
+- **Limitations** — Known constraints or scope boundaries.
+- **Examples** — Sample interactions or outputs.
+
+A well-written body helps users evaluate whether your agent fits their needs before they deploy it.
+
+---
+
+## Publishing your agent card
+
+Your agent card is published automatically with `ast push` — no extra flags needed. The CLI reads `AGENT.md` from your project root and includes it in the registration payload.
+
+```bash
+ast push
+```
+
+If you update your `AGENT.md`, push again and the changes appear immediately on your agent's detail page.
+
+---
+
+## Migration from meta fields
+
+If your `astropods.yml` uses the deprecated `meta.description` or `meta.tags` fields, move them to your agent card:
+
+**Before** (`astropods.yml`):
+```yaml
+spec: package/v1
+name: my-agent
+meta:
+  description: "My agent description"
+  tags:
+    - analytics
+    - slack
+  visibility: public
+```
+
+**After** (`AGENT.md` + updated `astropods.yml`):
+
+```yaml AGENT.md
+---
+description: "My agent description"
+tags:
+  - analytics
+  - slack
+---
+```
+
+```yaml astropods.yml
+spec: package/v1
+name: my-agent
+meta:
+  visibility: public
+```
+
+Existing agents without an `AGENT.md` continue to work — the `meta.description` and `meta.tags` fields are still read as a fallback. This may change in the future. See the [Agent Card Spec](/agent-card-spec) for full details on field behavior and normalization.

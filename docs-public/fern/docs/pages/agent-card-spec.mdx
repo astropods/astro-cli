@@ -1,0 +1,315 @@
+---
+title: Agent Card Spec
+subtitle: Specification for the AGENT.md file format
+slug: agent-card-spec
+---
+
+## Abstract
+
+An agent card is a UTF-8 encoded Markdown file with YAML frontmatter that serves as the public-facing documentation for an agent. It is purely descriptive — it communicates what an agent is and what it can do but does not drive any functional behavior (deployment, visibility, etc.), which remains the responsibility of `astropods.yml`.
+
+The file is named `AGENT.md` and lives at the root of the agent's project directory, alongside `astropods.yml`. It is submitted to the registry during `ast push`.
+
+## Changelog
+
+| Version | Date       | Changes        |
+| ------- | ---------- | -------------- |
+| v1.0    | 2026-03-09 | Initial draft. |
+
+## Conventions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
+---
+
+## 1. File Format
+
+An agent card is a UTF-8 encoded Markdown file consisting of two parts:
+
+1. **Frontmatter** — A YAML block delimited by `---` lines at the top of the file. Contains structured metadata for discovery and attribution.
+2. **Body** — Free-form GitHub-Flavored Markdown (GFM) following the frontmatter. Contains human-readable documentation.
+
+Both parts are OPTIONAL. A valid agent card MAY be an empty file, a file with only frontmatter, or a file with only a Markdown body (no `---` delimiters).
+
+---
+
+## 2. Frontmatter Schema
+
+All frontmatter fields are OPTIONAL unless noted otherwise.
+
+### 2.1 `description`
+
+| Property    | Value  |
+| ----------- | ------ |
+| Type        | string |
+| Required    | OPTIONAL |
+| Max length  | 200 characters |
+
+A short summary of the agent. Used for agent cards, sidebar display, and search results. SHOULD be a single sentence or short phrase.
+
+```yaml
+---
+description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowledge graph"
+---
+```
+
+When absent, the agent name is used as a fallback.
+
+<Note>
+  This field replaces the deprecated `meta.description` in `astropods.yml`. Existing agents SHOULD migrate their description to the agent card frontmatter.
+</Note>
+
+### 2.2 `tags`
+
+| Property    | Value    |
+| ----------- | -------- |
+| Type        | string[] |
+| Required    | OPTIONAL |
+| Max entries | 10       |
+
+A list of category labels for discovery and filtering.
+
+Each entry MUST be a lowercase string using only letters, numbers, and hyphens. Tags that do not conform are normalized: whitespace is trimmed, characters are lowercased, spaces are converted to hyphens, and non-alphanumeric/non-hyphen characters are stripped.
+
+```yaml
+---
+tags:
+  - analytics
+  - data-processing
+  - knowledge-graph
+---
+```
+
+Implementations MUST reject the frontmatter if more than 10 tags are provided.
+
+<Note>
+  This field replaces the deprecated `meta.tags` in `astropods.yml`. Existing agents SHOULD migrate their tags to the agent card frontmatter.
+</Note>
+
+### 2.3 `authors`
+
+| Property | Value              |
+| -------- | ------------------ |
+| Type     | AgentCardAuthor[]  |
+| Required | OPTIONAL           |
+
+A list of people or organizations who built the agent.
+
+#### AgentCardAuthor
+
+| Field     | Type   | Required     | Description |
+| --------- | ------ | ------------ | ----------- |
+| `name`    | string | **REQUIRED** | Display name of the author. |
+| `account` | string | OPTIONAL     | Platform account handle. When present, clients SHOULD render it as a link to `/{account}`. Normalized to lowercase with whitespace trimmed. |
+
+```yaml
+---
+authors:
+  - name: Jane Doe
+    account: janedoe
+  - name: Acme Corp
+    account: acme
+  - name: External Contributor
+---
+```
+
+### 2.4 `capabilities`
+
+| Property    | Value    |
+| ----------- | -------- |
+| Type        | string[] |
+| Required    | OPTIONAL |
+| Max length  | 100 characters per entry |
+
+A list of high-level capabilities the agent provides. Each entry SHOULD be a concise verb phrase describing an action the agent performs.
+
+Unlike tags (broad categories), capabilities describe specific behaviors and are displayed on the agent's detail page.
+
+```yaml
+---
+capabilities:
+  - Analyzes GitHub issues and extracts patterns
+  - Builds and maintains a Neo4j knowledge graph
+  - Answers natural-language queries about issue history
+---
+```
+
+Entries exceeding 100 characters are truncated silently.
+
+### 2.5 `integrations`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | string[] |
+| Required | OPTIONAL |
+
+A list of third-party services or platforms the agent connects to. Used to display brand icons and connection information on the agent's detail page.
+
+```yaml
+---
+integrations:
+  - Jira
+  - My Custom API
+---
+```
+
+#### 2.5.1 Derivation
+
+Integrations are derived from two sources: the `integrations` section of `astropods.yml` (via `provider` fields) and the `integrations` frontmatter in `AGENT.md`. The platform combines and deduplicates both sources for display. Use the agent card to declare integrations that cannot be inferred from the spec.
+
+#### 2.5.2 Matching
+
+Matching is case-insensitive. Each integration string is resolved against the known integrations registry by `id`, `name`, or `aliases`. Strings that do not match any known integration are displayed with a generic icon and the original text as a label.
+
+#### 2.5.3 Known Integrations Registry
+
+The platform maintains a registry of known integrations. Each entry contains:
+
+| Field     | Type     | Description |
+| --------- | -------- | ----------- |
+| `id`      | string   | Canonical lowercase identifier used for matching. |
+| `name`    | string   | Display name rendered in the UI. |
+| `aliases` | string[] | Alternative strings that resolve to this integration. |
+
+The current registry:
+
+| ID | Display Name | Aliases |
+| -- | ------------ | ------- |
+| `slack` | Slack | slackbot, slack-bot |
+| `github` | GitHub | gh, github.com, github-api |
+| `linear` | Linear | — |
+| `notion` | Notion | — |
+| `google-drive` | Google Drive | gdrive, drive, google-docs, google docs |
+| `gmail` | Gmail | google-mail |
+| `jira` | Jira | jira-cloud, jira-server |
+| `confluence` | Confluence | — |
+| `discord` | Discord | discord-bot |
+| `microsoft-teams` | Microsoft Teams | ms-teams, msteams, teams |
+| `salesforce` | Salesforce | sfdc |
+| `zendesk` | Zendesk | — |
+| `twilio` | Twilio | — |
+| `stripe` | Stripe | — |
+| `shopify` | Shopify | — |
+| `asana` | Asana | — |
+| `trello` | Trello | — |
+| `figma` | Figma | — |
+| `dropbox` | Dropbox | — |
+| `airtable` | Airtable | — |
+| `hubspot` | HubSpot | — |
+| `intercom` | Intercom | — |
+| `pagerduty` | PagerDuty | — |
+| `datadog` | Datadog | — |
+| `sentry` | Sentry | — |
+| `mongodb` | MongoDB | mongo |
+| `postgresql` | PostgreSQL | postgres, pg |
+| `redis` | Redis | — |
+| `elasticsearch` | Elasticsearch | elastic, es |
+| `snowflake` | Snowflake | — |
+| `bigquery` | BigQuery | google-bigquery |
+| `aws` | AWS | amazon-web-services |
+| `google-cloud` | Google Cloud | gcp, google-cloud-platform |
+| `azure` | Azure | microsoft-azure |
+| `vercel` | Vercel | — |
+| `supabase` | Supabase | — |
+| `firebase` | Firebase | google-firebase |
+| `pinecone` | Pinecone | — |
+| `weaviate` | Weaviate | — |
+| `neo4j` | Neo4j | — |
+| `qdrant` | Qdrant | — |
+
+---
+
+## 3. Body
+
+The body is free-form GitHub-Flavored Markdown (GFM). There is no required structure, but authors are encouraged to cover:
+
+- **Overview** — What the agent does and why it exists.
+- **Usage** — How to interact with the agent (APIs, protocols, chat, etc.).
+- **Limitations** — Known constraints, failure modes, or scope boundaries.
+- **Examples** — Sample interactions or outputs.
+
+---
+
+## 4. Normalization
+
+The following normalizations are applied during parsing:
+
+| Field | Rule |
+| ----- | ---- |
+| `description` | Truncated to 200 characters (rune-aware). |
+| `tags` | Lowercased, spaces converted to hyphens, non-alphanumeric/non-hyphen characters stripped. |
+| `authors[].account` | Trimmed and lowercased. |
+| `capabilities[]` | Truncated to 100 characters per entry (rune-aware). |
+| `integrations[]` | Resolved against known integrations registry (see Section 2.5.2). |
+
+---
+
+## 5. Registration Flow
+
+During `ast push`, the CLI:
+
+1. Reads `AGENT.md` from the project root (if present).
+2. Submits the raw file content as the `readme` field in the registration payload. The CLI does not parse the frontmatter.
+
+The server:
+
+1. Receives the raw agent card content.
+2. Parses the YAML frontmatter to extract structured metadata.
+3. Resolves integrations by merging spec-derived and card-declared integrations (Section 2.5.1).
+4. Stores both the raw content and the parsed metadata (as JSON) for efficient reads.
+
+### 5.1 Legacy Compatibility
+
+Existing agents without an `AGENT.md` continue to work. For agents using the deprecated `meta.description` and `meta.tags` fields in `astropods.yml`, the server synthesizes an agent card from those fields as a fallback.
+
+---
+
+## 6. Client Display
+
+The client renders the agent card on the agent detail page:
+
+- **Frontmatter metadata** is displayed in structured UI elements (author links, capability badges, integration icons).
+- **Integrations** are rendered as brand icons (known) or generic icons with labels (unknown).
+- **Body** is rendered as styled Markdown.
+- **Description** is displayed in sidebars, cards, and search results. Falls back to the agent name if absent.
+
+---
+
+## 7. Example
+
+```yaml AGENT.md
+---
+description: "GitHub Issue Analyzer — ingests GitHub issues into a Neo4j knowledge graph"
+tags:
+  - analytics
+  - knowledge-graph
+authors:
+  - name: Jane Doe
+    account: janedoe
+  - name: Bob Smith
+capabilities:
+  - Analyzes GitHub issues and extracts patterns
+  - Builds and maintains a Neo4j knowledge graph
+  - Answers natural-language queries about issue history
+integrations:
+  - Jira
+  - My Custom Webhook
+---
+
+# GitHub Issue Analyzer
+
+This agent ingests GitHub issues into a Neo4j knowledge graph and provides
+natural-language querying over the resulting data.
+
+## How It Works
+
+1. Connect your GitHub repository via the `GITHUB_TOKEN` input.
+2. The agent polls for new issues on a configurable schedule.
+3. Each issue is analyzed using an LLM to extract entities and relationships.
+4. Results are stored in Neo4j and queryable via the agent's chat interface.
+
+## Limitations
+
+- Only processes issue bodies and comments; PR reviews are not yet supported.
+- Large repositories (>10k issues) may require extended initial ingestion time.
+```

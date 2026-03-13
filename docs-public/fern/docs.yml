@@ -41,6 +41,9 @@ navigation:
           - page: Your first project
             path: docs/pages/get-started.mdx
             icon: fa-duotone fa-rocket
+          - page: Make your agent discoverable
+            path: docs/pages/agent-card.mdx
+            icon: fa-duotone fa-id-card
           - page: Publish to registry
             path: docs/pages/publish-to-registry.mdx
             icon: fa-duotone fa-cloud-arrow-up
@@ -51,6 +54,9 @@ navigation:
         contents:
           - page: Astropods Spec
             path: docs/pages/astropods-package-spec.mdx
+            icon: fa-duotone fa-file-lines
+          - page: Agent Card Spec
+            path: docs/pages/agent-card-spec.mdx
             icon: fa-duotone fa-file-lines
   #     - section: Changelog
   #       contents:
