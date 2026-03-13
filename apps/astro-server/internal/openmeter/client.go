@@ -38,6 +38,7 @@ type Customer struct {
 	Key              string            `json:"key"`
 	UsageAttribution UsageAttribution  `json:"usageAttribution"`
 	PrimaryEmail     string            `json:"primaryEmail,omitempty"`
+	Currency         string            `json:"currency,omitempty"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
 }
 
@@ -56,6 +57,7 @@ func (c *Client) CreateCustomer(ctx context.Context, accountID, accountName, acc
 			SubjectKeys: []string{accountID},
 		},
 		PrimaryEmail: ownerEmail,
+		Currency:     "USD",
 		Metadata: map[string]string{
 			"type": accountType,
 		},
