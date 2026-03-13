@@ -90,6 +90,38 @@ func TestBuildProject_SlackInterface(t *testing.T) {
 	}
 }
 
+func TestBuildProject_SlackInterface_MissingToken(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{
+					Adapters: []string{"slack", "web"},
+				},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", map[string]string{})
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	messaging, ok := project.Services["astro-messaging"]
+	if !ok {
+		t.Fatal("missing astro-messaging service")
+	}
+
+	if envVal(messaging.Environment, "SLACK_ENABLED") != "" {
+		t.Error("SLACK_ENABLED should not be set when token is missing")
+	}
+	if envVal(messaging.Environment, "WEB_ENABLED") != "true" {
+		t.Error("WEB_ENABLED should still be true")
+	}
+}
+
 func TestBuildProject_WebInterface(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
