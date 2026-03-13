@@ -94,10 +94,7 @@ func ParseAgentCard(content string) (*ParsedAgentCard, error) {
 			return result, nil
 		}
 		frontmatterYAML = rest[:closingIdx]
-		afterClosing = rest[closingIdx+4:] // skip "\n---"
-		if strings.HasPrefix(afterClosing, "\n") {
-			afterClosing = afterClosing[1:]
-		}
+		afterClosing = strings.TrimPrefix(rest[closingIdx+4:], "\n") // skip "\n---" and optional trailing newline
 	}
 
 	result.Body = afterClosing
