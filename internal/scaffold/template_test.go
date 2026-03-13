@@ -55,7 +55,7 @@ func TestGetTemplatePaths_AllEmbeddedFilesExist(t *testing.T) {
 	allPaths := []string{
 		paths.AstroYml, paths.Dockerfile, paths.DockerfileIngestion,
 		paths.PackageJson, paths.Tsconfig,
-		paths.Gitignore, paths.Dockerignore, paths.Npmrc,
+		paths.Gitignore, paths.Dockerignore,
 		paths.AgentIndex, paths.IngestionIndex, paths.LlmMd,
 		paths.Readme, paths.PostmanCollection, paths.IngestionWebhookIndex,
 	}
@@ -301,7 +301,7 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 	}
 
 	// Verify shared files exist
-	for _, f := range []string{"astropods.yml", "Dockerfile", "tsconfig.json", ".gitignore", ".dockerignore", ".npmrc"} {
+	for _, f := range []string{"astropods.yml", "Dockerfile", "tsconfig.json", ".gitignore", ".dockerignore"} {
 		if _, err := os.Stat(filepath.Join(target, f)); os.IsNotExist(err) {
 			t.Errorf("expected file %q to exist", f)
 		}

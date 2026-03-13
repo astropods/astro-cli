@@ -122,7 +122,6 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	entries := []fileEntry{
 		{repairFileCheck{filepath.Join(workingDir, "Dockerfile"), paths.Dockerfile, false}, "Dockerfile", true},
 		{repairFileCheck{filepath.Join(workingDir, "tsconfig.json"), paths.Tsconfig, false}, "tsconfig.json", true},
-		{repairFileCheck{filepath.Join(workingDir, ".npmrc"), paths.Npmrc, false}, ".npmrc", true},
 		{repairFileCheck{filepath.Join(workingDir, ".gitignore"), paths.Gitignore, false}, ".gitignore", true},
 		{repairFileCheck{filepath.Join(workingDir, ".dockerignore"), paths.Dockerignore, false}, ".dockerignore", true},
 		{repairFileCheck{filepath.Join(workingDir, "CLAUDE.md"), paths.LlmMd, false}, "CLAUDE.md", true},
@@ -262,17 +261,6 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	// Remove deprecated build args/secrets from astroai.yml
 	if !specMissing {
 		checkBuildArgsAndSecrets(specPath, reader, yesFlag)
-	}
-
-	// Delete bun.lock so the updated .npmrc is picked up on next install
-	bunLock := filepath.Join(workingDir, "bun.lock")
-	if _, err := os.Stat(bunLock); err == nil {
-		if removeErr := os.Remove(bunLock); removeErr != nil {
-			fmt.Printf("%s!%s Failed to remove bun.lock: %v\n", colorYellow, colorReset, removeErr)
-		} else {
-			fmt.Printf("%s✓%s Removed bun.lock\n", colorGreen, colorReset)
-		}
-		fmt.Printf("%s!%s Run %sbun install%s to reinstall dependencies\n\n", colorYellow, colorReset, colorBold, colorReset)
 	}
 
 	// Delete the old .astro directory if present (replaced by .ast).

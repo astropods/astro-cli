@@ -416,7 +416,6 @@ func TestAllTemplatesRender(t *testing.T) {
 		{"tsconfig.json", paths.Tsconfig},
 		{"gitignore", paths.Gitignore},
 		{"dockerignore", paths.Dockerignore},
-		{"npmrc", paths.Npmrc},
 		{"agent/index.ts", paths.AgentIndex},
 		{"ingestion/<type>/index.ts", paths.IngestionIndex},
 		{"ingestion/webhook/index.ts", paths.IngestionWebhookIndex},
