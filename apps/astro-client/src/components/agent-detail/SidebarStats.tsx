@@ -14,7 +14,6 @@ export interface SidebarStatsProps {
   /** Whether the version is a semver string (will be prefixed with "v") */
   isSemver?: boolean;
   updatedAt?: string;
-  additionalDetails?: SidebarStatDetail[];
 }
 
 export function SidebarStats({
@@ -23,9 +22,8 @@ export function SidebarStats({
   version,
   isSemver,
   updatedAt,
-  additionalDetails = [],
 }: SidebarStatsProps) {
-  if (rating == null && installs == null && !version && !updatedAt && additionalDetails.length === 0) {
+  if (rating == null && installs == null && !version && !updatedAt) {
     return null;
   }
 
@@ -66,8 +64,6 @@ export function SidebarStats({
       value: updatedAt,
     });
   }
-
-  rows.push(...additionalDetails);
 
   return (
     <SidebarSection title="Details" headerClassName="py-2" bodyClassName="px-0 py-0">
