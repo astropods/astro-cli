@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RequiredAppsList } from "@/components/agent-detail/RequiredAppsList";
+import type { ResolvedIntegration } from "@/lib/api";
+
+const ri = (id: string, name: string): ResolvedIntegration => ({ id, name });
 
 const meta = {
   title: "Features/Agents/Sidebar/RequiredAppsList",
@@ -18,18 +21,18 @@ type Story = StoryObj<typeof meta>;
 
 export const Single: Story = {
   args: {
-    integrations: ["Slack"],
+    integrations: [ri("slack", "Slack")],
   },
 };
 
 export const Multiple: Story = {
   args: {
-    integrations: ["Slack", "GitHub", "Linear"],
+    integrations: [ri("slack", "Slack"), ri("github", "GitHub"), ri("linear", "Linear")],
   },
 };
 
 export const UnknownIntegration: Story = {
   args: {
-    integrations: ["Slack", "SomeCustomApp"],
+    integrations: [ri("slack", "Slack"), ri("some-custom-app", "SomeCustomApp")],
   },
 };

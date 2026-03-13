@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MemoryRouter } from "react-router";
 import { AgentDetailSidebar } from "@/components/agent-detail/AgentDetailSidebar";
-import type { Agent, AccountPublic } from "@/lib/api";
+import type { Agent, AccountPublic, ResolvedIntegration } from "@/lib/api";
 
 const mockAgent: Agent = {
   name: "customer-insight-engine",
@@ -13,8 +13,7 @@ const mockAgent: Agent = {
       version: "1.2.3",
       spec: {
         meta: {
-          description: "Analyzes customer feedback.",
-          tags: ["analytics"],
+          visibility: "public",
         },
       },
       readme: "",
@@ -35,6 +34,8 @@ const mockAccount: AccountPublic = {
   created_at: "2025-06-01T00:00:00Z",
   updated_at: "2026-01-15T00:00:00Z",
 };
+
+const ri = (id: string, name: string): ResolvedIntegration => ({ id, name });
 
 const meta = {
   title: "Features/Agents/AgentDetailSidebar",
@@ -62,12 +63,7 @@ export const Default: Story = {
     agent: mockAgent,
     description:
       "Analyzes customer feedback to surface actionable insights and trends across all channels.",
-    integrations: ["Slack", "GitHub"],
-    permissions: [
-      "Read Slack messages",
-      "Send Slack messages",
-      "Access GitHub repositories",
-    ],
+    integrations: [ri("slack", "Slack"), ri("github", "GitHub")],
     initialAccountData: mockAccount,
   },
 };
@@ -77,8 +73,13 @@ export const Full: Story = {
     agent: mockAgent,
     description:
       "This agent monitors your production environment 24/7 and detects anomalies in real-time.",
-    integrations: ["Slack", "GitHub", "Linear", "Notion"],
-    permissions: [
+    integrations: [
+      ri("slack", "Slack"),
+      ri("github", "GitHub"),
+      ri("linear", "Linear"),
+      ri("notion", "Notion"),
+    ],
+    capabilities: [
       "Read Slack messages",
       "Send Slack messages",
       "Access GitHub repositories",
@@ -95,7 +96,6 @@ export const Minimal: Story = {
     agent: mockAgent,
     description: "",
     integrations: [],
-    permissions: [],
     initialAccountData: mockAccount,
   },
 };
@@ -104,8 +104,7 @@ export const NoAvatar: Story = {
   args: {
     agent: mockAgent,
     description: "A lightweight monitoring agent.",
-    integrations: ["Slack"],
-    permissions: ["Read Slack messages"],
+    integrations: [ri("slack", "Slack")],
     initialAccountData: {
       ...mockAccount,
       owner: { first_name: "Acme", last_name: "Corp" },
@@ -125,8 +124,7 @@ export const BuildIdVersion: Story = {
       ],
     },
     description: "Uses a build ID instead of semver.",
-    integrations: ["GitHub"],
-    permissions: ["Access GitHub repositories"],
+    integrations: [ri("github", "GitHub")],
     initialAccountData: mockAccount,
   },
 };
