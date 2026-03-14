@@ -912,20 +912,77 @@ rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 
 ### Phase 7: Cleanup
 
-Delete replaced code:
+#### 7.1 Delete directories
 
-| File | Action |
-|------|--------|
-| `apps/astro-server/internal/riverqueue/driftcheck.go` | Delete |
-| `apps/astro-server/internal/riverqueue/nsscan.go` | Delete |
-| `apps/astro-server/internal/driftcheck/` | Delete directory |
-| `apps/astro-server/internal/nsscan/` | Delete directory |
+| Path | Lines | Replacement |
+|------|-------|-------------|
+| `internal/driftcheck/checker.go` | ~330 | Reconcile worker `detectDrift()` |
+| `internal/driftcheck/checker_test.go` | ~474 | Reconcile worker tests |
+| `internal/nsscan/scanner.go` | ~224 | Reconcile worker `maintainNamespaceOwnership()` |
+| `internal/nsscan/scanner_test.go` | ~138 | Reconcile worker tests |
 
 **Namespace ownership maintenance** from nsscan is preserved — the upsert logic moves into `ReconcileWorker.maintainNamespaceOwnership()`.
 
 **Drift detection logic** from driftcheck is adapted into the reconcile worker's `detectDrift()` function (~100 lines of comparison logic).
 
-**`deployment_env_vars` cleanup:** Remove the `INSERT INTO deployment_env_vars` block from `normalized.go` `SaveNormalizedSpec` (~lines 165-175). Update `normalized_test.go` to remove the assertion that reads from the dropped table.
+#### 7.2 Delete River worker files
+
+| File | Lines | Replacement |
+|------|-------|-------------|
+| `internal/riverqueue/driftcheck.go` | ~38 | `ReconcileWorker` in `reconcile.go` |
+| `internal/riverqueue/nsscan.go` | ~35 | `ReconcileWorker` in `reconcile.go` |
+
+#### 7.3 Remove from `workers.go`
+
+Remove `DriftCheckWorker` and `NsScanWorker` registrations (~lines 14-23). Replace with new worker registrations (Phase 4.6).
+
+#### 7.4 Remove from `periodic.go`
+
+Remove `DriftCheckArgs` and `NsScanArgs` periodic job entries (~lines 23-44). Replace with `ReconcileArgs` periodic job (Phase 4.7).
+
+#### 7.5 Delete dead store functions (`internal/deploymentstore/store.go`)
+
+| Function | Lines | Replacement |
+|----------|-------|-------------|
+| `SaveDeployment()` | ~58-64 | `SaveDeploymentPending()` |
+| `SaveDeploymentFull()` | ~66-121 | `SaveDeploymentPending()` |
+| `UpdateDeploymentFull()` | ~123-171 | `UpdateDeploymentPending()` |
+| `MarkUndeployed()` | ~400-412 | Undeploy worker via `UpdateStatus` |
+
+`MarkUndeployedByID()` is kept — the undeploy worker calls it to set `undeployed_at`.
+
+#### 7.6 Update handler call sites (`handlers/deploy.go`)
+
+| Line | Old | New |
+|------|-----|-----|
+| ~460 | `deployStore.UpdateDeploymentFull(...)` | `deployStore.UpdateDeploymentPending(...)` |
+| ~462 | `deployStore.SaveDeploymentFull(...)` | `deployStore.SaveDeploymentPending(...)` |
+| ~596 | `deployStore.MarkUndeployedByID(...)` | Removed — undeploy worker handles it |
+
+#### 7.7 Update admin gRPC call site (`internal/admingrpc/server.go`)
+
+Line ~537: `s.deployStore.MarkUndeployed(accountID, agentName)` — replace with `UpdateStatus(dep.ID, StatusUndeploying, ...)` + enqueue undeploy job, or remove if admin delete should go through the async flow.
+
+#### 7.8 Replace hardcoded status strings with constants
+
+All new code uses `deploymentstore.Status*` constants. Existing code has hardcoded `"active"` and `"undeployed"` in SQL and Go:
+
+- `handlers/deploy.go` ~line 255: `existing.Status != "active"` → `!= deploymentstore.StatusActive`
+- `handlers/deploy.go` ~line 558: `dep.Status != "active"` → `!= deploymentstore.StatusActive`
+- `store.go` SELECT queries in `GetActiveDeployment`, `GetActiveDeployments`, `GetActiveDeploymentByDisplayName`, `GetActiveDeploymentsByAccount`, `ListAllActive`, `GetDeploymentHistory`: hardcoded `'active'` in SQL WHERE clauses — parameterize with `$N` and pass `StatusActive`
+- `store.go` `MarkUndeployedByID`: hardcoded `'undeployed'` and `'active'` — parameterize
+
+#### 7.9 `deployment_env_vars` cleanup (`internal/deploymentstore/normalized.go`)
+
+Remove the `INSERT INTO deployment_env_vars` block (~lines 165-175) and the `insertEnvVars` closure. Update `normalized_test.go` to remove the assertion that reads from the dropped table (~line 324).
+
+#### 7.10 Test updates
+
+| File | Change |
+|------|--------|
+| `handlers/deploy_test.go` | Update expectations for 202 responses, `SaveDeploymentPending`/`UpdateDeploymentPending` calls |
+| `internal/deploymentstore/store_test.go` | Remove `TestMarkUndeployed`, update tests calling `SaveDeployment`/`SaveDeploymentFull` |
+| `internal/deploymentstore/normalized_test.go` | Remove `deployment_env_vars` assertion, update tests using `SaveDeploymentFull` |
 
 ---
 
@@ -948,10 +1005,12 @@ Delete replaced code:
 | `internal/riverqueue/periodic.go` | Edit — reconcile replaces drift+nsscan |
 | `handlers/deploy.go` | Edit — async flow, new endpoints |
 | `main.go` | Edit — queue wiring, new routes |
+| `internal/deploymentstore/normalized.go` | Edit — remove `deployment_env_vars` insert |
+| `internal/admingrpc/server.go` | Edit — update `MarkUndeployed` call site |
 | `internal/riverqueue/driftcheck.go` | Delete |
 | `internal/riverqueue/nsscan.go` | Delete |
-| `internal/driftcheck/` | Delete directory |
-| `internal/nsscan/` | Delete directory |
+| `internal/driftcheck/` | Delete directory (~804 lines) |
+| `internal/nsscan/` | Delete directory (~362 lines) |
 
 ## Verification
 
