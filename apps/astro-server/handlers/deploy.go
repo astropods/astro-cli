@@ -22,6 +22,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -331,7 +332,7 @@ func prepareDeployment(
 // POST /api/v1/deploy
 // Content-Type: application/yaml (or application/json)
 // Body: fulfilled deployment spec (spec: deployment/v1)
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -346,6 +347,26 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore)
 		if !ok {
 			return
+		}
+
+		// Check entitlements for deploy (account resolved from spec, not middleware)
+		if omClient != nil && cfg.OpenMeterEnforce {
+			for _, feature := range []string{"agent_deployments", "compute"} {
+				ent, err := omClient.GetEntitlementValue(c.Request.Context(), dctx.acct.ID, feature)
+				if err != nil {
+					log.Warn("Entitlement check failed", "error", err, "account_id", dctx.acct.ID, "feature", feature)
+					continue
+				}
+				if !ent.HasAccess {
+					c.JSON(http.StatusPaymentRequired, gin.H{
+						"error":   "entitlement limit reached",
+						"feature": feature,
+						"usage":   ent.Usage,
+						"limit":   ent.Limit,
+					})
+					return
+				}
+			}
 		}
 
 		if k8sClient == nil {

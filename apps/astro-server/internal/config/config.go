@@ -19,6 +19,7 @@ type Config struct {
 	ConnectGRPC          ConnectGRPCConfig
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
+	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
 }
 
 // RunAPI returns true if this instance should run the HTTP/gRPC API servers.
@@ -201,6 +202,7 @@ func Load() (*Config, error) {
 		},
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
+		OpenMeterEnforce:     getEnv("OPENMETER_ENFORCE", "") == "true",
 	}
 
 	if err := cfg.Validate(); err != nil {

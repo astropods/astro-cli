@@ -568,7 +568,8 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListMembersResponse{}),
 				)
-				api.POST(memberRoutes, "", "Add a member", handlers.AddMember(log, orgSync, accountStore),
+				api.POST(memberRoutes, "", "Add a member",
+					middleware.WithEntitlement(log, omClient, cfg.OpenMeterEnforce, handlers.AddMember(log, orgSync, accountStore), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -658,7 +659,8 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			agentWriteRoutes.Use(middleware.ResolveAccount(accountStore))
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
-				api.POST(agentWriteRoutes, "/register", "Register an agent build", handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion),
+				api.POST(agentWriteRoutes, "/register", "Register an agent build",
+					middleware.WithEntitlement(log, omClient, cfg.OpenMeterEnforce, handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion), "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -688,7 +690,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore, omClient),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and applies it to Kubernetes."),
