@@ -354,12 +354,13 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
           "type": "usage_based",
           "key": "agents",
           "name": "Agents",
-          "description": "Number of distinct agents registered in the account. Gauge metric — grant does not reset.",
+          "description": "Number of distinct agents registered in the account.",
           "featureKey": "agents",
           "billingCadence": "P1M",
           "entitlementTemplate": {
             "type": "metered",
-            "isSoftLimit": false
+            "isSoftLimit": false,
+            "issueAfterReset": 5
           },
           "price": null
         },
@@ -381,12 +382,13 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
           "type": "usage_based",
           "key": "agent_deployments",
           "name": "Deployments",
-          "description": "Number of concurrently active agent deployments. Gauge metric — grant does not reset.",
+          "description": "Number of concurrently active agent deployments.",
           "featureKey": "agent_deployments",
           "billingCadence": "P1M",
           "entitlementTemplate": {
             "type": "metered",
-            "isSoftLimit": false
+            "isSoftLimit": false,
+            "issueAfterReset": 10
           },
           "price": null
         },
@@ -394,12 +396,13 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
           "type": "usage_based",
           "key": "members",
           "name": "Members",
-          "description": "Number of members in the account. Gauge metric — grant does not reset.",
+          "description": "Number of members in the account.",
           "featureKey": "members",
           "billingCadence": "P1M",
           "entitlementTemplate": {
             "type": "metered",
-            "isSoftLimit": false
+            "isSoftLimit": false,
+            "issueAfterReset": 5
           },
           "price": null
         }
@@ -411,17 +414,21 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
 
 ### Private Beta Limits
 
-All features use metered entitlements so `hasAccess` enforcement works automatically.
-Cumulative features (compute, builds) reset their grant monthly via `issueAfterReset`.
-Gauge features (agents, deployments, members) get a one-time grant at subscription time — no reset.
+All features use metered entitlements with `issueAfterReset` so `hasAccess` enforcement
+works automatically and grants are auto-provisioned on subscription. No manual grant
+creation needed.
 
-| Feature             | Limit          | Grant Reset | Notes |
-| ------------------- | -------------- | ----------- | ----- |
-| `compute`           | 100 CU-hours   | Monthly     | Cumulative — `issueAfterReset: 100` |
-| `agent_builds`      | 50 builds      | Monthly     | Cumulative — `issueAfterReset: 50` |
-| `agents`            | 5 agents       | Never       | Gauge — one-time grant of 5 at subscription |
-| `agent_deployments` | 10 deployments | Never       | Gauge — one-time grant of 10 at subscription |
-| `members`           | 5 members      | Never       | Gauge — one-time grant of 5 at subscription |
+For gauge features (agents, deployments, members), the grant resets monthly but
+heartbeats immediately re-report the current count, so enforcement reflects the
+actual state within minutes of each period start.
+
+| Feature             | Limit          | `issueAfterReset` | Notes |
+| ------------------- | -------------- | ------------------ | ----- |
+| `compute`           | 100 CU-hours   | 100                | Cumulative, resets monthly |
+| `agent_builds`      | 50 builds      | 50                 | Cumulative, resets monthly |
+| `agents`            | 5 agents       | 5                  | Gauge — heartbeat re-reports current count after reset |
+| `agent_deployments` | 10 deployments | 10                 | Gauge — heartbeat re-reports current count after reset |
+| `members`           | 5 members      | 5                  | Gauge — heartbeat re-reports current count after reset |
 
 ### Subscription Creation
 

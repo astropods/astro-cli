@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { useCustomers, useDeleteCustomer, useUpdateCustomer, useCreateSubscription, usePlans } from "@/api/openmeter";
+import { useCustomers, useDeleteCustomer, useUpdateCustomer, useCreateSubscription, useCancelSubscription, usePlans } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -133,6 +133,7 @@ export function CustomersPage() {
 function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; onDone: () => void; disabled: boolean }) {
   const updateMut = useUpdateCustomer();
   const createSub = useCreateSubscription();
+  const cancelSub = useCancelSubscription();
   const { data: plans } = usePlans();
   const activePlans = plans?.filter((p) => p.status === "active") ?? [];
 
@@ -156,6 +157,12 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
           });
         } else if (action === "subscribe") {
           await createSub.mutateAsync({ customerId: c.id, plan: { key: planKey } });
+        } else if (action === "upgrade") {
+          // Cancel current subscription, then resubscribe to latest version
+          if (c.currentSubscriptionId) {
+            await cancelSub.mutateAsync({ id: c.currentSubscriptionId, body: { effectiveDate: "immediately" } });
+          }
+          await createSub.mutateAsync({ customerId: c.id, plan: { key: planKey } });
         }
       } catch {
         // continue on error
@@ -166,6 +173,8 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
     setRunning(false);
     onDone();
   };
+
+  const needsPlan = action === "subscribe" || action === "upgrade";
 
   return (
     <div className={`rounded-lg glass px-3 py-2 flex items-center gap-3 ${disabled ? "opacity-50" : ""}`}>
@@ -184,6 +193,7 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
         <SelectContent>
           <SelectItem value="currency">Set Currency</SelectItem>
           <SelectItem value="subscribe">Assign Subscription</SelectItem>
+          <SelectItem value="upgrade">Upgrade Subscription</SelectItem>
         </SelectContent>
       </Select>
 
@@ -191,19 +201,22 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
         <Input className="w-24 h-7" value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} placeholder="USD" maxLength={3} />
       )}
 
-      {action === "subscribe" && !disabled && (
+      {needsPlan && !disabled && (
         <>
           {activePlans.length > 0 ? (
             <Select value={planKey} onValueChange={setPlanKey}>
               <SelectTrigger className="w-48 h-7"><SelectValue placeholder="Select plan..." /></SelectTrigger>
               <SelectContent>
                 {activePlans.map((p) => (
-                  <SelectItem key={p.key} value={p.key}>{p.name} ({p.key})</SelectItem>
+                  <SelectItem key={p.key} value={p.key}>{p.name} v{p.version}</SelectItem>
                 ))}
               </SelectContent>
-              </Select>
+            </Select>
           ) : (
             <Input className="w-48 h-7" value={planKey} onChange={(e) => setPlanKey(e.target.value)} placeholder="plan_key" />
+          )}
+          {action === "upgrade" && (
+            <span className="text-[9px] text-muted-foreground">Cancels current &rarr; subscribes to latest</span>
           )}
         </>
       )}
@@ -212,7 +225,7 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
         <Button
           size="xs"
           onClick={run}
-          disabled={running || (action === "subscribe" && !planKey) || (action === "currency" && !currency)}
+          disabled={running || (needsPlan && !planKey) || (action === "currency" && !currency)}
         >
           {running ? `${progress}/${customers.length}` : "Apply"}
         </Button>

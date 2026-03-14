@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon } from "lucide-react";
+import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon, RefreshCw } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { SchemaFormPanel } from "@/components/schema-form-panel";
 import type { Entitlement, Customer } from "@/types/openmeter";
@@ -59,8 +59,37 @@ export function CustomerDetailPage() {
 function SubscriptionSection({ customer }: { customer: Customer }) {
   const subId = customer.currentSubscriptionId;
   const { data: sub, isLoading } = useSubscription(subId ?? "");
+  const { data: plans } = usePlans();
   const cancelMut = useCancelSubscription();
+  const createSub = useCreateSubscription();
   const [showSubscribe, setShowSubscribe] = useState(false);
+  const [resubscribing, setResubscribing] = useState(false);
+
+  // Check if there's a newer version of the subscribed plan
+  const latestVersion = sub?.plan
+    ? plans?.filter((p) => p.key === sub.plan!.key && p.status === "active")
+        .sort((a, b) => b.version - a.version)[0]
+    : undefined;
+  const hasNewerVersion = latestVersion && sub?.plan && latestVersion.version > sub.plan.version;
+
+  const handleResubscribe = async () => {
+    if (!sub?.plan || !latestVersion) return;
+    if (!confirm(`Cancel current subscription (v${sub.plan.version}) and resubscribe to ${sub.plan.key} v${latestVersion.version}?`)) return;
+
+    setResubscribing(true);
+    try {
+      // Cancel current subscription
+      await cancelMut.mutateAsync({ id: sub.id, body: { effectiveDate: "immediately" } });
+      // Create new subscription on latest version
+      await createSub.mutateAsync({
+        customerId: customer.id,
+        plan: { key: latestVersion.key, version: latestVersion.version },
+        activeFrom: new Date().toISOString(),
+      });
+    } finally {
+      setResubscribing(false);
+    }
+  };
 
   return (
     <div>
@@ -84,20 +113,39 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
                   Plan: {sub.plan.key} v{sub.plan.version}
                 </span>
               )}
+              {hasNewerVersion && (
+                <span className="text-[10px] text-amber-500 font-medium">
+                  v{latestVersion.version} available
+                </span>
+              )}
             </div>
-            {sub.status === "active" && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                title="Cancel subscription"
-                onClick={() => {
-                  if (confirm(`Cancel subscription "${sub.name}"?`))
-                    cancelMut.mutate({ id: sub.id, body: { effectiveDate: "immediately" } });
-                }}
-              >
-                <XCircle className="size-3 text-red-500" />
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {hasNewerVersion && sub.status === "active" && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  title={`Resubscribe to v${latestVersion.version}`}
+                  onClick={handleResubscribe}
+                  disabled={resubscribing}
+                >
+                  <RefreshCw className={`size-3 mr-1 ${resubscribing ? "animate-spin" : ""}`} />
+                  {resubscribing ? "Migrating..." : `Upgrade to v${latestVersion.version}`}
+                </Button>
+              )}
+              {sub.status === "active" && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title="Cancel subscription"
+                  onClick={() => {
+                    if (confirm(`Cancel subscription "${sub.name}"?`))
+                      cancelMut.mutate({ id: sub.id, body: { effectiveDate: "immediately" } });
+                  }}
+                >
+                  <XCircle className="size-3 text-red-500" />
+                </Button>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 text-[10px] md:grid-cols-4">
             <div><span className="text-muted-foreground">Currency:</span> {sub.currency}</div>
