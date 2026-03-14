@@ -100,6 +100,8 @@ func main() {
 			log.Error("Failed to validate OpenMeter meters", "error", err)
 		} else if len(missing) > 0 {
 			log.Error("OpenMeter is missing required meters", "missing", missing)
+		} else {
+			log.Info("All required OpenMeter meters verified", "meters", openmeter.RequiredMeters, "count", len(openmeter.RequiredMeters))
 		}
 	}
 
