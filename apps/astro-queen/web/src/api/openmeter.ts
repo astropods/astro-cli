@@ -172,7 +172,9 @@ export function useCustomerAccess(id: string) {
   return useQuery({
     queryKey: openmeterKeys.customerAccess(id),
     queryFn: () =>
-      api.get(`/api/openmeter/api/v1/customers/${encodeURIComponent(id)}/access`),
+      api.get<{ entitlements: Record<string, Record<string, unknown>> }>(
+        `/api/openmeter/api/v1/customers/${encodeURIComponent(id)}/access`
+      ),
     enabled: !!id,
   });
 }

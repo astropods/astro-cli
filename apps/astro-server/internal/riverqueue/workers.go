@@ -11,11 +11,6 @@ func addWorkers(workers *river.Workers, cfg Config) {
 		db:       cfg.DB,
 		log:      cfg.Logger,
 	})
-	river.AddWorker(workers, &ReconcilerWorker{
-		omClient:     cfg.OMClient,
-		accountStore: cfg.AccountStore,
-		log:          cfg.Logger,
-	})
 	river.AddWorker(workers, &DriftCheckWorker{
 		db:        cfg.DB,
 		k8sClient: cfg.K8sClient,

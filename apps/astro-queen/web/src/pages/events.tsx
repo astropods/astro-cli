@@ -24,6 +24,7 @@ export function EventsPage() {
                     <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Type</th>
                     <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Subject</th>
                     <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Source</th>
+                    <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Data</th>
                     <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Time</th>
                   </tr>
                 </thead>
@@ -34,6 +35,9 @@ export function EventsPage() {
                       <td className="px-2 py-0.5 text-amber">{ev.type}</td>
                       <td className="px-2 py-0.5">{ev.subject}</td>
                       <td className="px-2 py-0.5 text-muted-foreground">{ev.source}</td>
+                      <td className="px-2 py-0.5 text-muted-foreground font-mono text-[10px] max-w-[300px] truncate" title={ev.data ? JSON.stringify(ev.data) : ""}>
+                        {ev.data ? JSON.stringify(ev.data) : "-"}
+                      </td>
                       <td className="px-2 py-0.5 text-muted-foreground">{ev.time ? formatDateTime(ev.time) : "-"}</td>
                     </tr>
                   ))}

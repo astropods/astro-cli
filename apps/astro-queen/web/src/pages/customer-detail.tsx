@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useParams } from "react-router";
 import {
-  useCustomer, useUpdateCustomer, useCustomerEntitlements, useEntitlementValue, useEntitlementGrants,
+  useCustomer, useUpdateCustomer, useCustomerEntitlements, useCustomerAccess, useEntitlementValue, useEntitlementGrants,
   useCreateEntitlement, useDeleteEntitlement, useCreateGrant,
-  useSubscription, useCreateSubscription, useCancelSubscription, usePlans,
+  useSubscription, useCreateSubscription, useCancelSubscription, usePlans, useEvents,
 } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +34,25 @@ export function CustomerDetailPage() {
       </div>
       <CustomerInfo customer={customer} />
 
+      <UsageAttributionCheck customer={customer} />
+
+      <Collapsible>
+        <CollapsibleTrigger className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground">
+          <ChevronDown className="size-3" />
+          Raw Customer JSON
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <pre className="mt-1 rounded glass p-2 text-[10px] font-mono overflow-auto max-h-48">
+            {JSON.stringify(customer, null, 2)}
+          </pre>
+        </CollapsibleContent>
+      </Collapsible>
+
       <SubscriptionSection customer={customer} />
+
+      <AccessSection customerId={id!} customerKey={customer.key} />
+
+      <CustomerEventsSection customerKey={customer.key} />
 
       <div>
         <h3 className="mb-2 text-sm font-medium text-muted-foreground">Entitlements</h3>
@@ -165,6 +183,143 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
       )}
       {showSubscribe && (
         <SubscribeForm customerId={customer.id} onDone={() => setShowSubscribe(false)} />
+      )}
+    </div>
+  );
+}
+
+function UsageAttributionCheck({ customer }: { customer: Customer }) {
+  const updateMut = useUpdateCustomer();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = customer as any;
+  const subjectKeys: string[] | undefined = raw.usageAttribution?.subjectKeys;
+  const hasAttribution = subjectKeys && subjectKeys.length > 0 && subjectKeys.includes(customer.key);
+
+  if (hasAttribution) return null;
+
+  const handleFix = () => {
+    updateMut.mutate({
+      id: customer.id,
+      body: {
+        name: customer.name,
+        key: customer.key,
+        primaryEmail: customer.primaryEmail,
+        currency: customer.currency,
+        usageAttribution: { subjectKeys: [customer.key] },
+      } as Partial<Customer>,
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center justify-between">
+      <div>
+        <p className="text-[11px] font-medium text-amber-600">Missing Usage Attribution</p>
+        <p className="text-[10px] text-muted-foreground">
+          This customer has no <code className="text-amber">usageAttribution.subjectKeys</code>. Events won't be matched to entitlements.
+        </p>
+      </div>
+      <Button
+        size="xs"
+        onClick={handleFix}
+        disabled={updateMut.isPending}
+      >
+        {updateMut.isPending ? "Fixing..." : `Set subjectKeys to ["${customer.key}"]`}
+      </Button>
+    </div>
+  );
+}
+
+function CustomerEventsSection({ customerKey }: { customerKey: string }) {
+  const { data: allEvents, isLoading } = useEvents();
+  const events = allEvents?.filter((ev) => ev.subject === customerKey) ?? [];
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <ChevronDown className="size-3" />
+        Recent Events ({events.length})
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2">
+        {isLoading && <Skeleton className="h-16 w-full" />}
+        {events.length === 0 && !isLoading && (
+          <p className="text-[10px] text-muted-foreground">No events found for subject {customerKey}</p>
+        )}
+        {events.length > 0 && (
+          <div className="overflow-x-auto rounded-lg glass">
+            <table className="w-full text-[11px] whitespace-nowrap">
+              <thead>
+                <tr className="border-b border-glass-border-honey glass-subtle">
+                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th>
+                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">Data</th>
+                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.slice(0, 50).map((ev, i) => (
+                  <tr key={ev.id || i} className="border-b border-glass-border-honey hover:bg-glass-light">
+                    <td className="px-2 py-1 text-amber">{ev.type}</td>
+                    <td className="px-2 py-1 font-mono text-[10px] text-muted-foreground max-w-[400px] truncate" title={ev.data ? JSON.stringify(ev.data) : ""}>
+                      {ev.data ? JSON.stringify(ev.data) : "—"}
+                    </td>
+                    <td className="px-2 py-1 text-muted-foreground">{ev.time ? formatDateTime(ev.time) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function AccessSection({ customerId, customerKey }: { customerId: string; customerKey: string }) {
+  // Try both customerId (ULID) and customerKey (account UUID) since either may work
+  const { data: access, isLoading, error } = useCustomerAccess(customerKey || customerId);
+
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-medium text-muted-foreground">Access (Entitlement Values)</h3>
+      {isLoading && <Skeleton className="h-16 w-full" />}
+      {error && <p className="text-[10px] text-destructive">{error.message}</p>}
+      {access?.entitlements && (
+        <div className="overflow-x-auto rounded-lg glass">
+          <table className="w-full text-[11px] whitespace-nowrap">
+            <thead>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-2 py-1 text-left font-medium text-muted-foreground">Feature</th>
+                <th className="px-2 py-1 text-left font-medium text-muted-foreground">Has Access</th>
+                <th className="px-2 py-1 text-right font-medium text-muted-foreground">Usage</th>
+                <th className="px-2 py-1 text-right font-medium text-muted-foreground">Balance</th>
+                <th className="px-2 py-1 text-right font-medium text-muted-foreground">Overage</th>
+                <th className="px-2 py-1 text-right font-medium text-muted-foreground">Total Grant</th>
+                <th className="px-2 py-1 text-left font-medium text-muted-foreground">Config</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(access.entitlements as Record<string, Record<string, unknown>>).map(([key, val]) => (
+                <tr key={key} className="border-b border-glass-border-honey hover:bg-glass-light">
+                  <td className="px-2 py-1 font-mono text-amber">{key}</td>
+                  <td className="px-2 py-1">
+                    {val.hasAccess
+                      ? <span className="text-green-600">yes</span>
+                      : <span className="text-red-500">no</span>}
+                  </td>
+                  <td className="px-2 py-1 text-right tabular-nums">{val.usage != null ? String(val.usage) : "—"}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{val.balance != null ? String(val.balance) : "—"}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{val.overage != null && Number(val.overage) > 0 ? <span className="text-red-500">{String(val.overage)}</span> : "—"}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{val.totalAvailableGrantAmount != null ? String(val.totalAvailableGrantAmount) : "—"}</td>
+                  <td className="px-2 py-1 font-mono text-[10px] text-muted-foreground max-w-[200px] truncate" title={val.config ? String(val.config) : ""}>
+                    {val.config ? String(val.config) : "—"}
+                  </td>
+                </tr>
+              ))}
+              {Object.keys(access.entitlements).length === 0 && (
+                <tr><td colSpan={7} className="px-2 py-2 text-center text-muted-foreground">No entitlements</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
