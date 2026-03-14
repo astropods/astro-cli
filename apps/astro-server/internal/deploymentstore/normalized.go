@@ -162,20 +162,6 @@ func SaveNormalizedSpec(
 		return err
 	}
 
-	insertEnvVars := func(workloadID int, env map[string]string, source string) error {
-		for k, v := range env {
-			_, err := tx.Exec(`
-				INSERT INTO deployment_env_vars (workload_id, key, value, source)
-				VALUES ($1, $2, $3, $4)
-				ON CONFLICT (workload_id, key) DO NOTHING
-			`, workloadID, k, v, source)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
 	// Helper to build workload from a common container-like component
 	type componentInput struct {
 		kind       string
@@ -309,18 +295,6 @@ func SaveNormalizedSpec(
 	if err := saveEndpoints(agentWID, ds.Agent.Endpoints); err != nil {
 		return fmt.Errorf("agent endpoints: %w", err)
 	}
-	// Agent gets configmap + secret env vars
-	if err := insertEnvVars(agentWID, resolved.ConfigMapData, "configmap"); err != nil {
-		return fmt.Errorf("agent configmap env: %w", err)
-	}
-	secretEnv := make(map[string]string, len(resolved.SecretData))
-	for k := range resolved.SecretData {
-		secretEnv[k] = "" // Don't store secret values in env_vars — they go to deployment_variables
-	}
-	if err := insertEnvVars(agentWID, secretEnv, "secret"); err != nil {
-		return fmt.Errorf("agent secret env: %w", err)
-	}
-
 	// --- Models ---
 	for name, model := range ds.Models {
 		replicas := model.Replicas

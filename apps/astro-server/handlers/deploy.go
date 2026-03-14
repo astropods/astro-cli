@@ -1625,15 +1625,6 @@ func toValidationErrors(errs []string) []gin.H {
 	return out
 }
 
-// imagePullPolicyForMode returns PullNever for local mode (images must be
-// built locally and available in the cluster), PullAlways otherwise.
-func imagePullPolicyForMode(mode string) corev1.PullPolicy {
-	if mode == "local" {
-		return corev1.PullNever
-	}
-	return corev1.PullAlways
-}
-
 // GetDeploymentStatus returns the current status, events, and revisions for a deployment.
 func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {

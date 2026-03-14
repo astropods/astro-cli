@@ -16,16 +16,6 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		db:       cfg.DB,
 		log:      cfg.Logger,
 	})
-	river.AddWorker(workers, &DriftCheckWorker{
-		db:        cfg.DB,
-		k8sClient: cfg.K8sClient,
-		log:       cfg.Logger,
-	})
-	river.AddWorker(workers, &NsScanWorker{
-		db:        cfg.DB,
-		k8sClient: cfg.K8sClient,
-		log:       cfg.Logger,
-	})
 	river.AddWorker(workers, &WorkOSEventsWorker{
 		workOSAPIKey: cfg.WorkOSAPIKey,
 		orgClient:    cfg.OrgClient,

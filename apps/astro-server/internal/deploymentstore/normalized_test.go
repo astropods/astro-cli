@@ -15,50 +15,54 @@ import (
 
 // --- Backward compatibility tests ---
 
-func TestSaveDeployment_BackwardCompat(t *testing.T) {
+func TestSaveDeploymentPending_BackwardCompat(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	// The old SaveDeployment API must still work unchanged
-	d, err := store.SaveDeployment(newID(), accountID, "compat-agent", "Compat", "build-1", "ns-compat", `{"spec":"deployment/v1"}`)
+	// SaveDeploymentPending with nil txFn: no normalized data
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "compat-agent",
+		DisplayName: "Compat", BuildID: "build-1", Namespace: "ns-compat",
+		SpecJSON: `{"spec":"deployment/v1"}`,
+	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeployment (old API) failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
-	if d.Status != "active" {
-		t.Errorf("expected status 'active', got %q", d.Status)
+	if d.Status != "pending" {
+		t.Errorf("expected status 'pending', got %q", d.Status)
 	}
 	if d.DeploymentSpecJSON != `{"spec":"deployment/v1"}` {
 		t.Errorf("spec JSON mismatch: %q", d.DeploymentSpecJSON)
 	}
 
-	// Verify no normalized data was written (old API doesn't pass txFn)
+	// Verify no normalized data was written (nil txFn)
 	var count int
 	err = db.QueryRow("SELECT COUNT(*) FROM deployment_workloads WHERE deployment_id = $1", d.ID).Scan(&count)
 	if err != nil {
 		t.Fatalf("query workloads: %v", err)
 	}
 	if count != 0 {
-		t.Errorf("expected 0 workloads for old API, got %d", count)
+		t.Errorf("expected 0 workloads for nil txFn, got %d", count)
 	}
 }
 
-func TestSaveDeploymentFull_NilTxFn(t *testing.T) {
+func TestSaveDeploymentPending_NilTxFn(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	// SaveDeploymentFull with nil txFn should behave identically to SaveDeployment
-	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	// SaveDeploymentPending with nil txFn
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "nil-txfn-agent",
 		DisplayName: "NilTxFn", BuildID: "build-1", Namespace: "ns-nil",
 		SpecJSON: `{"spec":"v1"}`,
 	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeploymentFull(nil txFn) failed: %v", err)
+		t.Fatalf("SaveDeploymentPending(nil txFn) failed: %v", err)
 	}
-	if d.Status != "active" {
-		t.Errorf("expected active, got %q", d.Status)
+	if d.Status != "pending" {
+		t.Errorf("expected pending, got %q", d.Status)
 	}
 
 	// Verify lookup by ID works
@@ -71,19 +75,25 @@ func TestSaveDeploymentFull_NilTxFn(t *testing.T) {
 	}
 }
 
-func TestSaveDeploymentFull_Redeploy_BackwardCompat(t *testing.T) {
+func TestSaveDeploymentPending_Redeploy_BackwardCompat(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	// First deploy via old API
-	d1, err := store.SaveDeployment(newID(), accountID, "redeploy-compat", "Redeploy", "build-1", "ns-1", `{"v":1}`)
+	// First deploy
+	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "redeploy-compat",
+		DisplayName: "Redeploy", BuildID: "build-1", Namespace: "ns-1",
+		SpecJSON: `{"v":1}`,
+	}, nil)
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
 	}
+	// Mark first as active so the second deploy will mark it as undeployed
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d1.ID)
 
-	// Second deploy via new API — should mark first as undeployed
-	d2, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	// Second deploy — should mark first as undeployed
+	d2, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "redeploy-compat",
 		DisplayName: "Redeploy", BuildID: "build-2", Namespace: "ns-2",
 		SpecJSON: `{"v":2}`,
@@ -102,15 +112,15 @@ func TestSaveDeploymentFull_Redeploy_BackwardCompat(t *testing.T) {
 		t.Errorf("first deployment should be undeployed, got %q", status)
 	}
 
-	// Verify second is active
-	if d2.Status != "active" {
-		t.Errorf("second deployment should be active, got %q", d2.Status)
+	// Verify second is pending
+	if d2.Status != "pending" {
+		t.Errorf("second deployment should be pending, got %q", d2.Status)
 	}
 }
 
 // --- Normalized spec dual-write tests ---
 
-func TestSaveDeploymentFull_WithNormalizedSpec(t *testing.T) {
+func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
@@ -183,7 +193,7 @@ func TestSaveDeploymentFull_WithNormalizedSpec(t *testing.T) {
 	specJSON := `{"spec":"deployment/v1"}`
 	deploymentID := newID()
 
-	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "my-agent",
 		DisplayName: "My Agent", BuildID: "build-1", Namespace: "ns-test",
 		SpecJSON: specJSON,
@@ -191,10 +201,10 @@ func TestSaveDeploymentFull_WithNormalizedSpec(t *testing.T) {
 		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
 	})
 	if err != nil {
-		t.Fatalf("SaveDeploymentFull failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
-	if d.Status != "active" {
-		t.Fatalf("expected active, got %q", d.Status)
+	if d.Status != "pending" {
+		t.Fatalf("expected pending, got %q", d.Status)
 	}
 
 	// Verify workloads were created
@@ -319,26 +329,17 @@ func TestSaveDeploymentFull_WithNormalizedSpec(t *testing.T) {
 		t.Errorf("expected 'debug', got %q", plainVal)
 	}
 
-	// Verify env vars
-	var envCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM deployment_env_vars WHERE workload_id = $1", agentWL.ID).Scan(&envCount)
-	if err != nil {
-		t.Fatalf("count env vars: %v", err)
-	}
-	if envCount == 0 {
-		t.Error("expected env vars for agent workload")
-	}
 }
 
-func TestSaveDeploymentFull_TxFnError_Rollback(t *testing.T) {
+func TestSaveDeploymentPending_TxFnError_Rollback(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
 	deploymentID := newID()
 
-	// SaveDeploymentFull with a failing txFn should roll back the entire transaction
-	_, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	// SaveDeploymentPending with a failing txFn should roll back the entire transaction
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "rollback-agent",
 		DisplayName: "Rollback", BuildID: "build-1", Namespace: "ns-rollback",
 		SpecJSON: `{"spec":"v1"}`,
@@ -359,7 +360,7 @@ func TestSaveDeploymentFull_TxFnError_Rollback(t *testing.T) {
 	}
 }
 
-func TestSaveDeploymentFull_EncryptedDataKey(t *testing.T) {
+func TestSaveDeploymentPending_EncryptedDataKey(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
@@ -368,13 +369,13 @@ func TestSaveDeploymentFull_EncryptedDataKey(t *testing.T) {
 	fakeKey := []byte("encrypted-data-key-bytes")
 	fakeARN := "arn:aws:kms:us-east-1:123:key/test-key"
 
-	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "enc-agent",
 		DisplayName: "Encrypted", BuildID: "build-1", Namespace: "ns-enc",
 		SpecJSON: `{}`, EncryptedDataKey: fakeKey, KMSKeyARN: fakeARN,
 	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeploymentFull failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
 
 	// Verify encrypted_data_key and kms_key_arn are stored
@@ -392,18 +393,18 @@ func TestSaveDeploymentFull_EncryptedDataKey(t *testing.T) {
 	}
 }
 
-func TestSaveDeploymentFull_NoEncryptedDataKey(t *testing.T) {
+func TestSaveDeploymentPending_NoEncryptedDataKey(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: newID(), AccountID: accountID, AgentName: "no-enc-agent",
 		DisplayName: "NoEnc", BuildID: "build-1", Namespace: "ns-noenc",
 		SpecJSON: `{}`,
 	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeploymentFull failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
 
 	// Verify encrypted_data_key and kms_key_arn are NULL
@@ -467,7 +468,7 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 
 	deploymentID := newID()
 	// Use nil encryptor — secrets should be stripped
-	_, err = store.SaveDeploymentFull(SaveDeploymentParams{
+	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "enc-test-agent",
 		DisplayName: "EncTest", BuildID: "build-1", Namespace: "ns-enc-test",
 		SpecJSON: `{}`,
@@ -553,7 +554,7 @@ func TestSaveNormalizedSpec_EncryptedBase64(t *testing.T) {
 	}
 
 	deploymentID := newID()
-	_, err = store.SaveDeploymentFull(SaveDeploymentParams{
+	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "b64-agent",
 		DisplayName: "Base64Test", BuildID: "build-1", Namespace: "ns-b64",
 		SpecJSON: `{}`, EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: "arn:test",
@@ -561,7 +562,7 @@ func TestSaveNormalizedSpec_EncryptedBase64(t *testing.T) {
 		return SaveNormalizedSpec(tx, depID, ds, resolved, enc)
 	})
 	if err != nil {
-		t.Fatalf("SaveDeploymentFull failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
 
 	// Read back the encrypted variable and verify it's valid base64
@@ -631,7 +632,7 @@ func TestGetWorkloadSummaries(t *testing.T) {
 	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
 
 	deploymentID := newID()
-	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "summary-agent",
 		DisplayName: "Summary", BuildID: "build-1", Namespace: "ns-summary",
 		SpecJSON: `{}`,
@@ -681,8 +682,12 @@ func TestGetWorkloadSummaries_Empty(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	// Old-style deployment without normalized data
-	d, err := store.SaveDeployment(newID(), accountID, "old-agent", "Old", "build-1", "ns-old", `{}`)
+	// Deployment without normalized data (nil txFn)
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "old-agent",
+		DisplayName: "Old", BuildID: "build-1", Namespace: "ns-old",
+		SpecJSON: `{}`,
+	}, nil)
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -720,7 +725,7 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
 
 	deploymentID := newID()
-	_, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "active-wl-agent",
 		DisplayName: "ActiveWL", BuildID: "build-1", Namespace: "ns-active-wl",
 		SpecJSON: `{}`,
@@ -730,6 +735,8 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
+	// Mark as active so GetActiveDeploymentWorkloads can find it
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", deploymentID)
 
 	workloads, err := store.GetActiveDeploymentWorkloads()
 	if err != nil {
@@ -795,11 +802,11 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 	}
 }
 
-// TestUpdateDeploymentFull_CleansUpOldNormalizedData verifies that
-// UpdateDeploymentFull deletes old workloads/services/variables and
+// TestUpdateDeploymentPending_CleansUpOldNormalizedData verifies that
+// UpdateDeploymentPending deletes old workloads/services/variables and
 // re-inserts the new spec, so removed components are fully purged
 // from the normalized tables.
-func TestUpdateDeploymentFull_CleansUpOldNormalizedData(t *testing.T) {
+func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 	db := testDB(t)
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
@@ -831,7 +838,7 @@ func TestUpdateDeploymentFull_CleansUpOldNormalizedData(t *testing.T) {
 	}
 
 	deploymentID := newID()
-	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "update-agent",
 		DisplayName: "Update Test", BuildID: "build-1", Namespace: "ns-update",
 		SpecJSON: `{"v":1}`,
@@ -876,7 +883,7 @@ func TestUpdateDeploymentFull_CleansUpOldNormalizedData(t *testing.T) {
 		SecretData:    map[string]string{},
 	}
 
-	d2, err := store.UpdateDeploymentFull(SaveDeploymentParams{
+	d2, err := store.UpdateDeploymentPending(SaveDeploymentParams{
 		ID: deploymentID, AccountID: accountID, AgentName: "update-agent",
 		DisplayName: "Update Test", BuildID: "build-2", Namespace: "ns-update",
 		SpecJSON: `{"v":2}`,

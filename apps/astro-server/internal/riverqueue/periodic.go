@@ -20,28 +20,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			},
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
-		river.NewPeriodicJob(
-			river.PeriodicInterval(10*time.Minute),
-			func() (river.JobArgs, *river.InsertOpts) {
-				return DriftCheckArgs{}, &river.InsertOpts{
-					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 10 * time.Minute,
-					},
-				}
-			},
-			&river.PeriodicJobOpts{RunOnStart: true},
-		),
-		river.NewPeriodicJob(
-			river.PeriodicInterval(10*time.Minute),
-			func() (river.JobArgs, *river.InsertOpts) {
-				return NsScanArgs{}, &river.InsertOpts{
-					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 10 * time.Minute,
-					},
-				}
-			},
-			&river.PeriodicJobOpts{RunOnStart: true},
-		),
 	}
 
 	jobs = append(jobs, river.NewPeriodicJob(

@@ -56,12 +56,16 @@ func TestSaveDeployment_FirstDeploy(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	d, err := store.SaveDeployment(newID(), accountID, "agent-a", "Agent A", "build-1", "ns-test", `{"spec":"v1"}`)
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-a",
+		DisplayName: "Agent A", BuildID: "build-1", Namespace: "ns-test",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeployment failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
-	if d.Status != "active" {
-		t.Errorf("expected status 'active', got %q", d.Status)
+	if d.Status != "pending" {
+		t.Errorf("expected status 'pending', got %q", d.Status)
 	}
 	if d.AgentName != "agent-a" {
 		t.Errorf("expected agent_name 'agent-a', got %q", d.AgentName)
@@ -76,18 +80,28 @@ func TestSaveDeployment_Redeploy(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	d1, err := store.SaveDeployment(newID(), accountID, "agent-b", "Agent B", "build-1", "ns-test", `{"spec":"v1"}`)
+	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-b",
+		DisplayName: "Agent B", BuildID: "build-1", Namespace: "ns-test",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
 	}
+	// Mark first as active so the second deploy will mark it as undeployed
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d1.ID)
 
-	d2, err := store.SaveDeployment(newID(), accountID, "agent-b", "Agent B", "build-2", "ns-test", `{"spec":"v2"}`)
+	d2, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-b",
+		DisplayName: "Agent B", BuildID: "build-2", Namespace: "ns-test",
+		SpecJSON: `{"spec":"v2"}`,
+	}, nil)
 	if err != nil {
 		t.Fatalf("second deploy failed: %v", err)
 	}
 
-	if d2.Status != "active" {
-		t.Errorf("new deployment should be active, got %q", d2.Status)
+	if d2.Status != "pending" {
+		t.Errorf("new deployment should be pending, got %q", d2.Status)
 	}
 
 	// Check that first deployment is now undeployed
@@ -106,16 +120,27 @@ func TestSaveDeployment_MultiDeploy(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	// Deploy same agent twice with different display names — both should be active
-	_, err := store.SaveDeployment(newID(), accountID, "agent-multi", "Production", "build-1", "ns-prod", `{"spec":"v1"}`)
+	// Deploy same agent twice with different display names — both should be pending
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-multi",
+		DisplayName: "Production", BuildID: "build-1", Namespace: "ns-prod",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
 	}
 
-	_, err = store.SaveDeployment(newID(), accountID, "agent-multi", "Staging", "build-1", "ns-staging", `{"spec":"v1"}`)
+	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-multi",
+		DisplayName: "Staging", BuildID: "build-1", Namespace: "ns-staging",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
 	if err != nil {
 		t.Fatalf("second deploy failed: %v", err)
 	}
+
+	// Mark both as active so GetActiveDeployments can find them
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE account_id = $1 AND agent_name = 'agent-multi'", accountID)
 
 	deps, err := store.GetActiveDeployments(accountID, "agent-multi")
 	if err != nil {
@@ -141,10 +166,16 @@ func TestGetActiveDeployment(t *testing.T) {
 	}
 
 	// Found case
-	_, err = store.SaveDeployment(newID(), accountID, "agent-c", "Agent C", "build-1", "ns-test", `{"spec":"v1"}`)
+	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-c",
+		DisplayName: "Agent C", BuildID: "build-1", Namespace: "ns-test",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeployment failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
+	// Mark as active so GetActiveDeployment can find it
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE account_id = $1 AND agent_name = 'agent-c'", accountID)
 	d, err = store.GetActiveDeployment(accountID, "agent-c")
 	if err != nil {
 		t.Fatalf("GetActiveDeployment failed: %v", err)
@@ -162,10 +193,16 @@ func TestGetActiveDeploymentByDisplayName(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	_, err := store.SaveDeployment(newID(), accountID, "agent-dn", "My Agent", "build-1", "ns-test", `{"spec":"v1"}`)
+	_, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-dn",
+		DisplayName: "My Agent", BuildID: "build-1", Namespace: "ns-test",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
 	if err != nil {
-		t.Fatalf("SaveDeployment failed: %v", err)
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
 	}
+	// Mark as active so GetActiveDeploymentByDisplayName can find it
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE account_id = $1 AND display_name = 'My Agent'", accountID)
 
 	d, err := store.GetActiveDeploymentByDisplayName(accountID, "My Agent")
 	if err != nil {
@@ -194,7 +231,11 @@ func TestGetDeploymentHistory(t *testing.T) {
 	store := NewStore(db)
 
 	for i := 1; i <= 3; i++ {
-		_, _ = store.SaveDeployment(newID(), accountID, "agent-d", fmt.Sprintf("Agent D v%d", i), fmt.Sprintf("build-%d", i), "ns-test", fmt.Sprintf(`{"v":%d}`, i))
+		_, _ = store.SaveDeploymentPending(SaveDeploymentParams{
+			ID: newID(), AccountID: accountID, AgentName: "agent-d",
+			DisplayName: fmt.Sprintf("Agent D v%d", i), BuildID: fmt.Sprintf("build-%d", i),
+			Namespace: "ns-test", SpecJSON: fmt.Sprintf(`{"v":%d}`, i),
+		}, nil)
 	}
 
 	history, err := store.GetDeploymentHistory(accountID, "agent-d")
@@ -218,7 +259,13 @@ func TestMarkUndeployed(t *testing.T) {
 	accountID := ensureTestAccount(t, db)
 	store := NewStore(db)
 
-	dep, _ := store.SaveDeployment(newID(), accountID, "agent-e", "Agent E", "build-1", "ns-test", `{"spec":"v1"}`)
+	dep, _ := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "agent-e",
+		DisplayName: "Agent E", BuildID: "build-1", Namespace: "ns-test",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	// Mark as active so MarkUndeployedByID has an active row
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", dep.ID)
 
 	err := store.MarkUndeployedByID(dep.ID)
 	if err != nil {

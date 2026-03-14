@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -59,6 +60,39 @@ func TestDeploymentNamespace_UniquePerID(t *testing.T) {
 // --- Undeploy handler tests ---
 
 // setupUndeployTest creates a gin engine wired with the UndeployAgent handler.
+// mockQueue is a no-op DeployQueue for testing.
+type mockQueue struct{}
+
+func (q *mockQueue) InsertDeployJob(_ context.Context, _ string) error   { return nil }
+func (q *mockQueue) InsertUndeployJob(_ context.Context, _ string) error { return nil }
+func (q *mockQueue) InsertWakeUpJob(_ context.Context, _ string) error   { return nil }
+
+// deploymentByIDRow returns a sqlmock.Rows matching the deploymentColumns scan in scanDeployment.
+func deploymentByIDRow(id, accountID, agentName, buildID, namespace, displayName, specJSON, status string, now time.Time, undeployedAt *time.Time) *sqlmock.Rows {
+	rev := 1
+	return sqlmock.NewRows([]string{
+		"id", "account_id", "agent_name", "build_id", "namespace",
+		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at",
+	}).AddRow(
+		id, accountID, agentName, buildID, namespace,
+		displayName, specJSON, []byte(nil), (*string)(nil),
+		status, (*string)(nil), json.RawMessage(nil), now, &rev,
+		now, undeployedAt,
+	)
+}
+
+// emptyDeploymentByIDRows returns an empty sqlmock.Rows matching the deploymentColumns layout.
+func emptyDeploymentByIDRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "account_id", "agent_name", "build_id", "namespace",
+		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at",
+	})
+}
+
 func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -71,19 +105,12 @@ func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 	log := logger.New("error", "json")
 	index := agentindex.NewIndexWithDB(accountDB) // not used but required
 
-	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Accept all K8s API calls (namespace delete)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"kind":"Status","status":"Success"}`))
-	})
-	k8sClient := newMockK8sClient(k8sHandler)
-
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, k8sClient, deployStore))
+	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}))
 
 	return router, deployMock, accountMock
 }
@@ -96,25 +123,22 @@ func TestUndeploy_Success(t *testing.T) {
 
 	now := time.Now()
 
-	// GetDeploymentByID query
+	// GetDeploymentByID query — must match deploymentColumns scan order
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, nil, nil,
-			"active", now, nil,
-		))
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "active", now, nil))
 
 	// IsMember check (SELECT COUNT(*) FROM account_members)
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// MarkUndeployedByID
+	// UpdateStatus (undeploying) — begins a transaction, updates status, inserts event, commits
+	deployMock.ExpectBegin()
 	deployMock.ExpectExec(`UPDATE`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
 
 	body := `{"deployment_id":"` + depID + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
@@ -129,14 +153,14 @@ func TestUndeploy_Success(t *testing.T) {
 		t.Logf("unfulfilled account expectations: %v", err)
 	}
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var resp map[string]interface{}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["status"] != "success" {
-		t.Errorf("expected status 'success', got %v", resp["status"])
+	if resp["status"] != "undeploying" {
+		t.Errorf("expected status 'undeploying', got %v", resp["status"])
 	}
 	if resp["name"] != "my-agent" {
 		t.Errorf("expected name 'my-agent', got %v", resp["name"])
@@ -150,11 +174,7 @@ func TestUndeploy_NotFound(t *testing.T) {
 
 	// GetDeploymentByID returns no rows
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}))
+		WillReturnRows(emptyDeploymentByIDRows())
 
 	body := `{"deployment_id":"` + depID + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
@@ -586,15 +606,8 @@ func TestUndeploy_InactiveDeployment(t *testing.T) {
 
 	// GetDeploymentByID returns an undeployed record
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, nil, nil,
-			"undeployed", now, later,
-		))
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "undeployed", now, &later))
 
 	body := `{"deployment_id":"` + depID + `"}`
 	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
@@ -616,15 +629,8 @@ func TestUndeploy_Forbidden(t *testing.T) {
 
 	// GetDeploymentByID returns active deployment
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Agent", `{}`, nil, nil,
-			"active", now, nil,
-		))
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "active", now, nil))
 
 	// IsMember returns count=0 (user is not a member)
 	accountMock.ExpectQuery(`SELECT`).
@@ -653,7 +659,7 @@ func TestUndeploy_NoAuth(t *testing.T) {
 
 	router := gin.New()
 	// No auth middleware — user not set
-	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, nil, deployStore))
+	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}))
 
 	body := `{"deployment_id":"some-id"}`
 	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
@@ -1133,15 +1139,8 @@ func TestGetPrefilledTemplate_HasDeploymentID(t *testing.T) {
 
 	// GetDeploymentByID
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Deploy", `{"interfaces":{"adapters":["slack"]}}`, nil, nil,
-			"active", now, nil,
-		))
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{"interfaces":{"adapters":["slack"]}}`, "active", now, nil))
 
 	// IsMember check for deployment's account
 	accountMock.ExpectQuery(`SELECT COUNT`).
@@ -1233,15 +1232,8 @@ func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
 
 	// GetDeploymentByID (old deployment was build-1)
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, acctID, "my-agent", "build-1", "astro-abc123",
-			"My Deploy", `{}`, nil, nil,
-			"active", now, nil,
-		))
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Deploy", `{}`, "active", now, nil))
 
 	// IsMember check
 	accountMock.ExpectQuery(`SELECT COUNT`).
@@ -1311,13 +1303,6 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 		},
 	}
 
-	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Success"}`))
-	})
-	k8sClient := newMockK8sClient(k8sHandler)
-
 	router := gin.New()
 	if userID != "" {
 		router.Use(func(c *gin.Context) {
@@ -1325,7 +1310,7 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, k8sClient, deployStore, nil)) //nolint:staticcheck // nil EntitlementChecker skips checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, &mockQueue{})) //nolint:staticcheck // nil EntitlementChecker skips checks in tests
 
 	return router, indexMock, accountMock, deployMock
 }
@@ -1410,14 +1395,20 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 			"status", "deployed_at", "undeployed_at",
 		}))
 
-	// SaveDeploymentFull transaction
+	// SaveDeploymentPending transaction
 	deployMock.ExpectBegin()
 	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 0))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow("new-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "active", time.Now()))
+		}).AddRow("new-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+	// Revision insert
+	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Event insert
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Normalized spec inserts (agent workload + service + collector workload + services + variables)
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -1441,15 +1432,14 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	// Accept 200 (success) or 207 (partial — K8s mock may not return expected resources)
-	if rec.Code != http.StatusOK && rec.Code != http.StatusMultiStatus {
-		t.Fatalf("expected 200 or 207, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var resp map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["name"] != "my-agent" {
-		t.Errorf("expected name 'my-agent', got %v", resp["name"])
+	if resp["status"] != "pending" {
+		t.Errorf("expected status 'pending', got %v", resp["status"])
 	}
 }
 
@@ -1463,29 +1453,31 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 
 	// GetDeploymentByID for the provided deployment_id
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, "acct-1", "my-agent", "build-1", "astro-existing",
-			"My Agent", `{}`, nil, nil,
-			"active", now, nil,
-		))
+		WillReturnRows(deploymentByIDRow(depID, "acct-1", "my-agent", "build-1", "astro-existing",
+			"My Agent", `{}`, "active", now, nil))
 
 	// IsMember check for deployment's account
 	accountMock.ExpectQuery(`SELECT COUNT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// UpdateDeploymentFull transaction
+	// UpdateDeploymentPending transaction
 	deployMock.ExpectBegin()
+	// Next revision query
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"next_revision"}).AddRow(2))
 	deployMock.ExpectQuery(`UPDATE deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",
 			"display_name", "deployment_spec_json", "status", "deployed_at",
-		}).AddRow(depID, "acct-1", "my-agent", "build-1", "astro-existing", "My Agent", "{}", "active", now))
+		}).AddRow(depID, "acct-1", "my-agent", "build-1", "astro-existing", "My Agent", "{}", "pending", now))
+	// Revision insert
+	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`DELETE FROM deployment_workloads`).WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`DELETE FROM deployment_variables`).WillReturnResult(sqlmock.NewResult(0, 0))
+	// Event insert
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Normalized spec re-inserts (agent workload + service + collector workload + services + variables)
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
@@ -1509,15 +1501,14 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK && rec.Code != http.StatusMultiStatus {
-		t.Fatalf("expected 200 or 207, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var resp map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &resp)
-	// Should reuse the existing namespace
-	if resp["k8s_namespace"] != "astro-existing" {
-		t.Errorf("expected k8s_namespace 'astro-existing', got %v", resp["k8s_namespace"])
+	if resp["status"] != "pending" {
+		t.Errorf("expected status 'pending', got %v", resp["status"])
 	}
 }
 
@@ -1528,11 +1519,7 @@ func TestDeploy_WithDeploymentID_NotFound(t *testing.T) {
 
 	// GetDeploymentByID returns no rows
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}))
+		WillReturnRows(emptyDeploymentByIDRows())
 
 	body := deployableSpec("nonexistent")
 	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
@@ -1555,15 +1542,8 @@ func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
 
 	// GetDeploymentByID returns inactive deployment
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "deployed_at", "undeployed_at",
-		}).AddRow(
-			"dep-inactive", "acct-1", "my-agent", "build-1", "astro-old",
-			"Old", `{}`, nil, nil,
-			"undeployed", now, later,
-		))
+		WillReturnRows(deploymentByIDRow("dep-inactive", "acct-1", "my-agent", "build-1", "astro-old",
+			"Old", `{}`, "undeployed", now, &later))
 
 	body := deployableSpec("dep-inactive")
 	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))

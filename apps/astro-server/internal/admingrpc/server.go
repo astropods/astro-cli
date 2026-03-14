@@ -517,11 +517,11 @@ func (s *Server) DeleteDeployment(ctx context.Context, req *adminv1.DeleteDeploy
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
 
-	var agentName, accountID string
+	var agentName, deploymentID string
 	for _, d := range dbDeps {
 		if d.Namespace == req.Namespace {
 			agentName = d.AgentName
-			accountID = d.AccountID
+			deploymentID = d.ID
 			break
 		}
 	}
@@ -533,8 +533,8 @@ func (s *Server) DeleteDeployment(ctx context.Context, req *adminv1.DeleteDeploy
 	}
 
 	// Mark as undeployed in the DB if we found a record
-	if agentName != "" && accountID != "" {
-		if err := s.deployStore.MarkUndeployed(accountID, agentName); err != nil {
+	if deploymentID != "" {
+		if err := s.deployStore.MarkUndeployedByID(deploymentID); err != nil {
 			s.log.Warn("Failed to mark deployment as undeployed", "namespace", req.Namespace, "error", err)
 		}
 	}
