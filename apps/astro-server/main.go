@@ -115,10 +115,11 @@ func main() {
 	var eventsCancel context.CancelFunc
 	var probeHandler *handlers.ProbeHandler
 	var adminSrv *admingrpc.Server
+	var apiQueue *riverqueue.Queue
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, connectGRPCServer, probeHandler, adminSrv = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
+		httpSrv, grpcServer, connectGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -183,6 +184,11 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer shutdownCancel()
 
+	// Close insert-only River queue pool
+	if apiQueue != nil {
+		apiQueue.Close()
+	}
+
 	// Attempt graceful shutdown of HTTP server
 	if httpSrv != nil {
 		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
@@ -204,7 +210,7 @@ func runAPI(
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
 	ent *middleware.Entitlements,
-) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server) {
+) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
 
@@ -269,8 +275,15 @@ func runAPI(
 	// Initialize probe handler
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
+	// Create insert-only River queue for API (no workers, no periodic jobs — workers run in runWorker)
+	rq, rqErr := riverqueue.NewInsertOnly(context.Background(), cfg.Database.URL, log)
+	if rqErr != nil {
+		log.Error("Failed to create River queue for API", "error", rqErr)
+		os.Exit(1)
+	}
+
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient, ent, db)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient, ent, db, rq)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL)
@@ -320,7 +333,7 @@ func runAPI(
 		}
 	}()
 
-	return srv, grpcServer, connectServer, probeHandler, adminSrv
+	return srv, grpcServer, connectServer, probeHandler, adminSrv, rq
 }
 
 // runWorker starts the River queue for all background job processing and returns a cancel func.
@@ -359,6 +372,7 @@ func runWorker(
 		OMClient:     omClient,
 		AccountStore: accountStore,
 		K8sClient:    k8sClient,
+		ServerConfig: cfg,
 		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,
 		OrgClient:    orgClient,
 		Logger:       log,
@@ -383,7 +397,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -704,12 +718,11 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore, ent),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, ent, queue),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
-				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and applies it to Kubernetes."),
-				oapispec.Response(200, &handlers.DeployResponseAlias{}),
-				oapispec.Response(207, &handlers.DeployResponseAlias{}),
+				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
+				oapispec.Response(202, &handlers.DeployResponseAlias{}),
 			)
 			api.POST(protected, "/deploy/validate", "Validate a deployment spec", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg),
 				oapispec.Tags("Deployments"),
@@ -717,11 +730,28 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Validates a fulfilled deployment spec without applying it."),
 				oapispec.Response(200, &handlers.ValidateDeploymentResponse{}),
 			)
-			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore),
+			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&deployment.UndeployRequest{}),
-				oapispec.Response(200, &handlers.UndeployResponseAlias{}),
+				oapispec.Response(202, &handlers.UndeployResponseAlias{}),
+			)
+			api.GET(protected, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+			)
+			api.POST(protected, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, nil),
+			)
+			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, nil),
 			)
 			api.POST(protected, "/deployments/:namespace/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient),
 				oapispec.Tags("Deployments"),

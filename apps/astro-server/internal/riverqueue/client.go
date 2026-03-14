@@ -149,6 +149,35 @@ func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID string) error 
 	return err
 }
 
+// NewInsertOnly creates a Queue that can only insert jobs (no workers, no periodic jobs).
+// Used by the API process to enqueue deploy/undeploy/wakeup jobs without running workers.
+func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger) (*Queue, error) {
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("riverqueue: pgxpool: %w", err)
+	}
+
+	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Schema: "river",
+		Logger: slog.New(levelHandler{minLevel: slog.LevelWarn, inner: log.Handler()}),
+	})
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("riverqueue: client: %w", err)
+	}
+
+	return &Queue{
+		pool:   pool,
+		client: riverClient,
+		log:    log,
+	}, nil
+}
+
+// Close closes the pool without stopping workers (for insert-only queues).
+func (q *Queue) Close() {
+	q.pool.Close()
+}
+
 // levelHandler wraps an slog.Handler and drops records below minLevel.
 // Used to suppress River's noisy DEBUG/INFO logs (e.g. QueryCacher).
 type levelHandler struct {
