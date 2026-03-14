@@ -165,3 +165,7 @@ html.dark:has(.docs-home)::before {
   height: auto;
   margin: 0;
 }
+
+.hero-container h1 {
+  pointer-events: none !important;
+}
