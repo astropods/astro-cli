@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/gin-gonic/gin"
 )
@@ -60,7 +63,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore) gin.Han
 }
 
 // AddMember handles POST /api/v1/accounts/:account/members
-func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore) gin.HandlerFunc {
+func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -92,6 +95,7 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 		}
 
 		log.Info("Member added", "account_id", acct.ID, "user_id", req.UserID, "role", req.Role)
+		go openmeter.EmitActiveMembers(context.Background(), omClient, db, log, acct.ID)
 		c.JSON(http.StatusCreated, gin.H{"member": member})
 	}
 }
@@ -135,7 +139,7 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 }
 
 // RemoveMember handles DELETE /api/v1/accounts/:account/members/:user_id
-func RemoveMember(log *logger.Logger, syncSvc *org.Sync) gin.HandlerFunc {
+func RemoveMember(log *logger.Logger, syncSvc *org.Sync, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -155,6 +159,7 @@ func RemoveMember(log *logger.Logger, syncSvc *org.Sync) gin.HandlerFunc {
 		}
 
 		log.Info("Member removed", "account_id", acct.ID, "user_id", userID)
+		go openmeter.EmitActiveMembers(context.Background(), omClient, db, log, acct.ID)
 		c.JSON(http.StatusOK, gin.H{"message": "member removed"})
 	}
 }

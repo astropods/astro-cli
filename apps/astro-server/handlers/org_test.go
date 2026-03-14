@@ -139,7 +139,7 @@ func TestAddMember_InvalidBody_MissingFields(t *testing.T) {
 
 	router := gin.New()
 	// syncSvc is nil — we test that validation fires before sync is called
-	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil))
+	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil))
 
 	tests := []struct {
 		name string
@@ -168,7 +168,7 @@ func TestAddMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil))
+	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil, nil, nil))
 
 	body := `{"user_id": "user-1", "role": "admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -223,7 +223,7 @@ func TestRemoveMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil))
+	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
 	rec := httptest.NewRecorder()
@@ -383,7 +383,7 @@ func TestAddMember_RoleEscalation_NonOwnerCannotAssignOwner(t *testing.T) {
 	session := &auth.Session{Role: "admin"}
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -412,7 +412,7 @@ func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
 		WillReturnError(sqlmock.ErrCancelled)
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))

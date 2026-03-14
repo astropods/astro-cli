@@ -583,7 +583,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.ListMembersResponse{}),
 				)
 				api.POST(memberRoutes, "", "Add a member",
-					ent.Wrap(handlers.AddMember(log, orgSync, accountStore), "members"),
+					ent.Wrap(handlers.AddMember(log, orgSync, accountStore, omClient, db), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -598,7 +598,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.ChangeMemberRoleRequest{}),
 					oapispec.Response(200, &handlers.MessageResponse{}),
 				)
-				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync),
+				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, omClient, db),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

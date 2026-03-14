@@ -52,11 +52,14 @@ func (h *Heartbeat) Start(ctx context.Context) {
 	}
 }
 
-// Tick runs a single heartbeat iteration: emits compute usage, active deployments, and active agents.
+// Tick runs a single heartbeat iteration: emits compute usage, active deployments, active agents, and active members.
 func (h *Heartbeat) Tick(ctx context.Context) {
+	h.log.Debug("Heartbeat tick starting")
 	h.emitComputeUsage(ctx)
 	h.emitActiveDeployments(ctx)
 	h.emitActiveAgents(ctx)
+	h.emitActiveMembers(ctx)
+	h.log.Debug("Heartbeat tick complete")
 }
 
 // activeDeploymentRow represents a row from the active deployments query.
@@ -169,6 +172,8 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
 			h.log.Error("Heartbeat: failed to emit compute_usage events", "error", err)
+		} else {
+			h.log.Info("Heartbeat: emitted compute_usage", "events", len(events))
 		}
 	}
 }
@@ -240,6 +245,8 @@ func (h *Heartbeat) emitActiveDeployments(ctx context.Context) {
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
 			h.log.Error("Heartbeat: failed to emit active_deployments events", "error", err)
+		} else {
+			h.log.Info("Heartbeat: emitted active_deployments", "accounts", len(events))
 		}
 	}
 }
@@ -273,6 +280,43 @@ func (h *Heartbeat) emitActiveAgents(ctx context.Context) {
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
 			h.log.Error("Heartbeat: failed to emit active_agents events", "error", err)
+		} else {
+			h.log.Info("Heartbeat: emitted active_agents", "accounts", len(events))
+		}
+	}
+}
+
+// emitActiveMembers counts members per account and emits active_members events.
+func (h *Heartbeat) emitActiveMembers(ctx context.Context) {
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT account_id, COUNT(*) AS cnt
+		FROM account_members
+		GROUP BY account_id
+	`)
+	if err != nil {
+		h.log.Error("Heartbeat: failed to query member counts", "error", err)
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var events []CloudEvent
+	for rows.Next() {
+		var accountID string
+		var count int
+		if err := rows.Scan(&accountID, &count); err != nil {
+			h.log.Error("Heartbeat: failed to scan member count", "error", err)
+			continue
+		}
+		events = append(events, NewCloudEvent("active_members", accountID, map[string]any{
+			"count": count,
+		}))
+	}
+
+	if len(events) > 0 {
+		if err := h.client.IngestEvents(ctx, events); err != nil {
+			h.log.Error("Heartbeat: failed to emit active_members events", "error", err)
+		} else {
+			h.log.Info("Heartbeat: emitted active_members", "accounts", len(events))
 		}
 	}
 }
