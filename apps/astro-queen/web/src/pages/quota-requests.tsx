@@ -4,6 +4,7 @@ import {
   useApproveQuotaRequest,
   useDenyQuotaRequest,
 } from "@/api/admin";
+import { useCreateGrant } from "@/api/openmeter";
 import type { QuotaRequest } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,19 +93,39 @@ export function QuotaRequestsPage() {
 function RequestRow({ request: req }: { request: QuotaRequest }) {
   const approveMut = useApproveQuotaRequest();
   const denyMut = useDenyQuotaRequest();
+  const createGrant = useCreateGrant();
   const [editing, setEditing] = useState(false);
   const [grantAmount, setGrantAmount] = useState(
     req.requested_amount > 0 ? String(req.requested_amount) : ""
   );
   const [note, setNote] = useState("");
+  const [approveErr, setApproveErr] = useState("");
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     const amount = parseFloat(grantAmount);
     if (!amount || amount <= 0) return;
-    approveMut.mutate(
-      { id: req.id, grantAmount: amount, note },
-      { onSuccess: () => setEditing(false) }
-    );
+    setApproveErr("");
+
+    try {
+      // 1. Create recurring grant in OpenMeter
+      const now = new Date().toISOString();
+      await createGrant.mutateAsync({
+        customerId: req.account_id,
+        entitlementId: req.feature_key,
+        body: {
+          amount,
+          effectiveAt: now,
+          priority: 1,
+          recurrence: { interval: "MONTH", anchor: now },
+        },
+      });
+
+      // 2. Mark approved in DB
+      await approveMut.mutateAsync({ id: req.id, grantAmount: amount, note });
+      setEditing(false);
+    } catch (e) {
+      setApproveErr(e instanceof Error ? e.message : "Failed to approve");
+    }
   };
 
   const handleDeny = () => {
@@ -192,7 +213,7 @@ function RequestRow({ request: req }: { request: QuotaRequest }) {
                 Cancel
               </Button>
             </div>
-            {approveMut.error && <p className="text-[10px] text-destructive mt-1">{approveMut.error.message}</p>}
+            {approveErr && <p className="text-[10px] text-destructive mt-1">{approveErr}</p>}
             {denyMut.error && <p className="text-[10px] text-destructive mt-1">{denyMut.error.message}</p>}
           </td>
         </tr>
