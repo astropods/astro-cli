@@ -527,7 +527,7 @@ func (s *Server) DeleteDeployment(ctx context.Context, req *adminv1.DeleteDeploy
 	}
 
 	// Delete k8s resources
-	deleter := k8s.NewDeleter(s.k8sClient, req.Namespace)
+	deleter := k8s.NewDeleter(s.k8sClient.Clientset(), req.Namespace)
 	if _, err := deleter.Delete(ctx, agentName, ""); err != nil {
 		return nil, fmt.Errorf("delete k8s resources: %w", err)
 	}

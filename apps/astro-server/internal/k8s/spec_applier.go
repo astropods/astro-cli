@@ -773,6 +773,16 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 
+	// Clean up orphaned resources from previous spec (e.g. removed tools/knowledge)
+	expectedNames := computeExpectedResourceNames(ds, a.ingressDomain, a.ingestionIngressDomain)
+	if orphanErrs := a.cleanupOrphanedResources(ctx, agentName, expectedNames); len(orphanErrs) > 0 {
+		for _, e := range orphanErrs {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: "orphan-cleanup", Kind: "Cleanup", Error: e.Error(),
+			})
+		}
+	}
+
 	// Collect agent service endpoint
 	svc, err := a.clientset.CoreV1().Services(a.namespace).Get(ctx, agentResourceName, metav1.GetOptions{})
 	if err == nil {

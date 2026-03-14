@@ -389,8 +389,9 @@ func (a *Applier) cleanupStaleBuildResources(ctx context.Context, agentName, bui
 	listOpts := metav1.ListOptions{LabelSelector: labelSelector}
 
 	var errs []error
+	sanitizedBuildID := deployment.SanitizeName(buildID)
 	isStale := func(labels map[string]string) bool {
-		return labels["app.kubernetes.io/version"] != "" && labels["app.kubernetes.io/version"] != buildID
+		return labels["app.kubernetes.io/version"] != "" && labels["app.kubernetes.io/version"] != sanitizedBuildID
 	}
 
 	// Ingresses

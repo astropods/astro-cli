@@ -6,18 +6,19 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 // Deleter handles deletion of Kubernetes resources
 type Deleter struct {
-	client    ClusterClient
+	clientset kubernetes.Interface
 	namespace string
 }
 
 // NewDeleter creates a new Deleter
-func NewDeleter(client ClusterClient, namespace string) *Deleter {
+func NewDeleter(clientset kubernetes.Interface, namespace string) *Deleter {
 	return &Deleter{
-		client:    client,
+		clientset: clientset,
 		namespace: namespace,
 	}
 }
@@ -43,6 +44,9 @@ func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*Delet
 	d.deleteJobs(ctx, agentName, result)
 	d.deleteCronJobs(ctx, agentName, result)
 
+	// Ingresses
+	d.deleteIngresses(ctx, agentName, result)
+
 	// Deployments and StatefulSets
 	d.deleteDeployments(ctx, agentName, result)
 	d.deleteStatefulSets(ctx, agentName, result)
@@ -67,7 +71,7 @@ func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*Delet
 func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	cronJobs, err := d.client.Clientset().BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{
+	cronJobs, err := d.clientset.BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -80,7 +84,7 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *
 	}
 
 	for _, cronJob := range cronJobs.Items {
-		err := d.client.Clientset().BatchV1().CronJobs(d.namespace).Delete(ctx, cronJob.Name, metav1.DeleteOptions{})
+		err := d.clientset.BatchV1().CronJobs(d.namespace).Delete(ctx, cronJob.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: cronJob.Name,
@@ -102,7 +106,7 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *
 func (d *Deleter) deleteJobs(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	jobs, err := d.client.Clientset().BatchV1().Jobs(d.namespace).List(ctx, metav1.ListOptions{
+	jobs, err := d.clientset.BatchV1().Jobs(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -116,7 +120,7 @@ func (d *Deleter) deleteJobs(ctx context.Context, agentName string, result *Dele
 
 	propagation := metav1.DeletePropagationForeground
 	for _, job := range jobs.Items {
-		err := d.client.Clientset().BatchV1().Jobs(d.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
+		err := d.clientset.BatchV1().Jobs(d.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
 			PropagationPolicy: &propagation,
 		})
 		if err != nil {
@@ -136,11 +140,46 @@ func (d *Deleter) deleteJobs(ctx context.Context, agentName string, result *Dele
 	}
 }
 
+// deleteIngresses deletes all Ingresses matching the agent
+func (d *Deleter) deleteIngresses(ctx context.Context, agentName string, result *DeleteResult) {
+	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+
+	ingresses, err := d.clientset.NetworkingV1().Ingresses(d.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		result.Errors = append(result.Errors, deployment.DeploymentError{
+			Resource: "Ingresses",
+			Kind:     "Ingress",
+			Error:    fmt.Sprintf("failed to list: %v", err),
+		})
+		return
+	}
+
+	for _, ing := range ingresses.Items {
+		err := d.clientset.NetworkingV1().Ingresses(d.namespace).Delete(ctx, ing.Name, metav1.DeleteOptions{})
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: ing.Name,
+				Kind:     "Ingress",
+				Error:    err.Error(),
+			})
+		} else {
+			result.Resources = append(result.Resources, deployment.ResourceStatus{
+				Kind:      "Ingress",
+				Name:      ing.Name,
+				Namespace: d.namespace,
+				Status:    "deleted",
+			})
+		}
+	}
+}
+
 // deleteDeployments deletes all Deployments matching the agent
 func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	deployments, err := d.client.Clientset().AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{
+	deployments, err := d.clientset.AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -153,7 +192,7 @@ func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, resul
 	}
 
 	for _, dep := range deployments.Items {
-		err := d.client.Clientset().AppsV1().Deployments(d.namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
+		err := d.clientset.AppsV1().Deployments(d.namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: dep.Name,
@@ -175,7 +214,7 @@ func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, resul
 func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	statefulSets, err := d.client.Clientset().AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{
+	statefulSets, err := d.clientset.AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -188,7 +227,7 @@ func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, resu
 	}
 
 	for _, sts := range statefulSets.Items {
-		err := d.client.Clientset().AppsV1().StatefulSets(d.namespace).Delete(ctx, sts.Name, metav1.DeleteOptions{})
+		err := d.clientset.AppsV1().StatefulSets(d.namespace).Delete(ctx, sts.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: sts.Name,
@@ -210,7 +249,7 @@ func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, resu
 func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	services, err := d.client.Clientset().CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{
+	services, err := d.clientset.CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -223,7 +262,7 @@ func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *
 	}
 
 	for _, svc := range services.Items {
-		err := d.client.Clientset().CoreV1().Services(d.namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
+		err := d.clientset.CoreV1().Services(d.namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: svc.Name,
@@ -245,7 +284,7 @@ func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *
 func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, buildIDSanitized string, result *DeleteResult) {
 	configMapName := deployment.GenerateConfigMapName(agentName, buildIDSanitized)
 
-	err := d.client.Clientset().CoreV1().ConfigMaps(d.namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
+	err := d.clientset.CoreV1().ConfigMaps(d.namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: configMapName,
@@ -266,7 +305,7 @@ func (d *Deleter) deleteConfigMap(ctx context.Context, agentName, buildIDSanitiz
 func (d *Deleter) deleteSecret(ctx context.Context, agentName, buildIDSanitized string, result *DeleteResult) {
 	secretName := deployment.GenerateSecretName(agentName, buildIDSanitized)
 
-	err := d.client.Clientset().CoreV1().Secrets(d.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
+	err := d.clientset.CoreV1().Secrets(d.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: secretName,
@@ -287,7 +326,7 @@ func (d *Deleter) deleteSecret(ctx context.Context, agentName, buildIDSanitized 
 func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *DeleteResult) {
 	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
 
-	pvcs, err := d.client.Clientset().CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{
+	pvcs, err := d.clientset.CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -300,7 +339,7 @@ func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *Dele
 	}
 
 	for _, pvc := range pvcs.Items {
-		err := d.client.Clientset().CoreV1().PersistentVolumeClaims(d.namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})
+		err := d.clientset.CoreV1().PersistentVolumeClaims(d.namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})
 		if err != nil {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: pvc.Name,
@@ -320,7 +359,7 @@ func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *Dele
 
 // deleteNamespace deletes the Kubernetes namespace
 func (d *Deleter) deleteNamespace(ctx context.Context, result *DeleteResult) {
-	err := d.client.Clientset().CoreV1().Namespaces().Delete(ctx, d.namespace, metav1.DeleteOptions{})
+	err := d.clientset.CoreV1().Namespaces().Delete(ctx, d.namespace, metav1.DeleteOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: d.namespace,

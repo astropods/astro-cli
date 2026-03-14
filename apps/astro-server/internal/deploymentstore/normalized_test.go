@@ -794,3 +794,142 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 		t.Errorf("tool replicas: got %d, want 2", tool.Replicas)
 	}
 }
+
+// TestUpdateDeploymentFull_CleansUpOldNormalizedData verifies that
+// UpdateDeploymentFull deletes old workloads/services/variables and
+// re-inserts the new spec, so removed components are fully purged
+// from the normalized tables.
+func TestUpdateDeploymentFull_CleansUpOldNormalizedData(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Initial spec: agent + tool "search" + variable "API_KEY"
+	ds1 := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: "update-agent", Build: "build-1", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/agent:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+		},
+		Tools: map[string]spec.DeploymentTool{
+			"search": {
+				Image: "r.io/search:latest", Replicas: 1,
+				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 3000}},
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"API_KEY":   {Value: "sk-123", Secret: true, Targets: []string{"agent"}},
+			"LOG_LEVEL": {Value: "debug", Secret: false, Targets: []string{"agent"}},
+		},
+	}
+	resolved1 := &deployment.ResolvedEnv{
+		ConfigMapData: map[string]string{"LOG_LEVEL": "debug"},
+		SecretData:    map[string]string{"API_KEY": "sk-123"},
+	}
+
+	deploymentID := newID()
+	d, err := store.SaveDeploymentFull(SaveDeploymentParams{
+		ID: deploymentID, AccountID: accountID, AgentName: "update-agent",
+		DisplayName: "Update Test", BuildID: "build-1", Namespace: "ns-update",
+		SpecJSON: `{"v":1}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds1, resolved1, nil)
+	})
+	if err != nil {
+		t.Fatalf("initial save: %v", err)
+	}
+
+	// Verify initial state: 2 workloads (agent + search), 2 variables
+	workloads1, err := store.GetWorkloads(d.ID)
+	if err != nil {
+		t.Fatalf("get workloads: %v", err)
+	}
+	if len(workloads1) != 2 {
+		t.Fatalf("expected 2 workloads initially, got %d", len(workloads1))
+	}
+	vars1, err := store.GetDeploymentVariables(d.ID)
+	if err != nil {
+		t.Fatalf("get variables: %v", err)
+	}
+	if len(vars1) != 2 {
+		t.Fatalf("expected 2 variables initially, got %d", len(vars1))
+	}
+
+	// Updated spec: agent only (tool removed), API_KEY removed
+	ds2 := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: "update-agent", Build: "build-2", Registry: "r.io"},
+		Agent: spec.DeploymentAgent{
+			Image: "r.io/agent:v2", Replicas: 2,
+			Resources: spec.DeploymentResources{CPU: "200m", Memory: "512Mi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+		},
+		Variables: map[string]spec.Variable{
+			"LOG_LEVEL": {Value: "info", Secret: false, Targets: []string{"agent"}},
+		},
+	}
+	resolved2 := &deployment.ResolvedEnv{
+		ConfigMapData: map[string]string{"LOG_LEVEL": "info"},
+		SecretData:    map[string]string{},
+	}
+
+	d2, err := store.UpdateDeploymentFull(SaveDeploymentParams{
+		ID: deploymentID, AccountID: accountID, AgentName: "update-agent",
+		DisplayName: "Update Test", BuildID: "build-2", Namespace: "ns-update",
+		SpecJSON: `{"v":2}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds2, resolved2, nil)
+	})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if d2.BuildID != "build-2" {
+		t.Errorf("expected build-2, got %q", d2.BuildID)
+	}
+
+	// Verify: only 1 workload (agent), tool is gone
+	workloads2, err := store.GetWorkloads(d2.ID)
+	if err != nil {
+		t.Fatalf("get workloads after update: %v", err)
+	}
+	if len(workloads2) != 1 {
+		t.Fatalf("expected 1 workload after update, got %d", len(workloads2))
+	}
+	if workloads2[0].ComponentKind != "agent" {
+		t.Errorf("expected remaining workload to be 'agent', got %q", workloads2[0].ComponentKind)
+	}
+	if workloads2[0].Image != "r.io/agent:v2" {
+		t.Errorf("expected updated image, got %q", workloads2[0].Image)
+	}
+	if workloads2[0].Replicas != 2 {
+		t.Errorf("expected 2 replicas, got %d", workloads2[0].Replicas)
+	}
+
+	// Verify: only 1 variable (LOG_LEVEL), API_KEY is gone
+	vars2, err := store.GetDeploymentVariables(d2.ID)
+	if err != nil {
+		t.Fatalf("get variables after update: %v", err)
+	}
+	if len(vars2) != 1 {
+		t.Fatalf("expected 1 variable after update, got %d", len(vars2))
+	}
+	if vars2[0].Name != "LOG_LEVEL" {
+		t.Errorf("expected LOG_LEVEL variable, got %q", vars2[0].Name)
+	}
+	if vars2[0].Value != "info" {
+		t.Errorf("expected 'info', got %q", vars2[0].Value)
+	}
+
+	// Verify: services from the old tool workload are also gone (cascaded from workload deletion)
+	services2, err := store.GetServices(d2.ID)
+	if err != nil {
+		t.Fatalf("get services after update: %v", err)
+	}
+	// Only agent's http endpoint should remain
+	if len(services2) != 1 {
+		t.Errorf("expected 1 service after update (agent http), got %d", len(services2))
+	}
+}
