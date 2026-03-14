@@ -5,6 +5,7 @@ import "time"
 // DeployResponse represents a deployment response
 type DeployResponse struct {
 	Status           string            `json:"status"`
+	DeploymentID     string            `json:"deployment_id,omitempty"`
 	Name             string            `json:"name"`
 	BuildID          string            `json:"build_id"`
 	K8sNamespace     string            `json:"k8s_namespace"`

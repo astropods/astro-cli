@@ -338,7 +338,14 @@ type EntitlementChecker interface {
 	Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.EntitlementValue)
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, entCheck EntitlementChecker) gin.HandlerFunc {
+// DeployQueue abstracts job insertion for deploy/undeploy/wakeup operations.
+type DeployQueue interface {
+	InsertDeployJob(ctx context.Context, deploymentID string) error
+	InsertUndeployJob(ctx context.Context, deploymentID string) error
+	InsertWakeUpJob(ctx context.Context, deploymentID string) error
+}
+
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -368,128 +375,92 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			}
 		}
 
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+		// Persist resolved spec and enqueue async deploy job
+		if deployStore == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "deployment store not configured"})
 			return
 		}
 
-		log.Info("Deploying to Kubernetes", "k8s_namespace", dctx.k8sNS)
-
-		applier := k8s.NewApplier(k8sClient, k8s.ApplierConfig{
-			Namespace:              dctx.k8sNS,
-			RegistryURL:            cfg.Deployment.RegistryURL,
-			ProxyRegistryHost:      cfg.Deployment.ProxyRegistryHost,
-			Environment:            cfg.Deployment.Environment,
-			ImagePullPolicy:        imagePullPolicyForMode(cfg.Deployment.K8sClientMode),
-			IngressDomain:          cfg.Deployment.IngressDomain,
-			ACMCertificateARN:      cfg.Deployment.ACMCertificateARN,
-			ALBGroupName:           cfg.Deployment.ALBGroupName,
-			IngestionIngressDomain: cfg.Deployment.IngestionIngressDomain,
-			IngestionACMCertARN:    cfg.Deployment.IngestionACMCertARN,
-			IngestionALBGroupName:  cfg.Deployment.IngestionALBGroupName,
-			GalileoAPIKey:          cfg.Deployment.GalileoAPIKey,
-			GalileoProject:         cfg.Deployment.GalileoProject,
-			PodSubnetCIDRs:         cfg.Deployment.PodSubnetCIDRs,
-			NamespaceLabels: map[string]string{
-				"astro.dev/account-id": dctx.acct.ID,
-				"astro.dev/account":    dctx.acct.Name,
-				"astro.dev/agent":      dctx.agentName,
-				"astro.dev/build":      dctx.buildID,
-			},
-			NamespaceAnnotations: map[string]string{
-				"astro.dev/display-name": dctx.displayName,
-			},
-		})
-		applyResult, err := applier.ApplyDeploymentSpec(c.Request.Context(), dctx.resolveResult.Spec)
-		if err != nil {
-			log.Error("Deployment failed", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "deployment failed",
-				"details": err.Error(),
-			})
+		stripped := spec.StripSecretVariableValues(dctx.resolveResult.Spec)
+		specJSON, marshalErr := json.Marshal(stripped)
+		if marshalErr != nil {
+			log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
 			return
 		}
 
-		// Persist resolved spec (JSON blob + normalized tables in same transaction)
-		if deployStore != nil {
-			stripped := spec.StripSecretVariableValues(dctx.resolveResult.Spec)
-			specJSON, marshalErr := json.Marshal(stripped)
-			if marshalErr != nil {
-				log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
+		// Resolve env vars for normalized storage
+		rctx := deployment.ResolveContext{
+			Namespace:  dctx.k8sNS,
+			AgentName:  dctx.agentName,
+			BuildID:    dctx.buildID,
+			SecretName: deployment.GenerateSecretName(dctx.agentName, dctx.buildID),
+		}
+		resolved := deployment.ResolveDeploymentSpecEnv(dctx.resolveResult.Spec, rctx)
+
+		// Create encryptor if KMS is configured
+		var enc *envelope.Encryptor
+		if cfg.Deployment.KMSKeyARN != "" {
+			awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
+			if awsErr != nil {
+				log.Error("Failed to load AWS config for KMS", "error", awsErr)
 			} else {
-				// Resolve env vars for normalized storage
-				rctx := deployment.ResolveContext{
-					Namespace:  dctx.k8sNS,
-					AgentName:  dctx.agentName,
-					BuildID:    dctx.buildID,
-					SecretName: deployment.GenerateSecretName(dctx.agentName, dctx.buildID),
-				}
-				resolved := deployment.ResolveDeploymentSpecEnv(dctx.resolveResult.Spec, rctx)
-
-				// Create encryptor if KMS is configured
-				var enc *envelope.Encryptor
-				if cfg.Deployment.KMSKeyARN != "" {
-					awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
-					if awsErr != nil {
-						log.Error("Failed to load AWS config for KMS", "error", awsErr)
-					} else {
-						kmsClient := kms.NewFromConfig(awsCfg)
-						enc, awsErr = envelope.NewEncryptor(c.Request.Context(), kmsClient, cfg.Deployment.KMSKeyARN)
-						if awsErr != nil {
-							log.Error("Failed to create KMS encryptor", "error", awsErr)
-						}
-					}
-				}
-
-				params := deploymentstore.SaveDeploymentParams{
-					ID: dctx.deploymentID, AccountID: dctx.acct.ID,
-					AgentName: dctx.agentName, DisplayName: dctx.displayName,
-					BuildID: dctx.buildID, Namespace: dctx.k8sNS,
-					SpecJSON: string(specJSON),
-				}
-				if enc != nil {
-					params.EncryptedDataKey = enc.EncryptedDataKey
-					params.KMSKeyARN = enc.KMSKeyARN
-				}
-
-				txFn := func(tx *sql.Tx, deploymentID string) error {
-					return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc)
-				}
-				var storeErr error
-				if dctx.isUpdate {
-					_, storeErr = deployStore.UpdateDeploymentFull(params, txFn)
-				} else {
-					_, storeErr = deployStore.SaveDeploymentFull(params, txFn)
-				}
-				if storeErr != nil {
-					log.Error("Failed to save deployment record", "error", storeErr)
+				kmsClient := kms.NewFromConfig(awsCfg)
+				enc, awsErr = envelope.NewEncryptor(c.Request.Context(), kmsClient, cfg.Deployment.KMSKeyARN)
+				if awsErr != nil {
+					log.Error("Failed to create KMS encryptor", "error", awsErr)
 				}
 			}
 		}
 
-		status := "success"
-		statusCode := http.StatusOK
-		if len(applyResult.Errors) > 0 {
-			status = "partial"
-			statusCode = http.StatusMultiStatus
-			log.Warn("Deployment completed with errors", "error_count", len(applyResult.Errors))
+		params := deploymentstore.SaveDeploymentParams{
+			ID: dctx.deploymentID, AccountID: dctx.acct.ID,
+			AgentName: dctx.agentName, DisplayName: dctx.displayName,
+			BuildID: dctx.buildID, Namespace: dctx.k8sNS,
+			SpecJSON: string(specJSON),
+		}
+		if enc != nil {
+			params.EncryptedDataKey = enc.EncryptedDataKey
+			params.KMSKeyARN = enc.KMSKeyARN
 		}
 
-		log.Info("Deployment completed",
-			"status", status,
-			"resources", len(applyResult.Resources),
-			"errors", len(applyResult.Errors),
+		// Save deployment as pending with normalized spec in same transaction
+		txFn := func(tx *sql.Tx, deploymentID string) error {
+			return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc)
+		}
+		var storeErr error
+		if dctx.isUpdate {
+			_, storeErr = deployStore.UpdateDeploymentPending(params, txFn)
+		} else {
+			_, storeErr = deployStore.SaveDeploymentPending(params, txFn)
+		}
+		if storeErr != nil {
+			log.Error("Failed to save deployment record", "error", storeErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
+			return
+		}
+
+		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
+		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID); err != nil {
+			log.Error("Failed to enqueue deploy job", "error", err, "deployment_id", dctx.deploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
+			return
+		}
+
+		log.Info("Deployment queued",
+			"deployment_id", dctx.deploymentID,
+			"agent", dctx.agentName,
+			"build", dctx.buildID,
+			"namespace", dctx.k8sNS,
 		)
 
-		c.JSON(statusCode, deployment.DeployResponse{
-			Status:           status,
-			Name:             dctx.agentName,
-			BuildID:          dctx.buildID,
-			K8sNamespace:     dctx.k8sNS,
-			DeployedAt:       time.Now().UTC(),
-			Resources:        applyResult.Resources,
-			ServiceEndpoints: applyResult.ServiceEndpoints,
-			Errors:           applyResult.Errors,
+		c.JSON(http.StatusAccepted, deployment.DeployResponse{
+			Status:       "pending",
+			DeploymentID: dctx.deploymentID,
+			Name:         dctx.agentName,
+			BuildID:      dctx.buildID,
+			K8sNamespace: dctx.k8sNS,
+			DeployedAt:   time.Now().UTC(),
 		})
 	}
 }
@@ -523,7 +494,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 }
 
 // UndeployAgent returns a handler for undeploying agents from Kubernetes
-func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.UndeployRequest
 
@@ -549,13 +520,13 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			return
 		}
 
-		// Look up deployment by ID
+		// Look up deployment by ID — accept active or scaled_down
 		dep, err := deployStore.GetDeploymentByID(req.DeploymentID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
 			return
 		}
-		if dep == nil || dep.Status != "active" {
+		if dep == nil || (dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "active deployment not found"})
 			return
 		}
@@ -574,43 +545,30 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			"user_id", user.ID,
 		)
 
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+		// Set status to undeploying and enqueue async undeploy job
+		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
 			return
 		}
 
-		// Delete the entire namespace — cascades to all resources
-		err = k8sClient.Clientset().CoreV1().Namespaces().Delete(
-			c.Request.Context(), dep.Namespace, metav1.DeleteOptions{},
+		if err := queue.InsertUndeployJob(c.Request.Context(), dep.ID); err != nil {
+			log.Error("Failed to enqueue undeploy job", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
+			return
+		}
+
+		log.Info("Undeploy queued",
+			"deployment_id", dep.ID,
+			"namespace", dep.Namespace,
 		)
-		if err != nil {
-			log.Error("Failed to delete namespace", "error", err, "namespace", dep.Namespace)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "undeploy failed",
-				"details": err.Error(),
-			})
-			return
-		}
 
-		// Mark deployment record as undeployed
-		if err := deployStore.MarkUndeployedByID(dep.ID); err != nil {
-			log.Warn("Failed to mark deployment as undeployed", "error", err)
-		}
-
-		response := deployment.UndeployResponse{
-			Status:       "success",
+		c.JSON(http.StatusAccepted, deployment.UndeployResponse{
+			Status:       "undeploying",
 			Name:         dep.AgentName,
 			BuildID:      dep.BuildID,
 			K8sNamespace: dep.Namespace,
 			UndeployedAt: time.Now().UTC(),
-		}
-
-		log.Info("Undeploy completed",
-			"status", "success",
-			"namespace", dep.Namespace,
-		)
-
-		c.JSON(http.StatusOK, response)
+		})
 	}
 }
 
@@ -1674,4 +1632,156 @@ func imagePullPolicyForMode(mode string) corev1.PullPolicy {
 		return corev1.PullNever
 	}
 	return corev1.PullAlways
+}
+
+// GetDeploymentStatus returns the current status, events, and revisions for a deployment.
+func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dep, err := deployStore.GetDeploymentByID(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
+			return
+		}
+		if dep == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+
+		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		events, _ := deployStore.GetDeploymentEvents(dep.ID, 50)
+		revisions, _ := deployStore.GetRevisions(dep.ID)
+
+		c.JSON(http.StatusOK, gin.H{
+			"deployment_id":     dep.ID,
+			"status":            dep.Status,
+			"current_revision":  dep.CurrentRevision,
+			"error_message":     dep.ErrorMessage,
+			"error_details":     dep.ErrorDetails,
+			"deployed_at":       dep.DeployedAt,
+			"status_changed_at": dep.StatusChangedAt,
+			"events":            events,
+			"revisions":         revisions,
+		})
+	}
+}
+
+// WakeUpDeployment triggers re-provisioning of a KEDA-scaled-down deployment.
+func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		dep, err := deployStore.GetDeploymentByID(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
+			return
+		}
+		if dep == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+		if dep.Status != deploymentstore.StatusScaledDown {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not scaled down"})
+			return
+		}
+
+		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "", nil); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
+			return
+		}
+
+		if err := queue.InsertWakeUpJob(c.Request.Context(), dep.ID); err != nil {
+			log.Error("Failed to enqueue wakeup job", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule wakeup"})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":        "pending",
+			"deployment_id": dep.ID,
+		})
+	}
+}
+
+// RollbackDeployment rolls back a deployment to a previous revision.
+func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		var req struct {
+			Revision int `json:"revision" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+
+		dep, err := deployStore.GetDeploymentByID(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
+			return
+		}
+		if dep == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+		if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusFailed {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "can only rollback active or failed deployments"})
+			return
+		}
+		if dep.CurrentRevision != nil && *dep.CurrentRevision == req.Revision {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "already on this revision"})
+			return
+		}
+
+		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		// SetCurrentRevision atomically sets revision, status=pending, and records event
+		if err := deployStore.SetCurrentRevision(dep.ID, req.Revision, func(tx *sql.Tx) error {
+			// Job enqueue happens after commit (store uses database/sql, River uses pgx)
+			return nil
+		}); err != nil {
+			log.Error("Failed to set revision", "error", err, "deployment_id", dep.ID, "revision", req.Revision)
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := queue.InsertDeployJob(c.Request.Context(), dep.ID); err != nil {
+			log.Error("Failed to enqueue rollback deploy job", "error", err, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule rollback"})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":           "pending",
+			"deployment_id":    dep.ID,
+			"current_revision": req.Revision,
+			"message":          fmt.Sprintf("Rolling back to revision %d", req.Revision),
+		})
+	}
 }

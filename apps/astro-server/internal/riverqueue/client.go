@@ -131,6 +131,24 @@ func (q *Queue) Insert(ctx context.Context, args river.JobArgs, opts *river.Inse
 	return result, nil
 }
 
+// InsertDeployJob enqueues a deploy job.
+func (q *Queue) InsertDeployJob(ctx context.Context, deploymentID string) error {
+	_, err := q.Insert(ctx, DeployArgs{DeploymentID: deploymentID}, nil)
+	return err
+}
+
+// InsertUndeployJob enqueues an undeploy job.
+func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID string) error {
+	_, err := q.Insert(ctx, UndeployArgs{DeploymentID: deploymentID}, nil)
+	return err
+}
+
+// InsertWakeUpJob enqueues a wakeup job.
+func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID string) error {
+	_, err := q.Insert(ctx, WakeUpArgs{DeploymentID: deploymentID}, nil)
+	return err
+}
+
 // levelHandler wraps an slog.Handler and drops records below minLevel.
 // Used to suppress River's noisy DEBUG/INFO logs (e.g. QueryCacher).
 type levelHandler struct {
