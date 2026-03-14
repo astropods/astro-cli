@@ -304,6 +304,42 @@ func (c *Client) GetCustomerAccess(ctx context.Context, customerKey string) (*Cu
 	return &result, nil
 }
 
+// CreateGrant creates an entitlement grant for a customer's feature.
+// Uses POST /api/v1/customers/{customerKey}/entitlements/{featureKey}/grants.
+func (c *Client) CreateGrant(ctx context.Context, customerKey, featureKey string, amount float64) error {
+	url := fmt.Sprintf("%s/api/v1/customers/%s/entitlements/%s/grants", c.baseURL, customerKey, featureKey)
+
+	payload := map[string]any{
+		"amount":      amount,
+		"effectiveAt": time.Now().UTC().Format(time.RFC3339),
+		"priority":    1,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal grant: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
+	if err != nil {
+		return fmt.Errorf("create grant request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("create grant: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 // CreateSubscription subscribes a customer to a plan by plan key.
 func (c *Client) CreateSubscription(ctx context.Context, customerID, planKey string) error {
 	payload := map[string]any{

@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { usageKeys } from './keys';
+import type { QuotaIncreaseInput } from '../../lib/api';
 
 export function useAccountUsage(account: string) {
   return useQuery({
@@ -8,5 +9,24 @@ export function useAccountUsage(account: string) {
     queryFn: () => api.getAccountUsage(account),
     enabled: !!account,
     staleTime: 60_000,
+  });
+}
+
+export function useQuotaIncreaseRequests(account: string) {
+  return useQuery({
+    queryKey: usageKeys.quotaRequests(account),
+    queryFn: () => api.listQuotaIncreaseRequests(account),
+    enabled: !!account,
+  });
+}
+
+export function useRequestQuotaIncrease(account: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: QuotaIncreaseInput) =>
+      api.requestQuotaIncrease(account, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: usageKeys.quotaRequests(account) });
+    },
   });
 }

@@ -32,6 +32,9 @@ type AdminServiceClient interface {
 	StartRiverUI(ctx context.Context, in *StartRiverUIRequest, opts ...grpc.CallOption) (*StartRiverUIResponse, error)
 	StopRiverUI(ctx context.Context, in *StopRiverUIRequest, opts ...grpc.CallOption) (*StopRiverUIResponse, error)
 	GetRiverUIStatus(ctx context.Context, in *GetRiverUIStatusRequest, opts ...grpc.CallOption) (*GetRiverUIStatusResponse, error)
+	ListQuotaIncreaseRequests(ctx context.Context, in *ListQuotaIncreaseRequestsRequest, opts ...grpc.CallOption) (*ListQuotaIncreaseRequestsResponse, error)
+	ApproveQuotaIncrease(ctx context.Context, in *ApproveQuotaIncreaseRequest, opts ...grpc.CallOption) (*ApproveQuotaIncreaseResponse, error)
+	DenyQuotaIncrease(ctx context.Context, in *DenyQuotaIncreaseRequest, opts ...grpc.CallOption) (*DenyQuotaIncreaseResponse, error)
 }
 
 type adminServiceClient struct {
@@ -194,6 +197,30 @@ func (c *adminServiceClient) GetRiverUIStatus(ctx context.Context, in *GetRiverU
 	return out, nil
 }
 
+func (c *adminServiceClient) ListQuotaIncreaseRequests(ctx context.Context, in *ListQuotaIncreaseRequestsRequest, opts ...grpc.CallOption) (*ListQuotaIncreaseRequestsResponse, error) {
+	out := new(ListQuotaIncreaseRequestsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListQuotaIncreaseRequests", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ApproveQuotaIncrease(ctx context.Context, in *ApproveQuotaIncreaseRequest, opts ...grpc.CallOption) (*ApproveQuotaIncreaseResponse, error) {
+	out := new(ApproveQuotaIncreaseResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ApproveQuotaIncrease", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DenyQuotaIncrease(ctx context.Context, in *DenyQuotaIncreaseRequest, opts ...grpc.CallOption) (*DenyQuotaIncreaseResponse, error) {
+	out := new(DenyQuotaIncreaseResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/DenyQuotaIncrease", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -216,6 +243,9 @@ type AdminServiceServer interface {
 	StartRiverUI(context.Context, *StartRiverUIRequest) (*StartRiverUIResponse, error)
 	StopRiverUI(context.Context, *StopRiverUIRequest) (*StopRiverUIResponse, error)
 	GetRiverUIStatus(context.Context, *GetRiverUIStatusRequest) (*GetRiverUIStatusResponse, error)
+	ListQuotaIncreaseRequests(context.Context, *ListQuotaIncreaseRequestsRequest) (*ListQuotaIncreaseRequestsResponse, error)
+	ApproveQuotaIncrease(context.Context, *ApproveQuotaIncreaseRequest) (*ApproveQuotaIncreaseResponse, error)
+	DenyQuotaIncrease(context.Context, *DenyQuotaIncreaseRequest) (*DenyQuotaIncreaseResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -296,6 +326,18 @@ func (UnimplementedAdminServiceServer) StopRiverUI(context.Context, *StopRiverUI
 
 func (UnimplementedAdminServiceServer) GetRiverUIStatus(context.Context, *GetRiverUIStatusRequest) (*GetRiverUIStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRiverUIStatus not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListQuotaIncreaseRequests(context.Context, *ListQuotaIncreaseRequestsRequest) (*ListQuotaIncreaseRequestsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListQuotaIncreaseRequests not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ApproveQuotaIncrease(context.Context, *ApproveQuotaIncreaseRequest) (*ApproveQuotaIncreaseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApproveQuotaIncrease not implemented")
+}
+
+func (UnimplementedAdminServiceServer) DenyQuotaIncrease(context.Context, *DenyQuotaIncreaseRequest) (*DenyQuotaIncreaseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DenyQuotaIncrease not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -595,6 +637,51 @@ func _AdminService_GetRiverUIStatus_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListQuotaIncreaseRequests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListQuotaIncreaseRequestsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListQuotaIncreaseRequests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListQuotaIncreaseRequests"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListQuotaIncreaseRequests(ctx, req.(*ListQuotaIncreaseRequestsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ApproveQuotaIncrease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApproveQuotaIncreaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ApproveQuotaIncrease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ApproveQuotaIncrease"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ApproveQuotaIncrease(ctx, req.(*ApproveQuotaIncreaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DenyQuotaIncrease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DenyQuotaIncreaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DenyQuotaIncrease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/DenyQuotaIncrease"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DenyQuotaIncrease(ctx, req.(*DenyQuotaIncreaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -619,6 +706,9 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "StartRiverUI", Handler: _AdminService_StartRiverUI_Handler},
 		{MethodName: "StopRiverUI", Handler: _AdminService_StopRiverUI_Handler},
 		{MethodName: "GetRiverUIStatus", Handler: _AdminService_GetRiverUIStatus_Handler},
+		{MethodName: "ListQuotaIncreaseRequests", Handler: _AdminService_ListQuotaIncreaseRequests_Handler},
+		{MethodName: "ApproveQuotaIncrease", Handler: _AdminService_ApproveQuotaIncrease_Handler},
+		{MethodName: "DenyQuotaIncrease", Handler: _AdminService_DenyQuotaIncrease_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

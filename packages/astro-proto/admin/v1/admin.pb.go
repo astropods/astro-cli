@@ -389,3 +389,49 @@ type GetRiverUIStatusRequest struct{}
 type GetRiverUIStatusResponse struct {
 	Running bool `json:"running"`
 }
+
+type QuotaIncreaseRequestProto struct {
+	ID              string  `json:"id,omitempty"`
+	AccountID       string  `json:"account_id,omitempty"`
+	AccountName     string  `json:"account_name,omitempty"`
+	FeatureKey      string  `json:"feature_key,omitempty"`
+	CurrentUsage    float64 `json:"current_usage,omitempty"`
+	CurrentQuota    float64 `json:"current_quota,omitempty"`
+	RequestedAmount float64 `json:"requested_amount,omitempty"`
+	Reason          string  `json:"reason,omitempty"`
+	Status          string  `json:"status,omitempty"`
+	RequestedBy     string  `json:"requested_by,omitempty"`
+	ResolvedBy      string  `json:"resolved_by,omitempty"`
+	ResolvedAt      string  `json:"resolved_at,omitempty"`
+	ResolutionNote  string  `json:"resolution_note,omitempty"`
+	GrantAmount     float64 `json:"grant_amount,omitempty"`
+	CreatedAt       string  `json:"created_at,omitempty"`
+}
+
+type ListQuotaIncreaseRequestsRequest struct {
+	Status string `json:"status,omitempty"`
+}
+
+type ListQuotaIncreaseRequestsResponse struct {
+	Requests []*QuotaIncreaseRequestProto `json:"requests,omitempty"`
+	Count    int32                        `json:"count,omitempty"`
+}
+
+type ApproveQuotaIncreaseRequest struct {
+	RequestID   string  `json:"request_id,omitempty"`
+	GrantAmount float64 `json:"grant_amount,omitempty"`
+	Note        string  `json:"note,omitempty"`
+}
+
+type ApproveQuotaIncreaseResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type DenyQuotaIncreaseRequest struct {
+	RequestID string `json:"request_id,omitempty"`
+	Note      string `json:"note,omitempty"`
+}
+
+type DenyQuotaIncreaseResponse struct {
+	Status string `json:"status,omitempty"`
+}

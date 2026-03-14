@@ -44,6 +44,7 @@ func (s *Server) ListenAndServe() error {
 
 	// Admin API routes
 	s.registerAdminRoutes(mux)
+	s.registerQuotaRoutes(mux)
 
 	// OpenAPI spec
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {

@@ -477,6 +477,24 @@ class ApiClient {
       `/api/v1/accounts/${encodeURIComponent(account)}/usage${qs}`
     );
   }
+
+  async listQuotaIncreaseRequests(
+    account: string,
+  ): Promise<QuotaIncreaseListResponse> {
+    return this.request<QuotaIncreaseListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/quota-increase`
+    );
+  }
+
+  async requestQuotaIncrease(
+    account: string,
+    body: QuotaIncreaseInput,
+  ): Promise<{ id: string; status: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/quota-increase`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -771,6 +789,29 @@ export interface TriggerIngestionResponse {
 export interface UsageMeter {
   usage: number;
   quota?: number;
+}
+
+export interface QuotaIncreaseInput {
+  feature_key: string;
+  current_usage: number;
+  current_quota?: number;
+  requested_amount?: number;
+  reason: string;
+}
+
+export interface QuotaIncreaseListItem {
+  id: string;
+  feature_key: string;
+  current_usage: number;
+  current_quota?: number;
+  requested_amount?: number;
+  reason: string;
+  status: string;
+  created_at: string;
+}
+
+export interface QuotaIncreaseListResponse {
+  requests: QuotaIncreaseListItem[];
 }
 
 export interface AccountUsageResponse {

@@ -19,6 +19,9 @@ service AdminService {
   rpc StartRiverUI(StartRiverUIRequest) returns (StartRiverUIResponse);
   rpc StopRiverUI(StopRiverUIRequest) returns (StopRiverUIResponse);
   rpc GetRiverUIStatus(GetRiverUIStatusRequest) returns (GetRiverUIStatusResponse);
+  rpc ListQuotaIncreaseRequests(ListQuotaIncreaseRequestsRequest) returns (ListQuotaIncreaseRequestsResponse);
+  rpc ApproveQuotaIncrease(ApproveQuotaIncreaseRequest) returns (ApproveQuotaIncreaseResponse);
+  rpc DenyQuotaIncrease(DenyQuotaIncreaseRequest) returns (DenyQuotaIncreaseResponse);
 }
 
 message ListDeploymentsRequest {
@@ -227,4 +230,50 @@ message GetRiverUIStatusRequest {}
 
 message GetRiverUIStatusResponse {
   bool running = 1;
+}
+
+message QuotaIncreaseRequestProto {
+  string id = 1;
+  string account_id = 2;
+  string account_name = 3;
+  string feature_key = 4;
+  double current_usage = 5;
+  double current_quota = 6;
+  double requested_amount = 7;
+  string reason = 8;
+  string status = 9;
+  string requested_by = 10;
+  string resolved_by = 11;
+  string resolved_at = 12;
+  string resolution_note = 13;
+  double grant_amount = 14;
+  string created_at = 15;
+}
+
+message ListQuotaIncreaseRequestsRequest {
+  string status = 1;
+}
+
+message ListQuotaIncreaseRequestsResponse {
+  repeated QuotaIncreaseRequestProto requests = 1;
+  int32 count = 2;
+}
+
+message ApproveQuotaIncreaseRequest {
+  string request_id = 1;
+  double grant_amount = 2;
+  string note = 3;
+}
+
+message ApproveQuotaIncreaseResponse {
+  string status = 1;
+}
+
+message DenyQuotaIncreaseRequest {
+  string request_id = 1;
+  string note = 2;
+}
+
+message DenyQuotaIncreaseResponse {
+  string status = 1;
 }

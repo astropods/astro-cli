@@ -257,6 +257,28 @@ CREATE TABLE public.agent_hearts (
 
 CREATE INDEX idx_agent_hearts_agent ON public.agent_hearts(account_id, agent_name);
 
+CREATE TABLE public.quota_increase_requests (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    account_id uuid NOT NULL,
+    feature_key varchar NOT NULL,
+    current_usage float8 NOT NULL DEFAULT 0,
+    current_quota float8,
+    requested_amount float8,
+    reason text NOT NULL DEFAULT '',
+    status varchar NOT NULL DEFAULT 'pending',
+    requested_by text NOT NULL,
+    resolved_by text,
+    resolved_at timestamp,
+    resolution_note text,
+    grant_amount float8,
+    created_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT quota_increase_requests_pkey PRIMARY KEY (id),
+    CONSTRAINT quota_increase_requests_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_quota_increase_requests_status ON public.quota_increase_requests(status, created_at);
+CREATE INDEX idx_quota_increase_requests_account ON public.quota_increase_requests(account_id);
+
 CREATE TABLE public.waitlist (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name text NOT NULL,

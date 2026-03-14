@@ -30,6 +30,7 @@ export const observabilityKeys = {
 
 export const usageKeys = {
   byAccount: (account: string) => ['usage', account] as const,
+  quotaRequests: (account: string) => ['usage', 'quotaRequests', account] as const,
 };
 
 export const deploymentKeys = {
