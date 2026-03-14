@@ -405,7 +405,7 @@ export function useCreateSubscription() {
     mutationFn: (body: unknown) =>
       api.post<Subscription>("/api/openmeter/api/v1/subscriptions", body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: openmeterKeys.customers() });
+      qc.invalidateQueries({ queryKey: openmeterKeys.all });
     },
   });
 }
@@ -430,7 +430,7 @@ export function useCancelSubscription() {
         body
       ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: openmeterKeys.customers() });
+      qc.invalidateQueries({ queryKey: openmeterKeys.all });
     },
   });
 }

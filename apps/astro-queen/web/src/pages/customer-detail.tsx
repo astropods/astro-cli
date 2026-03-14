@@ -211,20 +211,28 @@ function UsageAttributionCheck({ customer }: { customer: Customer }) {
   };
 
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex items-center justify-between">
-      <div>
-        <p className="text-[11px] font-medium text-amber-600">Missing Usage Attribution</p>
-        <p className="text-[10px] text-muted-foreground">
-          This customer has no <code className="text-amber">usageAttribution.subjectKeys</code>. Events won't be matched to entitlements.
-        </p>
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[11px] font-medium text-amber-600">Missing Usage Attribution</p>
+          <p className="text-[10px] text-muted-foreground">
+            This customer has no <code className="text-amber">usageAttribution.subjectKeys</code>. Events won't be matched to entitlements.
+            {customer.currentSubscriptionId && (
+              <span className="text-amber-600"> Cancel the subscription first before fixing.</span>
+            )}
+          </p>
+        </div>
+        <Button
+          size="xs"
+          onClick={handleFix}
+          disabled={updateMut.isPending}
+        >
+          {updateMut.isPending ? "Fixing..." : `Set subjectKeys to ["${customer.key}"]`}
+        </Button>
       </div>
-      <Button
-        size="xs"
-        onClick={handleFix}
-        disabled={updateMut.isPending}
-      >
-        {updateMut.isPending ? "Fixing..." : `Set subjectKeys to ["${customer.key}"]`}
-      </Button>
+      {updateMut.error && (
+        <p className="text-[10px] text-destructive">{updateMut.error.message}</p>
+      )}
     </div>
   );
 }
