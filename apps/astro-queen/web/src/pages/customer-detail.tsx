@@ -13,6 +13,7 @@ import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon, RefreshCw } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
+import { EventTable } from "@/components/event-table";
 import { SchemaFormPanel } from "@/components/schema-form-panel";
 import type { Entitlement, Customer } from "@/types/openmeter";
 
@@ -239,7 +240,7 @@ function UsageAttributionCheck({ customer }: { customer: Customer }) {
 
 function CustomerEventsSection({ customerKey }: { customerKey: string }) {
   const { data: allEvents, isLoading } = useEvents();
-  const events = allEvents?.filter((ev) => ev.subject === customerKey) ?? [];
+  const events = allEvents?.filter((ev) => ev.subject === customerKey).slice(0, 50) ?? [];
 
   return (
     <Collapsible>
@@ -249,33 +250,7 @@ function CustomerEventsSection({ customerKey }: { customerKey: string }) {
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2">
         {isLoading && <Skeleton className="h-16 w-full" />}
-        {events.length === 0 && !isLoading && (
-          <p className="text-[10px] text-muted-foreground">No events found for subject {customerKey}</p>
-        )}
-        {events.length > 0 && (
-          <div className="overflow-x-auto rounded-lg glass">
-            <table className="w-full text-[11px] whitespace-nowrap">
-              <thead>
-                <tr className="border-b border-glass-border-honey glass-subtle">
-                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">Type</th>
-                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">Data</th>
-                  <th className="px-2 py-1 text-left font-medium text-muted-foreground">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.slice(0, 50).map((ev, i) => (
-                  <tr key={ev.id || i} className="border-b border-glass-border-honey hover:bg-glass-light">
-                    <td className="px-2 py-1 text-amber">{ev.type}</td>
-                    <td className="px-2 py-1 font-mono text-[10px] text-muted-foreground max-w-[400px] truncate" title={ev.data ? JSON.stringify(ev.data) : ""}>
-                      {ev.data ? JSON.stringify(ev.data) : "—"}
-                    </td>
-                    <td className="px-2 py-1 text-muted-foreground">{ev.time ? formatDateTime(ev.time) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {!isLoading && <EventTable events={events} />}
       </CollapsibleContent>
     </Collapsible>
   );
