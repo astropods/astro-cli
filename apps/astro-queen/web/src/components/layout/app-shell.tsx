@@ -14,6 +14,7 @@ import {
   ClipboardList,
   Zap,
   Waves,
+  ArrowUpCircle,
   ExternalLink,
   ChevronRight,
   PanelLeftClose,
@@ -26,6 +27,7 @@ const sections = [
     key: "admin",
     label: "Admin",
     links: [
+      { to: "/admin/quota-requests", label: "Quota Requests", icon: ArrowUpCircle },
       { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
       { to: "/admin/accounts", label: "Accounts", icon: Users },
       { to: "/admin/agents", label: "Agents", icon: Bot },

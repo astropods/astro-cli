@@ -217,6 +217,63 @@ export function useStopRiverUI() {
   });
 }
 
+interface QuotaRequest {
+  id: string;
+  account_id: string;
+  account_name: string;
+  feature_key: string;
+  current_usage: number;
+  current_quota: number;
+  requested_amount: number;
+  reason: string;
+  status: string;
+  requested_by: string;
+  resolved_by: string;
+  resolved_at: string;
+  resolution_note: string;
+  grant_amount: number;
+  created_at: string;
+}
+
+export function useQuotaRequests(status?: string) {
+  return useQuery({
+    queryKey: adminKeys.quotaRequests(status),
+    queryFn: () =>
+      api.get<{ requests: QuotaRequest[]; count: number }>(
+        `/api/admin/quota-requests${status ? `?status=${status}` : ""}`
+      ),
+  });
+}
+
+export function useApproveQuotaRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, grantAmount, note }: { id: string; grantAmount: number; note?: string }) =>
+      api.post(`/api/admin/quota-requests/${encodeURIComponent(id)}/approve`, {
+        grant_amount: grantAmount,
+        note: note ?? "",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.quotaRequests() });
+    },
+  });
+}
+
+export function useDenyQuotaRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      api.post(`/api/admin/quota-requests/${encodeURIComponent(id)}/deny`, {
+        note: note ?? "",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.quotaRequests() });
+    },
+  });
+}
+
+export type { QuotaRequest };
+
 export function usePodEnv(namespace: string, pod: string) {
   return useQuery({
     queryKey: adminKeys.podEnv(namespace, pod),
