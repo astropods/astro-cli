@@ -77,7 +77,7 @@ type ProfileUser struct {
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
 // If omClient is non-nil, creates a corresponding OpenMeter customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, defaultPlan string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -174,6 +174,15 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			} else {
 				if storeErr := accountStore.SetOpenMeterCustomerID(acct.ID, customerID); storeErr != nil {
 					log.Error("Failed to store OpenMeter customer ID", "error", storeErr, "account_id", acct.ID)
+				}
+
+				// Auto-subscribe to default plan if configured
+				if defaultPlan != "" && customerID != "" {
+					if subErr := omClient.CreateSubscription(c.Request.Context(), customerID, defaultPlan); subErr != nil {
+						log.Error("Failed to auto-subscribe account to default plan", "error", subErr, "account_id", acct.ID, "plan", defaultPlan)
+					} else {
+						log.Info("Auto-subscribed account to default plan", "account_id", acct.ID, "plan", defaultPlan)
+					}
 				}
 			}
 		}

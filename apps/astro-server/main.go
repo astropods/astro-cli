@@ -518,7 +518,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
 				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient, cfg.OpenMeterDefaultPlan),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),

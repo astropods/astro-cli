@@ -8,16 +8,17 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	RunMode      string // SERVER_MODE: "all" (default), "api", or "worker"
-	Server       ServerConfig
-	Log          LogConfig
-	Security     SecurityConfig
-	Deployment   DeploymentConfig
-	Auth         AuthConfig
-	Database     DatabaseConfig
-	AdminGRPC    AdminGRPCConfig
-	ConnectGRPC  ConnectGRPCConfig
-	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API
+	RunMode              string // SERVER_MODE: "all" (default), "api", or "worker"
+	Server               ServerConfig
+	Log                  LogConfig
+	Security             SecurityConfig
+	Deployment           DeploymentConfig
+	Auth                 AuthConfig
+	Database             DatabaseConfig
+	AdminGRPC            AdminGRPCConfig
+	ConnectGRPC          ConnectGRPCConfig
+	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
+	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 }
 
 // RunAPI returns true if this instance should run the HTTP/gRPC API servers.
@@ -198,7 +199,8 @@ func Load() (*Config, error) {
 			CertFile: getEnv("FLEET_TLS_CERT_PATH", ""),
 			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
 		},
-		OpenMeterURL: getEnv("OPENMETER_URL", ""),
+		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
+		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {

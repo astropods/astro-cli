@@ -292,3 +292,35 @@ func (c *Client) GetEntitlementValue(ctx context.Context, subjectKey, featureKey
 
 	return &result, nil
 }
+
+// CreateSubscription subscribes a customer to a plan by plan key.
+func (c *Client) CreateSubscription(ctx context.Context, customerID, planKey string) error {
+	payload := map[string]any{
+		"customerId": customerID,
+		"plan":       map[string]string{"key": planKey},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal subscription: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/subscriptions", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
+	if err != nil {
+		return fmt.Errorf("create subscription request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("create subscription: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
