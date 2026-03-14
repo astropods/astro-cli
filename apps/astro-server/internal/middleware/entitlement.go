@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -9,67 +10,79 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
-// WithEntitlement wraps a handler with an entitlement check. Use this when the
-// entitlement check should only apply to a specific route, not an entire group.
-func WithEntitlement(log *logger.Logger, omClient *openmeter.Client, enforce bool, handler gin.HandlerFunc, features ...string) gin.HandlerFunc {
-	check := RequireEntitlement(log, omClient, enforce, features...)
-	return func(c *gin.Context) {
-		check(c)
-		if c.IsAborted() {
-			return
-		}
-		handler(c)
-	}
+// Entitlements provides entitlement checking for routes. Create one at startup
+// and use Wrap() to guard individual handlers or Check() for inline checks.
+//
+//	ent := middleware.NewEntitlements(log, omClient, cfg.OpenMeterEnforce)
+//	api.POST(g, "/register", "Register", ent.Wrap(handler, "agents", "agent_builds"), ...)
+type Entitlements struct {
+	log     *logger.Logger
+	client  *openmeter.Client
+	enforce bool
 }
 
-// RequireEntitlement returns a Gin middleware that checks if the account has access
-// to the given feature(s) via OpenMeter entitlements. If enforce is false, the check
-// is skipped (log-only). If the OpenMeter client is nil, the check is skipped.
-//
-// The middleware uses the account from context (set by the account resolution middleware)
-// and calls GetEntitlementValue with the account ID as the subject key.
-func RequireEntitlement(log *logger.Logger, omClient *openmeter.Client, enforce bool, features ...string) gin.HandlerFunc {
+// NewEntitlements creates an Entitlements checker. If client is nil or enforce
+// is false, checks become no-ops or log-only respectively.
+func NewEntitlements(log *logger.Logger, client *openmeter.Client, enforce bool) *Entitlements {
+	return &Entitlements{log: log, client: client, enforce: enforce}
+}
+
+// Wrap returns a gin.HandlerFunc that checks the given features before calling
+// the handler. The account must be in context via ResolveAccount middleware.
+func (e *Entitlements) Wrap(handler gin.HandlerFunc, features ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if omClient == nil {
-			c.Next()
+		if e.client == nil {
+			handler(c)
 			return
 		}
 
 		acct, ok := GetAccountFromContext(c)
 		if !ok {
-			// No account in context — let the handler deal with it
-			c.Next()
+			handler(c)
 			return
 		}
 
-		for _, feature := range features {
-			ent, err := omClient.GetEntitlementValue(c.Request.Context(), acct.ID, feature)
-			if err != nil {
-				log.Warn("Entitlement check failed", "error", err, "account_id", acct.ID, "feature", feature)
-				// On error, allow the request through (fail open)
-				continue
-			}
-
-			if !ent.HasAccess {
-				if enforce {
-					c.JSON(http.StatusPaymentRequired, gin.H{
-						"error":   "entitlement limit reached",
-						"feature": feature,
-						"usage":   ent.Usage,
-						"limit":   ent.Limit,
-					})
-					c.Abort()
-					return
-				}
-				log.Warn("Entitlement exceeded (not enforcing)",
-					"account_id", acct.ID,
-					"feature", feature,
-					"usage", ent.Usage,
-					"limit", ent.Limit,
-				)
-			}
+		if blocked, feature, ent := e.check(c.Request.Context(), acct.ID, features); blocked {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "entitlement limit reached",
+				"feature": feature,
+				"usage":   ent.Usage,
+				"limit":   ent.Limit,
+			})
+			return
 		}
 
-		c.Next()
+		handler(c)
 	}
+}
+
+// Check performs an entitlement check for the given account ID and features.
+// Use this for handlers that resolve the account outside of middleware (e.g. DeployAgent).
+// Returns true if the request should be blocked.
+func (e *Entitlements) Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.Entitlement) {
+	if e.client == nil {
+		return false, "", nil
+	}
+	return e.check(ctx, accountID, features)
+}
+
+func (e *Entitlements) check(ctx context.Context, accountID string, features []string) (blocked bool, feature string, ent *openmeter.Entitlement) {
+	for _, f := range features {
+		result, err := e.client.GetEntitlementValue(ctx, accountID, f)
+		if err != nil {
+			e.log.Warn("Entitlement check failed", "error", err, "account_id", accountID, "feature", f)
+			continue // fail open
+		}
+
+		if !result.HasAccess {
+			if e.enforce {
+				return true, f, result
+			}
+			e.log.Warn("Entitlement exceeded (not enforcing)",
+				"account_id", accountID, "feature", f,
+				"usage", result.Usage, "limit", result.Limit,
+			)
+		}
+	}
+	return false, "", nil
 }

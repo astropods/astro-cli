@@ -1325,7 +1325,7 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, k8sClient, deployStore, nil))
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, k8sClient, deployStore, nil)) //nolint:staticcheck // nil EntitlementChecker skips checks in tests
 
 	return router, indexMock, accountMock, deployMock
 }

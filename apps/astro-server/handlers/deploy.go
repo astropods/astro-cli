@@ -332,7 +332,13 @@ func prepareDeployment(
 // POST /api/v1/deploy
 // Content-Type: application/yaml (or application/json)
 // Body: fulfilled deployment spec (spec: deployment/v1)
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, omClient *openmeter.Client) gin.HandlerFunc {
+// EntitlementChecker is the interface used by DeployAgent for entitlement checks.
+// A nil EntitlementChecker skips all checks.
+type EntitlementChecker interface {
+	Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.Entitlement)
+}
+
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, entCheck EntitlementChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -350,22 +356,15 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		}
 
 		// Check entitlements for deploy (account resolved from spec, not middleware)
-		if omClient != nil && cfg.OpenMeterEnforce {
-			for _, feature := range []string{"agent_deployments", "compute"} {
-				ent, err := omClient.GetEntitlementValue(c.Request.Context(), dctx.acct.ID, feature)
-				if err != nil {
-					log.Warn("Entitlement check failed", "error", err, "account_id", dctx.acct.ID, "feature", feature)
-					continue
-				}
-				if !ent.HasAccess {
-					c.JSON(http.StatusPaymentRequired, gin.H{
-						"error":   "entitlement limit reached",
-						"feature": feature,
-						"usage":   ent.Usage,
-						"limit":   ent.Limit,
-					})
-					return
-				}
+		if entCheck != nil {
+			if blocked, feature, entResult := entCheck.Check(c.Request.Context(), dctx.acct.ID, "agent_deployments", "compute"); blocked {
+				c.JSON(http.StatusPaymentRequired, gin.H{
+					"error":   "entitlement limit reached",
+					"feature": feature,
+					"usage":   entResult.Usage,
+					"limit":   entResult.Limit,
+				})
+				return
 			}
 		}
 

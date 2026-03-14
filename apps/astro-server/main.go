@@ -103,6 +103,9 @@ func main() {
 		}
 	}
 
+	// Entitlement enforcement (no-op when omClient is nil or enforce is false)
+	ent := middleware.NewEntitlements(log, omClient, cfg.OpenMeterEnforce)
+
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
 	var grpcServer *grpc.Server
@@ -112,7 +115,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, connectGRPCServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient)
+		httpSrv, grpcServer, connectGRPCServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -194,6 +197,7 @@ func runAPI(
 	orgClient *org.Client,
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
+	ent *middleware.Entitlements,
 ) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -260,7 +264,7 @@ func runAPI(
 	probeHandler := handlers.NewProbeHandler(log, agentIndex, k8sClient)
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient, ent)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL)
@@ -382,7 +386,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -569,7 +573,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.ListMembersResponse{}),
 				)
 				api.POST(memberRoutes, "", "Add a member",
-					middleware.WithEntitlement(log, omClient, cfg.OpenMeterEnforce, handlers.AddMember(log, orgSync, accountStore), "members"),
+					ent.Wrap(handlers.AddMember(log, orgSync, accountStore), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -660,7 +664,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					middleware.WithEntitlement(log, omClient, cfg.OpenMeterEnforce, handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion), "agent_builds"),
+					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion), "agents", "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -690,7 +694,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore, omClient),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, k8sClient, deploymentStore, ent),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and applies it to Kubernetes."),
