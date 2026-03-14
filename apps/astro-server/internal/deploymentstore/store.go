@@ -3,6 +3,7 @@ package deploymentstore
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -84,7 +85,7 @@ func (s *Store) GetDeploymentByID(id string) (*Deployment, error) {
 		FROM deployments
 		WHERE id = $1
 	`, id))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -107,7 +108,7 @@ func (s *Store) GetActiveDeployment(accountID, agentName string) (*Deployment, e
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -157,7 +158,7 @@ func (s *Store) GetActiveDeploymentByDisplayName(accountID, displayName string) 
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
 		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt, &d.UndeployedAt,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

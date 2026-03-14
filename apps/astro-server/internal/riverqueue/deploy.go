@@ -71,7 +71,10 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 
 	if len(result.Errors) > 0 {
 		// Partial failure — some K8s resources failed. Mark failed with details.
-		errJSON, _ := json.Marshal(result.Errors)
+		errJSON, jsonErr := json.Marshal(result.Errors)
+		if jsonErr != nil {
+			w.log.Warn("Failed to marshal error details", "error", jsonErr, "deployment_id", dep.ID)
+		}
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "partial failure", errJSON); err != nil {
 			w.log.Warn("Failed to mark deployment as partially failed", "error", err, "deployment_id", dep.ID)
 		}
