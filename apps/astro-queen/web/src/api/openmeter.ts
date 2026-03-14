@@ -150,8 +150,9 @@ export function useUpdateCustomer() {
         `/api/openmeter/api/v1/customers/${encodeURIComponent(id)}`,
         body
       ),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: openmeterKeys.customers() });
+      qc.invalidateQueries({ queryKey: openmeterKeys.customer(vars.id) });
     },
   });
 }

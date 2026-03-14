@@ -14,6 +14,14 @@ import type {
   SendCommandResponse,
 } from "@/types/admin";
 
+export function useEnv() {
+  return useQuery({
+    queryKey: ["env"],
+    queryFn: () => api.get<{ env: string }>("/api/env"),
+    staleTime: Infinity,
+  });
+}
+
 export function useDeployments() {
   return useQuery({
     queryKey: adminKeys.deployments(),

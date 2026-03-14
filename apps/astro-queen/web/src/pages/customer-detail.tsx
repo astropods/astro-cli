@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router";
 import {
-  useCustomer, useCustomerEntitlements, useEntitlementValue, useEntitlementGrants,
+  useCustomer, useUpdateCustomer, useCustomerEntitlements, useEntitlementValue, useEntitlementGrants,
   useCreateEntitlement, useDeleteEntitlement, useCreateGrant,
   useSubscription, useCreateSubscription, useCancelSubscription, usePlans,
 } from "@/api/openmeter";
@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Trash2, ChevronDown, XCircle, Plus } from "lucide-react";
+import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import { SchemaFormPanel } from "@/components/schema-form-panel";
 import type { Entitlement, Customer } from "@/types/openmeter";
@@ -32,12 +32,7 @@ export function CustomerDetailPage() {
         <h2 className="text-xl font-semibold">{customer.name}</h2>
         <p className="text-sm text-muted-foreground">{customer.id}</p>
       </div>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <InfoCard label="Email" value={customer.email} />
-        <InfoCard label="Key" value={customer.key} />
-        <InfoCard label="Currency" value={customer.currency} />
-        <InfoCard label="Timezone" value={customer.timezone} />
-      </div>
+      <CustomerInfoCards customer={customer} />
 
       <SubscriptionSection customer={customer} />
 
@@ -178,6 +173,68 @@ function SubscribeForm({ customerId, onDone }: { customerId: string; onDone: () 
           Subscribe
         </Button>
       </div>
+    </div>
+  );
+}
+
+function CustomerInfoCards({ customer }: { customer: Customer }) {
+  const updateMut = useUpdateCustomer();
+
+  const save = (field: string, value: string) => {
+    updateMut.mutate({ id: customer.id, body: { [field]: value } });
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <EditableInfoCard label="Email" field="primaryEmail" value={customer.email} onSave={save} />
+      <InfoCard label="Key" value={customer.key} />
+      <EditableInfoCard label="Currency" field="currency" value={customer.currency} onSave={save} />
+      <InfoCard label="Timezone" value={customer.timezone} />
+    </div>
+  );
+}
+
+function EditableInfoCard({ label, field, value, onSave }: { label: string; field: string; value: string; onSave: (field: string, value: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  const handleSave = () => {
+    onSave(field, draft);
+    setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setDraft(value);
+    setEditing(false);
+  };
+
+  return (
+    <div className="rounded-lg glass px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      {editing ? (
+        <div className="flex items-center gap-1 mt-0.5">
+          <Input
+            className="h-6 text-sm"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") handleCancel(); }}
+            autoFocus
+          />
+          <Button variant="ghost" size="icon-xs" onClick={handleSave} title="Save">
+            <Check className="size-3 text-green-600" />
+          </Button>
+          <Button variant="ghost" size="icon-xs" onClick={handleCancel} title="Cancel">
+            <XIcon className="size-3 text-muted-foreground" />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between mt-0.5">
+          <p className="truncate text-sm">{value || "-"}</p>
+          <Button variant="ghost" size="icon-xs" onClick={() => { setDraft(value); setEditing(true); }} title={`Edit ${label}`}>
+            <Pencil className="size-3 text-muted-foreground" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

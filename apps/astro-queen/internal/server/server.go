@@ -23,16 +23,18 @@ type Server struct {
 	webFS       fs.FS
 	port        int
 	openapiJSON []byte
+	env         string
 	httpSrv     *http.Server
 }
 
 // New creates a new Server.
-func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, openapiJSON []byte) *Server {
+func New(admin adminv1.AdminServiceClient, webFS fs.FS, port int, openapiJSON []byte, env string) *Server {
 	return &Server{
 		admin:       admin,
 		webFS:       webFS,
 		port:        port,
 		openapiJSON: openapiJSON,
+		env:         env,
 	}
 }
 
@@ -46,6 +48,11 @@ func (s *Server) ListenAndServe() error {
 	// OpenAPI spec
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		writeRawJSON(w, http.StatusOK, s.openapiJSON)
+	})
+
+	// Environment info
+	mux.HandleFunc("GET /api/env", func(w http.ResponseWriter, r *http.Request) {
+		writeRawJSON(w, http.StatusOK, []byte(fmt.Sprintf(`{"env":%q}`, s.env)))
 	})
 
 	// OpenMeter reverse proxy

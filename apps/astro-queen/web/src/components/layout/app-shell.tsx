@@ -19,6 +19,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
+import { useEnv } from "@/api/admin";
 
 const sections = [
   {
@@ -168,6 +169,7 @@ export function AppShell() {
     openmeter: true,
   });
   const [collapsed, setCollapsed] = useState(false);
+  const { data: envData } = useEnv();
 
   const toggle = (key: string) =>
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
@@ -181,7 +183,14 @@ export function AppShell() {
         )}
       >
         <div className={cn("mb-4 flex items-center", collapsed ? "justify-center" : "justify-between px-1")}>
-          {!collapsed && <h1 className="text-sm font-bold text-honey-dark">Queen 🐝</h1>}
+          {!collapsed && (
+            <div>
+              <h1 className="text-sm font-bold text-honey-dark">Queen 🐝</h1>
+              {envData?.env && (
+                <p className="text-[9px] text-muted-foreground">{envData.env}</p>
+              )}
+            </div>
+          )}
           <button
             onClick={() => setCollapsed((c) => !c)}
             className="text-muted-foreground hover:text-foreground transition-colors"

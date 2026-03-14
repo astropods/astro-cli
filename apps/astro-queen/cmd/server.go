@@ -66,7 +66,7 @@ func newAdminCmd(env, addr string) *cobra.Command {
 				return fmt.Errorf("embedded web fs: %w", err)
 			}
 
-			srv := server.New(c.AdminService(), webContent, serverPort, OpenAPIJSON)
+			srv := server.New(c.AdminService(), webContent, serverPort, OpenAPIJSON, env)
 
 			// Open browser (skip with --no-open for dev/reload workflows)
 			if !serverNoOpen {
