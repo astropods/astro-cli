@@ -1,6 +1,7 @@
 // fakeopenmeter is a lightweight OpenMeter stub for local development.
-// It accepts all OpenMeter API calls the server makes (customers, events, meter queries)
-// and returns plausible fake data so the usage page works without a real OpenMeter instance.
+// It accepts all OpenMeter API calls the server makes (customers, events, meter queries,
+// entitlements, subscriptions) and returns responses that strictly follow the OpenMeter
+// OpenAPI spec (apps/astro-queen/openapi.json).
 //
 // Usage: go run ./cmd/fakeopenmeter
 // Default port: 8888 (override with PORT env var)
@@ -42,17 +43,23 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Customer creation — accept and return a fake ID
+	// Customer creation — accept and return a full Customer object (201)
 	mux.HandleFunc("POST /api/v1/customers", handleCreateCustomer)
 
-	// Event ingestion — store in memory
+	// Event ingestion — store in memory, return 204
 	mux.HandleFunc("POST /api/v1/events", handleIngestEvents)
 
-	// Meter queries — return aggregated or seed data
+	// List meters — return bare array of Meter objects
+	mux.HandleFunc("GET /api/v1/meters", handleListMeters)
+
+	// Meter queries — return MeterQueryResult with envelope fields
 	mux.HandleFunc("GET /api/v1/meters/{meterSlug}/query", handleQueryMeter)
 
-	// Entitlement checks — always grant access
+	// Entitlement checks — return EntitlementValue per spec
 	mux.HandleFunc("GET /api/v1/subjects/{subject}/entitlements/{feature}/value", handleEntitlement)
+
+	// Subscription creation — return Subscription object (201)
+	mux.HandleFunc("POST /api/v1/subscriptions", handleCreateSubscription)
 
 	// Catch-all for other OpenMeter endpoints we don't need
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -72,21 +79,40 @@ func main() {
 	}
 }
 
+// handleCreateCustomer returns a full Customer object per the OpenAPI spec (201 Created).
 func handleCreateCustomer(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	name, _ := body["name"].(string)
-	log.Printf("[fakeopenmeter] POST /api/v1/customers name=%q", name)
+	key, _ := body["key"].(string)
+	log.Printf("[fakeopenmeter] POST /api/v1/customers name=%q key=%q", name, key)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	id := fmt.Sprintf("01J%013d", time.Now().UnixMilli()) // ULID-ish
+
+	// Echo back request fields and add server-generated readOnly fields.
+	resp := map[string]any{
+		"id":               id,
+		"name":             name,
+		"key":              key,
+		"usageAttribution": body["usageAttribution"],
+		"primaryEmail":     body["primaryEmail"],
+		"currency":         body["currency"],
+		"metadata":         body["metadata"],
+		"createdAt":        now,
+		"updatedAt":        now,
+		"deletedAt":        nil,
+		"annotations":      map[string]string{},
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(map[string]string{
-		"id": fmt.Sprintf("fake-cust-%d", time.Now().UnixMilli()),
-	}); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("[fakeopenmeter] encode error: %v", err)
 	}
 }
 
+// handleIngestEvents accepts CloudEvents batch and returns 204 No Content per spec.
 func handleIngestEvents(w http.ResponseWriter, r *http.Request) {
 	var events []cloudEvent
 	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
@@ -103,9 +129,46 @@ func handleIngestEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// requiredMeters is the set of meters the fake server advertises.
+var requiredMeters = []map[string]any{
+	{"slug": "compute", "id": "01METER0COMPUTE0000", "name": "Compute Usage", "aggregation": "SUM", "eventType": "compute", "valueProperty": "$.compute_unit_hours", "groupBy": map[string]string{}, "metadata": map[string]string{}},
+	{"slug": "agents", "id": "01METER0AGENTS00000", "name": "Active Agents", "aggregation": "COUNT", "eventType": "agents", "groupBy": map[string]string{}, "metadata": map[string]string{}},
+	{"slug": "agent_builds", "id": "01METER0BUILDS00000", "name": "Agent Builds", "aggregation": "COUNT", "eventType": "agent_builds", "groupBy": map[string]string{}, "metadata": map[string]string{}},
+	{"slug": "agent_deployments", "id": "01METER0DEPLOYS0000", "name": "Agent Deployments", "aggregation": "COUNT", "eventType": "agent_deployments", "groupBy": map[string]string{}, "metadata": map[string]string{}},
+	{"slug": "members", "id": "01METER0MEMBERS0000", "name": "Team Members", "aggregation": "COUNT", "eventType": "members", "groupBy": map[string]string{}, "metadata": map[string]string{}},
+}
+
+// handleListMeters returns a bare JSON array of Meter objects per the OpenAPI spec.
+func handleListMeters(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[fakeopenmeter] GET /api/v1/meters")
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	meters := make([]map[string]any, len(requiredMeters))
+	for i, m := range requiredMeters {
+		meter := make(map[string]any, len(m)+3)
+		for k, v := range m {
+			meter[k] = v
+		}
+		meter["createdAt"] = now
+		meter["updatedAt"] = now
+		meter["deletedAt"] = nil
+		meters[i] = meter
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(meters); err != nil {
+		log.Printf("[fakeopenmeter] encode error: %v", err)
+	}
+}
+
+// handleQueryMeter returns a MeterQueryResult with the full envelope per spec:
+// { from, to, windowSize, data: [{ value, windowStart, windowEnd, subject, groupBy }] }
 func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 	meterSlug := r.PathValue("meterSlug")
 	subject := r.URL.Query().Get("subject")
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	windowSize := r.URL.Query().Get("windowSize")
 
 	log.Printf("[fakeopenmeter] GET /api/v1/meters/%s/query subject=%s", meterSlug, subject) //nolint:gosec // path values are from route params, not raw input
 
@@ -117,18 +180,23 @@ func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 		value = seedValue(meterSlug)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
+		"from":       from,
+		"to":         to,
+		"windowSize": windowSize,
 		"data": []map[string]any{
 			{
 				"value":       value,
-				"windowStart": r.URL.Query().Get("from"),
-				"windowEnd":   r.URL.Query().Get("to"),
+				"windowStart": from,
+				"windowEnd":   to,
 				"subject":     subject,
 				"groupBy":     map[string]string{},
 			},
 		},
-	}); err != nil {
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("[fakeopenmeter] encode error: %v", err)
 	}
 }
@@ -141,6 +209,8 @@ var featureLimits = map[string]int64{
 	"active_agents":      10,  // 10 registered agents
 }
 
+// handleEntitlement returns an EntitlementValue per spec with fields:
+// { hasAccess, balance, usage, overage }
 func handleEntitlement(w http.ResponseWriter, r *http.Request) {
 	subject := r.PathValue("subject")
 	feature := r.PathValue("feature")
@@ -151,12 +221,55 @@ func handleEntitlement(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[fakeopenmeter] GET entitlement subject=%s feature=%s → limit=%d", subject, feature, limit) //nolint:gosec // path values are from route params
 
+	resp := map[string]any{
+		"hasAccess":                 true,
+		"balance":                   float64(limit),
+		"usage":                     float64(0),
+		"overage":                   float64(0),
+		"totalAvailableGrantAmount": float64(limit),
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{
-		"hasAccess": true,
-		"usage":     0,
-		"limit":     limit,
-	}); err != nil {
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("[fakeopenmeter] encode error: %v", err)
+	}
+}
+
+// handleCreateSubscription returns a Subscription object per spec (201 Created).
+func handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
+	var body map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	customerID, _ := body["customerId"].(string)
+	plan, _ := body["plan"].(map[string]any)
+	planKey := ""
+	if plan != nil {
+		planKey, _ = plan["key"].(string)
+	}
+	log.Printf("[fakeopenmeter] POST /api/v1/subscriptions customer=%s plan=%s", customerID, planKey)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	id := fmt.Sprintf("01S%013d", time.Now().UnixMilli()) // ULID-ish
+
+	resp := map[string]any{
+		"id":             id,
+		"customerId":     customerID,
+		"plan":           body["plan"],
+		"status":         "active",
+		"currency":       "USD",
+		"billingCadence": "P1M",
+		"activeFrom":     now,
+		"activeTo":       nil,
+		"metadata":       map[string]string{},
+		"createdAt":      now,
+		"updatedAt":      now,
+		"deletedAt":      nil,
+		"annotations":    map[string]string{},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("[fakeopenmeter] encode error: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -54,7 +55,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		},
 		Workers:      workers,
 		PeriodicJobs: periodicJobs(cfg),
-		Logger:       cfg.Logger.Logger,
+		Logger:       slog.New(levelHandler{minLevel: slog.LevelWarn, inner: cfg.Logger.Handler()}),
 	})
 	if err != nil {
 		pool.Close()
@@ -90,4 +91,27 @@ func (q *Queue) Stop(ctx context.Context) error {
 	q.pool.Close()
 	q.log.Info("River queue stopped")
 	return nil
+}
+
+// levelHandler wraps an slog.Handler and drops records below minLevel.
+// Used to suppress River's noisy DEBUG/INFO logs (e.g. QueryCacher).
+type levelHandler struct {
+	minLevel slog.Level
+	inner    slog.Handler
+}
+
+func (h levelHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.minLevel
+}
+
+func (h levelHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.inner.Handle(ctx, r)
+}
+
+func (h levelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return levelHandler{minLevel: h.minLevel, inner: h.inner.WithAttrs(attrs)}
+}
+
+func (h levelHandler) WithGroup(name string) slog.Handler {
+	return levelHandler{minLevel: h.minLevel, inner: h.inner.WithGroup(name)}
 }

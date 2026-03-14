@@ -17,6 +17,7 @@ export const adminKeys = {
     [...adminKeys.all, "podEnv", ns, pod] as const,
   connectedDevices: () => [...adminKeys.all, "connectedDevices"] as const,
   astroOpenapi: () => [...adminKeys.all, "astroOpenapi"] as const,
+  riverUIStatus: () => [...adminKeys.all, "riverUIStatus"] as const,
 };
 
 export const openmeterKeys = {

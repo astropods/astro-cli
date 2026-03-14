@@ -8,7 +8,37 @@ import (
 )
 
 func (s *Server) registerRiverUIRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/admin/riverui/start", s.handleStartRiverUI)
+	mux.HandleFunc("POST /api/admin/riverui/stop", s.handleStopRiverUI)
+	mux.HandleFunc("GET /api/admin/riverui/status", s.handleGetRiverUIStatus)
 	mux.HandleFunc("/riverui/", s.riverUIProxy)
+}
+
+func (s *Server) handleStartRiverUI(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.StartRiverUI(r.Context(), &adminv1.StartRiverUIRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleStopRiverUI(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.StopRiverUI(r.Context(), &adminv1.StopRiverUIRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetRiverUIStatus(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.GetRiverUIStatus(r.Context(), &adminv1.GetRiverUIStatusRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // riverUIProxy forwards /riverui/* requests to astro-server's internal River UI

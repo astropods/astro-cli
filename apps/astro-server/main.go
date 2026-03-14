@@ -112,10 +112,11 @@ func main() {
 	var connectGRPCServer *grpc.Server
 	var eventsCancel context.CancelFunc
 	var probeHandler *handlers.ProbeHandler
+	var adminSrv *admingrpc.Server
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, connectGRPCServer, probeHandler = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
+		httpSrv, grpcServer, connectGRPCServer, probeHandler, adminSrv = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -172,6 +173,9 @@ func main() {
 	if grpcServer != nil {
 		grpcServer.GracefulStop()
 	}
+	if adminSrv != nil {
+		adminSrv.ShutdownRiverUI()
+	}
 
 	// Create shutdown context with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
@@ -198,7 +202,7 @@ func runAPI(
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
 	ent *middleware.Entitlements,
-) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler) {
+) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
 
@@ -267,7 +271,7 @@ func runAPI(
 	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient, ent)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)
@@ -287,15 +291,6 @@ func runAPI(
 
 	// Wire gin router as HTTP handler for admin ProxyHTTP
 	adminSrv.SetHTTPHandler(router)
-
-	// Wire River UI handler (internal only — accessible via admin gRPC ProxyHTTP, not the public HTTP port)
-	riverUIHandler, _, riverUIErr := riverqueue.UIHandler(context.Background(), cfg.Database.URL, log.Logger)
-	if riverUIErr != nil {
-		log.Warn("River UI disabled", "error", riverUIErr)
-	} else {
-		adminSrv.SetRiverUIHandler(riverUIHandler)
-		log.Info("River UI enabled (admin gRPC only)")
-	}
 
 	// Wire WorkOS client ID for admin GetAuthConfig
 	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
@@ -323,7 +318,7 @@ func runAPI(
 		}
 	}()
 
-	return srv, grpcServer, connectServer, probeHandler
+	return srv, grpcServer, connectServer, probeHandler, adminSrv
 }
 
 // runWorker starts the River queue for all background job processing and returns a cancel func.

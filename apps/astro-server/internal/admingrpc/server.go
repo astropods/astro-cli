@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"time"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
@@ -18,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -38,8 +40,12 @@ type Server struct {
 	openMeterURL   string
 	cmdDispatch    CommandDispatcher
 	httpHandler    http.Handler
-	riverUIHandler http.Handler
 	workosClientID string
+	databaseURL    string
+
+	riverMu        sync.Mutex
+	riverUIHandler http.Handler
+	riverUICleanup func()
 }
 
 // SetHTTPHandler sets the HTTP handler (gin router) for proxying HTTP requests.
@@ -59,6 +65,7 @@ func New(
 	k8sClient k8s.ClusterClient,
 	db *sql.DB,
 	openMeterURL string,
+	databaseURL string,
 ) *Server {
 	return &Server{
 		log:          log,
@@ -66,12 +73,65 @@ func New(
 		k8sClient:    k8sClient,
 		db:           db,
 		openMeterURL: strings.TrimRight(openMeterURL, "/"),
+		databaseURL:  databaseURL,
 	}
 }
 
-// SetRiverUIHandler sets the internal River UI HTTP handler, only reachable via ProxyHTTP.
-func (s *Server) SetRiverUIHandler(h http.Handler) {
-	s.riverUIHandler = h
+// StartRiverUI starts the River UI handler. No-op if already running.
+func (s *Server) StartRiverUI(_ context.Context, _ *adminv1.StartRiverUIRequest) (*adminv1.StartRiverUIResponse, error) {
+	s.riverMu.Lock()
+	defer s.riverMu.Unlock()
+
+	if s.riverUIHandler != nil {
+		return &adminv1.StartRiverUIResponse{Status: "already_running"}, nil
+	}
+
+	handler, cleanup, err := riverqueue.UIHandler(context.Background(), s.databaseURL, s.log.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("start river UI: %w", err)
+	}
+	s.riverUIHandler = handler
+	s.riverUICleanup = cleanup
+	s.log.Info("River UI started")
+
+	return &adminv1.StartRiverUIResponse{Status: "started"}, nil
+}
+
+// StopRiverUI stops the River UI handler and frees resources. No-op if not running.
+func (s *Server) StopRiverUI(_ context.Context, _ *adminv1.StopRiverUIRequest) (*adminv1.StopRiverUIResponse, error) {
+	s.riverMu.Lock()
+	defer s.riverMu.Unlock()
+
+	if s.riverUIHandler == nil {
+		return &adminv1.StopRiverUIResponse{Status: "not_running"}, nil
+	}
+
+	if s.riverUICleanup != nil {
+		s.riverUICleanup()
+	}
+	s.riverUIHandler = nil
+	s.riverUICleanup = nil
+	s.log.Info("River UI stopped")
+
+	return &adminv1.StopRiverUIResponse{Status: "stopped"}, nil
+}
+
+// GetRiverUIStatus returns whether River UI is currently running.
+func (s *Server) GetRiverUIStatus(_ context.Context, _ *adminv1.GetRiverUIStatusRequest) (*adminv1.GetRiverUIStatusResponse, error) {
+	s.riverMu.Lock()
+	defer s.riverMu.Unlock()
+	return &adminv1.GetRiverUIStatusResponse{Running: s.riverUIHandler != nil}, nil
+}
+
+// ShutdownRiverUI cleans up River UI resources during server shutdown.
+func (s *Server) ShutdownRiverUI() {
+	s.riverMu.Lock()
+	defer s.riverMu.Unlock()
+	if s.riverUICleanup != nil {
+		s.riverUICleanup()
+		s.riverUIHandler = nil
+		s.riverUICleanup = nil
+	}
 }
 
 // SetCommandDispatcher sets the dispatcher for sending commands to connected devices.
@@ -849,13 +909,16 @@ func (s *Server) GetAuthConfig(_ context.Context, _ *adminv1.GetAuthConfigReques
 // ProxyHTTP dispatches an HTTP request to the gin router running in the same process.
 // Requests to /riverui/ are routed to the internal River UI handler (not exposed on the public HTTP port).
 func (s *Server) ProxyHTTP(_ context.Context, req *adminv1.HTTPProxyRequest) (*adminv1.HTTPProxyResponse, error) {
-	// Route /riverui/ requests to the internal River UI handler.
+	// Route /riverui/ requests to the River UI handler (must be started via StartRiverUI first).
 	handler := s.httpHandler
 	if strings.HasPrefix(req.Path, "/riverui/") || req.Path == "/riverui" {
-		if s.riverUIHandler == nil {
-			return nil, fmt.Errorf("river UI not configured")
+		s.riverMu.Lock()
+		h := s.riverUIHandler
+		s.riverMu.Unlock()
+		if h == nil {
+			return nil, fmt.Errorf("river UI is not running — start it first")
 		}
-		handler = s.riverUIHandler
+		handler = h
 	}
 
 	if handler == nil {

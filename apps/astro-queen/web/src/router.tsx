@@ -15,6 +15,7 @@ import { CustomerDetailPage } from "@/pages/customer-detail";
 import { EventsPage } from "@/pages/events";
 import { PlansPage } from "@/pages/plans";
 import { OpenMeterHomePage } from "@/pages/openmeter-home";
+import { RiverUIPage } from "@/pages/river-ui";
 
 export const router = createBrowserRouter([
   {
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { path: "admin/cluster", element: <ClusterPage /> },
       { path: "admin/devices", element: <ConnectedDevicesPage /> },
       { path: "admin/api-client", element: <ApiClientPage /> },
+      { path: "admin/river-ui", element: <RiverUIPage /> },
       { path: "openmeter/meters", element: <MetersPage /> },
       { path: "openmeter/features", element: <FeaturesPage /> },
       { path: "openmeter/customers", element: <CustomersPage /> },

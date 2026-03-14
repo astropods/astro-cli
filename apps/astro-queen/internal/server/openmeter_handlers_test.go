@@ -66,6 +66,15 @@ func (m *mockAdminClient) ProxyHTTP(context.Context, *adminv1.HTTPProxyRequest, 
 func (m *mockAdminClient) GetAuthConfig(context.Context, *adminv1.GetAuthConfigRequest, ...grpc.CallOption) (*adminv1.GetAuthConfigResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) StartRiverUI(context.Context, *adminv1.StartRiverUIRequest, ...grpc.CallOption) (*adminv1.StartRiverUIResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) StopRiverUI(context.Context, *adminv1.StopRiverUIRequest, ...grpc.CallOption) (*adminv1.StopRiverUIResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) GetRiverUIStatus(context.Context, *adminv1.GetRiverUIStatusRequest, ...grpc.CallOption) (*adminv1.GetRiverUIStatusResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

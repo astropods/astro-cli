@@ -29,6 +29,9 @@ type AdminServiceClient interface {
 	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
 	ListConnectedDevices(ctx context.Context, in *ListConnectedDevicesRequest, opts ...grpc.CallOption) (*ListConnectedDevicesResponse, error)
 	SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error)
+	StartRiverUI(ctx context.Context, in *StartRiverUIRequest, opts ...grpc.CallOption) (*StartRiverUIResponse, error)
+	StopRiverUI(ctx context.Context, in *StopRiverUIRequest, opts ...grpc.CallOption) (*StopRiverUIResponse, error)
+	GetRiverUIStatus(ctx context.Context, in *GetRiverUIStatusRequest, opts ...grpc.CallOption) (*GetRiverUIStatusResponse, error)
 }
 
 type adminServiceClient struct {
@@ -167,6 +170,30 @@ func (c *adminServiceClient) SendCommand(ctx context.Context, in *SendCommandReq
 	return out, nil
 }
 
+func (c *adminServiceClient) StartRiverUI(ctx context.Context, in *StartRiverUIRequest, opts ...grpc.CallOption) (*StartRiverUIResponse, error) {
+	out := new(StartRiverUIResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/StartRiverUI", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) StopRiverUI(ctx context.Context, in *StopRiverUIRequest, opts ...grpc.CallOption) (*StopRiverUIResponse, error) {
+	out := new(StopRiverUIResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/StopRiverUI", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetRiverUIStatus(ctx context.Context, in *GetRiverUIStatusRequest, opts ...grpc.CallOption) (*GetRiverUIStatusResponse, error) {
+	out := new(GetRiverUIStatusResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetRiverUIStatus", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -186,6 +213,9 @@ type AdminServiceServer interface {
 	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
 	ListConnectedDevices(context.Context, *ListConnectedDevicesRequest) (*ListConnectedDevicesResponse, error)
 	SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error)
+	StartRiverUI(context.Context, *StartRiverUIRequest) (*StartRiverUIResponse, error)
+	StopRiverUI(context.Context, *StopRiverUIRequest) (*StopRiverUIResponse, error)
+	GetRiverUIStatus(context.Context, *GetRiverUIStatusRequest) (*GetRiverUIStatusResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -254,6 +284,18 @@ func (UnimplementedAdminServiceServer) ListConnectedDevices(context.Context, *Li
 
 func (UnimplementedAdminServiceServer) SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendCommand not implemented")
+}
+
+func (UnimplementedAdminServiceServer) StartRiverUI(context.Context, *StartRiverUIRequest) (*StartRiverUIResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartRiverUI not implemented")
+}
+
+func (UnimplementedAdminServiceServer) StopRiverUI(context.Context, *StopRiverUIRequest) (*StopRiverUIResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopRiverUI not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetRiverUIStatus(context.Context, *GetRiverUIStatusRequest) (*GetRiverUIStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRiverUIStatus not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -508,6 +550,51 @@ func _AdminService_SendCommand_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_StartRiverUI_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartRiverUIRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).StartRiverUI(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/StartRiverUI"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).StartRiverUI(ctx, req.(*StartRiverUIRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_StopRiverUI_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopRiverUIRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).StopRiverUI(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/StopRiverUI"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).StopRiverUI(ctx, req.(*StopRiverUIRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetRiverUIStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRiverUIStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetRiverUIStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetRiverUIStatus"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetRiverUIStatus(ctx, req.(*GetRiverUIStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -529,6 +616,9 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetAuthConfig", Handler: _AdminService_GetAuthConfig_Handler},
 		{MethodName: "ListConnectedDevices", Handler: _AdminService_ListConnectedDevices_Handler},
 		{MethodName: "SendCommand", Handler: _AdminService_SendCommand_Handler},
+		{MethodName: "StartRiverUI", Handler: _AdminService_StartRiverUI_Handler},
+		{MethodName: "StopRiverUI", Handler: _AdminService_StopRiverUI_Handler},
+		{MethodName: "GetRiverUIStatus", Handler: _AdminService_GetRiverUIStatus_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

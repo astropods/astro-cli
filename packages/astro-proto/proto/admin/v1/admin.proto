@@ -16,6 +16,9 @@ service AdminService {
   rpc ProxyOpenMeter(OpenMeterProxyRequest) returns (OpenMeterProxyResponse);
   rpc ProxyHTTP(HTTPProxyRequest) returns (HTTPProxyResponse);
   rpc GetAuthConfig(GetAuthConfigRequest) returns (GetAuthConfigResponse);
+  rpc StartRiverUI(StartRiverUIRequest) returns (StartRiverUIResponse);
+  rpc StopRiverUI(StopRiverUIRequest) returns (StopRiverUIResponse);
+  rpc GetRiverUIStatus(GetRiverUIStatusRequest) returns (GetRiverUIStatusResponse);
 }
 
 message ListDeploymentsRequest {
@@ -206,4 +209,22 @@ message GetAuthConfigRequest {}
 message GetAuthConfigResponse {
   string workos_client_id = 1;
   string workos_base_url = 2;
+}
+
+message StartRiverUIRequest {}
+
+message StartRiverUIResponse {
+  string status = 1;
+}
+
+message StopRiverUIRequest {}
+
+message StopRiverUIResponse {
+  string status = 1;
+}
+
+message GetRiverUIStatusRequest {}
+
+message GetRiverUIStatusResponse {
+  bool running = 1;
 }

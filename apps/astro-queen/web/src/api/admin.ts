@@ -188,6 +188,35 @@ export function useAstroOpenAPISpec() {
   });
 }
 
+export function useRiverUIStatus() {
+  return useQuery({
+    queryKey: adminKeys.riverUIStatus(),
+    queryFn: () =>
+      api.get<{ running: boolean }>("/api/admin/riverui/status"),
+    refetchInterval: 5_000,
+  });
+}
+
+export function useStartRiverUI() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ status: string }>("/api/admin/riverui/start"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.riverUIStatus() });
+    },
+  });
+}
+
+export function useStopRiverUI() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ status: string }>("/api/admin/riverui/stop"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.riverUIStatus() });
+    },
+  });
+}
+
 export function usePodEnv(namespace: string, pod: string) {
   return useQuery({
     queryKey: adminKeys.podEnv(namespace, pod),

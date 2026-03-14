@@ -32,7 +32,7 @@ const sections = [
       { to: "/admin/cluster", label: "Cluster", icon: Server },
       { to: "/admin/devices", label: "Devices", icon: Wifi },
       { to: "/admin/api-client", label: "API Client", icon: Send },
-      { to: "/riverui/", label: "River UI", icon: Waves, external: true },
+      { to: "/admin/river-ui", label: "River UI", icon: Waves },
     ],
   },
   {

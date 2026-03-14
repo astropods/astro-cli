@@ -371,3 +371,21 @@ type GetAuthConfigResponse struct {
 	WorkOSClientID string `json:"workos_client_id,omitempty"`
 	WorkOSBaseURL  string `json:"workos_base_url,omitempty"`
 }
+
+type StartRiverUIRequest struct{}
+
+type StartRiverUIResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type StopRiverUIRequest struct{}
+
+type StopRiverUIResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type GetRiverUIStatusRequest struct{}
+
+type GetRiverUIStatusResponse struct {
+	Running bool `json:"running"`
+}
