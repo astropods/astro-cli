@@ -140,45 +140,58 @@ func TestIngestEvents_ServerError(t *testing.T) {
 	}
 }
 
-func TestGetEntitlementValue_Success(t *testing.T) {
+func TestGetCustomerAccess_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
-		if r.URL.Path != "/api/v1/subjects/acct-123/entitlements/agent_deployments/value" {
+		if r.URL.Path != "/api/v1/customers/acct-123/access" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"hasAccess": true,
-			"usage":     5,
-			"limit":     10,
+			"entitlements": map[string]any{
+				"agent_deployments": map[string]any{
+					"hasAccess":                 true,
+					"balance":                   10.0,
+					"usage":                     5.0,
+					"overage":                   0.0,
+					"totalAvailableGrantAmount": 10.0,
+				},
+			},
 		})
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL)
-	ent, err := c.GetEntitlementValue(context.Background(), "acct-123", "agent_deployments")
+	access, err := c.GetCustomerAccess(context.Background(), "acct-123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	ent, ok := access.Entitlements["agent_deployments"]
+	if !ok {
+		t.Fatal("expected agent_deployments entitlement")
 	}
 	if !ent.HasAccess {
 		t.Error("expected hasAccess=true")
 	}
+	if ent.TotalAvailableGrantAmount == nil || *ent.TotalAvailableGrantAmount != 10.0 {
+		t.Errorf("expected totalAvailableGrantAmount=10, got %v", ent.TotalAvailableGrantAmount)
+	}
 }
 
-func TestGetEntitlementValue_Denied(t *testing.T) {
+func TestGetCustomerAccess_Error(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"forbidden"}`))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not found"}`))
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL)
-	_, err := c.GetEntitlementValue(context.Background(), "acct-123", "agent_deployments")
+	_, err := c.GetCustomerAccess(context.Background(), "acct-123")
 	if err == nil {
-		t.Fatal("expected error on 403 response")
+		t.Fatal("expected error on 404 response")
 	}
 }
 

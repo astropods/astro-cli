@@ -769,8 +769,8 @@ export interface TriggerIngestionResponse {
 }
 
 export interface UsageMeter {
-  value: number;
-  limit?: number;
+  usage: number;
+  quota?: number;
 }
 
 export interface AccountUsageResponse {

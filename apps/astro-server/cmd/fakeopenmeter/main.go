@@ -15,7 +15,6 @@ import (
 	"math/rand/v2" //nolint:gosec // fake dev data, not security-sensitive
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -55,8 +54,8 @@ func main() {
 	// Meter queries — return MeterQueryResult with envelope fields
 	mux.HandleFunc("GET /api/v1/meters/{meterSlug}/query", handleQueryMeter)
 
-	// Entitlement checks — return EntitlementValue per spec
-	mux.HandleFunc("GET /api/v1/subjects/{subject}/entitlements/{feature}/value", handleEntitlement)
+	// Customer access — return all entitlements in one call per spec
+	mux.HandleFunc("GET /api/v1/customers/{customerKey}/access", handleCustomerAccess)
 
 	// Subscription creation — return Subscription object (201)
 	mux.HandleFunc("POST /api/v1/subscriptions", handleCreateSubscription)
@@ -202,35 +201,41 @@ func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 }
 
 // featureLimits defines fake plan limits for each entitlement feature.
+// Keys are feature keys from the integration plan §4.
 var featureLimits = map[string]int64{
-	"compute_usage":      100, // 100 CU-hours/month
-	"agent_builds":       50,  // 50 builds/month
-	"active_deployments": 5,   // 5 concurrent deployments
-	"active_agents":      10,  // 10 registered agents
+	"compute":           100, // 100 CU-hours/month
+	"agents":            5,   // 5 agents
+	"agent_builds":      50,  // 50 builds/month
+	"agent_deployments": 10,  // 10 concurrent deployments
+	"members":           5,   // 5 members
 }
 
-// handleEntitlement returns an EntitlementValue per spec with fields:
-// { hasAccess, balance, usage, overage }
-func handleEntitlement(w http.ResponseWriter, r *http.Request) {
-	subject := r.PathValue("subject")
-	feature := r.PathValue("feature")
+// handleCustomerAccess returns all entitlements for a customer per the CustomerAccess spec:
+// { entitlements: { featureKey: { hasAccess, balance, usage, overage, totalAvailableGrantAmount } } }
+func handleCustomerAccess(w http.ResponseWriter, r *http.Request) {
+	customerKey := r.PathValue("customerKey")
+	log.Printf("[fakeopenmeter] GET /api/v1/customers/%s/access", customerKey) //nolint:gosec // path values are from route params
 
-	limit, ok := featureLimits[feature]
-	if !ok {
-		limit = 1000
-	}
-	log.Printf("[fakeopenmeter] GET entitlement subject=%s feature=%s → limit=%d", subject, feature, limit) //nolint:gosec // path values are from route params
-
-	resp := map[string]any{
-		"hasAccess":                 true,
-		"balance":                   float64(limit),
-		"usage":                     float64(0),
-		"overage":                   float64(0),
-		"totalAvailableGrantAmount": float64(limit),
+	entitlements := make(map[string]map[string]any, len(featureLimits))
+	for feature, quota := range featureLimits {
+		usage := seedValue(feature)
+		balance := float64(quota) - usage
+		if balance < 0 {
+			balance = 0
+		}
+		entitlements[feature] = map[string]any{
+			"hasAccess":                 true,
+			"balance":                   balance,
+			"usage":                     usage,
+			"overage":                   float64(0),
+			"totalAvailableGrantAmount": float64(quota),
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"entitlements": entitlements,
+	}); err != nil {
 		log.Printf("[fakeopenmeter] encode error: %v", err)
 	}
 }
@@ -274,14 +279,29 @@ func handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// aggregateEvents sums up values from ingested events matching the meter type and subject.
+// slugToEventType maps meter slugs to the event types that feed them.
+// See integration plan §1 for the full mapping.
+var slugToEventType = map[string]string{
+	"compute":           "compute_usage",
+	"agents":            "active_agents",
+	"agent_builds":      "agent_build",
+	"agent_deployments": "active_deployments",
+	"members":           "active_members",
+}
+
+// aggregateEvents sums up values from ingested events matching the meter's event type and subject.
 func aggregateEvents(meterSlug, subject string) float64 {
+	eventType, ok := slugToEventType[meterSlug]
+	if !ok {
+		eventType = meterSlug // fallback
+	}
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
 	var total float64
 	for _, ev := range db.events {
-		if ev.Type != meterSlug {
+		if ev.Type != eventType {
 			continue
 		}
 		if subject != "" && ev.Subject != subject {
@@ -293,34 +313,33 @@ func aggregateEvents(meterSlug, subject string) float64 {
 			continue
 		}
 
-		switch {
-		case strings.Contains(meterSlug, "compute"):
+		switch meterSlug {
+		case "compute":
 			if v, ok := data["compute_unit_hours"].(float64); ok {
 				total += v
 			}
-		case strings.Contains(meterSlug, "deployment") || strings.Contains(meterSlug, "agent"):
+		default:
 			if v, ok := data["count"].(float64); ok {
 				total += v
 			} else {
 				total++
 			}
-		default:
-			total++
 		}
 	}
 	return total
 }
 
 // seedValue returns plausible fake values when no real events have been ingested.
+// Keys are meter slugs (not event types) since queries arrive as /api/v1/meters/{slug}/query.
 func seedValue(meterSlug string) float64 {
 	switch meterSlug {
-	case "compute_usage":
+	case "compute":
 		return math.Round((12.5+rand.Float64()*5)*100) / 100 //nolint:gosec // fake dev data
-	case "agent_build":
+	case "agent_builds":
 		return float64(3 + rand.IntN(8)) //nolint:gosec // fake dev data
-	case "active_deployments":
+	case "agent_deployments":
 		return float64(1 + rand.IntN(4)) //nolint:gosec // fake dev data
-	case "active_agents":
+	case "agents":
 		return float64(2 + rand.IntN(5)) //nolint:gosec // fake dev data
 	default:
 		return 0

@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, Info } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useAccountUsage } from "@/api/queries";
 import type { UsageMeter } from "@/lib/api";
@@ -12,8 +12,8 @@ function formatNumber(value: number, decimals = 1): string {
   });
 }
 
-function UsageBar({ value, limit }: { value: number; limit: number }) {
-  const pct = Math.min((value / limit) * 100, 100);
+function UsageBar({ usage, quota }: { usage: number; quota: number }) {
+  const pct = Math.min((usage / quota) * 100, 100);
   const isHigh = pct >= 90;
   const isMedium = pct >= 75 && !isHigh;
 
@@ -32,7 +32,7 @@ function UsageBar({ value, limit }: { value: number; limit: number }) {
         />
       </div>
       <div className="text-[11px] text-muted-foreground">
-        {formatNumber(value, 1)} / {formatNumber(limit, 0)} used
+        {formatNumber(usage, 1)} / {formatNumber(quota, 0)} used
       </div>
     </div>
   );
@@ -56,14 +56,14 @@ function StatCard({
       </div>
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="text-2xl font-semibold tabular-nums text-foreground">
-          {formatNumber(meter.value, decimals)}
+          {formatNumber(meter.usage, decimals)}
         </span>
         {unit && (
           <span className="text-[12px] text-muted-foreground">{unit}</span>
         )}
       </div>
-      {meter.limit != null ? (
-        <UsageBar value={meter.value} limit={meter.limit} />
+      {meter.quota != null ? (
+        <UsageBar usage={meter.usage} quota={meter.quota} />
       ) : (
         <div className="mt-2.5 text-[11px] text-muted-foreground">Unlimited</div>
       )}
@@ -130,10 +130,16 @@ function UsageContent() {
           meter={data.active_agents}
         />
       </div>
-      <p className="text-[11px] text-faint-foreground">
-        Compute units (CU) are calculated as max(CPU cores, memory GB / 2) per
-        replica. Usage updates approximately every 5 minutes.
-      </p>
+      <div className="flex gap-2.5 rounded-lg border border-border bg-surface px-4 py-3">
+        <Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+        <div className="space-y-1 text-[12px] text-muted-foreground">
+          <p>
+            <span className="font-medium text-foreground">1 Compute Unit (CU)</span>{" "}
+            = 1 vCPU + 2 GB RAM per hour, per replica.
+          </p>
+          <p>Usage data updates approximately every 5 minutes.</p>
+        </div>
+      </div>
     </div>
   );
 }

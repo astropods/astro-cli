@@ -258,16 +258,27 @@ func (c *Client) ValidateMeters(ctx context.Context) (missing []string, err erro
 	return missing, nil
 }
 
-// Entitlement represents an OpenMeter entitlement check result.
-type Entitlement struct {
-	HasAccess bool   `json:"hasAccess"`
-	Usage     *int64 `json:"usage,omitempty"`
-	Limit     *int64 `json:"limit,omitempty"`
+// EntitlementValue represents an OpenMeter entitlement value.
+// Fields match the EntitlementValue schema from the OpenAPI spec.
+type EntitlementValue struct {
+	HasAccess                 bool     `json:"hasAccess"`
+	Balance                   *float64 `json:"balance,omitempty"`
+	Usage                     *float64 `json:"usage,omitempty"`
+	Overage                   *float64 `json:"overage,omitempty"`
+	TotalAvailableGrantAmount *float64 `json:"totalAvailableGrantAmount,omitempty"`
 }
 
-// GetEntitlementValue checks a metered entitlement for a subject.
-func (c *Client) GetEntitlementValue(ctx context.Context, subjectKey, featureKey string) (*Entitlement, error) {
-	url := fmt.Sprintf("%s/api/v1/subjects/%s/entitlements/%s/value", c.baseURL, subjectKey, featureKey)
+// CustomerAccess represents the response from GET /api/v1/customers/{id}/access.
+// The map key is the feature key (e.g. "compute", "agents").
+type CustomerAccess struct {
+	Entitlements map[string]EntitlementValue `json:"entitlements"`
+}
+
+// GetCustomerAccess fetches all entitlements for a customer in a single call.
+// Uses GET /api/v1/customers/{customerIdOrKey}/access.
+// The customerKey is typically the account ID.
+func (c *Client) GetCustomerAccess(ctx context.Context, customerKey string) (*CustomerAccess, error) {
+	url := fmt.Sprintf("%s/api/v1/customers/%s/access", c.baseURL, customerKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -276,18 +287,18 @@ func (c *Client) GetEntitlementValue(ctx context.Context, subjectKey, featureKey
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config (OPENMETER_URL)
 	if err != nil {
-		return nil, fmt.Errorf("get entitlement request: %w", err)
+		return nil, fmt.Errorf("get customer access request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("get entitlement: status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("get customer access: status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var result Entitlement
+	var result CustomerAccess
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode entitlement response: %w", err)
+		return nil, fmt.Errorf("decode customer access response: %w", err)
 	}
 
 	return &result, nil

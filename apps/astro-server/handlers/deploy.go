@@ -335,7 +335,7 @@ func prepareDeployment(
 // EntitlementChecker is the interface used by DeployAgent for entitlement checks.
 // A nil EntitlementChecker skips all checks.
 type EntitlementChecker interface {
-	Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.Entitlement)
+	Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.EntitlementValue)
 }
 
 func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, entCheck EntitlementChecker) gin.HandlerFunc {
@@ -362,7 +362,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 					"error":   "entitlement limit reached",
 					"feature": feature,
 					"usage":   entResult.Usage,
-					"limit":   entResult.Limit,
+					"limit":   entResult.TotalAvailableGrantAmount,
 				})
 				return
 			}

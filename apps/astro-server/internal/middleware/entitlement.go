@@ -47,7 +47,7 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc, features ...string) gin.Han
 				"error":   "entitlement limit reached",
 				"feature": feature,
 				"usage":   ent.Usage,
-				"limit":   ent.Limit,
+				"limit":   ent.TotalAvailableGrantAmount,
 			})
 			return
 		}
@@ -59,28 +59,33 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc, features ...string) gin.Han
 // Check performs an entitlement check for the given account ID and features.
 // Use this for handlers that resolve the account outside of middleware (e.g. DeployAgent).
 // Returns true if the request should be blocked.
-func (e *Entitlements) Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.Entitlement) {
+func (e *Entitlements) Check(ctx context.Context, accountID string, features ...string) (blocked bool, feature string, ent *openmeter.EntitlementValue) {
 	if e.client == nil {
 		return false, "", nil
 	}
 	return e.check(ctx, accountID, features)
 }
 
-func (e *Entitlements) check(ctx context.Context, accountID string, features []string) (blocked bool, feature string, ent *openmeter.Entitlement) {
+func (e *Entitlements) check(ctx context.Context, accountID string, features []string) (blocked bool, feature string, ent *openmeter.EntitlementValue) {
+	access, err := e.client.GetCustomerAccess(ctx, accountID)
+	if err != nil {
+		e.log.Warn("Customer access check failed", "error", err, "account_id", accountID)
+		return false, "", nil // fail open
+	}
+
 	for _, f := range features {
-		result, err := e.client.GetEntitlementValue(ctx, accountID, f)
-		if err != nil {
-			e.log.Warn("Entitlement check failed", "error", err, "account_id", accountID, "feature", f)
-			continue // fail open
+		result, ok := access.Entitlements[f]
+		if !ok {
+			continue // feature not in entitlements, fail open
 		}
 
 		if !result.HasAccess {
 			if e.enforce {
-				return true, f, result
+				return true, f, &result
 			}
 			e.log.Warn("Entitlement exceeded (not enforcing)",
 				"account_id", accountID, "feature", f,
-				"usage", result.Usage, "limit", result.Limit,
+				"usage", result.Usage, "limit", result.TotalAvailableGrantAmount,
 			)
 		}
 	}

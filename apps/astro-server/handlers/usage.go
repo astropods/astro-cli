@@ -10,10 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// UsageMeter holds the current value and optional entitlement limit for a meter.
+// UsageMeter holds the current usage and optional quota for a feature.
 type UsageMeter struct {
-	Value float64 `json:"value"`
-	Limit *int64  `json:"limit,omitempty"`
+	Usage float64  `json:"usage"`
+	Quota *float64 `json:"quota,omitempty"`
 }
 
 // UsageResponse is the response for GET /api/v1/accounts/:account/usage.
@@ -27,17 +27,16 @@ type UsageResponse struct {
 	ActiveAgents      UsageMeter `json:"active_agents"`
 }
 
-// entitlement feature keys — these must match what's configured in OpenMeter.
+// Entitlement feature keys — must match the feature keys configured in OpenMeter (see integration plan §4).
 const (
-	featureComputeUsage      = "compute_usage"
-	featureAgentBuilds       = "agent_builds"
-	featureActiveDeployments = "active_deployments"
-	featureActiveAgents      = "active_agents"
+	featureCompute          = "compute"
+	featureAgentBuilds      = "agent_builds"
+	featureAgentDeployments = "agent_deployments"
+	featureAgents           = "agents"
 )
 
-// GetAccountUsage handles GET /api/v1/accounts/:account/usage
-// Queries OpenMeter for the account's usage over the current billing period (calendar month)
-// and fetches entitlement limits for each feature.
+// GetAccountUsage handles GET /api/v1/accounts/:account/usage.
+// Fetches all usage and quota data from a single GetCustomerAccess call.
 func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if omClient == nil {
@@ -51,73 +50,38 @@ func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.Handler
 			return
 		}
 
-		// Default to current calendar month; allow override via query params
 		now := time.Now().UTC()
 		from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		to := now
-
-		if fromStr := c.Query("from"); fromStr != "" {
-			if t, err := time.Parse(time.RFC3339, fromStr); err == nil {
-				from = t
-			}
-		}
-		if toStr := c.Query("to"); toStr != "" {
-			if t, err := time.Parse(time.RFC3339, toStr); err == nil {
-				to = t
-			}
-		}
-
-		ctx := c.Request.Context()
-		subject := acct.ID
 
 		resp := UsageResponse{
 			AccountID:   acct.ID,
 			PeriodStart: from.Format(time.RFC3339),
-			PeriodEnd:   to.Format(time.RFC3339),
+			PeriodEnd:   now.Format(time.RFC3339),
 		}
 
-		// Query each meter — failures are non-fatal, we return zeros
-		if result, err := omClient.QueryMeter(ctx, "compute_usage", subject, from, to, ""); err != nil {
-			log.Warn("Failed to query compute_usage meter", "error", err, "account_id", acct.ID)
-		} else if len(result.Data) > 0 {
-			resp.ComputeUnitHours.Value = result.Data[0].Value
+		access, err := omClient.GetCustomerAccess(c.Request.Context(), acct.ID)
+		if err != nil {
+			log.Warn("Failed to get customer access", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusOK, resp)
+			return
 		}
 
-		if result, err := omClient.QueryMeter(ctx, "agent_build", subject, from, to, ""); err != nil {
-			log.Warn("Failed to query agent_build meter", "error", err, "account_id", acct.ID)
-		} else if len(result.Data) > 0 {
-			resp.AgentBuilds.Value = result.Data[0].Value
-		}
-
-		if result, err := omClient.QueryMeter(ctx, "active_deployments", subject, from, to, ""); err != nil {
-			log.Warn("Failed to query active_deployments meter", "error", err, "account_id", acct.ID)
-		} else if len(result.Data) > 0 {
-			resp.ActiveDeployments.Value = result.Data[0].Value
-		}
-
-		if result, err := omClient.QueryMeter(ctx, "active_agents", subject, from, to, ""); err != nil {
-			log.Warn("Failed to query active_agents meter", "error", err, "account_id", acct.ID)
-		} else if len(result.Data) > 0 {
-			resp.ActiveAgents.Value = result.Data[0].Value
-		}
-
-		// Fetch entitlement limits — non-fatal, limits are omitted if unavailable
 		features := []struct {
 			key   string
 			meter *UsageMeter
 		}{
-			{featureComputeUsage, &resp.ComputeUnitHours},
+			{featureCompute, &resp.ComputeUnitHours},
 			{featureAgentBuilds, &resp.AgentBuilds},
-			{featureActiveDeployments, &resp.ActiveDeployments},
-			{featureActiveAgents, &resp.ActiveAgents},
+			{featureAgentDeployments, &resp.ActiveDeployments},
+			{featureAgents, &resp.ActiveAgents},
 		}
 		for _, f := range features {
-			ent, err := omClient.GetEntitlementValue(ctx, subject, f.key)
-			if err != nil {
-				log.Debug("Entitlement not available", "feature", f.key, "error", err, "account_id", acct.ID)
-				continue
+			if ent, ok := access.Entitlements[f.key]; ok {
+				if ent.Usage != nil {
+					f.meter.Usage = *ent.Usage
+				}
+				f.meter.Quota = ent.TotalAvailableGrantAmount
 			}
-			f.meter.Limit = ent.Limit
 		}
 
 		c.JSON(http.StatusOK, resp)
