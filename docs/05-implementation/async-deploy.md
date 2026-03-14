@@ -1023,3 +1023,85 @@ Remove the `INSERT INTO deployment_env_vars` block (~lines 165-175) and the `ins
 7. **Wakeup:** POST `/deployments/:id/wakeup` on scaled_down deployment → provisioning → active
 8. **Rollback:** Deploy revision 1, redeploy revision 2, then POST `/deployments/:id/rollback` with `{"revision": 1}` → status moves to pending → provisioning → active, running revision 1's spec
 9. **Revision history:** GET `/deployments/:id/status` → response includes `current_revision` and `revisions` array with all past revisions
+
+---
+
+## Phase 8: Testing
+
+The async migration introduces significant new code with no test coverage. This phase tracks every testing gap.
+
+### 8.1 New test files needed
+
+| File | Tests |
+|------|-------|
+| `internal/deployer/deployer_test.go` | Apply happy path, Apply with missing revision, Apply with account lookup failure, Teardown success, Teardown idempotent (not-found), imagePullPolicyForMode |
+| `internal/deploymentstore/events_test.go` | GetDeploymentEvents with results, with limit, empty, null message/details fields |
+| `internal/deploymentstore/revisions_test.go` | GetCurrentRevision found/not-found, GetRevisions ordering, SetCurrentRevision success, SetCurrentRevision revision-not-found, SetCurrentRevision txFn error rollback |
+
+### 8.2 Existing test files to expand
+
+**`internal/deploymentstore/store_test.go`** — add tests for:
+- `UpdateStatus` — status update + event insertion in transaction, error_message/error_details stored
+- `UpdateDeploymentPending` — next revision auto-increment, old workload/variable cleanup, event recorded
+- `GetDeploymentsInStatus` — filter by single/multiple statuses, ordering, empty result
+- `MarkScaledDown` — idempotent ON CONFLICT, status changed to scaled_down, event recorded
+- `ClearScaledDown` — deletion, idempotent if already cleared
+- `IsScaledDown` — returns true/false
+
+**`handlers/deploy_test.go`** — add tests for:
+- `GetDeploymentStatus` — happy path (200 with status+events+revisions), not found (404), permission denied (403), event/revision query errors logged
+- `WakeUpDeployment` — happy path (202), not scaled_down (400), not found (404), job enqueue error (500)
+- `RollbackDeployment` — happy path (202), wrong status (400), same revision (400), revision not found (400), job enqueue error (500)
+
+### 8.3 River worker tests
+
+These require either mocking the deployer/store or integration tests with a real DB.
+
+**`internal/riverqueue/deploy_test.go`:**
+- Happy path: pending → provisioning → active
+- Apply failure: pending → provisioning → failed, error returned for retry
+- Partial failure: pending → provisioning → failed (no retry)
+- Nil deployer: returns error
+- Missing deployment: returns nil (skip)
+- Wrong status: returns nil (idempotent)
+
+**`internal/riverqueue/undeploy_test.go`:**
+- Happy path: undeploying → undeployed, ClearScaledDown called, MarkUndeployedByID called
+- Teardown failure: status set to failed, error returned for retry
+- Nil deployer: returns error
+
+**`internal/riverqueue/wakeup_test.go`:**
+- Happy path: scaled_down → provisioning → active, ClearScaledDown called
+- Apply failure: status set to failed
+- Nil deployer: returns error
+
+**`internal/riverqueue/reconcile_test.go`:**
+- `reconcileActive`: KEDA scale-down detected → MarkScaledDown, drift detected → re-enqueue, paused annotation → skip
+- `detectStaleJobs`: provisioning >15min → failed, pending >5min → re-enqueue, recent jobs → no action
+- `maintainNamespaceOwnership`: upsert for active/scaled_down, orphaned namespace logged
+- `isKEDAScaledDown`: no ScaledObjects → false, all Active=False → true, some Active=True → false, KEDA CRD missing → false
+- `scaledObjectIsInactive`: Active=False → true, Active=True → false, no conditions → false
+- `hasAnnotation`: found with value → true, different value → false, namespace missing → false
+- `detectDrift`: missing deployment → drift, replica mismatch → drift, image mismatch → drift, missing service → drift, all matching → no drift
+
+### 8.4 Queue tests
+
+**`internal/riverqueue/client_test.go`:**
+- `NewInsertOnly` — creates client without workers/periodic jobs
+- `Insert` — job enqueued, transaction committed
+- `InsertDeployJob`/`InsertUndeployJob`/`InsertWakeUpJob` — errors propagated
+- `Close` — pool closed
+
+### 8.5 Integration test scenarios
+
+End-to-end flows requiring a real DB + mock K8s:
+1. Deploy → poll status → pending → provisioning → active
+2. Redeploy → new revision created, old pods kept, new spec applied
+3. Undeploy active → undeploying → undeployed
+4. Undeploy scaled_down → undeploying → undeployed
+5. Deploy failure → status=failed with error_message
+6. Rollback → current_revision changed, deploy job enqueued, old spec applied
+7. KEDA scale-down → reconciler marks scaled_down
+8. Wakeup → scaled_down → provisioning → active
+9. Drift → reconciler detects and re-applies
+10. Stuck pending recovery → reconciler re-enqueues after 5min
