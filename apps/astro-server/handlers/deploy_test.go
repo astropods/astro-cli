@@ -1555,3 +1555,311 @@ func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
 		t.Fatalf("expected 400 for inactive deployment, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- GetDeploymentStatus tests ---
+
+func setupGetDeploymentStatusRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id/status", GetDeploymentStatus(log, accountStore, deployStore))
+
+	return router, deployMock, accountMock
+}
+
+func TestGetDeploymentStatus_Success(t *testing.T) {
+	router, deployMock, accountMock := setupGetDeploymentStatusRouter(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	// GetDeploymentByID
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "active", now, nil))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// GetDeploymentEvents — columns: id, deployment_id, status, message, details, created_at
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "deployment_id", "status", "message", "details", "created_at"}).
+			AddRow(int64(1), depID, "active", "", json.RawMessage(nil), now))
+
+	// GetRevisions — columns: id, deployment_id, revision, build_id, spec_json, kms_ciphertext, kms_key_id, created_at
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "deployment_id", "revision", "build_id", "spec_json", "kms_ciphertext", "kms_key_id", "created_at"}).
+			AddRow(int64(1), depID, 1, "build-1", json.RawMessage(`{}`), []byte(nil), (*string)(nil), now))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["deployment_id"] != depID {
+		t.Errorf("expected deployment_id %q, got %v", depID, resp["deployment_id"])
+	}
+	if resp["status"] != "active" {
+		t.Errorf("expected status 'active', got %v", resp["status"])
+	}
+	if resp["events"] == nil {
+		t.Error("expected events in response")
+	}
+	if resp["revisions"] == nil {
+		t.Error("expected revisions in response")
+	}
+}
+
+func TestGetDeploymentStatus_NotFound(t *testing.T) {
+	router, deployMock, _ := setupGetDeploymentStatusRouter(t)
+
+	depID := deployid.New()
+
+	// GetDeploymentByID returns no rows
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(emptyDeploymentByIDRows())
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"/status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- WakeUpDeployment tests ---
+
+func setupWakeUpRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.POST("/api/v1/deployments/:id/wakeup", WakeUpDeployment(log, accountStore, deployStore, &mockQueue{}))
+
+	return router, deployMock, accountMock
+}
+
+// deploymentByIDRowWithStatus is like deploymentByIDRow but allows specifying a custom current_revision.
+func deploymentByIDRowWithStatus(id, accountID, agentName, buildID, namespace, displayName, specJSON, status string, revision *int, now time.Time) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "account_id", "agent_name", "build_id", "namespace",
+		"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+		"status", "error_message", "error_details", "status_changed_at", "current_revision",
+		"deployed_at", "undeployed_at",
+	}).AddRow(
+		id, accountID, agentName, buildID, namespace,
+		displayName, specJSON, []byte(nil), (*string)(nil),
+		status, (*string)(nil), json.RawMessage(nil), now, revision,
+		now, (*time.Time)(nil),
+	)
+}
+
+func TestWakeUpDeployment_Success(t *testing.T) {
+	router, deployMock, accountMock := setupWakeUpRouter(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	rev := 1
+
+	// GetDeploymentByID — scaled_down status
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRowWithStatus(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "scaled_down", &rev, now))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// UpdateStatus (pending) — begins a transaction, updates status, inserts event, commits
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`UPDATE`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	req := httptest.NewRequest("POST", "/api/v1/deployments/"+depID+"/wakeup", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "pending" {
+		t.Errorf("expected status 'pending', got %v", resp["status"])
+	}
+	if resp["deployment_id"] != depID {
+		t.Errorf("expected deployment_id %q, got %v", depID, resp["deployment_id"])
+	}
+}
+
+func TestWakeUpDeployment_NotScaledDown(t *testing.T) {
+	router, deployMock, _ := setupWakeUpRouter(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	// GetDeploymentByID — active status (not scaled_down)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "active", now, nil))
+
+	req := httptest.NewRequest("POST", "/api/v1/deployments/"+depID+"/wakeup", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "deployment is not scaled down" {
+		t.Errorf("expected error 'deployment is not scaled down', got %v", resp["error"])
+	}
+}
+
+// --- RollbackDeployment tests ---
+
+func setupRollbackRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}))
+
+	return router, deployMock, accountMock
+}
+
+func TestRollbackDeployment_Success(t *testing.T) {
+	router, deployMock, accountMock := setupRollbackRouter(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	rev := 2
+
+	// GetDeploymentByID — active deployment with current_revision=2
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRowWithStatus(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "active", &rev, now))
+
+	// IsMember check
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// SetCurrentRevision — begin tx, check revision exists, update current_revision, update status, insert event, commit
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	deployMock.ExpectExec(`UPDATE`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`UPDATE`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := `{"revision": 1}`
+	req := httptest.NewRequest("POST", "/api/v1/deployments/"+depID+"/rollback", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "pending" {
+		t.Errorf("expected status 'pending', got %v", resp["status"])
+	}
+	if resp["deployment_id"] != depID {
+		t.Errorf("expected deployment_id %q, got %v", depID, resp["deployment_id"])
+	}
+	if resp["current_revision"] != float64(1) {
+		t.Errorf("expected current_revision 1, got %v", resp["current_revision"])
+	}
+	if resp["message"] != "Rolling back to revision 1" {
+		t.Errorf("expected rollback message, got %v", resp["message"])
+	}
+}
+
+func TestRollbackDeployment_WrongStatus(t *testing.T) {
+	router, deployMock, _ := setupRollbackRouter(t)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+	rev := 1
+
+	// GetDeploymentByID — pending status (cannot rollback)
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRowWithStatus(depID, acctID, "my-agent", "build-1", "astro-abc123",
+			"My Agent", `{}`, "pending", &rev, now))
+
+	body := `{"revision": 1}`
+	req := httptest.NewRequest("POST", "/api/v1/deployments/"+depID+"/rollback", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["error"] != "can only rollback active or failed deployments" {
+		t.Errorf("expected rollback status error, got %v", resp["error"])
+	}
+}
