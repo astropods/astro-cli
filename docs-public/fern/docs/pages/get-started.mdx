@@ -6,29 +6,21 @@ slug: get-started
 
 Go from zero to a running agent in three steps. Have the [CLI installed](/install-cli) and Docker ready. You can also [try a pre-built agent](#try-a-pre-built-agent).
 
-## 1. Create an agent
-
-Scaffold a new project:
-
-```bash
-ast create hello-astro
-```
-
-Use `--yes` to skip prompts and use defaults (HTTP interface, Anthropic model, no knowledge or tools).
-
-## 2. Run locally
-
-Start a local dev environment with hot-reload:
-
-```bash
-cd hello-astro && ast dev
-```
-
-Edit code and the agent restarts automatically. Run `ast configure` to set API keys as needed (e.g. `ANTHROPIC_API_KEY`).
-
-## 3. Next step
-
-When you're ready to publish your agent to the Astropods registry, see [Publish to registry](/publish-to-registry). Pushing requires an account and `ast login`.
+<Steps>
+  <Step title="Create an agent">
+    Scaffold a new project:
+    <CodeBlock language="bash">ast create hello-astro</CodeBlock>
+    <small>Use <code>--yes</code> to skip prompts and use defaults (HTTP interface, Anthropic model, no knowledge or tools).</small>
+  </Step>
+  <Step title="Run locally">
+    Start a local dev environment with hot-reload:
+    <CodeBlock language="bash">cd hello-astro &amp;&amp; ast dev</CodeBlock>
+    <small>Edit code and the agent restarts automatically. Run <code>ast configure</code> to set API keys as needed (e.g. <code>ANTHROPIC_API_KEY</code>).</small>
+  </Step>
+  <Step title="Next step">
+    When you're ready to publish your agent to the Astropods registry, see <a href="/publish-to-registry">Publish to registry</a>. Pushing requires an account and <code>ast login</code>.
+  </Step>
+</Steps>
 
 ---
 
