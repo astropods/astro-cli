@@ -140,7 +140,7 @@ func (c *Client) IngestEvents(ctx context.Context, events []CloudEvent) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("ingest events: status %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("ingest events: status %d: %s (url: %s)", resp.StatusCode, string(respBody), c.baseURL+"/api/v1/events")
 	}
 
 	return nil

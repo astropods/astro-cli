@@ -469,15 +469,23 @@ interface EventWrapper {
   validationError?: string;
 }
 
-export function useEvents(params?: string) {
+export function useEvents(params?: Record<string, string>) {
+  const qs = new URLSearchParams({
+    limit: "100",
+    ...params,
+  });
   return useQuery({
-    queryKey: openmeterKeys.events(),
+    queryKey: [...openmeterKeys.events(), params],
     queryFn: async () => {
       const raw = await api.get<EventWrapper[]>(
-        `/api/openmeter/api/v1/events${params ? `?${params}` : ""}`
+        `/api/openmeter/api/v1/events?${qs.toString()}`
       );
-      return raw.map((w) => ({ ...w.event, ingestedAt: w.ingestedAt }));
+      // Sort newest first (API may return oldest first)
+      const mapped = raw.map((w) => ({ ...w.event, ingestedAt: w.ingestedAt }));
+      mapped.sort((a, b) => (b.time ?? "").localeCompare(a.time ?? ""));
+      return mapped;
     },
+    refetchInterval: 30_000,
   });
 }
 

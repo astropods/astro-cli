@@ -173,7 +173,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
 			h.log.Error("Heartbeat: failed to emit compute_usage events", "error", err)
 		} else {
-			h.log.Info("Heartbeat: emitted compute_usage", "events", len(events))
+			h.log.Info("Heartbeat: emitted compute_usage", "events", len(events), "sample_subject", events[0].Subject, "sample_type", events[0].Type)
 		}
 	}
 }
