@@ -105,6 +105,10 @@ CREATE TABLE public.deployments (
     encrypted_data_key bytea,
     kms_key_arn varchar,
     status varchar NOT NULL DEFAULT 'active',
+    error_message text,
+    error_details jsonb,
+    status_changed_at timestamptz NOT NULL DEFAULT now(),
+    current_revision int,
     deployed_at timestamp NOT NULL DEFAULT now(),
     undeployed_at timestamp,
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
@@ -190,16 +194,6 @@ CREATE TABLE public.deployment_volumes (
 
 CREATE UNIQUE INDEX idx_deployment_volumes_path ON public.deployment_volumes(workload_id, mount_path);
 
-CREATE TABLE public.deployment_env_vars (
-    workload_id int NOT NULL,
-    key varchar NOT NULL,
-    value text NOT NULL DEFAULT '',
-    source varchar NOT NULL DEFAULT 'direct',
-    nonce bytea,
-    CONSTRAINT deployment_env_vars_pkey PRIMARY KEY (workload_id, key),
-    CONSTRAINT deployment_env_vars_workload_id_fkey FOREIGN KEY (workload_id) REFERENCES public.deployment_workloads(id) ON DELETE CASCADE
-);
-
 CREATE TABLE public.deployment_variables (
     deployment_id varchar(11) NOT NULL,
     name varchar NOT NULL,
@@ -210,6 +204,43 @@ CREATE TABLE public.deployment_variables (
     nonce bytea,
     CONSTRAINT deployment_variables_pkey PRIMARY KEY (deployment_id, name),
     CONSTRAINT deployment_variables_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE public.deployment_events (
+    id bigserial NOT NULL,
+    deployment_id varchar(11) NOT NULL,
+    status text NOT NULL,
+    message text,
+    details jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_events_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_events_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_deployment_events_deployment ON public.deployment_events(deployment_id);
+
+CREATE TABLE public.deployment_revisions (
+    id bigserial NOT NULL,
+    deployment_id varchar(11) NOT NULL,
+    revision int NOT NULL,
+    build_id text NOT NULL,
+    spec_json jsonb NOT NULL,
+    kms_ciphertext bytea,
+    kms_key_id text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT deployment_revisions_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_revisions_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_revisions_unique UNIQUE (deployment_id, revision)
+);
+
+CREATE INDEX idx_deployment_revisions_deployment ON public.deployment_revisions(deployment_id);
+
+CREATE TABLE public.scaled_namespaces (
+    namespace text NOT NULL,
+    deployment_id varchar(11) NOT NULL,
+    scaled_down_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT scaled_namespaces_pkey PRIMARY KEY (namespace),
+    CONSTRAINT scaled_namespaces_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
 );
 
 CREATE TABLE public.namespace_ownership (
