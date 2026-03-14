@@ -44,7 +44,7 @@ func (w *ReconcileWorker) Work(ctx context.Context, _ *river.Job[ReconcileArgs])
 	}
 
 	w.reconcileActive(ctx)
-	w.detectStaleProvisioning(ctx)
+	w.detectStaleJobs(ctx)
 	w.maintainNamespaceOwnership(ctx)
 
 	return nil
@@ -96,22 +96,41 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 	}
 }
 
-// detectStaleProvisioning marks deployments stuck in provisioning as failed.
-func (w *ReconcileWorker) detectStaleProvisioning(ctx context.Context) {
-	deps, err := w.store.GetDeploymentsInStatus(deploymentstore.StatusProvisioning)
+// detectStaleJobs marks deployments stuck in provisioning or pending as failed,
+// and re-enqueues pending deployments that may have lost their River job.
+func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
+	// Stale provisioning — worker crashed mid-apply
+	provisioning, err := w.store.GetDeploymentsInStatus(deploymentstore.StatusProvisioning)
 	if err != nil {
 		w.log.Error("Reconcile: failed to list provisioning deployments", "error", err)
-		return
+	} else {
+		for _, dep := range provisioning {
+			if time.Since(dep.StatusChangedAt) > 15*time.Minute {
+				w.log.Error("Reconcile: deployment stuck in provisioning",
+					"deployment_id", dep.ID,
+					"since", dep.StatusChangedAt,
+				)
+				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "timed out in provisioning", nil); err != nil {
+					w.log.Warn("Failed to mark stale deployment as failed", "error", err, "deployment_id", dep.ID)
+				}
+			}
+		}
 	}
 
-	for _, dep := range deps {
-		if time.Since(dep.StatusChangedAt) > 15*time.Minute {
-			w.log.Error("Reconcile: deployment stuck in provisioning",
-				"deployment_id", dep.ID,
-				"since", dep.StatusChangedAt,
-			)
-			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "timed out in provisioning", nil); err != nil {
-				w.log.Warn("Failed to mark stale deployment as failed", "error", err, "deployment_id", dep.ID)
+	// Stuck pending — job insert may have failed after DB commit
+	pending, err := w.store.GetDeploymentsInStatus(deploymentstore.StatusPending)
+	if err != nil {
+		w.log.Error("Reconcile: failed to list pending deployments", "error", err)
+	} else {
+		for _, dep := range pending {
+			if time.Since(dep.StatusChangedAt) > 5*time.Minute {
+				w.log.Warn("Reconcile: deployment stuck in pending, re-enqueuing",
+					"deployment_id", dep.ID,
+					"since", dep.StatusChangedAt,
+				)
+				if _, err := w.queue.Insert(ctx, DeployArgs{DeploymentID: dep.ID}, nil); err != nil {
+					w.log.Error("Reconcile: failed to re-enqueue stuck pending deployment", "error", err, "deployment_id", dep.ID)
+				}
 			}
 		}
 	}

@@ -1658,8 +1658,14 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			return
 		}
 
-		events, _ := deployStore.GetDeploymentEvents(dep.ID, 50)
-		revisions, _ := deployStore.GetRevisions(dep.ID)
+		events, evErr := deployStore.GetDeploymentEvents(dep.ID, 50)
+		if evErr != nil {
+			log.Warn("Failed to load deployment events", "error", evErr, "deployment_id", dep.ID)
+		}
+		revisions, revErr := deployStore.GetRevisions(dep.ID)
+		if revErr != nil {
+			log.Warn("Failed to load deployment revisions", "error", revErr, "deployment_id", dep.ID)
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"deployment_id":     dep.ID,
@@ -1761,11 +1767,9 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 			return
 		}
 
-		// SetCurrentRevision atomically sets revision, status=pending, and records event
-		if err := deployStore.SetCurrentRevision(dep.ID, req.Revision, func(tx *sql.Tx) error {
-			// Job enqueue happens after commit (store uses database/sql, River uses pgx)
-			return nil
-		}); err != nil {
+		// SetCurrentRevision atomically sets revision, status=pending, and records event.
+		// Job enqueue happens after commit (store uses database/sql, River uses pgx).
+		if err := deployStore.SetCurrentRevision(dep.ID, req.Revision, nil); err != nil {
 			log.Error("Failed to set revision", "error", err, "deployment_id", dep.ID, "revision", req.Revision)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
