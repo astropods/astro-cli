@@ -354,13 +354,12 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
           "type": "usage_based",
           "key": "agents",
           "name": "Agents",
-          "description": "Number of distinct agents registered in the account.",
+          "description": "Number of distinct agents registered in the account. Gauge metric — grant does not reset.",
           "featureKey": "agents",
           "billingCadence": "P1M",
           "entitlementTemplate": {
             "type": "metered",
-            "isSoftLimit": false,
-            "issueAfterReset": 5
+            "isSoftLimit": false
           },
           "price": null
         },
@@ -382,13 +381,12 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
           "type": "usage_based",
           "key": "agent_deployments",
           "name": "Deployments",
-          "description": "Number of concurrently active agent deployments.",
+          "description": "Number of concurrently active agent deployments. Gauge metric — grant does not reset.",
           "featureKey": "agent_deployments",
           "billingCadence": "P1M",
           "entitlementTemplate": {
             "type": "metered",
-            "isSoftLimit": false,
-            "issueAfterReset": 10
+            "isSoftLimit": false
           },
           "price": null
         },
@@ -396,13 +394,12 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
           "type": "usage_based",
           "key": "members",
           "name": "Members",
-          "description": "Number of members in the account.",
+          "description": "Number of members in the account. Gauge metric — grant does not reset.",
           "featureKey": "members",
           "billingCadence": "P1M",
           "entitlementTemplate": {
             "type": "metered",
-            "isSoftLimit": false,
-            "issueAfterReset": 5
+            "isSoftLimit": false
           },
           "price": null
         }
@@ -414,13 +411,17 @@ Single plan, free, hard limits on everything. All accounts are auto-subscribed o
 
 ### Private Beta Limits
 
-| Feature             | Limit          | Period  | Type |
-| ------------------- | -------------- | ------- | ---- |
-| `compute`           | 100 CU-hours   | Monthly | Hard |
-| `agents`            | 5 agents       | Monthly | Hard |
-| `agent_builds`      | 50 builds      | Monthly | Hard |
-| `agent_deployments` | 10 deployments | Monthly | Hard |
-| `members`           | 5 members      | Monthly | Hard |
+All features use metered entitlements so `hasAccess` enforcement works automatically.
+Cumulative features (compute, builds) reset their grant monthly via `issueAfterReset`.
+Gauge features (agents, deployments, members) get a one-time grant at subscription time — no reset.
+
+| Feature             | Limit          | Grant Reset | Notes |
+| ------------------- | -------------- | ----------- | ----- |
+| `compute`           | 100 CU-hours   | Monthly     | Cumulative — `issueAfterReset: 100` |
+| `agent_builds`      | 50 builds      | Monthly     | Cumulative — `issueAfterReset: 50` |
+| `agents`            | 5 agents       | Never       | Gauge — one-time grant of 5 at subscription |
+| `agent_deployments` | 10 deployments | Never       | Gauge — one-time grant of 10 at subscription |
+| `members`           | 5 members      | Never       | Gauge — one-time grant of 5 at subscription |
 
 ### Subscription Creation
 

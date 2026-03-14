@@ -200,18 +200,17 @@ func handleQueryMeter(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// featureLimits defines fake plan limits for each entitlement feature.
-// Keys are feature keys from the integration plan §4.
+// featureLimits defines fake plan limits for each metered entitlement feature.
 var featureLimits = map[string]int64{
-	"compute":           100, // 100 CU-hours/month
-	"agents":            5,   // 5 agents
-	"agent_builds":      50,  // 50 builds/month
-	"agent_deployments": 10,  // 10 concurrent deployments
-	"members":           5,   // 5 members
+	"compute":           100, // 100 CU-hours/month (resets monthly)
+	"agent_builds":      50,  // 50 builds/month (resets monthly)
+	"agents":            5,   // 5 agents (one-time grant, no reset)
+	"agent_deployments": 10,  // 10 deployments (one-time grant, no reset)
+	"members":           5,   // 5 members (one-time grant, no reset)
 }
 
-// handleCustomerAccess returns all entitlements for a customer per the CustomerAccess spec:
-// { entitlements: { featureKey: { hasAccess, balance, usage, overage, totalAvailableGrantAmount } } }
+// handleCustomerAccess returns all entitlements for a customer per the CustomerAccess spec.
+// All features use metered entitlements with balance/usage/overage/totalAvailableGrantAmount.
 func handleCustomerAccess(w http.ResponseWriter, r *http.Request) {
 	customerKey := r.PathValue("customerKey")
 	log.Printf("[fakeopenmeter] GET /api/v1/customers/%s/access", customerKey) //nolint:gosec // path values are from route params

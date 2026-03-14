@@ -260,12 +260,15 @@ func (c *Client) ValidateMeters(ctx context.Context) (missing []string, err erro
 
 // EntitlementValue represents an OpenMeter entitlement value.
 // Fields match the EntitlementValue schema from the OpenAPI spec.
+// Metered entitlements populate Balance/Usage/Overage/TotalAvailableGrantAmount.
+// Static entitlements populate Config (a JSON string, e.g. `{"limit": 10}`).
 type EntitlementValue struct {
 	HasAccess                 bool     `json:"hasAccess"`
 	Balance                   *float64 `json:"balance,omitempty"`
 	Usage                     *float64 `json:"usage,omitempty"`
 	Overage                   *float64 `json:"overage,omitempty"`
 	TotalAvailableGrantAmount *float64 `json:"totalAvailableGrantAmount,omitempty"`
+	Config                    *string  `json:"config,omitempty"`
 }
 
 // CustomerAccess represents the response from GET /api/v1/customers/{id}/access.

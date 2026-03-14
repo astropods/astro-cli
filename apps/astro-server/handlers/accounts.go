@@ -182,6 +182,22 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 						log.Error("Failed to auto-subscribe account to default plan", "error", subErr, "account_id", acct.ID, "plan", defaultPlan)
 					} else {
 						log.Info("Auto-subscribed account to default plan", "account_id", acct.ID, "plan", defaultPlan)
+
+						// Create initial grants for gauge features (no issueAfterReset in the plan).
+						// These are one-time grants that persist across billing periods.
+						gaugeGrants := []struct {
+							feature string
+							amount  float64
+						}{
+							{"agents", 5},
+							{"agent_deployments", 10},
+							{"members", 5},
+						}
+						for _, g := range gaugeGrants {
+							if grantErr := omClient.CreateGrant(c.Request.Context(), acct.ID, g.feature, g.amount); grantErr != nil {
+								log.Error("Failed to create initial grant", "error", grantErr, "account_id", acct.ID, "feature", g.feature)
+							}
+						}
 					}
 				}
 			}

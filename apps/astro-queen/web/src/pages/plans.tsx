@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  usePlans, useCreatePlan, useDeletePlan, usePublishPlan, useArchivePlan, useFeatures,
+  usePlans, useCreatePlan, useUpdatePlan, useDeletePlan, usePublishPlan, useArchivePlan, useFeatures,
 } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { Trash2, Upload, Archive, ChevronDown, Plus, X } from "lucide-react";
+import { Trash2, Upload, Archive, ChevronDown, Plus, X, Pencil } from "lucide-react";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { Plan } from "@/types/openmeter";
 
@@ -98,6 +98,7 @@ export function PlansPage() {
   const publishMut = usePublishPlan();
   const archiveMut = useArchivePlan();
   const [showCreate, setShowCreate] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
 
   return (
     <div className="space-y-4">
@@ -108,7 +109,7 @@ export function PlansPage() {
             Reusable pricing templates with phases and rate cards. Subscribe customers to auto-provision entitlements.
           </p>
         </div>
-        {!showCreate && (
+        {!showCreate && !editingPlan && (
           <Button size="xs" onClick={() => setShowCreate(true)}>
             <Plus className="size-3 mr-1" /> Create Plan
           </Button>
@@ -116,6 +117,12 @@ export function PlansPage() {
       </div>
 
       {showCreate && <CreatePlanForm onDone={() => setShowCreate(false)} />}
+      {editingPlan && (
+        <EditPlanForm
+          plan={editingPlan}
+          onDone={() => setEditingPlan(null)}
+        />
+      )}
 
       {isLoading && <Skeleton className="h-40 w-full" />}
       {error && <p className="text-destructive text-sm">{error.message}</p>}
@@ -128,6 +135,7 @@ export function PlansPage() {
             <PlanRow
               key={plan.id}
               plan={plan}
+              onEdit={() => { setShowCreate(false); setEditingPlan(plan); }}
               onDelete={() => { if (confirm(`Delete plan "${plan.name}"?`)) deleteMut.mutate(plan.id); }}
               onPublish={() => { if (confirm(`Publish plan "${plan.name}"? This makes it available for subscriptions.`)) publishMut.mutate(plan.id); }}
               onArchive={() => { if (confirm(`Archive plan "${plan.name}"?`)) archiveMut.mutate(plan.id); }}
@@ -616,6 +624,289 @@ function CreatePlanForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+// ─── Plan → Form converter ───
+
+function planToForm(plan: Plan): PlanForm {
+  return {
+    name: plan.name,
+    key: plan.key,
+    description: plan.description || "",
+    currency: plan.currency,
+    billingCadence: plan.billingCadence,
+    phases: plan.phases.map((phase) => ({
+      key: phase.key,
+      name: phase.name,
+      duration: phase.duration || "",
+      rateCards: phase.rateCards.map((rc) => {
+        const ent = rc.entitlementTemplate as Record<string, unknown> | undefined;
+        return {
+          type: rc.type || "flat_fee",
+          key: rc.key,
+          name: rc.name,
+          featureKey: rc.featureKey || "",
+          billingCadence: rc.billingCadence || "",
+          priceAmount: rc.price && typeof rc.price === "object" ? String((rc.price as Record<string, unknown>).amount ?? "") : "",
+          entitlementType: ent ? String(ent.type ?? "") : "",
+          issueAfterReset: ent?.issueAfterReset != null ? String(ent.issueAfterReset) : "",
+          isSoftLimit: ent?.isSoftLimit === true,
+          staticConfig: ent?.type === "static" ? String(ent.config ?? "{}") : "{}",
+        };
+      }),
+    })),
+  };
+}
+
+// ─── Edit Plan Form ───
+
+function EditPlanForm({ plan, onDone }: { plan: Plan; onDone: () => void }) {
+  const updateMut = useUpdatePlan();
+  const { data: features } = useFeatures();
+  const [form, setForm] = useState<PlanForm>(() => planToForm(plan));
+  const [jsonMode, setJsonMode] = useState(false);
+  const [rawJson, setRawJson] = useState("");
+  const [err, setErr] = useState("");
+
+  const set = <K extends keyof PlanForm>(k: K, v: PlanForm[K]) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setErr("");
+  };
+
+  const setPhase = (pi: number, patch: Partial<PhaseForm>) => {
+    setForm((f) => ({
+      ...f,
+      phases: f.phases.map((p, i) => (i === pi ? { ...p, ...patch } : p)),
+    }));
+    setErr("");
+  };
+
+  const addPhase = () => {
+    setForm((f) => ({
+      ...f,
+      phases: [...f.phases, { ...EMPTY_PHASE, key: `phase_${f.phases.length + 1}`, name: `Phase ${f.phases.length + 1}` }],
+    }));
+    setErr("");
+  };
+
+  const removePhase = (pi: number) => {
+    setForm((f) => ({ ...f, phases: f.phases.filter((_, i) => i !== pi) }));
+    setErr("");
+  };
+
+  const setRateCard = (pi: number, ri: number, patch: Partial<RateCardForm>) => {
+    setForm((f) => ({
+      ...f,
+      phases: f.phases.map((p, i) =>
+        i === pi
+          ? { ...p, rateCards: p.rateCards.map((rc, j) => (j === ri ? { ...rc, ...patch } : rc)) }
+          : p
+      ),
+    }));
+    setErr("");
+  };
+
+  const addRateCard = (pi: number) => {
+    setForm((f) => ({
+      ...f,
+      phases: f.phases.map((p, i) =>
+        i === pi ? { ...p, rateCards: [...p.rateCards, { ...EMPTY_RATE_CARD }] } : p
+      ),
+    }));
+    setErr("");
+  };
+
+  const removeRateCard = (pi: number, ri: number) => {
+    setForm((f) => ({
+      ...f,
+      phases: f.phases.map((p, i) =>
+        i === pi ? { ...p, rateCards: p.rateCards.filter((_, j) => j !== ri) } : p
+      ),
+    }));
+    setErr("");
+  };
+
+  const buildBody = (): Record<string, unknown> | null => {
+    if (jsonMode) {
+      try { return JSON.parse(rawJson); }
+      catch { setErr("Invalid JSON"); return null; }
+    }
+
+    if (!form.name || !form.billingCadence) {
+      setErr("Name and billing cadence are required.");
+      return null;
+    }
+
+    const phases = form.phases.map((phase) => {
+      const rateCards = phase.rateCards.map((rc) => {
+        const card: Record<string, unknown> = {
+          type: rc.type,
+          key: rc.key,
+          name: rc.name,
+          billingCadence: rc.type === "flat_fee" ? (rc.billingCadence || null) : rc.billingCadence,
+          price: rc.priceAmount
+            ? { type: "flat", amount: rc.priceAmount, paymentTerm: "in_arrears" }
+            : null,
+        };
+        if (rc.featureKey) card.featureKey = rc.featureKey;
+        if (rc.entitlementType) {
+          const ent: Record<string, unknown> = { type: rc.entitlementType };
+          if (rc.entitlementType === "metered") {
+            if (rc.issueAfterReset) ent.issueAfterReset = Number(rc.issueAfterReset);
+            ent.isSoftLimit = rc.isSoftLimit;
+          }
+          if (rc.entitlementType === "static") {
+            ent.config = rc.staticConfig || "{}";
+          }
+          card.entitlementTemplate = ent;
+        }
+        return card;
+      });
+
+      return {
+        key: phase.key,
+        name: phase.name,
+        duration: phase.duration || null,
+        rateCards,
+      };
+    });
+
+    return {
+      name: form.name,
+      currency: form.currency,
+      billingCadence: form.billingCadence,
+      ...(form.description ? { description: form.description } : {}),
+      phases,
+    };
+  };
+
+  const handleSubmit = () => {
+    setErr("");
+    const body = buildBody();
+    if (!body) return;
+    updateMut.mutate(
+      { id: plan.id, body },
+      {
+        onSuccess: () => onDone(),
+        onError: (e) => setErr(e.message),
+      }
+    );
+  };
+
+  const switchToJson = () => {
+    setErr("");
+    const body = buildBody();
+    setRawJson(JSON.stringify(body ?? {}, null, 2));
+    setJsonMode(true);
+  };
+
+  const switchToPretty = () => {
+    try {
+      const obj = JSON.parse(rawJson);
+      const parsed = planToForm({ ...plan, ...obj, phases: obj.phases ?? plan.phases });
+      setForm(parsed);
+    } catch { /* keep current form */ }
+    setJsonMode(false);
+    setErr("");
+  };
+
+  return (
+    <div className="rounded-lg glass p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Edit Plan: {plan.name}</h3>
+          <p className="text-[10px] text-muted-foreground">
+            <span className="font-mono text-amber">{plan.key}</span> &middot; v{plan.version} &middot; {plan.status}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="ghost" size="xs" onClick={jsonMode ? switchToPretty : switchToJson}>
+            {jsonMode ? "Pretty" : "JSON"}
+          </Button>
+          <Button variant="ghost" size="icon-xs" onClick={onDone} title="Close">
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {jsonMode ? (
+        <textarea
+          value={rawJson}
+          onChange={(e) => { setRawJson(e.target.value); setErr(""); }}
+          className="w-full min-h-48 rounded border border-glass-border-honey bg-transparent px-2 py-1.5 font-mono text-[10px] focus:outline-none focus:ring-1 focus:ring-amber"
+        />
+      ) : (
+        <>
+          <FieldGroup className="gap-2">
+            <div className="grid grid-cols-4 gap-2">
+              <Field className="gap-1">
+                <FieldLabel className="text-[10px]">Name *</FieldLabel>
+                <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
+              </Field>
+              <Field className="gap-1">
+                <FieldLabel className="text-[10px]">Key</FieldLabel>
+                <Input value={form.key} disabled className="opacity-50" />
+              </Field>
+              <Field className="gap-1">
+                <FieldLabel className="text-[10px]">Currency</FieldLabel>
+                <Input value={form.currency} onChange={(e) => set("currency", e.target.value)} />
+              </Field>
+              <Field className="gap-1">
+                <FieldLabel className="text-[10px]">Billing Cadence *</FieldLabel>
+                <Select value={form.billingCadence} onValueChange={(v) => set("billingCadence", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {BILLING_CADENCES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+            <Field className="gap-1">
+              <FieldLabel className="text-[10px]">Description</FieldLabel>
+              <Input value={form.description} onChange={(e) => set("description", e.target.value)} />
+            </Field>
+          </FieldGroup>
+
+          <div className="space-y-3">
+            <span className="text-[11px] font-semibold">Phases</span>
+            {form.phases.map((phase, pi) => (
+              <PhaseEditor
+                key={pi}
+                phase={phase}
+                index={pi}
+                canRemove={form.phases.length > 1}
+                features={features ?? []}
+                onChange={(patch) => setPhase(pi, patch)}
+                onRemove={() => removePhase(pi)}
+                onRateCardChange={(ri, patch) => setRateCard(pi, ri, patch)}
+                onAddRateCard={() => addRateCard(pi)}
+                onRemoveRateCard={(ri) => removeRateCard(pi, ri)}
+              />
+            ))}
+            <Button variant="outline" size="xs" onClick={addPhase}>
+              <Plus className="size-3 mr-1" /> Add Phase
+            </Button>
+          </div>
+        </>
+      )}
+
+      {err && <p className="text-[10px] text-destructive">{err}</p>}
+      {updateMut.error && <p className="text-[10px] text-destructive">{updateMut.error.message}</p>}
+
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="xs" onClick={onDone}>Cancel</Button>
+        <Button
+          size="xs"
+          onClick={handleSubmit}
+          disabled={updateMut.isPending}
+        >
+          {updateMut.isPending ? "Saving..." : "Save Changes"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Phase Editor ───
 
 function PhaseEditor({
@@ -858,11 +1149,13 @@ function RateCardEditor({
 
 function PlanRow({
   plan,
+  onEdit,
   onDelete,
   onPublish,
   onArchive,
 }: {
   plan: Plan;
+  onEdit: () => void;
   onDelete: () => void;
   onPublish: () => void;
   onArchive: () => void;
@@ -883,6 +1176,11 @@ function PlanRow({
           <span className="text-[10px] text-muted-foreground mr-2">
             {plan.currency} &middot; {plan.billingCadence}
           </span>
+          {(plan.status === "draft" || plan.status === "scheduled") && (
+            <Button variant="ghost" size="icon-xs" title="Edit" onClick={onEdit}>
+              <Pencil className="size-3" />
+            </Button>
+          )}
           {plan.status === "draft" && (
             <Button variant="ghost" size="icon-xs" title="Publish" onClick={onPublish}>
               <Upload className="size-3 text-green-600" />

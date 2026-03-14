@@ -27,7 +27,7 @@ type UsageResponse struct {
 	ActiveAgents      UsageMeter `json:"active_agents"`
 }
 
-// Entitlement feature keys — must match the feature keys configured in OpenMeter (see integration plan §4).
+// Feature keys — must match the feature keys configured in OpenMeter (see integration plan §4).
 const (
 	featureCompute          = "compute"
 	featureAgentBuilds      = "agent_builds"
@@ -36,7 +36,8 @@ const (
 )
 
 // GetAccountUsage handles GET /api/v1/accounts/:account/usage.
-// Fetches all usage and quota data from a single GetCustomerAccess call.
+// All features use metered entitlements, so both usage and quota come from
+// a single GetCustomerAccess call.
 func GetAccountUsage(log *logger.Logger, omClient *openmeter.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if omClient == nil {

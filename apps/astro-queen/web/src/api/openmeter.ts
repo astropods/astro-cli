@@ -385,6 +385,17 @@ export function useArchivePlan() {
   });
 }
 
+export function useUpdatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: unknown }) =>
+      api.put<Plan>(`/api/openmeter/api/v1/plans/${encodeURIComponent(id)}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.plans() });
+    },
+  });
+}
+
 // Subscriptions
 export function useCreateSubscription() {
   const qc = useQueryClient();
