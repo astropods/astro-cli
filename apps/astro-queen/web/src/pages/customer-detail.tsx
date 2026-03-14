@@ -32,7 +32,7 @@ export function CustomerDetailPage() {
         <h2 className="text-xl font-semibold">{customer.name}</h2>
         <p className="text-sm text-muted-foreground">{customer.id}</p>
       </div>
-      <CustomerInfoCards customer={customer} />
+      <CustomerInfo customer={customer} />
 
       <SubscriptionSection customer={customer} />
 
@@ -177,73 +177,68 @@ function SubscribeForm({ customerId, onDone }: { customerId: string; onDone: () 
   );
 }
 
-function CustomerInfoCards({ customer }: { customer: Customer }) {
+function CustomerInfo({ customer }: { customer: Customer }) {
   const updateMut = useUpdateCustomer();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
 
-  const save = (field: string, value: string) => {
-    updateMut.mutate({ id: customer.id, body: { [field]: value } });
-  };
-
-  return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-      <EditableInfoCard label="Email" field="primaryEmail" value={customer.email} onSave={save} />
-      <InfoCard label="Key" value={customer.key} />
-      <EditableInfoCard label="Currency" field="currency" value={customer.currency} onSave={save} />
-      <InfoCard label="Timezone" value={customer.timezone} />
-    </div>
-  );
-}
-
-function EditableInfoCard({ label, field, value, onSave }: { label: string; field: string; value: string; onSave: (field: string, value: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  const handleSave = () => {
-    onSave(field, draft);
-    setEditing(false);
-  };
-
-  const handleCancel = () => {
+  const startEdit = (field: string, value: string) => {
+    setEditing(field);
     setDraft(value);
-    setEditing(false);
   };
 
-  return (
-    <div className="rounded-lg glass px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      {editing ? (
-        <div className="flex items-center gap-1 mt-0.5">
-          <Input
-            className="h-6 text-sm"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") handleCancel(); }}
-            autoFocus
-          />
-          <Button variant="ghost" size="icon-xs" onClick={handleSave} title="Save">
-            <Check className="size-3 text-green-600" />
-          </Button>
-          <Button variant="ghost" size="icon-xs" onClick={handleCancel} title="Cancel">
-            <XIcon className="size-3 text-muted-foreground" />
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center justify-between mt-0.5">
-          <p className="truncate text-sm">{value || "-"}</p>
-          <Button variant="ghost" size="icon-xs" onClick={() => { setDraft(value); setEditing(true); }} title={`Edit ${label}`}>
-            <Pencil className="size-3 text-muted-foreground" />
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
+  const save = () => {
+    if (!editing) return;
+    updateMut.mutate({
+      id: customer.id,
+      body: {
+        name: customer.name,
+        key: customer.key,
+        primaryEmail: customer.primaryEmail,
+        currency: customer.currency,
+        [editing]: draft,
+      } as Partial<Customer>,
+    });
+    setEditing(null);
+  };
 
-function InfoCard({ label, value }: { label: string; value: string }) {
+  const cancel = () => setEditing(null);
+
+  const rows: { label: string; field?: string; value: string }[] = [
+    { label: "Key", value: customer.key },
+    { label: "Email", field: "primaryEmail", value: customer.primaryEmail },
+    { label: "Currency", field: "currency", value: customer.currency },
+  ];
+
   return (
-    <div className="rounded-lg glass px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm">{value || "-"}</p>
+    <div className="text-xs space-y-1">
+      {rows.map(({ label, field, value }) => (
+        <div key={label} className="flex items-center gap-2">
+          <span className="text-muted-foreground w-16 shrink-0">{label}</span>
+          {editing === field ? (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-5 w-48 text-xs"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+                autoFocus
+              />
+              <Button variant="ghost" size="icon-xs" onClick={save}><Check className="size-3 text-green-600" /></Button>
+              <Button variant="ghost" size="icon-xs" onClick={cancel}><XIcon className="size-3 text-muted-foreground" /></Button>
+            </div>
+          ) : (
+            <span className="flex items-center gap-1">
+              {value || "-"}
+              {field && (
+                <Button variant="ghost" size="icon-xs" onClick={() => startEdit(field, value)} title={`Edit ${label}`}>
+                  <Pencil className="size-2.5 text-muted-foreground" />
+                </Button>
+              )}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

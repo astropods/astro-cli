@@ -24,6 +24,7 @@ export function CustomersPage() {
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Email</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Currency</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Subscription</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Actions</th>
               </tr>
@@ -37,8 +38,13 @@ export function CustomersPage() {
                     </Link>
                   </td>
                   <td className="px-2 py-0.5">{c.name}</td>
-                  <td className="px-2 py-0.5 text-muted-foreground">{c.email || "-"}</td>
+                  <td className="px-2 py-0.5 text-muted-foreground">{c.primaryEmail || "-"}</td>
                   <td className="px-2 py-0.5 text-muted-foreground">{c.currency || "-"}</td>
+                  <td className="px-2 py-0.5">
+                    {c.currentSubscriptionId
+                      ? <span className="text-green-600">active</span>
+                      : <span className="text-muted-foreground">none</span>}
+                  </td>
                   <td className="px-2 py-0.5 text-muted-foreground">{c.createdAt ? formatDateTime(c.createdAt) : "-"}</td>
                   <td className="px-2 py-0.5">
                     <Button

@@ -44,9 +44,8 @@ export interface Customer {
   name: string;
   key: string;
   description: string;
-  email: string;
+  primaryEmail: string;
   currency: string;
-  timezone: string;
   subjects: string[];
   currentSubscriptionId?: string;
   createdAt: string;
