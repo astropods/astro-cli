@@ -44,6 +44,18 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		),
 	}
 
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(10*time.Minute),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return ReconcileArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{
+					ByPeriod: 10 * time.Minute,
+				},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
 	if cfg.WorkOSAPIKey != "" {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(30*time.Second),

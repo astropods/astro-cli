@@ -23,6 +23,7 @@ require (
 	github.com/quic-go/quic-go v0.59.0
 	github.com/riverqueue/river v0.31.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.31.0
+	github.com/riverqueue/river/rivertype v0.31.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/workos/workos-go/v4 v4.46.1
 	golang.org/x/crypto v0.47.0
@@ -95,7 +96,6 @@ require (
 	github.com/riverqueue/apiframe v0.0.0-20251229202423-2b52ce1c482e // indirect
 	github.com/riverqueue/river/riverdriver v0.31.0 // indirect
 	github.com/riverqueue/river/rivershared v0.31.0 // indirect
-	github.com/riverqueue/river/rivertype v0.31.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

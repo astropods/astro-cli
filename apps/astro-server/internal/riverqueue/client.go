@@ -10,13 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 )
+
+const queueDeploy = "deploy"
 
 // Config holds dependencies that River workers need.
 type Config struct {
@@ -24,6 +28,7 @@ type Config struct {
 	OMClient     *openmeter.Client
 	AccountStore *account.AccountStore
 	K8sClient    k8s.ClusterClient
+	ServerConfig *config.Config
 	WorkOSAPIKey string
 	OrgClient    *org.Client
 	Logger       *logger.Logger
@@ -45,12 +50,13 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	addWorkers(workers, cfg)
+	reconcileWorker := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
+			queueDeploy:        {MaxWorkers: 5},
 			queueWorkOS:        {MaxWorkers: 1},
 		},
 		Workers:      workers,
@@ -62,11 +68,19 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		return nil, fmt.Errorf("riverqueue: client: %w", err)
 	}
 
-	return &Queue{
+	q := &Queue{
 		pool:   pool,
 		client: riverClient,
 		log:    cfg.Logger,
-	}, nil
+	}
+
+	// Set queue reference on reconcile worker (needs Insert for drift re-apply).
+	// This is safe because workers don't run until Start() is called.
+	if reconcileWorker != nil {
+		reconcileWorker.queue = q
+	}
+
+	return q, nil
 }
 
 // Client returns the underlying River client (e.g. for River UI).
@@ -91,6 +105,30 @@ func (q *Queue) Stop(ctx context.Context) error {
 	q.pool.Close()
 	q.log.Info("River queue stopped")
 	return nil
+}
+
+// InsertTx enqueues a job within an existing transaction (for atomicity with DB writes).
+func (q *Queue) InsertTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	return q.client.InsertTx(ctx, tx, args, opts)
+}
+
+// Insert enqueues a job in its own transaction.
+func (q *Queue) Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	tx, err := q.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("riverqueue: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	result, err := q.client.InsertTx(ctx, tx, args, opts)
+	if err != nil {
+		return nil, fmt.Errorf("riverqueue: insert: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("riverqueue: commit: %w", err)
+	}
+	return result, nil
 }
 
 // levelHandler wraps an slog.Handler and drops records below minLevel.
