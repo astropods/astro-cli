@@ -115,9 +115,11 @@ func (s *Server) handleGetClusterStatus(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleGetPodLogs(w http.ResponseWriter, r *http.Request) {
 	ns := r.PathValue("namespace")
 	pod := r.PathValue("pod")
+	container := r.URL.Query().Get("container")
 	resp, err := s.admin.GetPodLogs(r.Context(), &adminv1.GetPodLogsRequest{
 		Namespace: ns,
 		Pod:       pod,
+		Container: container,
 		TailLines: 200,
 	})
 	if err != nil {

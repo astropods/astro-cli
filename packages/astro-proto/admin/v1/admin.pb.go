@@ -259,6 +259,7 @@ type GetDeploymentResponse struct {
 type GetPodLogsRequest struct {
 	Namespace string `json:"namespace,omitempty"`
 	Pod       string `json:"pod,omitempty"`
+	Container string `json:"container,omitempty"`
 	TailLines int32  `json:"tail_lines,omitempty"`
 }
 

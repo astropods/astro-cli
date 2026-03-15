@@ -114,12 +114,12 @@ export function useClusterStatus(namespace: string) {
   });
 }
 
-export function usePodLogs(namespace: string, pod: string) {
+export function usePodLogs(namespace: string, pod: string, container?: string) {
   return useQuery({
-    queryKey: adminKeys.podLogs(namespace, pod),
+    queryKey: [...adminKeys.podLogs(namespace, pod), container ?? ""],
     queryFn: () =>
       api.get<GetPodLogsResponse>(
-        `/api/admin/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs`
+        `/api/admin/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs${container ? `?container=${encodeURIComponent(container)}` : ""}`
       ),
     enabled: !!namespace && !!pod,
   });

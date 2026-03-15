@@ -5,7 +5,7 @@ import { AccountsPage } from "@/pages/accounts";
 import { DeploymentsPage } from "@/pages/deployments";
 import { DeploymentDetailPage } from "@/pages/deployment-detail";
 import { AgentsPage } from "@/pages/agents";
-import { ClusterPage } from "@/pages/cluster";
+
 import { ConnectedDevicesPage } from "@/pages/connected-devices";
 import { ApiClientPage } from "@/pages/api-client";
 import { MetersPage } from "@/pages/meters";
@@ -28,7 +28,7 @@ export const router = createBrowserRouter([
       { path: "admin/deployments", element: <DeploymentsPage /> },
       { path: "admin/deployments/:namespace", element: <DeploymentDetailPage /> },
       { path: "admin/agents", element: <AgentsPage /> },
-      { path: "admin/cluster", element: <ClusterPage /> },
+
       { path: "admin/devices", element: <ConnectedDevicesPage /> },
       { path: "admin/api-client", element: <ApiClientPage /> },
       { path: "admin/river-ui", element: <RiverUIPage /> },

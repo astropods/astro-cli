@@ -605,9 +605,11 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 		tailLines = 100
 	}
 
-	stream, err := s.k8sClient.Clientset().CoreV1().Pods(req.Namespace).GetLogs(req.Pod, &corev1.PodLogOptions{
-		TailLines: &tailLines,
-	}).Stream(ctx)
+	logOpts := &corev1.PodLogOptions{TailLines: &tailLines}
+	if req.Container != "" {
+		logOpts.Container = req.Container
+	}
+	stream, err := s.k8sClient.Clientset().CoreV1().Pods(req.Namespace).GetLogs(req.Pod, logOpts).Stream(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get pod logs: %w", err)
 	}
@@ -635,9 +637,52 @@ func (s *Server) GetPodEnv(ctx context.Context, req *adminv1.GetPodEnvRequest) (
 		return nil, fmt.Errorf("get pod: %w", err)
 	}
 
+	clientset := s.k8sClient.Clientset()
 	var containers []*adminv1.ContainerEnv
 	for _, c := range pod.Spec.Containers {
 		ce := &adminv1.ContainerEnv{Container: c.Name}
+
+		// Resolve envFrom (ConfigMap/Secret bulk injection) first
+		for _, ef := range c.EnvFrom {
+			prefix := ef.Prefix
+			if ef.ConfigMapRef != nil {
+				cm, err := clientset.CoreV1().ConfigMaps(req.Namespace).Get(ctx, ef.ConfigMapRef.Name, metav1.GetOptions{})
+				if err != nil {
+					// ConfigMap may not exist or be inaccessible — note it
+					ce.Vars = append(ce.Vars, &adminv1.EnvVar{
+						Name:      prefix + "*",
+						ValueFrom: fmt.Sprintf("configmap:%s (error: %v)", ef.ConfigMapRef.Name, err),
+					})
+					continue
+				}
+				for k, v := range cm.Data {
+					ce.Vars = append(ce.Vars, &adminv1.EnvVar{
+						Name:      prefix + k,
+						Value:     v,
+						ValueFrom: fmt.Sprintf("configmap:%s", ef.ConfigMapRef.Name),
+					})
+				}
+			}
+			if ef.SecretRef != nil {
+				sec, err := clientset.CoreV1().Secrets(req.Namespace).Get(ctx, ef.SecretRef.Name, metav1.GetOptions{})
+				if err != nil {
+					ce.Vars = append(ce.Vars, &adminv1.EnvVar{
+						Name:      prefix + "*",
+						ValueFrom: fmt.Sprintf("secret:%s (error: %v)", ef.SecretRef.Name, err),
+					})
+					continue
+				}
+				for k := range sec.Data {
+					ce.Vars = append(ce.Vars, &adminv1.EnvVar{
+						Name:      prefix + k,
+						Value:     "***",
+						ValueFrom: fmt.Sprintf("secret:%s", ef.SecretRef.Name),
+					})
+				}
+			}
+		}
+
+		// Individual env entries
 		for _, e := range c.Env {
 			ev := &adminv1.EnvVar{Name: e.Name, Value: e.Value}
 			if e.ValueFrom != nil {

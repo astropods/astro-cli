@@ -18,7 +18,7 @@ export function DeploymentDetailPage() {
   const wakeUpMut = useWakeUpDeployment();
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
-  const [selectedPod, setSelectedPod] = useState<{ ns: string; name: string; mode: "logs" | "env" } | null>(null);
+  const [selectedPod, setSelectedPod] = useState<{ ns: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
   // Auto-refresh when in transitional states
   const isTransitional = data?.deployment?.status && ["pending", "provisioning", "undeploying"].includes(data.deployment.status);
@@ -182,15 +182,144 @@ export function DeploymentDetailPage() {
             </div>
           )}
 
+          {cs.deployments?.length > 0 && (
+            <Collapsible defaultOpen>
+              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <ChevronDown className="size-4" />
+                K8s Deployments ({cs.deployments.length})
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <div className="overflow-x-auto rounded-lg glass">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-glass-border-honey glass-subtle">
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Replicas</th>
+                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Ready</th>
+                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Available</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cs.deployments.map((d) => (
+                        <tr key={d.name} className="border-b border-comb-light">
+                          <td className="px-3 py-1.5">{d.name}</td>
+                          <td className="px-3 py-1.5 text-right">{d.replicas}</td>
+                          <td className={`px-3 py-1.5 text-right ${d.ready_replicas < d.replicas ? "text-yellow-600" : ""}`}>{d.ready_replicas}</td>
+                          <td className="px-3 py-1.5 text-right">{d.available_replicas}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{formatDateTime(d.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
+          {cs.services?.length > 0 && (
+            <Collapsible defaultOpen>
+              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <ChevronDown className="size-4" />
+                Services ({cs.services.length})
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <div className="overflow-x-auto rounded-lg glass">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-glass-border-honey glass-subtle">
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Cluster IP</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Ports</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">External</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cs.services.map((svc) => (
+                        <tr key={svc.name} className="border-b border-comb-light">
+                          <td className="px-3 py-1.5">{svc.name}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{svc.type}</td>
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground">{svc.cluster_ip}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">
+                            {svc.ports?.map((p) => `${p.port}→${p.target_port}/${p.protocol}`).join(", ")}
+                          </td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{svc.external_ip?.join(", ") || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
+          {cs.ingresses?.length > 0 && (
+            <Collapsible defaultOpen>
+              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <ChevronDown className="size-4" />
+                Ingresses ({cs.ingresses.length})
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <div className="overflow-x-auto rounded-lg glass">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-glass-border-honey glass-subtle">
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Class</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Hosts</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Paths</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">TLS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cs.ingresses.map((ing) => (
+                        <tr key={ing.name} className="border-b border-comb-light">
+                          <td className="px-3 py-1.5">{ing.name}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{ing.ingress_class_name || "-"}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">
+                            {ing.rules?.map((r) => r.host).join(", ")}
+                          </td>
+                          <td className="px-3 py-1.5 text-muted-foreground">
+                            {ing.rules?.flatMap((r) => r.paths?.map((p) => `${p.path}→${p.backend_service}:${p.backend_port}`) ?? []).join(", ")}
+                          </td>
+                          <td className="px-3 py-1.5 text-muted-foreground">
+                            {ing.tls?.length ? ing.tls.flatMap((t) => t.hosts).join(", ") : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
           {cs.pods?.length > 0 && (
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-muted-foreground">Pods</h3>
-              <div className="space-y-2">
-                {cs.pods.map((pod) => (
-                  <PodRow key={pod.name} pod={pod} namespace={namespace!} onSelect={setSelectedPod} />
-                ))}
-              </div>
-            </div>
+            <Collapsible defaultOpen>
+              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <ChevronDown className="size-4" />
+                Pods ({cs.pods.length})
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                <div className="space-y-2">
+                  {cs.pods.map((pod) => (
+                    <div key={pod.name}>
+                      <PodRow pod={pod} namespace={namespace!} onSelect={setSelectedPod} />
+                      {selectedPod && selectedPod.name === pod.name && (
+                        <PodDetail
+                          namespace={selectedPod.ns}
+                          pod={selectedPod.name}
+                          container={selectedPod.container}
+                          mode={selectedPod.mode}
+                          onClose={() => setSelectedPod(null)}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           )}
 
           {cs.events?.length > 0 && (
@@ -204,20 +333,24 @@ export function DeploymentDetailPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-glass-border-honey glass-subtle">
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Last Seen</th>
                         <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
                         <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Reason</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Message</th>
                         <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Object</th>
+                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Message</th>
                         <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Count</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {cs.events.map((ev, i) => (
+                      {[...cs.events].sort((a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()).map((ev, i) => (
                         <tr key={i} className="border-b border-comb-light">
-                          <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-600" : "text-muted-foreground"}`}>{ev.type}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground" title={ev.last_seen}>
+                            {ev.last_seen ? formatDistanceToNow(new Date(ev.last_seen), { addSuffix: true }) : "-"}
+                          </td>
+                          <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-600" : ev.type === "Normal" ? "text-green-600" : "text-muted-foreground"}`}>{ev.type}</td>
                           <td className="px-3 py-1.5">{ev.reason}</td>
-                          <td className="max-w-md truncate px-3 py-1.5 text-muted-foreground">{ev.message}</td>
                           <td className="px-3 py-1.5 text-muted-foreground">{ev.involved_object}</td>
+                          <td className="max-w-md truncate px-3 py-1.5 text-muted-foreground">{ev.message}</td>
                           <td className="px-3 py-1.5 text-right text-muted-foreground">{ev.count}</td>
                         </tr>
                       ))}
@@ -230,14 +363,6 @@ export function DeploymentDetailPage() {
         </>
       )}
 
-      {selectedPod && (
-        <PodDetail
-          namespace={selectedPod.ns}
-          pod={selectedPod.name}
-          mode={selectedPod.mode}
-          onClose={() => setSelectedPod(null)}
-        />
-      )}
     </div>
   );
 }
@@ -361,36 +486,81 @@ function PodRow({
 }: {
   pod: K8sPodInfo;
   namespace: string;
-  onSelect: (sel: { ns: string; name: string; mode: "logs" | "env" }) => void;
+  onSelect: (sel: { ns: string; name: string; container?: string; mode: "logs" | "env" }) => void;
 }) {
+  const hasMultipleContainers = (pod.container_statuses?.length ?? 0) > 1;
+
   return (
-    <div className="flex items-center justify-between rounded-lg glass px-3 py-2">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{pod.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {pod.phase} &middot; {pod.node_name} &middot; {pod.pod_ip}
-        </p>
+    <div className="rounded-lg glass px-3 py-2">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{pod.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {pod.phase} &middot; {pod.node_name} &middot; {pod.pod_ip}
+          </p>
+        </div>
+        {/* Pod-level env button (shows all containers) */}
+        {!hasMultipleContainers && (
+          <div className="flex shrink-0 gap-1">
+            <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ ns: namespace, name: pod.name, container: pod.container_statuses?.[0]?.name, mode: "logs" })}>
+              <FileText className="size-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ ns: namespace, name: pod.name, mode: "env" })}>
+              <Settings className="size-3.5" />
+            </Button>
+          </div>
+        )}
       </div>
-      <div className="flex shrink-0 gap-1">
-        <Button variant="ghost" size="icon-xs" onClick={() => onSelect({ ns: namespace, name: pod.name, mode: "logs" })}>
-          <FileText className="size-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon-xs" onClick={() => onSelect({ ns: namespace, name: pod.name, mode: "env" })}>
-          <Settings className="size-3.5" />
-        </Button>
-      </div>
+      {/* Container statuses with per-container actions */}
+      {pod.container_statuses?.length > 0 && (
+        <div className="mt-1.5 space-y-1">
+          {pod.container_statuses.map((cs) => (
+            <div key={cs.name} className="flex items-center gap-2 text-[11px]">
+              <span className={`size-1.5 rounded-full shrink-0 ${cs.ready ? "bg-green-500" : "bg-yellow-500"}`} />
+              <span className="font-medium">{cs.name}</span>
+              <span className={`${cs.state.startsWith("Running") ? "text-green-600" : cs.state.startsWith("Waiting") ? "text-yellow-600" : "text-red-600"}`}>
+                {cs.state}
+              </span>
+              {cs.restart_count > 0 && (
+                <span className="text-yellow-600">{cs.restart_count} restarts</span>
+              )}
+              <span className="truncate text-muted-foreground">{cs.image}</span>
+              {hasMultipleContainers && (
+                <span className="ml-auto flex shrink-0 gap-0.5">
+                  <Button variant="ghost" size="icon-xs" title={`Logs: ${cs.name}`} onClick={() => onSelect({ ns: namespace, name: pod.name, container: cs.name, mode: "logs" })}>
+                    <FileText className="size-3" />
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" title={`Env: ${cs.name}`} onClick={() => onSelect({ ns: namespace, name: pod.name, container: cs.name, mode: "env" })}>
+                    <Settings className="size-3" />
+                  </Button>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Container resources */}
+      {pod.containers?.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground">
+          {pod.containers.map((c) => (
+            <span key={c.name}>
+              {c.name}: {c.request_cpu || "-"}/{c.limit_cpu || "-"} CPU, {c.request_memory || "-"}/{c.limit_memory || "-"} mem
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function PodDetail({ namespace, pod, mode, onClose }: { namespace: string; pod: string; mode: "logs" | "env"; onClose: () => void }) {
-  const logsQuery = usePodLogs(mode === "logs" ? namespace : "", mode === "logs" ? pod : "");
+function PodDetail({ namespace, pod, container, mode, onClose }: { namespace: string; pod: string; container?: string; mode: "logs" | "env"; onClose: () => void }) {
+  const logsQuery = usePodLogs(mode === "logs" ? namespace : "", mode === "logs" ? pod : "", container);
   const envQuery = usePodEnv(mode === "env" ? namespace : "", mode === "env" ? pod : "");
 
   return (
-    <div className="rounded-lg glass-heavy p-4">
+    <div className="mt-1 rounded-lg glass-heavy p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h4 className="font-medium">{pod} - {mode === "logs" ? "Logs" : "Environment"}</h4>
+        <h4 className="font-medium">{container ? `${container}` : pod} - {mode === "logs" ? "Logs" : "Environment"}</h4>
         <Button variant="ghost" size="xs" onClick={onClose}>Close</Button>
       </div>
       {mode === "logs" && (

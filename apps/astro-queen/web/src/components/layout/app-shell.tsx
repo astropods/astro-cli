@@ -5,7 +5,7 @@ import {
   LayoutDashboard,
   Users,
   Bot,
-  Server,
+
   Wifi,
   Send,
   Gauge,
@@ -31,7 +31,7 @@ const sections = [
       { to: "/admin/deployments", label: "Deployments", icon: LayoutDashboard },
       { to: "/admin/accounts", label: "Accounts", icon: Users },
       { to: "/admin/agents", label: "Agents", icon: Bot },
-      { to: "/admin/cluster", label: "Cluster", icon: Server },
+
       { to: "/admin/devices", label: "Devices", icon: Wifi },
       { to: "/admin/api-client", label: "API Client", icon: Send },
       { to: "/admin/river-ui", label: "River UI", icon: Waves },
