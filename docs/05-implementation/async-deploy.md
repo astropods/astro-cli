@@ -133,7 +133,7 @@ UPDATE deployments SET status_changed_at = deployed_at;
 
 -- Create revision 1 for every existing deployment from their current spec
 INSERT INTO deployment_revisions (deployment_id, revision, build_id, spec_json, kms_ciphertext, kms_key_id, created_at)
-SELECT id, 1, build_id, deployment_spec_json, kms_ciphertext, kms_key_id, deployed_at
+SELECT id, 1, build_id, deployment_spec_json::jsonb, encrypted_data_key, kms_key_arn, deployed_at
 FROM deployments
 WHERE deployment_spec_json IS NOT NULL;
 
