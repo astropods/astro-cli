@@ -41,6 +41,22 @@ export interface GetDeploymentEventsResponse {
   events: DeploymentEvent[];
 }
 
+export interface DeploymentJob {
+  kind: string;
+  state: string;
+  attempt: number;
+  max_attempt: number;
+  created_at: string;
+  attempted_at?: string;
+  finalized_at?: string;
+  errors?: string;
+}
+
+export interface GetDeploymentJobsResponse {
+  jobs: DeploymentJob[];
+  last_reconcile_at?: string;
+}
+
 export interface ClusterStatusResponse {
   timestamp: string;
   namespace: string;

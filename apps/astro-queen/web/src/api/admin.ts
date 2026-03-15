@@ -13,6 +13,7 @@ import type {
   ListConnectedDevicesResponse,
   SendCommandResponse,
   GetDeploymentEventsResponse,
+  GetDeploymentJobsResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -296,6 +297,18 @@ export function useWakeUpDeployment() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },
+  });
+}
+
+export function useDeploymentJobs(namespace: string) {
+  return useQuery({
+    queryKey: adminKeys.deploymentJobs(namespace),
+    queryFn: () =>
+      api.get<GetDeploymentJobsResponse>(
+        `/api/admin/deployments/${encodeURIComponent(namespace)}/jobs`
+      ),
+    enabled: !!namespace,
+    refetchInterval: 10_000,
   });
 }
 

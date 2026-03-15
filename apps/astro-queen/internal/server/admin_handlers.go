@@ -24,6 +24,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/deployments/{namespace}/wakeup", s.handleWakeUpDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{namespace}/rollback", s.handleRollbackDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{namespace}/reapply", s.handleReapplyDeployment)
+	mux.HandleFunc("GET /api/admin/deployments/{namespace}/jobs", s.handleGetDeploymentJobs)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +251,18 @@ func (s *Server) handleRollbackDeployment(w http.ResponseWriter, r *http.Request
 func (s *Server) handleReapplyDeployment(w http.ResponseWriter, r *http.Request) {
 	ns := r.PathValue("namespace")
 	resp, err := s.admin.ReapplyDeployment(r.Context(), &adminv1.ReapplyDeploymentRequest{
+		Namespace: ns,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetDeploymentJobs(w http.ResponseWriter, r *http.Request) {
+	ns := r.PathValue("namespace")
+	resp, err := s.admin.GetDeploymentJobs(r.Context(), &adminv1.GetDeploymentJobsRequest{
 		Namespace: ns,
 	})
 	if err != nil {

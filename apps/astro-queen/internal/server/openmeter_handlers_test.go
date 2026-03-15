@@ -96,6 +96,9 @@ func (m *mockAdminClient) RollbackDeployment(context.Context, *adminv1.RollbackD
 func (m *mockAdminClient) ReapplyDeployment(context.Context, *adminv1.ReapplyDeploymentRequest, ...grpc.CallOption) (*adminv1.ReapplyDeploymentResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) GetDeploymentJobs(context.Context, *adminv1.GetDeploymentJobsRequest, ...grpc.CallOption) (*adminv1.GetDeploymentJobsResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

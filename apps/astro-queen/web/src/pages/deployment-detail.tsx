@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, usePodLogs, usePodEnv } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, DeploymentEvent, DeploymentRevision } from "@/types/admin";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { namespace } = useParams<{ namespace: string }>();
@@ -18,6 +18,7 @@ export function DeploymentDetailPage() {
   const wakeUpMut = useWakeUpDeployment();
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
+  const jobsQuery = useDeploymentJobs(namespace ?? "");
   const [selectedPod, setSelectedPod] = useState<{ ns: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
   // Auto-refresh when in transitional states
@@ -166,6 +167,24 @@ export function DeploymentDetailPage() {
               }}
               isRollingBack={rollbackMut.isPending}
             />
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Job History */}
+      {jobsQuery.data && (
+        <Collapsible defaultOpen>
+          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ChevronDown className="size-4" />
+            Job History ({jobsQuery.data.jobs?.length ?? 0})
+            {jobsQuery.data.last_reconcile_at && (
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                last reconcile: {formatDistanceToNow(new Date(jobsQuery.data.last_reconcile_at), { addSuffix: true })}
+              </span>
+            )}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2">
+            <JobsTable jobs={jobsQuery.data.jobs ?? []} />
           </CollapsibleContent>
         </Collapsible>
       )}
@@ -350,7 +369,7 @@ export function DeploymentDetailPage() {
                           <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-600" : ev.type === "Normal" ? "text-green-600" : "text-muted-foreground"}`}>{ev.type}</td>
                           <td className="px-3 py-1.5">{ev.reason}</td>
                           <td className="px-3 py-1.5 text-muted-foreground">{ev.involved_object}</td>
-                          <td className="max-w-md truncate px-3 py-1.5 text-muted-foreground">{ev.message}</td>
+                          <td className="max-w-md whitespace-normal break-words px-3 py-1.5 text-muted-foreground">{ev.message}</td>
                           <td className="px-3 py-1.5 text-right text-muted-foreground">{ev.count}</td>
                         </tr>
                       ))}
@@ -451,6 +470,68 @@ function RevisionTable({
                     </Button>
                   )}
                 </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
+  const stateColors: Record<string, string> = {
+    completed: "text-green-600",
+    running: "text-blue-600",
+    available: "text-yellow-600",
+    retryable: "text-orange-600",
+    discarded: "text-red-600",
+    cancelled: "text-muted-foreground",
+  };
+
+  return (
+    <div className="overflow-x-auto rounded-lg glass">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-glass-border-honey glass-subtle">
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Time</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Kind</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">State</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Attempts</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Duration</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Errors</th>
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.map((j, i) => {
+            const duration = j.attempted_at && j.finalized_at
+              ? `${((new Date(j.finalized_at).getTime() - new Date(j.attempted_at).getTime()) / 1000).toFixed(1)}s`
+              : j.attempted_at ? "running..." : "-";
+
+            // Parse River error JSON array to show last error
+            let lastError = "";
+            if (j.errors) {
+              try {
+                const errs = JSON.parse(j.errors);
+                if (Array.isArray(errs) && errs.length > 0) {
+                  const last = errs[errs.length - 1];
+                  lastError = last.error || last.trace || JSON.stringify(last);
+                }
+              } catch {
+                lastError = j.errors;
+              }
+            }
+
+            return (
+              <tr key={i} className="border-b border-comb-light">
+                <td className="px-3 py-1.5 text-muted-foreground" title={j.created_at}>
+                  {formatDistanceToNow(new Date(j.created_at), { addSuffix: true })}
+                </td>
+                <td className="px-3 py-1.5 font-medium">{j.kind}</td>
+                <td className={`px-3 py-1.5 ${stateColors[j.state] ?? "text-muted-foreground"}`}>{j.state}</td>
+                <td className="px-3 py-1.5 text-muted-foreground">{j.attempt}/{j.max_attempt}</td>
+                <td className="px-3 py-1.5 text-muted-foreground">{duration}</td>
+                <td className="max-w-sm whitespace-normal break-words px-3 py-1.5 text-red-600">{lastError}</td>
               </tr>
             );
           })}

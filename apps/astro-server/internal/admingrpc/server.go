@@ -1177,3 +1177,67 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 
 	return &adminv1.ReapplyDeploymentResponse{Status: "reapplying"}, nil
 }
+
+// GetDeploymentJobs returns River job history and last reconcile time for a deployment.
+func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeploymentJobsRequest) (*adminv1.GetDeploymentJobsResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+
+	// Query River job table for jobs related to this deployment
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors
+		FROM river.river_job
+		WHERE args->>'deployment_id' = $1
+		ORDER BY created_at DESC
+		LIMIT 25
+	`, dep.ID)
+	if err != nil {
+		return nil, fmt.Errorf("query river jobs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var jobs []*adminv1.DeploymentJob
+	for rows.Next() {
+		var j adminv1.DeploymentJob
+		var createdAt time.Time
+		var attemptedAt, finalizedAt sql.NullTime
+		var errorsJSON []byte
+		if err := rows.Scan(&j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsJSON); err != nil {
+			return nil, fmt.Errorf("scan river job: %w", err)
+		}
+		j.CreatedAt = createdAt.Format(time.RFC3339)
+		if attemptedAt.Valid {
+			j.AttemptedAt = attemptedAt.Time.Format(time.RFC3339)
+		}
+		if finalizedAt.Valid {
+			j.FinalizedAt = finalizedAt.Time.Format(time.RFC3339)
+		}
+		if len(errorsJSON) > 0 {
+			j.Errors = string(errorsJSON)
+		}
+		jobs = append(jobs, &j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate river jobs: %w", err)
+	}
+
+	// Get last reconcile scan time from namespace_ownership
+	resp := &adminv1.GetDeploymentJobsResponse{Jobs: jobs}
+	var scannedAt sql.NullTime
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT scanned_at FROM namespace_ownership WHERE namespace = $1`, req.Namespace,
+	).Scan(&scannedAt); err == nil && scannedAt.Valid {
+		resp.LastReconcileAt = scannedAt.Time.Format(time.RFC3339)
+	}
+
+	return resp, nil
+}

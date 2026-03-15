@@ -487,3 +487,23 @@ type ReapplyDeploymentRequest struct {
 type ReapplyDeploymentResponse struct {
 	Status string `json:"status,omitempty"`
 }
+
+type GetDeploymentJobsRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type DeploymentJob struct {
+	Kind        string `json:"kind,omitempty"`
+	State       string `json:"state,omitempty"`
+	Attempt     int32  `json:"attempt,omitempty"`
+	MaxAttempt  int32  `json:"max_attempt,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	AttemptedAt string `json:"attempted_at,omitempty"`
+	FinalizedAt string `json:"finalized_at,omitempty"`
+	Errors      string `json:"errors,omitempty"`
+}
+
+type GetDeploymentJobsResponse struct {
+	Jobs            []*DeploymentJob `json:"jobs,omitempty"`
+	LastReconcileAt string           `json:"last_reconcile_at,omitempty"`
+}

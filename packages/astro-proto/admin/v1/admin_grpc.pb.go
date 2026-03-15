@@ -39,6 +39,7 @@ type AdminServiceClient interface {
 	WakeUpDeployment(ctx context.Context, in *WakeUpDeploymentRequest, opts ...grpc.CallOption) (*WakeUpDeploymentResponse, error)
 	RollbackDeployment(ctx context.Context, in *RollbackDeploymentRequest, opts ...grpc.CallOption) (*RollbackDeploymentResponse, error)
 	ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error)
+	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
 }
 
 type adminServiceClient struct {
@@ -257,6 +258,14 @@ func (c *adminServiceClient) ReapplyDeployment(ctx context.Context, in *ReapplyD
 	return out, nil
 }
 
+func (c *adminServiceClient) GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error) {
+	out := new(GetDeploymentJobsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetDeploymentJobs", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -286,6 +295,7 @@ type AdminServiceServer interface {
 	WakeUpDeployment(context.Context, *WakeUpDeploymentRequest) (*WakeUpDeploymentResponse, error)
 	RollbackDeployment(context.Context, *RollbackDeploymentRequest) (*RollbackDeploymentResponse, error)
 	ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error)
+	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -394,6 +404,10 @@ func (UnimplementedAdminServiceServer) RollbackDeployment(context.Context, *Roll
 
 func (UnimplementedAdminServiceServer) ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReapplyDeployment not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeploymentJobs not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -798,6 +812,21 @@ func _AdminService_ReapplyDeployment_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetDeploymentJobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeploymentJobsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetDeploymentJobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetDeploymentJobs"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetDeploymentJobs(ctx, req.(*GetDeploymentJobsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -829,6 +858,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "WakeUpDeployment", Handler: _AdminService_WakeUpDeployment_Handler},
 		{MethodName: "RollbackDeployment", Handler: _AdminService_RollbackDeployment_Handler},
 		{MethodName: "ReapplyDeployment", Handler: _AdminService_ReapplyDeployment_Handler},
+		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",
