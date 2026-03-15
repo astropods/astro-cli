@@ -33,7 +33,7 @@ func init() {
 
 		adminCmd := newAdminCmd(env, addr)
 		adminCmd.Flags().IntVarP(&serverPort, "port", "p", 8888, "HTTP server port")
-		adminCmd.Flags().BoolVar(&serverNoOpen, "no-open", false, "Don't open browser on start")
+		adminCmd.Flags().BoolVar(&serverNoOpen, "no-open", true, "Don't open browser on start")
 		envCmd.AddCommand(adminCmd)
 
 		rootCmd.AddCommand(envCmd)

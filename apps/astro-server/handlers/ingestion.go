@@ -20,7 +20,7 @@ import (
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
 func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		k8sNamespace := c.Param("namespace")
+		k8sNamespace := c.Param("id")
 		ingestionName := c.Param("ingestion")
 
 		// Get authenticated user from context

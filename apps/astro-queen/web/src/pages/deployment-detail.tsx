@@ -137,7 +137,7 @@ export function DeploymentDetailPage() {
 
       {/* Event Timeline */}
       {events && events.length > 0 && (
-        <Collapsible defaultOpen>
+        <Collapsible>
           <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
             <ChevronDown className="size-4" />
             Event Timeline ({events.length})
@@ -150,7 +150,7 @@ export function DeploymentDetailPage() {
 
       {/* Revision History */}
       {revisions && revisions.length > 0 && (
-        <Collapsible defaultOpen>
+        <Collapsible>
           <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
             <ChevronDown className="size-4" />
             Revisions ({revisions.length})
@@ -172,22 +172,26 @@ export function DeploymentDetailPage() {
       )}
 
       {/* Job History */}
-      {jobsQuery.data && (
-        <Collapsible defaultOpen>
-          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-            <ChevronDown className="size-4" />
-            Job History ({jobsQuery.data.jobs?.length ?? 0})
-            {jobsQuery.data.last_reconcile_at && (
-              <span className="ml-2 text-[10px] font-normal text-muted-foreground">
-                last reconcile: {formatDistanceToNow(new Date(jobsQuery.data.last_reconcile_at), { addSuffix: true })}
-              </span>
-            )}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-            <JobsTable jobs={jobsQuery.data.jobs ?? []} />
-          </CollapsibleContent>
-        </Collapsible>
-      )}
+      <Collapsible>
+        <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+          <ChevronDown className="size-4" />
+          Job History ({jobsQuery.data?.jobs?.length ?? 0})
+          {jobsQuery.data?.last_reconcile_at && (
+            <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+              last reconcile: {formatDistanceToNow(new Date(jobsQuery.data.last_reconcile_at), { addSuffix: true })}
+            </span>
+          )}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          {jobsQuery.isLoading && <Skeleton className="h-20 w-full" />}
+          {jobsQuery.error && <p className="text-destructive text-sm">{jobsQuery.error.message}</p>}
+          {jobsQuery.data?.jobs?.length ? (
+            <JobsTable jobs={jobsQuery.data.jobs} />
+          ) : (
+            !jobsQuery.isLoading && <p className="text-xs text-muted-foreground">No jobs found for this deployment.</p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
 
       {cs && (
         <>
@@ -202,7 +206,7 @@ export function DeploymentDetailPage() {
           )}
 
           {cs.deployments?.length > 0 && (
-            <Collapsible defaultOpen>
+            <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
                 <ChevronDown className="size-4" />
                 K8s Deployments ({cs.deployments.length})
@@ -237,7 +241,7 @@ export function DeploymentDetailPage() {
           )}
 
           {cs.services?.length > 0 && (
-            <Collapsible defaultOpen>
+            <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
                 <ChevronDown className="size-4" />
                 Services ({cs.services.length})
@@ -274,7 +278,7 @@ export function DeploymentDetailPage() {
           )}
 
           {cs.ingresses?.length > 0 && (
-            <Collapsible defaultOpen>
+            <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
                 <ChevronDown className="size-4" />
                 Ingresses ({cs.ingresses.length})
@@ -315,7 +319,7 @@ export function DeploymentDetailPage() {
           )}
 
           {cs.pods?.length > 0 && (
-            <Collapsible defaultOpen>
+            <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
                 <ChevronDown className="size-4" />
                 Pods ({cs.pods.length})

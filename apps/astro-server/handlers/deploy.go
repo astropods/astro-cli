@@ -1071,7 +1071,7 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 			return
 		}
 
-		k8sNamespace := c.Param("namespace")
+		k8sNamespace := c.Param("id")
 		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
 			return
@@ -1120,7 +1120,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			return
 		}
 
-		k8sNamespace := c.Param("namespace")
+		k8sNamespace := c.Param("id")
 		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
 			return
@@ -1530,7 +1530,7 @@ func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cf
 			return
 		}
 
-		k8sNamespace := c.Param("namespace")
+		k8sNamespace := c.Param("id")
 		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
 			return
@@ -1584,7 +1584,7 @@ func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		k8sNamespace := c.Param("namespace")
+		k8sNamespace := c.Param("id")
 		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
 			return
