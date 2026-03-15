@@ -69,12 +69,16 @@ const deploymentColumns = `id, account_id, agent_name, build_id, namespace, disp
 // scanDeployment scans a full deployment row into a Deployment struct.
 func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, error) {
 	var d Deployment
+	var errorDetails []byte
 	err := row.Scan(
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN,
-		&d.Status, &d.ErrorMessage, &d.ErrorDetails, &d.StatusChangedAt, &d.CurrentRevision,
+		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
 		&d.DeployedAt, &d.UndeployedAt,
 	)
+	if errorDetails != nil {
+		d.ErrorDetails = errorDetails
+	}
 	return &d, err
 }
 

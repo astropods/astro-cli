@@ -540,3 +540,150 @@ func TestIsScaledDown_NotFound(t *testing.T) {
 		t.Error("expected IsScaledDown=false for nonexistent namespace")
 	}
 }
+
+func TestScanDeployment_NullErrorDetails(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Create a deployment — error_details will be NULL
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "null-details",
+		DisplayName: "NullDetails", BuildID: "build-1", Namespace: "ns-null-details",
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
+	}
+
+	// GetDeploymentByID uses scanDeployment — should not error on NULL error_details
+	dep, err := store.GetDeploymentByID(d.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentByID failed with NULL error_details: %v", err)
+	}
+	if dep == nil {
+		t.Fatal("expected deployment, got nil")
+	}
+	if dep.ErrorDetails != nil {
+		t.Errorf("expected nil ErrorDetails, got %s", string(dep.ErrorDetails))
+	}
+
+	// Now set error_details to a non-null value and verify it scans correctly
+	if err := store.UpdateStatus(d.ID, StatusFailed, "boom", json.RawMessage(`{"code":"ERR_1"}`)); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+	dep, err = store.GetDeploymentByID(d.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentByID failed with non-null error_details: %v", err)
+	}
+	if dep.ErrorDetails == nil {
+		t.Fatal("expected non-nil ErrorDetails")
+	}
+	if string(dep.ErrorDetails) != `{"code":"ERR_1"}` {
+		t.Errorf("expected error_details '{\"code\":\"ERR_1\"}', got %s", string(dep.ErrorDetails))
+	}
+}
+
+func TestGetDeploymentByNamespace(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ns := fmt.Sprintf("ns-byns-%s", newID()[:8])
+
+	// Not found case
+	d, err := store.GetDeploymentByNamespace(ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d != nil {
+		t.Errorf("expected nil for nonexistent namespace, got %+v", d)
+	}
+
+	// Create deployment and mark active
+	dep, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "ns-lookup",
+		DisplayName: "NsLookup", BuildID: "build-1", Namespace: ns,
+		SpecJSON: `{"spec":"v1"}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending failed: %v", err)
+	}
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", dep.ID)
+
+	// Found case
+	d, err = store.GetDeploymentByNamespace(ns)
+	if err != nil {
+		t.Fatalf("GetDeploymentByNamespace failed: %v", err)
+	}
+	if d == nil {
+		t.Fatal("expected deployment, got nil")
+	}
+	if d.ID != dep.ID {
+		t.Errorf("expected ID %q, got %q", dep.ID, d.ID)
+	}
+	if d.Namespace != ns {
+		t.Errorf("expected namespace %q, got %q", ns, d.Namespace)
+	}
+
+	// Undeployed should not be found
+	_, _ = db.Exec("UPDATE deployments SET status = 'undeployed' WHERE id = $1", dep.ID)
+	d, err = store.GetDeploymentByNamespace(ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d != nil {
+		t.Errorf("expected nil for undeployed namespace, got %+v", d)
+	}
+}
+
+func TestListAllWithAccount(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	// Create deployments in various statuses
+	d1, _ := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "list-all-1",
+		DisplayName: "LA1", BuildID: "build-1", Namespace: fmt.Sprintf("ns-la1-%s", newID()[:8]),
+		SpecJSON: `{}`,
+	}, nil)
+	d2, _ := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "list-all-2",
+		DisplayName: "LA2", BuildID: "build-1", Namespace: fmt.Sprintf("ns-la2-%s", newID()[:8]),
+		SpecJSON: `{}`,
+	}, nil)
+	d3, _ := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "list-all-3",
+		DisplayName: "LA3", BuildID: "build-1", Namespace: fmt.Sprintf("ns-la3-%s", newID()[:8]),
+		SpecJSON: `{}`,
+	}, nil)
+
+	// d1=active, d2=failed, d3=undeployed
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d1.ID)
+	_, _ = db.Exec("UPDATE deployments SET status = 'failed', error_message = 'oops' WHERE id = $1", d2.ID)
+	_, _ = db.Exec("UPDATE deployments SET status = 'undeployed' WHERE id = $1", d3.ID)
+
+	deps, err := store.ListAllWithAccount()
+	if err != nil {
+		t.Fatalf("ListAllWithAccount failed: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, dep := range deps {
+		found[dep.ID] = true
+		if dep.AccountName == "" {
+			t.Errorf("expected non-empty AccountName for deployment %s", dep.ID)
+		}
+	}
+
+	if !found[d1.ID] {
+		t.Errorf("expected active deployment %s in results", d1.ID)
+	}
+	if !found[d2.ID] {
+		t.Errorf("expected failed deployment %s in results", d2.ID)
+	}
+	if found[d3.ID] {
+		t.Errorf("did not expect undeployed deployment %s in results", d3.ID)
+	}
+}
