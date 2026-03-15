@@ -84,6 +84,18 @@ func (m *mockAdminClient) ApproveQuotaIncrease(context.Context, *adminv1.Approve
 func (m *mockAdminClient) DenyQuotaIncrease(context.Context, *adminv1.DenyQuotaIncreaseRequest, ...grpc.CallOption) (*adminv1.DenyQuotaIncreaseResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) GetDeploymentEvents(context.Context, *adminv1.GetDeploymentEventsRequest, ...grpc.CallOption) (*adminv1.GetDeploymentEventsResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) WakeUpDeployment(context.Context, *adminv1.WakeUpDeploymentRequest, ...grpc.CallOption) (*adminv1.WakeUpDeploymentResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) RollbackDeployment(context.Context, *adminv1.RollbackDeploymentRequest, ...grpc.CallOption) (*adminv1.RollbackDeploymentResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) ReapplyDeployment(context.Context, *adminv1.ReapplyDeploymentRequest, ...grpc.CallOption) (*adminv1.ReapplyDeploymentResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

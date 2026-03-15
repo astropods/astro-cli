@@ -1,26 +1,33 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartDeployment, usePodLogs, usePodEnv } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, usePodLogs, usePodEnv } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { ChevronDown, Trash2, RotateCw, FileText, Settings } from "lucide-react";
-import { formatDateTime } from "@/lib/utils";
-import type { K8sPodInfo } from "@/types/admin";
+import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play } from "lucide-react";
+import { formatDateTime, truncateUUID } from "@/lib/utils";
+import { formatDistanceToNow } from "date-fns";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { namespace } = useParams<{ namespace: string }>();
   const navigate = useNavigate();
-  const { data, isLoading, error } = useDeployment(namespace ?? "");
+  const { data, isLoading, error, refetch } = useDeployment(namespace ?? "", 5_000);
   const deleteMut = useDeleteDeployment();
   const restartMut = useRestartDeployment();
+  const wakeUpMut = useWakeUpDeployment();
+  const rollbackMut = useRollbackDeployment();
+  const reapplyMut = useReapplyDeployment();
   const [selectedPod, setSelectedPod] = useState<{ ns: string; name: string; mode: "logs" | "env" } | null>(null);
+
+  // Auto-refresh when in transitional states
+  const isTransitional = data?.deployment?.status && ["pending", "provisioning", "undeploying"].includes(data.deployment.status);
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (error) return <p className="text-destructive">Error: {error.message}</p>;
   if (!data) return null;
 
-  const { deployment: dep, cluster_status: cs } = data;
+  const { deployment: dep, cluster_status: cs, events, revisions } = data;
 
   return (
     <div className="space-y-6">
@@ -30,11 +37,35 @@ export function DeploymentDetailPage() {
           <p className="text-sm text-muted-foreground">{dep.namespace}</p>
         </div>
         <div className="flex gap-2">
+          {dep.status === "scaled_down" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => wakeUpMut.mutate(namespace!, { onSuccess: () => refetch() })}
+              disabled={wakeUpMut.isPending}
+            >
+              <Sun className="size-3.5" />
+              Wake Up
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (confirm("Re-apply this deployment? This will rebuild and apply all K8s resources.")) {
+                reapplyMut.mutate(namespace!, { onSuccess: () => refetch() });
+              }
+            }}
+            disabled={reapplyMut.isPending || dep.status === "pending" || dep.status === "provisioning" || dep.status === "undeploying"}
+          >
+            <Play className="size-3.5" />
+            Re-apply
+          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => restartMut.mutate(namespace!)}
-            disabled={restartMut.isPending}
+            disabled={restartMut.isPending || dep.status !== "active"}
           >
             <RotateCw className="size-3.5" />
             Restart
@@ -55,10 +86,40 @@ export function DeploymentDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      {/* Status banner */}
+      {dep.status === "failed" && dep.error_message && (
+        <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-medium">Deployment Failed</p>
+            <p className="mt-0.5 text-red-700">{dep.error_message}</p>
+          </div>
+        </div>
+      )}
+      {dep.status === "scaled_down" && (
+        <div className="flex items-start gap-2 rounded-lg bg-purple-50 p-3 text-sm text-purple-800">
+          <Info className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-medium">Scaled Down</p>
+            <p className="mt-0.5 text-purple-700">This deployment has been scaled to zero by KEDA. Use the Wake Up button to restore it.</p>
+          </div>
+        </div>
+      )}
+      {isTransitional && (
+        <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-blue-500" />
+          </span>
+          <span className="capitalize">{dep.status}...</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <InfoCard label="Status" value={dep.status} />
         <InfoCard label="Account" value={dep.account_name} />
         <InfoCard label="Build ID" value={dep.build_id} mono />
+        <InfoCard label="Revision" value={dep.current_revision != null ? `rev ${dep.current_revision}` : "-"} />
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
       </div>
 
@@ -71,6 +132,42 @@ export function DeploymentDetailPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Event Timeline */}
+      {events && events.length > 0 && (
+        <Collapsible defaultOpen>
+          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ChevronDown className="size-4" />
+            Event Timeline ({events.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2">
+            <EventTimeline events={events} />
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Revision History */}
+      {revisions && revisions.length > 0 && (
+        <Collapsible defaultOpen>
+          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ChevronDown className="size-4" />
+            Revisions ({revisions.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2">
+            <RevisionTable
+              revisions={revisions}
+              currentRevision={dep.current_revision}
+              canRollback={dep.status === "active" || dep.status === "failed"}
+              onRollback={(rev) => {
+                if (confirm(`Rollback to revision ${rev}?`)) {
+                  rollbackMut.mutate({ namespace: namespace!, revision: rev }, { onSuccess: () => refetch() });
+                }
+              }}
+              isRollingBack={rollbackMut.isPending}
+            />
+          </CollapsibleContent>
+        </Collapsible>
       )}
 
       {cs && (
@@ -100,7 +197,7 @@ export function DeploymentDetailPage() {
             <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
                 <ChevronDown className="size-4" />
-                Events ({cs.events.length})
+                K8s Events ({cs.events.length})
               </CollapsibleTrigger>
               <CollapsibleContent className="mt-2">
                 <div className="overflow-x-auto rounded-lg glass">
@@ -141,6 +238,99 @@ export function DeploymentDetailPage() {
           onClose={() => setSelectedPod(null)}
         />
       )}
+    </div>
+  );
+}
+
+function EventTimeline({ events }: { events: DeploymentEvent[] }) {
+  const statusColors: Record<string, string> = {
+    active: "bg-green-500",
+    pending: "bg-yellow-500",
+    provisioning: "bg-blue-500",
+    failed: "bg-red-500",
+    undeploying: "bg-orange-500",
+    scaled_down: "bg-purple-500",
+    undeployed: "bg-gray-400",
+  };
+
+  return (
+    <div className="space-y-0">
+      {events.map((ev, i) => (
+        <div key={i} className="flex items-start gap-3 py-1.5">
+          <div className="flex flex-col items-center">
+            <div className={`size-2 rounded-full ${statusColors[ev.status] ?? "bg-gray-400"}`} />
+            {i < events.length - 1 && <div className="w-px flex-1 bg-border" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium capitalize">{ev.status}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {formatDistanceToNow(new Date(ev.created_at), { addSuffix: true })}
+              </span>
+            </div>
+            {ev.message && <p className="text-xs text-muted-foreground">{ev.message}</p>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RevisionTable({
+  revisions,
+  currentRevision,
+  canRollback,
+  onRollback,
+  isRollingBack,
+}: {
+  revisions: DeploymentRevision[];
+  currentRevision?: number;
+  canRollback: boolean;
+  onRollback: (revision: number) => void;
+  isRollingBack: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg glass">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-glass-border-honey glass-subtle">
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Revision</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Build ID</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Created</th>
+            <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {revisions.map((rev) => {
+            const isCurrent = rev.revision === currentRevision;
+            return (
+              <tr key={rev.revision} className={`border-b border-comb-light ${isCurrent ? "bg-amber-50/50" : ""}`}>
+                <td className="px-3 py-1.5">
+                  <span className="font-mono">rev {rev.revision}</span>
+                  {isCurrent && (
+                    <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">current</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 font-mono text-muted-foreground">{truncateUUID(rev.build_id)}</td>
+                <td className="px-3 py-1.5 text-muted-foreground">{formatDateTime(rev.created_at)}</td>
+                <td className="px-3 py-1.5 text-right">
+                  {!isCurrent && canRollback && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onRollback(rev.revision)}
+                      disabled={isRollingBack}
+                    >
+                      <Undo2 className="size-3" />
+                      Rollback
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

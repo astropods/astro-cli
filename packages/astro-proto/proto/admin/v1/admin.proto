@@ -22,6 +22,10 @@ service AdminService {
   rpc ListQuotaIncreaseRequests(ListQuotaIncreaseRequestsRequest) returns (ListQuotaIncreaseRequestsResponse);
   rpc ApproveQuotaIncrease(ApproveQuotaIncreaseRequest) returns (ApproveQuotaIncreaseResponse);
   rpc DenyQuotaIncrease(DenyQuotaIncreaseRequest) returns (DenyQuotaIncreaseResponse);
+  rpc GetDeploymentEvents(GetDeploymentEventsRequest) returns (GetDeploymentEventsResponse);
+  rpc WakeUpDeployment(WakeUpDeploymentRequest) returns (WakeUpDeploymentResponse);
+  rpc RollbackDeployment(RollbackDeploymentRequest) returns (RollbackDeploymentResponse);
+  rpc ReapplyDeployment(ReapplyDeploymentRequest) returns (ReapplyDeploymentResponse);
 }
 
 message ListDeploymentsRequest {
@@ -36,6 +40,22 @@ message AdminDeployment {
   string created_at = 5;
   string account_name = 6;
   repeated string components = 7;
+  string deployment_id = 8;
+  string error_message = 9;
+  string status_changed_at = 10;
+  int32 current_revision = 11;
+}
+
+message AdminDeploymentEvent {
+  string status = 1;
+  string message = 2;
+  string created_at = 3;
+}
+
+message AdminDeploymentRevision {
+  int32 revision = 1;
+  string build_id = 2;
+  string created_at = 3;
 }
 
 message ListDeploymentsResponse {
@@ -275,5 +295,38 @@ message DenyQuotaIncreaseRequest {
 }
 
 message DenyQuotaIncreaseResponse {
+  string status = 1;
+}
+
+message GetDeploymentEventsRequest {
+  string namespace = 1;
+}
+
+message GetDeploymentEventsResponse {
+  repeated AdminDeploymentEvent events = 1;
+}
+
+message WakeUpDeploymentRequest {
+  string namespace = 1;
+}
+
+message WakeUpDeploymentResponse {
+  string status = 1;
+}
+
+message RollbackDeploymentRequest {
+  string namespace = 1;
+  int32 revision = 2;
+}
+
+message RollbackDeploymentResponse {
+  string status = 1;
+}
+
+message ReapplyDeploymentRequest {
+  string namespace = 1;
+}
+
+message ReapplyDeploymentResponse {
   string status = 1;
 }

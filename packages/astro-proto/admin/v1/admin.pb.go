@@ -35,13 +35,29 @@ type ListDeploymentsRequest struct {
 }
 
 type AdminDeployment struct {
-	Name        string   `json:"name,omitempty"`
-	BuildID     string   `json:"build_id,omitempty"`
-	Namespace   string   `json:"namespace,omitempty"`
-	Status      string   `json:"status,omitempty"`
-	CreatedAt   string   `json:"created_at,omitempty"`
-	AccountName string   `json:"account_name,omitempty"`
-	Components  []string `json:"components,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	BuildID         string   `json:"build_id,omitempty"`
+	Namespace       string   `json:"namespace,omitempty"`
+	Status          string   `json:"status,omitempty"`
+	CreatedAt       string   `json:"created_at,omitempty"`
+	AccountName     string   `json:"account_name,omitempty"`
+	Components      []string `json:"components,omitempty"`
+	DeploymentID    string   `json:"deployment_id,omitempty"`
+	ErrorMessage    string   `json:"error_message,omitempty"`
+	StatusChangedAt string   `json:"status_changed_at,omitempty"`
+	CurrentRevision int32    `json:"current_revision,omitempty"`
+}
+
+type AdminDeploymentEvent struct {
+	Status    string `json:"status,omitempty"`
+	Message   string `json:"message,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type AdminDeploymentRevision struct {
+	Revision  int32  `json:"revision,omitempty"`
+	BuildID   string `json:"build_id,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 type ListDeploymentsResponse struct {
@@ -233,9 +249,11 @@ type GetDeploymentRequest struct {
 }
 
 type GetDeploymentResponse struct {
-	Deployment    *AdminDeployment          `json:"deployment,omitempty"`
-	SpecJSON      string                    `json:"spec_json,omitempty"`
-	ClusterStatus *GetClusterStatusResponse `json:"cluster_status,omitempty"`
+	Deployment    *AdminDeployment           `json:"deployment,omitempty"`
+	SpecJSON      string                     `json:"spec_json,omitempty"`
+	ClusterStatus *GetClusterStatusResponse  `json:"cluster_status,omitempty"`
+	Events        []*AdminDeploymentEvent    `json:"events,omitempty"`
+	Revisions     []*AdminDeploymentRevision `json:"revisions,omitempty"`
 }
 
 type GetPodLogsRequest struct {
@@ -433,5 +451,38 @@ type DenyQuotaIncreaseRequest struct {
 }
 
 type DenyQuotaIncreaseResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type GetDeploymentEventsRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type GetDeploymentEventsResponse struct {
+	Events []*AdminDeploymentEvent `json:"events,omitempty"`
+}
+
+type WakeUpDeploymentRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type WakeUpDeploymentResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type RollbackDeploymentRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+	Revision  int32  `json:"revision,omitempty"`
+}
+
+type RollbackDeploymentResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
+type ReapplyDeploymentRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type ReapplyDeploymentResponse struct {
 	Status string `json:"status,omitempty"`
 }

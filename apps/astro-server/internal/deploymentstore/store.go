@@ -267,6 +267,62 @@ func (s *Store) ListAllActive() ([]*DeploymentWithAccount, error) {
 	return deployments, nil
 }
 
+// ListAllWithAccount returns all non-undeployed deployments across all accounts,
+// joined with account names. Includes async fields (status, error_message, etc).
+func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
+	rows, err := s.db.Query(`
+		SELECT d.id, d.account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
+		       d.deployment_spec_json, d.status, d.error_message, d.status_changed_at,
+		       d.current_revision, d.deployed_at, d.undeployed_at,
+		       a.name AS account_name
+		FROM deployments d
+		JOIN accounts a ON d.account_id = a.id
+		WHERE d.status != 'undeployed'
+		ORDER BY d.deployed_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all deployments with account: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var deployments []*DeploymentWithAccount
+	for rows.Next() {
+		var d DeploymentWithAccount
+		if err := rows.Scan(
+			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+			&d.DeploymentSpecJSON, &d.Status, &d.ErrorMessage, &d.StatusChangedAt,
+			&d.CurrentRevision, &d.DeployedAt, &d.UndeployedAt,
+			&d.AccountName,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
+		}
+		deployments = append(deployments, &d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
+	}
+	return deployments, nil
+}
+
+// GetDeploymentByNamespace returns a deployment by its namespace, or nil if not found.
+// Only returns non-undeployed deployments.
+func (s *Store) GetDeploymentByNamespace(namespace string) (*Deployment, error) {
+	d, err := scanDeployment(s.db.QueryRow(`
+		SELECT `+deploymentColumns+`
+		FROM deployments
+		WHERE namespace = $1 AND status != 'undeployed'
+		ORDER BY deployed_at DESC
+		LIMIT 1
+	`, namespace))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get deployment by namespace: %w", err)
+	}
+	return d, nil
+}
+
 // MarkUndeployedByID sets a specific deployment to 'undeployed'.
 func (s *Store) MarkUndeployedByID(deploymentID string) error {
 	_, err := s.db.Exec(`

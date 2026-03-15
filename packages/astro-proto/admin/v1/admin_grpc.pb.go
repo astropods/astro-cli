@@ -35,6 +35,10 @@ type AdminServiceClient interface {
 	ListQuotaIncreaseRequests(ctx context.Context, in *ListQuotaIncreaseRequestsRequest, opts ...grpc.CallOption) (*ListQuotaIncreaseRequestsResponse, error)
 	ApproveQuotaIncrease(ctx context.Context, in *ApproveQuotaIncreaseRequest, opts ...grpc.CallOption) (*ApproveQuotaIncreaseResponse, error)
 	DenyQuotaIncrease(ctx context.Context, in *DenyQuotaIncreaseRequest, opts ...grpc.CallOption) (*DenyQuotaIncreaseResponse, error)
+	GetDeploymentEvents(ctx context.Context, in *GetDeploymentEventsRequest, opts ...grpc.CallOption) (*GetDeploymentEventsResponse, error)
+	WakeUpDeployment(ctx context.Context, in *WakeUpDeploymentRequest, opts ...grpc.CallOption) (*WakeUpDeploymentResponse, error)
+	RollbackDeployment(ctx context.Context, in *RollbackDeploymentRequest, opts ...grpc.CallOption) (*RollbackDeploymentResponse, error)
+	ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error)
 }
 
 type adminServiceClient struct {
@@ -221,6 +225,38 @@ func (c *adminServiceClient) DenyQuotaIncrease(ctx context.Context, in *DenyQuot
 	return out, nil
 }
 
+func (c *adminServiceClient) GetDeploymentEvents(ctx context.Context, in *GetDeploymentEventsRequest, opts ...grpc.CallOption) (*GetDeploymentEventsResponse, error) {
+	out := new(GetDeploymentEventsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetDeploymentEvents", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) WakeUpDeployment(ctx context.Context, in *WakeUpDeploymentRequest, opts ...grpc.CallOption) (*WakeUpDeploymentResponse, error) {
+	out := new(WakeUpDeploymentResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/WakeUpDeployment", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RollbackDeployment(ctx context.Context, in *RollbackDeploymentRequest, opts ...grpc.CallOption) (*RollbackDeploymentResponse, error) {
+	out := new(RollbackDeploymentResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RollbackDeployment", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error) {
+	out := new(ReapplyDeploymentResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ReapplyDeployment", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -246,6 +282,10 @@ type AdminServiceServer interface {
 	ListQuotaIncreaseRequests(context.Context, *ListQuotaIncreaseRequestsRequest) (*ListQuotaIncreaseRequestsResponse, error)
 	ApproveQuotaIncrease(context.Context, *ApproveQuotaIncreaseRequest) (*ApproveQuotaIncreaseResponse, error)
 	DenyQuotaIncrease(context.Context, *DenyQuotaIncreaseRequest) (*DenyQuotaIncreaseResponse, error)
+	GetDeploymentEvents(context.Context, *GetDeploymentEventsRequest) (*GetDeploymentEventsResponse, error)
+	WakeUpDeployment(context.Context, *WakeUpDeploymentRequest) (*WakeUpDeploymentResponse, error)
+	RollbackDeployment(context.Context, *RollbackDeploymentRequest) (*RollbackDeploymentResponse, error)
+	ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -338,6 +378,22 @@ func (UnimplementedAdminServiceServer) ApproveQuotaIncrease(context.Context, *Ap
 
 func (UnimplementedAdminServiceServer) DenyQuotaIncrease(context.Context, *DenyQuotaIncreaseRequest) (*DenyQuotaIncreaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DenyQuotaIncrease not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetDeploymentEvents(context.Context, *GetDeploymentEventsRequest) (*GetDeploymentEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeploymentEvents not implemented")
+}
+
+func (UnimplementedAdminServiceServer) WakeUpDeployment(context.Context, *WakeUpDeploymentRequest) (*WakeUpDeploymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WakeUpDeployment not implemented")
+}
+
+func (UnimplementedAdminServiceServer) RollbackDeployment(context.Context, *RollbackDeploymentRequest) (*RollbackDeploymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RollbackDeployment not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReapplyDeployment not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -682,6 +738,66 @@ func _AdminService_DenyQuotaIncrease_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_GetDeploymentEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeploymentEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetDeploymentEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetDeploymentEvents"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetDeploymentEvents(ctx, req.(*GetDeploymentEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_WakeUpDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WakeUpDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).WakeUpDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/WakeUpDeployment"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).WakeUpDeployment(ctx, req.(*WakeUpDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RollbackDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RollbackDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RollbackDeployment"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RollbackDeployment(ctx, req.(*RollbackDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ReapplyDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReapplyDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ReapplyDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ReapplyDeployment"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ReapplyDeployment(ctx, req.(*ReapplyDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -709,6 +825,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ListQuotaIncreaseRequests", Handler: _AdminService_ListQuotaIncreaseRequests_Handler},
 		{MethodName: "ApproveQuotaIncrease", Handler: _AdminService_ApproveQuotaIncrease_Handler},
 		{MethodName: "DenyQuotaIncrease", Handler: _AdminService_DenyQuotaIncrease_Handler},
+		{MethodName: "GetDeploymentEvents", Handler: _AdminService_GetDeploymentEvents_Handler},
+		{MethodName: "WakeUpDeployment", Handler: _AdminService_WakeUpDeployment_Handler},
+		{MethodName: "RollbackDeployment", Handler: _AdminService_RollbackDeployment_Handler},
+		{MethodName: "ReapplyDeployment", Handler: _AdminService_ReapplyDeployment_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

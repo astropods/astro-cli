@@ -6,6 +6,22 @@ export interface AdminDeployment {
   created_at: string;
   account_name: string;
   components: string[];
+  deployment_id: string;
+  error_message?: string;
+  status_changed_at?: string;
+  current_revision?: number;
+}
+
+export interface DeploymentEvent {
+  status: string;
+  message?: string;
+  created_at: string;
+}
+
+export interface DeploymentRevision {
+  revision: number;
+  build_id: string;
+  created_at: string;
 }
 
 export interface ListDeploymentsResponse {
@@ -17,6 +33,12 @@ export interface GetDeploymentResponse {
   deployment: AdminDeployment;
   spec_json: string;
   cluster_status: ClusterStatusResponse;
+  events?: DeploymentEvent[];
+  revisions?: DeploymentRevision[];
+}
+
+export interface GetDeploymentEventsResponse {
+  events: DeploymentEvent[];
 }
 
 export interface ClusterStatusResponse {

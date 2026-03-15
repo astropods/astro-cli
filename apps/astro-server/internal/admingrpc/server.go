@@ -42,6 +42,7 @@ type Server struct {
 	httpHandler    http.Handler
 	workosClientID string
 	databaseURL    string
+	queue          *riverqueue.Queue
 
 	riverMu        sync.Mutex
 	riverUIHandler http.Handler
@@ -66,6 +67,7 @@ func New(
 	db *sql.DB,
 	openMeterURL string,
 	databaseURL string,
+	queue *riverqueue.Queue,
 ) *Server {
 	return &Server{
 		log:          log,
@@ -74,6 +76,7 @@ func New(
 		db:           db,
 		openMeterURL: strings.TrimRight(openMeterURL, "/"),
 		databaseURL:  databaseURL,
+		queue:        queue,
 	}
 }
 
@@ -139,9 +142,9 @@ func (s *Server) SetCommandDispatcher(d CommandDispatcher) {
 	s.cmdDispatch = d
 }
 
-// ListDeployments returns all active deployments across all accounts.
+// ListDeployments returns all non-undeployed deployments across all accounts.
 func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeploymentsRequest) (*adminv1.ListDeploymentsResponse, error) {
-	dbDeps, err := s.deployStore.ListAllActive()
+	dbDeps, err := s.deployStore.ListAllWithAccount()
 	if err != nil {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
@@ -164,15 +167,25 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 			}
 		}
 
-		results = append(results, &adminv1.AdminDeployment{
-			Name:        d.AgentName,
-			BuildID:     d.BuildID,
-			Namespace:   d.Namespace,
-			Status:      d.Status,
-			CreatedAt:   d.DeployedAt.Format(time.RFC3339),
-			AccountName: d.AccountName,
-			Components:  components,
-		})
+		ad := &adminv1.AdminDeployment{
+			Name:            d.AgentName,
+			BuildID:         d.BuildID,
+			Namespace:       d.Namespace,
+			Status:          d.Status,
+			CreatedAt:       d.DeployedAt.Format(time.RFC3339),
+			AccountName:     d.AccountName,
+			Components:      components,
+			DeploymentID:    d.ID,
+			StatusChangedAt: d.StatusChangedAt.Format(time.RFC3339),
+		}
+		if d.ErrorMessage != nil {
+			ad.ErrorMessage = *d.ErrorMessage
+		}
+		if d.CurrentRevision != nil {
+			ad.CurrentRevision = int32(*d.CurrentRevision) //nolint:gosec // revision numbers are small
+		}
+
+		results = append(results, ad)
 	}
 
 	return &adminv1.ListDeploymentsResponse{
@@ -181,36 +194,64 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 	}, nil
 }
 
-// GetDeployment returns a single deployment with its spec and cluster status.
+// GetDeployment returns a single deployment with its spec, cluster status, events, and revisions.
 func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRequest) (*adminv1.GetDeploymentResponse, error) {
 	if req.Namespace == "" {
 		return nil, fmt.Errorf("namespace is required")
 	}
 
-	dbDeps, err := s.deployStore.ListAllActive()
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
 	if err != nil {
-		return nil, fmt.Errorf("list deployments: %w", err)
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
 	}
 
-	var found *adminv1.AdminDeployment
-	var specJSON string
-	for _, d := range dbDeps {
-		if d.Namespace == req.Namespace {
-			found = &adminv1.AdminDeployment{
-				Name:        d.AgentName,
-				BuildID:     d.BuildID,
-				Namespace:   d.Namespace,
-				Status:      d.Status,
-				CreatedAt:   d.DeployedAt.Format(time.RFC3339),
-				AccountName: d.AccountName,
-				Components:  []string{},
-			}
-			specJSON = d.DeploymentSpecJSON
-			break
+	// Look up account name
+	var accountName string
+	_ = s.db.QueryRow("SELECT name FROM accounts WHERE id = $1", dep.AccountID).Scan(&accountName)
+
+	ad := &adminv1.AdminDeployment{
+		Name:            dep.AgentName,
+		BuildID:         dep.BuildID,
+		Namespace:       dep.Namespace,
+		Status:          dep.Status,
+		CreatedAt:       dep.DeployedAt.Format(time.RFC3339),
+		AccountName:     accountName,
+		Components:      []string{},
+		DeploymentID:    dep.ID,
+		StatusChangedAt: dep.StatusChangedAt.Format(time.RFC3339),
+	}
+	if dep.ErrorMessage != nil {
+		ad.ErrorMessage = *dep.ErrorMessage
+	}
+	if dep.CurrentRevision != nil {
+		ad.CurrentRevision = int32(*dep.CurrentRevision) //nolint:gosec // revision numbers are small
+	}
+
+	// Fetch events
+	var protoEvents []*adminv1.AdminDeploymentEvent
+	if events, err := s.deployStore.GetDeploymentEvents(dep.ID, 50); err == nil {
+		for _, ev := range events {
+			protoEvents = append(protoEvents, &adminv1.AdminDeploymentEvent{
+				Status:    ev.Status,
+				Message:   ev.Message,
+				CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+			})
 		}
 	}
-	if found == nil {
-		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+
+	// Fetch revisions
+	var protoRevisions []*adminv1.AdminDeploymentRevision
+	if revisions, err := s.deployStore.GetRevisions(dep.ID); err == nil {
+		for _, rev := range revisions {
+			protoRevisions = append(protoRevisions, &adminv1.AdminDeploymentRevision{
+				Revision:  int32(rev.Revision), //nolint:gosec // revision numbers are small
+				BuildID:   rev.BuildID,
+				CreatedAt: rev.CreatedAt.Format(time.RFC3339),
+			})
+		}
 	}
 
 	clusterStatus, err := s.GetClusterStatus(ctx, &adminv1.GetClusterStatusRequest{Namespace: req.Namespace})
@@ -220,9 +261,11 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	}
 
 	return &adminv1.GetDeploymentResponse{
-		Deployment:    found,
-		SpecJSON:      specJSON,
+		Deployment:    ad,
+		SpecJSON:      dep.DeploymentSpecJSON,
 		ClusterStatus: clusterStatus,
+		Events:        protoEvents,
+		Revisions:     protoRevisions,
 	}, nil
 }
 
@@ -502,44 +545,33 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	return resp, nil
 }
 
-// DeleteDeployment deletes all k8s resources for a namespace.
-func (s *Server) DeleteDeployment(ctx context.Context, req *adminv1.DeleteDeploymentRequest) (*adminv1.DeleteDeploymentResponse, error) {
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
-	}
+// DeleteDeployment sets status to undeploying and enqueues an async undeploy job.
+func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeploymentRequest) (*adminv1.DeleteDeploymentResponse, error) {
 	if req.Namespace == "" {
 		return nil, fmt.Errorf("namespace is required")
 	}
 
-	// Find the deployment record to get agent name and account ID
-	dbDeps, err := s.deployStore.ListAllActive()
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
 	if err != nil {
-		return nil, fmt.Errorf("list deployments: %w", err)
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
 	}
 
-	var agentName, deploymentID string
-	for _, d := range dbDeps {
-		if d.Namespace == req.Namespace {
-			agentName = d.AgentName
-			deploymentID = d.ID
-			break
+	// Set status to undeploying
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+		return nil, fmt.Errorf("update status: %w", err)
+	}
+
+	// Enqueue async undeploy job
+	if s.queue != nil {
+		if err := s.queue.InsertUndeployJob(context.Background(), dep.ID); err != nil {
+			s.log.Warn("Failed to enqueue undeploy job", "deployment_id", dep.ID, "error", err)
 		}
 	}
 
-	// Delete k8s resources
-	deleter := k8s.NewDeleter(s.k8sClient.Clientset(), req.Namespace)
-	if _, err := deleter.Delete(ctx, agentName, ""); err != nil {
-		return nil, fmt.Errorf("delete k8s resources: %w", err)
-	}
-
-	// Mark as undeployed in the DB if we found a record
-	if deploymentID != "" {
-		if err := s.deployStore.MarkUndeployedByID(deploymentID); err != nil {
-			s.log.Warn("Failed to mark deployment as undeployed", "namespace", req.Namespace, "error", err)
-		}
-	}
-
-	return &adminv1.DeleteDeploymentResponse{Status: "deleted"}, nil
+	return &adminv1.DeleteDeploymentResponse{Status: "undeploying"}, nil
 }
 
 // RestartDeployment deletes a pod so Kubernetes recreates it.
@@ -954,4 +986,149 @@ func (s *Server) ProxyHTTP(_ context.Context, req *adminv1.HTTPProxyRequest) (*a
 		Headers:    headers,
 		Body:       body,
 	}, nil
+}
+
+// GetDeploymentEvents returns status events for a deployment identified by namespace.
+func (s *Server) GetDeploymentEvents(_ context.Context, req *adminv1.GetDeploymentEventsRequest) (*adminv1.GetDeploymentEventsResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+
+	events, err := s.deployStore.GetDeploymentEvents(dep.ID, 50)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment events: %w", err)
+	}
+
+	var protoEvents []*adminv1.AdminDeploymentEvent
+	for _, ev := range events {
+		protoEvents = append(protoEvents, &adminv1.AdminDeploymentEvent{
+			Status:    ev.Status,
+			Message:   ev.Message,
+			CreatedAt: ev.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return &adminv1.GetDeploymentEventsResponse{Events: protoEvents}, nil
+}
+
+// WakeUpDeployment wakes up a scaled-down deployment by setting status to pending and enqueuing a wakeup job.
+func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeploymentRequest) (*adminv1.WakeUpDeploymentResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+	if dep.Status != deploymentstore.StatusScaledDown {
+		return nil, fmt.Errorf("deployment is not scaled_down (current: %s)", dep.Status)
+	}
+
+	// Update status to pending
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "Admin wakeup requested", nil); err != nil {
+		return nil, fmt.Errorf("update status: %w", err)
+	}
+
+	// Clear scaled-down tracking
+	if err := s.deployStore.ClearScaledDown(req.Namespace); err != nil {
+		s.log.Warn("Failed to clear scaled-down tracking", "namespace", req.Namespace, "error", err)
+	}
+
+	// Enqueue wakeup job
+	if s.queue != nil {
+		if err := s.queue.InsertWakeUpJob(context.Background(), dep.ID); err != nil {
+			return nil, fmt.Errorf("enqueue wakeup job: %w", err)
+		}
+	}
+
+	return &adminv1.WakeUpDeploymentResponse{Status: "waking_up"}, nil
+}
+
+// RollbackDeployment rolls back to a previous revision by atomically setting the revision and enqueuing a deploy job.
+func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDeploymentRequest) (*adminv1.RollbackDeploymentResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+	if req.Revision <= 0 {
+		return nil, fmt.Errorf("revision must be positive")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+	if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusFailed {
+		return nil, fmt.Errorf("deployment must be active or failed to rollback (current: %s)", dep.Status)
+	}
+
+	if err := s.deployStore.SetCurrentRevision(dep.ID, int(req.Revision), nil); err != nil {
+		return nil, fmt.Errorf("set revision: %w", err)
+	}
+
+	// Enqueue deploy job (idempotent — safe outside transaction)
+	if s.queue != nil {
+		if err := s.queue.InsertDeployJob(context.Background(), dep.ID); err != nil {
+			s.log.Warn("Failed to enqueue deploy job for rollback", "deployment_id", dep.ID, "error", err)
+		}
+	}
+
+	return &adminv1.RollbackDeploymentResponse{Status: "rolling_back"}, nil
+}
+
+// ReapplyDeployment re-applies the current revision by setting status to pending and enqueuing a deploy job.
+// Works for active, failed, or scaled_down deployments.
+func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploymentRequest) (*adminv1.ReapplyDeploymentResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+	if dep.Status == deploymentstore.StatusPending || dep.Status == deploymentstore.StatusProvisioning {
+		return nil, fmt.Errorf("deployment is already %s", dep.Status)
+	}
+	if dep.Status == deploymentstore.StatusUndeploying {
+		return nil, fmt.Errorf("deployment is being undeployed")
+	}
+
+	// Clear scaled-down tracking if applicable
+	if dep.Status == deploymentstore.StatusScaledDown {
+		if err := s.deployStore.ClearScaledDown(req.Namespace); err != nil {
+			s.log.Warn("Failed to clear scaled-down tracking", "namespace", req.Namespace, "error", err)
+		}
+	}
+
+	// Set status to pending
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "Admin re-apply requested", nil); err != nil {
+		return nil, fmt.Errorf("update status: %w", err)
+	}
+
+	// Enqueue deploy job
+	if s.queue != nil {
+		if err := s.queue.InsertDeployJob(context.Background(), dep.ID); err != nil {
+			return nil, fmt.Errorf("enqueue deploy job: %w", err)
+		}
+	}
+
+	return &adminv1.ReapplyDeploymentResponse{Status: "reapplying"}, nil
 }

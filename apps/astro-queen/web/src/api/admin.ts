@@ -12,6 +12,7 @@ import type {
   GetPodEnvResponse,
   ListConnectedDevicesResponse,
   SendCommandResponse,
+  GetDeploymentEventsResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -26,10 +27,11 @@ export function useDeployments() {
   return useQuery({
     queryKey: adminKeys.deployments(),
     queryFn: () => api.get<ListDeploymentsResponse>("/api/admin/deployments"),
+    refetchInterval: 5_000,
   });
 }
 
-export function useDeployment(namespace: string) {
+export function useDeployment(namespace: string, refetchInterval?: number) {
   return useQuery({
     queryKey: adminKeys.deployment(namespace),
     queryFn: () =>
@@ -37,6 +39,7 @@ export function useDeployment(namespace: string) {
         `/api/admin/deployments/${encodeURIComponent(namespace)}`
       ),
     enabled: !!namespace,
+    refetchInterval,
   });
 }
 
@@ -273,6 +276,52 @@ export function useDenyQuotaRequest() {
 }
 
 export type { QuotaRequest };
+
+export function useDeploymentEvents(namespace: string) {
+  return useQuery({
+    queryKey: adminKeys.deploymentEvents(namespace),
+    queryFn: () =>
+      api.get<GetDeploymentEventsResponse>(
+        `/api/admin/deployments/${encodeURIComponent(namespace)}/events`
+      ),
+    enabled: !!namespace,
+  });
+}
+
+export function useWakeUpDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (namespace: string) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/wakeup`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
+export function useReapplyDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (namespace: string) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/reapply`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
+export function useRollbackDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ namespace, revision }: { namespace: string; revision: number }) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/rollback`, {
+        revision,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
 
 export function usePodEnv(namespace: string, pod: string) {
   return useQuery({

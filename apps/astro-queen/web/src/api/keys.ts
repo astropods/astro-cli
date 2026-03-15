@@ -18,6 +18,7 @@ export const adminKeys = {
   connectedDevices: () => [...adminKeys.all, "connectedDevices"] as const,
   astroOpenapi: () => [...adminKeys.all, "astroOpenapi"] as const,
   riverUIStatus: () => [...adminKeys.all, "riverUIStatus"] as const,
+  deploymentEvents: (ns: string) => [...adminKeys.all, "deploymentEvents", ns] as const,
   quotaRequests: (status?: string) => [...adminKeys.all, "quotaRequests", status ?? "all"] as const,
 };
 

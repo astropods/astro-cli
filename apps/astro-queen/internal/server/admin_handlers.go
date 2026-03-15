@@ -20,6 +20,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/agents/{account}/{name}/builds", s.handleGetAgentBuilds)
 	mux.HandleFunc("GET /api/admin/devices", s.handleListConnectedDevices)
 	mux.HandleFunc("POST /api/admin/devices/{deviceId}/command", s.handleSendCommand)
+	mux.HandleFunc("GET /api/admin/deployments/{namespace}/events", s.handleGetDeploymentEvents)
+	mux.HandleFunc("POST /api/admin/deployments/{namespace}/wakeup", s.handleWakeUpDeployment)
+	mux.HandleFunc("POST /api/admin/deployments/{namespace}/rollback", s.handleRollbackDeployment)
+	mux.HandleFunc("POST /api/admin/deployments/{namespace}/reapply", s.handleReapplyDeployment)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -189,6 +193,62 @@ func (s *Server) handleGetAgentBuilds(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.GetAgentBuilds(r.Context(), &adminv1.GetAgentBuildsRequest{
 		AccountName: account,
 		AgentName:   name,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
+	ns := r.PathValue("namespace")
+	resp, err := s.admin.GetDeploymentEvents(r.Context(), &adminv1.GetDeploymentEventsRequest{
+		Namespace: ns,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleWakeUpDeployment(w http.ResponseWriter, r *http.Request) {
+	ns := r.PathValue("namespace")
+	resp, err := s.admin.WakeUpDeployment(r.Context(), &adminv1.WakeUpDeploymentRequest{
+		Namespace: ns,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRollbackDeployment(w http.ResponseWriter, r *http.Request) {
+	ns := r.PathValue("namespace")
+	var body struct {
+		Revision int32 `json:"revision"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.admin.RollbackDeployment(r.Context(), &adminv1.RollbackDeploymentRequest{
+		Namespace: ns,
+		Revision:  body.Revision,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleReapplyDeployment(w http.ResponseWriter, r *http.Request) {
+	ns := r.PathValue("namespace")
+	resp, err := s.admin.ReapplyDeployment(r.Context(), &adminv1.ReapplyDeploymentRequest{
+		Namespace: ns,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
