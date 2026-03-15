@@ -340,13 +340,22 @@ func (s *Store) MarkUndeployedByID(deploymentID string) error {
 	return nil
 }
 
+// nilIfEmptyJSON returns nil (SQL NULL) if the JSON is nil or empty, otherwise the value.
+func nilIfEmptyJSON(j json.RawMessage) interface{} {
+	if len(j) == 0 {
+		return nil
+	}
+	return j
+}
+
 // updateStatusTx updates a deployment's status and records an event within an existing transaction.
 func updateStatusTx(tx *sql.Tx, id, status, errorMsg string, errorDetails json.RawMessage) error {
+	details := nilIfEmptyJSON(errorDetails)
 	_, err := tx.Exec(`
 		UPDATE deployments
 		SET status = $2, error_message = $3, error_details = $4, status_changed_at = NOW()
 		WHERE id = $1
-	`, id, status, nilIfEmpty(errorMsg), errorDetails)
+	`, id, status, nilIfEmpty(errorMsg), details)
 	if err != nil {
 		return fmt.Errorf("failed to update deployment status: %w", err)
 	}
@@ -354,7 +363,7 @@ func updateStatusTx(tx *sql.Tx, id, status, errorMsg string, errorDetails json.R
 	_, err = tx.Exec(`
 		INSERT INTO deployment_events (deployment_id, status, message, details)
 		VALUES ($1, $2, $3, $4)
-	`, id, status, nilIfEmpty(errorMsg), errorDetails)
+	`, id, status, nilIfEmpty(errorMsg), details)
 	if err != nil {
 		return fmt.Errorf("failed to insert deployment event: %w", err)
 	}
