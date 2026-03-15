@@ -70,6 +70,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 		},
 	}
 
+	hardenContainer(&container)
 	return container
 }
 
@@ -98,10 +99,14 @@ func BuildJob(cfg JobConfig) *batchv1.Job {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: corev1.PodSpec{
-					Containers:    []corev1.Container{container},
-					RestartPolicy: corev1.RestartPolicyOnFailure,
-				},
+				Spec: func() corev1.PodSpec {
+					ps := corev1.PodSpec{
+						Containers:    []corev1.Container{container},
+						RestartPolicy: corev1.RestartPolicyOnFailure,
+					}
+					hardenPodSpec(&ps)
+					return ps
+				}(),
 			},
 		},
 	}
@@ -130,6 +135,12 @@ func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.
 
 	replicas := int32(1)
 
+	podSpec := corev1.PodSpec{
+		Containers:    []corev1.Container{container},
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
+	hardenPodSpec(&podSpec)
+
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
@@ -149,10 +160,7 @@ func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: corev1.PodSpec{
-					Containers:    []corev1.Container{container},
-					RestartPolicy: corev1.RestartPolicyAlways,
-				},
+				Spec: podSpec,
 			},
 		},
 	}

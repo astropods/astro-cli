@@ -27,14 +27,17 @@ func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
 	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
+	podSpec := corev1.PodSpec{
+		Containers:    []corev1.Container{container},
+		RestartPolicy: corev1.RestartPolicyOnFailure,
+	}
+	hardenPodSpec(&podSpec)
+
 	podTemplate := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: labels,
 		},
-		Spec: corev1.PodSpec{
-			Containers:    []corev1.Container{container},
-			RestartPolicy: corev1.RestartPolicyOnFailure,
-		},
+		Spec: podSpec,
 	}
 
 	successfulJobsHistoryLimit := int32(3)

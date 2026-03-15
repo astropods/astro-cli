@@ -106,6 +106,8 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		podSpec.Tolerations = cfg.Tolerations
 	}
 
+	hardenPodSpec(&podSpec)
+
 	depl := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
@@ -234,6 +236,7 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		}
 	}
 
+	hardenContainer(&container)
 	return container
 }
 
@@ -354,6 +357,7 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 		}
 	}
 
+	hardenContainer(&container)
 	return container
 }
 
@@ -444,6 +448,7 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 		}
 	}
 
+	hardenContainer(&container)
 	return container
 }
 

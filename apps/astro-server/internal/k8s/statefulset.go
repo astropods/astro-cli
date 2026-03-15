@@ -153,6 +153,8 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		}
 	}
 
+	hardenContainer(&container)
+
 	// Create VolumeClaimTemplate
 	accessMode := cfg.AccessMode
 	if accessMode == "" {
@@ -199,11 +201,15 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: corev1.PodSpec{
-					Containers:   []corev1.Container{container},
-					NodeSelector: cfg.NodeSelector,
-					Tolerations:  cfg.Tolerations,
-				},
+				Spec: func() corev1.PodSpec {
+					ps := corev1.PodSpec{
+						Containers:   []corev1.Container{container},
+						NodeSelector: cfg.NodeSelector,
+						Tolerations:  cfg.Tolerations,
+					}
+					hardenPodSpec(&ps)
+					return ps
+				}(),
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{volumeClaimTemplate},
 		},
