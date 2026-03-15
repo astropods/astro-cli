@@ -1178,6 +1178,91 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 	return &adminv1.ReapplyDeploymentResponse{Status: "reapplying"}, nil
 }
 
+// BackfillDeployments creates revision 1 and sets current_revision for all deployments
+// that were created before the async deploy architecture (missing revisions).
+func (s *Server) BackfillDeployments(ctx context.Context, _ *adminv1.BackfillDeploymentsRequest) (*adminv1.BackfillDeploymentsResponse, error) {
+	// Find deployments without revisions
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.build_id, d.deployment_spec_json, d.encrypted_data_key, d.kms_key_arn, d.deployed_at
+		FROM deployments d
+		WHERE d.status != 'undeployed'
+		  AND d.current_revision IS NULL
+		  AND d.deployment_spec_json IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM deployment_revisions r WHERE r.deployment_id = d.id)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query deployments to backfill: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	type backfillRow struct {
+		id, buildID, specJSON string
+		dataKey               []byte
+		kmsArn                *string
+		deployedAt            time.Time
+	}
+	var toBackfill []backfillRow
+	for rows.Next() {
+		var r backfillRow
+		if err := rows.Scan(&r.id, &r.buildID, &r.specJSON, &r.dataKey, &r.kmsArn, &r.deployedAt); err != nil {
+			return nil, fmt.Errorf("scan deployment: %w", err)
+		}
+		toBackfill = append(toBackfill, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate deployments: %w", err)
+	}
+
+	var count int32
+	for _, r := range toBackfill {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			s.log.Warn("Backfill: failed to begin tx", "deployment_id", r.id, "error", err)
+			continue
+		}
+
+		// Create revision 1
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO deployment_revisions (deployment_id, revision, build_id, spec_json, kms_ciphertext, kms_key_id, created_at)
+			VALUES ($1, 1, $2, $3::jsonb, $4, $5, $6)
+			ON CONFLICT (deployment_id, revision) DO NOTHING
+		`, r.id, r.buildID, r.specJSON, r.dataKey, r.kmsArn, r.deployedAt)
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			s.log.Warn("Backfill: failed to insert revision", "deployment_id", r.id, "error", err)
+			continue
+		}
+
+		// Set current_revision and status_changed_at
+		_, err = tx.ExecContext(ctx, `
+			UPDATE deployments SET current_revision = 1, status_changed_at = COALESCE(status_changed_at, deployed_at)
+			WHERE id = $1
+		`, r.id)
+		if err != nil {
+			tx.Rollback() //nolint:errcheck
+			s.log.Warn("Backfill: failed to update deployment", "deployment_id", r.id, "error", err)
+			continue
+		}
+
+		// Create initial event if none exists
+		_, _ = tx.ExecContext(ctx, `
+			INSERT INTO deployment_events (deployment_id, status, message, created_at)
+			SELECT $1, status, 'Backfilled from legacy deployment', deployed_at
+			FROM deployments WHERE id = $1
+			AND NOT EXISTS (SELECT 1 FROM deployment_events WHERE deployment_id = $1)
+		`, r.id)
+
+		if err := tx.Commit(); err != nil {
+			s.log.Warn("Backfill: failed to commit", "deployment_id", r.id, "error", err)
+			continue
+		}
+		count++
+		s.log.Info("Backfill: created revision 1", "deployment_id", r.id, "build_id", r.buildID)
+	}
+
+	return &adminv1.BackfillDeploymentsResponse{BackfilledCount: count}, nil
+}
+
 // GetDeploymentJobs returns River job history and last reconcile time for a deployment.
 func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeploymentJobsRequest) (*adminv1.GetDeploymentJobsResponse, error) {
 	if req.Namespace == "" {
@@ -1192,16 +1277,19 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
 	}
 
-	// Query River job table for jobs related to this deployment
+	// Query River job table for jobs related to this deployment.
+	// errors is jsonb[] (Postgres array) — cast to text for scanning.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors
+		SELECT kind, state, attempt, max_attempts, created_at, attempted_at, finalized_at, errors::text
 		FROM river.river_job
 		WHERE args->>'deployment_id' = $1
 		ORDER BY created_at DESC
 		LIMIT 25
 	`, dep.ID)
 	if err != nil {
-		return nil, fmt.Errorf("query river jobs: %w", err)
+		s.log.Warn("Failed to query river jobs", "error", err, "deployment_id", dep.ID)
+		// Return empty jobs instead of failing — river schema may not exist
+		return &adminv1.GetDeploymentJobsResponse{}, nil
 	}
 	defer rows.Close() //nolint:errcheck
 
@@ -1210,9 +1298,10 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		var j adminv1.DeploymentJob
 		var createdAt time.Time
 		var attemptedAt, finalizedAt sql.NullTime
-		var errorsJSON []byte
-		if err := rows.Scan(&j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsJSON); err != nil {
-			return nil, fmt.Errorf("scan river job: %w", err)
+		var errorsStr sql.NullString
+		if err := rows.Scan(&j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsStr); err != nil {
+			s.log.Warn("Failed to scan river job row", "error", err)
+			continue
 		}
 		j.CreatedAt = createdAt.Format(time.RFC3339)
 		if attemptedAt.Valid {
@@ -1221,13 +1310,13 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		if finalizedAt.Valid {
 			j.FinalizedAt = finalizedAt.Time.Format(time.RFC3339)
 		}
-		if len(errorsJSON) > 0 {
-			j.Errors = string(errorsJSON)
+		if errorsStr.Valid {
+			j.Errors = errorsStr.String
 		}
 		jobs = append(jobs, &j)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate river jobs: %w", err)
+		s.log.Warn("Error iterating river jobs", "error", err)
 	}
 
 	// Get last reconcile scan time from namespace_ownership

@@ -507,3 +507,9 @@ type GetDeploymentJobsResponse struct {
 	Jobs            []*DeploymentJob `json:"jobs,omitempty"`
 	LastReconcileAt string           `json:"last_reconcile_at,omitempty"`
 }
+
+type BackfillDeploymentsRequest struct{}
+
+type BackfillDeploymentsResponse struct {
+	BackfilledCount int32 `json:"backfilled_count"`
+}

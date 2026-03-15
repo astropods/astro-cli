@@ -1,15 +1,45 @@
+import { useState } from "react";
 import { Link } from "react-router";
-import { useDeployments } from "@/api/admin";
+import { useDeployments, useBackfillDeployments } from "@/api/admin";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
+import { DatabaseZap } from "lucide-react";
 
 export function DeploymentsPage() {
   const { data, isLoading, error } = useDeployments();
+  const backfillMut = useBackfillDeployments();
+  const [backfillResult, setBackfillResult] = useState<string | null>(null);
+
+  const hasLegacy = data?.deployments?.some((d) => d.current_revision == null);
 
   return (
     <div>
-      <h2 className="mb-4 text-xl font-semibold">Deployments</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Deployments</h2>
+        {hasLegacy && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={backfillMut.isPending}
+            onClick={() => {
+              backfillMut.mutate(undefined, {
+                onSuccess: (data) => {
+                  setBackfillResult(`Backfilled ${(data as { backfilled_count: number }).backfilled_count} deployments`);
+                  setTimeout(() => setBackfillResult(null), 5000);
+                },
+              });
+            }}
+          >
+            <DatabaseZap className="size-3.5" />
+            Backfill Revisions
+          </Button>
+        )}
+      </div>
+      {backfillResult && (
+        <p className="mb-3 text-sm text-green-600">{backfillResult}</p>
+      )}
       {isLoading && <TableSkeleton />}
       {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (

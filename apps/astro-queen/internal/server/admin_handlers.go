@@ -25,6 +25,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/deployments/{namespace}/rollback", s.handleRollbackDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{namespace}/reapply", s.handleReapplyDeployment)
 	mux.HandleFunc("GET /api/admin/deployments/{namespace}/jobs", s.handleGetDeploymentJobs)
+	mux.HandleFunc("POST /api/admin/backfill-deployments", s.handleBackfillDeployments)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +242,15 @@ func (s *Server) handleRollbackDeployment(w http.ResponseWriter, r *http.Request
 		Namespace: ns,
 		Revision:  body.Revision,
 	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleBackfillDeployments(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.BackfillDeployments(r.Context(), &adminv1.BackfillDeploymentsRequest{})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

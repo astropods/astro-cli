@@ -300,6 +300,16 @@ export function useWakeUpDeployment() {
   });
 }
 
+export function useBackfillDeployments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ backfilled_count: number }>("/api/admin/backfill-deployments"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
 export function useDeploymentJobs(namespace: string) {
   return useQuery({
     queryKey: adminKeys.deploymentJobs(namespace),
