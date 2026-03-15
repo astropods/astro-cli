@@ -12,17 +12,16 @@ export function useDeployments(account: string, enabled = true) {
 }
 
 export function useDeploymentLogs(
-  account: string,
-  namespace: string,
+  deploymentId: string,
   pod: string,
   container: string,
   tailLines?: number,
 ) {
   const api = useApiClient();
   return useQuery({
-    queryKey: deploymentKeys.logs(account, namespace, pod, container, tailLines),
-    queryFn: () => api.getDeploymentLogs(namespace, pod, container, account, tailLines),
-    enabled: !!account && !!namespace && !!pod && !!container,
+    queryKey: deploymentKeys.logs(deploymentId, pod, container, tailLines),
+    queryFn: () => api.getDeploymentLogs(deploymentId, pod, container, tailLines),
+    enabled: !!deploymentId && !!pod && !!container,
     // Logs are ephemeral — always refetch, never serve stale
     staleTime: 0,
     gcTime: 1000 * 30,

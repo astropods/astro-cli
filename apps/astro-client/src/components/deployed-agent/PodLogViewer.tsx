@@ -7,7 +7,7 @@ import { RefreshCw, Loader2, ArrowDown } from "lucide-react";
 import type { PodDetail, ApiError } from "@/lib/api";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
-export function PodLogViewer({ account, namespace, pod }: { account: string; namespace: string; pod: PodDetail }) {
+export function PodLogViewer({ deploymentId, pod }: { deploymentId: string; pod: PodDetail }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const containerParam = searchParams.get("container");
   const selectedContainer = containerParam && pod.containers.some((c) => c.name === containerParam)
@@ -16,7 +16,7 @@ export function PodLogViewer({ account, namespace, pod }: { account: string; nam
   const [tailLines, setTailLines] = useState(200);
 
   const { data: logs, isLoading, error: logsError, refetch } = useDeploymentLogs(
-    account, namespace, pod.name, selectedContainer, tailLines,
+    deploymentId, pod.name, selectedContainer, tailLines,
   );
   const lines = useMemo(() => (logs ?? "").split("\n"), [logs]);
   const listRef = useRef<HTMLDivElement>(null);

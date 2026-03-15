@@ -351,19 +351,17 @@ class ApiClient {
 
   // Fetch logs for a specific pod in a deployment
   async getDeploymentLogs(
-    namespace: string,
+    deploymentId: string,
     pod: string,
     container: string,
-    account: string,
     tailLines: number = 200
   ): Promise<string> {
     const params = new URLSearchParams({
       pod,
       container,
-      account,
       tailLines: String(tailLines),
     });
-    const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(namespace)}/logs?${params}`;
+    const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
     const response = await fetch(url, {
       credentials: 'include',
       headers: { ...this.defaultHeaders },
@@ -381,36 +379,30 @@ class ApiClient {
 
   // Fetch ConfigMap data for a deployment
   async getConfigMapData(
-    namespace: string,
+    deploymentId: string,
     cmname: string,
-    account: string,
   ): Promise<ConfigMapResponse> {
-    const params = new URLSearchParams({ account });
     return this.request<ConfigMapResponse>(
-      `/api/v1/deployments/${encodeURIComponent(namespace)}/configmap/${encodeURIComponent(cmname)}?${params}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/configmap/${encodeURIComponent(cmname)}`
     );
   }
 
   // Fetch Secret key names (no values) for a deployment
   async getSecretKeys(
-    namespace: string,
+    deploymentId: string,
     secretName: string,
-    account: string,
   ): Promise<SecretKeysResponse> {
-    const params = new URLSearchParams({ account });
     return this.request<SecretKeysResponse>(
-      `/api/v1/deployments/${encodeURIComponent(namespace)}/secret/${encodeURIComponent(secretName)}/keys?${params}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/secret/${encodeURIComponent(secretName)}/keys`
     );
   }
 
   // Restart (delete) a pod so Kubernetes recreates it
   async restartPod(data: {
-    namespace: string;
+    deploymentId: string;
     pod: string;
-    account: string;
   }): Promise<{ status: string; pod: string }> {
-    const params = new URLSearchParams({ account: data.account });
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.namespace)}/pods/${encodeURIComponent(data.pod)}/restart?${params}`, {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/pods/${encodeURIComponent(data.pod)}/restart`, {
       method: 'POST',
     });
   }
@@ -439,13 +431,11 @@ class ApiClient {
   }
 
   async triggerIngestion(data: {
-    namespace: string;
+    deploymentId: string;
     ingestion: string;
-    account: string;
   }): Promise<TriggerIngestionResponse> {
-    const params = new URLSearchParams({ account: data.account });
     return this.request<TriggerIngestionResponse>(
-      `/api/v1/deployments/${encodeURIComponent(data.namespace)}/ingestion/${encodeURIComponent(data.ingestion)}/trigger?${params}`,
+      `/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/ingestion/${encodeURIComponent(data.ingestion)}/trigger`,
       { method: 'POST' }
     );
   }

@@ -70,8 +70,8 @@ func setupIngestionRouter(
 		router.Use(setAuthUser("user-1"))
 	}
 	router.POST(
-		"/api/v1/deployments/:namespace/ingestion/:ingestion/trigger",
-		TriggerIngestion(log, index, accountStore, k8sClient),
+		"/api/v1/deployments/:id/ingestion/:ingestion/trigger",
+		TriggerIngestion(log, index, accountStore, k8sClient, nil),
 	)
 	return router, accountMock, indexMock
 }

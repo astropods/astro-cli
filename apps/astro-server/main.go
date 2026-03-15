@@ -753,7 +753,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient),
+			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -761,7 +761,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartPodResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient),
+			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -792,7 +792,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ListDeploymentsResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient),
+			api.GET(protected, "/deployments/:id/logs", "Get deployment logs", handlers.GetDeploymentLogs(log, accountStore, cfg, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -803,7 +803,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Returns raw log text (text/plain) for a pod in the deployment namespace."),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient),
+			api.GET(protected, "/deployments/:id/configmap/:cmname", "Get ConfigMap data", handlers.GetConfigMapData(log, accountStore, cfg, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -811,7 +811,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.ConfigMapDataResponse{}),
 			)
-			api.GET(protected, "/deployments/:id/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient),
+			api.GET(protected, "/deployments/:id/secret/:secretname/keys", "Get Secret key names", handlers.GetSecretKeys(log, accountStore, cfg, k8sClient, deploymentStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),

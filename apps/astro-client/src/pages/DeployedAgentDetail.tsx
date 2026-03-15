@@ -150,7 +150,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
               variant="outline"
               className="ml-auto"
               disabled={restartMutation.isPending || showRestarted}
-              onClick={() => restartMutation.mutate({ namespace: deployment.namespace, pod: selectedPod.name, account })}
+              onClick={() => restartMutation.mutate({ deploymentId: deployment.id, pod: selectedPod.name })}
             >
               {showRestarted ? (
                 <>
@@ -177,7 +177,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
         {/* Body */}
         <div className="px-6 py-6">
           {selectedPod ? (
-            <PodLogViewer account={account} namespace={deployment.namespace} pod={selectedPod} />
+            <PodLogViewer deploymentId={deployment.id} pod={selectedPod} />
           ) : (
             <PodGrid pods={pods} basePath={basePath} agentName={deployment.name} />
           )}

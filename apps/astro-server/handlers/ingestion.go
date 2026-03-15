@@ -9,6 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -18,62 +19,31 @@ import (
 )
 
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
-func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		k8sNamespace := c.Param("id")
 		ingestionName := c.Param("ingestion")
 
-		// Get authenticated user from context
-		user, exists := middleware.GetUser(c)
-		if !exists {
+		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-
-		// Resolve account from query param
-		accountName := c.Query("account")
-		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		// Verify membership
-		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
-		// Verify namespace ownership and get agent metadata from labels
-		ns, err := k8sClient.Clientset().CoreV1().Namespaces().Get(c.Request.Context(), k8sNamespace, metav1.GetOptions{})
+		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "namespace not found"})
-			return
-		}
-		if ns.Labels["astro.dev/account-id"] != acct.ID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
-		agentName := ns.Labels["astro.dev/agent"]
-		buildID := ns.Labels["astro.dev/build"]
-		if agentName == "" || buildID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "namespace missing agent or build labels"})
-			return
-		}
+		k8sNamespace := dep.Namespace
+		agentName := dep.AgentName
+		buildID := dep.BuildID
 
 		// Fetch agent spec from index
-		agentVersion, err := agentIndex.GetVersion(acct.ID, agentName, buildID)
+		agentVersion, err := agentIndex.GetVersion(dep.AccountID, agentName, buildID)
 		if err != nil {
 			log.Error("Agent version not found", "error", err)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -144,19 +114,19 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 			return
 		}
 
+		u, _ := middleware.GetUser(c)
 		log.Info("Manual ingestion triggered",
 			"agent", agentName,
 			"build_id", buildID,
 			"ingestion", ingestionName,
 			"job", jobName,
 			"namespace", k8sNamespace,
-			"user", user.ID,
+			"user", u.ID,
 		)
 
 		c.JSON(http.StatusOK, gin.H{
-			"status":    "triggered",
-			"job_name":  jobName,
-			"namespace": k8sNamespace,
+			"status":   "triggered",
+			"job_name": jobName,
 		})
 	}
 }

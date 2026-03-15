@@ -46,15 +46,30 @@ func deploymentNamespace(id string) string {
 }
 
 // verifyNamespaceOwnership checks that a K8s namespace belongs to the given account.
-func verifyNamespaceOwnership(ctx context.Context, k8sClient k8s.ClusterClient, namespace, accountID string) error {
-	ns, err := k8sClient.Clientset().CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+// resolveDeployment looks up a deployment by ID, verifies the caller's account owns it,
+// and returns the deployment. Used by handlers that accept a deployment ID in the URL path
+// so the frontend never needs to know about K8s namespaces.
+func resolveDeployment(c *gin.Context, deployStore *deploymentstore.Store, accountStore *account.AccountStore) (*deploymentstore.Deployment, error) {
+	deploymentID := c.Param("id")
+	if deploymentID == "" {
+		return nil, fmt.Errorf("deployment ID is required")
+	}
+
+	dep, err := deployStore.GetDeploymentByID(deploymentID)
 	if err != nil {
-		return fmt.Errorf("namespace not found: %w", err)
+		return nil, fmt.Errorf("failed to look up deployment: %w", err)
 	}
-	if ns.Labels["astro.dev/account-id"] != accountID {
-		return fmt.Errorf("namespace %s does not belong to account %s", namespace, accountID)
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found")
 	}
-	return nil
+
+	// Verify account ownership
+	user, _ := middleware.GetUser(c)
+	if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+		return nil, fmt.Errorf("insufficient permissions")
+	}
+
+	return dep, nil
 }
 
 // DeployAgent returns a handler for deploying agents to Kubernetes
@@ -1040,89 +1055,52 @@ func jobStatus(job *batchv1.Job) string {
 }
 
 // RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.
-// POST /api/v1/deployments/:namespace/pods/:pod/restart
-func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+// POST /api/v1/deployments/:id/pods/:pod/restart
+func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
+		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-
-		accountName := c.Query("account")
-		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
-		k8sNamespace := c.Param("id")
-		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
 		podName := c.Param("pod")
-		err = k8sClient.Clientset().CoreV1().Pods(k8sNamespace).Delete(c.Request.Context(), podName, metav1.DeleteOptions{})
+		err = k8sClient.Clientset().CoreV1().Pods(dep.Namespace).Delete(c.Request.Context(), podName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Error("Failed to delete pod", "error", err, "pod", podName, "namespace", k8sNamespace)
+			log.Error("Failed to delete pod", "error", err, "pod", podName, "namespace", dep.Namespace)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to restart pod", "details": err.Error()})
 			return
 		}
 
-		log.Info("Pod restarted (deleted)", "pod", podName, "namespace", k8sNamespace, "user", user.ID)
+		user, _ := middleware.GetUser(c)
+		log.Info("Pod restarted (deleted)", "pod", podName, "namespace", dep.Namespace, "user", user.ID)
 		c.JSON(http.StatusOK, gin.H{"status": "restarting", "pod": podName})
 	}
 }
 
-func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
+		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-
-		accountName := c.Query("account")
-		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
-		k8sNamespace := c.Param("id")
-		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -1148,7 +1126,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			logOpts.Container = containerName
 		}
 
-		req := k8sClient.Clientset().CoreV1().Pods(k8sNamespace).GetLogs(podName, logOpts)
+		req := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts)
 		stream, err := req.Stream(c.Request.Context())
 		if err != nil {
 			log.Error("Failed to get pod logs", "error", err, "pod", podName)
@@ -1499,101 +1477,62 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 }
 
 // GetConfigMapData returns the key-value data of a ConfigMap in a deployment's namespace.
-// GET /api/v1/deployments/:namespace/configmap/:cmname
-func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+// GET /api/v1/deployments/:id/configmap/:cmname
+func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
+		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-
-		accountName := c.Query("account")
-		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
-		k8sNamespace := c.Param("id")
-		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
 		cmName := c.Param("cmname")
-		cm, err := k8sClient.Clientset().CoreV1().ConfigMaps(k8sNamespace).Get(c.Request.Context(), cmName, metav1.GetOptions{})
+		cm, err := k8sClient.Clientset().CoreV1().ConfigMaps(dep.Namespace).Get(c.Request.Context(), cmName, metav1.GetOptions{})
 		if err != nil {
-			log.Error("Failed to get configmap", "error", err, "configmap", cmName, "namespace", k8sNamespace)
+			log.Error("Failed to get configmap", "error", err, "configmap", cmName, "namespace", dep.Namespace)
 			c.JSON(http.StatusNotFound, gin.H{"error": "configmap not found"})
 			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"name":      cm.Name,
-			"namespace": cm.Namespace,
-			"data":      cm.Data,
+			"name": cm.Name,
+			"data": cm.Data,
 		})
 	}
 }
 
 // GetSecretKeys returns the key names (but NOT values) of a Secret in a deployment's namespace.
-// GET /api/v1/deployments/:name/:build_id/secret/:secretname/keys
-func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient) gin.HandlerFunc {
+// GET /api/v1/deployments/:id/secret/:secretname/keys
+func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
+		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-
-		accountName := c.Query("account")
-		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		if !isAccountMember(c, accountStore, acct.ID, user.ID) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
-		k8sNamespace := c.Param("id")
-		if err := verifyNamespaceOwnership(c.Request.Context(), k8sClient, k8sNamespace, acct.ID); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "namespace does not belong to this account"})
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
 		secretName := c.Param("secretname")
-		secret, err := k8sClient.Clientset().CoreV1().Secrets(k8sNamespace).Get(c.Request.Context(), secretName, metav1.GetOptions{})
+		secret, err := k8sClient.Clientset().CoreV1().Secrets(dep.Namespace).Get(c.Request.Context(), secretName, metav1.GetOptions{})
 		if err != nil {
-			log.Error("Failed to get secret", "error", err, "secret", secretName, "namespace", k8sNamespace)
+			log.Error("Failed to get secret", "error", err, "secret", secretName, "namespace", dep.Namespace)
 			c.JSON(http.StatusNotFound, gin.H{"error": "secret not found"})
 			return
 		}
@@ -1604,9 +1543,8 @@ func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"name":      secret.Name,
-			"namespace": secret.Namespace,
-			"keys":      keys,
+			"name": secret.Name,
+			"keys": keys,
 		})
 	}
 }
