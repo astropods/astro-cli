@@ -164,6 +164,7 @@ export function DeploymentDetailPage() {
             checkedAt={data.drift_checked_at}
             onRefresh={() => refreshDriftMut.mutate(id!, { onSuccess: () => refetch() })}
             isRefreshing={refreshDriftMut.isPending}
+            error={refreshDriftMut.error}
           />
         </TabsContent>
 
@@ -539,20 +540,26 @@ function PodRow({
 
 // --- Drift Report Section (renders pre-computed drift report from server) ---
 
-function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing }: {
+function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing, error }: {
   report?: DriftReport;
   checkedAt?: string;
   onRefresh: () => void;
   isRefreshing: boolean;
+  error?: Error | null;
 }) {
   if (!report) {
     return (
-      <div className="flex items-center gap-3 rounded-lg glass px-4 py-3">
-        <p className="text-sm text-muted-foreground">No drift report available yet.</p>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing}>
-          <RotateCw className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
-          Check Now
-        </Button>
+      <div className="space-y-2">
+        <div className="flex items-center gap-3 rounded-lg glass px-4 py-3">
+          <p className="text-sm text-muted-foreground">No drift report available yet.</p>
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing}>
+            <RotateCw className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+            Check Now
+          </Button>
+        </div>
+        {error && (
+          <p className="text-sm text-destructive px-4">{error.message}</p>
+        )}
       </div>
     );
   }
@@ -584,6 +591,9 @@ function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing }: {
           Refresh
         </Button>
       </div>
+      {error && (
+        <p className="text-sm text-destructive">{error.message}</p>
+      )}
 
       {report.workloads?.length > 0 && (
         <DriftTable title="Workloads" items={report.workloads} />
