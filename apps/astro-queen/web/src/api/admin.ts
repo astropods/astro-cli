@@ -56,13 +56,13 @@ export function useDeleteDeployment() {
   });
 }
 
-export function useRestartDeployment() {
+export function useRestartPod() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/restart`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    mutationFn: ({ id, pod }: { id: string; pod: string }) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/restart`, { pod }),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployment(id) });
     },
   });
 }

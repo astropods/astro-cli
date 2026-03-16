@@ -193,6 +193,7 @@ func (e *driftTestEnv) buildReport() *ds.DriftReport {
 	}
 	services, _ := e.store.GetServices(e.depID)
 	ingresses, _ := e.store.GetIngresses(e.depID)
+	variables, _ := e.store.GetDeploymentVariables(e.depID)
 
 	svcNameByID := map[int]string{}
 	for _, svc := range services {
@@ -202,7 +203,7 @@ func (e *driftTestEnv) buildReport() *ds.DriftReport {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	return riverqueue.BuildDriftReport(ctx, e.client.Clientset(), e.ns, workloads, services, ingresses, svcNameByID)
+	return riverqueue.BuildDriftReport(ctx, e.client.Clientset(), e.ns, "drift-agent", "dbuild01", workloads, services, ingresses, svcNameByID, variables)
 }
 
 // --- Tests ---

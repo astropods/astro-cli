@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
@@ -15,12 +15,12 @@ export function DeploymentDetailPage() {
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useDeployment(id ?? "", 5_000);
   const deleteMut = useDeleteDeployment();
-  const restartMut = useRestartDeployment();
   const wakeUpMut = useWakeUpDeployment();
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
   const repairMut = useRepairNormalizedSpec();
   const refreshDriftMut = useRefreshDriftReport();
+  const restartPodMut = useRestartPod();
   const jobsQuery = useDeploymentJobs(id ?? "");
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
@@ -77,15 +77,6 @@ export function DeploymentDetailPage() {
           >
             <Wrench className="size-3.5" />
             Repair
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => restartMut.mutate(id!)}
-            disabled={restartMut.isPending || dep.status !== "active"}
-          >
-            <RotateCw className="size-3.5" />
-            Restart
           </Button>
           <Button
             variant="destructive"
@@ -260,7 +251,17 @@ export function DeploymentDetailPage() {
             <div className="space-y-2">
               {cs.pods.map((pod) => (
                 <div key={pod.name}>
-                  <PodRow pod={pod} deploymentId={id!} onSelect={setSelectedPod} />
+                  <PodRow
+                    pod={pod}
+                    deploymentId={id!}
+                    onSelect={setSelectedPod}
+                    onRestart={(podName) => {
+                      if (confirm(`Delete pod ${podName}? Kubernetes will recreate it.`)) {
+                        restartPodMut.mutate({ id: id!, pod: podName });
+                      }
+                    }}
+                    isRestarting={restartPodMut.isPending}
+                  />
                   {selectedPod && selectedPod.name === pod.name && (
                     <PodDetail
                       deploymentId={selectedPod.deploymentId}
@@ -477,10 +478,14 @@ function PodRow({
   pod,
   deploymentId,
   onSelect,
+  onRestart,
+  isRestarting,
 }: {
   pod: K8sPodInfo;
   deploymentId: string;
   onSelect: (sel: { deploymentId: string; name: string; container?: string; mode: "logs" | "env" }) => void;
+  onRestart: (podName: string) => void;
+  isRestarting: boolean;
 }) {
   const hasMultipleContainers = (pod.container_statuses?.length ?? 0) > 1;
 
@@ -493,17 +498,21 @@ function PodRow({
             {pod.phase} &middot; {pod.node_name} &middot; {pod.pod_ip}
           </p>
         </div>
-        {/* Pod-level env button (shows all containers) */}
-        {!hasMultipleContainers && (
-          <div className="flex shrink-0 gap-1">
-            <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ deploymentId, name: pod.name, container: pod.container_statuses?.[0]?.name, mode: "logs" })}>
-              <FileText className="size-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ deploymentId, name: pod.name, mode: "env" })}>
-              <Settings className="size-3.5" />
-            </Button>
-          </div>
-        )}
+        <div className="flex shrink-0 gap-1">
+          {!hasMultipleContainers && (
+            <>
+              <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ deploymentId, name: pod.name, container: pod.container_statuses?.[0]?.name, mode: "logs" })}>
+                <FileText className="size-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ deploymentId, name: pod.name, mode: "env" })}>
+                <Settings className="size-3.5" />
+              </Button>
+            </>
+          )}
+          <Button variant="ghost" size="icon-xs" title="Restart pod" onClick={() => onRestart(pod.name)} disabled={isRestarting}>
+            <RotateCw className="size-3.5" />
+          </Button>
+        </div>
       </div>
       {/* Container statuses with per-container actions */}
       {pod.container_statuses?.length > 0 && (
@@ -612,6 +621,12 @@ function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing, error 
       )}
       {report.ingresses?.length > 0 && (
         <DriftTable title="Ingresses" items={report.ingresses} />
+      )}
+      {(report.env_vars?.length ?? 0) > 0 && (
+        <DriftTable title="Environment Variables" items={report.env_vars!} />
+      )}
+      {(report.secrets?.length ?? 0) > 0 && (
+        <DriftTable title="Secrets" items={report.secrets!} />
       )}
     </div>
   );

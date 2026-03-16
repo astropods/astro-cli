@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -334,6 +336,7 @@ func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *d
 
 	services, _ := w.store.GetServices(dep.ID)
 	ingresses, _ := w.store.GetIngresses(dep.ID)
+	variables, _ := w.store.GetDeploymentVariables(dep.ID)
 
 	// Build service ID -> name map for ingress display
 	svcNameByID := map[int]string{}
@@ -341,13 +344,14 @@ func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *d
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	return BuildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, workloads, services, ingresses, svcNameByID)
+	return BuildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables)
 }
 
 // BuildDriftReport is the core drift detection logic.
-// It compares expected workloads, services, and ingresses against the live K8s state,
-// producing a structured DriftReport. Used by both the reconciler and the admin gRPC server.
-func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string) *deploymentstore.DriftReport {
+// It compares expected workloads, services, ingresses, env vars, and secrets
+// against the live K8s state, producing a structured DriftReport.
+// Used by both the reconciler and the admin gRPC server.
+func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, agentName string, buildID string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string, variables []deploymentstore.Variable) *deploymentstore.DriftReport {
 	report := &deploymentstore.DriftReport{
 		DetectedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -655,8 +659,100 @@ func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, name
 		}
 	}
 
+	// --- Environment Variables (ConfigMap) ---
+	var expectedEnvKeys []string
+	var expectedSecretKeys []string
+	for _, v := range variables {
+		upperKey := strings.ToUpper(v.Name)
+		if v.Secret {
+			expectedSecretKeys = append(expectedSecretKeys, upperKey)
+		} else {
+			expectedEnvKeys = append(expectedEnvKeys, upperKey)
+		}
+	}
+
+	if len(expectedEnvKeys) > 0 {
+		configMapName := deployment.GenerateConfigMapName(agentName, buildID)
+		item := deploymentstore.DriftResourceItem{
+			Name: configMapName,
+			Type: "configmap",
+			Expected: map[string]string{
+				"Keys": strings.Join(sortedKeys(expectedEnvKeys), ", "),
+			},
+		}
+
+		actual, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				item.Status = "missing"
+				item.Actual = map[string]string{}
+			} else {
+				goto skipConfigMap
+			}
+		} else {
+			actualKeys := sortedKeys(mapKeys(actual.Data))
+			item.Actual = map[string]string{
+				"Keys": strings.Join(actualKeys, ", "),
+			}
+			// Only check that expected keys are present; ConfigMap may contain
+			// platform-injected vars (OTEL, DNS, etc.) not tracked in variables.
+			missingKeys, _ := diffKeys(expectedEnvKeys, mapKeys(actual.Data))
+			if len(missingKeys) > 0 {
+				item.Status = "drift"
+				item.Expected["Missing"] = strings.Join(sortedKeys(missingKeys), ", ")
+			} else {
+				item.Status = "match"
+			}
+		}
+		report.EnvVars = append(report.EnvVars, item)
+	}
+skipConfigMap:
+
+	// --- Secrets ---
+	if len(expectedSecretKeys) > 0 {
+		secretName := deployment.GenerateSecretName(agentName, buildID)
+		item := deploymentstore.DriftResourceItem{
+			Name: secretName,
+			Type: "secret",
+			Expected: map[string]string{
+				"Keys": strings.Join(sortedKeys(expectedSecretKeys), ", "),
+			},
+		}
+
+		actual, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				item.Status = "missing"
+				item.Actual = map[string]string{}
+			} else {
+				goto skipSecret
+			}
+		} else {
+			actualKeys := sortedKeys(byteMapKeys(actual.Data))
+			item.Actual = map[string]string{
+				"Keys": strings.Join(actualKeys, ", "),
+			}
+			secretMissing, secretExtra := diffKeys(expectedSecretKeys, byteMapKeys(actual.Data))
+			if len(secretMissing) > 0 || len(secretExtra) > 0 {
+				item.Status = "drift"
+				if len(secretMissing) > 0 {
+					item.Expected["Missing"] = strings.Join(sortedKeys(secretMissing), ", ")
+				}
+				if len(secretExtra) > 0 {
+					item.Actual["Extra"] = strings.Join(sortedKeys(secretExtra), ", ")
+				}
+			} else {
+				item.Status = "match"
+			}
+		}
+		report.Secrets = append(report.Secrets, item)
+	}
+skipSecret:
+
 	// Compute summary
 	allItems := append(append(report.Workloads, report.Services...), report.Ingresses...)
+	allItems = append(allItems, report.EnvVars...)
+	allItems = append(allItems, report.Secrets...)
 	report.Summary.Total = len(allItems)
 	for _, item := range allItems {
 		switch item.Status {
@@ -672,4 +768,54 @@ func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, name
 	}
 
 	return report
+}
+
+// sortedKeys returns a sorted copy of a string slice.
+func sortedKeys(keys []string) []string {
+	sorted := make([]string, len(keys))
+	copy(sorted, keys)
+	sort.Strings(sorted)
+	return sorted
+}
+
+// mapKeys returns the keys of a map[string]string.
+func mapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// byteMapKeys returns the keys of a map[string][]byte.
+func byteMapKeys(m map[string][]byte) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// diffKeys returns keys present in expected but not in actual (missing),
+// and keys present in actual but not in expected (extra).
+func diffKeys(expected, actual []string) (missing, extra []string) {
+	expectedSet := make(map[string]bool, len(expected))
+	for _, k := range expected {
+		expectedSet[k] = true
+	}
+	actualSet := make(map[string]bool, len(actual))
+	for _, k := range actual {
+		actualSet[k] = true
+	}
+	for _, k := range expected {
+		if !actualSet[k] {
+			missing = append(missing, k)
+		}
+	}
+	for _, k := range actual {
+		if !expectedSet[k] {
+			extra = append(extra, k)
+		}
+	}
+	return
 }

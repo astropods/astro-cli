@@ -296,6 +296,8 @@ type DriftReport struct {
 	Workloads  []*DriftResourceItem `json:"workloads"`
 	Services   []*DriftResourceItem `json:"services"`
 	Ingresses  []*DriftResourceItem `json:"ingresses"`
+	EnvVars    []*DriftResourceItem `json:"env_vars,omitempty"`
+	Secrets    []*DriftResourceItem `json:"secrets,omitempty"`
 	Summary    *DriftSummary        `json:"summary"`
 }
 

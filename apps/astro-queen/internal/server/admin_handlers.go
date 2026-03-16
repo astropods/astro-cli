@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
@@ -94,8 +95,16 @@ func (s *Server) handleDeleteDeployment(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleRestartDeployment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	var body struct {
+		Pod string `json:"pod"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Pod == "" {
+		http.Error(w, `{"error":"pod is required in request body"}`, http.StatusBadRequest)
+		return
+	}
 	resp, err := s.admin.RestartDeployment(r.Context(), &adminv1.RestartDeploymentRequest{
 		DeploymentId: id,
+		Pod:          body.Pod,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

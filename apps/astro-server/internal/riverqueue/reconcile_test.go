@@ -438,9 +438,9 @@ func writeDriftNotFound(w http.ResponseWriter, kind, name string) {
 
 func strPtr(s string) *string { return &s }
 
-// testBuildReport is a helper that calls buildDriftReport with nil ingresses.
+// testBuildReport is a helper that calls BuildDriftReport with minimal params.
 func testBuildReport(ctx context.Context, cs *kubernetes.Clientset, ns string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service) *deploymentstore.DriftReport {
-	return BuildDriftReport(ctx, cs, ns, workloads, services, nil, nil)
+	return BuildDriftReport(ctx, cs, ns, "test-agent", "v1", workloads, services, nil, nil, nil)
 }
 
 // countStatus returns the number of items with the given status in a report.

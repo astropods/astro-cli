@@ -76,6 +76,8 @@ export interface DriftReport {
   workloads: DriftResourceItem[];
   services: DriftResourceItem[];
   ingresses: DriftResourceItem[];
+  env_vars?: DriftResourceItem[];
+  secrets?: DriftResourceItem[];
   summary: DriftSummary;
 }
 

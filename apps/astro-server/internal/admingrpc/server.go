@@ -1543,13 +1543,14 @@ func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDri
 	}
 	services, _ := s.deployStore.GetServices(dep.ID)
 	ingresses, _ := s.deployStore.GetIngresses(dep.ID)
+	variables, _ := s.deployStore.GetDeploymentVariables(dep.ID)
 
 	svcNameByID := map[int]string{}
 	for _, svc := range services {
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	report := riverqueue.BuildDriftReport(ctx, s.k8sClient.Clientset(), dep.Namespace, workloads, services, ingresses, svcNameByID)
+	report := riverqueue.BuildDriftReport(ctx, s.k8sClient.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables)
 	if report == nil {
 		return nil, fmt.Errorf("failed to build drift report")
 	}
@@ -1600,6 +1601,18 @@ func storeDriftReportToProto(report *deploymentstore.DriftReport) *adminv1.Drift
 	}
 	for _, item := range report.Ingresses {
 		proto.Ingresses = append(proto.Ingresses, &adminv1.DriftResourceItem{
+			Name: item.Name, Type: item.Type, Status: item.Status,
+			Expected: item.Expected, Actual: item.Actual,
+		})
+	}
+	for _, item := range report.EnvVars {
+		proto.EnvVars = append(proto.EnvVars, &adminv1.DriftResourceItem{
+			Name: item.Name, Type: item.Type, Status: item.Status,
+			Expected: item.Expected, Actual: item.Actual,
+		})
+	}
+	for _, item := range report.Secrets {
+		proto.Secrets = append(proto.Secrets, &adminv1.DriftResourceItem{
 			Name: item.Name, Type: item.Type, Status: item.Status,
 			Expected: item.Expected, Actual: item.Actual,
 		})
