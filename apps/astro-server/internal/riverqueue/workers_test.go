@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"testing"
 
+	"github.com/riverqueue/river/rivertype"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -51,9 +52,22 @@ func TestDeployArgs_InsertOpts(t *testing.T) {
 		t.Error("UniqueOpts.ByArgs should be true")
 	}
 
-	// ByState should use River's defaults (nil/empty), not explicit states.
-	if len(opts.UniqueOpts.ByState) != 0 {
-		t.Errorf("UniqueOpts.ByState should be empty (use defaults), got %v", opts.UniqueOpts.ByState)
+	// ByState excludes completed/discarded so re-apply and reconciler
+	// re-enqueue can create new jobs after the original finishes.
+	wantStates := map[rivertype.JobState]bool{
+		rivertype.JobStateAvailable: true,
+		rivertype.JobStatePending:   true,
+		rivertype.JobStateRunning:   true,
+		rivertype.JobStateRetryable: true,
+		rivertype.JobStateScheduled: true,
+	}
+	if len(opts.UniqueOpts.ByState) != len(wantStates) {
+		t.Fatalf("ByState length = %d, want %d", len(opts.UniqueOpts.ByState), len(wantStates))
+	}
+	for _, s := range opts.UniqueOpts.ByState {
+		if !wantStates[s] {
+			t.Errorf("unexpected state in ByState: %v", s)
+		}
 	}
 }
 

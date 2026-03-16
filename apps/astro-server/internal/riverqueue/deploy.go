@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -25,6 +26,16 @@ func (DeployArgs) InsertOpts() river.InsertOpts {
 		MaxAttempts: 3,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs: true,
+			// Exclude completed/discarded from uniqueness check so that
+			// re-apply, rollback, and reconciler re-enqueue can create new
+			// jobs after the original deploy job finishes.
+			ByState: []rivertype.JobState{
+				rivertype.JobStateAvailable,
+				rivertype.JobStatePending,
+				rivertype.JobStateRunning,
+				rivertype.JobStateRetryable,
+				rivertype.JobStateScheduled,
+			},
 		},
 	}
 }

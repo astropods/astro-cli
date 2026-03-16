@@ -120,13 +120,24 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 		}
 	}
 
-	// Stuck pending — job insert may have failed after DB commit
+	// Stuck pending — job insert may have failed after DB commit, or the
+	// River job was deduplicated. Re-enqueue after 5m, mark failed after 30m.
 	pending, err := w.store.GetDeploymentsInStatus(deploymentstore.StatusPending)
 	if err != nil {
 		w.log.Error("Reconcile: failed to list pending deployments", "error", err)
 	} else {
 		for _, dep := range pending {
-			if time.Since(dep.StatusChangedAt) > 5*time.Minute {
+			stuckFor := time.Since(dep.StatusChangedAt)
+			if stuckFor > 30*time.Minute {
+				staleMsg := fmt.Sprintf("Stuck in pending since %s (>30m), marking failed", dep.StatusChangedAt.Format(time.RFC3339))
+				w.log.Error("Reconcile: deployment stuck in pending too long, marking failed",
+					"deployment_id", dep.ID,
+					"since", dep.StatusChangedAt,
+				)
+				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, staleMsg, nil); err != nil {
+					w.log.Warn("Failed to mark stale pending deployment as failed", "error", err, "deployment_id", dep.ID)
+				}
+			} else if stuckFor > 5*time.Minute {
 				w.log.Warn("Reconcile: deployment stuck in pending, re-enqueuing",
 					"deployment_id", dep.ID,
 					"since", dep.StatusChangedAt,
