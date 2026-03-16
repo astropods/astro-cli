@@ -408,8 +408,8 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 		return err
 	}
 
-	_, err := os.Stat(filepath.Join(workingDir, "requirements.txt"))
-	isPython := err == nil
+	_, statErr := os.Stat(filepath.Join(workingDir, "requirements.txt"))
+	isPython := statErr == nil
 	if isPython {
 		// Python agent: pip install -e local packages so the agent uses local source.
 		// Install in dependency order: messaging → adapter-core → adapter-langchain.
