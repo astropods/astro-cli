@@ -506,14 +506,10 @@ func TestDrift_ConfigMapValueChanged(t *testing.T) {
 		t.Fatalf("get configmap: %v", err)
 	}
 
-	// Find a key to mutate
-	var mutatedKey string
-	for k := range cm.Data {
-		mutatedKey = k
-		break
-	}
-	if mutatedKey == "" {
-		t.Fatal("configmap has no keys to mutate")
+	// Mutate AGENT_PORT — a known key from the spec's environment block
+	mutatedKey := "AGENT_PORT"
+	if _, ok := cm.Data[mutatedKey]; !ok {
+		t.Fatalf("expected %s in configmap, got keys: %v", mutatedKey, mapKeys(cm.Data))
 	}
 
 	cm.Data[mutatedKey] = "tampered-value"
@@ -630,6 +626,9 @@ func TestDrift_RepairRegeneratesResolvedKeys(t *testing.T) {
 	}
 	if len(rk.ConfigMapHashes) == 0 {
 		t.Error("expected non-empty configmap_hashes after repair")
+	}
+	if _, ok := rk.SecretHashes["SECRET_KEY"]; !ok {
+		t.Error("expected SECRET_KEY hash after repair with live secret data")
 	}
 
 	// Drift report should match
@@ -783,6 +782,47 @@ func TestDrift_RepairWithLiveSecrets(t *testing.T) {
 			t.Logf("  secret %s: %s expected=%v actual=%v", item.Name, item.Status, item.Expected, item.Actual)
 		}
 	}
+
+	// Now tamper with the secret in K8s — drift should be detected via hashes
+	secretName := deployment.GenerateSecretName("drift-agent", "dbuild01")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	secret, err := env.client.Clientset().CoreV1().Secrets(env.ns).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get secret: %v", err)
+	}
+	secret.Data["SECRET_KEY"] = []byte("tampered-after-repair")
+	if _, err := env.client.Clientset().CoreV1().Secrets(env.ns).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update secret: %v", err)
+	}
+
+	report = env.buildReport()
+	if report.Summary.Drift == 0 {
+		t.Error("expected drift after secret tampering post-repair, got 0")
+	}
+	found := false
+	for _, item := range report.Secrets {
+		if item.Status == "drift" {
+			if changed, ok := item.Expected["Changed"]; ok {
+				for _, k := range splitCSV(changed) {
+					if k == "SECRET_KEY" {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected Changed to include SECRET_KEY after post-repair tampering, got: %+v", report.Secrets)
+	}
+}
+
+func mapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // splitCSV splits a ", "-separated string into trimmed parts.
