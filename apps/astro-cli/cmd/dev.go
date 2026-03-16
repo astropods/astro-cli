@@ -408,8 +408,9 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 		return err
 	}
 
-	_, isPython := os.Stat(filepath.Join(workingDir, "requirements.txt"))
-	if isPython == nil {
+	_, err := os.Stat(filepath.Join(workingDir, "requirements.txt"))
+	isPython := err == nil
+	if isPython {
 		// Python agent: pip install -e local packages so the agent uses local source.
 		// Install in dependency order: messaging → adapter-core → adapter-langchain.
 		pyPackages := []struct{ name, path string }{
@@ -466,7 +467,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 
 	// Resolve start command from spec. Default differs by language.
 	startCommand := "bun --watch run start"
-	if isPython == nil {
+	if isPython {
 		startCommand = "python -m agent.main"
 	}
 	if astroSpec.Dev != nil && astroSpec.Dev.Command != "" {
