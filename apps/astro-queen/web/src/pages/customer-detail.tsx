@@ -12,6 +12,10 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon, RefreshCw } from "lucide-react";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { formatDateTime } from "@/lib/utils";
 import { EventTable } from "@/components/event-table";
 import { SchemaFormPanel } from "@/components/schema-form-panel";
@@ -93,13 +97,10 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
 
   const handleResubscribe = async () => {
     if (!sub?.plan || !latestVersion) return;
-    if (!confirm(`Cancel current subscription (v${sub.plan.version}) and resubscribe to ${sub.plan.key} v${latestVersion.version}?`)) return;
 
     setResubscribing(true);
     try {
-      // Cancel current subscription
       await cancelMut.mutateAsync({ id: sub.id, body: { effectiveDate: "immediately" } });
-      // Create new subscription on latest version
       await createSub.mutateAsync({
         customerId: customer.id,
         plan: { key: latestVersion.key, version: latestVersion.version },
@@ -140,29 +141,57 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
             </div>
             <div className="flex items-center gap-1">
               {hasNewerVersion && sub.status === "active" && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  title={`Resubscribe to v${latestVersion.version}`}
-                  onClick={handleResubscribe}
-                  disabled={resubscribing}
-                >
-                  <RefreshCw className={`size-3 mr-1 ${resubscribing ? "animate-spin" : ""}`} />
-                  {resubscribing ? "Migrating..." : `Upgrade to v${latestVersion.version}`}
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      title={`Resubscribe to v${latestVersion.version}`}
+                      disabled={resubscribing}
+                    >
+                      <RefreshCw className={`size-3 mr-1 ${resubscribing ? "animate-spin" : ""}`} />
+                      {resubscribing ? "Migrating..." : `Upgrade to v${latestVersion.version}`}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Upgrade subscription?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will cancel the current subscription (v{sub.plan?.version}) and resubscribe to {sub.plan?.key} v{latestVersion.version}.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleResubscribe}>Upgrade</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
               {sub.status === "active" && (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title="Cancel subscription"
-                  onClick={() => {
-                    if (confirm(`Cancel subscription "${sub.name}"?`))
-                      cancelMut.mutate({ id: sub.id, body: { effectiveDate: "immediately" } });
-                  }}
-                >
-                  <XCircle className="size-3 text-red-500" />
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon-xs" title="Cancel subscription">
+                      <XCircle className="size-3 text-red-500" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel subscription?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will immediately cancel the subscription &ldquo;{sub.name}&rdquo;.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep</AlertDialogCancel>
+                      <AlertDialogAction
+                        variant="destructive"
+                        onClick={() => cancelMut.mutate({ id: sub.id, body: { effectiveDate: "immediately" } })}
+                      >
+                        Cancel Subscription
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
             </div>
           </div>

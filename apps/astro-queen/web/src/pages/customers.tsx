@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Trash2, X } from "lucide-react";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { formatDateTime } from "@/lib/utils";
 import type { Customer } from "@/types/openmeter";
 
@@ -163,6 +167,10 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
             await cancelSub.mutateAsync({ id: c.currentSubscriptionId, body: { effectiveDate: "immediately" } });
           }
           await createSub.mutateAsync({ customerId: c.id, plan: { key: planKey } });
+        } else if (action === "unsubscribe") {
+          if (c.currentSubscriptionId) {
+            await cancelSub.mutateAsync({ id: c.currentSubscriptionId, body: { effectiveDate: "immediately" } });
+          }
         }
       } catch {
         // continue on error
@@ -175,6 +183,7 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
   };
 
   const needsPlan = action === "subscribe" || action === "upgrade";
+  const subscribedCount = customers.filter((c) => c.currentSubscriptionId).length;
 
   return (
     <div className={`rounded-lg glass px-3 py-2 flex items-center gap-3 ${disabled ? "opacity-50" : ""}`}>
@@ -194,6 +203,7 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
           <SelectItem value="currency">Set Currency</SelectItem>
           <SelectItem value="subscribe">Assign Subscription</SelectItem>
           <SelectItem value="upgrade">Upgrade Subscription</SelectItem>
+          <SelectItem value="unsubscribe">Cancel Subscription</SelectItem>
         </SelectContent>
       </Select>
 
@@ -221,7 +231,13 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
         </>
       )}
 
-      {action && !disabled && (
+      {action === "unsubscribe" && !disabled && (
+        <span className="text-[9px] text-muted-foreground">
+          {subscribedCount} of {customers.length} have active subscriptions
+        </span>
+      )}
+
+      {action && !disabled && action !== "unsubscribe" && (
         <Button
           size="xs"
           onClick={run}
@@ -229,6 +245,30 @@ function BulkActions({ customers, onDone, disabled }: { customers: Customer[]; o
         >
           {running ? `${progress}/${customers.length}` : "Apply"}
         </Button>
+      )}
+
+      {action === "unsubscribe" && !disabled && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button size="xs" variant="destructive" disabled={running || subscribedCount === 0}>
+              {running ? `${progress}/${customers.length}` : "Cancel Subscriptions"}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel {subscribedCount} subscription{subscribedCount !== 1 ? "s" : ""}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will immediately cancel subscriptions for {subscribedCount} customer{subscribedCount !== 1 ? "s" : ""}. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={run}>
+                Cancel {subscribedCount} Subscription{subscribedCount !== 1 ? "s" : ""}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   );
