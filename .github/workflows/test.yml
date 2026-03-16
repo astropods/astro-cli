@@ -150,7 +150,25 @@ jobs:
 
   test-go-k8s:
     runs-on: ubuntu-latest
-    name: K8s integration tests (vcluster)
+    name: K8s integration tests (vcluster + Postgres)
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: astro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/astro?sslmode=disable
 
     steps:
       - name: Checkout repository
@@ -164,6 +182,26 @@ jobs:
 
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
+
+      - name: Install Atlas
+        run: curl -sSf https://atlasgo.sh | sh
+
+      - name: Apply schema migration
+        run: |
+          atlas schema apply \
+            --url "$DATABASE_URL" \
+            --to file://sql/astro-server/schema.sql \
+            --dev-url "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" \
+            --exclude "atlas_schema_revisions,river" \
+            --auto-approve
+
+      - name: Apply River migrations
+        run: |
+          atlas migrate apply \
+            --url "$DATABASE_URL" \
+            --dir file://sql/river \
+            --revisions-schema atlas_schema_revisions \
+            --allow-dirty
 
       - name: Create kind cluster (host)
         run: |

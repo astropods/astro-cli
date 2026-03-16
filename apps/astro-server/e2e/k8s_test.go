@@ -33,7 +33,7 @@ const minimalSpecJSON = `{
   "source": {"account": "test-account", "name": "k8s-e2e", "build": "build001", "registry": "test-registry.example.com"},
   "target": {"runtime": "kubernetes", "account": "test-account", "display_name": "K8s E2E Test Agent"},
   "agent": {
-    "image": "busybox:latest",
+    "image": "gcr.io/google-containers/pause:3.2",
     "endpoints": {"http": {"port": 8080, "protocol": "http"}},
     "replicas": 1,
     "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
@@ -42,7 +42,7 @@ const minimalSpecJSON = `{
   },
   "knowledge": {
     "cache": {
-      "image": "busybox:latest",
+      "image": "gcr.io/google-containers/pause:3.2",
       "endpoints": {"http": {"port": 6379, "protocol": "http"}},
       "replicas": 1,
       "persistent": false,
@@ -51,7 +51,7 @@ const minimalSpecJSON = `{
       "update": {"strategy": "rolling"}
     },
     "docs": {
-      "image": "busybox:latest",
+      "image": "gcr.io/google-containers/pause:3.2",
       "endpoints": {"http": {"port": 6333, "protocol": "http"}},
       "replicas": 1,
       "persistent": true,
