@@ -1,8 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 )
 
 func TestGenerateBuildID(t *testing.T) {
@@ -22,5 +29,95 @@ func TestGenerateBuildID(t *testing.T) {
 	id2 := generateBuildID()
 	if id == id2 {
 		t.Errorf("generateBuildID() produced same ID twice: %q", id)
+	}
+}
+
+func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "expired_token",
+				RefreshToken: "",
+				ExpiresAt:    time.Now().Add(-1 * time.Hour),
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(tmpDir)
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	cmd := pushCmd
+	cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected push to fail with expired credentials, got nil")
+	}
+	if !strings.Contains(err.Error(), "not authenticated") && !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("expected auth error, got: %s", err.Error())
+	}
+}
+
+func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "expired_token",
+				RefreshToken: "stale_refresh_token",
+				ExpiresAt:    time.Now().Add(-1 * time.Hour),
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(tmpDir)
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	cmd := pushCmd
+	cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected push to fail with stale refresh token, got nil")
+	}
+	if !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("expected authentication failed error, got: %s", err.Error())
 	}
 }
