@@ -118,17 +118,12 @@ func Run(name string) (scaffold.ScaffoldConfig, error) {
 
 		// Ollama model — only shown when Ollama is selected
 		huh.NewGroup(
-			huh.NewInput().
+			huh.NewSelect[string]().
 				Title("Ollama model").
-				Description("Type to filter or enter any model name from the Ollama library.").
-				Suggestions(ollamaModelList).
+				Description("Type to filter.").
+				Options(huh.NewOptions[string](ollamaModelList...)...).
 				Value(&ollamaModel).
-				Validate(func(v string) error {
-					if v == "" {
-						return fmt.Errorf("model name is required")
-					}
-					return nil
-				}),
+				Filtering(true),
 		).WithHideFunc(func() bool { return !hasOllama() }),
 
 		huh.NewGroup(
