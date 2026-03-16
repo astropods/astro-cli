@@ -41,8 +41,8 @@ type BuiltinProvider struct {
 	MountPath    string
 	EnvPrefix    string
 	URLScheme    string
-	HealthCheck  []string          // exec health check; nil → use HealthPath
-	HealthPath   string            // HTTP health check path
+	HealthCheck  []string // exec health check; nil → use HealthPath
+	HealthPath   string   // HTTP health check path
 	DefaultEnv   map[string]string
 	GPU          bool
 	NodeSelector map[string]string
@@ -57,9 +57,9 @@ var builtinProviders = []BuiltinProvider{
 		Name: "ollama", Section: "models",
 		Image: "ollama/ollama:latest", DefaultPort: 11434,
 		MountPath: "/root/.ollama", EnvPrefix: "OLLAMA",
-		HealthPath: "/api/tags",
-		DefaultEnv: map[string]string{"OLLAMA_HOST": "0.0.0.0", "OLLAMA_KEEP_ALIVE": "-1"},
-		GPU:        true,
+		HealthPath:   "/api/tags",
+		DefaultEnv:   map[string]string{"OLLAMA_HOST": "0.0.0.0", "OLLAMA_KEEP_ALIVE": "-1"},
+		GPU:          true,
 		NodeSelector: map[string]string{"workload-type": "gpu"},
 		Tolerations:  []Toleration{{Key: "nvidia.com/gpu", Operator: "Exists", Effect: "NoSchedule"}},
 	},
@@ -91,7 +91,7 @@ var builtinProviders = []BuiltinProvider{
 		Name: "qdrant", Section: "knowledge",
 		Image: "qdrant/qdrant:latest", DefaultPort: 6333,
 		ExtraPorts: []PortDef{{Name: "grpc", Port: 6334}},
-		MountPath:  "/qdrant/storage", EnvPrefix: "QDRANT", URLScheme: "http",
+		MountPath:  "/qdrant", EnvPrefix: "QDRANT", URLScheme: "http",
 		HealthPath: "/healthz",
 	},
 	{

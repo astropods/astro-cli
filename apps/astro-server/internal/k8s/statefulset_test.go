@@ -18,7 +18,7 @@ func mustBuildStatefulSet(t *testing.T, cfg StatefulSetConfig) *appsv1.StatefulS
 }
 
 // TestBuildStatefulSet verifies BuildStatefulSet across provider-specific
-// configurations: qdrant (port 6333, extra gRPC 6334, mount /qdrant/storage,
+// configurations: qdrant (port 6333, extra gRPC 6334, mount /qdrant,
 // default PVC 10Gi), redis (port 6379, mount /data), postgres (port 5432,
 // mount /var/lib/postgresql/data), custom storage size (20Gi), provider-aware
 // healthchecks (qdrant→HTTPGet /healthz, redis→Exec "redis-cli ping"), and
@@ -181,8 +181,8 @@ func TestBuildStatefulSet(t *testing.T) {
 			t.Errorf("expected extra grpc port 6334, got %v", container.Ports)
 		}
 		// Mount path
-		if container.VolumeMounts[0].MountPath != "/qdrant/storage" {
-			t.Errorf("expected mount /qdrant/storage, got %s", container.VolumeMounts[0].MountPath)
+		if container.VolumeMounts[0].MountPath != "/qdrant" {
+			t.Errorf("expected mount /qdrant, got %s", container.VolumeMounts[0].MountPath)
 		}
 		// Default PVC 10Gi
 		pvcStorage := ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests["storage"]

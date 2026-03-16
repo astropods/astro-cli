@@ -188,8 +188,8 @@ func TestStatefulSetSecurityHardening_PreservesDataMount(t *testing.T) {
 	for _, vm := range container.VolumeMounts {
 		mountMap[vm.Name] = vm.MountPath
 	}
-	if mountMap["data"] != "/qdrant/storage" {
-		t.Errorf("expected data mount at /qdrant/storage, got %q", mountMap["data"])
+	if mountMap["data"] != "/qdrant" {
+		t.Errorf("expected data mount at /qdrant, got %q", mountMap["data"])
 	}
 }
 
