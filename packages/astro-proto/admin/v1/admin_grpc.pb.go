@@ -40,9 +40,9 @@ type AdminServiceClient interface {
 	RollbackDeployment(ctx context.Context, in *RollbackDeploymentRequest, opts ...grpc.CallOption) (*RollbackDeploymentResponse, error)
 	ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
-	BackfillDeployments(ctx context.Context, in *BackfillDeploymentsRequest, opts ...grpc.CallOption) (*BackfillDeploymentsResponse, error)
 	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
 	RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error)
+	BackfillResolvedKeys(ctx context.Context, in *BackfillResolvedKeysRequest, opts ...grpc.CallOption) (*BackfillResolvedKeysResponse, error)
 }
 
 type adminServiceClient struct {
@@ -269,14 +269,6 @@ func (c *adminServiceClient) GetDeploymentJobs(ctx context.Context, in *GetDeplo
 	return out, nil
 }
 
-func (c *adminServiceClient) BackfillDeployments(ctx context.Context, in *BackfillDeploymentsRequest, opts ...grpc.CallOption) (*BackfillDeploymentsResponse, error) {
-	out := new(BackfillDeploymentsResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/BackfillDeployments", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error) {
 	out := new(RepairNormalizedSpecResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RepairNormalizedSpec", in, out, opts...); err != nil {
@@ -288,6 +280,14 @@ func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *Repai
 func (c *adminServiceClient) RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error) {
 	out := new(RefreshDriftReportResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RefreshDriftReport", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) BackfillResolvedKeys(ctx context.Context, in *BackfillResolvedKeysRequest, opts ...grpc.CallOption) (*BackfillResolvedKeysResponse, error) {
+	out := new(BackfillResolvedKeysResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/BackfillResolvedKeys", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -323,9 +323,9 @@ type AdminServiceServer interface {
 	RollbackDeployment(context.Context, *RollbackDeploymentRequest) (*RollbackDeploymentResponse, error)
 	ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
-	BackfillDeployments(context.Context, *BackfillDeploymentsRequest) (*BackfillDeploymentsResponse, error)
 	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
 	RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error)
+	BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -440,16 +440,16 @@ func (UnimplementedAdminServiceServer) GetDeploymentJobs(context.Context, *GetDe
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeploymentJobs not implemented")
 }
 
-func (UnimplementedAdminServiceServer) BackfillDeployments(context.Context, *BackfillDeploymentsRequest) (*BackfillDeploymentsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BackfillDeployments not implemented")
-}
-
 func (UnimplementedAdminServiceServer) RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RepairNormalizedSpec not implemented")
 }
 
 func (UnimplementedAdminServiceServer) RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RefreshDriftReport not implemented")
+}
+
+func (UnimplementedAdminServiceServer) BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BackfillResolvedKeys not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -869,21 +869,6 @@ func _AdminService_GetDeploymentJobs_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_BackfillDeployments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(BackfillDeploymentsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).BackfillDeployments(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/BackfillDeployments"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).BackfillDeployments(ctx, req.(*BackfillDeploymentsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _AdminService_RepairNormalizedSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RepairNormalizedSpecRequest)
 	if err := dec(in); err != nil {
@@ -910,6 +895,21 @@ func _AdminService_RefreshDriftReport_Handler(srv interface{}, ctx context.Conte
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RefreshDriftReport"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).RefreshDriftReport(ctx, req.(*RefreshDriftReportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_BackfillResolvedKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackfillResolvedKeysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).BackfillResolvedKeys(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/BackfillResolvedKeys"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).BackfillResolvedKeys(ctx, req.(*BackfillResolvedKeysRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -946,9 +946,9 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "RollbackDeployment", Handler: _AdminService_RollbackDeployment_Handler},
 		{MethodName: "ReapplyDeployment", Handler: _AdminService_ReapplyDeployment_Handler},
 		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
-		{MethodName: "BackfillDeployments", Handler: _AdminService_BackfillDeployments_Handler},
 		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
 		{MethodName: "RefreshDriftReport", Handler: _AdminService_RefreshDriftReport_Handler},
+		{MethodName: "BackfillResolvedKeys", Handler: _AdminService_BackfillResolvedKeys_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

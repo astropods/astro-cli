@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,10 +136,15 @@ func setupDriftEnv(t *testing.T) *driftTestEnv {
 		}
 	}
 
-	resolved := &deployment.ResolvedEnv{
-		ConfigMapData: map[string]string{"AGENT_PORT": "8080"},
-		SecretData:    map[string]string{"SECRET_KEY": "test-SECRET_KEY"},
+	// Resolve env the same way ApplyDeploymentSpec will, so the DB's
+	// resolved keys match what K8s will actually contain.
+	rctx := deployment.ResolveContext{
+		Namespace:  ns,
+		AgentName:  "drift-agent",
+		BuildID:    "dbuild01",
+		SecretName: deployment.GenerateSecretName("drift-agent", "dbuild01"),
 	}
+	resolved := deployment.ResolveDeploymentSpecEnv(&specObj, rctx)
 
 	// Save deployment to DB with normalized spec
 	depID := fmt.Sprintf("drf%08d", time.Now().UnixMilli()%100000000)
@@ -194,6 +200,7 @@ func (e *driftTestEnv) buildReport() *ds.DriftReport {
 	services, _ := e.store.GetServices(e.depID)
 	ingresses, _ := e.store.GetIngresses(e.depID)
 	variables, _ := e.store.GetDeploymentVariables(e.depID)
+	resolvedKeys, _ := e.store.GetResolvedKeys(e.depID)
 
 	svcNameByID := map[int]string{}
 	for _, svc := range services {
@@ -203,7 +210,7 @@ func (e *driftTestEnv) buildReport() *ds.DriftReport {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	return riverqueue.BuildDriftReport(ctx, e.client.Clientset(), e.ns, "drift-agent", "dbuild01", workloads, services, ingresses, svcNameByID, variables)
+	return riverqueue.BuildDriftReport(ctx, e.client.Clientset(), e.ns, "drift-agent", "dbuild01", workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
 }
 
 // --- Tests ---
@@ -417,4 +424,218 @@ func TestDrift_RepairRestoresDBState(t *testing.T) {
 	if report.Summary.Match < 4 {
 		t.Errorf("expected at least 4 matching after repair, got %d", report.Summary.Match)
 	}
+}
+
+// TestDrift_ResolvedKeysStoredAtDeploy verifies that deployment_resolved_keys
+// are populated during SaveNormalizedSpec and used by BuildDriftReport.
+func TestDrift_ResolvedKeysStoredAtDeploy(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	rk, err := env.store.GetResolvedKeys(env.depID)
+	if err != nil {
+		t.Fatalf("GetResolvedKeys: %v", err)
+	}
+	if rk == nil {
+		t.Fatal("expected resolved keys to be stored, got nil")
+	}
+
+	// setupDriftEnv now calls ResolveDeploymentSpecEnv, so the resolved keys
+	// include both user env (AGENT_PORT) and platform vars (ASTRO_AGENT_NAME, etc).
+	for _, want := range []string{"AGENT_PORT", "ASTRO_AGENT_NAME", "AGENT_URL"} {
+		found := false
+		for _, k := range rk.ConfigMapKeys {
+			if k == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected %s in configmap_keys, got %v", want, rk.ConfigMapKeys)
+		}
+	}
+
+	// SECRET_KEY should be in secret keys
+	foundSecret := false
+	for _, k := range rk.SecretKeys {
+		if k == "SECRET_KEY" {
+			foundSecret = true
+		}
+	}
+	if !foundSecret {
+		t.Errorf("expected SECRET_KEY in secret_keys, got %v", rk.SecretKeys)
+	}
+
+	// Hashes should be populated
+	if len(rk.ConfigMapHashes) == 0 {
+		t.Error("expected configmap_hashes to be non-empty")
+	}
+	if len(rk.SecretHashes) == 0 {
+		t.Error("expected secret_hashes to be non-empty")
+	}
+}
+
+// TestDrift_ConfigMapValueChanged verifies that editing a ConfigMap value
+// (without adding/removing keys) is detected as drift via hash comparison.
+func TestDrift_ConfigMapValueChanged(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	// Baseline: no drift
+	report := env.buildReport()
+	if report.Summary.Drift != 0 {
+		t.Fatalf("expected 0 drift at baseline, got %d", report.Summary.Drift)
+	}
+
+	// Mutate a ConfigMap value in K8s
+	configMapName := deployment.GenerateConfigMapName("drift-agent", "dbuild01")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cm, err := env.client.Clientset().CoreV1().ConfigMaps(env.ns).Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+
+	// Find a key to mutate
+	var mutatedKey string
+	for k := range cm.Data {
+		mutatedKey = k
+		break
+	}
+	if mutatedKey == "" {
+		t.Fatal("configmap has no keys to mutate")
+	}
+
+	cm.Data[mutatedKey] = "tampered-value"
+	if _, err := env.client.Clientset().CoreV1().ConfigMaps(env.ns).Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update configmap: %v", err)
+	}
+
+	// Drift should now be detected
+	report = env.buildReport()
+	if report.Summary.Drift == 0 {
+		t.Error("expected drift after configmap value change, got 0")
+	}
+
+	// The "Changed" field should name the mutated key
+	found := false
+	for _, item := range report.EnvVars {
+		if item.Status == "drift" {
+			if changed, ok := item.Expected["Changed"]; ok {
+				for _, k := range splitCSV(changed) {
+					if k == mutatedKey {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected Changed to include %q, got report: %+v", mutatedKey, report.EnvVars)
+	}
+}
+
+// TestDrift_SecretValueChanged verifies that editing a Secret value is detected
+// as drift via hash comparison.
+func TestDrift_SecretValueChanged(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	// Baseline: no drift
+	report := env.buildReport()
+	if report.Summary.Drift != 0 {
+		t.Fatalf("expected 0 drift at baseline, got %d", report.Summary.Drift)
+	}
+
+	// Mutate secret value in K8s
+	secretName := deployment.GenerateSecretName("drift-agent", "dbuild01")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	secret, err := env.client.Clientset().CoreV1().Secrets(env.ns).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get secret: %v", err)
+	}
+
+	secret.Data["SECRET_KEY"] = []byte("tampered-secret")
+	if _, err := env.client.Clientset().CoreV1().Secrets(env.ns).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update secret: %v", err)
+	}
+
+	report = env.buildReport()
+	if report.Summary.Drift == 0 {
+		t.Error("expected drift after secret value change, got 0")
+	}
+
+	found := false
+	for _, item := range report.Secrets {
+		if item.Status == "drift" {
+			if changed, ok := item.Expected["Changed"]; ok {
+				for _, k := range splitCSV(changed) {
+					if k == "SECRET_KEY" {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected Changed to include SECRET_KEY, got report: %+v", report.Secrets)
+	}
+}
+
+// TestDrift_RepairRegeneratesResolvedKeys verifies that RepairNormalizedSpec
+// re-populates the resolved keys table.
+func TestDrift_RepairRegeneratesResolvedKeys(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	// Wipe resolved keys
+	if _, err := env.db.Exec("DELETE FROM deployment_resolved_keys WHERE deployment_id = $1", env.depID); err != nil {
+		t.Fatalf("delete resolved keys: %v", err)
+	}
+
+	// Verify they're gone
+	rk, _ := env.store.GetResolvedKeys(env.depID)
+	if rk != nil {
+		t.Fatal("expected nil resolved keys after delete")
+	}
+
+	// Repair
+	_, _, _, err := env.store.RepairNormalizedSpec(env.depID, &ds.NormalizedSpecConfig{
+		Namespace: env.ns,
+	})
+	if err != nil {
+		t.Fatalf("RepairNormalizedSpec: %v", err)
+	}
+
+	// Resolved keys should be back
+	rk, err = env.store.GetResolvedKeys(env.depID)
+	if err != nil {
+		t.Fatalf("GetResolvedKeys after repair: %v", err)
+	}
+	if rk == nil {
+		t.Fatal("expected resolved keys after repair, got nil")
+	}
+	if len(rk.ConfigMapKeys) == 0 {
+		t.Error("expected non-empty configmap_keys after repair")
+	}
+	if len(rk.ConfigMapHashes) == 0 {
+		t.Error("expected non-empty configmap_hashes after repair")
+	}
+
+	// Drift report should match
+	report := env.buildReport()
+	if report.Summary.Missing > 0 || report.Summary.Drift > 0 {
+		t.Errorf("expected all match after repair, got missing=%d drift=%d",
+			report.Summary.Missing, report.Summary.Drift)
+	}
+}
+
+// splitCSV splits a ", "-separated string into trimmed parts.
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

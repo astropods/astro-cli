@@ -228,6 +228,16 @@ CREATE TABLE public.deployment_variables (
     CONSTRAINT deployment_variables_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
 );
 
+CREATE TABLE public.deployment_resolved_keys (
+    deployment_id varchar(11) NOT NULL,
+    configmap_keys text[] NOT NULL DEFAULT '{}',
+    secret_keys text[] NOT NULL DEFAULT '{}',
+    configmap_hashes jsonb NOT NULL DEFAULT '{}',
+    secret_hashes jsonb NOT NULL DEFAULT '{}',
+    CONSTRAINT deployment_resolved_keys_pkey PRIMARY KEY (deployment_id),
+    CONSTRAINT deployment_resolved_keys_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
 CREATE TABLE public.deployment_events (
     id bigserial NOT NULL,
     deployment_id varchar(11) NOT NULL,

@@ -575,12 +575,6 @@ type GetDeploymentJobsResponse struct {
 	LastReconcileAt string           `json:"last_reconcile_at,omitempty"`
 }
 
-type BackfillDeploymentsRequest struct{}
-
-type BackfillDeploymentsResponse struct {
-	BackfilledCount int32 `json:"backfilled_count"`
-}
-
 type RepairNormalizedSpecRequest struct {
 	DeploymentId string `json:"deployment_id,omitempty"`
 }
@@ -599,4 +593,10 @@ type RefreshDriftReportRequest struct {
 type RefreshDriftReportResponse struct {
 	DriftReport    *DriftReport `json:"drift_report,omitempty"`
 	DriftCheckedAt string       `json:"drift_checked_at,omitempty"`
+}
+
+type BackfillResolvedKeysRequest struct{}
+
+type BackfillResolvedKeysResponse struct {
+	BackfilledCount int32 `json:"backfilled_count"`
 }

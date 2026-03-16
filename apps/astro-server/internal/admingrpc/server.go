@@ -3,7 +3,10 @@ package admingrpc
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,10 +19,13 @@ import (
 	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
+	spec "github.com/astropods/astro/packages/astro-spec"
+	"github.com/lib/pq"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -1335,91 +1341,6 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 	return &adminv1.ReapplyDeploymentResponse{Status: "reapplying"}, nil
 }
 
-// BackfillDeployments creates revision 1 and sets current_revision for all deployments
-// that were created before the async deploy architecture (missing revisions).
-func (s *Server) BackfillDeployments(ctx context.Context, _ *adminv1.BackfillDeploymentsRequest) (*adminv1.BackfillDeploymentsResponse, error) {
-	// Find deployments without revisions
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.build_id, d.deployment_spec_json, d.encrypted_data_key, d.kms_key_arn, d.deployed_at
-		FROM deployments d
-		WHERE d.status != 'undeployed'
-		  AND d.current_revision IS NULL
-		  AND d.deployment_spec_json IS NOT NULL
-		  AND NOT EXISTS (SELECT 1 FROM deployment_revisions r WHERE r.deployment_id = d.id)
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("query deployments to backfill: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	type backfillRow struct {
-		id, buildID, specJSON string
-		dataKey               []byte
-		kmsArn                *string
-		deployedAt            time.Time
-	}
-	var toBackfill []backfillRow
-	for rows.Next() {
-		var r backfillRow
-		if err := rows.Scan(&r.id, &r.buildID, &r.specJSON, &r.dataKey, &r.kmsArn, &r.deployedAt); err != nil {
-			return nil, fmt.Errorf("scan deployment: %w", err)
-		}
-		toBackfill = append(toBackfill, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate deployments: %w", err)
-	}
-
-	var count int32
-	for _, r := range toBackfill {
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			s.log.Warn("Backfill: failed to begin tx", "deployment_id", r.id, "error", err)
-			continue
-		}
-
-		// Create revision 1
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO deployment_revisions (deployment_id, revision, build_id, spec_json, kms_ciphertext, kms_key_id, created_at)
-			VALUES ($1, 1, $2, $3::jsonb, $4, $5, $6)
-			ON CONFLICT (deployment_id, revision) DO NOTHING
-		`, r.id, r.buildID, r.specJSON, r.dataKey, r.kmsArn, r.deployedAt)
-		if err != nil {
-			tx.Rollback() //nolint:errcheck,gosec
-			s.log.Warn("Backfill: failed to insert revision", "deployment_id", r.id, "error", err)
-			continue
-		}
-
-		// Set current_revision and status_changed_at
-		_, err = tx.ExecContext(ctx, `
-			UPDATE deployments SET current_revision = 1, status_changed_at = COALESCE(status_changed_at, deployed_at)
-			WHERE id = $1
-		`, r.id)
-		if err != nil {
-			tx.Rollback() //nolint:errcheck,gosec
-			s.log.Warn("Backfill: failed to update deployment", "deployment_id", r.id, "error", err)
-			continue
-		}
-
-		// Create initial event if none exists
-		_, _ = tx.ExecContext(ctx, `
-			INSERT INTO deployment_events (deployment_id, status, message, created_at)
-			SELECT $1, status, 'Backfilled from legacy deployment', deployed_at
-			FROM deployments WHERE id = $1
-			AND NOT EXISTS (SELECT 1 FROM deployment_events WHERE deployment_id = $1)
-		`, r.id)
-
-		if err := tx.Commit(); err != nil {
-			s.log.Warn("Backfill: failed to commit", "deployment_id", r.id, "error", err)
-			continue
-		}
-		count++
-		s.log.Info("Backfill: created revision 1", "deployment_id", r.id, "build_id", r.buildID)
-	}
-
-	return &adminv1.BackfillDeploymentsResponse{BackfilledCount: count}, nil
-}
-
 // RepairNormalizedSpec re-parses the stored spec JSON and rebuilds the
 // deployment_workloads, services, ingresses, volumes, and variables tables.
 func (s *Server) RepairNormalizedSpec(_ context.Context, req *adminv1.RepairNormalizedSpecRequest) (*adminv1.RepairNormalizedSpecResponse, error) {
@@ -1544,13 +1465,14 @@ func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDri
 	services, _ := s.deployStore.GetServices(dep.ID)
 	ingresses, _ := s.deployStore.GetIngresses(dep.ID)
 	variables, _ := s.deployStore.GetDeploymentVariables(dep.ID)
+	resolvedKeys, _ := s.deployStore.GetResolvedKeys(dep.ID)
 
 	svcNameByID := map[int]string{}
 	for _, svc := range services {
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	report := riverqueue.BuildDriftReport(ctx, s.k8sClient.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables)
+	report := riverqueue.BuildDriftReport(ctx, s.k8sClient.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
 	if report == nil {
 		return nil, fmt.Errorf("failed to build drift report")
 	}
@@ -1618,4 +1540,93 @@ func storeDriftReportToProto(report *deploymentstore.DriftReport) *adminv1.Drift
 		})
 	}
 	return proto
+}
+
+// BackfillResolvedKeys re-resolves the ConfigMap/Secret key sets for all active
+// deployments and stores them in deployment_resolved_keys. This is a one-time
+// migration for deployments that pre-date the resolved keys table.
+func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillResolvedKeysRequest) (*adminv1.BackfillResolvedKeysResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.agent_name, d.build_id, d.namespace, d.deployment_spec_json
+		FROM deployments d
+		WHERE d.status NOT IN ('undeployed', 'undeploying')
+		  AND NOT EXISTS (SELECT 1 FROM deployment_resolved_keys rk WHERE rk.deployment_id = d.id)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query deployments: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	type row struct {
+		id, agentName, buildID, namespace, specJSON string
+	}
+	var todo []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.agentName, &r.buildID, &r.namespace, &r.specJSON); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		todo = append(todo, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate: %w", err)
+	}
+
+	var count int32
+	for _, r := range todo {
+		var ds spec.AstroDeploymentSpec
+		if err := json.Unmarshal([]byte(r.specJSON), &ds); err != nil {
+			s.log.Warn("BackfillResolvedKeys: bad spec JSON", "deployment_id", r.id, "error", err)
+			continue
+		}
+
+		rctx := deployment.ResolveContext{
+			Namespace:  r.namespace,
+			AgentName:  r.agentName,
+			BuildID:    r.buildID,
+			SecretName: deployment.GenerateSecretName(r.agentName, r.buildID),
+		}
+		resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
+
+		cmKeys := make([]string, 0, len(resolved.ConfigMapData))
+		cmHashes := make(map[string]string, len(resolved.ConfigMapData))
+		for k, v := range resolved.ConfigMapData {
+			cmKeys = append(cmKeys, k)
+			h := sha256.Sum256([]byte(v))
+			cmHashes[k] = hex.EncodeToString(h[:])
+		}
+		secKeys := make([]string, 0, len(resolved.SecretData))
+		secHashes := make(map[string]string, len(resolved.SecretData))
+		for k, v := range resolved.SecretData {
+			secKeys = append(secKeys, k)
+			h := sha256.Sum256([]byte(v))
+			secHashes[k] = hex.EncodeToString(h[:])
+		}
+		cmHashJSON, err := json.Marshal(cmHashes)
+		if err != nil {
+			s.log.Warn("BackfillResolvedKeys: marshal configmap hashes", "error", err)
+			continue
+		}
+		secHashJSON, err := json.Marshal(secHashes)
+		if err != nil {
+			s.log.Warn("BackfillResolvedKeys: marshal secret hashes", "error", err)
+			continue
+		}
+
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO deployment_resolved_keys (deployment_id, configmap_keys, secret_keys, configmap_hashes, secret_hashes)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (deployment_id) DO UPDATE
+			SET configmap_keys = EXCLUDED.configmap_keys, secret_keys = EXCLUDED.secret_keys,
+			    configmap_hashes = EXCLUDED.configmap_hashes, secret_hashes = EXCLUDED.secret_hashes
+		`, r.id, pq.Array(cmKeys), pq.Array(secKeys), cmHashJSON, secHashJSON); err != nil {
+			s.log.Warn("BackfillResolvedKeys: insert failed", "deployment_id", r.id, "error", err)
+			continue
+		}
+		count++
+		s.log.Info("BackfillResolvedKeys: stored keys", "deployment_id", r.id,
+			"configmap_keys", len(cmKeys), "secret_keys", len(secKeys))
+	}
+
+	return &adminv1.BackfillResolvedKeysResponse{BackfilledCount: count}, nil
 }

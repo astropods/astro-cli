@@ -1481,6 +1481,8 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 
 	body := deployableSpec("")
@@ -1552,6 +1554,8 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 

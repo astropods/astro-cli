@@ -2,7 +2,9 @@ package riverqueue
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -337,6 +339,7 @@ func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *d
 	services, _ := w.store.GetServices(dep.ID)
 	ingresses, _ := w.store.GetIngresses(dep.ID)
 	variables, _ := w.store.GetDeploymentVariables(dep.ID)
+	resolvedKeys, _ := w.store.GetResolvedKeys(dep.ID)
 
 	// Build service ID -> name map for ingress display
 	svcNameByID := map[int]string{}
@@ -344,14 +347,14 @@ func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *d
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	return BuildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables)
+	return BuildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, dep.AgentName, dep.BuildID, workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
 }
 
 // BuildDriftReport is the core drift detection logic.
 // It compares expected workloads, services, ingresses, env vars, and secrets
 // against the live K8s state, producing a structured DriftReport.
 // Used by both the reconciler and the admin gRPC server.
-func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, agentName string, buildID string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string, variables []deploymentstore.Variable) *deploymentstore.DriftReport {
+func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, agentName string, buildID string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string, variables []deploymentstore.Variable, resolvedKeys *deploymentstore.ResolvedKeys) *deploymentstore.DriftReport {
 	report := &deploymentstore.DriftReport{
 		DetectedAt: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -660,14 +663,22 @@ func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, name
 	}
 
 	// --- Environment Variables (ConfigMap) ---
+	// Use resolved keys (the actual ConfigMap/Secret key sets computed during
+	// deploy) when available. Fall back to deriving from deployment_variables
+	// for deployments that pre-date the resolved keys table.
 	var expectedEnvKeys []string
 	var expectedSecretKeys []string
-	for _, v := range variables {
-		upperKey := strings.ToUpper(v.Name)
-		if v.Secret {
-			expectedSecretKeys = append(expectedSecretKeys, upperKey)
-		} else {
-			expectedEnvKeys = append(expectedEnvKeys, upperKey)
+	if resolvedKeys != nil {
+		expectedEnvKeys = resolvedKeys.ConfigMapKeys
+		expectedSecretKeys = resolvedKeys.SecretKeys
+	} else {
+		for _, v := range variables {
+			upperKey := strings.ToUpper(v.Name)
+			if v.Secret {
+				expectedSecretKeys = append(expectedSecretKeys, upperKey)
+			} else {
+				expectedEnvKeys = append(expectedEnvKeys, upperKey)
+			}
 		}
 	}
 
@@ -694,12 +705,26 @@ func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, name
 			item.Actual = map[string]string{
 				"Keys": strings.Join(actualKeys, ", "),
 			}
-			// Only check that expected keys are present; ConfigMap may contain
-			// platform-injected vars (OTEL, DNS, etc.) not tracked in variables.
 			missingKeys, _ := diffKeys(expectedEnvKeys, mapKeys(actual.Data))
 			if len(missingKeys) > 0 {
 				item.Status = "drift"
 				item.Expected["Missing"] = strings.Join(sortedKeys(missingKeys), ", ")
+			} else if resolvedKeys != nil && len(resolvedKeys.ConfigMapHashes) > 0 {
+				// Keys match — check values via hash comparison
+				var changed []string
+				for k, expectedHash := range resolvedKeys.ConfigMapHashes {
+					if actualVal, ok := actual.Data[k]; ok {
+						if hashString(actualVal) != expectedHash {
+							changed = append(changed, k)
+						}
+					}
+				}
+				if len(changed) > 0 {
+					item.Status = "drift"
+					item.Expected["Changed"] = strings.Join(sortedKeys(changed), ", ")
+				} else {
+					item.Status = "match"
+				}
 			} else {
 				item.Status = "match"
 			}
@@ -740,6 +765,22 @@ skipConfigMap:
 				}
 				if len(secretExtra) > 0 {
 					item.Actual["Extra"] = strings.Join(sortedKeys(secretExtra), ", ")
+				}
+			} else if resolvedKeys != nil && len(resolvedKeys.SecretHashes) > 0 {
+				// Keys match — check values via hash comparison
+				var changed []string
+				for k, expectedHash := range resolvedKeys.SecretHashes {
+					if actualVal, ok := actual.Data[k]; ok {
+						if hashBytes(actualVal) != expectedHash {
+							changed = append(changed, k)
+						}
+					}
+				}
+				if len(changed) > 0 {
+					item.Status = "drift"
+					item.Expected["Changed"] = strings.Join(sortedKeys(changed), ", ")
+				} else {
+					item.Status = "match"
 				}
 			} else {
 				item.Status = "match"
@@ -798,6 +839,18 @@ func byteMapKeys(m map[string][]byte) []string {
 
 // diffKeys returns keys present in expected but not in actual (missing),
 // and keys present in actual but not in expected (extra).
+// hashString returns the hex-encoded SHA-256 of a string.
+func hashString(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// hashBytes returns the hex-encoded SHA-256 of a byte slice.
+func hashBytes(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
 func diffKeys(expected, actual []string) (missing, extra []string) {
 	expectedSet := make(map[string]bool, len(expected))
 	for _, k := range expected {

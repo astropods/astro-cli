@@ -99,13 +99,13 @@ func (m *mockAdminClient) ReapplyDeployment(context.Context, *adminv1.ReapplyDep
 func (m *mockAdminClient) GetDeploymentJobs(context.Context, *adminv1.GetDeploymentJobsRequest, ...grpc.CallOption) (*adminv1.GetDeploymentJobsResponse, error) {
 	panic("not implemented")
 }
-func (m *mockAdminClient) BackfillDeployments(context.Context, *adminv1.BackfillDeploymentsRequest, ...grpc.CallOption) (*adminv1.BackfillDeploymentsResponse, error) {
-	panic("not implemented")
-}
 func (m *mockAdminClient) RepairNormalizedSpec(context.Context, *adminv1.RepairNormalizedSpecRequest, ...grpc.CallOption) (*adminv1.RepairNormalizedSpecResponse, error) {
 	panic("not implemented")
 }
 func (m *mockAdminClient) RefreshDriftReport(context.Context, *adminv1.RefreshDriftReportRequest, ...grpc.CallOption) (*adminv1.RefreshDriftReportResponse, error) {
+	panic("not implemented")
+}
+func (m *mockAdminClient) BackfillResolvedKeys(context.Context, *adminv1.BackfillResolvedKeysRequest, ...grpc.CallOption) (*adminv1.BackfillResolvedKeysResponse, error) {
 	panic("not implemented")
 }
 

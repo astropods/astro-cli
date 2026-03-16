@@ -1,10 +1,13 @@
 package deploymentstore
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
@@ -673,6 +676,46 @@ func SaveNormalizedSpec(
 		}
 	}
 
+	// --- Resolved Keys ---
+	// Store the actual ConfigMap/Secret key sets and value hashes so drift
+	// detection can compare against what K8s will contain.
+	if resolved != nil {
+		cmKeys := make([]string, 0, len(resolved.ConfigMapData))
+		cmHashes := make(map[string]string, len(resolved.ConfigMapData))
+		for k, v := range resolved.ConfigMapData {
+			cmKeys = append(cmKeys, k)
+			cmHashes[k] = hashValue(v)
+		}
+		secKeys := make([]string, 0, len(resolved.SecretData))
+		secHashes := make(map[string]string, len(resolved.SecretData))
+		for k, v := range resolved.SecretData {
+			secKeys = append(secKeys, k)
+			// Only hash non-empty values; empty means the value was stripped
+			// (e.g. during repair) and we can't verify it.
+			if v != "" {
+				secHashes[k] = hashValue(v)
+			}
+		}
+		cmHashJSON, err := json.Marshal(cmHashes)
+		if err != nil {
+			return fmt.Errorf("marshal configmap hashes: %w", err)
+		}
+		secHashJSON, err := json.Marshal(secHashes)
+		if err != nil {
+			return fmt.Errorf("marshal secret hashes: %w", err)
+		}
+		_, err = tx.Exec(`
+			INSERT INTO deployment_resolved_keys (deployment_id, configmap_keys, secret_keys, configmap_hashes, secret_hashes)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (deployment_id) DO UPDATE
+			SET configmap_keys = EXCLUDED.configmap_keys, secret_keys = EXCLUDED.secret_keys,
+			    configmap_hashes = EXCLUDED.configmap_hashes, secret_hashes = EXCLUDED.secret_hashes
+		`, deploymentID, pq.Array(cmKeys), pq.Array(secKeys), cmHashJSON, secHashJSON)
+		if err != nil {
+			return fmt.Errorf("upsert resolved keys: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -719,13 +762,33 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 		return 0, 0, 0, fmt.Errorf("delete sidecars: %w", err)
 	}
 
+	// Resolve env to regenerate the ConfigMap/Secret key sets for drift detection.
+	// This must happen before clearing variables since resolving needs ${variables.*}.
+	rctx := deployment.ResolveContext{
+		Namespace:  dep.Namespace,
+		AgentName:  dep.AgentName,
+		BuildID:    dep.BuildID,
+		SecretName: deployment.GenerateSecretName(dep.AgentName, dep.BuildID),
+	}
+	resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
+
+	// The stored spec has secret values stripped, so ResolveDeploymentSpecEnv
+	// won't include them in SecretData. Rebuild secret keys from the variable
+	// definitions (key names are still present, only values are blanked).
+	for key, v := range ds.Variables {
+		if v.Secret {
+			resolved.SecretData[strings.ToUpper(key)] = ""
+		}
+	}
+
 	// Clear variables from the spec so SaveNormalizedSpec doesn't re-insert
 	// them with empty/stripped values, duplicating existing rows.
 	ds.Variables = nil
 
-	// Re-run SaveNormalizedSpec with nil resolved/enc and cleared variables
-	// so only workloads/services/ingresses are regenerated.
-	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil, nsCfg); err != nil {
+	// Re-run SaveNormalizedSpec with resolved env (for key tracking) but nil
+	// encryptor and cleared variables so only workloads/services/ingresses
+	// and resolved keys are regenerated.
+	if err := SaveNormalizedSpec(tx, deploymentID, &ds, resolved, nil, nsCfg); err != nil {
 		return 0, 0, 0, fmt.Errorf("save normalized spec: %w", err)
 	}
 
@@ -762,6 +825,47 @@ func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) 
 		result = append(result, v)
 	}
 	return result, rows.Err()
+}
+
+// ResolvedKeys holds the expected ConfigMap and Secret key sets for a deployment,
+// along with SHA-256 hashes of each value for detecting value drift.
+type ResolvedKeys struct {
+	DeploymentID    string
+	ConfigMapKeys   []string
+	SecretKeys      []string
+	ConfigMapHashes map[string]string // key → sha256(value)
+	SecretHashes    map[string]string // key → sha256(value)
+}
+
+// GetResolvedKeys returns the stored resolved ConfigMap/Secret key sets for a deployment.
+// Returns nil (without error) if no resolved keys have been stored yet.
+func (s *Store) GetResolvedKeys(deploymentID string) (*ResolvedKeys, error) {
+	rk := &ResolvedKeys{DeploymentID: deploymentID}
+	var cmHashJSON, secHashJSON []byte
+	err := s.db.QueryRow(`
+		SELECT configmap_keys, secret_keys, configmap_hashes, secret_hashes
+		FROM deployment_resolved_keys
+		WHERE deployment_id = $1
+	`, deploymentID).Scan(pq.Array(&rk.ConfigMapKeys), pq.Array(&rk.SecretKeys), &cmHashJSON, &secHashJSON)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get resolved keys: %w", err)
+	}
+	if len(cmHashJSON) > 0 {
+		_ = json.Unmarshal(cmHashJSON, &rk.ConfigMapHashes)
+	}
+	if len(secHashJSON) > 0 {
+		_ = json.Unmarshal(secHashJSON, &rk.SecretHashes)
+	}
+	return rk, nil
+}
+
+// hashValue returns the hex-encoded SHA-256 of a string.
+func hashValue(v string) string {
+	h := sha256.Sum256([]byte(v))
+	return hex.EncodeToString(h[:])
 }
 
 // GetWorkloads returns all workloads for a deployment.
