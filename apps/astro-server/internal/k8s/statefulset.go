@@ -155,6 +155,12 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 
 	hardenContainer(&container)
 
+	// Some providers (e.g. qdrant) write to paths outside their data mount
+	// and need a writable root filesystem.
+	if prov.WritableRootFS && container.SecurityContext != nil {
+		container.SecurityContext.ReadOnlyRootFilesystem = boolPtr(false)
+	}
+
 	// Create VolumeClaimTemplate
 	accessMode := cfg.AccessMode
 	if accessMode == "" {

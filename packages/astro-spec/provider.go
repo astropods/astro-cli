@@ -35,18 +35,19 @@ type BuiltinProvider struct {
 	Credentials []CredentialSuffix
 
 	// Self-hosted provider fields
-	Image        string
-	DefaultPort  int
-	ExtraPorts   []PortDef
-	MountPath    string
-	EnvPrefix    string
-	URLScheme    string
-	HealthCheck  []string // exec health check; nil → use HealthPath
-	HealthPath   string   // HTTP health check path
-	DefaultEnv   map[string]string
-	GPU          bool
-	NodeSelector map[string]string
-	Tolerations  []Toleration
+	Image          string
+	DefaultPort    int
+	ExtraPorts     []PortDef
+	MountPath      string
+	EnvPrefix      string
+	URLScheme      string
+	HealthCheck    []string // exec health check; nil → use HealthPath
+	HealthPath     string   // HTTP health check path
+	DefaultEnv     map[string]string
+	GPU            bool
+	NodeSelector   map[string]string
+	Tolerations    []Toleration
+	WritableRootFS bool // true → skip readOnlyRootFilesystem (e.g. qdrant writes outside its data mount)
 }
 
 // builtinProviders is the single authoritative list of all platform-known providers.
@@ -91,8 +92,9 @@ var builtinProviders = []BuiltinProvider{
 		Name: "qdrant", Section: "knowledge",
 		Image: "qdrant/qdrant:latest", DefaultPort: 6333,
 		ExtraPorts: []PortDef{{Name: "grpc", Port: 6334}},
-		MountPath:  "/qdrant", EnvPrefix: "QDRANT", URLScheme: "http",
-		HealthPath: "/healthz",
+		MountPath:  "/qdrant/storage", EnvPrefix: "QDRANT", URLScheme: "http",
+		HealthPath:     "/healthz",
+		WritableRootFS: true,
 	},
 	{
 		Name: "redis", Section: "knowledge",

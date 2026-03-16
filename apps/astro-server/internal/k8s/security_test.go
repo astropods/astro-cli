@@ -109,7 +109,7 @@ func TestStatefulSetSecurityHardening(t *testing.T) {
 		AgentName:       "my-agent",
 		BuildID:         "1.0",
 		Component:       "knowledge-vectors",
-		Container:       spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
+		Container:       spec.ContainerConfig{Image: "qdrant/qdrant/storage:latest"},
 		Provider:        "qdrant",
 		ProviderSection: "knowledge",
 	}
@@ -172,7 +172,7 @@ func TestStatefulSetSecurityHardening_PreservesDataMount(t *testing.T) {
 		AgentName:       "my-agent",
 		BuildID:         "1.0",
 		Component:       "knowledge-vectors",
-		Container:       spec.ContainerConfig{Image: "qdrant/qdrant:latest"},
+		Container:       spec.ContainerConfig{Image: "qdrant/qdrant/storage:latest"},
 		Provider:        "qdrant",
 		ProviderSection: "knowledge",
 	}
@@ -188,8 +188,8 @@ func TestStatefulSetSecurityHardening_PreservesDataMount(t *testing.T) {
 	for _, vm := range container.VolumeMounts {
 		mountMap[vm.Name] = vm.MountPath
 	}
-	if mountMap["data"] != "/qdrant" {
-		t.Errorf("expected data mount at /qdrant, got %q", mountMap["data"])
+	if mountMap["data"] != "/qdrant/storage" {
+		t.Errorf("expected data mount at /qdrant/storage, got %q", mountMap["data"])
 	}
 }
 
