@@ -401,47 +401,74 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	agentCtx, agentCancel := context.WithCancel(context.Background())
 	agentEnv := buildLocalAgentEnv(astroSpec, envVars)
 
-	// Use local @saswatds/* packages from ASTRO_ROOT
+	// Use local @astropods/* packages from ASTRO_ROOT
 	astroRoot, err := resolveAstroSourceRoot()
 	if err != nil {
 		agentCancel()
 		return err
 	}
-	if err := linkLocalPackages(workingDir, astroRoot); err != nil {
-		agentCancel()
-		return fmt.Errorf("link local packages: %w", err)
-	}
-	// Build local SDKs if dist/ is missing
-	sdksToBuild := []struct{ name, dir string }{
-		{"@astropods/messaging", filepath.Join(astroRoot, "modules", "messaging", "sdk", "node")},
-		{"@astropods/adapter-core", filepath.Join(astroRoot, "modules", "adapters", "packages", "core")},
-		{"@astropods/adapter-mastra", filepath.Join(astroRoot, "modules", "adapters", "packages", "mastra")},
-	}
-	for _, sdk := range sdksToBuild {
-		if _, err := os.Stat(filepath.Join(sdk.dir, "dist", "index.js")); err != nil {
-			fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, sdk.name)
-			installCmd := exec.Command("bun", "install")
-			installCmd.Dir = sdk.dir
-			installCmd.Stdout = os.Stdout
-			installCmd.Stderr = os.Stderr
-			if err := installCmd.Run(); err != nil {
+
+	_, isPython := os.Stat(filepath.Join(workingDir, "requirements.txt"))
+	if isPython == nil {
+		// Python agent: pip install -e local packages so the agent uses local source.
+		// Install in dependency order: messaging → adapter-core → adapter-langchain.
+		pyPackages := []struct{ name, path string }{
+			{"astropods-messaging", filepath.Join(astroRoot, "modules", "messaging", "sdk", "python")},
+			{"astropods-adapter-core", filepath.Join(astroRoot, "modules", "adapters", "packages", "core-py")},
+			{"astropods-adapter-langchain", filepath.Join(astroRoot, "modules", "adapters", "packages", "langchain")},
+		}
+		fmt.Printf("%s→%s Using local Python packages from %s\n", colorCyan, colorReset, astroRoot)
+		for _, pkg := range pyPackages {
+			fmt.Printf("%s→%s Installing %s...\n", colorCyan, colorReset, pkg.name)
+			pipCmd := exec.Command("python3", "-m", "pip", "install", "-e", pkg.path, "--quiet") //nolint:gosec
+			pipCmd.Dir = workingDir
+			pipCmd.Stdout = os.Stdout
+			pipCmd.Stderr = os.Stderr
+			if err := pipCmd.Run(); err != nil {
 				agentCancel()
-				return fmt.Errorf("failed to install deps for %s: %w", sdk.name, err)
-			}
-			buildCmd := exec.Command("bun", "run", "build")
-			buildCmd.Dir = sdk.dir
-			buildCmd.Stdout = os.Stdout
-			buildCmd.Stderr = os.Stderr
-			if err := buildCmd.Run(); err != nil {
-				agentCancel()
-				return fmt.Errorf("failed to build %s: %w", sdk.name, err)
+				return fmt.Errorf("failed to install %s: %w", pkg.name, err)
 			}
 		}
+	} else {
+		// TypeScript agent: symlink @astropods/* packages and build SDKs.
+		if err := linkLocalPackages(workingDir, astroRoot); err != nil {
+			agentCancel()
+			return fmt.Errorf("link local packages: %w", err)
+		}
+		sdksToBuild := []struct{ name, dir string }{
+			{"@astropods/messaging", filepath.Join(astroRoot, "modules", "messaging", "sdk", "node")},
+			{"@astropods/adapter-core", filepath.Join(astroRoot, "modules", "adapters", "packages", "core")},
+			{"@astropods/adapter-mastra", filepath.Join(astroRoot, "modules", "adapters", "packages", "mastra")},
+		}
+		for _, sdk := range sdksToBuild {
+			if _, err := os.Stat(filepath.Join(sdk.dir, "dist", "index.js")); err != nil {
+				fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, sdk.name)
+				installCmd := exec.Command("bun", "install")
+				installCmd.Dir = sdk.dir
+				installCmd.Stdout = os.Stdout
+				installCmd.Stderr = os.Stderr
+				if err := installCmd.Run(); err != nil {
+					agentCancel()
+					return fmt.Errorf("failed to install deps for %s: %w", sdk.name, err)
+				}
+				buildCmd := exec.Command("bun", "run", "build")
+				buildCmd.Dir = sdk.dir
+				buildCmd.Stdout = os.Stdout
+				buildCmd.Stderr = os.Stderr
+				if err := buildCmd.Run(); err != nil {
+					agentCancel()
+					return fmt.Errorf("failed to build %s: %w", sdk.name, err)
+				}
+			}
+		}
+		fmt.Printf("%s→%s Using local packages from %s\n", colorCyan, colorReset, astroRoot)
 	}
-	fmt.Printf("%s→%s Using local packages from %s\n", colorCyan, colorReset, astroRoot)
 
-	// Resolve start command from spec (default: "bun --watch run start")
+	// Resolve start command from spec. Default differs by language.
 	startCommand := "bun --watch run start"
+	if isPython == nil {
+		startCommand = "python -m agent.main"
+	}
 	if astroSpec.Dev != nil && astroSpec.Dev.Command != "" {
 		startCommand = astroSpec.Dev.Command
 	}

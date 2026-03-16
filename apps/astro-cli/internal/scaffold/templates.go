@@ -18,7 +18,11 @@ type TemplatePaths struct {
 	Gitignore                string
 	Dockerignore             string
 	AgentIndex               string
+	AgentMain                string // Python: agent/main.py
+	RequirementsTxt          string // Python: requirements.txt
 	IngestionIndex           string
+	IngestionMain            string // Python: ingestion/main.py
+	IngestionWebhookPy       string // Python: ingestion/webhook.py
 	LlmMd                    string
 	AgentMd                  string
 	Readme                   string
@@ -28,12 +32,11 @@ type TemplatePaths struct {
 }
 
 // GetTemplatePaths returns the template paths for the specified language and template.
-// The templateName selects which agent scaffold to use ("mastra").
-// Shared files (Dockerfile, astropods.yml, etc.) always come from template-ts/.
+// The templateName selects which agent scaffold to use ("mastra" for ts, "langchain" for py).
+// Shared files (astropods.yml, AGENT.md, agents.md) always come from template-ts/.
 func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) {
 	switch lang {
 	case "ts":
-		// Shared paths used by all templates
 		paths := &TemplatePaths{
 			AstroYml:                 "templates/template-ts/astropods.yml",
 			Dockerfile:               "templates/template-ts/Dockerfile",
@@ -49,8 +52,6 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
 			IngestionWebhookIndex:    "templates/template-ts/ingestion/webhook.ts",
 		}
-
-		// Template-specific paths
 		switch templateName {
 		case "mastra":
 			paths.AgentIndex = "templates/template-ts-mastra/agent/index.ts"
@@ -58,8 +59,32 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 		default:
 			return nil, fmt.Errorf("unsupported template: %s (supported: mastra)", templateName)
 		}
-
 		return paths, nil
+
+	case "py":
+		paths := &TemplatePaths{
+			AstroYml:                 "templates/template-ts/astropods.yml",
+			Dockerfile:               "templates/template-py/Dockerfile",
+			DockerfileIngestion:      "templates/template-py/Dockerfile.ingestion",
+			Gitignore:                "templates/template-py/gitignore.tmpl",
+			Dockerignore:             "templates/template-py/dockerignore.tmpl",
+			LlmMd:                    "templates/template-ts/agents.md.tmpl",
+			AgentMd:                  "templates/template-ts/AGENT.md.tmpl",
+			Readme:                   "templates/template-py/README.md.tmpl",
+			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
+			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
+		}
+		switch templateName {
+		case "langchain":
+			paths.AgentMain = "templates/template-py-langchain/agent/main.py"
+			paths.RequirementsTxt = "templates/template-py-langchain/requirements.txt"
+			paths.IngestionMain = "templates/template-py-langchain/ingestion/main.py"
+			paths.IngestionWebhookPy = "templates/template-py-langchain/ingestion/webhook.py"
+		default:
+			return nil, fmt.Errorf("unsupported template: %s (supported: langchain)", templateName)
+		}
+		return paths, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported language: %s", lang)
 	}
