@@ -301,6 +301,16 @@ export function useWakeUpDeployment() {
   });
 }
 
+export function useBackfillResolvedKeys() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ backfilled_count: number }>("/api/admin/backfill-resolved-keys"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
 export function useDeploymentJobs(id: string) {
   return useQuery({
     queryKey: adminKeys.deploymentJobs(id),
