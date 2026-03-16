@@ -107,6 +107,10 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 		return fmt.Errorf("failed to insert agent: %w", err)
 	}
 
+	if agentCardJSON == "" {
+		agentCardJSON = "null"
+	}
+
 	// Insert or update version using ON CONFLICT
 	_, err = tx.Exec(`
 		INSERT INTO agent_versions (account_id, name, build_id, ecr_namespace, spec_json, readme, agent_card_json, validation_warnings, published_at, updated_at)

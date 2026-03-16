@@ -676,10 +676,17 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	if verbose {
-		var result map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+		if verbose {
 			log.Printf("   Server response: %v", result) //nolint:gosec
+		}
+		if hints, ok := result["hints"].([]interface{}); ok {
+			for _, h := range hints {
+				if s, ok := h.(string); ok {
+					fmt.Fprintf(os.Stderr, "%s⚠%s  %s\n", colorYellow, colorReset, s)
+				}
+			}
 		}
 	}
 
@@ -714,7 +721,7 @@ func warnDeprecatedMetaFields(specPath, workingDir string) {
 
 	agentMdPath := filepath.Join(workingDir, "AGENT.md")
 	if _, err := os.Stat(agentMdPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "%s⚠%s  No AGENT.md found - Add one to make your agent more discoverable\n", colorYellow, colorReset)
+		fmt.Fprintf(os.Stderr, "%s⚠%s  No AGENT.md found — create one next to your astropods.yml to make your agent more discoverable\n", colorYellow, colorReset)
 	}
 }
 

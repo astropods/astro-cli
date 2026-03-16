@@ -88,6 +88,103 @@ func TestRegisterAgent_Success(t *testing.T) {
 	}
 }
 
+func TestRegisterAgent_NoReadme_ReturnsHint(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO agent_versions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	body := `{
+		"build_id": "a3f2b1c9",
+		"registry": "registry.example.com",
+		"spec_content": "name: test-agent\nversion: 1.0.0\n"
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	hints, ok := resp["hints"].([]any)
+	if !ok || len(hints) == 0 {
+		t.Fatal("expected hints array in response when readme is empty")
+	}
+
+	hint, _ := hints[0].(string)
+	if !strings.Contains(hint, "AGENT.md") {
+		t.Errorf("expected hint about AGENT.md, got %q", hint)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestRegisterAgent_WithReadme_NoHint(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO agent_versions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	body := `{
+		"build_id": "a3f2b1c9",
+		"registry": "registry.example.com",
+		"spec_content": "name: test-agent\nversion: 1.0.0\n",
+		"readme": "# My Agent\nA great agent."
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if _, ok := resp["hints"]; ok {
+		t.Error("expected no hints when readme is provided")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
 func TestRegisterAgent_MissingFields(t *testing.T) {
 	tests := []struct {
 		name string
