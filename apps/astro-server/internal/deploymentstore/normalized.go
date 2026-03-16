@@ -708,19 +708,23 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Delete existing normalized data (workloads/sidecars cascade to services, ingresses, volumes)
+	// Delete existing normalized data (workloads/sidecars cascade to services, ingresses, volumes).
+	// Variables are intentionally NOT deleted — they contain KMS-encrypted
+	// secret values that cannot be reconstructed from the spec JSON (which
+	// has secrets stripped).
 	if _, err := tx.Exec("DELETE FROM deployment_workloads WHERE deployment_id = $1", deploymentID); err != nil {
 		return 0, 0, 0, fmt.Errorf("delete workloads: %w", err)
 	}
 	if _, err := tx.Exec("DELETE FROM deployment_sidecars WHERE deployment_id = $1", deploymentID); err != nil {
 		return 0, 0, 0, fmt.Errorf("delete sidecars: %w", err)
 	}
-	if _, err := tx.Exec("DELETE FROM deployment_variables WHERE deployment_id = $1", deploymentID); err != nil {
-		return 0, 0, 0, fmt.Errorf("delete variables: %w", err)
-	}
 
-	// Re-run SaveNormalizedSpec with nil resolved/enc (skips variable encryption)
-	// but WITH nsCfg so ingress rows are regenerated correctly
+	// Clear variables from the spec so SaveNormalizedSpec doesn't re-insert
+	// them with empty/stripped values, duplicating existing rows.
+	ds.Variables = nil
+
+	// Re-run SaveNormalizedSpec with nil resolved/enc and cleared variables
+	// so only workloads/services/ingresses are regenerated.
 	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil, nsCfg); err != nil {
 		return 0, 0, 0, fmt.Errorf("save normalized spec: %w", err)
 	}
