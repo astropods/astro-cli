@@ -73,13 +73,13 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			Readme:                   "templates/template-py/README.md.tmpl",
 			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
+			IngestionMain:            "templates/template-py/ingestion/main.py",
+			IngestionWebhookPy:       "templates/template-py/ingestion/webhook.py",
 		}
 		switch templateName {
 		case "langchain":
 			paths.AgentMain = "templates/template-py-langchain/agent/main.py"
 			paths.RequirementsTxt = "templates/template-py-langchain/requirements.txt"
-			paths.IngestionMain = "templates/template-py-langchain/ingestion/main.py"
-			paths.IngestionWebhookPy = "templates/template-py-langchain/ingestion/webhook.py"
 		default:
 			return nil, fmt.Errorf("unsupported template: %s (supported: langchain)", templateName)
 		}
