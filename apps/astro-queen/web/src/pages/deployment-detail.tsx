@@ -57,7 +57,7 @@ export function DeploymentDetailPage() {
                 reapplyMut.mutate(namespace!, { onSuccess: () => refetch() });
               }
             }}
-            disabled={reapplyMut.isPending || dep.status === "pending" || dep.status === "provisioning" || dep.status === "undeploying"}
+            disabled={reapplyMut.isPending || dep.status === "undeploying"}
           >
             <Play className="size-3.5" />
             Re-apply

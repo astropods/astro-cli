@@ -1149,9 +1149,6 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 	if dep == nil {
 		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
 	}
-	if dep.Status == deploymentstore.StatusPending || dep.Status == deploymentstore.StatusProvisioning {
-		return nil, fmt.Errorf("deployment is already %s", dep.Status)
-	}
 	if dep.Status == deploymentstore.StatusUndeploying {
 		return nil, fmt.Errorf("deployment is being undeployed")
 	}
@@ -1163,9 +1160,11 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 		}
 	}
 
-	// Set status to pending
-	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "Admin re-apply requested", nil); err != nil {
-		return nil, fmt.Errorf("update status: %w", err)
+	// Set status to pending (skip if already pending — just re-enqueue the job)
+	if dep.Status != deploymentstore.StatusPending {
+		if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusPending, "Admin re-apply requested", nil); err != nil {
+			return nil, fmt.Errorf("update status: %w", err)
+		}
 	}
 
 	// Enqueue deploy job
