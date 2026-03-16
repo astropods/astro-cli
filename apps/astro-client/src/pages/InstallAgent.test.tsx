@@ -472,6 +472,85 @@ describe('InstallAgent page', () => {
       });
     });
 
+    it('matches template contract: deploys with only required adapter vars and omits non-template vars', async () => {
+      const capturedRequests: unknown[] = [];
+
+      server.use(
+        http.get('/api/v1/agents/:account/:name/deployment-template', () =>
+          HttpResponse.json({
+            ...mockTemplate,
+            variables: {
+              OPENAI_API_KEY: {
+                default: '',
+                targets: ['agent'],
+                secret: true,
+                optional: false,
+                description: 'OpenAI API key',
+              },
+              SLACK_APP_TOKEN: {
+                default: '',
+                targets: ['interface.slack'],
+                secret: true,
+                optional: false,
+                description: 'Slack app token',
+              },
+              SLACK_ACTIONABLE_REACTIONS: {
+                default: '',
+                targets: ['interface.slack'],
+                secret: false,
+                optional: true,
+                description: 'Optional reactions list',
+              },
+            },
+          }),
+        ),
+        http.post('/api/v1/deploy', async ({ request }) => {
+          capturedRequests.push(await request.json());
+          return HttpResponse.json({
+            status: 'deployed',
+            name: AGENT,
+            build_id: 'a1b2c3d4e5f6',
+            k8s_namespace: 'user-abc123',
+            deployed_at: new Date().toISOString(),
+            resources: [{ kind: 'Deployment', name: AGENT, status: 'created' }],
+          });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderInstallWithAgentsRoute();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Openai Api Key'), 'sk-required');
+      await user.click(screen.getByRole('button', { name: /slack/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Slack App Token')).toBeInTheDocument();
+      });
+
+      // The template does not define this field, so UI should not require/show it.
+      expect(screen.queryByLabelText('Slack Bot Token')).not.toBeInTheDocument();
+
+      // Fill only required adapter token; intentionally leave optional config empty.
+      await user.type(screen.getByLabelText('Slack App Token'), 'xapp-required');
+
+      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+
+      await waitFor(() => {
+        expect(capturedRequests).toHaveLength(1);
+      });
+
+      const payload = capturedRequests[0] as {
+        variables?: Record<string, { value?: string }>;
+      };
+      const variables = payload.variables ?? {};
+
+      expect(variables.OPENAI_API_KEY?.value).toBe('sk-required');
+      expect(variables.SLACK_APP_TOKEN?.value).toBe('xapp-required');
+      expect(variables.SLACK_BOT_TOKEN).toBeUndefined();
+      expect(variables.SLACK_ACTIONABLE_REACTIONS?.value ?? '').toBe('');
+    });
+
     it('shows error panel when deploy fails', async () => {
       server.use(
         http.post('/api/v1/deploy', () =>

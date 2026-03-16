@@ -248,4 +248,35 @@ describe('useDeployForm with pre-filled template', () => {
     expect(result.current.template).toBe(prefilledTemplate);
     expect(result.current.template?.target.deployment_id).toBe('dep-123');
   });
+
+  it('treats overlapping slack token keys as filled when value is set in either form map', async () => {
+    const prefilledTemplate: DeploymentTemplate = {
+      ...mockTemplate,
+      variables: {
+        OPENAI_API_KEY: { value: '', default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI key' },
+        SLACK_BOT_TOKEN: { value: '', default: '', targets: ['agent', 'interface.slack'], secret: true, optional: false, description: 'Slack token' },
+      },
+      interfaces: { adapters: ['slack'] },
+    };
+
+    const { wrapper } = createAuthWrapper();
+    const { result } = renderHook(
+      () =>
+        useDeployForm('testuser', 'code-reviewer', {
+          initialTemplate: prefilledTemplate,
+          skipTemplateFetch: true,
+          initialValues: {
+            deployName: 'My Agent',
+            targetAccount: 'testuser',
+            variableValues: { OPENAI_API_KEY: 'sk-test-key-123' },
+            selectedAdapters: ['slack'],
+            adapterCredentials: { SLACK_BOT_TOKEN: 'xoxb-token' },
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {});
+    expect(result.current.trySubmit()).toBe(true);
+  });
 });

@@ -80,6 +80,33 @@ function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
   };
 }
 
+const hasTextValue = (value: string | undefined): boolean => !!value?.trim();
+
+const mergeFormValues = (
+  variableValues: Record<string, string>,
+  adapterCredentials: Record<string, string>,
+): Record<string, string> => {
+  const keys = new Set([
+    ...Object.keys(variableValues),
+    ...Object.keys(adapterCredentials),
+  ]);
+  const merged: Record<string, string> = {};
+  for (const key of keys) {
+    const variableValue = variableValues[key];
+    const adapterValue = adapterCredentials[key];
+    if (hasTextValue(adapterValue)) {
+      merged[key] = adapterValue;
+      continue;
+    }
+    if (hasTextValue(variableValue)) {
+      merged[key] = variableValue;
+      continue;
+    }
+    merged[key] = adapterValue ?? variableValue ?? "";
+  }
+  return merged;
+};
+
 /** Convert a slug like "code-reviewer" to title case: "Code Reviewer" */
 export function slugToTitle(slug: string): string {
   return slug
@@ -173,6 +200,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
   const [deployError, setDeployError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const allFormValues = useMemo(
+    () => mergeFormValues(variableValues, adapterCredentials),
+    [variableValues, adapterCredentials],
+  );
 
   // Derived variable lists (agent/ingestion-targeting variables)
   const variableEntries = useMemo<[string, VariableDisplay][]>(
@@ -284,7 +315,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     const emptyRequired = requiredVariables
-      .filter(([key, v]) => !isVariableFilled(v, variableValues[key]))
+      .filter(([key, v]) => !isVariableFilled(v, allFormValues[key]))
       .map(([key]) => key);
     if (emptyRequired.length > 0) {
       result.credentials = emptyRequired;
@@ -293,7 +324,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const emptyAdapterCreds = selectedAdapters.flatMap((adapterId) => {
       const creds = allAdapterFieldDefs[adapterId] ?? [];
       return creds
-        .filter(([key, def]) => !def.optional && !adapterCredentials[key]?.trim())
+        .filter(([key, def]) => !def.optional && !allFormValues[key]?.trim())
         .map(([key]) => key);
     });
     if (emptyAdapterCreds.length > 0) {
@@ -301,7 +332,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterFieldDefs]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, allFormValues, allAdapterFieldDefs]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials
@@ -315,10 +346,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const hasAccount = !!targetAccount;
     const hasName = !!deployName.trim();
     const hasAdapter = selectedAdapters.length > 0;
-    const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, variableValues[key]));
+    const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, allFormValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
       const creds = allAdapterFieldDefs[adapterId] ?? [];
-      return creds.every(([key, def]) => def.optional || adapterCredentials[key]?.trim());
+      return creds.every(([key, def]) => def.optional || allFormValues[key]?.trim());
     });
 
     return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid;
@@ -329,10 +360,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     if (!template || !account || !name) return;
 
     setDeployError(null);
-    const allVariableValues = { ...variableValues, ...adapterCredentials };
     const spec = fulfillTemplate(
       template,
-      allVariableValues,
+      allFormValues,
       selectedAdapters,
       allAdapterFieldDefs,
       targetAccount,
@@ -415,11 +445,15 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       const newAdapterValues: Record<string, string> = {};
 
       for (const [key, value] of Object.entries(imported)) {
-        if (variableKeys.has(key)) {
+        const inVariableKeys = variableKeys.has(key);
+        const inAdapterKeys = adapterKeys.has(key);
+        if (inVariableKeys) {
           newVarValues[key] = value;
-          matched.push(key);
-        } else if (adapterKeys.has(key)) {
+        }
+        if (inAdapterKeys) {
           newAdapterValues[key] = value;
+        }
+        if (inVariableKeys || inAdapterKeys) {
           matched.push(key);
         } else {
           skipped.push(key);

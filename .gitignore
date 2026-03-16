@@ -146,6 +146,8 @@ build-errors.log
 
 # Storybook
 storybook-static
+playwright-report/
+test-results/
 
 # Claude Code
 .claude

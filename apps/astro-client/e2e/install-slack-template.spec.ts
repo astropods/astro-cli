@@ -1,0 +1,258 @@
+import { expect, test } from "@playwright/test";
+
+const ACCOUNT = "testuser";
+const AGENT_APP_TOKEN_ONLY = "code-reviewer";
+const AGENT_SLACK_FULL = "slack-config-full";
+const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
+const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
+const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
+
+test("app-token-only template does not inject SLACK_BOT_TOKEN", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/deploy/${ACCOUNT}/${AGENT_APP_TOKEN_ONLY}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page).toHaveURL(new RegExp(`/deploy/${ACCOUNT}/${AGENT_APP_TOKEN_ONLY}$`));
+  await expect(page.getByText("Agent not found")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel("Openai Api Key")).toBeVisible();
+
+  await page.getByRole("button", { name: /slack/i }).click();
+
+  await expect(page.getByLabel("Slack App Token")).toBeVisible();
+  await expect(page.getByLabel("Slack Bot Token")).toHaveCount(0);
+
+  await page.getByLabel("Openai Api Key").fill("sk-test-value");
+  await page.getByLabel("Slack App Token").fill("xapp-test-value");
+
+  const deployRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    deployRequest,
+    page.waitForURL("**/agents", { timeout: 20_000 }),
+    page.getByRole("button", { name: /launch agent/i }).click(),
+  ]);
+
+  const request = await deployRequest;
+  const payload = request.postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+
+  expect(payload.variables?.OPENAI_API_KEY?.value).toBe("sk-test-value");
+  expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-test-value");
+  expect(payload.variables?.SLACK_BOT_TOKEN).toBeUndefined();
+
+  // Let post-submit data loading settle before test teardown to avoid noisy aborted renders.
+  await page.waitForLoadState("networkidle");
+});
+
+test("full slack template sends reactions when provided", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /slack/i }).click();
+
+  await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
+  await expect(page.getByLabel("Slack App Token")).toBeVisible();
+  await expect(page.getByLabel("Actionable Reactions")).toBeVisible();
+
+  await page.getByLabel("Openai Api Key").fill("sk-test-value");
+  await page.getByLabel("Slack Bot Token").fill("xoxb-test-value");
+  await page.getByLabel("Slack App Token").fill("xapp-test-value");
+  await page.getByLabel("Actionable Reactions").fill("ticket, bug");
+
+  const deployRequest = page.waitForRequest((request) =>
+    request.method() === "POST" && request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    deployRequest,
+    page.waitForURL("**/agents", { timeout: 20_000 }),
+    page.getByRole("button", { name: /launch agent/i }).click(),
+  ]);
+
+  const payload = (await deployRequest).postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+  expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-test-value");
+  expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-test-value");
+  expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value).toBe("ticket, bug");
+});
+
+test("optional actionable reactions can be omitted without blocking deploy", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /slack/i }).click();
+
+  await page.getByLabel("Openai Api Key").fill("sk-test-value");
+  await page.getByLabel("Slack Bot Token").fill("xoxb-test-value");
+  await page.getByLabel("Slack App Token").fill("xapp-test-value");
+  // Leave Actionable Reactions empty on purpose (optional).
+
+  const deployRequest = page.waitForRequest((request) =>
+    request.method() === "POST" && request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    deployRequest,
+    page.waitForURL("**/agents", { timeout: 20_000 }),
+    page.getByRole("button", { name: /launch agent/i }).click(),
+  ]);
+
+  const payload = (await deployRequest).postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+  expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-test-value");
+  expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-test-value");
+  expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value ?? "").toBe("");
+});
+
+test("overlapping slack bot token targets still deploy when token is filled in UI", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_OVERLAP}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /slack/i }).click();
+
+  await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
+  await expect(page.getByLabel("Slack App Token")).toBeVisible();
+
+  await page.getByLabel("Openai Api Key").fill("sk-test-value");
+  await page.getByLabel("Slack Bot Token").fill("xoxb-overlap-value");
+  await page.getByLabel("Slack App Token").fill("xapp-overlap-value");
+
+  const deployRequest = page.waitForRequest((request) =>
+    request.method() === "POST" && request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    deployRequest,
+    page.waitForURL("**/agents", { timeout: 20_000 }),
+    page.getByRole("button", { name: /launch agent/i }).click(),
+  ]);
+
+  const payload = (await deployRequest).postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+  expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-overlap-value");
+  expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-overlap-value");
+});
+
+test("import variables fills config and slack fields, then deploy uses imported values", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+
+  await page.getByRole("button", { name: /^import$/i }).click();
+
+  const envContents = [
+    "OPENAI_API_KEY=sk-imported-value",
+    "SLACK_BOT_TOKEN=xoxb-imported-value",
+    "SLACK_APP_TOKEN=xapp-imported-value",
+    "SLACK_ACTIONABLE_REACTIONS=ticket, bug",
+    "UNUSED_KEY=skip-me",
+  ].join("\n");
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: ".env",
+    mimeType: "text/plain",
+    buffer: Buffer.from(envContents),
+  });
+
+  await expect(page.getByText(/Filled 4 variables/i)).toBeVisible();
+  await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-imported-value");
+
+  await page.getByRole("button", { name: /slack/i }).click();
+  await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-imported-value");
+  await expect(page.getByLabel("Slack App Token")).toHaveValue("xapp-imported-value");
+  await expect(page.getByLabel("Actionable Reactions")).toHaveValue("ticket, bug");
+
+  const deployRequest = page.waitForRequest((request) =>
+    request.method() === "POST" && request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    deployRequest,
+    page.waitForURL("**/agents", { timeout: 20_000 }),
+    page.getByRole("button", { name: /launch agent/i }).click(),
+  ]);
+
+  const payload = (await deployRequest).postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+  expect(payload.variables?.OPENAI_API_KEY?.value).toBe("sk-imported-value");
+  expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-imported-value");
+  expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-imported-value");
+  expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value).toBe("ticket, bug");
+});
+
+test("configure deployment save and redeploy sends updated slack bot token", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.getByText("Deployment not found")).toHaveCount(0);
+  await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-existing-value");
+  await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-existing-value");
+
+  await page.getByLabel("Slack Bot Token").fill("xoxb-redeployed-value");
+
+  await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
+
+  const redeployRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    redeployRequest,
+    page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}`, { timeout: 20_000 }),
+    page.getByRole("button", { name: /save\s*&\s*redeploy/i }).click(),
+  ]);
+
+  const payload = (await redeployRequest).postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+  expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-redeployed-value");
+  expect(payload.variables?.OPENAI_API_KEY?.value).toBe("sk-existing-value");
+});
+
+test("configure redeploy keeps overlapping slack token mapped and populated", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}/configure/deployment`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.getByText("Deployment not found")).toHaveCount(0);
+  await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-overlap-existing-value");
+  await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-overlap-existing-value");
+
+  await page.getByLabel("Slack Bot Token").fill("xoxb-overlap-redeployed-value");
+
+  const redeployRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    redeployRequest,
+    page.waitForURL(`**/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}`, { timeout: 20_000 }),
+    page.getByRole("button", { name: /save\s*&\s*redeploy/i }).click(),
+  ]);
+
+  const payload = (await redeployRequest).postDataJSON() as {
+    variables?: Record<string, { value?: string }>;
+  };
+  expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-overlap-redeployed-value");
+  expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-overlap-existing-value");
+});

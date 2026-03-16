@@ -117,6 +117,7 @@ src/
 | `bun run test`          | Run tests once                               |
 | `bun run test:watch`    | Run tests in watch mode                      |
 | `bun run test:coverage` | Run tests with coverage report               |
+| `bun run test:e2e`      | Run Playwright browser E2E tests             |
 | `bun setup`             | Set up local development environment (macOS) |
 
 ## Testing
@@ -139,6 +140,21 @@ Tests live next to the code they cover (e.g. `src/api/queries/agents.test.tsx`).
 | `test/msw/server.ts`   | MSW server instance                                                                                      |
 
 To override a handler for a specific test, use `server.use()` inside the test — it resets automatically after each test via the setup file.
+
+### Client E2E tests (Playwright)
+
+Run these from the repository root with Moon:
+
+```bash
+moon run astro-client:e2e.setup   # one-time browser install (or after Playwright upgrades)
+moon run astro-client:e2e         # run all client browser E2E tests
+```
+
+You can also run from `apps/astro-client` directly:
+
+```bash
+bun run test:e2e
+```
 
 ## Troubleshooting
 

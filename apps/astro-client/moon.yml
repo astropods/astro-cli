@@ -19,6 +19,21 @@ tasks:
       - "src/**/*"
       - "vite.config.ts"
 
+  e2e.setup:
+    command: "bun x playwright install chromium"
+    inputs:
+      - "package.json"
+
+  e2e:
+    command: "bun run test:e2e"
+    deps:
+      - "e2e.setup"
+    inputs:
+      - "e2e/**/*"
+      - "playwright.config.ts"
+      - "src/**/*"
+      - "package.json"
+
   dev:
     command: "bun run dev"
     inputs:

@@ -17,7 +17,12 @@ export interface DeployFormFieldsProps {
 }
 
 export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsProps) {
-  const showImport = (form.requiredVariables.length + form.optionalVariables.length) > 1;
+  const importableKeys = new Set<string>([
+    ...form.requiredVariables.map(([key]) => key),
+    ...form.optionalVariables.map(([key]) => key),
+    ...Object.values(form.allAdapterFieldDefs).flatMap((defs) => defs.map(([key]) => key)),
+  ]);
+  const showImport = importableKeys.size > 1;
   if (form.templateErrorMessage) {
     return <ErrorPanel>{form.templateErrorMessage}</ErrorPanel>;
   }
