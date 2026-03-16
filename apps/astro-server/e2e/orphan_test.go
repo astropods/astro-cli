@@ -148,7 +148,7 @@ func TestOrphan_RecoverNewFormat(t *testing.T) {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = env.db.Exec("DELETE FROM deployment_events WHERE deployment_id = $1", recoveredID)
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", recoveredID)
 		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", recoveredID)
 	})
 
@@ -205,7 +205,7 @@ func TestOrphan_RecoverOldFormat(t *testing.T) {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = env.db.Exec("DELETE FROM deployment_events WHERE deployment_id = $1", newID)
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", newID)
 		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", newID)
 	})
 
@@ -240,7 +240,7 @@ func TestOrphan_RecoveredVisibleInStatusQuery(t *testing.T) {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = env.db.Exec("DELETE FROM deployment_events WHERE deployment_id = $1", origID)
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", origID)
 		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", origID)
 	})
 
@@ -278,7 +278,7 @@ func TestOrphan_RecoverIdempotent(t *testing.T) {
 		t.Fatalf("first RecoverOrphanedDeployment: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = env.db.Exec("DELETE FROM deployment_events WHERE deployment_id = $1", origID)
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", origID)
 		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", origID)
 	})
 
@@ -289,7 +289,7 @@ func TestOrphan_RecoverIdempotent(t *testing.T) {
 	if err == nil {
 		// Clean up the second record if it was somehow created
 		t.Cleanup(func() {
-			_, _ = env.db.Exec("DELETE FROM deployment_events WHERE deployment_id = $1", secondID)
+			_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", secondID)
 			_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", secondID)
 		})
 		// The deployments table may not have a unique constraint on namespace,
@@ -318,7 +318,7 @@ func TestOrphan_EventRecorded(t *testing.T) {
 		t.Fatalf("RecoverOrphanedDeployment: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = env.db.Exec("DELETE FROM deployment_events WHERE deployment_id = $1", origID)
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE deployment_id = $1", origID)
 		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", origID)
 	})
 

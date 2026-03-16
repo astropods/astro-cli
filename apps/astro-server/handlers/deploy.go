@@ -267,8 +267,8 @@ func prepareDeployment(
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found for given deployment_id"})
 			return nil, false
 		}
-		if existing.Status != "active" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active"})
+		if existing.Status != deploymentstore.StatusActive && existing.Status != deploymentstore.StatusFailed {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active or failed"})
 			return nil, false
 		}
 		if !isAccountMember(c, accountStore, existing.AccountID, user.ID) {
@@ -546,7 +546,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
 			return
 		}
-		if dep == nil || (dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown) {
+		if dep == nil || (dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusFailed) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "active deployment not found"})
 			return
 		}
