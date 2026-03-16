@@ -600,6 +600,37 @@ func (s *Store) GetDeploymentsInStatus(statuses ...string) ([]*Deployment, error
 	return deployments, nil
 }
 
+// RecoverOrphanedDeployment inserts a stub deployment record for an orphaned K8s
+// namespace that has no matching database row. The deployment is created with status
+// 'failed' and no revisions, so the user can redeploy or undeploy to fix it.
+func (s *Store) RecoverOrphanedDeployment(id, accountID, agentName, buildID, namespace string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	_, err = tx.Exec(`
+		INSERT INTO deployments (id, account_id, agent_name, build_id, namespace,
+		    deployment_spec_json, status, error_message, status_changed_at, deployed_at)
+		VALUES ($1, $2, $3, $4, $5, '{}', $6, $7, NOW(), NOW())
+	`, id, accountID, agentName, buildID, namespace, StatusFailed,
+		"Recovered from orphaned K8s namespace — redeploy or undeploy to fix")
+	if err != nil {
+		return fmt.Errorf("failed to insert recovered deployment: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO deployment_events (deployment_id, status, message)
+		VALUES ($1, $2, $3)
+	`, id, StatusFailed, "Deployment recovered from orphaned K8s namespace")
+	if err != nil {
+		return fmt.Errorf("failed to insert recovery event: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // MarkScaledDown records that a namespace has been scaled down by KEDA and updates
 // the deployment status to scaled_down.
 func (s *Store) MarkScaledDown(deploymentID, namespace string) error {

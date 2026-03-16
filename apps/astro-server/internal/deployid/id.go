@@ -42,3 +42,28 @@ func Compact(id string) string {
 	}
 	return string(buf[:j])
 }
+
+// Expand reverses Compact, inserting hyphens to restore the xxx-xxx-xxx format.
+// Returns empty string if the input is not exactly 9 characters.
+func Expand(compact string) string {
+	if len(compact) != 9 {
+		return ""
+	}
+	return compact[:3] + "-" + compact[3:6] + "-" + compact[6:]
+}
+
+// FromNamespace extracts a deployment ID from a K8s namespace name.
+// If the namespace matches the current format (astro-{9chars}-0), it returns
+// the expanded xxx-xxx-xxx ID. Otherwise returns empty string.
+func FromNamespace(namespace string) string {
+	// Current format: astro-{compact}-0
+	const prefix = "astro-"
+	const suffix = "-0"
+	if len(namespace) != len(prefix)+9+len(suffix) {
+		return ""
+	}
+	if namespace[:len(prefix)] != prefix || namespace[len(namespace)-len(suffix):] != suffix {
+		return ""
+	}
+	return Expand(namespace[len(prefix) : len(namespace)-len(suffix)])
+}

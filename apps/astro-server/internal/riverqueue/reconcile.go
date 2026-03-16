@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
+	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -197,7 +198,7 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 		}
 	}
 
-	// Detect orphaned K8s namespaces (log only)
+	// Detect orphaned K8s namespaces and recover them as failed deployments.
 	nsList, err := w.k8s.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{
 		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
 	})
@@ -207,13 +208,39 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 	}
 
 	for _, ns := range nsList.Items {
-		if _, ok := dbNamespaces[ns.Name]; !ok {
-			w.log.Warn("Reconcile: orphaned K8s namespace",
-				"namespace", ns.Name,
-				"account_id", ns.Labels["astro.dev/account-id"],
-				"agent", ns.Labels["astro.dev/agent"],
-			)
+		if _, ok := dbNamespaces[ns.Name]; ok {
+			continue
 		}
+
+		accountID := ns.Labels["astro.dev/account-id"]
+		agentName := ns.Labels["astro.dev/agent"]
+		buildID := ns.Labels["astro.dev/build"]
+
+		if accountID == "" || agentName == "" {
+			w.log.Warn("Reconcile: orphaned K8s namespace missing labels, skipping recovery",
+				"namespace", ns.Name,
+			)
+			continue
+		}
+
+		newID := deployid.FromNamespace(ns.Name)
+		if newID == "" {
+			newID = deployid.New()
+		}
+		if err := w.store.RecoverOrphanedDeployment(newID, accountID, agentName, buildID, ns.Name); err != nil {
+			w.log.Error("Reconcile: failed to recover orphaned namespace",
+				"namespace", ns.Name,
+				"error", err,
+			)
+			continue
+		}
+
+		w.log.Warn("Reconcile: recovered orphaned K8s namespace as failed deployment",
+			"namespace", ns.Name,
+			"deployment_id", newID,
+			"account_id", accountID,
+			"agent", agentName,
+		)
 	}
 }
 

@@ -90,7 +90,7 @@ func TestMaintainNamespaceOwnership_PendingNotOrphaned(t *testing.T) {
 	}
 }
 
-func TestMaintainNamespaceOwnership_OrphanDetected(t *testing.T) {
+func TestMaintainNamespaceOwnership_OrphanRecovered(t *testing.T) {
 	k8sClient := newTestK8sClient(k8sNamespaceListHandler("astro-orphan-0"))
 
 	db, mock, _ := sqlmock.New()
@@ -99,6 +99,16 @@ func TestMaintainNamespaceOwnership_OrphanDetected(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM deployments").
 		WillReturnRows(sqlmock.NewRows(testDeployColumns))
 
+	// Expect the recovery transaction: BEGIN, INSERT deployment, INSERT event, COMMIT
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO deployments").
+		WithArgs(sqlmock.AnyArg(), "acct-1", "agent", "", "astro-orphan-0", "failed", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO deployment_events").
+		WithArgs(sqlmock.AnyArg(), "failed", "Deployment recovered from orphaned K8s namespace").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
 	w := &ReconcileWorker{
 		store: store,
 		k8s:   k8sClient,
@@ -106,7 +116,6 @@ func TestMaintainNamespaceOwnership_OrphanDetected(t *testing.T) {
 		log:   logger.New("warn", "json"),
 	}
 
-	// Completes without panic; the orphan is logged (not captured here)
 	w.maintainNamespaceOwnership(t.Context())
 
 	if err := mock.ExpectationsWereMet(); err != nil {
