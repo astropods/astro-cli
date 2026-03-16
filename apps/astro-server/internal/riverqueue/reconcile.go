@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -269,18 +270,25 @@ func (w *ReconcileWorker) detectDrift(ctx context.Context, dep *deploymentstore.
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	var drifts []string
-	clientset := w.k8s.Clientset()
-
 	workloads, err := w.store.GetWorkloads(dep.ID)
 	if err != nil || len(workloads) == 0 {
 		return nil
 	}
 
+	services, _ := w.store.GetServices(dep.ID)
+
+	return checkDrift(ctx, w.k8s.Clientset(), dep.Namespace, workloads, services)
+}
+
+// checkDrift is the core drift detection logic, separated for testability.
+// It compares expected workloads and services against the live K8s state.
+func checkDrift(ctx context.Context, clientset *kubernetes.Clientset, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service) []string {
+	var drifts []string
+
 	for _, wl := range workloads {
 		switch wl.WorkloadType {
 		case "deployment":
-			actual, err := clientset.AppsV1().Deployments(dep.Namespace).Get(ctx, wl.Name, metav1.GetOptions{})
+			actual, err := clientset.AppsV1().Deployments(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					drifts = append(drifts, fmt.Sprintf("Deployment %q missing", wl.Name))
@@ -299,7 +307,7 @@ func (w *ReconcileWorker) detectDrift(ctx context.Context, dep *deploymentstore.
 			}
 
 		case "statefulset":
-			actual, err := clientset.AppsV1().StatefulSets(dep.Namespace).Get(ctx, wl.Name, metav1.GetOptions{})
+			actual, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					drifts = append(drifts, fmt.Sprintf("StatefulSet %q missing", wl.Name))
@@ -318,7 +326,7 @@ func (w *ReconcileWorker) detectDrift(ctx context.Context, dep *deploymentstore.
 			}
 
 		case "cronjob":
-			actual, err := clientset.BatchV1().CronJobs(dep.Namespace).Get(ctx, wl.Name, metav1.GetOptions{})
+			actual, err := clientset.BatchV1().CronJobs(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					drifts = append(drifts, fmt.Sprintf("CronJob %q missing", wl.Name))
@@ -328,17 +336,27 @@ func (w *ReconcileWorker) detectDrift(ctx context.Context, dep *deploymentstore.
 			if wl.TriggerSchedule != nil && actual.Spec.Schedule != *wl.TriggerSchedule {
 				drifts = append(drifts, fmt.Sprintf("CronJob %q schedule mismatch", wl.Name))
 			}
+
+			// "sidecar" workloads (messaging, collector) are containers within the
+			// agent pod — they don't have standalone K8s resources to check.
 		}
 	}
 
-	// Check services
-	services, err := w.store.GetServices(dep.ID)
-	if err == nil {
-		for _, svc := range services {
-			_, err := clientset.CoreV1().Services(dep.Namespace).Get(ctx, svc.Name, metav1.GetOptions{})
-			if err != nil && apierrors.IsNotFound(err) {
-				drifts = append(drifts, fmt.Sprintf("Service %q missing", svc.Name))
-			}
+	// Check services — deduplicate by WorkloadName since multiple endpoints
+	// (e.g. "http", "grpc") share a single K8s Service resource.
+	checked := map[string]bool{}
+	for _, svc := range services {
+		svcName := svc.WorkloadName
+		if svcName == "" {
+			svcName = svc.Name // fallback for old data without workload join
+		}
+		if checked[svcName] {
+			continue
+		}
+		checked[svcName] = true
+		_, err := clientset.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
+		if err != nil && apierrors.IsNotFound(err) {
+			drifts = append(drifts, fmt.Sprintf("Service %q missing", svcName))
 		}
 	}
 

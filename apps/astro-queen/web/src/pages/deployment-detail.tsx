@@ -546,11 +546,12 @@ interface DiffItem {
 
 type DiffStatus = "match" | "missing" | "extra" | "drift";
 
-function DiffSection({ title, expectedItems, currentItems, columns }: {
+function DiffSection({ title, expectedItems, currentItems, columns, replicasCompare }: {
   title: string;
   expectedItems: DiffItem[];
   currentItems: DiffItem[];
   columns: string[];
+  replicasCompare?: boolean;
 }) {
   const allNames = Array.from(new Set([...expectedItems.map((e) => e.name), ...currentItems.map((c) => c.name)]));
   const expectedByName = new Map(expectedItems.map((e) => [e.name, e]));
@@ -563,7 +564,16 @@ function DiffSection({ title, expectedItems, currentItems, columns }: {
     if (exp && !cur) status = "missing";
     else if (!exp && cur) status = "extra";
     else if (exp && cur) {
-      const hasDrift = columns.some((col) => (exp.fields[col] ?? "") !== (cur.fields[col] ?? ""));
+      const hasDrift = columns.some((col) => {
+        const expVal = exp.fields[col] ?? "";
+        const curVal = cur.fields[col] ?? "";
+        // For Replicas, expected is "N" and current is "ready/N" — compare totals only
+        if (replicasCompare && col === "Replicas") {
+          const curTotal = curVal.includes("/") ? curVal.split("/")[1] : curVal;
+          return expVal !== curTotal;
+        }
+        return expVal !== curVal;
+      });
       if (hasDrift) status = "drift";
     }
     return { name, exp, cur, status };
@@ -668,7 +678,7 @@ function DeploymentsDiff({ workloads, k8sDeployments, k8sPods }: {
   k8sPods?: K8sPodInfo[];
 }) {
   const expected: DiffItem[] = (workloads ?? [])
-    .filter((w) => w.workload_type === "deployment" || w.workload_type === "sidecar")
+    .filter((w) => w.workload_type === "deployment")
     .map((w) => ({
       name: w.name,
       fields: { Image: shortImage(w.image), Replicas: String(w.replicas) },
@@ -686,7 +696,9 @@ function DeploymentsDiff({ workloads, k8sDeployments, k8sPods }: {
     };
   });
 
-  return <DiffSection title="Deployments" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} />;
+  // For comparison, expected replicas is just a number ("1") while current is "ready/total" ("1/1").
+  // Override comparison: match when current "ready/total" has total == expected.
+  return <DiffSection title="Deployments" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} replicasCompare />;
 }
 
 function StatefulSetsDiff({ workloads, k8sStatefulSets, k8sPods }: {
@@ -714,29 +726,47 @@ function StatefulSetsDiff({ workloads, k8sStatefulSets, k8sPods }: {
   });
 
   if (expected.length === 0 && current.length === 0) return null;
-  return <DiffSection title="StatefulSets" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} />;
+  return <DiffSection title="StatefulSets" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} replicasCompare />;
 }
 
 function ServicesDiff({ expectedServices, k8sServices }: {
   expectedServices?: ExpectedService[];
   k8sServices?: { name: string; type: string; cluster_ip: string; ports?: { port: number; target_port: string; protocol: string }[] }[];
 }) {
-  const expected: DiffItem[] = (expectedServices ?? []).map((s) => ({
-    name: s.name,
-    fields: { Port: String(s.port), TargetPort: String(s.target_port), Protocol: s.protocol },
-  }));
+  // Group expected services by workload_name (K8s resource name) since multiple
+  // endpoints (e.g. "http", "grpc") map to a single K8s Service resource.
+  const grouped = new Map<string, ExpectedService[]>();
+  for (const s of expectedServices ?? []) {
+    const key = s.workload_name || s.name;
+    const arr = grouped.get(key) ?? [];
+    arr.push(s);
+    grouped.set(key, arr);
+  }
 
-  const current: DiffItem[] = (k8sServices ?? []).map((s) => ({
-    name: s.name,
-    fields: {
-      Port: s.ports?.map((p) => String(p.port)).join(", ") ?? "-",
-      TargetPort: s.ports?.map((p) => p.target_port).join(", ") ?? "-",
-      Protocol: s.ports?.map((p) => p.protocol).join(", ") ?? "-",
-    },
-  }));
+  const expected: DiffItem[] = Array.from(grouped.entries()).map(([name, svcs]) => {
+    const sorted = [...svcs].sort((a, b) => a.port - b.port);
+    return {
+      name,
+      fields: {
+        Port: sorted.map((s) => String(s.port)).join(", "),
+        TargetPort: sorted.map((s) => String(s.target_port)).join(", "),
+      },
+    };
+  });
+
+  const current: DiffItem[] = (k8sServices ?? []).map((s) => {
+    const sorted = [...(s.ports ?? [])].sort((a, b) => a.port - b.port);
+    return {
+      name: s.name,
+      fields: {
+        Port: sorted.map((p) => String(p.port)).join(", ") ?? "-",
+        TargetPort: sorted.map((p) => p.target_port).join(", ") ?? "-",
+      },
+    };
+  });
 
   if (expected.length === 0 && current.length === 0) return null;
-  return <DiffSection title="Services" expectedItems={expected} currentItems={current} columns={["Port", "TargetPort", "Protocol"]} />;
+  return <DiffSection title="Services" expectedItems={expected} currentItems={current} columns={["Port", "TargetPort"]} />;
 }
 
 function IngressesDiff({ expectedIngresses, k8sIngresses }: {

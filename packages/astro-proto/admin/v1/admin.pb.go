@@ -262,10 +262,11 @@ type AdminWorkload struct {
 }
 
 type ExpectedService struct {
-	Name       string `json:"name"`
-	Port       int32  `json:"port"`
-	TargetPort int32  `json:"target_port"`
-	Protocol   string `json:"protocol"`
+	Name         string `json:"name"`
+	Port         int32  `json:"port"`
+	TargetPort   int32  `json:"target_port"`
+	Protocol     string `json:"protocol"`
+	WorkloadName string `json:"workload_name,omitempty"`
 }
 
 type ExpectedIngress struct {

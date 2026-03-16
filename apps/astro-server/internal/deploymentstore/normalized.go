@@ -46,12 +46,13 @@ type Workload struct {
 
 // Service represents a K8s Service row.
 type Service struct {
-	ID         int
-	WorkloadID int
-	Name       string
-	Port       int
-	TargetPort int
-	Protocol   string
+	ID           int
+	WorkloadID   int
+	Name         string
+	Port         int
+	TargetPort   int
+	Protocol     string
+	WorkloadName string // populated by GetServices join
 }
 
 // Ingress represents a K8s Ingress row.
@@ -458,7 +459,7 @@ func SaveNormalizedSpec(
 		w := &Workload{
 			Name:          resourceName,
 			ComponentKind: "messaging",
-			WorkloadType:  "deployment",
+			WorkloadType:  "sidecar",
 			Image:         ds.Interfaces.Image,
 			Replicas:      1,
 			CPURequest:    ds.Interfaces.Resources.CPU,
@@ -481,7 +482,7 @@ func SaveNormalizedSpec(
 		w := &Workload{
 			Name:          resourceName,
 			ComponentKind: "collector",
-			WorkloadType:  "deployment",
+			WorkloadType:  "sidecar",
 			Image:         ds.Observability.Image,
 			Replicas:      1,
 			CPURequest:    ds.Observability.Resources.CPU,
@@ -736,7 +737,7 @@ func (s *Store) GetActiveDeploymentWorkloads() ([]*ActiveDeploymentWorkload, err
 // GetServices returns all services for a deployment (across all workloads).
 func (s *Store) GetServices(deploymentID string) ([]*Service, error) {
 	rows, err := s.db.Query(`
-		SELECT ds.id, ds.workload_id, ds.name, ds.port, ds.target_port, ds.protocol
+		SELECT ds.id, ds.workload_id, ds.name, ds.port, ds.target_port, ds.protocol, dw.name
 		FROM deployment_services ds
 		JOIN deployment_workloads dw ON dw.id = ds.workload_id
 		WHERE dw.deployment_id = $1
@@ -750,7 +751,7 @@ func (s *Store) GetServices(deploymentID string) ([]*Service, error) {
 	var result []*Service
 	for rows.Next() {
 		var svc Service
-		if err := rows.Scan(&svc.ID, &svc.WorkloadID, &svc.Name, &svc.Port, &svc.TargetPort, &svc.Protocol); err != nil {
+		if err := rows.Scan(&svc.ID, &svc.WorkloadID, &svc.Name, &svc.Port, &svc.TargetPort, &svc.Protocol, &svc.WorkloadName); err != nil {
 			return nil, fmt.Errorf("scan service: %w", err)
 		}
 		result = append(result, &svc)

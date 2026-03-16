@@ -46,6 +46,7 @@ export interface ExpectedService {
   port: number;
   target_port: number;
   protocol: string;
+  workload_name?: string;
 }
 
 export interface ExpectedIngress {

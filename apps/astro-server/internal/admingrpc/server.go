@@ -285,10 +285,11 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	if services, err := s.deployStore.GetServices(dep.ID); err == nil {
 		for _, svc := range services {
 			protoServices = append(protoServices, &adminv1.ExpectedService{
-				Name:       svc.Name,
-				Port:       int32(svc.Port),       //nolint:gosec
-				TargetPort: int32(svc.TargetPort), //nolint:gosec
-				Protocol:   svc.Protocol,
+				Name:         svc.Name,
+				Port:         int32(svc.Port),       //nolint:gosec
+				TargetPort:   int32(svc.TargetPort), //nolint:gosec
+				Protocol:     svc.Protocol,
+				WorkloadName: svc.WorkloadName,
 			})
 		}
 	}
@@ -296,18 +297,18 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	// Fetch expected ingresses from normalized table
 	var protoIngresses []*adminv1.ExpectedIngress
 	if ingresses, err := s.deployStore.GetIngresses(dep.ID); err == nil {
-		// Build service ID -> name map for display
-		svcNameByID := map[int]string{}
+		// Build service ID -> "workload_name:port" map for display (matches K8s ingress backend format)
+		svcDisplayByID := map[int]string{}
 		if services, err := s.deployStore.GetServices(dep.ID); err == nil {
 			for _, svc := range services {
-				svcNameByID[svc.ID] = svc.Name
+				svcDisplayByID[svc.ID] = fmt.Sprintf("%s:%d", svc.WorkloadName, svc.Port)
 			}
 		}
 		for _, ing := range ingresses {
 			protoIngresses = append(protoIngresses, &adminv1.ExpectedIngress{
 				Hostname: ing.Hostname,
 				Path:     ing.Path,
-				Service:  svcNameByID[ing.ServiceID],
+				Service:  svcDisplayByID[ing.ServiceID],
 			})
 		}
 	}
