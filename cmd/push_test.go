@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -74,6 +76,91 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not authenticated") && !strings.Contains(err.Error(), "authentication failed") {
 		t.Errorf("expected auth error, got: %s", err.Error())
+	}
+}
+
+func TestRegisterAgent_PrintsServerHints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		resp := map[string]any{
+			"message":  "Agent registered successfully",
+			"account":  "testaccount",
+			"name":     "test-agent",
+			"build_id": "abc123",
+			"hints":    []string{"No AGENT.md provided — add one next to your astropods.yml to make your agent more discoverable"},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("name: test-agent\nversion: 1.0.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com", specPath, "", "", "", false, true)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	output := string(buf[:n])
+
+	if !strings.Contains(output, "AGENT.md") {
+		t.Errorf("expected hint about AGENT.md in stderr output, got: %q", output)
+	}
+}
+
+func TestRegisterAgent_NoHintsWhenReadmePresent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		resp := map[string]any{
+			"message":  "Agent registered successfully",
+			"account":  "testaccount",
+			"name":     "test-agent",
+			"build_id": "abc123",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("name: test-agent\nversion: 1.0.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com", specPath, "", "", "", false, true)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	output := string(buf[:n])
+
+	if strings.Contains(output, "AGENT.md") {
+		t.Errorf("expected no hint about AGENT.md when readme is present, got: %q", output)
 	}
 }
 
