@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -184,15 +185,17 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 
 	for _, dep := range deps {
 		dbNamespaces[dep.Namespace] = dep
+		sourceAccount := sourceAccountFromSpec(dep.DeploymentSpecJSON)
 		_, err := w.db.ExecContext(ctx, `
-			INSERT INTO namespace_ownership (namespace, account_id, agent_name, deployment_id, scanned_at)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO namespace_ownership (namespace, account_id, agent_name, deployment_id, source_account, scanned_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (namespace) DO UPDATE
 			SET account_id = EXCLUDED.account_id,
 			    agent_name = EXCLUDED.agent_name,
 			    deployment_id = EXCLUDED.deployment_id,
+			    source_account = EXCLUDED.source_account,
 			    scanned_at = EXCLUDED.scanned_at
-		`, dep.Namespace, dep.AccountID, dep.AgentName, dep.ID, scanTime)
+		`, dep.Namespace, dep.AccountID, dep.AgentName, dep.ID, sourceAccount, scanTime)
 		if err != nil {
 			w.log.Warn("Reconcile: failed to upsert namespace_ownership", "namespace", dep.Namespace, "error", err)
 		}
@@ -242,6 +245,23 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 			"agent", agentName,
 		)
 	}
+}
+
+// sourceAccountFromSpec extracts the source.account field from a deployment spec JSON.
+// Returns empty string if the spec is empty or unparseable.
+func sourceAccountFromSpec(specJSON string) string {
+	if specJSON == "" || specJSON == "{}" {
+		return ""
+	}
+	var spec struct {
+		Source struct {
+			Account string `json:"account"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(specJSON), &spec); err != nil {
+		return ""
+	}
+	return spec.Source.Account
 }
 
 // isKEDAScaledDown checks if all ScaledObjects in the namespace have Active=False.

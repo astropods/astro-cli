@@ -334,3 +334,118 @@ func TestOrphan_EventRecorded(t *testing.T) {
 		t.Errorf("expected 1 recovery event, got %d", eventCount)
 	}
 }
+
+// namespaceOwnershipUpsert runs the same SQL the reconciler uses to populate
+// namespace_ownership, including source_account extraction.
+func namespaceOwnershipUpsert(db *sql.DB, namespace, accountID, agentName, deploymentID, sourceAccount string) error {
+	_, err := db.Exec(`
+		INSERT INTO namespace_ownership (namespace, account_id, agent_name, deployment_id, source_account, scanned_at)
+		VALUES ($1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (namespace) DO UPDATE
+		SET account_id = EXCLUDED.account_id,
+		    agent_name = EXCLUDED.agent_name,
+		    deployment_id = EXCLUDED.deployment_id,
+		    source_account = EXCLUDED.source_account,
+		    scanned_at = EXCLUDED.scanned_at
+	`, namespace, accountID, agentName, deploymentID, sourceAccount)
+	return err
+}
+
+// TestOrphan_SourceAccountPopulated verifies that the namespace_ownership upsert
+// correctly writes source_account from the deployment spec.
+func TestOrphan_SourceAccountPopulated(t *testing.T) {
+	env := setupOrphanEnv(t)
+	accountID := env.ensureTestAccount()
+
+	depID := deployid.New()
+	ns := "astro-" + deployid.Compact(depID) + "-0"
+
+	// Create a deployment with a spec containing source.account
+	specJSON := `{"source":{"account":"builder-team","name":"cross-agent","build":"b1"}}`
+	_, err := env.db.Exec(`
+		INSERT INTO deployments (id, account_id, agent_name, build_id, namespace,
+		    deployment_spec_json, status, status_changed_at, deployed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'active', NOW(), NOW())
+	`, depID, accountID, "cross-agent", "b1", ns, specJSON)
+	if err != nil {
+		t.Fatalf("insert deployment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE namespace = $1", ns)
+		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", depID)
+	})
+
+	// Run the upsert with source_account
+	err = namespaceOwnershipUpsert(env.db, ns, accountID, "cross-agent", depID, "builder-team")
+	if err != nil {
+		t.Fatalf("upsert namespace_ownership: %v", err)
+	}
+
+	// Verify source_account was written
+	var sourceAccount string
+	err = env.db.QueryRow(
+		`SELECT source_account FROM namespace_ownership WHERE namespace = $1`, ns,
+	).Scan(&sourceAccount)
+	if err != nil {
+		t.Fatalf("query source_account: %v", err)
+	}
+	if sourceAccount != "builder-team" {
+		t.Errorf("source_account = %q, want %q", sourceAccount, "builder-team")
+	}
+}
+
+// TestOrphan_SourceAccountUpdatedOnReUpsert verifies that the upsert overwrites
+// source_account when a deployment's spec changes (e.g. agent transferred).
+func TestOrphan_SourceAccountUpdatedOnReUpsert(t *testing.T) {
+	env := setupOrphanEnv(t)
+	accountID := env.ensureTestAccount()
+
+	depID := deployid.New()
+	ns := "astro-" + deployid.Compact(depID) + "-0"
+
+	_, err := env.db.Exec(`
+		INSERT INTO deployments (id, account_id, agent_name, build_id, namespace,
+		    deployment_spec_json, status, status_changed_at, deployed_at)
+		VALUES ($1, $2, $3, $4, $5, '{}', 'active', NOW(), NOW())
+	`, depID, accountID, "transfer-agent", "b1", ns)
+	if err != nil {
+		t.Fatalf("insert deployment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = env.db.Exec("DELETE FROM namespace_ownership WHERE namespace = $1", ns)
+		_, _ = env.db.Exec("DELETE FROM deployments WHERE id = $1", depID)
+	})
+
+	// First upsert with empty source_account
+	err = namespaceOwnershipUpsert(env.db, ns, accountID, "transfer-agent", depID, "")
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	var sourceAccount string
+	err = env.db.QueryRow(
+		`SELECT source_account FROM namespace_ownership WHERE namespace = $1`, ns,
+	).Scan(&sourceAccount)
+	if err != nil {
+		t.Fatalf("query after first upsert: %v", err)
+	}
+	if sourceAccount != "" {
+		t.Errorf("after first upsert: source_account = %q, want empty", sourceAccount)
+	}
+
+	// Second upsert with source_account populated (simulates next reconcile after spec update)
+	err = namespaceOwnershipUpsert(env.db, ns, accountID, "transfer-agent", depID, "new-owner-team")
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+
+	err = env.db.QueryRow(
+		`SELECT source_account FROM namespace_ownership WHERE namespace = $1`, ns,
+	).Scan(&sourceAccount)
+	if err != nil {
+		t.Fatalf("query after second upsert: %v", err)
+	}
+	if sourceAccount != "new-owner-team" {
+		t.Errorf("after second upsert: source_account = %q, want %q", sourceAccount, "new-owner-team")
+	}
+}
