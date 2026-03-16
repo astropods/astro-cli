@@ -264,6 +264,91 @@ func TestRehydrateSecrets_NoVariables(t *testing.T) {
 	// Should be a no-op — no variables to rehydrate
 }
 
+// TestRepairPreservesVariables verifies that RepairNormalizedSpec does NOT
+// delete deployment_variables, so secrets survive a repair + re-apply cycle.
+func TestRepairPreservesVariables(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+
+	// Create a deployment with encrypted secrets
+	aesKey := make([]byte, 32)
+	if _, err := rand.Read(aesKey); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := envelope.NewTestEncryptor(aesKey)
+	if err != nil {
+		t.Fatalf("NewTestEncryptor: %v", err)
+	}
+
+	full := minimalSlackSpec()
+	dep := saveDeploymentWithSecrets(t, db, store, full, enc)
+
+	// Verify variables exist before repair
+	varsBefore, err := store.GetDeploymentVariables(dep.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentVariables before: %v", err)
+	}
+	if len(varsBefore) != 3 {
+		t.Fatalf("expected 3 variables before repair, got %d", len(varsBefore))
+	}
+
+	// Run repair — this used to delete deployment_variables
+	_, _, _, err = store.RepairNormalizedSpec(dep.ID, &ds.NormalizedSpecConfig{
+		Namespace: dep.Namespace,
+	})
+	if err != nil {
+		t.Fatalf("RepairNormalizedSpec: %v", err)
+	}
+
+	// Variables must still exist after repair
+	varsAfter, err := store.GetDeploymentVariables(dep.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentVariables after: %v", err)
+	}
+	if len(varsAfter) != len(varsBefore) {
+		t.Fatalf("expected %d variables after repair, got %d", len(varsBefore), len(varsAfter))
+	}
+
+	// Verify secrets are still encrypted (not replaced with empty values)
+	for _, sv := range varsAfter {
+		if sv.Secret && sv.Value == "" {
+			t.Errorf("secret %q has empty value after repair — variable was lost", sv.Name)
+		}
+	}
+
+	// Verify rehydration still works after repair
+	dep, _ = store.GetDeploymentByID(dep.ID)
+	rev, err := store.GetCurrentRevision(dep.ID)
+	if err != nil {
+		t.Fatalf("GetCurrentRevision: %v", err)
+	}
+	var loaded spec.AstroDeploymentSpec
+	if err := json.Unmarshal(rev.SpecJSON, &loaded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	d := &deployer.Deployer{
+		Store:     store,
+		Cfg:       &config.Config{Deployment: config.DeploymentConfig{KMSKeyARN: "arn:aws:kms:test:000:key/test"}},
+		Log:       logger.New("error", "text"),
+		KMSClient: &fakeKMS{key: aesKey},
+	}
+
+	if err := d.RehydrateSecrets(context.Background(), dep, &loaded); err != nil {
+		t.Fatalf("RehydrateSecrets after repair: %v", err)
+	}
+
+	if got := loaded.Variables["SLACK_BOT_TOKEN"].Value; got != "xoxb-test-token-value" {
+		t.Errorf("SLACK_BOT_TOKEN after repair: got %q, want %q", got, "xoxb-test-token-value")
+	}
+	if got := loaded.Variables["SLACK_APP_TOKEN"].Value; got != "xapp-test-token-value" {
+		t.Errorf("SLACK_APP_TOKEN after repair: got %q, want %q", got, "xapp-test-token-value")
+	}
+	if got := loaded.Variables["LOG_LEVEL"].Value; got != "debug" {
+		t.Errorf("LOG_LEVEL after repair: got %q, want %q", got, "debug")
+	}
+}
+
 // fakeKMS implements envelope.KMSClient for testing. It treats the encrypted
 // data key as the raw AES key (the "Decrypt" call returns it as-is).
 type fakeKMS struct {
