@@ -48,6 +48,34 @@ tasks:
       - "go.sum"
       - ".golangci.yml"
 
+  # E2E tests (require external infra: vcluster + Postgres)
+  e2e:
+    command: "bash $MOON_WORKSPACE_ROOT/scripts/e2e.sh all"
+    options:
+      persistent: false
+      runInCI: false
+    inputs:
+      - "e2e/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "/sql/**"
+      - "/scripts/e2e.sh"
+
+  e2e.setup:
+    command: "bash $MOON_WORKSPACE_ROOT/scripts/e2e.sh setup"
+    options:
+      persistent: false
+      runInCI: false
+      cache: false
+
+  e2e.teardown:
+    command: "bash $MOON_WORKSPACE_ROOT/scripts/e2e.sh teardown"
+    options:
+      persistent: false
+      runInCI: false
+      cache: false
+
   # Dependencies
   deps:
     script: "go mod download && go mod tidy"
