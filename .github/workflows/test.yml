@@ -147,3 +147,54 @@ jobs:
       - name: Run integration tests
         working-directory: apps/astro-server
         run: gotestsum --format pkgname -- -tags integration -race ./e2e/...
+
+  test-go-k8s:
+    runs-on: ubuntu-latest
+    name: K8s integration tests (vcluster)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: apps/astro-server/go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Create kind cluster (host)
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: vcluster-host
+
+      - name: Install vcluster CLI
+        run: |
+          curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64"
+          chmod +x vcluster
+          sudo mv vcluster /usr/local/bin/
+
+      - name: Create vcluster
+        run: |
+          vcluster create e2e-test --connect=false
+          vcluster connect e2e-test --update-current=false --kube-config=/tmp/vcluster-kubeconfig.yaml
+          echo "KUBECONFIG=/tmp/vcluster-kubeconfig.yaml" >> "$GITHUB_ENV"
+
+      - name: Wait for vcluster API server
+        run: |
+          for i in $(seq 1 30); do
+            if kubectl --kubeconfig=/tmp/vcluster-kubeconfig.yaml cluster-info >/dev/null 2>&1; then
+              echo "vcluster API server ready"
+              exit 0
+            fi
+            echo "Waiting for vcluster... ($i/30)"
+            sleep 2
+          done
+          echo "vcluster did not become ready"
+          exit 1
+
+      - name: Run K8s integration tests
+        working-directory: apps/astro-server
+        run: gotestsum --format pkgname -- -tags k8s -race -timeout 5m ./e2e/...
