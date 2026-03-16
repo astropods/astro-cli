@@ -2,8 +2,10 @@ package k8s
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -931,4 +933,154 @@ func TestNetworkPolicies_NoPortlessEgressRule(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer verifies that when
+// secret variables are present in the spec (i.e. after rehydration), the K8s
+// Secret is created with the correct values AND the messaging sidecar container
+// has envFrom referencing that secret.
+func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
+	slackSpec := func() *spec.AstroDeploymentSpec {
+		ds := minimalDeploymentSpec()
+		ds.Interfaces = &spec.DeploymentInterfaces{
+			Adapters: []string{"slack"},
+			Image:    "test-registry.example.com/messaging:latest",
+			Endpoints: map[string]spec.Endpoint{
+				"grpc": {Port: 9090, Protocol: "grpc"},
+			},
+			Environment: map[string]string{
+				"SLACK_BOT_TOKEN": "${variables.SLACK_BOT_TOKEN}",
+				"SLACK_APP_TOKEN": "${variables.SLACK_APP_TOKEN}",
+			},
+		}
+		return ds
+	}
+
+	t.Run("stripped spec produces no secret", func(t *testing.T) {
+		a := newTestApplier()
+		ds := slackSpec()
+		// Simulate stripped spec: secret variables exist but values are empty
+		ds.Variables = map[string]spec.Variable{
+			"SLACK_BOT_TOKEN": {Value: "", Secret: true, Targets: []string{"interface.slack"}},
+			"SLACK_APP_TOKEN": {Value: "", Secret: true, Targets: []string{"interface.slack"}},
+		}
+
+		result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.Errors) > 0 {
+			t.Fatalf("unexpected apply errors: %v", result.Errors)
+		}
+
+		// No Secret should exist — secret values are empty
+		secrets, err := a.clientset.CoreV1().Secrets("default").List(
+			context.Background(), metav1.ListOptions{},
+		)
+		if err != nil {
+			t.Fatalf("list secrets: %v", err)
+		}
+		if len(secrets.Items) != 0 {
+			t.Errorf("expected 0 secrets for stripped spec, got %d", len(secrets.Items))
+		}
+	})
+
+	t.Run("rehydrated spec creates secret with correct values", func(t *testing.T) {
+		a := newTestApplier()
+		ds := slackSpec()
+		// Simulate rehydrated spec: secret variables have values restored
+		ds.Variables = map[string]spec.Variable{
+			"SLACK_BOT_TOKEN": {Value: "xoxb-real-token", Secret: true, Targets: []string{"interface.slack"}},
+			"SLACK_APP_TOKEN": {Value: "xapp-real-token", Secret: true, Targets: []string{"interface.slack"}},
+		}
+
+		result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.Errors) > 0 {
+			t.Fatalf("unexpected apply errors: %v", result.Errors)
+		}
+
+		// Verify the K8s Secret exists with the correct data
+		secretName := deployment.GenerateSecretName("my-agent", "build-123")
+		secret, err := a.clientset.CoreV1().Secrets("default").Get(
+			context.Background(), secretName, metav1.GetOptions{},
+		)
+		if err != nil {
+			t.Fatalf("get secret %q: %v", secretName, err)
+		}
+
+		if got := string(secret.Data["SLACK_BOT_TOKEN"]); got != "xoxb-real-token" {
+			t.Errorf("secret SLACK_BOT_TOKEN: got %q, want %q", got, "xoxb-real-token")
+		}
+		if got := string(secret.Data["SLACK_APP_TOKEN"]); got != "xapp-real-token" {
+			t.Errorf("secret SLACK_APP_TOKEN: got %q, want %q", got, "xapp-real-token")
+		}
+
+		// Verify the agent deployment's messaging container has envFrom with the secret
+		deplName := deployment.GenerateAgentResourceName("my-agent", "agent")
+		depl, err := a.clientset.AppsV1().Deployments("default").Get(
+			context.Background(), deplName, metav1.GetOptions{},
+		)
+		if err != nil {
+			t.Fatalf("get deployment %q: %v", deplName, err)
+		}
+
+		var msgContainer *corev1.Container
+		for i := range depl.Spec.Template.Spec.Containers {
+			if depl.Spec.Template.Spec.Containers[i].Name == "messaging" {
+				msgContainer = &depl.Spec.Template.Spec.Containers[i]
+				break
+			}
+		}
+		if msgContainer == nil {
+			t.Fatal("messaging container not found in agent deployment")
+		}
+
+		// Check envFrom references the secret
+		foundSecretRef := false
+		for _, ef := range msgContainer.EnvFrom {
+			if ef.SecretRef != nil && ef.SecretRef.Name == secretName {
+				foundSecretRef = true
+			}
+		}
+		if !foundSecretRef {
+			t.Errorf("messaging container missing envFrom secretRef %q; envFrom: %+v",
+				secretName, msgContainer.EnvFrom)
+		}
+
+		// Check SLACK_ENABLED env var is set on the messaging container
+		foundSlackEnabled := false
+		for _, ev := range msgContainer.Env {
+			if ev.Name == "SLACK_ENABLED" && ev.Value == "true" {
+				foundSlackEnabled = true
+			}
+		}
+		if !foundSlackEnabled {
+			t.Error("messaging container missing SLACK_ENABLED=true env var")
+		}
+
+		// Also verify the main agent container has the secret mounted
+		var agentContainer *corev1.Container
+		for i := range depl.Spec.Template.Spec.Containers {
+			c := &depl.Spec.Template.Spec.Containers[i]
+			if c.Name != "messaging" && !strings.HasPrefix(c.Name, "collector") {
+				agentContainer = c
+				break
+			}
+		}
+		if agentContainer == nil {
+			t.Fatal("agent container not found")
+		}
+		foundAgentSecretRef := false
+		for _, ef := range agentContainer.EnvFrom {
+			if ef.SecretRef != nil && ef.SecretRef.Name == secretName {
+				foundAgentSecretRef = true
+			}
+		}
+		if !foundAgentSecretRef {
+			t.Errorf("agent container missing envFrom secretRef %q", secretName)
+		}
+	})
 }
