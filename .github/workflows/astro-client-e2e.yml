@@ -5,11 +5,15 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "apps/astro-client/**"
+      - "packages/astro-theme/**"
+      - "packages/astro-identity-gen/**"
       - ".github/workflows/astro-client-e2e.yml"
   push:
     branches: [main]
     paths:
       - "apps/astro-client/**"
+      - "packages/astro-theme/**"
+      - "packages/astro-identity-gen/**"
       - ".github/workflows/astro-client-e2e.yml"
 
 concurrency:
@@ -33,17 +37,12 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Build workspace theme package
-        working-directory: packages/astro-theme
-        run: bun run build
-
       - name: Install Playwright browser dependencies
         working-directory: apps/astro-client
         run: bunx playwright install --with-deps chromium
 
       - name: Run client E2E tests
-        working-directory: apps/astro-client
-        run: bun run test:e2e
+        run: bun x moon run astro-client:e2e
 
       - name: Upload Playwright report
         if: always()

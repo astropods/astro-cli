@@ -28,6 +28,8 @@ tasks:
     command: "bun run test:e2e"
     deps:
       - "e2e.setup"
+      - "astro-theme:build"
+      - "astro-identity-gen:build"
     inputs:
       - "e2e/**/*"
       - "playwright.config.ts"
