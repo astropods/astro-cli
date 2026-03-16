@@ -11,7 +11,7 @@ import { useChangeTracking, type TrackedFormState } from "@/components/deploy/us
 const FORM_ID = "configure-deployment-form";
 
 export default function ConfigureDeployment() {
-  const { account, deployment, template } = useOutletContext<ConfigureContext>();
+  const { account, deployment, template, hasNewerBuildAvailable } = useOutletContext<ConfigureContext>();
   const navigate = useNavigate();
 
   const basePath = deploymentPath(account, deployment.id);
@@ -64,14 +64,19 @@ export default function ConfigureDeployment() {
 
   return (
     <>
-      <form id={FORM_ID} onSubmit={handleSubmit} className={changes.isDirty ? "pb-24" : ""}>
+      <form
+        id={FORM_ID}
+        onSubmit={handleSubmit}
+        className={changes.isDirty || hasNewerBuildAvailable ? "pb-24" : ""}
+      >
         <DeployFormFields form={form} hideAccountPicker />
       </form>
 
       <DeployFormActionBar
         isDirty={changes.isDirty}
         changeCount={changes.changeCount}
-        requiresRedeploy={changes.requiresRedeploy}
+        requiresRedeploy={changes.requiresRedeploy || hasNewerBuildAvailable}
+        showBuildUpgradeRedeploy={hasNewerBuildAvailable}
         isSaving={form.isDeploying}
         formId={FORM_ID}
         onReset={() => form.reset(initialValues)}

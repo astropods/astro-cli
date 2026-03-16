@@ -4,4 +4,5 @@ export interface ConfigureContext {
   account: string;
   deployment: AgentDeployment;
   template: DeploymentTemplate;
+  hasNewerBuildAvailable: boolean;
 }

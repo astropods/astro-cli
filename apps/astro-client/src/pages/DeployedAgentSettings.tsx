@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useParams, Link, Outlet } from "react-router";
 import type { Route } from "./+types/DeployedAgentSettings";
 import { Loader2 } from "lucide-react";
@@ -6,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployments } from "@/api/queries/deployments";
-import { usePrefilledDeploymentTemplate } from "@/api/queries/agents";
+import { useAgent, usePrefilledDeploymentTemplate } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
@@ -43,6 +44,22 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
 
   const deployments = deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
+  const { data: agentData } = useAgent(account, deployment?.name ?? "", {
+    initialData: undefined,
+  });
+
+  const latestBuildId = useMemo(() => {
+    if (!agentData?.versions?.length) return null;
+    const latestVersion = agentData.versions.reduce((latest, current) => {
+      if (!latest) return current;
+      return new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
+        ? current
+        : latest;
+    }, agentData.versions[0]);
+    return latestVersion?.build_id ?? null;
+  }, [agentData]);
+
+  const hasNewerBuildAvailable = !!deployment?.build_id && !!latestBuildId && deployment.build_id !== latestBuildId;
 
   const {
     data: prefilledTemplate,
@@ -122,7 +139,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
             </SidebarNavItem>
           </SidebarNav>
           <SidebarBody>
-            <Outlet context={{ account, deployment, template: prefilledTemplate }} />
+            <Outlet context={{ account, deployment, template: prefilledTemplate, hasNewerBuildAvailable }} />
           </SidebarBody>
         </SidebarLayout>
       </div>

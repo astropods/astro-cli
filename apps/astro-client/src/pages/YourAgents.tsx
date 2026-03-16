@@ -7,6 +7,7 @@ import {
 } from "../components/MyAgentsHeader";
 import { DeployedAgentCard } from "../components/DeployedAgentCard";
 import { useDeployments } from "../api/queries/deployments";
+import { useAccountAgents } from "../api/queries/agents";
 import { useAuth } from "../lib/auth";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
@@ -18,6 +19,24 @@ function YourAgentsContent() {
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data } = useDeployments(userAccount, isAuthenticated);
+  const { data: accountAgents } = useAccountAgents(userAccount, isAuthenticated);
+
+  const latestBuildByName = useMemo(() => {
+    const result = new Map<string, string>();
+    const agents = accountAgents?.agents ?? [];
+    for (const agent of agents) {
+      if (!agent.versions?.length) continue;
+      const latestVersion = agent.versions.reduce((latest, current) =>
+        new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
+          ? current
+          : latest,
+      );
+      if (latestVersion?.build_id) {
+        result.set(agent.name, latestVersion.build_id);
+      }
+    }
+    return result;
+  }, [accountAgents?.agents]);
 
   const filtered = useMemo(() => {
     const list = data?.deployments ?? [];
@@ -60,6 +79,10 @@ function YourAgentsContent() {
               lastActive="—"
               installedAt={formatDate(deployment.created_at)}
               updatedAt={formatDate(deployment.created_at)}
+              hasNewBuildAvailable={
+                !!latestBuildByName.get(deployment.name) &&
+                latestBuildByName.get(deployment.name) !== deployment.build_id
+              }
             />
           ))}
         </div>

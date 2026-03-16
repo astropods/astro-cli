@@ -8,11 +8,13 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import { AgentIdentity } from "@/components/AgentIdentity";
+import { InlineBadge } from "@/components/InlineBadge";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ExternalUrls } from "@/components/deployed-agent/ExternalUrls";
 import { PodGrid } from "@/components/deployed-agent/PodGrid";
 import { PodLogViewer } from "@/components/deployed-agent/PodLogViewer";
 import { useDeployments, useRestartPod } from "@/api/queries/deployments";
+import { useAgent } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
@@ -82,6 +84,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
+  const { data: agentData } = useAgent(account, deployment?.name ?? "");
 
   if (!deployment) {
     return (
@@ -99,6 +102,12 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 
   const status = mapDeploymentStatus(deployment);
   const displayName = deployment.display_name || deployment.name;
+  const latestBuildId = agentData?.versions?.reduce((latest, current) =>
+    new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
+      ? current
+      : latest,
+  )?.build_id;
+  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
   const pods = deployment.pods ?? [];
   const selectedPod = podName ? pods.find((p) => getPodStableName(p.name) === podName) ?? null : null;
   const basePath = deploymentPath(account, deployment.id);
@@ -140,6 +149,11 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
               <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
                 {deploymentStatusLabel[status]}
               </StatusIndicator>
+              {hasNewBuildAvailable && (
+                <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
+                  New build
+                </InlineBadge>
+              )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               Deployed {formatDate(deployment.created_at)}

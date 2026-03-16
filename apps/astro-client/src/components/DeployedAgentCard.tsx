@@ -4,6 +4,7 @@ import { EllipsisVertical, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { AgentIdentity } from "@/components/AgentIdentity";
+import { InlineBadge } from "@/components/InlineBadge";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ export interface DeployedAgentCardProps {
   installedAt: string;
   updatedAt: string;
   avatarUrl?: string;
+  hasNewBuildAvailable?: boolean;
   className?: string;
 }
 
@@ -51,6 +53,7 @@ export function DeployedAgentCard({
   installedAt,
   updatedAt,
   avatarUrl,
+  hasNewBuildAvailable = false,
   className,
 }: DeployedAgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -110,9 +113,16 @@ export function DeployedAgentCard({
             <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
               {displayName || name}
             </p>
-            <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
-              {deploymentStatusLabel[status]}
-            </StatusIndicator>
+            <div className="mt-1 flex items-center gap-2">
+              <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
+                {deploymentStatusLabel[status]}
+              </StatusIndicator>
+              {hasNewBuildAvailable && (
+                <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
+                  New build
+                </InlineBadge>
+              )}
+            </div>
           </div>
         </div>
 
