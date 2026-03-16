@@ -628,6 +628,138 @@ func TestDrift_RepairRegeneratesResolvedKeys(t *testing.T) {
 	}
 }
 
+// TestDrift_EmptySecretNotInResolvedKeys verifies that a secret variable with
+// an empty value is excluded from both the resolved keys table and K8s, so it
+// does not cause false drift.
+func TestDrift_EmptySecretNotInResolvedKeys(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	// Add an empty secret variable to the spec and re-save normalized data.
+	// This simulates a deploy where a secret is declared but not yet configured.
+	var specObj spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(driftSpecJSON), &specObj); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	// Fill the existing secret so it's in K8s
+	for k, v := range specObj.Variables {
+		if v.Secret && v.Value == "" {
+			v.Value = "test-" + k
+			specObj.Variables[k] = v
+		}
+	}
+	// Add an empty secret — should NOT appear in resolved keys
+	specObj.Variables["EMPTY_SECRET"] = spec.Variable{Secret: true, Value: ""}
+
+	rctx := deployment.ResolveContext{
+		Namespace:  env.ns,
+		AgentName:  "drift-agent",
+		BuildID:    "dbuild01",
+		SecretName: deployment.GenerateSecretName("drift-agent", "dbuild01"),
+	}
+	resolved := deployment.ResolveDeploymentSpecEnv(&specObj, rctx)
+
+	// Verify EMPTY_SECRET is not in resolved SecretData
+	if _, ok := resolved.SecretData["EMPTY_SECRET"]; ok {
+		t.Error("expected EMPTY_SECRET to be excluded from resolved SecretData")
+	}
+
+	// Re-save normalized spec with the new variable set
+	tx, err := env.db.Begin()
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := ds.SaveNormalizedSpec(tx, env.depID, &specObj, resolved, nil, &ds.NormalizedSpecConfig{
+		Namespace: env.ns,
+	}); err != nil {
+		t.Fatalf("SaveNormalizedSpec: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Verify resolved keys: EMPTY_SECRET should NOT be in secret_keys
+	rk, err := env.store.GetResolvedKeys(env.depID)
+	if err != nil {
+		t.Fatalf("GetResolvedKeys: %v", err)
+	}
+	if rk == nil {
+		t.Fatal("expected resolved keys, got nil")
+	}
+	for _, k := range rk.SecretKeys {
+		if k == "EMPTY_SECRET" {
+			t.Error("EMPTY_SECRET should not be in resolved secret_keys")
+		}
+	}
+
+	// SECRET_KEY (non-empty) should still be present
+	foundSecret := false
+	for _, k := range rk.SecretKeys {
+		if k == "SECRET_KEY" {
+			foundSecret = true
+		}
+	}
+	if !foundSecret {
+		t.Errorf("expected SECRET_KEY in secret_keys, got %v", rk.SecretKeys)
+	}
+
+	// Drift report should show no drift (EMPTY_SECRET isn't expected in K8s)
+	report := env.buildReport()
+	if report.Summary.Drift > 0 || report.Summary.Missing > 0 {
+		t.Errorf("expected no drift/missing, got drift=%d missing=%d",
+			report.Summary.Drift, report.Summary.Missing)
+		for _, item := range report.Secrets {
+			t.Logf("  secret %s: %s expected=%v actual=%v", item.Name, item.Status, item.Expected, item.Actual)
+		}
+	}
+}
+
+// TestDrift_RepairDoesNotAddEmptySecrets verifies that RepairNormalizedSpec
+// does not add stripped (empty) secret keys to the resolved keys table.
+func TestDrift_RepairDoesNotAddEmptySecrets(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	// Run repair — the stored spec has secrets stripped (empty values)
+	_, _, _, err := env.store.RepairNormalizedSpec(env.depID, &ds.NormalizedSpecConfig{
+		Namespace: env.ns,
+	})
+	if err != nil {
+		t.Fatalf("RepairNormalizedSpec: %v", err)
+	}
+
+	rk, err := env.store.GetResolvedKeys(env.depID)
+	if err != nil {
+		t.Fatalf("GetResolvedKeys: %v", err)
+	}
+	if rk == nil {
+		t.Fatal("expected resolved keys after repair, got nil")
+	}
+
+	// The stored spec has SECRET_KEY stripped to "". ResolveDeploymentSpecEnv
+	// skips empty secrets, so SECRET_KEY should NOT be in secret_keys after repair.
+	for _, k := range rk.SecretKeys {
+		if k == "SECRET_KEY" {
+			t.Error("stripped SECRET_KEY should not be in resolved secret_keys after repair")
+		}
+	}
+
+	// No secret hashes should exist (all secrets were stripped)
+	if len(rk.SecretHashes) > 0 {
+		t.Errorf("expected empty secret_hashes after repair, got %v", rk.SecretHashes)
+	}
+
+	// Drift should be clean — K8s has SECRET_KEY in the Secret, but since
+	// resolved keys don't track it, it falls through to the legacy variable
+	// check OR is simply not compared. Either way, no false drift.
+	report := env.buildReport()
+	if report.Summary.Missing > 0 {
+		t.Errorf("expected 0 missing after repair, got %d", report.Summary.Missing)
+		for _, item := range report.Secrets {
+			t.Logf("  secret %s: %s expected=%v actual=%v", item.Name, item.Status, item.Expected, item.Actual)
+		}
+	}
+}
+
 // splitCSV splits a ", "-separated string into trimmed parts.
 func splitCSV(s string) []string {
 	parts := strings.Split(s, ",")
