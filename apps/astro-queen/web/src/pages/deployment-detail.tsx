@@ -413,9 +413,10 @@ function EventTimeline({ events }: { events: DeploymentEvent[] }) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">{formatDateTime(ev.created_at)}</span>
               <span className="text-xs font-medium capitalize">{ev.status}</span>
               <span className="text-[10px] text-muted-foreground">
-                {formatDistanceToNow(new Date(ev.created_at), { addSuffix: true })}
+                ({formatDistanceToNow(new Date(ev.created_at), { addSuffix: true })})
               </span>
             </div>
             {ev.message && <p className="text-xs text-muted-foreground">{ev.message}</p>}
