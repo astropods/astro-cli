@@ -93,6 +93,7 @@ function fulfillTemplate(
   template: DeploymentTemplate,
   variableValues: Record<string, string>,
   selectedAdapters: string[],
+  allAdapterFieldDefs: Record<string, [string, VariableDisplay][]>,
   targetAccount: string,
   deployName: string,
 ): DeploymentSpec {
@@ -111,15 +112,14 @@ function fulfillTemplate(
     : {};
   // Inject adapter credentials not already declared in template variables
   for (const adapterId of selectedAdapters) {
-    const creds = adapterFields(adapterId);
-    if (!creds) continue;
-    for (const cred of creds) {
-      if (!(cred.key in variables)) {
-        variables[cred.key] = {
-          value: variableValues[cred.key] ?? '',
+    const creds = allAdapterFieldDefs[adapterId] ?? [];
+    for (const [key, cred] of creds) {
+      if (!(key in variables)) {
+        variables[key] = {
+          value: variableValues[key] ?? '',
           targets: [`interface.${adapterId}`],
           secret: cred.secret ?? false,
-          optional: false,
+          optional: cred.optional ?? false,
         };
       }
     }
@@ -330,7 +330,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     setDeployError(null);
     const allVariableValues = { ...variableValues, ...adapterCredentials };
-    const spec = fulfillTemplate(template, allVariableValues, selectedAdapters, targetAccount, deployName.trim());
+    const spec = fulfillTemplate(
+      template,
+      allVariableValues,
+      selectedAdapters,
+      allAdapterFieldDefs,
+      targetAccount,
+      deployName.trim(),
+    );
 
     try {
       await deployMutation.mutateAsync(spec);
