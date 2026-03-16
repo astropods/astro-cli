@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import { useDeployments, useBackfillDeployments } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,9 +8,11 @@ import { formatDistanceToNow } from "date-fns";
 import { DatabaseZap } from "lucide-react";
 
 export function DeploymentsPage() {
+  const navigate = useNavigate();
   const { data, isLoading, error } = useDeployments();
   const backfillMut = useBackfillDeployments();
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const hasLegacy = data?.deployments?.some((d) => d.current_revision == null);
 
@@ -59,11 +61,20 @@ export function DeploymentsPage() {
             </thead>
             <tbody>
               {data.deployments?.map((d) => (
-                <tr key={d.deployment_id} className="border-b border-comb-light hover:bg-glass-light">
+                <tr
+                  key={d.deployment_id}
+                  className={`border-b border-comb-light cursor-pointer transition-colors ${
+                    selectedId === d.deployment_id
+                      ? "bg-amber/10 border-l-2 border-l-amber"
+                      : "hover:bg-glass-light"
+                  }`}
+                  onClick={() => {
+                    setSelectedId(d.deployment_id);
+                    navigate(`/admin/deployments/${d.deployment_id}`);
+                  }}
+                >
                   <td className="px-2 py-0.5">
-                    <Link to={`/admin/deployments/${d.deployment_id}`} className="text-amber hover:underline">
-                      {d.name}
-                    </Link>
+                    <span className="text-amber">{d.name}</span>
                   </td>
                   <td className="px-2 py-0.5 text-muted-foreground">{d.namespace}</td>
                   <td className="px-2 py-0.5">
