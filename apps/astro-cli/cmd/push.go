@@ -145,11 +145,14 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
-	// Check authentication
+	// Validate credentials upfront so stale tokens fail before build/push
 	if !noAuth {
 		tokenManager := auth.NewTokenManager(binaryName)
 		if !tokenManager.IsAuthenticated() {
 			return fmt.Errorf("not authenticated. Run '%s login' to authenticate", binaryName)
+		}
+		if _, err := tokenManager.GetValidAccessToken(cmd.Context()); err != nil {
+			return fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, binaryName)
 		}
 	}
 
