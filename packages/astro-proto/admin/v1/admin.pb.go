@@ -542,3 +542,14 @@ type BackfillDeploymentsRequest struct{}
 type BackfillDeploymentsResponse struct {
 	BackfilledCount int32 `json:"backfilled_count"`
 }
+
+type RepairNormalizedSpecRequest struct {
+	DeploymentId string `json:"deployment_id,omitempty"`
+}
+
+type RepairNormalizedSpecResponse struct {
+	Status    string `json:"status,omitempty"`
+	Workloads int32  `json:"workloads"`
+	Services  int32  `json:"services"`
+	Ingresses int32  `json:"ingresses"`
+}

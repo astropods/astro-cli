@@ -3,6 +3,7 @@ package deploymentstore
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -538,6 +539,57 @@ func SaveNormalizedSpec(
 	}
 
 	return nil
+}
+
+// RepairNormalizedSpec re-parses the stored DeploymentSpecJSON and rebuilds
+// the deployment_workloads, deployment_services, deployment_ingresses, and
+// deployment_volumes tables. Variables are preserved (they require resolved
+// env and encryptor which are not available at repair time).
+func (s *Store) RepairNormalizedSpec(deploymentID string) (workloads, services, ingresses int, err error) {
+	dep, err := s.GetDeploymentByID(deploymentID)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return 0, 0, 0, fmt.Errorf("deployment not found: %s", deploymentID)
+	}
+	if dep.DeploymentSpecJSON == "" {
+		return 0, 0, 0, fmt.Errorf("deployment has no spec JSON")
+	}
+
+	var ds spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err != nil {
+		return 0, 0, 0, fmt.Errorf("parse spec JSON: %w", err)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Delete existing normalized data (workloads cascade to services, ingresses, volumes)
+	if _, err := tx.Exec("DELETE FROM deployment_workloads WHERE deployment_id = $1", deploymentID); err != nil {
+		return 0, 0, 0, fmt.Errorf("delete workloads: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM deployment_variables WHERE deployment_id = $1", deploymentID); err != nil {
+		return 0, 0, 0, fmt.Errorf("delete variables: %w", err)
+	}
+
+	// Re-run SaveNormalizedSpec with nil resolved/enc (skips variable encryption, variables untouched)
+	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil); err != nil {
+		return 0, 0, 0, fmt.Errorf("save normalized spec: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, 0, fmt.Errorf("commit: %w", err)
+	}
+
+	// Count what was created
+	sums, _ := s.GetWorkloadSummaries(deploymentID)
+	svcs, _ := s.GetServices(deploymentID)
+	ings, _ := s.GetIngresses(deploymentID)
+	return len(sums), len(svcs), len(ings), nil
 }
 
 // GetDeploymentVariables returns all variables for a deployment.

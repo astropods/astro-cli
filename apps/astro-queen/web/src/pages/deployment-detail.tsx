@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
-import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play } from "lucide-react";
+import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, K8sDeploymentInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminWorkload, ExpectedService, ExpectedIngress } from "@/types/admin";
@@ -18,6 +18,7 @@ export function DeploymentDetailPage() {
   const wakeUpMut = useWakeUpDeployment();
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
+  const repairMut = useRepairNormalizedSpec();
   const jobsQuery = useDeploymentJobs(id ?? "");
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
@@ -61,6 +62,19 @@ export function DeploymentDetailPage() {
           >
             <Play className="size-3.5" />
             Re-apply
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (confirm("Repair normalized spec? This will re-parse the stored spec and rebuild workloads/services/ingresses.")) {
+                repairMut.mutate(id!, { onSuccess: () => refetch() });
+              }
+            }}
+            disabled={repairMut.isPending}
+          >
+            <Wrench className="size-3.5" />
+            Repair
           </Button>
           <Button
             variant="outline"

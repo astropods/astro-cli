@@ -333,6 +333,19 @@ export function useReapplyDeployment() {
   });
 }
 
+export function useRepairNormalizedSpec() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ status: string; workloads: number; services: number; ingresses: number }>(
+        `/api/admin/deployments/${encodeURIComponent(id)}/repair-normalized`,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
 export function useRollbackDeployment() {
   const qc = useQueryClient();
   return useMutation({

@@ -26,6 +26,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/deployments/{id}/reapply", s.handleReapplyDeployment)
 	mux.HandleFunc("GET /api/admin/deployments/{id}/jobs", s.handleGetDeploymentJobs)
 	mux.HandleFunc("POST /api/admin/backfill-deployments", s.handleBackfillDeployments)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/repair-normalized", s.handleRepairNormalizedSpec)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +262,18 @@ func (s *Server) handleBackfillDeployments(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleReapplyDeployment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	resp, err := s.admin.ReapplyDeployment(r.Context(), &adminv1.ReapplyDeploymentRequest{
+		DeploymentId: id,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRepairNormalizedSpec(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	resp, err := s.admin.RepairNormalizedSpec(r.Context(), &adminv1.RepairNormalizedSpecRequest{
 		DeploymentId: id,
 	})
 	if err != nil {

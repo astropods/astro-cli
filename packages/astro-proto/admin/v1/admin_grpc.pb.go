@@ -41,6 +41,7 @@ type AdminServiceClient interface {
 	ReapplyDeployment(ctx context.Context, in *ReapplyDeploymentRequest, opts ...grpc.CallOption) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
 	BackfillDeployments(ctx context.Context, in *BackfillDeploymentsRequest, opts ...grpc.CallOption) (*BackfillDeploymentsResponse, error)
+	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
 }
 
 type adminServiceClient struct {
@@ -275,6 +276,14 @@ func (c *adminServiceClient) BackfillDeployments(ctx context.Context, in *Backfi
 	return out, nil
 }
 
+func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error) {
+	out := new(RepairNormalizedSpecResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RepairNormalizedSpec", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -306,6 +315,7 @@ type AdminServiceServer interface {
 	ReapplyDeployment(context.Context, *ReapplyDeploymentRequest) (*ReapplyDeploymentResponse, error)
 	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
 	BackfillDeployments(context.Context, *BackfillDeploymentsRequest) (*BackfillDeploymentsResponse, error)
+	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -422,6 +432,10 @@ func (UnimplementedAdminServiceServer) GetDeploymentJobs(context.Context, *GetDe
 
 func (UnimplementedAdminServiceServer) BackfillDeployments(context.Context, *BackfillDeploymentsRequest) (*BackfillDeploymentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BackfillDeployments not implemented")
+}
+
+func (UnimplementedAdminServiceServer) RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RepairNormalizedSpec not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -856,6 +870,21 @@ func _AdminService_BackfillDeployments_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_RepairNormalizedSpec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RepairNormalizedSpecRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RepairNormalizedSpec(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RepairNormalizedSpec"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RepairNormalizedSpec(ctx, req.(*RepairNormalizedSpecRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -889,6 +918,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ReapplyDeployment", Handler: _AdminService_ReapplyDeployment_Handler},
 		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
 		{MethodName: "BackfillDeployments", Handler: _AdminService_BackfillDeployments_Handler},
+		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

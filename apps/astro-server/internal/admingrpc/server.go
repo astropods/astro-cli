@@ -1364,6 +1364,33 @@ func (s *Server) BackfillDeployments(ctx context.Context, _ *adminv1.BackfillDep
 	return &adminv1.BackfillDeploymentsResponse{BackfilledCount: count}, nil
 }
 
+// RepairNormalizedSpec re-parses the stored spec JSON and rebuilds the
+// deployment_workloads, services, ingresses, volumes, and variables tables.
+func (s *Server) RepairNormalizedSpec(_ context.Context, req *adminv1.RepairNormalizedSpecRequest) (*adminv1.RepairNormalizedSpecResponse, error) {
+	if req.DeploymentId == "" {
+		return nil, fmt.Errorf("deployment_id is required")
+	}
+
+	workloads, services, ingresses, err := s.deployStore.RepairNormalizedSpec(req.DeploymentId)
+	if err != nil {
+		return nil, fmt.Errorf("repair normalized spec: %w", err)
+	}
+
+	s.log.Info("Repaired normalized spec",
+		"deployment_id", req.DeploymentId,
+		"workloads", workloads,
+		"services", services,
+		"ingresses", ingresses,
+	)
+
+	return &adminv1.RepairNormalizedSpecResponse{
+		Status:    "ok",
+		Workloads: int32(workloads), //nolint:gosec
+		Services:  int32(services),  //nolint:gosec
+		Ingresses: int32(ingresses), //nolint:gosec
+	}, nil
+}
+
 // GetDeploymentJobs returns River job history and last reconcile time for a deployment.
 func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeploymentJobsRequest) (*adminv1.GetDeploymentJobsResponse, error) {
 	if req.DeploymentId == "" {
