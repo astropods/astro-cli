@@ -456,13 +456,16 @@ func (a *Applier) ApplyDeploymentSpec(
 			grpcPort = 9090
 		}
 
-		// Resolve web port from "http" endpoint
+		// Resolve web port from "http" endpoint, avoiding conflict with the agent port
 		webPort := int32(0)
 		if ep := spec.EndpointByName(ds.Interfaces.Endpoints, "http"); ep != nil {
 			webPort = int32(ep.Port) // nolint:gosec
 		}
 		if webPort == 0 {
-			webPort = 8080
+			webPort = 8090
+		}
+		if webPort == agentPort {
+			webPort = agentPort + 10
 		}
 
 		// Resolve interface resources from deployment spec

@@ -193,7 +193,7 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 			corev1.EnvVar{Name: "WEB_LISTEN_ADDR", Value: fmt.Sprintf(":%d", webPort)},
 		)
 		container.Ports = append(container.Ports, corev1.ContainerPort{
-			Name: "http", ContainerPort: webPort, Protocol: corev1.ProtocolTCP,
+			Name: "msg-http", ContainerPort: webPort, Protocol: corev1.ProtocolTCP,
 		})
 	}
 
