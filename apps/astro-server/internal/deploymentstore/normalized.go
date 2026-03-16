@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
+	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/lib/pq"
 )
@@ -55,6 +56,19 @@ type Service struct {
 	WorkloadName string // populated by GetServices join
 }
 
+// Sidecar represents a container that runs inside the agent pod (not a standalone K8s resource).
+type Sidecar struct {
+	ID            int
+	DeploymentID  string
+	Name          string
+	ComponentKind string
+	Image         string
+	CPURequest    string
+	MemoryRequest string
+	CPULimit      string
+	MemoryLimit   string
+}
+
 // Ingress represents a K8s Ingress row.
 type Ingress struct {
 	ID         int
@@ -94,6 +108,15 @@ type Variable struct {
 	Nonce        []byte
 }
 
+// NormalizedSpecConfig holds server-level configuration needed to generate
+// ingress records. These values come from environment variables and are not
+// part of the deployment spec itself.
+type NormalizedSpecConfig struct {
+	Namespace              string // K8s namespace (for ingress host generation)
+	IngressDomain          string // e.g. "agents.astropods.ai"
+	IngestionIngressDomain string // e.g. "ingestion.astropods.ai"
+}
+
 // SaveNormalizedSpec extracts workloads, services, ingresses, volumes, env vars,
 // and variables from an AstroDeploymentSpec and inserts them into the normalized tables.
 // This runs inside the caller's transaction.
@@ -103,6 +126,7 @@ func SaveNormalizedSpec(
 	ds *spec.AstroDeploymentSpec,
 	resolved *deployment.ResolvedEnv,
 	enc *envelope.Encryptor,
+	nsCfg *NormalizedSpecConfig,
 ) error {
 	agentName := ds.Source.Name
 
@@ -142,9 +166,29 @@ func SaveNormalizedSpec(
 	insertService := func(workloadID int, svc *Service) (int, error) {
 		var id int
 		err := tx.QueryRow(`
-			INSERT INTO deployment_services (workload_id, name, port, target_port, protocol)
-			VALUES ($1, $2, $3, $4, $5) RETURNING id
+			INSERT INTO deployment_services (workload_id, sidecar_id, name, port, target_port, protocol)
+			VALUES ($1, NULL, $2, $3, $4, $5) RETURNING id
 		`, workloadID, svc.Name, svc.Port, svc.TargetPort, svc.Protocol).Scan(&id)
+		return id, err
+	}
+
+	insertSidecar := func(sc *Sidecar) (int, error) {
+		var id int
+		err := tx.QueryRow(`
+			INSERT INTO deployment_sidecars (deployment_id, name, component_kind, image,
+				cpu_request, memory_request, cpu_limit, memory_limit)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+		`, deploymentID, sc.Name, sc.ComponentKind, sc.Image,
+			sc.CPURequest, sc.MemoryRequest, sc.CPULimit, sc.MemoryLimit).Scan(&id)
+		return id, err
+	}
+
+	insertSidecarService := func(sidecarID int, svc *Service) (int, error) {
+		var id int
+		err := tx.QueryRow(`
+			INSERT INTO deployment_services (workload_id, sidecar_id, name, port, target_port, protocol)
+			VALUES (NULL, $1, $2, $3, $4, $5) RETURNING id
+		`, sidecarID, svc.Name, svc.Port, svc.TargetPort, svc.Protocol).Scan(&id)
 		return id, err
 	}
 
@@ -250,6 +294,21 @@ func SaveNormalizedSpec(
 		return w
 	}
 
+	// resolveIngressHost determines the hostname for an exposed endpoint.
+	// Uses explicit domain from spec, falling back to generated host from ingressDomain.
+	resolveIngressHost := func(ep *spec.Endpoint, ingressDomain string) string {
+		if ep == nil {
+			return ""
+		}
+		if ep.Expose != nil && ep.Expose.Domain != "" {
+			return ep.Expose.Domain
+		}
+		if ingressDomain != "" && nsCfg != nil && nsCfg.Namespace != "" {
+			return k8s.GenerateIngressHost(agentName, nsCfg.Namespace, ingressDomain)
+		}
+		return ""
+	}
+
 	saveEndpoints := func(workloadID int, endpoints map[string]spec.Endpoint) error {
 		for name, ep := range endpoints {
 			proto := ep.Protocol
@@ -297,6 +356,30 @@ func SaveNormalizedSpec(
 	if err := saveEndpoints(agentWID, ds.Agent.Endpoints); err != nil {
 		return fmt.Errorf("agent endpoints: %w", err)
 	}
+	// Agent ingress — matches spec_applier logic: ExposedEndpoint + ingressDomain fallback
+	if ep := spec.ExposedEndpoint(ds.Agent.Endpoints); ep != nil {
+		ingressDomain := ""
+		if nsCfg != nil {
+			ingressDomain = nsCfg.IngressDomain
+		}
+		if host := resolveIngressHost(ep, ingressDomain); host != "" {
+			// Find the service ID for the exposed endpoint's port
+			var svcID int
+			err := tx.QueryRow(`
+				SELECT ds.id FROM deployment_services ds
+				WHERE ds.workload_id = $1 AND ds.port = $2
+				LIMIT 1
+			`, agentWID, ep.Port).Scan(&svcID)
+			if err == nil {
+				if err := insertIngress(svcID, &Ingress{
+					Hostname: host, Path: "/", TLSEnabled: true,
+				}); err != nil {
+					return fmt.Errorf("agent ingress: %w", err)
+				}
+			}
+		}
+	}
+
 	// --- Models ---
 	for name, model := range ds.Models {
 		replicas := model.Replicas
@@ -451,61 +534,112 @@ func SaveNormalizedSpec(
 		if err := saveEndpoints(wid, ingestion.Endpoints); err != nil {
 			return fmt.Errorf("ingestion %s endpoints: %w", name, err)
 		}
+		// Ingestion webhook ingress
+		if ingestion.Trigger.Type == "webhook" && nsCfg != nil && nsCfg.IngestionIngressDomain != "" && nsCfg.Namespace != "" {
+			host := k8s.GenerateIngestionIngressHost(agentName, nsCfg.Namespace, name, nsCfg.IngestionIngressDomain)
+			// Find the http service for this ingestion workload
+			var svcID int
+			httpEp := ingestion.Endpoints["http"]
+			if httpEp.Port > 0 {
+				err := tx.QueryRow(`
+					SELECT ds.id FROM deployment_services ds
+					WHERE ds.workload_id = $1 AND ds.port = $2
+					LIMIT 1
+				`, wid, httpEp.Port).Scan(&svcID)
+				if err == nil && svcID > 0 {
+					if err := insertIngress(svcID, &Ingress{
+						Hostname: host, Path: "/", TLSEnabled: true,
+					}); err != nil {
+						return fmt.Errorf("ingestion %s ingress: %w", name, err)
+					}
+				}
+			}
+		}
 	}
 
-	// --- Messaging (Interfaces) ---
+	// --- Messaging (Interfaces) — sidecar in agent pod ---
 	if ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 		resourceName := deployment.GenerateAgentResourceName(agentName, "messaging")
-		w := &Workload{
+		sc := &Sidecar{
 			Name:          resourceName,
 			ComponentKind: "messaging",
-			WorkloadType:  "sidecar",
 			Image:         ds.Interfaces.Image,
-			Replicas:      1,
 			CPURequest:    ds.Interfaces.Resources.CPU,
 			MemoryRequest: ds.Interfaces.Resources.Memory,
 			CPULimit:      ds.Interfaces.Resources.CPULimit,
 			MemoryLimit:   ds.Interfaces.Resources.MemoryLimit,
 		}
-		wid, err := insertWorkload(w)
+		scID, err := insertSidecar(sc)
 		if err != nil {
-			return fmt.Errorf("insert messaging workload: %w", err)
+			return fmt.Errorf("insert messaging sidecar: %w", err)
 		}
-		if err := saveEndpoints(wid, ds.Interfaces.Endpoints); err != nil {
-			return fmt.Errorf("messaging endpoints: %w", err)
+		var webSvcID int
+		webEnabled := false
+		for _, adapter := range ds.Interfaces.Adapters {
+			if adapter == "web" {
+				webEnabled = true
+				break
+			}
+		}
+		for name, ep := range ds.Interfaces.Endpoints {
+			proto := ep.Protocol
+			if proto == "" {
+				proto = "http"
+			}
+			svcID, err := insertSidecarService(scID, &Service{
+				Name: name, Port: ep.Port, TargetPort: ep.Port, Protocol: proto,
+			})
+			if err != nil {
+				return fmt.Errorf("messaging service %s: %w", name, err)
+			}
+			if name == "http" {
+				webSvcID = svcID
+			}
+		}
+		// Messaging ingress — when web adapter is enabled
+		if webEnabled && webSvcID > 0 {
+			httpEp := ds.Interfaces.Endpoints["http"]
+			ingressDomain := ""
+			if nsCfg != nil {
+				ingressDomain = nsCfg.IngressDomain
+			}
+			if host := resolveIngressHost(&httpEp, ingressDomain); host != "" {
+				if err := insertIngress(webSvcID, &Ingress{
+					Hostname: host, Path: "/", TLSEnabled: true,
+				}); err != nil {
+					return fmt.Errorf("messaging ingress: %w", err)
+				}
+			}
 		}
 	}
 
-	// --- Collector (Observability) ---
+	// --- Collector (Observability) — sidecar in agent pod ---
 	if ds.Observability.Enabled {
 		resourceName := deployment.GenerateAgentResourceName(agentName, "collector")
-		w := &Workload{
+		sc := &Sidecar{
 			Name:          resourceName,
 			ComponentKind: "collector",
-			WorkloadType:  "sidecar",
 			Image:         ds.Observability.Image,
-			Replicas:      1,
 			CPURequest:    ds.Observability.Resources.CPU,
 			MemoryRequest: ds.Observability.Resources.Memory,
 			CPULimit:      ds.Observability.Resources.CPULimit,
 			MemoryLimit:   ds.Observability.Resources.MemoryLimit,
 		}
-		wid, err := insertWorkload(w)
+		scID, err := insertSidecar(sc)
 		if err != nil {
-			return fmt.Errorf("insert collector workload: %w", err)
+			return fmt.Errorf("insert collector sidecar: %w", err)
 		}
-		// Collector has OTLP ports from the spec
 		otlpHTTPPort := ds.Observability.Port
 		if otlpHTTPPort == 0 {
 			otlpHTTPPort = 4318
 		}
 		otlpGRPCPort := otlpHTTPPort - 1
-		if _, err := insertService(wid, &Service{
+		if _, err := insertSidecarService(scID, &Service{
 			Name: "otlp-grpc", Port: otlpGRPCPort, TargetPort: otlpGRPCPort, Protocol: "grpc",
 		}); err != nil {
 			return fmt.Errorf("collector grpc service: %w", err)
 		}
-		if _, err := insertService(wid, &Service{
+		if _, err := insertSidecarService(scID, &Service{
 			Name: "otlp-http", Port: otlpHTTPPort, TargetPort: otlpHTTPPort, Protocol: "http",
 		}); err != nil {
 			return fmt.Errorf("collector http service: %w", err)
@@ -569,16 +703,19 @@ func (s *Store) RepairNormalizedSpec(deploymentID string) (workloads, services, 
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Delete existing normalized data (workloads cascade to services, ingresses, volumes)
+	// Delete existing normalized data (workloads/sidecars cascade to services, ingresses, volumes)
 	if _, err := tx.Exec("DELETE FROM deployment_workloads WHERE deployment_id = $1", deploymentID); err != nil {
 		return 0, 0, 0, fmt.Errorf("delete workloads: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM deployment_sidecars WHERE deployment_id = $1", deploymentID); err != nil {
+		return 0, 0, 0, fmt.Errorf("delete sidecars: %w", err)
 	}
 	if _, err := tx.Exec("DELETE FROM deployment_variables WHERE deployment_id = $1", deploymentID); err != nil {
 		return 0, 0, 0, fmt.Errorf("delete variables: %w", err)
 	}
 
-	// Re-run SaveNormalizedSpec with nil resolved/enc (skips variable encryption, variables untouched)
-	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil); err != nil {
+	// Re-run SaveNormalizedSpec with nil resolved/enc/cfg (skips variable encryption and ingress generation)
+	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil, nil); err != nil {
 		return 0, 0, 0, fmt.Errorf("save normalized spec: %w", err)
 	}
 
@@ -734,14 +871,19 @@ func (s *Store) GetActiveDeploymentWorkloads() ([]*ActiveDeploymentWorkload, err
 	return result, rows.Err()
 }
 
-// GetServices returns all services for a deployment (across all workloads).
+// GetServices returns all services for a deployment (across workloads and sidecars).
 func (s *Store) GetServices(deploymentID string) ([]*Service, error) {
 	rows, err := s.db.Query(`
-		SELECT ds.id, ds.workload_id, ds.name, ds.port, ds.target_port, ds.protocol, dw.name
+		SELECT ds.id, COALESCE(ds.workload_id, 0), ds.name, ds.port, ds.target_port, ds.protocol, dw.name
 		FROM deployment_services ds
 		JOIN deployment_workloads dw ON dw.id = ds.workload_id
 		WHERE dw.deployment_id = $1
-		ORDER BY ds.id
+		UNION ALL
+		SELECT ds.id, 0, ds.name, ds.port, ds.target_port, ds.protocol, sc.name
+		FROM deployment_services ds
+		JOIN deployment_sidecars sc ON sc.id = ds.sidecar_id
+		WHERE sc.deployment_id = $1
+		ORDER BY id
 	`, deploymentID)
 	if err != nil {
 		return nil, fmt.Errorf("query services: %w", err)
@@ -759,14 +901,41 @@ func (s *Store) GetServices(deploymentID string) ([]*Service, error) {
 	return result, rows.Err()
 }
 
+// GetSidecars returns all sidecars for a deployment.
+func (s *Store) GetSidecars(deploymentID string) ([]*Sidecar, error) {
+	rows, err := s.db.Query(`
+		SELECT id, deployment_id, name, component_kind, image,
+			cpu_request, memory_request, cpu_limit, memory_limit
+		FROM deployment_sidecars
+		WHERE deployment_id = $1
+		ORDER BY id
+	`, deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query sidecars: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var result []*Sidecar
+	for rows.Next() {
+		var sc Sidecar
+		if err := rows.Scan(&sc.ID, &sc.DeploymentID, &sc.Name, &sc.ComponentKind, &sc.Image,
+			&sc.CPURequest, &sc.MemoryRequest, &sc.CPULimit, &sc.MemoryLimit); err != nil {
+			return nil, fmt.Errorf("scan sidecar: %w", err)
+		}
+		result = append(result, &sc)
+	}
+	return result, rows.Err()
+}
+
 // GetIngresses returns all ingresses for a deployment.
 func (s *Store) GetIngresses(deploymentID string) ([]*Ingress, error) {
 	rows, err := s.db.Query(`
 		SELECT di.id, di.service_id, di.hostname, di.path, di.tls_enabled
 		FROM deployment_ingresses di
 		JOIN deployment_services ds ON ds.id = di.service_id
-		JOIN deployment_workloads dw ON dw.id = ds.workload_id
-		WHERE dw.deployment_id = $1
+		LEFT JOIN deployment_workloads dw ON dw.id = ds.workload_id
+		LEFT JOIN deployment_sidecars sc ON sc.id = ds.sidecar_id
+		WHERE dw.deployment_id = $1 OR sc.deployment_id = $1
 		ORDER BY di.id
 	`, deploymentID)
 	if err != nil {

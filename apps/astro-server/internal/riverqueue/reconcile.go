@@ -336,9 +336,6 @@ func checkDrift(ctx context.Context, clientset *kubernetes.Clientset, namespace 
 			if wl.TriggerSchedule != nil && actual.Spec.Schedule != *wl.TriggerSchedule {
 				drifts = append(drifts, fmt.Sprintf("CronJob %q schedule mismatch", wl.Name))
 			}
-
-			// "sidecar" workloads (messaging, collector) are containers within the
-			// agent pod — they don't have standalone K8s resources to check.
 		}
 	}
 

@@ -441,7 +441,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		// Save deployment as pending with normalized spec in same transaction
 		txFn := func(tx *sql.Tx, deploymentID string) error {
-			return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc)
+			nsCfg := &deploymentstore.NormalizedSpecConfig{
+				Namespace:              dctx.k8sNS,
+				IngressDomain:          cfg.Deployment.IngressDomain,
+				IngestionIngressDomain: cfg.Deployment.IngestionIngressDomain,
+			}
+			return deploymentstore.SaveNormalizedSpec(tx, deploymentID, dctx.resolveResult.Spec, resolved, enc, nsCfg)
 		}
 		var storeErr error
 		if dctx.isUpdate {

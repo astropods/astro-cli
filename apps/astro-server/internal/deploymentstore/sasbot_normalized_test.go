@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -24,7 +25,7 @@ func parseSasbotSpec(t *testing.T) *spec.AstroDeploymentSpec {
 	return &ds
 }
 
-func saveSasbotDeployment(t *testing.T, db *sql.DB, store *Store, ds *spec.AstroDeploymentSpec) *Deployment {
+func saveSasbotDeployment(t *testing.T, db *sql.DB, store *Store, ds *spec.AstroDeploymentSpec, nsCfg *NormalizedSpecConfig) *Deployment {
 	t.Helper()
 	accountID := ensureTestAccount(t, db)
 	resolved := &deployment.ResolvedEnv{
@@ -37,7 +38,7 @@ func saveSasbotDeployment(t *testing.T, db *sql.DB, store *Store, ds *spec.Astro
 		DisplayName: "Sasbot", BuildID: "14f4c4dd", Namespace: "ns-sasbot-test",
 		SpecJSON: sasbotSpecJSON,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -51,20 +52,21 @@ func TestSasbotNormalized_Workloads(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	workloads, err := store.GetWorkloads(d.ID)
 	if err != nil {
 		t.Fatalf("GetWorkloads: %v", err)
 	}
 
-	// Expected: agent + ollama model + cache + docs + graph + webhook ingestion + messaging + collector = 8
-	if len(workloads) != 8 {
+	// Expected: agent + ollama model + cache + docs + graph + webhook ingestion = 6
+	// (messaging and collector are now in deployment_sidecars, not workloads)
+	if len(workloads) != 6 {
 		names := make([]string, len(workloads))
 		for i, w := range workloads {
 			names[i] = w.Name + " (" + w.ComponentKind + "/" + w.ComponentKey + ")"
 		}
-		t.Fatalf("expected 8 workloads, got %d: %v", len(workloads), names)
+		t.Fatalf("expected 6 workloads, got %d: %v", len(workloads), names)
 	}
 
 	byName := make(map[string]*Workload)
@@ -168,33 +170,50 @@ func TestSasbotNormalized_Workloads(t *testing.T) {
 		triggerType: strPtr("webhook"),
 	})
 
-	// --- Messaging (interfaces sidecar) ---
-	messaging := byName["sasbot-messaging"]
-	if messaging == nil {
-		t.Fatal("messaging workload 'sasbot-messaging' not found")
+	// --- Sidecars (separate table) ---
+	sidecars, err := store.GetSidecars(d.ID)
+	if err != nil {
+		t.Fatalf("GetSidecars: %v", err)
 	}
-	assertWorkload(t, messaging, workloadExpect{
-		componentKind: "messaging", componentKey: "",
-		workloadType: "sidecar", replicas: 1,
-		image:      "969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest",
-		cpuRequest: "100m", memoryRequest: "128Mi",
-		cpuLimit: "500m", memoryLimit: "512Mi",
-		persistent: false,
-	})
+	if len(sidecars) != 2 {
+		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
+	}
 
-	// --- Collector (observability sidecar) ---
-	collector := byName["sasbot-collector"]
-	if collector == nil {
-		t.Fatal("collector workload 'sasbot-collector' not found")
+	scByName := make(map[string]*Sidecar)
+	for _, sc := range sidecars {
+		scByName[sc.Name] = sc
 	}
-	assertWorkload(t, collector, workloadExpect{
-		componentKind: "collector", componentKey: "",
-		workloadType: "sidecar", replicas: 1,
-		image:      "969403051954.dkr.ecr.us-east-1.amazonaws.com/prod-astro-collector:latest",
-		cpuRequest: "50m", memoryRequest: "128Mi",
-		cpuLimit: "250m", memoryLimit: "256Mi",
-		persistent: false,
-	})
+
+	messaging := scByName["sasbot-messaging"]
+	if messaging == nil {
+		t.Fatal("sidecar 'sasbot-messaging' not found")
+	}
+	if messaging.ComponentKind != "messaging" {
+		t.Errorf("messaging component_kind: got %q, want 'messaging'", messaging.ComponentKind)
+	}
+	if messaging.Image != "969403051954.dkr.ecr.us-east-1.amazonaws.com/dockerhub/astropods/messaging:latest" {
+		t.Errorf("messaging image: got %q", messaging.Image)
+	}
+	if messaging.CPURequest != "100m" || messaging.MemoryRequest != "128Mi" {
+		t.Errorf("messaging resources: cpu=%q mem=%q", messaging.CPURequest, messaging.MemoryRequest)
+	}
+	if messaging.CPULimit != "500m" || messaging.MemoryLimit != "512Mi" {
+		t.Errorf("messaging limits: cpu=%q mem=%q", messaging.CPULimit, messaging.MemoryLimit)
+	}
+
+	collector := scByName["sasbot-collector"]
+	if collector == nil {
+		t.Fatal("sidecar 'sasbot-collector' not found")
+	}
+	if collector.ComponentKind != "collector" {
+		t.Errorf("collector component_kind: got %q, want 'collector'", collector.ComponentKind)
+	}
+	if collector.Image != "969403051954.dkr.ecr.us-east-1.amazonaws.com/prod-astro-collector:latest" {
+		t.Errorf("collector image: got %q", collector.Image)
+	}
+	if collector.CPURequest != "50m" || collector.MemoryRequest != "128Mi" {
+		t.Errorf("collector resources: cpu=%q mem=%q", collector.CPURequest, collector.MemoryRequest)
+	}
 }
 
 // TestSasbotNormalized_Services verifies the correct service rows are created.
@@ -202,7 +221,7 @@ func TestSasbotNormalized_Services(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	services, err := store.GetServices(d.ID)
 	if err != nil {
@@ -280,7 +299,7 @@ func TestSasbotNormalized_Volumes(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	// Query volumes via workload join
 	rows, err := db.Query(`
@@ -347,20 +366,71 @@ func TestSasbotNormalized_Volumes(t *testing.T) {
 	}
 }
 
-// TestSasbotNormalized_NoIngresses verifies no ingress rows are created
-// (the messaging http endpoint has expose.enabled=false).
-func TestSasbotNormalized_NoIngresses(t *testing.T) {
+// TestSasbotNormalized_NoIngresses_WithoutDomain verifies no ingress rows are created
+// when no ingressDomain is configured.
+func TestSasbotNormalized_NoIngresses_WithoutDomain(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	ingresses, err := store.GetIngresses(d.ID)
 	if err != nil {
 		t.Fatalf("GetIngresses: %v", err)
 	}
 	if len(ingresses) != 0 {
-		t.Errorf("expected 0 ingresses (no exposed endpoints), got %d", len(ingresses))
+		t.Errorf("expected 0 ingresses (no ingressDomain configured), got %d", len(ingresses))
+	}
+}
+
+// TestSasbotNormalized_Ingresses_WithDomain verifies ingress rows are created
+// when ingressDomain is configured, matching the K8s spec applier behavior.
+func TestSasbotNormalized_Ingresses_WithDomain(t *testing.T) {
+	db := testDB(t)
+	ds := parseSasbotSpec(t)
+	store := NewStore(db)
+
+	nsCfg := &NormalizedSpecConfig{
+		Namespace:              "ns-sasbot-test",
+		IngressDomain:          "agents.example.com",
+		IngestionIngressDomain: "ingestion.example.com",
+	}
+	d := saveSasbotDeployment(t, db, store, ds, nsCfg)
+
+	ingresses, err := store.GetIngresses(d.ID)
+	if err != nil {
+		t.Fatalf("GetIngresses: %v", err)
+	}
+
+	// Expected ingresses:
+	// 1. Messaging web adapter (web adapter enabled + ingressDomain)
+	// 2. Ingestion webhook (webhook trigger + ingestionIngressDomain)
+	// Agent does NOT get an ingress because its http endpoint has no expose.enabled=true
+	if len(ingresses) != 2 {
+		t.Fatalf("expected 2 ingresses (messaging + webhook), got %d", len(ingresses))
+	}
+
+	// Verify hostnames contain the domains
+	var hasAgentsDomain, hasIngestionDomain bool
+	for _, ing := range ingresses {
+		if strings.Contains(ing.Hostname, "agents.example.com") {
+			hasAgentsDomain = true
+		}
+		if strings.Contains(ing.Hostname, "ingestion.example.com") {
+			hasIngestionDomain = true
+		}
+		if !ing.TLSEnabled {
+			t.Errorf("ingress %q should have TLS enabled", ing.Hostname)
+		}
+		if ing.Path != "/" {
+			t.Errorf("ingress %q path: got %q, want '/'", ing.Hostname, ing.Path)
+		}
+	}
+	if !hasAgentsDomain {
+		t.Error("expected messaging ingress with agents.example.com domain")
+	}
+	if !hasIngestionDomain {
+		t.Error("expected ingestion ingress with ingestion.example.com domain")
 	}
 }
 
@@ -369,7 +439,7 @@ func TestSasbotNormalized_Variables(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	vars, err := store.GetDeploymentVariables(d.ID)
 	if err != nil {
@@ -461,7 +531,7 @@ func TestSasbotNormalized_WorkloadTypeMapping(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	workloads, err := store.GetWorkloads(d.ID)
 	if err != nil {
@@ -475,8 +545,7 @@ func TestSasbotNormalized_WorkloadTypeMapping(t *testing.T) {
 		"sasbot-knowledge-docs":    "statefulset", // persistent=true
 		"sasbot-knowledge-graph":   "deployment",  // persistent=false
 		"sasbot-ingestion-webhook": "deployment",  // webhook trigger
-		"sasbot-messaging":         "sidecar",     // interfaces
-		"sasbot-collector":         "sidecar",     // observability
+		// messaging and collector are sidecars (separate table)
 	}
 
 	for _, w := range workloads {
@@ -497,7 +566,7 @@ func TestSasbotNormalized_ServiceWorkloadNameJoin(t *testing.T) {
 	db := testDB(t)
 	ds := parseSasbotSpec(t)
 	store := NewStore(db)
-	d := saveSasbotDeployment(t, db, store, ds)
+	d := saveSasbotDeployment(t, db, store, ds, nil)
 
 	services, err := store.GetServices(d.ID)
 	if err != nil {
@@ -524,8 +593,8 @@ func TestSasbotNormalized_ServiceWorkloadNameJoin(t *testing.T) {
 		"sasbot-knowledge-docs":    2, // grpc + http
 		"sasbot-knowledge-graph":   2, // bolt + http
 		"sasbot-ingestion-webhook": 1, // http
-		"sasbot-messaging":         2, // grpc + http
-		"sasbot-collector":         2, // otlp-grpc + otlp-http
+		"sasbot-messaging":         2, // grpc + http (sidecar services)
+		"sasbot-collector":         2, // otlp-grpc + otlp-http (sidecar services)
 	}
 
 	for wl, want := range expectedCounts {

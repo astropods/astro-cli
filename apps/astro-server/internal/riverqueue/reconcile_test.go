@@ -317,8 +317,8 @@ func strPtr(s string) *string { return &s }
 
 // --- Real sasbot deployment data ---
 
-// sasbotWorkloads returns the FIXED normalized workloads for sasbot.
-// Messaging and collector are now "sidecar" (not "deployment").
+// sasbotWorkloads returns the normalized workloads for sasbot.
+// Sidecars (messaging, collector) are now in a separate table and not included here.
 func sasbotWorkloads() []*deploymentstore.Workload {
 	return []*deploymentstore.Workload{
 		{Name: "sasbot-agent", WorkloadType: "deployment", Image: "sasbot:14f4c4dd", Replicas: 1},
@@ -327,9 +327,6 @@ func sasbotWorkloads() []*deploymentstore.Workload {
 		{Name: "sasbot-ingestion-webhook", WorkloadType: "deployment", Image: "sasbot-ingestion-webhook:14f4c4dd", Replicas: 1},
 		{Name: "sasbot-model-ollama", WorkloadType: "statefulset", Image: "ollama:latest", Replicas: 1},
 		{Name: "sasbot-knowledge-docs", WorkloadType: "statefulset", Image: "qdrant:latest", Replicas: 1},
-		// Sidecars — containers within the agent pod, NOT standalone K8s resources.
-		{Name: "sasbot-messaging", WorkloadType: "sidecar", Image: "messaging:latest", Replicas: 1},
-		{Name: "sasbot-collector", WorkloadType: "sidecar", Image: "prod-astro-collector:latest", Replicas: 1},
 	}
 }
 
@@ -452,19 +449,14 @@ func TestCheckDrift_Sasbot_OldBugReproduction(t *testing.T) {
 	}
 }
 
-// TestCheckDrift_SidecarsSkipped verifies sidecar workloads don't produce drift.
-func TestCheckDrift_SidecarsSkipped(t *testing.T) {
+// TestCheckDrift_EmptyWorkloads verifies zero workloads produces zero drift.
+func TestCheckDrift_EmptyWorkloads(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{})
 
-	workloads := []*deploymentstore.Workload{
-		{Name: "my-messaging", WorkloadType: "sidecar", Image: "msg:latest", Replicas: 1},
-		{Name: "my-collector", WorkloadType: "sidecar", Image: "col:latest", Replicas: 1},
-	}
-
-	drifts := checkDrift(context.Background(), cs, ns, workloads, nil)
+	drifts := checkDrift(context.Background(), cs, ns, nil, nil)
 	if len(drifts) > 0 {
-		t.Errorf("sidecars should not produce drift, got: %s", strings.Join(drifts, "; "))
+		t.Errorf("empty workloads should not produce drift, got: %s", strings.Join(drifts, "; "))
 	}
 }
 
@@ -616,7 +608,6 @@ func TestCheckDrift_MixedWorkloadTypes(t *testing.T) {
 		{Name: "web", WorkloadType: "deployment", Image: "web:v1", Replicas: 2},
 		{Name: "db", WorkloadType: "statefulset", Image: "pg:15", Replicas: 1},
 		{Name: "cleanup", WorkloadType: "cronjob", TriggerSchedule: strPtr("0 3 * * *")},
-		{Name: "sidecar-metrics", WorkloadType: "sidecar", Image: "prom:v2", Replicas: 1},
 	}
 	services := []*deploymentstore.Service{
 		{Name: "http", Port: 8080, WorkloadName: "web"},

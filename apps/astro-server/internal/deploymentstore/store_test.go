@@ -718,7 +718,7 @@ func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
 		DisplayName: "Cleanup Agent", BuildID: "build-1", Namespace: "ns-cleanup",
 		SpecJSON: `{"spec":"v1"}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("first deploy failed: %v", err)
@@ -743,7 +743,7 @@ func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
 		DisplayName: "Cleanup Agent", BuildID: "build-2", Namespace: "ns-cleanup-2",
 		SpecJSON: `{"spec":"v2"}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("second deploy failed: %v", err)

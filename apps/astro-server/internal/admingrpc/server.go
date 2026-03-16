@@ -155,7 +155,7 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 			continue
 		}
 
-		// Populate components from normalized workloads table
+		// Populate components from normalized workloads + sidecars tables
 		components := []string{}
 		if summaries, err := s.deployStore.GetWorkloadSummaries(d.ID); err == nil && len(summaries) > 0 {
 			for _, ws := range summaries {
@@ -164,6 +164,11 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 					name += "/" + ws.ComponentKey
 				}
 				components = append(components, name)
+			}
+		}
+		if sidecars, err := s.deployStore.GetSidecars(d.ID); err == nil {
+			for _, sc := range sidecars {
+				components = append(components, sc.ComponentKind)
 			}
 		}
 
@@ -276,6 +281,20 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 				CPURequest:    w.CPURequest,
 				MemoryRequest: w.MemoryRequest,
 				Persistent:    w.Persistent,
+			})
+		}
+	}
+	// Include sidecars (messaging, collector) in workloads list for display
+	if sidecars, err := s.deployStore.GetSidecars(dep.ID); err == nil {
+		for _, sc := range sidecars {
+			protoWorkloads = append(protoWorkloads, &adminv1.AdminWorkload{
+				Name:          sc.Name,
+				ComponentKind: sc.ComponentKind,
+				WorkloadType:  "sidecar",
+				Image:         sc.Image,
+				Replicas:      1,
+				CPURequest:    sc.CPURequest,
+				MemoryRequest: sc.MemoryRequest,
 			})
 		}
 	}

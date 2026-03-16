@@ -198,7 +198,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		DisplayName: "My Agent", BuildID: "build-1", Namespace: "ns-test",
 		SpecJSON: specJSON,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -213,9 +213,10 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		t.Fatalf("GetWorkloads failed: %v", err)
 	}
 
-	// Expected: agent + gpt4 model + redis knowledge + search tool + collector = 5
-	if len(workloads) != 5 {
-		t.Fatalf("expected 5 workloads, got %d", len(workloads))
+	// Expected: agent + gpt4 model + redis knowledge + search tool = 4
+	// (collector is now in deployment_sidecars)
+	if len(workloads) != 4 {
+		t.Fatalf("expected 4 workloads, got %d", len(workloads))
 	}
 
 	// Check agent workload
@@ -278,15 +279,14 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		t.Errorf("knowledge workload_type: got %q, want 'statefulset'", knowledgeWL.WorkloadType)
 	}
 
-	// Verify services
-	var svcCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM deployment_services WHERE workload_id IN (SELECT id FROM deployment_workloads WHERE deployment_id = $1)", d.ID).Scan(&svcCount)
+	// Verify services (use GetServices which unions workload + sidecar services)
+	allServices, err := store.GetServices(d.ID)
 	if err != nil {
-		t.Fatalf("count services: %v", err)
+		t.Fatalf("GetServices: %v", err)
 	}
-	// agent(1 http) + model(1 http) + knowledge(1 http) + tool(1 http) + collector(2: grpc+http) = 6
-	if svcCount != 6 {
-		t.Errorf("expected 6 services, got %d", svcCount)
+	// agent(1 http) + model(1 http) + knowledge(1 http) + tool(1 http) + collector(2: grpc+http via sidecar) = 6
+	if len(allServices) != 6 {
+		t.Errorf("expected 6 services, got %d", len(allServices))
 	}
 
 	// Verify volumes (model + knowledge)
@@ -473,7 +473,7 @@ func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
 		DisplayName: "EncTest", BuildID: "build-1", Namespace: "ns-enc-test",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save failed: %v", err)
@@ -559,7 +559,7 @@ func TestSaveNormalizedSpec_EncryptedBase64(t *testing.T) {
 		DisplayName: "Base64Test", BuildID: "build-1", Namespace: "ns-b64",
 		SpecJSON: `{}`, EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: "arn:test",
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, enc)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -637,7 +637,7 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		DisplayName: "Summary", BuildID: "build-1", Namespace: "ns-summary",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -648,9 +648,9 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		t.Fatalf("GetWorkloadSummaries: %v", err)
 	}
 
-	// agent + llm model + collector = 3
-	if len(summaries) != 3 {
-		t.Fatalf("expected 3 summaries, got %d", len(summaries))
+	// agent + llm model = 2 (collector is now in sidecars table)
+	if len(summaries) != 2 {
+		t.Fatalf("expected 2 summaries, got %d", len(summaries))
 	}
 
 	// Build a lookup by component_kind
@@ -663,9 +663,6 @@ func TestGetWorkloadSummaries(t *testing.T) {
 	agentSummary := byKind["agent"]
 	if agentSummary == nil {
 		t.Fatal("agent summary not found")
-	}
-	if agentSummary.Name != "summary-agent" {
-		t.Errorf("agent name: got %q, want 'summary-agent'", agentSummary.Name)
 	}
 	if agentSummary.Replicas != 2 {
 		t.Errorf("agent replicas: got %d, want 2", agentSummary.Replicas)
@@ -692,13 +689,16 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		t.Errorf("model name: got %q, want 'summary-agent-model-llm'", modelSummary.Name)
 	}
 
-	// Verify collector summary
-	collectorSummary := byKind["collector"]
-	if collectorSummary == nil {
-		t.Fatal("collector summary not found")
+	// Verify collector is in sidecars, not workloads
+	sidecars, err := store.GetSidecars(d.ID)
+	if err != nil {
+		t.Fatalf("GetSidecars: %v", err)
 	}
-	if collectorSummary.WorkloadType != "sidecar" {
-		t.Errorf("collector type: got %q, want 'sidecar'", collectorSummary.WorkloadType)
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar (collector), got %d", len(sidecars))
+	}
+	if sidecars[0].ComponentKind != "collector" {
+		t.Errorf("sidecar kind: got %q, want 'collector'", sidecars[0].ComponentKind)
 	}
 }
 
@@ -735,7 +735,7 @@ func TestGetWorkloadSummaries_PersistentFlag(t *testing.T) {
 		DisplayName: "Persist", BuildID: "build-1", Namespace: "ns-persist",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -827,7 +827,7 @@ func TestGetActiveDeploymentWorkloads(t *testing.T) {
 		DisplayName: "ActiveWL", BuildID: "build-1", Namespace: "ns-active-wl",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -940,7 +940,7 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 		DisplayName: "Update Test", BuildID: "build-1", Namespace: "ns-update",
 		SpecJSON: `{"v":1}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds1, resolved1, nil)
+		return SaveNormalizedSpec(tx, depID, ds1, resolved1, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("initial save: %v", err)
@@ -985,7 +985,7 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 		DisplayName: "Update Test", BuildID: "build-2", Namespace: "ns-update",
 		SpecJSON: `{"v":2}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds2, resolved2, nil)
+		return SaveNormalizedSpec(tx, depID, ds2, resolved2, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)

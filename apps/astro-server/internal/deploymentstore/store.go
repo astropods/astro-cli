@@ -433,6 +433,9 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 		if _, err := tx.Exec(`DELETE FROM deployment_workloads WHERE deployment_id = $1`, oldID); err != nil {
 			return nil, fmt.Errorf("failed to delete old workloads for %s: %w", oldID, err)
 		}
+		if _, err := tx.Exec(`DELETE FROM deployment_sidecars WHERE deployment_id = $1`, oldID); err != nil {
+			return nil, fmt.Errorf("failed to delete old sidecars for %s: %w", oldID, err)
+		}
 		if _, err := tx.Exec(`DELETE FROM deployment_variables WHERE deployment_id = $1`, oldID); err != nil {
 			return nil, fmt.Errorf("failed to delete old variables for %s: %w", oldID, err)
 		}
@@ -534,10 +537,14 @@ func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sq
 		return nil, fmt.Errorf("failed to insert revision: %w", err)
 	}
 
-	// Delete old normalized data (cascades from deployment_workloads)
+	// Delete old normalized data (cascades from deployment_workloads/sidecars)
 	_, err = tx.Exec(`DELETE FROM deployment_workloads WHERE deployment_id = $1`, p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete old workloads: %w", err)
+	}
+	_, err = tx.Exec(`DELETE FROM deployment_sidecars WHERE deployment_id = $1`, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete old sidecars: %w", err)
 	}
 	_, err = tx.Exec(`DELETE FROM deployment_variables WHERE deployment_id = $1`, p.ID)
 	if err != nil {

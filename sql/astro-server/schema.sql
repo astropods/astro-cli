@@ -156,18 +156,38 @@ CREATE TABLE public.deployment_workloads (
 
 CREATE UNIQUE INDEX idx_deployment_workloads_name ON public.deployment_workloads(deployment_id, name);
 
+CREATE TABLE public.deployment_sidecars (
+    id serial NOT NULL,
+    deployment_id varchar(11) NOT NULL,
+    name varchar NOT NULL,
+    component_kind varchar NOT NULL,
+    image varchar NOT NULL,
+    cpu_request varchar NOT NULL DEFAULT '',
+    memory_request varchar NOT NULL DEFAULT '',
+    cpu_limit varchar NOT NULL DEFAULT '',
+    memory_limit varchar NOT NULL DEFAULT '',
+    CONSTRAINT deployment_sidecars_pkey PRIMARY KEY (id),
+    CONSTRAINT deployment_sidecars_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_deployment_sidecars_name ON public.deployment_sidecars(deployment_id, name);
+
 CREATE TABLE public.deployment_services (
     id serial NOT NULL,
-    workload_id int NOT NULL,
+    workload_id int,
+    sidecar_id int,
     name varchar NOT NULL,
     port int NOT NULL,
     target_port int NOT NULL,
     protocol varchar NOT NULL DEFAULT 'http',
     CONSTRAINT deployment_services_pkey PRIMARY KEY (id),
-    CONSTRAINT deployment_services_workload_id_fkey FOREIGN KEY (workload_id) REFERENCES public.deployment_workloads(id) ON DELETE CASCADE
+    CONSTRAINT deployment_services_workload_id_fkey FOREIGN KEY (workload_id) REFERENCES public.deployment_workloads(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_services_sidecar_id_fkey FOREIGN KEY (sidecar_id) REFERENCES public.deployment_sidecars(id) ON DELETE CASCADE,
+    CONSTRAINT deployment_services_owner_check CHECK ((workload_id IS NOT NULL) != (sidecar_id IS NOT NULL))
 );
 
-CREATE UNIQUE INDEX idx_deployment_services_name ON public.deployment_services(workload_id, name);
+CREATE UNIQUE INDEX idx_deployment_services_workload_name ON public.deployment_services(workload_id, name) WHERE workload_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_deployment_services_sidecar_name ON public.deployment_services(sidecar_id, name) WHERE sidecar_id IS NOT NULL;
 
 CREATE TABLE public.deployment_ingresses (
     id serial NOT NULL,
