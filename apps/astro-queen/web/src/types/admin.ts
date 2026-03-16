@@ -29,12 +29,25 @@ export interface ListDeploymentsResponse {
   count: number;
 }
 
+export interface AdminWorkload {
+  name: string;
+  component_kind: string;
+  component_key: string;
+  workload_type: string;
+  image: string;
+  replicas: number;
+  cpu_request: string;
+  memory_request: string;
+  persistent: boolean;
+}
+
 export interface GetDeploymentResponse {
   deployment: AdminDeployment;
   spec_json: string;
   cluster_status: ClusterStatusResponse;
   events?: DeploymentEvent[];
   revisions?: DeploymentRevision[];
+  workloads?: AdminWorkload[];
 }
 
 export interface GetDeploymentEventsResponse {

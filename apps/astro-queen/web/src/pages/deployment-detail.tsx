@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob } from "@/types/admin";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminWorkload, ClusterStatusResponse } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -134,16 +134,8 @@ export function DeploymentDetailPage() {
         </div>
       )}
 
-      {dep.components?.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-muted-foreground">Components</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {dep.components.map((c) => (
-              <span key={c} className="rounded-full bg-pollen-light px-2 py-0.5 text-xs text-honey-dark">{c}</span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Expected vs Current */}
+      <ExpectedVsCurrent workloads={data.workloads} clusterStatus={cs} />
 
       {/* Event Timeline */}
       <Collapsible>
@@ -638,6 +630,132 @@ function PodRow({
         </div>
       )}
     </div>
+  );
+}
+
+type WorkloadStatus = "running" | "degraded" | "missing" | "pending";
+
+function resolveWorkloadStatus(
+  w: AdminWorkload,
+  cs?: ClusterStatusResponse,
+): { status: WorkloadStatus; ready: string; detail?: string } {
+  const k8sDeps = cs?.deployments ?? [];
+  const k8sPods = cs?.pods ?? [];
+
+  // Sidecars: check for the container inside agent pods
+  if (w.workload_type === "sidecar") {
+    const containerName = w.component_kind === "interfaces" ? "messaging" : w.component_key || w.component_kind;
+    const hasSidecar = k8sPods.some((p) => p.container_statuses?.some((c) => c.name === containerName));
+    if (hasSidecar) {
+      const broken = k8sPods.flatMap((p) =>
+        (p.container_statuses ?? []).filter((c) => c.name === containerName && (!c.ready || c.restart_count > 2))
+      );
+      if (broken.length > 0) return { status: "degraded", ready: "sidecar", detail: `${broken[0].state}` };
+      return { status: "running", ready: "sidecar" };
+    }
+    return { status: "missing", ready: "-" };
+  }
+
+  // Match by K8s deployment/statefulset name
+  const dep = k8sDeps.find((d) => d.name === w.name);
+  if (!dep) return { status: "missing", ready: `0/${w.replicas}` };
+
+  const ready = `${dep.ready_replicas}/${dep.replicas}`;
+  if (dep.ready_replicas >= dep.replicas && dep.replicas > 0) return { status: "running", ready };
+
+  // Check pods for crash details
+  const pods = k8sPods.filter((p) => p.name.startsWith(w.name));
+  const crashing = pods.flatMap((p) =>
+    (p.container_statuses ?? []).filter((c) => !c.ready || c.state.startsWith("Waiting") || c.restart_count > 2)
+  );
+  if (crashing.length > 0) {
+    const worst = crashing[0];
+    return { status: "degraded", ready, detail: `${worst.name}: ${worst.state}${worst.restart_count > 0 ? ` (${worst.restart_count} restarts)` : ""}` };
+  }
+
+  if (dep.ready_replicas === 0) return { status: "pending", ready };
+  return { status: "degraded", ready };
+}
+
+const wStatusColors: Record<WorkloadStatus, string> = {
+  running: "text-green-600",
+  degraded: "text-yellow-600",
+  missing: "text-red-600",
+  pending: "text-blue-600",
+};
+
+const wStatusDots: Record<WorkloadStatus, string> = {
+  running: "bg-green-500",
+  degraded: "bg-yellow-500",
+  missing: "bg-red-500",
+  pending: "bg-blue-500",
+};
+
+const kindBadge: Record<string, string> = {
+  agent: "bg-amber-100 text-amber-700",
+  model: "bg-purple-100 text-purple-700",
+  knowledge: "bg-blue-100 text-blue-700",
+  tool: "bg-green-100 text-green-700",
+  ingestion: "bg-orange-100 text-orange-700",
+  interfaces: "bg-pink-100 text-pink-700",
+  collector: "bg-gray-100 text-gray-700",
+};
+
+function shortImage(img: string) {
+  const parts = img.split("/");
+  return parts[parts.length - 1];
+}
+
+function ExpectedVsCurrent({ workloads, clusterStatus }: { workloads?: AdminWorkload[]; clusterStatus?: ClusterStatusResponse }) {
+  if (!workloads || workloads.length === 0) return null;
+
+  return (
+    <Collapsible defaultOpen>
+      <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <ChevronDown className="size-4" />
+        Workloads ({workloads.length})
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2">
+        <div className="overflow-x-auto rounded-lg glass">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Component</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Kind</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Image</th>
+                <th className="px-3 py-1.5 text-center font-medium text-muted-foreground">Ready</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workloads.map((w) => {
+                const { status, ready, detail } = resolveWorkloadStatus(w, clusterStatus);
+                return (
+                  <tr key={w.name} className="border-b border-comb-light">
+                    <td className="px-3 py-1.5 font-medium">{w.name}</td>
+                    <td className="px-3 py-1.5">
+                      <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] ${kindBadge[w.component_kind] ?? "bg-gray-100 text-gray-700"}`}>
+                        {w.component_kind}{w.persistent ? " (pvc)" : ""}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground" title={w.image}>{shortImage(w.image)}</td>
+                    <td className="px-3 py-1.5 text-center font-mono">{ready}</td>
+                    <td className="px-3 py-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`size-1.5 rounded-full ${wStatusDots[status]}`} />
+                        <span className={wStatusColors[status]}>{status}</span>
+                      </span>
+                    </td>
+                    <td className="max-w-[250px] truncate px-3 py-1.5 text-muted-foreground" title={detail}>{detail ?? ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

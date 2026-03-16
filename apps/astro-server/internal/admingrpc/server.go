@@ -262,12 +262,31 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		clusterStatus = &adminv1.GetClusterStatusResponse{}
 	}
 
+	// Fetch expected workloads from normalized table
+	var protoWorkloads []*adminv1.AdminWorkload
+	if summaries, err := s.deployStore.GetWorkloadSummaries(dep.ID); err == nil {
+		for _, w := range summaries {
+			protoWorkloads = append(protoWorkloads, &adminv1.AdminWorkload{
+				Name:          w.Name,
+				ComponentKind: w.ComponentKind,
+				ComponentKey:  w.ComponentKey,
+				WorkloadType:  w.WorkloadType,
+				Image:         w.Image,
+				Replicas:      int32(w.Replicas), //nolint:gosec
+				CPURequest:    w.CPURequest,
+				MemoryRequest: w.MemoryRequest,
+				Persistent:    w.Persistent,
+			})
+		}
+	}
+
 	return &adminv1.GetDeploymentResponse{
 		Deployment:    ad,
 		SpecJSON:      dep.DeploymentSpecJSON,
 		ClusterStatus: clusterStatus,
 		Events:        protoEvents,
 		Revisions:     protoRevisions,
+		Workloads:     protoWorkloads,
 	}, nil
 }
 

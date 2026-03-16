@@ -604,6 +604,7 @@ func (s *Store) GetWorkloads(deploymentID string) ([]*Workload, error) {
 
 // WorkloadSummary is a lightweight view of a workload for API responses and metering.
 type WorkloadSummary struct {
+	Name          string
 	ComponentKind string
 	ComponentKey  string
 	WorkloadType  string
@@ -611,13 +612,14 @@ type WorkloadSummary struct {
 	Replicas      int
 	CPURequest    string
 	MemoryRequest string
+	Persistent    bool
 }
 
 // GetWorkloadSummaries returns lightweight workload data for a deployment.
 // Used by API responses and admin gRPC to avoid full spec JSON parsing.
 func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, error) {
 	rows, err := s.db.Query(`
-		SELECT component_kind, component_key, workload_type, image, replicas, cpu_request, memory_request
+		SELECT name, component_kind, component_key, workload_type, image, replicas, cpu_request, memory_request, persistent
 		FROM deployment_workloads
 		WHERE deployment_id = $1
 		ORDER BY id
@@ -630,7 +632,7 @@ func (s *Store) GetWorkloadSummaries(deploymentID string) ([]*WorkloadSummary, e
 	var result []*WorkloadSummary
 	for rows.Next() {
 		var w WorkloadSummary
-		if err := rows.Scan(&w.ComponentKind, &w.ComponentKey, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest); err != nil {
+		if err := rows.Scan(&w.Name, &w.ComponentKind, &w.ComponentKey, &w.WorkloadType, &w.Image, &w.Replicas, &w.CPURequest, &w.MemoryRequest, &w.Persistent); err != nil {
 			return nil, fmt.Errorf("scan workload summary: %w", err)
 		}
 		result = append(result, &w)

@@ -248,12 +248,25 @@ type GetDeploymentRequest struct {
 	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
+type AdminWorkload struct {
+	Name          string `json:"name,omitempty"`
+	ComponentKind string `json:"component_kind,omitempty"` // agent, model, knowledge, tool, ingestion, interfaces, collector
+	ComponentKey  string `json:"component_key,omitempty"`
+	WorkloadType  string `json:"workload_type,omitempty"` // deployment, statefulset, cronjob, sidecar
+	Image         string `json:"image,omitempty"`
+	Replicas      int32  `json:"replicas,omitempty"`
+	CPURequest    string `json:"cpu_request,omitempty"`
+	MemoryRequest string `json:"memory_request,omitempty"`
+	Persistent    bool   `json:"persistent,omitempty"`
+}
+
 type GetDeploymentResponse struct {
 	Deployment    *AdminDeployment           `json:"deployment,omitempty"`
 	SpecJSON      string                     `json:"spec_json,omitempty"`
 	ClusterStatus *GetClusterStatusResponse  `json:"cluster_status,omitempty"`
 	Events        []*AdminDeploymentEvent    `json:"events,omitempty"`
 	Revisions     []*AdminDeploymentRevision `json:"revisions,omitempty"`
+	Workloads     []*AdminWorkload           `json:"workloads,omitempty"`
 }
 
 type GetPodLogsRequest struct {

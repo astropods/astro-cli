@@ -653,15 +653,19 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		t.Fatalf("expected 3 summaries, got %d", len(summaries))
 	}
 
-	// Verify agent summary
-	var agentSummary *WorkloadSummary
+	// Build a lookup by component_kind
+	byKind := make(map[string]*WorkloadSummary)
 	for _, s := range summaries {
-		if s.ComponentKind == "agent" {
-			agentSummary = s
-		}
+		byKind[s.ComponentKind] = s
 	}
+
+	// Verify agent summary
+	agentSummary := byKind["agent"]
 	if agentSummary == nil {
 		t.Fatal("agent summary not found")
+	}
+	if agentSummary.Name != "summary-agent" {
+		t.Errorf("agent name: got %q, want 'summary-agent'", agentSummary.Name)
 	}
 	if agentSummary.Replicas != 2 {
 		t.Errorf("agent replicas: got %d, want 2", agentSummary.Replicas)
@@ -674,6 +678,99 @@ func TestGetWorkloadSummaries(t *testing.T) {
 	}
 	if agentSummary.Image != "r.io/agent:latest" {
 		t.Errorf("agent image: got %q", agentSummary.Image)
+	}
+	if agentSummary.Persistent {
+		t.Error("agent should not be persistent")
+	}
+
+	// Verify model summary
+	modelSummary := byKind["model"]
+	if modelSummary == nil {
+		t.Fatal("model summary not found")
+	}
+	if modelSummary.Name != "summary-agent-model-llm" {
+		t.Errorf("model name: got %q, want 'summary-agent-model-llm'", modelSummary.Name)
+	}
+
+	// Verify collector summary
+	collectorSummary := byKind["collector"]
+	if collectorSummary == nil {
+		t.Fatal("collector summary not found")
+	}
+	if collectorSummary.WorkloadType != "sidecar" {
+		t.Errorf("collector type: got %q, want 'sidecar'", collectorSummary.WorkloadType)
+	}
+}
+
+func TestGetWorkloadSummaries_PersistentFlag(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "persist-agent"},
+		Agent: spec.DeploymentAgent{
+			Image: "agent:latest", Replicas: 1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080}},
+		},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"vectors": {
+				Image: "qdrant:latest", Replicas: 1, Persistent: true, Provider: "qdrant",
+				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+				Storage:   &spec.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 6333}},
+			},
+			"cache": {
+				Image: "redis:7", Replicas: 1, Persistent: false, Provider: "redis",
+				Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+				Endpoints: map[string]spec.Endpoint{"http": {Port: 6379}},
+			},
+		},
+	}
+	resolved := &deployment.ResolvedEnv{ConfigMapData: map[string]string{}, SecretData: map[string]string{}}
+
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "persist-agent",
+		DisplayName: "Persist", BuildID: "build-1", Namespace: "ns-persist",
+		SpecJSON: `{}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	summaries, err := store.GetWorkloadSummaries(d.ID)
+	if err != nil {
+		t.Fatalf("GetWorkloadSummaries: %v", err)
+	}
+
+	byKey := make(map[string]*WorkloadSummary)
+	for _, s := range summaries {
+		byKey[s.ComponentKey] = s
+	}
+
+	vectors := byKey["vectors"]
+	if vectors == nil {
+		t.Fatal("vectors workload not found")
+	}
+	if !vectors.Persistent {
+		t.Error("vectors should be persistent")
+	}
+	if vectors.WorkloadType != "statefulset" {
+		t.Errorf("vectors type: got %q, want 'statefulset'", vectors.WorkloadType)
+	}
+
+	cache := byKey["cache"]
+	if cache == nil {
+		t.Fatal("cache workload not found")
+	}
+	if cache.Persistent {
+		t.Error("cache should not be persistent")
+	}
+	if cache.WorkloadType != "deployment" {
+		t.Errorf("cache type: got %q, want 'deployment'", cache.WorkloadType)
 	}
 }
 
