@@ -426,7 +426,7 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 			oldIDs = append(oldIDs, id)
 		}
 	}
-	rows.Close()
+	rows.Close() //nolint:errcheck,gosec
 
 	// Clean up normalized data for superseded deployments
 	for _, oldID := range oldIDs {

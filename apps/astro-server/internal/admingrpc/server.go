@@ -1360,7 +1360,7 @@ func (s *Server) BackfillDeployments(ctx context.Context, _ *adminv1.BackfillDep
 			ON CONFLICT (deployment_id, revision) DO NOTHING
 		`, r.id, r.buildID, r.specJSON, r.dataKey, r.kmsArn, r.deployedAt)
 		if err != nil {
-			tx.Rollback() //nolint:errcheck
+			tx.Rollback() //nolint:errcheck,gosec
 			s.log.Warn("Backfill: failed to insert revision", "deployment_id", r.id, "error", err)
 			continue
 		}
@@ -1371,7 +1371,7 @@ func (s *Server) BackfillDeployments(ctx context.Context, _ *adminv1.BackfillDep
 			WHERE id = $1
 		`, r.id)
 		if err != nil {
-			tx.Rollback() //nolint:errcheck
+			tx.Rollback() //nolint:errcheck,gosec
 			s.log.Warn("Backfill: failed to update deployment", "deployment_id", r.id, "error", err)
 			continue
 		}
