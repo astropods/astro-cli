@@ -146,7 +146,7 @@ func TestLocalAstroPackagesPointToModules(t *testing.T) {
 }
 
 func TestLocalDockerImagesConsistency(t *testing.T) {
-	for _, img := range localDockerImages {
+	for _, img := range devLocalImages {
 		t.Run(img.tag, func(t *testing.T) {
 			if !strings.HasSuffix(img.tag, ":latest") {
 				t.Errorf("tag %q should end with :latest", img.tag)

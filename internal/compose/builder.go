@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -854,10 +855,16 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			}
 			enabled := "true"
 			env["SLACK_ENABLED"] = &enabled
-			env["SLACK_SOCKET_MODE"] = &enabled
 			env["SLACK_BOT_TOKEN"] = &botToken
 			if hasAppToken {
 				env["SLACK_APP_TOKEN"] = &appToken
+			}
+
+			if cfg := s.Dev.SlackConfig(); cfg != nil {
+				if data, err := json.Marshal(cfg); err == nil {
+					jsonStr := string(data)
+					env["SLACK_CONFIG"] = &jsonStr
+				}
 			}
 
 		case "web":

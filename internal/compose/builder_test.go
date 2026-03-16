@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -375,6 +376,144 @@ func TestBuildProject_QdrantExtraPortsPublished(t *testing.T) {
 	}
 	if !hasGrpcPort {
 		t.Error("Qdrant gRPC port 6334 should be published via ExtraPorts")
+	}
+}
+
+func TestBuildProject_SlackConfigJSON(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{
+					Adapters: []string{"slack"},
+					Slack: &spec.SlackAdapterConfig{
+						ActionableReactions: []string{"ticket", "bug"},
+						SocketMode:          boolPtr(false),
+						AutoThread:          boolPtr(true),
+					},
+				},
+			},
+		},
+	}
+
+	envVars := map[string]string{
+		"SLACK_BOT_TOKEN": "xoxb-test",
+		"SLACK_APP_TOKEN": "xapp-test",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	messaging := project.Services["astro-messaging"]
+
+	if _, ok := messaging.Environment["SLACK_ACTIONABLE_REACTIONS"]; ok {
+		t.Error("legacy SLACK_ACTIONABLE_REACTIONS should no longer be set")
+	}
+	if _, ok := messaging.Environment["SLACK_SOCKET_MODE"]; ok {
+		t.Error("legacy SLACK_SOCKET_MODE should no longer be set")
+	}
+
+	raw := envVal(messaging.Environment, "SLACK_CONFIG")
+	if raw == "" {
+		t.Fatal("SLACK_CONFIG env var not set")
+	}
+
+	var cfg spec.SlackAdapterConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("SLACK_CONFIG is not valid JSON: %v", err)
+	}
+	if len(cfg.ActionableReactions) != 2 || cfg.ActionableReactions[0] != "ticket" || cfg.ActionableReactions[1] != "bug" {
+		t.Errorf("ActionableReactions = %v, want [ticket bug]", cfg.ActionableReactions)
+	}
+	if cfg.SocketMode == nil || *cfg.SocketMode != false {
+		t.Errorf("SocketMode = %v, want false", cfg.SocketMode)
+	}
+	if cfg.AutoThread == nil || *cfg.AutoThread != true {
+		t.Errorf("AutoThread = %v, want true", cfg.AutoThread)
+	}
+}
+
+func TestBuildProject_SlackNoConfigBlock(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{
+					Adapters: []string{"slack"},
+				},
+			},
+		},
+	}
+
+	envVars := map[string]string{
+		"SLACK_BOT_TOKEN": "xoxb-test",
+		"SLACK_APP_TOKEN": "xapp-test",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	messaging := project.Services["astro-messaging"]
+	if _, ok := messaging.Environment["SLACK_CONFIG"]; ok {
+		t.Error("SLACK_CONFIG should not be set when no slack block is configured")
+	}
+	if _, ok := messaging.Environment["SLACK_ACTIONABLE_REACTIONS"]; ok {
+		t.Error("legacy SLACK_ACTIONABLE_REACTIONS should never be set")
+	}
+}
+
+func TestBuildProject_SlackConfigReactionsOnly(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{
+					Adapters: []string{"slack"},
+					Slack: &spec.SlackAdapterConfig{
+						ActionableReactions: []string{"ticket"},
+					},
+				},
+			},
+		},
+	}
+
+	envVars := map[string]string{
+		"SLACK_BOT_TOKEN": "xoxb-test",
+		"SLACK_APP_TOKEN": "xapp-test",
+	}
+
+	project, err := BuildProject(s, "/work", envVars)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	messaging := project.Services["astro-messaging"]
+	raw := envVal(messaging.Environment, "SLACK_CONFIG")
+	if raw == "" {
+		t.Fatal("SLACK_CONFIG env var not set")
+	}
+
+	var cfg spec.SlackAdapterConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("SLACK_CONFIG is not valid JSON: %v", err)
+	}
+	if len(cfg.ActionableReactions) != 1 || cfg.ActionableReactions[0] != "ticket" {
+		t.Errorf("ActionableReactions = %v, want [ticket]", cfg.ActionableReactions)
+	}
+	if cfg.SocketMode != nil {
+		t.Errorf("SocketMode should be omitted (nil), got %v", *cfg.SocketMode)
+	}
+	if cfg.AutoThread != nil {
+		t.Errorf("AutoThread should be omitted (nil), got %v", *cfg.AutoThread)
 	}
 }
 
