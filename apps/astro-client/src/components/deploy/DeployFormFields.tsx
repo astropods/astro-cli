@@ -61,7 +61,7 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
         <InterfacesPicker
           selected={form.selectedAdapters}
           onChange={form.setSelectedAdapters}
-          adapterCredDefs={form.allAdapterCredDefs}
+          adapterCredDefs={form.allAdapterFieldDefs}
           adapterCredentials={form.adapterCredentials}
           onAdapterCredentialsChange={form.setAdapterCredentials}
           showError={!!form.errors.adapters}

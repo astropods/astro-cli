@@ -29,6 +29,28 @@ IMPORTANT: When planning and creating spec, please ensure it's concise and compl
 
 This is a bun monorepo. Always use `bun x <command>` instead of `npx`.
 
+## Moon Task Cheatsheet
+
+Use Moon as the default task runner from repo root.
+
+- Discover tasks: `moon query tasks`
+- Refresh this list: `moon query tasks`
+
+### Current Moon Targets (61)
+
+- `adapters:build`, `adapters:install-local`, `adapters:publish-local`
+- `astro-cli:build`, `astro-cli:build-preview`, `astro-cli:clean`, `astro-cli:link`, `astro-cli:link-preview`, `astro-cli:typecheck`, `astro-cli:unlink`
+- `astro-client:clean`, `astro-client:dev`, `astro-client:test`, `astro-client:typecheck`
+- `astro-collector:build`
+- `astro-identity-gen:build`, `astro-identity-gen:clean`, `astro-identity-gen:typecheck`
+- `astro-proto:deps`, `astro-proto:generate`, `astro-proto:typecheck`
+- `astro-queen:build`, `astro-queen:deps`, `astro-queen:dev`, `astro-queen:fmt`, `astro-queen:link`, `astro-queen:start`, `astro-queen:typecheck`, `astro-queen:unlink`, `astro-queen:vet`, `astro-queen:web-build`, `astro-queen:web-install`
+- `astro-registry:build`, `astro-registry:deps`, `astro-registry:fmt`, `astro-registry:lint`, `astro-registry:test`, `astro-registry:typecheck`, `astro-registry:vet`
+- `astro-server:build`, `astro-server:deps`, `astro-server:dev`, `astro-server:e2e`, `astro-server:e2e.setup`, `astro-server:e2e.teardown`, `astro-server:fmt`, `astro-server:lint`, `astro-server:test`, `astro-server:typecheck`, `astro-server:vet`
+- `astro-theme:build`, `astro-theme:clean`, `astro-theme:typecheck`
+- `deployment:clean`, `deployment:collector`, `deployment:messaging`, `deployment:playground`
+- `messaging:proto-gen`, `messaging:publish-local`, `messaging:sdk-build`, `messaging:typecheck`
+
 # Data Fetching (astro-client)
 
 All server data integration uses TanStack Query. See [docs/04-guides/tanstack-query.md](docs/04-guides/tanstack-query.md) for architecture, conventions, and best practices. Key rules:

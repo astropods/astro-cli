@@ -840,7 +840,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				key := agentName + ":" + version
 				host := ing.Spec.Rules[0].Host
 				if host != "" {
-					agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
+				agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
 						Name: component,
 						URL:  fmt.Sprintf("https://%s", host),
 						Type: component,
@@ -1755,4 +1755,15 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 			"message":          fmt.Sprintf("Rolling back to revision %d", req.Revision),
 		})
 	}
+}
+
+// TODO: move local-env pull policy into a dedicated PR for local K8s dev experience
+// imagePullPolicyForMode returns IfNotPresent for local mode (locally-built
+// images are used as-is; third-party images like qdrant are pulled on first
+// use), PullAlways for production.
+func imagePullPolicyForMode(mode string) corev1.PullPolicy {
+	if mode == "local" {
+		return corev1.PullIfNotPresent
+	}
+	return corev1.PullAlways
 }

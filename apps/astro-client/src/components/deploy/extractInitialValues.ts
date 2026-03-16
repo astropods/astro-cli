@@ -1,23 +1,25 @@
 import type { DeploymentTemplate } from "@/lib/api";
 import type { DeployFormInitialValues } from "./useDeployForm";
-import { ADAPTER_CREDENTIALS } from "./useDeployForm";
+import { ADAPTER_SECRETS, ADAPTER_CONFIG } from "./useDeployForm";
+
+const adapterFieldKeys = new Set(
+  [ADAPTER_SECRETS, ADAPTER_CONFIG].flatMap((map) =>
+    Object.values(map).flatMap((fields) => fields.map((f) => f.key)),
+  ),
+);
 
 /** Extract form initial values from a pre-filled deployment template. */
-export function extractInitialValues(template: DeploymentTemplate, account: string): DeployFormInitialValues {
+export const extractInitialValues = (template: DeploymentTemplate, account: string): DeployFormInitialValues => {
   const variableValues: Record<string, string> = {};
   const adapterCredentials: Record<string, string> = {};
-
-  const adapterCredKeys = new Set(
-    Object.values(ADAPTER_CREDENTIALS).flatMap((creds) => creds.map((c) => c.key)),
-  );
 
   if (template.variables) {
     for (const [key, v] of Object.entries(template.variables)) {
       const val = v.value ?? v.default ?? "";
-      const isAdapterCred =
-        adapterCredKeys.has(key) ||
+      const isAdapterField =
+        adapterFieldKeys.has(key) ||
         v.targets?.some((t: string) => t.startsWith("interface."));
-      if (isAdapterCred) {
+      if (isAdapterField) {
         adapterCredentials[key] = val;
       } else {
         variableValues[key] = val;
@@ -36,4 +38,4 @@ export function extractInitialValues(template: DeploymentTemplate, account: stri
     selectedAdapters,
     adapterCredentials,
   };
-}
+};

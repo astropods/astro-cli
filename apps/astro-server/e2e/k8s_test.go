@@ -69,11 +69,49 @@ const minimalSpecJSON = `{
   "observability": {"enabled": false}
 }`
 
+// slackSpecJSON focuses on messaging-sidecar env wiring for Slack.
+const slackSpecJSON = `{
+  "spec": "deployment/v1",
+  "source": {"account": "test-account", "name": "k8s-slack-e2e", "build": "build001", "registry": "test-registry.example.com"},
+  "target": {"runtime": "kubernetes", "account": "test-account", "display_name": "K8s Slack E2E"},
+  "agent": {
+    "image": "gcr.io/google-containers/pause:3.2",
+    "endpoints": {"http": {"port": 8080, "protocol": "http"}},
+    "replicas": 1,
+    "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
+    "environment": {"AGENT_PORT": "8080"},
+    "update": {"strategy": "rolling"}
+  },
+  "interfaces": {
+    "adapters": ["slack"],
+    "image": "gcr.io/google-containers/pause:3.2",
+    "endpoints": {"grpc": {"port": 9090, "protocol": "grpc"}},
+    "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
+    "environment": {
+      "SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}"
+    }
+  },
+  "variables": {
+    "SLACK_ACTIONABLE_REACTIONS": {"value": "ticket, bug", "secret": false, "targets": ["interface.slack"]},
+    "SLACK_BOT_TOKEN": {"value": "xoxb-test", "secret": true, "targets": ["interface.slack"]}
+  },
+  "observability": {"enabled": false}
+}`
+
 func parseMinimalSpec(t *testing.T) *spec.AstroDeploymentSpec {
 	t.Helper()
 	var s spec.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(minimalSpecJSON), &s); err != nil {
 		t.Fatalf("parse minimal spec: %v", err)
+	}
+	return &s
+}
+
+func parseSlackSpec(t *testing.T) *spec.AstroDeploymentSpec {
+	t.Helper()
+	var s spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(slackSpecJSON), &s); err != nil {
+		t.Fatalf("parse slack spec: %v", err)
 	}
 	return &s
 }
@@ -233,6 +271,13 @@ func applyMinimalSpec(t *testing.T, client k8s.ClusterClient, ns string) *k8s.Ap
 	return applySpec(t, client, ns, s, nil)
 }
 
+func applySlackSpec(t *testing.T, client k8s.ClusterClient, ns string) *k8s.ApplyResult {
+	t.Helper()
+	s := parseSlackSpec(t)
+	fillSecrets(s)
+	return applySpec(t, client, ns, s, nil)
+}
+
 // --- Tests ---
 
 func TestK8s_ApplyCreatesNamespace(t *testing.T) {
@@ -343,6 +388,45 @@ func TestK8s_ApplyCreatesDeployments(t *testing.T) {
 	}
 	if agentDepl.Spec.Template.Spec.Containers[0].ImagePullPolicy != corev1.PullNever {
 		t.Errorf("agent image pull policy: got %s, want Never", agentDepl.Spec.Template.Spec.Containers[0].ImagePullPolicy)
+	}
+}
+
+func TestK8s_SlackReactionsEnvOnMessagingSidecar(t *testing.T) {
+	client := clusterClient(t)
+	ns := uniqueNS(t)
+	cleanupNamespace(t, client.Clientset(), ns)
+
+	applySlackSpec(t, client, ns)
+
+	waitForDeployments(t, client.Clientset(), ns, 1)
+
+	ctx := context.Background()
+	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
+	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+	}
+
+	var messaging *corev1.Container
+	for i := range agentDepl.Spec.Template.Spec.Containers {
+		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if messaging == nil {
+		t.Fatal("messaging sidecar not found on agent deployment")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range messaging.Env {
+		envMap[e.Name] = e.Value
+	}
+	if envMap["SLACK_ACTIONABLE_REACTIONS"] != "ticket, bug" {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS = %q, want %q", envMap["SLACK_ACTIONABLE_REACTIONS"], "ticket, bug")
+	}
+	if _, ok := envMap["SLACK_SOCKET_MODE"]; ok {
+		t.Error("SLACK_SOCKET_MODE should not be set; behavior config is provided via structured slack config")
 	}
 }
 

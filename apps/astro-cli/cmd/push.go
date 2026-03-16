@@ -101,11 +101,14 @@ func runPush(cmd *cobra.Command, args []string) error {
 		effectiveServerURL = auth.DefaultServerURL
 	}
 
-	// Local mode: skip push, default to native platform
+	// Local mode: skip push, default to native platform, require ASTRO_ROOT
 	if pushLocal {
 		skipPush = true
 		if !cmd.Flags().Changed("platform") {
 			pushPlatform = nativePlatform()
+		}
+		if os.Getenv("ASTRO_ROOT") == "" {
+			return fmt.Errorf("ASTRO_ROOT is not set (required for --local to build infrastructure images)\n\n  Set it to the path of your astro monorepo, e.g.:\n    export ASTRO_ROOT=$HOME/astro/astro")
 		}
 	}
 
@@ -167,6 +170,18 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get user namespace: %w", nsErr)
 	}
 	printStepDone(fmt.Sprintf("namespace: %s", namespace))
+
+	// Build infrastructure images from ASTRO_ROOT before agent images
+	if pushLocal && !skipBuild {
+		fmt.Printf("%s→%s Building infrastructure images from ASTRO_ROOT\n", colorCyan, colorReset)
+		if err := buildLocalImages(pushLocalInfraImages, false); err != nil {
+			return fmt.Errorf("failed to build infrastructure images: %w", err)
+		}
+		if err := retagInfraImagesForK8s(); err != nil {
+			return err
+		}
+		fmt.Println()
+	}
 
 	// Build images first if requested
 	imagesPushed := 0
@@ -910,4 +925,20 @@ func transformSpecForRegistry(specObj map[string]interface{}, registry, agentNam
 	}
 
 	return specObj
+}
+
+// retagInfraImagesForK8s tags locally built infrastructure images with the
+// references that the K8s spec applier uses, so they resolve with PullNever.
+func retagInfraImagesForK8s() error {
+	retags := []struct{ src, dst string }{
+		{"messaging:latest", "astropods/messaging:latest"},
+	}
+	for _, r := range retags {
+		cmd := exec.Command("docker", "tag", r.src, r.dst) //nolint:gosec
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to retag %s → %s: %s", r.src, r.dst, strings.TrimSpace(string(out)))
+		}
+		fmt.Printf("  %s✓%s %s → %s\n", colorGreen, colorReset, r.src, r.dst)
+	}
+	return nil
 }

@@ -536,10 +536,14 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		for _, e := range msg.Env {
 			envMap[e.Name] = e.Value
 		}
-		for _, key := range []string{"SLACK_ENABLED", "GRPC_ENABLED", "SLACK_SOCKET_MODE"} {
+		for _, key := range []string{"SLACK_ENABLED", "GRPC_ENABLED"} {
 			if envMap[key] != "true" {
 				t.Errorf("expected %s=true, got %q", key, envMap[key])
 			}
+		}
+
+		if _, ok := envMap["SLACK_SOCKET_MODE"]; ok {
+			t.Error("SLACK_SOCKET_MODE should not be hardcoded; it is delivered via interface-targeted variables")
 		}
 
 		// Secret ref should be present

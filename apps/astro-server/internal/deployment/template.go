@@ -303,28 +303,37 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			},
 		}
 
-		// Add adapter credential variables as optional entries so users know what to fill in.
-		// These are optional in the template since adapters are disabled by default; the
-		// resolver enforces values when a specific adapter is enabled.
+		// All Slack-related variables are forced to targets: ["interface.slack"] so they
+		// group under the Slack toggle in the deploy UI. We unconditionally overwrite
+		// because collectVariablesFromInputs may have added them with agent/ingestion
+		// targets first.
 		if ds.Variables == nil {
 			ds.Variables = make(map[string]spec.Variable)
 		}
-		if _, exists := ds.Variables["SLACK_BOT_TOKEN"]; !exists {
-			ds.Variables["SLACK_BOT_TOKEN"] = spec.Variable{
-				Description: "Slack bot token for API access and messaging (required when slack adapter is enabled)",
-				Optional:    true,
-				Secret:      true,
-				Targets:     []string{"interface.slack"},
-			}
+		ds.Variables["SLACK_BOT_TOKEN"] = spec.Variable{
+			Description: "Slack bot token for API access and messaging",
+			Optional:    true,
+			Secret:      true,
+			Targets:     []string{"interface.slack"},
 		}
-		if _, exists := ds.Variables["SLACK_APP_TOKEN"]; !exists {
-			ds.Variables["SLACK_APP_TOKEN"] = spec.Variable{
-				Description: "Slack app-level token for socket mode connections (required when slack adapter is enabled)",
-				Optional:    true,
-				Secret:      true,
-				Targets:     []string{"interface.slack"},
-			}
+		ds.Variables["SLACK_APP_TOKEN"] = spec.Variable{
+			Description: "Slack app-level token for socket mode connections",
+			Optional:    true,
+			Secret:      true,
+			Targets:     []string{"interface.slack"},
 		}
+
+		reactionsDefault := slackReactionsDefault(astroSpec)
+		ds.Variables["SLACK_ACTIONABLE_REACTIONS"] = spec.Variable{
+			Description: "Emoji names the bot acts on (comma-separated, e.g. ticket, bug)",
+			Optional:    true,
+			Secret:      false,
+			Targets:     []string{"interface.slack"},
+			Value:       reactionsDefault,
+			Default:     reactionsDefault,
+		}
+
+		wireInterfaceEnvironment(ds)
 	}
 
 	// Editable fields
@@ -597,8 +606,10 @@ func resolveImage(image string, input TemplateInput) string {
 		return image
 	}
 
-	// 2. Public image (no registry host in first segment) → ECR pull-through cache
-	if input.RegistryURL != "" {
+	// 2. Public image (no registry host in first segment) → ECR pull-through cache.
+	// In local environments images are pulled directly from Docker Hub (or are
+	// already present in the local daemon), so we skip the rewrite.
+	if input.RegistryURL != "" && input.Environment != "local" {
 		name := image
 		if i := strings.LastIndex(image, ":"); i >= 0 {
 			name = image[:i]
@@ -628,6 +639,37 @@ func stripScheme(url string) string {
 		url = url[idx+3:]
 	}
 	return strings.TrimRight(url, "/")
+}
+
+// wireInterfaceEnvironment populates interfaces.environment with ${variables.KEY}
+// references for every non-secret variable that targets an interface adapter.
+// Secrets are excluded because they flow through the k8s Secret, not the ConfigMap.
+func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
+	if ds.Interfaces == nil || len(ds.Variables) == 0 {
+		return
+	}
+	for key, v := range ds.Variables {
+		if v.Secret {
+			continue
+		}
+		for _, t := range v.Targets {
+			if strings.HasPrefix(t, "interface.") {
+				if ds.Interfaces.Environment == nil {
+					ds.Interfaces.Environment = make(map[string]string)
+				}
+				ds.Interfaces.Environment[key] = fmt.Sprintf("${variables.%s}", key)
+				break
+			}
+		}
+	}
+}
+
+func slackReactionsDefault(s *spec.AstroSpec) string {
+	cfg := s.Dev.SlackConfig()
+	if cfg == nil || len(cfg.ActionableReactions) == 0 {
+		return ""
+	}
+	return strings.Join(cfg.ActionableReactions, ", ")
 }
 
 func defaultEditableFields() []string {

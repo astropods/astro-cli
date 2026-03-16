@@ -276,11 +276,32 @@ func (DevInterfaces) JSONSchema() *jsonschema.Schema {
 		Description: "Port the agent serves on locally. Platform proxies port 80 to this. Default: 80",
 	})
 
-	adaptersProps := jsonschema.NewProperties()
-	adaptersProps.Set("adapters", &jsonschema.Schema{
+	slackConfigProps := jsonschema.NewProperties()
+	slackConfigProps.Set("actionable_reactions", &jsonschema.Schema{
+		Type:        "array",
+		Items:       &jsonschema.Schema{Type: "string"},
+		Description: "Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded.",
+	})
+	slackConfigProps.Set("socket_mode", &jsonschema.Schema{
+		Type:        "boolean",
+		Description: "Use Slack Socket Mode for real-time events. Default: true",
+	})
+	slackConfigProps.Set("auto_thread", &jsonschema.Schema{
+		Type:        "boolean",
+		Description: "Automatically thread bot replies. Default: true",
+	})
+
+	messagingProps := jsonschema.NewProperties()
+	messagingProps.Set("adapters", &jsonschema.Schema{
 		Type:        "array",
 		Items:       &jsonschema.Schema{Type: "string"},
 		Description: "Messaging adapters to enable locally (e.g. slack)",
+	})
+	messagingProps.Set("slack", &jsonschema.Schema{
+		Type:                 "object",
+		Properties:           slackConfigProps,
+		AdditionalProperties: jsonschema.FalseSchema,
+		Description:          "Slack-specific adapter configuration",
 	})
 
 	structuredProps := jsonschema.NewProperties()
@@ -292,7 +313,7 @@ func (DevInterfaces) JSONSchema() *jsonschema.Schema {
 	})
 	structuredProps.Set("messaging", &jsonschema.Schema{
 		Type:                 "object",
-		Properties:           adaptersProps,
+		Properties:           messagingProps,
 		AdditionalProperties: jsonschema.FalseSchema,
 		Description:          "Local dev configuration for messaging",
 	})
@@ -359,7 +380,17 @@ type DevFrontend struct {
 
 // DevMessaging configures the messaging sidecar for local development.
 type DevMessaging struct {
-	Adapters []string `json:"adapters,omitempty" yaml:"adapters,omitempty" jsonschema:"description=Messaging adapters to enable locally (e.g. slack)"`
+	Adapters []string            `json:"adapters,omitempty" yaml:"adapters,omitempty" jsonschema:"description=Messaging adapters to enable locally (e.g. slack)"`
+	Slack    *SlackAdapterConfig `json:"slack,omitempty" yaml:"slack,omitempty" jsonschema:"description=Slack-specific adapter configuration"`
+}
+
+// SlackAdapterConfig holds behavioral settings for the Slack messaging adapter.
+// Shared between the dev (compose builder) and deployment (template generator) paths.
+// Serialized as JSON into the SLACK_CONFIG env var for the messaging sidecar.
+type SlackAdapterConfig struct {
+	ActionableReactions []string `json:"actionable_reactions,omitempty" yaml:"actionable_reactions,omitempty" jsonschema:"description=Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded."`
+	SocketMode          *bool    `json:"socket_mode,omitempty" yaml:"socket_mode,omitempty" jsonschema:"description=Use Slack Socket Mode for real-time events. Default: true"`
+	AutoThread          *bool    `json:"auto_thread,omitempty" yaml:"auto_thread,omitempty" jsonschema:"description=Automatically thread bot replies. Default: true"`
 }
 
 // HasMessagingAdapters reports whether dev messaging adapters are configured.
@@ -373,6 +404,14 @@ func (d *Dev) MessagingAdapters() []string {
 		return nil
 	}
 	return d.Interfaces.Messaging.Adapters
+}
+
+// SlackConfig returns the Slack adapter configuration, or nil when not configured.
+func (d *Dev) SlackConfig() *SlackAdapterConfig {
+	if d == nil || d.Interfaces == nil || d.Interfaces.Messaging == nil {
+		return nil
+	}
+	return d.Interfaces.Messaging.Slack
 }
 
 // DevOverrides allows overriding default images for local dev services.

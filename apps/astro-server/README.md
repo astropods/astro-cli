@@ -47,7 +47,7 @@ REGISTRY_URL=123456789.dkr.ecr.us-east-1.amazonaws.com
 
 ### Image Handling
 
-- **Local mode (`K8S_CLIENT_MODE=local`):** Images are never pulled from a remote registry (`PullNever`). Build images locally with `docker build` — they are immediately available in Docker Desktop's K8s cluster.
+- **Local mode (`K8S_CLIENT_MODE=local`):** Images use `IfNotPresent` — locally-built images (agent, messaging, collector) are used as-is, while third-party images (qdrant, redis, neo4j) are pulled from Docker Hub on first use.
 - **EKS mode (`K8S_CLIENT_MODE=eks`):** Images are always pulled from the configured registry (`PullAlways`). If `PROXY_REGISTRY_HOST` is set, image references are rewritten from the proxy registry to ECR.
 
 ### Testing the /dev Page and CLI Download

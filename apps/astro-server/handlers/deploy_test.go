@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // --- deploymentNamespace tests ---
@@ -1427,7 +1428,8 @@ func deployableSpec(deploymentID string) string {
 		},
 		"variables": {
 			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]}
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_ACTIONABLE_REACTIONS": {"secret": false, "optional": true, "targets": ["interface.slack"]}
 		},
 		"observability": {"enabled": true, "provider": "galileo"}
 	}`, targetExtra)
@@ -1473,6 +1475,8 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
@@ -1543,6 +1547,8 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
@@ -1915,5 +1921,32 @@ func TestRollbackDeployment_WrongStatus(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["error"] != "can only rollback active or failed deployments" {
 		t.Errorf("expected rollback status error, got %v", resp["error"])
+	}
+}
+
+// TestImagePullPolicyForMode verifies that local mode returns IfNotPresent
+// (allowing locally-built images to be used as-is while still pulling third-
+// party images on first use) and all other modes return Always.
+func TestImagePullPolicyForMode(t *testing.T) {
+	cases := []struct {
+		mode string
+		want corev1.PullPolicy
+	}{
+		{"local", corev1.PullIfNotPresent},
+		{"", corev1.PullAlways},
+		{"prod", corev1.PullAlways},
+		{"staging", corev1.PullAlways},
+	}
+	for _, tc := range cases {
+		name := tc.mode
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := imagePullPolicyForMode(tc.mode)
+			if got != tc.want {
+				t.Errorf("imagePullPolicyForMode(%q) = %v, want %v", tc.mode, got, tc.want)
+			}
+		})
 	}
 }

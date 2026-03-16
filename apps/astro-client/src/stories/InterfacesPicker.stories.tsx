@@ -2,14 +2,13 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { InterfacesPicker, type InterfacesPickerProps } from "@/components/deploy/InterfacesPicker";
-import { ADAPTER_CREDENTIALS } from "@/components/deploy/useDeployForm";
+import { AVAILABLE_ADAPTERS, adapterFields } from "@/components/deploy/useDeployForm";
 import type { VariableDisplay } from "@/components/deploy/VariableFields";
 
-// Default cred defs used in stories (mirrors what useDeployForm computes from a template)
-const defaultAdapterCredDefs: Record<string, [string, VariableDisplay][]> = Object.fromEntries(
-  Object.entries(ADAPTER_CREDENTIALS).map(([id, creds]) => [
-    id,
-    creds.map((c) => [c.key, { description: c.description, optional: false, secret: c.secret, label: c.label, placeholder: c.placeholder, helpUrl: c.helpUrl }]),
+const defaultAdapterFieldDefs: Record<string, [string, VariableDisplay][]> = Object.fromEntries(
+  AVAILABLE_ADAPTERS.map((a) => [
+    a.id,
+    adapterFields(a.id).map((f) => [f.key, { description: f.description, optional: false, secret: f.secret, label: f.label, placeholder: f.placeholder, helpUrl: f.helpUrl }]),
   ]),
 );
 
@@ -48,7 +47,7 @@ export const WebSelected: Story = {
   args: {
     selected: ["web"],
     onChange: () => {},
-    adapterCredDefs: defaultAdapterCredDefs,
+    adapterCredDefs: defaultAdapterFieldDefs,
     adapterCredentials: {},
     onAdapterCredentialsChange: () => {},
   },
@@ -59,7 +58,7 @@ export const NoneSelected: Story = {
   args: {
     selected: [],
     onChange: () => {},
-    adapterCredDefs: defaultAdapterCredDefs,
+    adapterCredDefs: defaultAdapterFieldDefs,
     adapterCredentials: {},
     onAdapterCredentialsChange: () => {},
   },
@@ -70,7 +69,7 @@ export const BothSelected: Story = {
   args: {
     selected: ["slack", "web"],
     onChange: () => {},
-    adapterCredDefs: defaultAdapterCredDefs,
+    adapterCredDefs: defaultAdapterFieldDefs,
     adapterCredentials: {},
     onAdapterCredentialsChange: () => {},
   },
@@ -81,7 +80,7 @@ export const SlackWithCredentials: Story = {
   args: {
     selected: ["slack"],
     onChange: () => {},
-    adapterCredDefs: defaultAdapterCredDefs,
+    adapterCredDefs: defaultAdapterFieldDefs,
     adapterCredentials: {},
     onAdapterCredentialsChange: () => {},
   },

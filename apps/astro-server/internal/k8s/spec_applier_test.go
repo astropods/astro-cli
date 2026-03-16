@@ -618,6 +618,69 @@ func TestApplyDeploymentSpec_WithSlackInterface(t *testing.T) {
 	}
 }
 
+func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
+	a := newTestApplier()
+	ds := minimalDeploymentSpec()
+
+	ds.Interfaces = &spec.DeploymentInterfaces{
+		Adapters: []string{"slack"},
+		Image:    "test-registry.example.com/messaging:latest",
+		Endpoints: map[string]spec.Endpoint{
+			"grpc": {Port: 9090, Protocol: "grpc"},
+		},
+		Resources: spec.MessagingResources,
+		Environment: map[string]string{
+			"SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}",
+		},
+	}
+	ds.Variables = map[string]spec.Variable{
+		"SLACK_ACTIONABLE_REACTIONS": {Value: "ticket, bug", Secret: false, Targets: []string{"interface.slack"}},
+	}
+
+	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Errorf("expected no errors, got %v", result.Errors)
+	}
+
+	agentDepl, err := a.clientset.AppsV1().Deployments("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("failed to get agent Deployment: %v", err)
+	}
+
+	var msgContainer *corev1.Container
+	for i, c := range agentDepl.Spec.Template.Spec.Containers {
+		if c.Name == "messaging" {
+			msgContainer = &agentDepl.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if msgContainer == nil {
+		t.Fatal("messaging sidecar container not found in agent Deployment")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range msgContainer.Env {
+		envMap[e.Name] = e.Value
+	}
+
+	val, ok := envMap["SLACK_ACTIONABLE_REACTIONS"]
+	if !ok {
+		t.Fatal("SLACK_ACTIONABLE_REACTIONS not found in messaging container env")
+	}
+	if val != "ticket, bug" {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS = %q, want %q", val, "ticket, bug")
+	}
+
+	if _, exists := envMap["SLACK_SOCKET_MODE"]; exists {
+		t.Error("SLACK_SOCKET_MODE should not be hardcoded in messaging container")
+	}
+}
+
 func TestApplyDeploymentSpec_WithWebInterfaceExpose(t *testing.T) {
 	a := newTestApplier()
 	a.ingressDomain = "example.com"

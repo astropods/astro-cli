@@ -188,6 +188,8 @@ The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed
 | `environment` | map\<string, string\>   | OPTIONAL     | Adapter-specific environment variables. Supports `${}` references. |
 | `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                     |
 
+Adapter-specific behavioral configuration (e.g. actionable emoji reactions, socket mode, auto-threading) is passed to the messaging sidecar via the `SLACK_CONFIG` environment variable as a JSON object. This variable is injected into `interfaces.environment` through the variables mechanism and is editable in the deploy UI.
+
 ---
 
 ## 9. Variables
@@ -607,6 +609,14 @@ variables:
     description: Slack app token for socket mode
     secret: true
     optional: false
+  SLACK_CONFIG:
+    default: '{"actionable_reactions":["ticket"],"socket_mode":true,"auto_thread":true}'
+    targets: [interface.slack]
+    description: Slack adapter behavioral config (actionable reactions, socket mode, auto-thread) as JSON
+    secret: false
+    optional: true
+    datatype: object
+    display-as: long-text
 
 observability:
   enabled: true
@@ -774,6 +784,10 @@ variables:
     value: xapp-...
     targets: [interface.slack]
     secret: true
+  SLACK_CONFIG:
+    value: '{"actionable_reactions":["ticket"],"socket_mode":true,"auto_thread":true}'
+    targets: [interface.slack]
+    secret: false
 
 observability:
   enabled: true

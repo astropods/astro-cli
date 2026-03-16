@@ -178,11 +178,12 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 		{Name: "DEPLOYMENT_MODE", Value: "all"},
 	}
 
-	// Enable adapters based on configuration
+	// Enable adapters based on configuration.
+	// Behavioral settings are injected via interface-targeted variables
+	// through interfaces.environment, not hardcoded here.
 	if cfg.SlackEnabled {
 		container.Env = append(container.Env,
 			corev1.EnvVar{Name: "SLACK_ENABLED", Value: "true"},
-			corev1.EnvVar{Name: "SLACK_SOCKET_MODE", Value: "true"},
 		)
 	}
 

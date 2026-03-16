@@ -961,6 +961,182 @@ agent:
 	}
 }
 
+func TestSlackConfig(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+
+	tests := []struct {
+		name string
+		dev  *Dev
+		want *SlackAdapterConfig
+	}{
+		{"nil dev", nil, nil},
+		{"no interfaces", &Dev{}, nil},
+		{"no messaging", &Dev{Interfaces: &DevInterfaces{}}, nil},
+		{"no slack config", &Dev{Interfaces: &DevInterfaces{Messaging: &DevMessaging{Adapters: []string{"slack"}}}}, nil},
+		{"empty reactions", &Dev{Interfaces: &DevInterfaces{Messaging: &DevMessaging{
+			Slack: &SlackAdapterConfig{ActionableReactions: []string{}},
+		}}}, &SlackAdapterConfig{ActionableReactions: []string{}}},
+		{"configured reactions", &Dev{Interfaces: &DevInterfaces{Messaging: &DevMessaging{
+			Slack: &SlackAdapterConfig{ActionableReactions: []string{"ticket", "bug"}},
+		}}}, &SlackAdapterConfig{ActionableReactions: []string{"ticket", "bug"}}},
+		{"full config", &Dev{Interfaces: &DevInterfaces{Messaging: &DevMessaging{
+			Slack: &SlackAdapterConfig{
+				ActionableReactions: []string{"ticket"},
+				SocketMode:          boolPtr(false),
+				AutoThread:          boolPtr(true),
+			},
+		}}}, &SlackAdapterConfig{
+			ActionableReactions: []string{"ticket"},
+			SocketMode:          boolPtr(false),
+			AutoThread:          boolPtr(true),
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.dev.SlackConfig()
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("SlackConfig() = %v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("SlackConfig() = nil, want non-nil")
+			}
+			if len(got.ActionableReactions) != len(tt.want.ActionableReactions) {
+				t.Fatalf("ActionableReactions len = %d, want %d", len(got.ActionableReactions), len(tt.want.ActionableReactions))
+			}
+			for i := range tt.want.ActionableReactions {
+				if got.ActionableReactions[i] != tt.want.ActionableReactions[i] {
+					t.Errorf("ActionableReactions[%d] = %q, want %q", i, got.ActionableReactions[i], tt.want.ActionableReactions[i])
+				}
+			}
+			if tt.want.SocketMode != nil {
+				if got.SocketMode == nil || *got.SocketMode != *tt.want.SocketMode {
+					t.Errorf("SocketMode = %v, want %v", got.SocketMode, *tt.want.SocketMode)
+				}
+			}
+			if tt.want.AutoThread != nil {
+				if got.AutoThread == nil || *got.AutoThread != *tt.want.AutoThread {
+					t.Errorf("AutoThread = %v, want %v", got.AutoThread, *tt.want.AutoThread)
+				}
+			}
+		})
+	}
+}
+
+func TestParseSpec_StructuredSlackConfig(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+agent:
+  image: test:latest
+dev:
+  interfaces:
+    messaging:
+      adapters: [slack, web]
+      slack:
+        actionable_reactions: [ticket, bug]
+        socket_mode: false
+        auto_thread: true
+`
+	spec, err := ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	cfg := spec.Dev.SlackConfig()
+	if cfg == nil {
+		t.Fatal("SlackConfig() = nil, want non-nil")
+	}
+	if len(cfg.ActionableReactions) != 2 || cfg.ActionableReactions[0] != "ticket" || cfg.ActionableReactions[1] != "bug" {
+		t.Errorf("ActionableReactions = %v, want [ticket bug]", cfg.ActionableReactions)
+	}
+	if cfg.SocketMode == nil || *cfg.SocketMode != false {
+		t.Errorf("SocketMode = %v, want false", cfg.SocketMode)
+	}
+	if cfg.AutoThread == nil || *cfg.AutoThread != true {
+		t.Errorf("AutoThread = %v, want true", cfg.AutoThread)
+	}
+	adapters := spec.Dev.MessagingAdapters()
+	if len(adapters) != 2 || adapters[0] != "slack" || adapters[1] != "web" {
+		t.Errorf("MessagingAdapters() = %v, want [slack web]", adapters)
+	}
+}
+
+func TestParseSpec_LegacyInterfacesNoSlackConfig(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+agent:
+  image: test:latest
+dev:
+  interfaces: [slack, web]
+`
+	spec, err := ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if spec.Dev.SlackConfig() != nil {
+		t.Error("legacy format should have nil SlackConfig")
+	}
+	adapters := spec.Dev.MessagingAdapters()
+	if len(adapters) != 2 {
+		t.Fatalf("MessagingAdapters() len = %d, want 2", len(adapters))
+	}
+}
+
+func TestParseSpec_StructuredNoSlackBlock(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+agent:
+  image: test:latest
+dev:
+  interfaces:
+    messaging:
+      adapters: [slack]
+`
+	spec, err := ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if spec.Dev.SlackConfig() != nil {
+		t.Error("structured format without slack block should have nil SlackConfig")
+	}
+}
+
+func TestParseSpec_StructuredSlackConfigDefaults(t *testing.T) {
+	yaml := `
+spec: package/v1
+name: test-agent
+agent:
+  image: test:latest
+dev:
+  interfaces:
+    messaging:
+      adapters: [slack]
+      slack:
+        actionable_reactions: [ticket]
+`
+	spec, err := ParseString(yaml)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	cfg := spec.Dev.SlackConfig()
+	if cfg == nil {
+		t.Fatal("SlackConfig() = nil, want non-nil")
+	}
+	if len(cfg.ActionableReactions) != 1 || cfg.ActionableReactions[0] != "ticket" {
+		t.Errorf("ActionableReactions = %v, want [ticket]", cfg.ActionableReactions)
+	}
+	if cfg.SocketMode != nil {
+		t.Errorf("SocketMode should be nil (not specified), got %v", *cfg.SocketMode)
+	}
+	if cfg.AutoThread != nil {
+		t.Errorf("AutoThread should be nil (not specified), got %v", *cfg.AutoThread)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))

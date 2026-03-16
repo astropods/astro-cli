@@ -309,9 +309,18 @@ The `dev` section provides local development overrides consumed by `astro dev`. 
 
 #### DevMessaging
 
-| Field      | Type     | Required | Description                                              |
-| ---------- | -------- | -------- | -------------------------------------------------------- |
-| `adapters` | string[] | OPTIONAL | Messaging adapters to enable locally (e.g. `[slack, web]`). |
+| Field      | Type               | Required | Description                                              |
+| ---------- | ------------------ | -------- | -------------------------------------------------------- |
+| `adapters` | string[]           | OPTIONAL | Messaging adapters to enable locally (e.g. `[slack, web]`). |
+| `slack`    | SlackAdapterConfig | OPTIONAL | Slack-specific adapter configuration.                    |
+
+#### SlackAdapterConfig
+
+| Field                  | Type     | Required | Description                                                                 |
+| ---------------------- | -------- | -------- | --------------------------------------------------------------------------- |
+| `actionable_reactions` | string[] | OPTIONAL | Emoji names that trigger agent behavior (e.g. `[ticket]`). When omitted, no reactions are forwarded. |
+| `socket_mode`          | boolean  | OPTIONAL | Use Slack Socket Mode for real-time events. Default: `true`.                |
+| `auto_thread`          | boolean  | OPTIONAL | Automatically thread bot replies. Default: `true`.                          |
 
 #### DevOverrides
 
@@ -617,6 +626,8 @@ dev:
       port: 3000
     messaging:
       adapters: [slack]
+      slack:
+        actionable_reactions: [ticket]
   command: bun --watch run start
 ```
 

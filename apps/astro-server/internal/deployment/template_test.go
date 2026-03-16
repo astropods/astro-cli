@@ -758,6 +758,83 @@ func TestTemplate_NoIntegrations_AdapterVariablesPresent(t *testing.T) {
 	}
 }
 
+func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+
+	input := baseInput()
+	input.Spec.Dev = &spec.Dev{
+		Interfaces: &spec.DevInterfaces{
+			Messaging: &spec.DevMessaging{
+				Adapters: []string{"slack"},
+				Slack: &spec.SlackAdapterConfig{
+					ActionableReactions: []string{"ticket", "bug"},
+					SocketMode:          boolPtr(false),
+					AutoThread:          boolPtr(true),
+				},
+			},
+		},
+	}
+
+	ds := mustGenerate(t, input)
+
+	v, ok := ds.Variables["SLACK_ACTIONABLE_REACTIONS"]
+	if !ok {
+		t.Fatal("SLACK_ACTIONABLE_REACTIONS variable not found in template")
+	}
+	if v.Secret {
+		t.Error("SLACK_ACTIONABLE_REACTIONS should not be secret")
+	}
+	if !v.Optional {
+		t.Error("SLACK_ACTIONABLE_REACTIONS should be optional")
+	}
+	if len(v.Targets) != 1 || v.Targets[0] != "interface.slack" {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS targets = %v, want [interface.slack]", v.Targets)
+	}
+	if v.Value != "ticket, bug" {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS value = %q, want %q", v.Value, "ticket, bug")
+	}
+	if v.Default != v.Value {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS default should equal value, got default=%q value=%q", v.Default, v.Value)
+	}
+
+	envRef, ok := ds.Interfaces.Environment["SLACK_ACTIONABLE_REACTIONS"]
+	if !ok {
+		t.Fatal("interfaces.environment should contain SLACK_ACTIONABLE_REACTIONS")
+	}
+	if envRef != "${variables.SLACK_ACTIONABLE_REACTIONS}" {
+		t.Errorf("interfaces.environment ref = %q, want ${variables.SLACK_ACTIONABLE_REACTIONS}", envRef)
+	}
+
+	if _, ok := ds.Interfaces.Environment["SLACK_BOT_TOKEN"]; ok {
+		t.Error("secret variables should not appear in interfaces.environment")
+	}
+}
+
+func TestTemplate_SlackReactionsVariable_NoSpecConfig(t *testing.T) {
+	ds := mustGenerate(t, baseInput())
+
+	v, ok := ds.Variables["SLACK_ACTIONABLE_REACTIONS"]
+	if !ok {
+		t.Fatal("SLACK_ACTIONABLE_REACTIONS variable should always be present when messaging is enabled")
+	}
+	if v.Value != "" {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS value should be empty when no slack config in spec, got %q", v.Value)
+	}
+	if v.Default != "" {
+		t.Errorf("SLACK_ACTIONABLE_REACTIONS default should be empty when no slack config in spec, got %q", v.Default)
+	}
+}
+
+func TestTemplate_SlackReactionsVariable_MessagingDisabled(t *testing.T) {
+	input := baseInput()
+	input.Spec.Agent.Interfaces = &spec.Interfaces{Messaging: false}
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Variables["SLACK_ACTIONABLE_REACTIONS"]; ok {
+		t.Error("SLACK_ACTIONABLE_REACTIONS should not be present when messaging is disabled")
+	}
+}
+
 func TestTemplate_NameDerivedVariableKeys(t *testing.T) {
 	input := baseInput()
 	input.Spec.Models = map[string]spec.Model{
@@ -1213,6 +1290,61 @@ func TestResolveImage_DockerIOPrefixIsThirdParty(t *testing.T) {
 	got := resolveImage(image, input)
 	if got != image {
 		t.Errorf("docker.io-prefixed image should be unchanged, got %s", got)
+	}
+}
+
+// TestResolveImage_LocalEnvironmentSkipsDockerHubRewrite verifies that public
+// Docker Hub images are returned unchanged when Environment is "local", since
+// local Kubernetes pulls directly from Docker Hub (or the local daemon).
+func TestResolveImage_LocalEnvironmentSkipsDockerHubRewrite(t *testing.T) {
+	input := proxyInput()
+	input.Environment = "local"
+	input.RegistryURL = "docker.io/library"
+
+	cases := []struct {
+		name  string
+		image string
+	}{
+		{"org image", "astropods/messaging:latest"},
+		{"library image", "redis:7-alpine"},
+		{"library image with org", "qdrant/qdrant:latest"},
+		{"library image no tag", "neo4j"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveImage(tc.image, input)
+			if got != tc.image {
+				t.Errorf("in local env, %q should be unchanged, got %q", tc.image, got)
+			}
+		})
+	}
+}
+
+// TestResolveImage_LocalEnvironmentStillResolvesTenantImages verifies that
+// proxy-registry-hosted tenant images are still rewritten to ECR even in local
+// mode, since tenant images are stored in the private registry.
+func TestResolveImage_LocalEnvironmentStillResolvesTenantImages(t *testing.T) {
+	input := proxyInput()
+	input.Environment = "local"
+
+	got := resolveImage("proxy.registry.io/acme/my-app:v1", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/local-tenant-acme/my-app:v1"
+	if got != expected {
+		t.Errorf("tenant images should still resolve in local env, expected %s, got %s", expected, got)
+	}
+}
+
+// TestResolveImage_ProdEnvironmentStillRewritesDockerHub verifies that prod
+// environments continue to rewrite public images through the ECR pull-through
+// cache as before.
+func TestResolveImage_ProdEnvironmentStillRewritesDockerHub(t *testing.T) {
+	input := proxyInput()
+	input.Environment = "prod"
+
+	got := resolveImage("qdrant/qdrant:latest", input)
+	expected := "123456789.dkr.ecr.us-east-1.amazonaws.com/dockerhub/qdrant/qdrant:latest"
+	if got != expected {
+		t.Errorf("prod env should rewrite to pull-through cache, expected %s, got %s", expected, got)
 	}
 }
 

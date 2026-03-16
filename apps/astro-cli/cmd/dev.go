@@ -308,7 +308,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// --local: build Docker images for services that don't have a compose build directive.
 	// These are pre-built images (messaging, playground) that compose can't build on its own.
 	if local {
-		if err := buildLocalImages(rebuild); err != nil {
+		if err := buildLocalImages(devLocalImages, rebuild); err != nil {
 			return err
 		}
 	}
@@ -665,20 +665,29 @@ type localDockerImage struct {
 	context    string // relative to ASTRO_ROOT, e.g. "modules/messaging"
 }
 
-var localDockerImages = []localDockerImage{
+// devLocalImages are the infrastructure images built during `ast dev --local`.
+var devLocalImages = []localDockerImage{
 	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
 	{"playground:latest", "modules/playground/Dockerfile", "modules/playground"},
 }
 
-// buildLocalImages builds Docker images that don't have compose build directives.
-// Always rebuilds to avoid stale images; Docker layer caching keeps repeat builds fast.
-func buildLocalImages(rebuild bool) error {
+// pushLocalInfraImages are the infrastructure images built during `ast push --local`.
+// Collector is included because K8s deploys it as a sidecar; playground is omitted
+// because it only runs in compose/dev mode.
+var pushLocalInfraImages = []localDockerImage{
+	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
+	{"prod-astro-collector:latest", "deployment/Dockerfile.astro-collector", "."},
+}
+
+// buildLocalImages builds the given Docker images from ASTRO_ROOT source.
+// Docker layer caching keeps repeat builds fast.
+func buildLocalImages(images []localDockerImage, rebuild bool) error {
 	astroRoot := os.Getenv("ASTRO_ROOT")
 	if astroRoot == "" {
 		return fmt.Errorf("ASTRO_ROOT is not set")
 	}
 
-	for _, img := range localDockerImages {
+	for _, img := range images {
 		fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, img.tag)
 		dockerfile := filepath.Join(astroRoot, img.dockerfile)
 		ctx := filepath.Join(astroRoot, img.context)

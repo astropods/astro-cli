@@ -40,12 +40,33 @@ export const AVAILABLE_ADAPTERS: Adapter[] = [
   { id: "web", label: "Web", description: "Browser-based chat interface" },
 ];
 
-export const ADAPTER_CREDENTIALS: Record<string, { key: string; label: string; description: string; secret?: boolean; placeholder?: string; helpUrl?: string }[]> = {
+export interface AdapterFieldDef {
+  key: string;
+  label: string;
+  description: string;
+  secret?: boolean;
+  optional?: boolean;
+  placeholder?: string;
+  helpUrl?: string;
+}
+
+export const ADAPTER_SECRETS: Record<string, AdapterFieldDef[]> = {
   slack: [
     { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", description: "Slack bot token for messaging", secret: true, placeholder: "your-slack-bot-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
     { key: "SLACK_APP_TOKEN", label: "Slack App Token", description: "Slack app token for socket mode", secret: true, placeholder: "your-slack-app-token", helpUrl: "https://docs.slack.dev/authentication/tokens/" },
   ],
 };
+
+export const ADAPTER_CONFIG: Record<string, AdapterFieldDef[]> = {
+  slack: [
+    { key: "SLACK_ACTIONABLE_REACTIONS", label: "Actionable Reactions", description: "Emoji names the bot acts on (comma-separated)", optional: true, placeholder: "ticket, bug" },
+  ],
+};
+
+export const adapterFields = (adapterId: string): AdapterFieldDef[] => [
+  ...(ADAPTER_SECRETS[adapterId] ?? []),
+  ...(ADAPTER_CONFIG[adapterId] ?? []),
+];
 
 function toVariableDisplay(v: DeploymentVariable): VariableDisplay {
   return {
@@ -90,7 +111,7 @@ function fulfillTemplate(
     : {};
   // Inject adapter credentials not already declared in template variables
   for (const adapterId of selectedAdapters) {
-    const creds = ADAPTER_CREDENTIALS[adapterId];
+    const creds = adapterFields(adapterId);
     if (!creds) continue;
     for (const cred of creds) {
       if (!(cred.key in variables)) {
@@ -176,12 +197,12 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
   // Per-adapter credential field definitions for ALL available adapters.
   // Derived from template.variables (interface.* targets), enriched with UI metadata
-  // from ADAPTER_CREDENTIALS. Falls back to ADAPTER_CREDENTIALS when the template
-  // does not include vars for that adapter (e.g. older server versions).
-  const allAdapterCredDefs = useMemo<Record<string, [string, VariableDisplay][]>>(() => {
+  // from ADAPTER_SECRETS / ADAPTER_CONFIG. Falls back to the hardcoded
+  // definitions when the template does not include vars for that adapter.
+  const allAdapterFieldDefs = useMemo<Record<string, [string, VariableDisplay][]>>(() => {
     const defs: Record<string, [string, VariableDisplay][]> = {};
     for (const adapter of AVAILABLE_ADAPTERS) {
-      const hardcoded = ADAPTER_CREDENTIALS[adapter.id] ?? [];
+      const hardcoded = adapterFields(adapter.id);
       if (template?.variables) {
         const derived = Object.entries(template.variables).filter(([, v]) =>
           v.targets.some((t) => t === `interface.${adapter.id}`),
@@ -205,7 +226,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       // Fallback: use hardcoded definitions
       defs[adapter.id] = hardcoded.map((c) => [c.key, {
         description: c.description,
-        optional: false,
+        optional: c.optional ?? false,
         secret: c.secret,
         label: c.label,
         placeholder: c.placeholder,
@@ -227,6 +248,20 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       });
     }
   }, [variableEntries]);
+
+  // Seed adapter field defaults from the template so spec-defined values
+  // (e.g. actionable_reactions: [ticket]) appear pre-filled on fresh install.
+  useEffect(() => {
+    const defaults: Record<string, string> = {};
+    for (const defs of Object.values(allAdapterFieldDefs)) {
+      for (const [key, v] of defs) {
+        if (v.defaultValue) defaults[key] = v.defaultValue;
+      }
+    }
+    if (Object.keys(defaults).length > 0) {
+      setAdapterCredentials((prev) => ({ ...defaults, ...prev }));
+    }
+  }, [allAdapterFieldDefs]);
 
   // Compute validation errors (only surfaced after first submit attempt)
   const errors = useMemo<FormErrors>(() => {
@@ -256,7 +291,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     const emptyAdapterCreds = selectedAdapters.flatMap((adapterId) => {
-      const creds = allAdapterCredDefs[adapterId] ?? [];
+      const creds = allAdapterFieldDefs[adapterId] ?? [];
       return creds
         .filter(([key, def]) => !def.optional && !adapterCredentials[key]?.trim())
         .map(([key]) => key);
@@ -266,7 +301,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterCredDefs]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, variableValues, adapterCredentials, allAdapterFieldDefs]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials
@@ -282,7 +317,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const hasAdapter = selectedAdapters.length > 0;
     const varsValid = requiredVariables.every(([key, v]) => isVariableFilled(v, variableValues[key]));
     const adapterCredsValid = selectedAdapters.every((adapterId) => {
-      const creds = allAdapterCredDefs[adapterId] ?? [];
+      const creds = allAdapterFieldDefs[adapterId] ?? [];
       return creds.every(([key, def]) => def.optional || adapterCredentials[key]?.trim());
     });
 
@@ -338,7 +373,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
 
     selectedAdapters,
     setSelectedAdapters,
-    allAdapterCredDefs,
+    allAdapterFieldDefs,
     adapterCredentials,
     setAdapterCredentials,
 
@@ -364,7 +399,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     bulkSetVariables(imported: Record<string, string>): { matched: string[]; skipped: string[] } {
       const variableKeys = new Set(variableEntries.map(([k]) => k));
       const adapterKeys = new Set(
-        Object.values(allAdapterCredDefs).flatMap((defs) => defs.map(([k]) => k)),
+        Object.values(allAdapterFieldDefs).flatMap((defs) => defs.map(([k]) => k)),
       );
 
       const matched: string[] = [];
