@@ -20,4 +20,4 @@ The root cause was `buildAgentCardJSON` returning `""` when no readme is provide
 
 ## Migration
 
-No migration required. The server change is backward-compatible — agents already registered with a valid `AGENT.md` are unaffected. The CLI hint is informational only and does not change the push outcome.
+No migration required. Agents without an `AGENT.md` now push successfully (previously this caused a 500). They receive an informational hint on stderr suggesting the file be added, but the push outcome is unchanged. Agents already registered with a valid `AGENT.md` are unaffected.

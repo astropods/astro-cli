@@ -20,9 +20,11 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -135,6 +137,58 @@ func cleanupNamespace(t *testing.T, clientset kubernetes.Interface, ns string) {
 		defer cancel()
 		_ = clientset.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
 	})
+}
+
+// waitForDeployments polls until exactly count managed Deployments exist in ns.
+// Needed because vcluster controller sync can lag behind the API server on slow CI.
+func waitForDeployments(t *testing.T, clientset kubernetes.Interface, ns string, count int) []appsv1.Deployment {
+	t.Helper()
+	var result []appsv1.Deployment
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	err := wait.PollUntilContextCancel(ctx, 500*time.Millisecond, true, func(ctx context.Context) (bool, error) {
+		depls, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+		})
+		if err != nil {
+			return false, nil
+		}
+		if len(depls.Items) == count {
+			result = depls.Items
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("timed out waiting for %d deployments in %s: %v", count, ns, err)
+	}
+	return result
+}
+
+// waitForStatefulSets polls until exactly count managed StatefulSets exist in ns.
+// Same vcluster sync concern as waitForDeployments.
+func waitForStatefulSets(t *testing.T, clientset kubernetes.Interface, ns string, count int) []appsv1.StatefulSet {
+	t.Helper()
+	var result []appsv1.StatefulSet
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	err := wait.PollUntilContextCancel(ctx, 500*time.Millisecond, true, func(ctx context.Context) (bool, error) {
+		ssets, err := clientset.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+		})
+		if err != nil {
+			return false, nil
+		}
+		if len(ssets.Items) == count {
+			result = ssets.Items
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("timed out waiting for %d statefulsets in %s: %v", count, ns, err)
+	}
+	return result
 }
 
 func fillSecrets(s *spec.AstroDeploymentSpec) {
@@ -273,22 +327,10 @@ func TestK8s_ApplyCreatesDeployments(t *testing.T) {
 
 	applyMinimalSpec(t, client, ns)
 
-	ctx := context.Background()
-	depls, err := client.Clientset().AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
-	})
-	if err != nil {
-		t.Fatalf("list deployments: %v", err)
-	}
+	// Poll until the vcluster controller syncs the Deployment objects
+	waitForDeployments(t, client.Clientset(), ns, 2)
 
-	// Expect: agent + cache (non-persistent knowledge) = 2
-	if len(depls.Items) != 2 {
-		names := make([]string, len(depls.Items))
-		for i, d := range depls.Items {
-			names[i] = d.Name
-		}
-		t.Fatalf("expected 2 deployments, got %d: %v", len(depls.Items), names)
-	}
+	ctx := context.Background()
 
 	// Verify agent deployment
 	agentDeplName := deployment.GenerateAgentResourceName("k8s-e2e", "agent")
@@ -311,24 +353,10 @@ func TestK8s_ApplyCreatesStatefulSets(t *testing.T) {
 
 	applyMinimalSpec(t, client, ns)
 
-	ctx := context.Background()
-	ssets, err := client.Clientset().AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=astro-server",
-	})
-	if err != nil {
-		t.Fatalf("list statefulsets: %v", err)
-	}
+	// Poll until the vcluster controller syncs the StatefulSet objects
+	items := waitForStatefulSets(t, client.Clientset(), ns, 1)
 
-	// Expect: docs (persistent knowledge) = 1
-	if len(ssets.Items) != 1 {
-		names := make([]string, len(ssets.Items))
-		for i, s := range ssets.Items {
-			names[i] = s.Name
-		}
-		t.Fatalf("expected 1 statefulset, got %d: %v", len(ssets.Items), names)
-	}
-
-	ss := ssets.Items[0]
+	ss := items[0]
 	if len(ss.Spec.VolumeClaimTemplates) == 0 {
 		t.Error("statefulset missing volume claim templates")
 	} else {
