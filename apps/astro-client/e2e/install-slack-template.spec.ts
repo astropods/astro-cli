@@ -7,6 +7,8 @@ const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 
+// Guards against over-injecting Slack variables: when template only requires app token,
+// deploy payload must not include a synthetic/empty bot token.
 test("app-token-only template does not inject SLACK_BOT_TOKEN", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_APP_TOKEN_ONLY}`, { waitUntil: "domcontentloaded" });
@@ -49,6 +51,8 @@ test("app-token-only template does not inject SLACK_BOT_TOKEN", async ({ page })
   await page.waitForLoadState("networkidle");
 });
 
+// Verifies happy-path mapping for full Slack config: required secrets + optional reactions
+// are captured from UI and serialized into deploy payload.
 test("full slack template sends reactions when provided", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
@@ -83,6 +87,8 @@ test("full slack template sends reactions when provided", async ({ page }) => {
   expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value).toBe("ticket, bug");
 });
 
+// Prevents regressions where optional fields accidentally become required and block launch.
+// Empty optional reactions should still allow deploy.
 test("optional actionable reactions can be omitted without blocking deploy", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
@@ -113,6 +119,8 @@ test("optional actionable reactions can be omitted without blocking deploy", asy
   expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value ?? "").toBe("");
 });
 
+// Core overlap regression: one key targeted to both agent + interface must still be treated
+// as filled and included correctly when entered once in the UI.
 test("overlapping slack bot token targets still deploy when token is filled in UI", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_OVERLAP}`, { waitUntil: "domcontentloaded" });
@@ -144,6 +152,8 @@ test("overlapping slack bot token targets still deploy when token is filled in U
   expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-overlap-value");
 });
 
+// Ensures bulk import writes values into both general variable fields and adapter credential
+// fields, then deploy submission uses those imported values end-to-end.
 test("import variables fills config and slack fields, then deploy uses imported values", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
@@ -193,6 +203,8 @@ test("import variables fills config and slack fields, then deploy uses imported 
   expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value).toBe("ticket, bug");
 });
 
+// Configure-page redeploy coverage: edits to existing deployment credentials must flow into
+// Save & Redeploy payload, not just initial install flow.
 test("configure deployment save and redeploy sends updated slack bot token", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}/configure/deployment`, {
@@ -226,6 +238,8 @@ test("configure deployment save and redeploy sends updated slack bot token", asy
   expect(payload.variables?.OPENAI_API_KEY?.value).toBe("sk-existing-value");
 });
 
+// Configure-page overlap regression: overlapping token targets must remain populated across
+// prefilled state and still serialize correctly after redeploy edits.
 test("configure redeploy keeps overlapping slack token mapped and populated", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}/configure/deployment`, {
@@ -255,4 +269,33 @@ test("configure redeploy keeps overlapping slack token mapped and populated", as
   };
   expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-overlap-redeployed-value");
   expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-overlap-existing-value");
+});
+
+// Validates server-error UX path: when backend rejects payload with validation_errors, user
+// stays on form and sees actionable error text instead of silent failure or redirect.
+test("shows server validation error when deploy API rejects slack bot token", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /slack/i }).click();
+
+  await page.getByLabel("Openai Api Key").fill("sk-test-value");
+  await page.getByLabel("Slack Bot Token").fill("xoxb-server-reject");
+  await page.getByLabel("Slack App Token").fill("xapp-test-value");
+
+  const deployRequest = page.waitForRequest((request) =>
+    request.method() === "POST" && request.url().includes("/api/v1/deploy"),
+  );
+
+  await Promise.all([
+    deployRequest,
+    page.getByRole("button", { name: /launch agent/i }).click(),
+  ]);
+
+  await expect(page).toHaveURL(new RegExp(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}$`));
+  await expect(page.getByText("Deployment failed")).toBeVisible();
+  await expect(
+    page.getByText("variables.SLACK_BOT_TOKEN.value: required variable has no value"),
+  ).toBeVisible();
 });

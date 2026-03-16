@@ -11,6 +11,7 @@ const AGENT_SLACK_FULL = "slack-config-full";
 const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
+const REJECT_BOT_TOKEN = "xoxb-server-reject";
 
 const nowIso = new Date().toISOString();
 
@@ -338,7 +339,24 @@ Bun.serve({
     }
 
     if (pathname === "/api/v1/deploy" && request.method === "POST") {
-      const body = (await request.json()) as { source?: { name?: string } };
+      const body = (await request.json()) as {
+        source?: { name?: string };
+        variables?: Record<string, { value?: string }>;
+      };
+      if (body.variables?.SLACK_BOT_TOKEN?.value === REJECT_BOT_TOKEN) {
+        return json(
+          {
+            error: "validation_failed",
+            validation_errors: [
+              {
+                field: "variables.SLACK_BOT_TOKEN.value",
+                message: "required variable has no value",
+              },
+            ],
+          },
+          400,
+        );
+      }
       const deploymentName = body.source?.name ?? AGENT_APP_TOKEN_ONLY;
       return json({
         status: "deployed",
