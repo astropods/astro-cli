@@ -1397,7 +1397,7 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 
 	// SaveDeploymentPending transaction
 	deployMock.ExpectBegin()
-	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 0))
+	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	deployMock.ExpectQuery(`INSERT INTO deployments`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace",

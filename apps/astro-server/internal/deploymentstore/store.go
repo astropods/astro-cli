@@ -398,22 +398,44 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	defer tx.Rollback() //nolint:errcheck
 
 	// Mark existing active deployment with same display_name as undeployed
+	// and clean up its normalized data (workloads, variables).
+	var oldIDs []string
+	var rows *sql.Rows
 	if p.DisplayName != "" {
-		_, err = tx.Exec(`
+		rows, err = tx.Query(`
 			UPDATE deployments
 			SET status = 'undeployed', undeployed_at = NOW(), status_changed_at = NOW()
 			WHERE account_id = $1 AND display_name = $2 AND status = 'active'
+			RETURNING id
 		`, p.AccountID, p.DisplayName)
 	} else {
-		_, err = tx.Exec(`
+		rows, err = tx.Query(`
 			UPDATE deployments
 			SET status = 'undeployed', undeployed_at = NOW(), status_changed_at = NOW()
 			WHERE account_id = $1 AND agent_name = $2 AND status = 'active'
 			AND (SELECT COUNT(*) FROM deployments WHERE account_id = $1 AND agent_name = $2 AND status = 'active') = 1
+			RETURNING id
 		`, p.AccountID, p.AgentName)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to mark previous deployment: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			oldIDs = append(oldIDs, id)
+		}
+	}
+	rows.Close()
+
+	// Clean up normalized data for superseded deployments
+	for _, oldID := range oldIDs {
+		if _, err := tx.Exec(`DELETE FROM deployment_workloads WHERE deployment_id = $1`, oldID); err != nil {
+			return nil, fmt.Errorf("failed to delete old workloads for %s: %w", oldID, err)
+		}
+		if _, err := tx.Exec(`DELETE FROM deployment_variables WHERE deployment_id = $1`, oldID); err != nil {
+			return nil, fmt.Errorf("failed to delete old variables for %s: %w", oldID, err)
+		}
 	}
 
 	// Insert new deployment with status='pending' and current_revision=1

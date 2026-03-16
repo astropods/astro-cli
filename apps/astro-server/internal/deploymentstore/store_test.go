@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	_ "github.com/lib/pq"
 )
 
@@ -685,5 +687,102 @@ func TestListAllWithAccount(t *testing.T) {
 	}
 	if found[d3.ID] {
 		t.Errorf("did not expect undeployed deployment %s in results", d3.ID)
+	}
+}
+
+// TestSaveDeployment_SupersedesCleansWorkloads verifies that when a new deployment
+// supersedes an active one with the same display_name, the old deployment's
+// normalized data (deployment_workloads, deployment_variables) is deleted.
+func TestSaveDeployment_SupersedesCleansWorkloads(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "cleanup-agent"},
+		Agent: spec.DeploymentAgent{
+			Image:     "agent:latest",
+			Replicas:  1,
+			Resources: spec.DeploymentResources{CPU: "100m", Memory: "256Mi"},
+			Endpoints: map[string]spec.Endpoint{"http": {Port: 8080, Protocol: "http"}},
+			Update:    spec.DefaultUpdateStrategy(),
+		},
+	}
+	resolved := &deployment.ResolvedEnv{
+		ConfigMapData: map[string]string{"KEY": "val"},
+	}
+
+	// Deploy v1 with normalized workloads
+	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "cleanup-agent",
+		DisplayName: "Cleanup Agent", BuildID: "build-1", Namespace: "ns-cleanup",
+		SpecJSON: `{"spec":"v1"}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+	})
+	if err != nil {
+		t.Fatalf("first deploy failed: %v", err)
+	}
+
+	// Verify workloads exist for d1
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM deployment_workloads WHERE deployment_id = $1", d1.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("query workloads: %v", err)
+	}
+	if count == 0 {
+		t.Fatal("expected workloads for first deployment, got 0")
+	}
+
+	// Mark d1 as active so the second deploy will supersede it
+	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d1.ID)
+
+	// Deploy v2 — should mark d1 as undeployed and clean up its workloads
+	d2, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "cleanup-agent",
+		DisplayName: "Cleanup Agent", BuildID: "build-2", Namespace: "ns-cleanup-2",
+		SpecJSON: `{"spec":"v2"}`,
+	}, func(tx *sql.Tx, depID string) error {
+		return SaveNormalizedSpec(tx, depID, ds, resolved, nil)
+	})
+	if err != nil {
+		t.Fatalf("second deploy failed: %v", err)
+	}
+
+	// d1 should be undeployed
+	var status string
+	err = db.QueryRow("SELECT status FROM deployments WHERE id = $1", d1.ID).Scan(&status)
+	if err != nil {
+		t.Fatalf("query d1 status: %v", err)
+	}
+	if status != "undeployed" {
+		t.Errorf("d1 should be undeployed, got %q", status)
+	}
+
+	// d1 workloads should be cleaned up
+	err = db.QueryRow("SELECT COUNT(*) FROM deployment_workloads WHERE deployment_id = $1", d1.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("query d1 workloads: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 workloads for superseded deployment, got %d", count)
+	}
+
+	// d1 variables should be cleaned up
+	err = db.QueryRow("SELECT COUNT(*) FROM deployment_variables WHERE deployment_id = $1", d1.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("query d1 variables: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 variables for superseded deployment, got %d", count)
+	}
+
+	// d2 should have its own workloads
+	err = db.QueryRow("SELECT COUNT(*) FROM deployment_workloads WHERE deployment_id = $1", d2.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("query d2 workloads: %v", err)
+	}
+	if count == 0 {
+		t.Error("expected workloads for new deployment, got 0")
 	}
 }
