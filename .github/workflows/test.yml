@@ -166,9 +166,11 @@ jobs:
         run: go install gotest.tools/gotestsum@latest
 
       - name: Create kind cluster (host)
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: vcluster-host
+        run: |
+          curl -Lo kind "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64"
+          chmod +x kind
+          sudo mv kind /usr/local/bin/
+          kind create cluster --name vcluster-host --wait 60s
 
       - name: Install vcluster CLI
         run: |
