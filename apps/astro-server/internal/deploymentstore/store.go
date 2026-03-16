@@ -201,6 +201,34 @@ func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, 
 	return deployments, nil
 }
 
+// GetVisibleDeploymentsByAccount returns all deployments that exist for an
+// account — every status except fully undeployed (torn down).
+func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment, error) {
+	rows, err := s.db.Query(`
+		SELECT `+deploymentColumns+`
+		FROM deployments
+		WHERE account_id = $1 AND status != 'undeployed'
+		ORDER BY deployed_at DESC
+	`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query visible deployments by account: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var deployments []*Deployment
+	for rows.Next() {
+		d, err := scanDeployment(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan deployment: %w", err)
+		}
+		deployments = append(deployments, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating deployment rows: %w", err)
+	}
+	return deployments, nil
+}
+
 // GetDeploymentHistory returns all deployment records for an agent, ordered by deployed_at DESC.
 func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment, error) {
 	rows, err := s.db.Query(`

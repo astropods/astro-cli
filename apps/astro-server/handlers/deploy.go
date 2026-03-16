@@ -706,8 +706,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// DB is the source of truth for deployments — query active deployments first
-		dbDeps, err := deployStore.GetActiveDeploymentsByAccount(acct.ID)
+		// DB is the source of truth — query all visible deployments (not just active)
+		dbDeps, err := deployStore.GetVisibleDeploymentsByAccount(acct.ID)
 		if err != nil {
 			log.Error("Failed to load deployments from DB", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -717,27 +717,25 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// For each DB deployment, fetch live K8s status from its namespace
+		// For each DB deployment, fetch live K8s status from its namespace.
+		// Deployments without K8s resources (failed, pending) get a DB-only entry.
 		var allDeployments []AgentDeployment
 		for _, dbDep := range dbDeps {
 			// Read manual ingestions from namespace annotations
 			ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
 				c.Request.Context(), dbDep.Namespace, metav1.GetOptions{},
 			)
-			if nsErr != nil {
-				log.Warn("Namespace not found for deployment, skipping",
-					"deployment_id", dbDep.ID, "namespace", dbDep.Namespace, "error", nsErr)
-				continue
-			}
-			if ns.DeletionTimestamp != nil {
+			if nsErr != nil || ns.DeletionTimestamp != nil {
+				// No K8s namespace — build entry from DB record alone
+				allDeployments = append(allDeployments, agentDeploymentFromDB(dbDep))
 				continue
 			}
 
 			manualIngestions := parseManualIngestions(ns.Annotations)
 			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
-			if k8sErr != nil {
-				log.Warn("Failed to list K8s resources for deployment",
-					"deployment_id", dbDep.ID, "namespace", dbDep.Namespace, "error", k8sErr)
+			if k8sErr != nil || len(deps) == 0 {
+				// K8s resources missing or error — build entry from DB record
+				allDeployments = append(allDeployments, agentDeploymentFromDB(dbDep))
 				continue
 			}
 
@@ -754,6 +752,41 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			"count":       len(allDeployments),
 		})
 	}
+}
+
+// agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
+// used when K8s resources are unavailable (failed, pending, or missing namespace).
+func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
+	status := "error"
+	switch dep.Status {
+	case deploymentstore.StatusActive:
+		status = "Running"
+	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+		status = "pending"
+	case deploymentstore.StatusScaledDown:
+		status = "Stopped"
+	case deploymentstore.StatusUndeploying:
+		status = "pending"
+	}
+
+	ad := AgentDeployment{
+		ID:          dep.ID,
+		Name:        dep.AgentName,
+		DisplayName: dep.DisplayName,
+		BuildID:     dep.BuildID,
+		Namespace:   dep.Namespace,
+		Status:      status,
+		Replicas:    0,
+		Ready:       0,
+		CreatedAt:   dep.DeployedAt.Format(time.RFC3339),
+		Components:  []string{},
+	}
+
+	if dep.ErrorMessage != nil && *dep.ErrorMessage != "" {
+		ad.Status = "error"
+	}
+
+	return ad
 }
 
 // parseManualIngestions reads the "astro.dev/manual-ingestions" annotation from a namespace.

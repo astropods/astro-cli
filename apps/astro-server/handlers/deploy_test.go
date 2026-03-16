@@ -327,14 +327,18 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// GetActiveDeploymentsByAccount
+	// GetVisibleDeploymentsByAccount
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at",
 		}).AddRow(
-			depID, "acct-1", agentName, buildID, namespace,
-			"My Agent", `{}`, "active", now, nil,
+			depID, "acct-1", agentName, buildID, namespace, "My Agent",
+			`{}`, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil,
 		))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
@@ -384,11 +388,13 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// GetActiveDeploymentsByAccount returns no rows
+	// GetVisibleDeploymentsByAccount returns no rows
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at",
 		}))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
@@ -523,14 +529,20 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 	// Two active deployments
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace",
-			"display_name", "deployment_spec_json", "status", "deployed_at", "undeployed_at",
+			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at",
 		}).AddRow(
-			depID1, "acct-1", "agent-a", "b1", ns1,
-			"Agent A", `{}`, "active", now, nil,
+			depID1, "acct-1", "agent-a", "b1", ns1, "Agent A",
+			`{}`, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil,
 		).AddRow(
-			depID2, "acct-1", "agent-b", "b1", ns2,
-			"Agent B", `{}`, "active", now, nil,
+			depID2, "acct-1", "agent-b", "b1", ns2, "Agent B",
+			`{}`, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil,
 		))
 
 	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
