@@ -33,6 +33,10 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Build workspace theme package
+        working-directory: packages/astro-theme
+        run: bun run build
+
       - name: Install Playwright browser dependencies
         working-directory: apps/astro-client
         run: bunx playwright install --with-deps chromium
