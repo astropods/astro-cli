@@ -76,6 +76,37 @@ func hardenContainer(c *corev1.Container) {
 	c.VolumeMounts = append(c.VolumeMounts, tmpVolumeMount())
 }
 
+// providerWritablePaths returns emptyDir volume mounts that a provider's container
+// needs beyond /tmp. Many third-party images (neo4j, redis, qdrant, etc.) write to
+// paths outside /tmp on startup, which fails with readOnlyRootFilesystem: true.
+func providerWritablePaths(provider string) []corev1.VolumeMount {
+	switch provider {
+	case "neo4j":
+		return []corev1.VolumeMount{
+			{Name: "neo4j-data", MountPath: "/var/lib/neo4j"},
+		}
+	case "redis":
+		return []corev1.VolumeMount{
+			{Name: "redis-data", MountPath: "/data"},
+		}
+	default:
+		return nil
+	}
+}
+
+// providerWritableVolumes returns emptyDir volumes corresponding to providerWritablePaths.
+func providerWritableVolumes(provider string) []corev1.Volume {
+	mounts := providerWritablePaths(provider)
+	vols := make([]corev1.Volume, len(mounts))
+	for i, m := range mounts {
+		vols[i] = corev1.Volume{
+			Name:         m.Name,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		}
+	}
+	return vols
+}
+
 func boolPtr(b bool) *bool {
 	return &b
 }

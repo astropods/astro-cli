@@ -265,6 +265,112 @@ func TestStatefulSetSecurityHardening_PreservesDataMount(t *testing.T) {
 	}
 }
 
+func TestNeo4jDeploymentWritablePaths(t *testing.T) {
+	cfg := DeploymentConfig{
+		Name:            "agent-knowledge-graph",
+		Namespace:       "default",
+		AgentName:       "my-agent",
+		BuildID:         "1.0",
+		Component:       "knowledge-graph",
+		Container:       spec.ContainerConfig{Image: "neo4j:5-community"},
+		Provider:        "neo4j",
+		ProviderSection: "knowledge",
+		Port:            7474,
+	}
+	depl := BuildDeployment(cfg)
+	container := depl.Spec.Template.Spec.Containers[0]
+
+	mountMap := make(map[string]string)
+	for _, vm := range container.VolumeMounts {
+		mountMap[vm.Name] = vm.MountPath
+	}
+	if mountMap["neo4j-data"] != "/var/lib/neo4j" {
+		t.Errorf("expected neo4j-data mount at /var/lib/neo4j, got %q", mountMap["neo4j-data"])
+	}
+	if mountMap["tmp"] != "/tmp" {
+		t.Errorf("expected tmp mount at /tmp, got %q", mountMap["tmp"])
+	}
+
+	// Verify the volume exists
+	volMap := make(map[string]bool)
+	for _, v := range depl.Spec.Template.Spec.Volumes {
+		volMap[v.Name] = true
+	}
+	if !volMap["neo4j-data"] {
+		t.Error("expected neo4j-data emptyDir volume")
+	}
+}
+
+func TestNeo4jStatefulSetWritablePaths(t *testing.T) {
+	cfg := StatefulSetConfig{
+		Name:            "agent-knowledge-graph",
+		Namespace:       "default",
+		AgentName:       "my-agent",
+		BuildID:         "1.0",
+		Component:       "knowledge-graph",
+		Container:       spec.ContainerConfig{Image: "neo4j:5-community"},
+		Provider:        "neo4j",
+		ProviderSection: "knowledge",
+	}
+	ss, err := BuildStatefulSet(cfg)
+	if err != nil {
+		t.Fatalf("BuildStatefulSet: %v", err)
+	}
+	container := ss.Spec.Template.Spec.Containers[0]
+
+	mountMap := make(map[string]string)
+	for _, vm := range container.VolumeMounts {
+		mountMap[vm.Name] = vm.MountPath
+	}
+	if mountMap["neo4j-data"] != "/var/lib/neo4j" {
+		t.Errorf("expected neo4j-data mount at /var/lib/neo4j, got %q", mountMap["neo4j-data"])
+	}
+}
+
+func TestRedisDeploymentWritablePaths(t *testing.T) {
+	cfg := DeploymentConfig{
+		Name:            "agent-knowledge-cache",
+		Namespace:       "default",
+		AgentName:       "my-agent",
+		BuildID:         "1.0",
+		Component:       "knowledge-cache",
+		Container:       spec.ContainerConfig{Image: "redis:7-alpine"},
+		Provider:        "redis",
+		ProviderSection: "knowledge",
+		Port:            6379,
+	}
+	depl := BuildDeployment(cfg)
+	container := depl.Spec.Template.Spec.Containers[0]
+
+	mountMap := make(map[string]string)
+	for _, vm := range container.VolumeMounts {
+		mountMap[vm.Name] = vm.MountPath
+	}
+	if mountMap["redis-data"] != "/data" {
+		t.Errorf("expected redis-data mount at /data, got %q", mountMap["redis-data"])
+	}
+}
+
+func TestNoProviderNoExtraMounts(t *testing.T) {
+	cfg := DeploymentConfig{
+		Name:      "agent-app",
+		Namespace: "default",
+		AgentName: "my-agent",
+		BuildID:   "1.0",
+		Component: "agent",
+		Container: spec.ContainerConfig{Image: "app:latest"},
+		Port:      8080,
+	}
+	depl := BuildDeployment(cfg)
+	container := depl.Spec.Template.Spec.Containers[0]
+
+	for _, vm := range container.VolumeMounts {
+		if vm.Name != "tmp" {
+			t.Errorf("unexpected volume mount %q for provider-less deployment", vm.Name)
+		}
+	}
+}
+
 func TestIngestionDeploymentSecurityHardening(t *testing.T) {
 	cfg := JobConfig{
 		Name:      "agent-ingestion-webhook",

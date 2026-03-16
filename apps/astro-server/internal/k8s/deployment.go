@@ -108,6 +108,14 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 
 	hardenPodSpec(&podSpec)
 
+	// Add provider-specific writable paths (emptyDir volumes for images that
+	// write outside /tmp, e.g. neo4j conf/data/logs).
+	if vols := providerWritableVolumes(cfg.Provider); len(vols) > 0 {
+		podSpec.Volumes = append(podSpec.Volumes, vols...)
+		mounts := providerWritablePaths(cfg.Provider)
+		podSpec.Containers[0].VolumeMounts = append(podSpec.Containers[0].VolumeMounts, mounts...)
+	}
+
 	depl := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
