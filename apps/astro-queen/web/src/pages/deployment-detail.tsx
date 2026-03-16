@@ -136,17 +136,19 @@ export function DeploymentDetailPage() {
       )}
 
       {/* Event Timeline */}
-      {events && events.length > 0 && (
-        <Collapsible>
-          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-            <ChevronDown className="size-4" />
-            Event Timeline ({events.length})
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
+      <Collapsible>
+        <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+          <ChevronDown className="size-4" />
+          Event Timeline ({events?.length ?? 0})
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          {events && events.length > 0 ? (
             <EventTimeline events={events} />
-          </CollapsibleContent>
-        </Collapsible>
-      )}
+          ) : (
+            <p className="text-xs text-muted-foreground">No events. Run "Backfill Revisions" on the deployments list to migrate legacy deployments.</p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Revision History */}
       {revisions && revisions.length > 0 && (

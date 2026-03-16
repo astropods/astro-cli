@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -25,8 +24,7 @@ func (DeployArgs) InsertOpts() river.InsertOpts {
 		Queue:       queueDeploy,
 		MaxAttempts: 3,
 		UniqueOpts: river.UniqueOpts{
-			ByArgs:  true,
-			ByState: []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStateRunning},
+			ByArgs: true,
 		},
 	}
 }
