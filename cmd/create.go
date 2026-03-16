@@ -26,11 +26,13 @@ var (
 // Supported languages for project templates
 var supportedLangs = map[string]bool{
 	"ts": true,
+	"py": true,
 }
 
 // Supported template types
 var supportedTemplates = map[string]bool{
-	"mastra": true,
+	"mastra":    true,
+	"langchain": true,
 }
 
 var createCmd = &cobra.Command{
@@ -46,8 +48,8 @@ The create command generates a new agent project with the specified language:
 
 If no name is provided, you will be prompted for one interactively.
 
-Supported languages: ts (TypeScript/Bun)
-Supported templates: mastra (default)`,
+Supported languages: ts (TypeScript/Bun), py (Python)
+Supported templates: mastra (default for ts), langchain (default for py)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runCreate,
 }
@@ -57,14 +59,14 @@ func init() {
 	createCmd.Example = fmt.Sprintf(`  %[1]s create
   %[1]s create my-agent
   %[1]s create my-agent --yes
-  %[1]s create my-agent --template mastra
-  %[1]s create my-agent --lang ts
+  %[1]s create my-agent --lang py
+  %[1]s create my-agent --lang ts --template mastra
   %[1]s create my-agent --path /path/to/projects
   %[1]s create my-agent --force`, binaryName)
 	createCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
 	createCmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
-	createCmd.Flags().StringVarP(&langFlag, "lang", "l", "ts", "Project language template (ts)")
-	createCmd.Flags().StringVarP(&templateFlag, "template", "t", "mastra", "Agent template (mastra)")
+	createCmd.Flags().StringVarP(&langFlag, "lang", "l", "ts", "Project language (ts, py)")
+	createCmd.Flags().StringVarP(&templateFlag, "template", "t", "", "Agent template (mastra for ts, langchain for py)")
 	createCmd.Flags().BoolVar(&forceFlag, "force", false, "Recreate in place if directory already exists")
 }
 
@@ -76,12 +78,30 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	// Validate language
 	if !supportedLangs[langFlag] {
-		return fmt.Errorf("unsupported language: %s (supported: ts)", langFlag)
+		return fmt.Errorf("unsupported language: %s (supported: ts, py)", langFlag)
+	}
+
+	// Apply language-dependent template default if not explicitly set
+	if !cmd.Flags().Changed("template") {
+		switch langFlag {
+		case "py":
+			templateFlag = "langchain"
+		default:
+			templateFlag = "mastra"
+		}
 	}
 
 	// Validate template
 	if !supportedTemplates[templateFlag] {
-		return fmt.Errorf("unsupported template: %s (supported: mastra)", templateFlag)
+		return fmt.Errorf("unsupported template: %s (supported: mastra, langchain)", templateFlag)
+	}
+
+	// Validate template/lang compatibility
+	if langFlag == "ts" && templateFlag == "langchain" {
+		return fmt.Errorf("template langchain requires --lang py")
+	}
+	if langFlag == "py" && templateFlag == "mastra" {
+		return fmt.Errorf("template mastra requires --lang ts")
 	}
 
 	// If name was provided as arg, validate it upfront

@@ -31,6 +31,7 @@ func (OsFs) WriteFile(path string, data []byte, perm fs.FileMode) error {
 type ScaffoldConfig struct {
 	Name            string            // Agent name (required)
 	Description     string            // Agent description
+	Lang            string            // "ts" | "py" (set by GenerateFiles)
 	Interfaces      []string          // ["web", "slack"]
 	ModelProvider   string            // "ollama" | "huggingface" | "" for none
 	Model           string            // Model name (e.g. "llama3", "mistral")
@@ -169,7 +170,15 @@ func (c ScaffoldConfig) CollectEnvVars() map[string]string {
 // AstroSpec. This is the single source of truth for what the spec will look
 // like at runtime, so AgentEnvVars never drifts from the actual generated file.
 func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
-	paths, err := GetTemplatePaths("ts", "mastra")
+	lang := c.Lang
+	if lang == "" {
+		lang = "ts"
+	}
+	templateName := "mastra"
+	if lang == "py" {
+		templateName = "langchain"
+	}
+	paths, err := GetTemplatePaths(lang, templateName)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +211,9 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, lang string, templat
 }
 
 func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string, templateName string) error {
-	// Get template paths for the specified language and template
+	// Set lang in config so templates can reference {{.Lang}}
+	config.Lang = lang
+
 	paths, err := GetTemplatePaths(lang, templateName)
 	if err != nil {
 		return err
@@ -214,47 +225,70 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 		filepath.Join(targetDir, "agent"),
 		filepath.Join(targetDir, "postman", "collections"),
 	}
-	for _, ing := range config.Ingestions {
-		dirs = append(dirs, filepath.Join(targetDir, "ingestion", ing))
+	if len(config.Ingestions) > 0 {
+		dirs = append(dirs, filepath.Join(targetDir, "ingestion"))
+		for _, ing := range config.Ingestions {
+			dirs = append(dirs, filepath.Join(targetDir, "ingestion", ing))
+		}
 	}
-
 	for _, dir := range dirs {
 		if err := fsys.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
 	}
 
-	// Generate files from templates
+	// Files common to all languages
 	files := []struct {
 		path         string
 		templatePath string
 	}{
 		{filepath.Join(targetDir, "astropods.yml"), paths.AstroYml},
 		{filepath.Join(targetDir, "Dockerfile"), paths.Dockerfile},
-		{filepath.Join(targetDir, "package.json"), paths.PackageJson},
-		{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
 		{filepath.Join(targetDir, ".gitignore"), paths.Gitignore},
 		{filepath.Join(targetDir, ".dockerignore"), paths.Dockerignore},
-		{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
 		{filepath.Join(targetDir, "CLAUDE.md"), paths.LlmMd},
 		{filepath.Join(targetDir, "AGENTS.md"), paths.LlmMd},
 		{filepath.Join(targetDir, "AGENT.md"), paths.AgentMd},
 		{filepath.Join(targetDir, "README.md"), paths.Readme},
 	}
 
-	// Add per-ingestion-type files: ingestion/<type>/Dockerfile and ingestion/<type>/index.ts
-	for _, ing := range config.Ingestions {
-		ingestionTemplate := paths.IngestionIndex
-		if ing == "webhook" {
-			ingestionTemplate = paths.IngestionWebhookIndex
+	// Language-specific files
+	switch lang {
+	case "ts":
+		files = append(files,
+			struct{ path, templatePath string }{filepath.Join(targetDir, "package.json"), paths.PackageJson},
+			struct{ path, templatePath string }{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
+			struct{ path, templatePath string }{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
+		)
+		for _, ing := range config.Ingestions {
+			ingestionTemplate := paths.IngestionIndex
+			if ing == "webhook" {
+				ingestionTemplate = paths.IngestionWebhookIndex
+			}
+			if err := writeIngestionDockerfile(fsys, filepath.Join(targetDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion, config, ing); err != nil {
+				return err
+			}
+			files = append(files, struct{ path, templatePath string }{
+				filepath.Join(targetDir, "ingestion", ing, "index.ts"), ingestionTemplate,
+			})
 		}
-		if err := writeIngestionDockerfile(fsys, filepath.Join(targetDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion, config, ing); err != nil {
-			return err
+	case "py":
+		files = append(files,
+			struct{ path, templatePath string }{filepath.Join(targetDir, "requirements.txt"), paths.RequirementsTxt},
+			struct{ path, templatePath string }{filepath.Join(targetDir, "agent", "main.py"), paths.AgentMain},
+		)
+		for _, ing := range config.Ingestions {
+			ingestionTemplate := paths.IngestionMain
+			if ing == "webhook" {
+				ingestionTemplate = paths.IngestionWebhookPy
+			}
+			if err := writeIngestionDockerfile(fsys, filepath.Join(targetDir, "ingestion", ing, "Dockerfile"), paths.DockerfileIngestion, config, ing); err != nil {
+				return err
+			}
+			files = append(files, struct{ path, templatePath string }{
+				filepath.Join(targetDir, "ingestion", ing, "main.py"), ingestionTemplate,
+			})
 		}
-		files = append(files, struct {
-			path         string
-			templatePath string
-		}{filepath.Join(targetDir, "ingestion", ing, "index.ts"), ingestionTemplate})
 	}
 
 	for _, f := range files {
@@ -299,6 +333,12 @@ var templateFuncs = template.FuncMap{
 	"jsStr": func(s string) string {
 		s = strings.ReplaceAll(s, `\`, `\\`)
 		s = strings.ReplaceAll(s, `'`, `\'`)
+		return s
+	},
+	// pyStr escapes a string for safe embedding in a Python double-quoted string literal.
+	"pyStr": func(s string) string {
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		s = strings.ReplaceAll(s, `"`, `\"`)
 		return s
 	},
 	// humanName converts a kebab-case name to title-cased words (e.g. "my-agent" → "My Agent").
