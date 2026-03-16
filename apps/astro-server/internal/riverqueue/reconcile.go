@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -81,11 +82,12 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 
 		drifts := w.detectDrift(ctx, dep)
 		if len(drifts) > 0 {
+			driftMsg := fmt.Sprintf("Drift detected (%d): %s", len(drifts), strings.Join(drifts, "; "))
 			w.log.Warn("Reconcile: drift detected, enqueuing re-apply",
 				"deployment_id", dep.ID,
 				"drifts", len(drifts),
 			)
-			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, "", nil); err != nil {
+			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, driftMsg, nil); err != nil {
 				w.log.Error("Reconcile: failed to set pending for drift", "error", err, "deployment_id", dep.ID)
 				continue
 			}
@@ -106,11 +108,12 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 	} else {
 		for _, dep := range provisioning {
 			if time.Since(dep.StatusChangedAt) > 15*time.Minute {
+				staleMsg := fmt.Sprintf("Stuck in provisioning since %s (>15m), marking failed", dep.StatusChangedAt.Format(time.RFC3339))
 				w.log.Error("Reconcile: deployment stuck in provisioning",
 					"deployment_id", dep.ID,
 					"since", dep.StatusChangedAt,
 				)
-				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, "timed out in provisioning", nil); err != nil {
+				if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, staleMsg, nil); err != nil {
 					w.log.Warn("Failed to mark stale deployment as failed", "error", err, "deployment_id", dep.ID)
 				}
 			}
