@@ -193,6 +193,7 @@ type GetClusterStatusResponse struct {
 	Timestamp       string                  `json:"timestamp,omitempty"`
 	Namespace       string                  `json:"namespace,omitempty"`
 	Deployments     []*K8sDeploymentInfo    `json:"deployments,omitempty"`
+	StatefulSets    []*K8sDeploymentInfo    `json:"statefulsets,omitempty"`
 	Pods            []*K8sPodInfo           `json:"pods,omitempty"`
 	Services        []*K8sServiceInfo       `json:"services,omitempty"`
 	Ingresses       []*K8sIngressInfo       `json:"ingresses,omitempty"`
@@ -260,13 +261,28 @@ type AdminWorkload struct {
 	Persistent    bool   `json:"persistent,omitempty"`
 }
 
+type ExpectedService struct {
+	Name       string `json:"name"`
+	Port       int32  `json:"port"`
+	TargetPort int32  `json:"target_port"`
+	Protocol   string `json:"protocol"`
+}
+
+type ExpectedIngress struct {
+	Hostname string `json:"hostname"`
+	Path     string `json:"path"`
+	Service  string `json:"service"`
+}
+
 type GetDeploymentResponse struct {
-	Deployment    *AdminDeployment           `json:"deployment,omitempty"`
-	SpecJSON      string                     `json:"spec_json,omitempty"`
-	ClusterStatus *GetClusterStatusResponse  `json:"cluster_status,omitempty"`
-	Events        []*AdminDeploymentEvent    `json:"events,omitempty"`
-	Revisions     []*AdminDeploymentRevision `json:"revisions,omitempty"`
-	Workloads     []*AdminWorkload           `json:"workloads,omitempty"`
+	Deployment        *AdminDeployment           `json:"deployment,omitempty"`
+	SpecJSON          string                     `json:"spec_json,omitempty"`
+	ClusterStatus     *GetClusterStatusResponse  `json:"cluster_status,omitempty"`
+	Events            []*AdminDeploymentEvent    `json:"events,omitempty"`
+	Revisions         []*AdminDeploymentRevision `json:"revisions,omitempty"`
+	Workloads         []*AdminWorkload           `json:"workloads,omitempty"`
+	ExpectedServices  []*ExpectedService         `json:"expected_services,omitempty"`
+	ExpectedIngresses []*ExpectedIngress         `json:"expected_ingresses,omitempty"`
 }
 
 type GetPodLogsRequest struct {

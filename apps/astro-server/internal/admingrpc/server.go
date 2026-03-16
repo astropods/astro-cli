@@ -280,13 +280,47 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		}
 	}
 
+	// Fetch expected services from normalized table
+	var protoServices []*adminv1.ExpectedService
+	if services, err := s.deployStore.GetServices(dep.ID); err == nil {
+		for _, svc := range services {
+			protoServices = append(protoServices, &adminv1.ExpectedService{
+				Name:       svc.Name,
+				Port:       int32(svc.Port),       //nolint:gosec
+				TargetPort: int32(svc.TargetPort), //nolint:gosec
+				Protocol:   svc.Protocol,
+			})
+		}
+	}
+
+	// Fetch expected ingresses from normalized table
+	var protoIngresses []*adminv1.ExpectedIngress
+	if ingresses, err := s.deployStore.GetIngresses(dep.ID); err == nil {
+		// Build service ID -> name map for display
+		svcNameByID := map[int]string{}
+		if services, err := s.deployStore.GetServices(dep.ID); err == nil {
+			for _, svc := range services {
+				svcNameByID[svc.ID] = svc.Name
+			}
+		}
+		for _, ing := range ingresses {
+			protoIngresses = append(protoIngresses, &adminv1.ExpectedIngress{
+				Hostname: ing.Hostname,
+				Path:     ing.Path,
+				Service:  svcNameByID[ing.ServiceID],
+			})
+		}
+	}
+
 	return &adminv1.GetDeploymentResponse{
-		Deployment:    ad,
-		SpecJSON:      dep.DeploymentSpecJSON,
-		ClusterStatus: clusterStatus,
-		Events:        protoEvents,
-		Revisions:     protoRevisions,
-		Workloads:     protoWorkloads,
+		Deployment:        ad,
+		SpecJSON:          dep.DeploymentSpecJSON,
+		ClusterStatus:     clusterStatus,
+		Events:            protoEvents,
+		Revisions:         protoRevisions,
+		Workloads:         protoWorkloads,
+		ExpectedServices:  protoServices,
+		ExpectedIngresses: protoIngresses,
 	}, nil
 }
 
@@ -305,6 +339,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 		Timestamp:       time.Now().UTC().Format(time.RFC3339),
 		Namespace:       namespace,
 		Deployments:     []*adminv1.K8sDeploymentInfo{},
+		StatefulSets:    []*adminv1.K8sDeploymentInfo{},
 		Pods:            []*adminv1.K8sPodInfo{},
 		Services:        []*adminv1.K8sServiceInfo{},
 		Ingresses:       []*adminv1.K8sIngressInfo{},
@@ -331,6 +366,28 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 				AvailableReplicas: d.Status.AvailableReplicas,
 				Labels:            d.Labels,
 				CreatedAt:         d.CreationTimestamp.Format(time.RFC3339),
+			})
+		}
+	}
+
+	// StatefulSets
+	ssets, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		s.log.Warn("Failed to list k8s statefulsets", "error", err)
+	} else {
+		for _, ss := range ssets.Items {
+			replicas := int32(0)
+			if ss.Spec.Replicas != nil {
+				replicas = *ss.Spec.Replicas
+			}
+			resp.StatefulSets = append(resp.StatefulSets, &adminv1.K8sDeploymentInfo{
+				Name:              ss.Name,
+				Namespace:         ss.Namespace,
+				Replicas:          replicas,
+				ReadyReplicas:     ss.Status.ReadyReplicas,
+				AvailableReplicas: ss.Status.ReadyReplicas,
+				Labels:            ss.Labels,
+				CreatedAt:         ss.CreationTimestamp.Format(time.RFC3339),
 			})
 		}
 	}

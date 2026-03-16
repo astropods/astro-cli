@@ -41,6 +41,19 @@ export interface AdminWorkload {
   persistent: boolean;
 }
 
+export interface ExpectedService {
+  name: string;
+  port: number;
+  target_port: number;
+  protocol: string;
+}
+
+export interface ExpectedIngress {
+  hostname: string;
+  path: string;
+  service: string;
+}
+
 export interface GetDeploymentResponse {
   deployment: AdminDeployment;
   spec_json: string;
@@ -48,6 +61,8 @@ export interface GetDeploymentResponse {
   events?: DeploymentEvent[];
   revisions?: DeploymentRevision[];
   workloads?: AdminWorkload[];
+  expected_services?: ExpectedService[];
+  expected_ingresses?: ExpectedIngress[];
 }
 
 export interface GetDeploymentEventsResponse {
@@ -74,6 +89,7 @@ export interface ClusterStatusResponse {
   timestamp: string;
   namespace: string;
   deployments: K8sDeploymentInfo[];
+  statefulsets: K8sDeploymentInfo[];
   pods: K8sPodInfo[];
   services: K8sServiceInfo[];
   ingresses: K8sIngressInfo[];

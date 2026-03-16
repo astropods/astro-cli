@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminWorkload, ClusterStatusResponse } from "@/types/admin";
+import type { K8sPodInfo, K8sDeploymentInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminWorkload, ExpectedService, ExpectedIngress } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -134,8 +134,11 @@ export function DeploymentDetailPage() {
         </div>
       )}
 
-      {/* Expected vs Current */}
-      <ExpectedVsCurrent workloads={data.workloads} clusterStatus={cs} />
+      {/* Per-resource expected vs current diffs */}
+      <DeploymentsDiff workloads={data.workloads} k8sDeployments={cs?.deployments} k8sPods={cs?.pods} />
+      <StatefulSetsDiff workloads={data.workloads} k8sStatefulSets={cs?.statefulsets} k8sPods={cs?.pods} />
+      <ServicesDiff expectedServices={data.expected_services} k8sServices={cs?.services} />
+      <IngressesDiff expectedIngresses={data.expected_ingresses} k8sIngresses={cs?.ingresses} />
 
       {/* Event Timeline */}
       <Collapsible>
@@ -199,119 +202,6 @@ export function DeploymentDetailPage() {
 
       {cs && (
         <>
-          {cs.deployments?.length > 0 && (
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-4" />
-                K8s Deployments ({cs.deployments.length})
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                <div className="overflow-x-auto rounded-lg glass">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-glass-border-honey glass-subtle">
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
-                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Replicas</th>
-                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Ready</th>
-                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Available</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Created</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cs.deployments.map((d) => (
-                        <tr key={d.name} className="border-b border-comb-light">
-                          <td className="px-3 py-1.5">{d.name}</td>
-                          <td className="px-3 py-1.5 text-right">{d.replicas}</td>
-                          <td className={`px-3 py-1.5 text-right ${d.ready_replicas < d.replicas ? "text-yellow-600" : ""}`}>{d.ready_replicas}</td>
-                          <td className="px-3 py-1.5 text-right">{d.available_replicas}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{formatDateTime(d.created_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-
-          {cs.services?.length > 0 && (
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-4" />
-                Services ({cs.services.length})
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                <div className="overflow-x-auto rounded-lg glass">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-glass-border-honey glass-subtle">
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Cluster IP</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Ports</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">External</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cs.services.map((svc) => (
-                        <tr key={svc.name} className="border-b border-comb-light">
-                          <td className="px-3 py-1.5">{svc.name}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{svc.type}</td>
-                          <td className="px-3 py-1.5 font-mono text-muted-foreground">{svc.cluster_ip}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">
-                            {svc.ports?.map((p) => `${p.port}→${p.target_port}/${p.protocol}`).join(", ")}
-                          </td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{svc.external_ip?.join(", ") || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-
-          {cs.ingresses?.length > 0 && (
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-4" />
-                Ingresses ({cs.ingresses.length})
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                <div className="overflow-x-auto rounded-lg glass">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-glass-border-honey glass-subtle">
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Class</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Hosts</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Paths</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">TLS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cs.ingresses.map((ing) => (
-                        <tr key={ing.name} className="border-b border-comb-light">
-                          <td className="px-3 py-1.5">{ing.name}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{ing.ingress_class_name || "-"}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">
-                            {ing.rules?.map((r) => r.host).join(", ")}
-                          </td>
-                          <td className="px-3 py-1.5 text-muted-foreground">
-                            {ing.rules?.flatMap((r) => r.paths?.map((p) => `${p.path}→${p.backend_service}:${p.backend_port}`) ?? []).join(", ")}
-                          </td>
-                          <td className="px-3 py-1.5 text-muted-foreground">
-                            {ing.tls?.length ? ing.tls.flatMap((t) => t.hosts).join(", ") : "-"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-
           {cs.pods?.length > 0 && (
             <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
@@ -633,130 +523,229 @@ function PodRow({
   );
 }
 
-type WorkloadStatus = "running" | "degraded" | "missing" | "pending";
+// --- Generic DiffSection helper ---
 
-function resolveWorkloadStatus(
-  w: AdminWorkload,
-  cs?: ClusterStatusResponse,
-): { status: WorkloadStatus; ready: string; detail?: string } {
-  const k8sDeps = cs?.deployments ?? [];
-  const k8sPods = cs?.pods ?? [];
+interface DiffItem {
+  name: string;
+  fields: Record<string, string>;
+}
 
-  // Sidecars: check for the container inside agent pods
-  if (w.workload_type === "sidecar") {
-    const containerName = w.component_kind === "interfaces" ? "messaging" : w.component_key || w.component_kind;
-    const hasSidecar = k8sPods.some((p) => p.container_statuses?.some((c) => c.name === containerName));
-    if (hasSidecar) {
-      const broken = k8sPods.flatMap((p) =>
-        (p.container_statuses ?? []).filter((c) => c.name === containerName && (!c.ready || c.restart_count > 2))
-      );
-      if (broken.length > 0) return { status: "degraded", ready: "sidecar", detail: `${broken[0].state}` };
-      return { status: "running", ready: "sidecar" };
+type DiffStatus = "match" | "missing" | "extra" | "drift";
+
+function DiffSection({ title, expectedItems, currentItems, columns }: {
+  title: string;
+  expectedItems: DiffItem[];
+  currentItems: DiffItem[];
+  columns: string[];
+}) {
+  const allNames = Array.from(new Set([...expectedItems.map((e) => e.name), ...currentItems.map((c) => c.name)]));
+  const expectedByName = new Map(expectedItems.map((e) => [e.name, e]));
+  const currentByName = new Map(currentItems.map((c) => [c.name, c]));
+
+  const rows = allNames.map((name) => {
+    const exp = expectedByName.get(name);
+    const cur = currentByName.get(name);
+    let status: DiffStatus = "match";
+    if (exp && !cur) status = "missing";
+    else if (!exp && cur) status = "extra";
+    else if (exp && cur) {
+      const hasDrift = columns.some((col) => (exp.fields[col] ?? "") !== (cur.fields[col] ?? ""));
+      if (hasDrift) status = "drift";
     }
-    return { status: "missing", ready: "-" };
-  }
+    return { name, exp, cur, status };
+  });
 
-  // Match by K8s deployment/statefulset name
-  const dep = k8sDeps.find((d) => d.name === w.name);
-  if (!dep) return { status: "missing", ready: `0/${w.replicas}` };
+  const missingCount = rows.filter((r) => r.status === "missing").length;
+  const extraCount = rows.filter((r) => r.status === "extra").length;
+  const driftCount = rows.filter((r) => r.status === "drift").length;
 
-  const ready = `${dep.ready_replicas}/${dep.replicas}`;
-  if (dep.ready_replicas >= dep.replicas && dep.replicas > 0) return { status: "running", ready };
+  if (rows.length === 0) return null;
 
-  // Check pods for crash details
-  const pods = k8sPods.filter((p) => p.name.startsWith(w.name));
-  const crashing = pods.flatMap((p) =>
-    (p.container_statuses ?? []).filter((c) => !c.ready || c.state.startsWith("Waiting") || c.restart_count > 2)
-  );
-  if (crashing.length > 0) {
-    const worst = crashing[0];
-    return { status: "degraded", ready, detail: `${worst.name}: ${worst.state}${worst.restart_count > 0 ? ` (${worst.restart_count} restarts)` : ""}` };
-  }
+  const rowBg: Record<DiffStatus, string> = {
+    match: "",
+    missing: "bg-red-500/5",
+    extra: "bg-yellow-500/5",
+    drift: "bg-orange-500/5",
+  };
 
-  if (dep.ready_replicas === 0) return { status: "pending", ready };
-  return { status: "degraded", ready };
-}
-
-const wStatusColors: Record<WorkloadStatus, string> = {
-  running: "text-green-600",
-  degraded: "text-yellow-600",
-  missing: "text-red-600",
-  pending: "text-blue-600",
-};
-
-const wStatusDots: Record<WorkloadStatus, string> = {
-  running: "bg-green-500",
-  degraded: "bg-yellow-500",
-  missing: "bg-red-500",
-  pending: "bg-blue-500",
-};
-
-const kindBadge: Record<string, string> = {
-  agent: "bg-amber-100 text-amber-700",
-  model: "bg-purple-100 text-purple-700",
-  knowledge: "bg-blue-100 text-blue-700",
-  tool: "bg-green-100 text-green-700",
-  ingestion: "bg-orange-100 text-orange-700",
-  interfaces: "bg-pink-100 text-pink-700",
-  collector: "bg-gray-100 text-gray-700",
-};
-
-function shortImage(img: string) {
-  const parts = img.split("/");
-  return parts[parts.length - 1];
-}
-
-function ExpectedVsCurrent({ workloads, clusterStatus }: { workloads?: AdminWorkload[]; clusterStatus?: ClusterStatusResponse }) {
-  if (!workloads || workloads.length === 0) return null;
+  const statusLabel: Record<DiffStatus, { text: string; cls: string }> = {
+    match: { text: "ok", cls: "text-green-600" },
+    missing: { text: "missing", cls: "text-red-600" },
+    extra: { text: "extra", cls: "text-yellow-600" },
+    drift: { text: "drift", cls: "text-orange-600" },
+  };
 
   return (
     <Collapsible defaultOpen>
-      <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+      <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
         <ChevronDown className="size-4" />
-        Workloads ({workloads.length})
+        {title} ({rows.length})
+        {missingCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">{missingCount} missing</span>}
+        {extraCount > 0 && <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">{extraCount} extra</span>}
+        {driftCount > 0 && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] text-orange-700">{driftCount} drifted</span>}
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2">
         <div className="overflow-x-auto rounded-lg glass">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-glass-border-honey glass-subtle">
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Component</th>
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Kind</th>
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Image</th>
-                <th className="px-3 py-1.5 text-center font-medium text-muted-foreground">Ready</th>
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Status</th>
-                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Detail</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground" rowSpan={2}>Name</th>
+                <th className="px-3 py-1.5 text-center font-medium text-blue-600 border-l border-glass-border-honey" colSpan={columns.length}>Expected</th>
+                <th className="px-3 py-1.5 text-center font-medium text-green-600 border-l border-glass-border-honey" colSpan={columns.length}>Current</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground border-l border-glass-border-honey" rowSpan={2}>Status</th>
+              </tr>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                {columns.map((col) => (
+                  <th key={`exp-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
+                ))}
+                {columns.map((col) => (
+                  <th key={`cur-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {workloads.map((w) => {
-                const { status, ready, detail } = resolveWorkloadStatus(w, clusterStatus);
-                return (
-                  <tr key={w.name} className="border-b border-comb-light">
-                    <td className="px-3 py-1.5 font-medium">{w.name}</td>
-                    <td className="px-3 py-1.5">
-                      <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] ${kindBadge[w.component_kind] ?? "bg-gray-100 text-gray-700"}`}>
-                        {w.component_kind}{w.persistent ? " (pvc)" : ""}
-                      </span>
+              {rows.map((r) => (
+                <tr key={r.name} className={`border-b border-comb-light ${rowBg[r.status]}`}>
+                  <td className="px-3 py-1.5 font-medium">{r.name}</td>
+                  {columns.map((col, i) => (
+                    <td key={`exp-${col}`} className={`px-3 py-1.5 font-mono text-muted-foreground ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
+                      {r.exp?.fields[col] ?? <span className="text-muted-foreground/40">-</span>}
                     </td>
-                    <td className="px-3 py-1.5 font-mono text-muted-foreground" title={w.image}>{shortImage(w.image)}</td>
-                    <td className="px-3 py-1.5 text-center font-mono">{ready}</td>
-                    <td className="px-3 py-1.5">
-                      <span className="flex items-center gap-1.5">
-                        <span className={`size-1.5 rounded-full ${wStatusDots[status]}`} />
-                        <span className={wStatusColors[status]}>{status}</span>
-                      </span>
-                    </td>
-                    <td className="max-w-[250px] truncate px-3 py-1.5 text-muted-foreground" title={detail}>{detail ?? ""}</td>
-                  </tr>
-                );
-              })}
+                  ))}
+                  {columns.map((col, i) => {
+                    const expVal = r.exp?.fields[col] ?? "";
+                    const curVal = r.cur?.fields[col] ?? "";
+                    const differs = r.status === "drift" && expVal !== curVal && expVal !== "" && curVal !== "";
+                    return (
+                      <td key={`cur-${col}`} className={`px-3 py-1.5 font-mono ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
+                        {!r.cur ? (
+                          <span className="text-red-500">-</span>
+                        ) : differs ? (
+                          <span className="text-orange-600">{curVal}</span>
+                        ) : (
+                          curVal || <span className="text-muted-foreground/40">-</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-1.5 border-l border-glass-border-honey">
+                    <span className={statusLabel[r.status].cls}>{statusLabel[r.status].text}</span>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+// --- Per-resource diff sections ---
+
+function shortImage(img: string) {
+  const parts = img.split("/");
+  return parts[parts.length - 1];
+}
+
+function DeploymentsDiff({ workloads, k8sDeployments, k8sPods }: {
+  workloads?: AdminWorkload[];
+  k8sDeployments?: K8sDeploymentInfo[];
+  k8sPods?: K8sPodInfo[];
+}) {
+  const expected: DiffItem[] = (workloads ?? [])
+    .filter((w) => w.workload_type === "deployment" || w.workload_type === "sidecar")
+    .map((w) => ({
+      name: w.name,
+      fields: { Image: shortImage(w.image), Replicas: String(w.replicas) },
+    }));
+
+  const current: DiffItem[] = (k8sDeployments ?? []).map((d) => {
+    const pods = (k8sPods ?? []).filter((p) => p.name.startsWith(d.name));
+    const liveImage = pods.flatMap((p) => (p.container_statuses ?? []).map((c) => c.image)).filter(Boolean)[0];
+    return {
+      name: d.name,
+      fields: {
+        Image: liveImage ? shortImage(liveImage) : "-",
+        Replicas: `${d.ready_replicas}/${d.replicas}`,
+      },
+    };
+  });
+
+  return <DiffSection title="Deployments" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} />;
+}
+
+function StatefulSetsDiff({ workloads, k8sStatefulSets, k8sPods }: {
+  workloads?: AdminWorkload[];
+  k8sStatefulSets?: K8sDeploymentInfo[];
+  k8sPods?: K8sPodInfo[];
+}) {
+  const expected: DiffItem[] = (workloads ?? [])
+    .filter((w) => w.workload_type === "statefulset")
+    .map((w) => ({
+      name: w.name,
+      fields: { Image: shortImage(w.image), Replicas: String(w.replicas) },
+    }));
+
+  const current: DiffItem[] = (k8sStatefulSets ?? []).map((ss) => {
+    const pods = (k8sPods ?? []).filter((p) => p.name.startsWith(ss.name));
+    const liveImage = pods.flatMap((p) => (p.container_statuses ?? []).map((c) => c.image)).filter(Boolean)[0];
+    return {
+      name: ss.name,
+      fields: {
+        Image: liveImage ? shortImage(liveImage) : "-",
+        Replicas: `${ss.ready_replicas}/${ss.replicas}`,
+      },
+    };
+  });
+
+  if (expected.length === 0 && current.length === 0) return null;
+  return <DiffSection title="StatefulSets" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} />;
+}
+
+function ServicesDiff({ expectedServices, k8sServices }: {
+  expectedServices?: ExpectedService[];
+  k8sServices?: { name: string; type: string; cluster_ip: string; ports?: { port: number; target_port: string; protocol: string }[] }[];
+}) {
+  const expected: DiffItem[] = (expectedServices ?? []).map((s) => ({
+    name: s.name,
+    fields: { Port: String(s.port), TargetPort: String(s.target_port), Protocol: s.protocol },
+  }));
+
+  const current: DiffItem[] = (k8sServices ?? []).map((s) => ({
+    name: s.name,
+    fields: {
+      Port: s.ports?.map((p) => String(p.port)).join(", ") ?? "-",
+      TargetPort: s.ports?.map((p) => p.target_port).join(", ") ?? "-",
+      Protocol: s.ports?.map((p) => p.protocol).join(", ") ?? "-",
+    },
+  }));
+
+  if (expected.length === 0 && current.length === 0) return null;
+  return <DiffSection title="Services" expectedItems={expected} currentItems={current} columns={["Port", "TargetPort", "Protocol"]} />;
+}
+
+function IngressesDiff({ expectedIngresses, k8sIngresses }: {
+  expectedIngresses?: ExpectedIngress[];
+  k8sIngresses?: { name: string; rules?: { host: string; paths?: { path: string; backend_service: string; backend_port: string }[] }[]; tls?: { hosts: string[] }[] }[];
+}) {
+  const expected: DiffItem[] = (expectedIngresses ?? []).map((ing) => ({
+    name: ing.hostname,
+    fields: { Hostname: ing.hostname, Path: ing.path, Service: ing.service },
+  }));
+
+  const current: DiffItem[] = (k8sIngresses ?? []).map((ing) => {
+    const host = ing.rules?.[0]?.host ?? ing.name;
+    const paths = ing.rules?.flatMap((r) => r.paths?.map((p) => p.path) ?? []).join(", ") ?? "-";
+    const backends = ing.rules?.flatMap((r) => r.paths?.map((p) => `${p.backend_service}:${p.backend_port}`) ?? []).join(", ") ?? "-";
+    return {
+      name: host,
+      fields: { Hostname: host, Path: paths, Service: backends },
+    };
+  });
+
+  if (expected.length === 0 && current.length === 0) return null;
+  return <DiffSection title="Ingresses" expectedItems={expected} currentItems={current} columns={["Hostname", "Path", "Service"]} />;
 }
 
 function PodDetail({ deploymentId, pod, container, mode, onClose }: { deploymentId: string; pod: string; container?: string; mode: "logs" | "env"; onClose: () => void }) {
