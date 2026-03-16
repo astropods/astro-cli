@@ -1409,13 +1409,13 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 	// Event insert
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Normalized spec inserts (agent workload + service + collector workload + services + variables)
+	// Normalized spec inserts (agent workload + service + collector sidecar + services + variables)
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_sidecars`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
@@ -1474,17 +1474,18 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`DELETE FROM deployment_workloads`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`DELETE FROM deployment_sidecars`).WillReturnResult(sqlmock.NewResult(0, 0))
 	deployMock.ExpectExec(`DELETE FROM deployment_variables`).WillReturnResult(sqlmock.NewResult(0, 0))
 	// Event insert
 	deployMock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// Normalized spec re-inserts (agent workload + service + collector workload + services + variables)
+	// Normalized spec re-inserts (agent workload + service + collector sidecar + services + variables)
 	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_sidecars`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
