@@ -2,12 +2,17 @@ package deployer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -23,6 +28,9 @@ type Deployer struct {
 	Cfg          *config.Config
 	Store        *deploymentstore.Store
 	Log          *logger.Logger
+	// KMSClient is an optional KMS client for decrypting secrets. If nil,
+	// a client is created from the default AWS config at decrypt time.
+	KMSClient envelope.KMSClient
 }
 
 // Apply provisions K8s resources for a deployment using the current revision's spec.
@@ -39,6 +47,13 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	var ds spec.AstroDeploymentSpec
 	if err := json.Unmarshal(rev.SpecJSON, &ds); err != nil {
 		return nil, fmt.Errorf("unmarshal deployment spec: %w", err)
+	}
+
+	// Reconstitute secret variable values from the normalized store.
+	// The revision spec has secrets stripped; the actual values live in
+	// deployment_variables (potentially KMS-encrypted).
+	if err := d.RehydrateSecrets(ctx, dep, &ds); err != nil {
+		return nil, fmt.Errorf("rehydrate secrets: %w", err)
 	}
 
 	// Look up account name for namespace labels
@@ -86,6 +101,68 @@ func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment
 		return nil
 	}
 	return err
+}
+
+// RehydrateSecrets loads secret variable values from the deployment_variables
+// table and injects them back into the spec. Values may be KMS-encrypted;
+// if so they are decrypted using the deployment's encrypted data key.
+func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.Deployment, ds *spec.AstroDeploymentSpec) error {
+	storedVars, err := d.Store.GetDeploymentVariables(dep.ID)
+	if err != nil {
+		return fmt.Errorf("get deployment variables: %w", err)
+	}
+	if len(storedVars) == 0 {
+		return nil
+	}
+
+	// Build a decryptor if the deployment has KMS-encrypted secrets
+	var dec *envelope.Decryptor
+	if len(dep.EncryptedDataKey) > 0 && d.Cfg.Deployment.KMSKeyARN != "" {
+		kmsClient := d.KMSClient
+		if kmsClient == nil {
+			awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx)
+			if awsErr != nil {
+				d.Log.Warn("Failed to load AWS config for secret decryption", "error", awsErr, "deployment_id", dep.ID)
+			} else {
+				kmsClient = kms.NewFromConfig(awsCfg)
+			}
+		}
+		if kmsClient != nil {
+			dec, err = envelope.NewDecryptor(ctx, kmsClient, dep.EncryptedDataKey)
+			if err != nil {
+				d.Log.Warn("Failed to create KMS decryptor", "error", err, "deployment_id", dep.ID)
+			}
+		}
+	}
+
+	if ds.Variables == nil {
+		ds.Variables = make(map[string]spec.Variable)
+	}
+
+	for _, sv := range storedVars {
+		existing, ok := ds.Variables[sv.Name]
+		if !ok {
+			continue
+		}
+
+		val := sv.Value
+		if sv.Secret && dec != nil && len(sv.Nonce) > 0 {
+			ciphertext, b64Err := base64.StdEncoding.DecodeString(val)
+			if b64Err == nil {
+				plaintext, decErr := dec.Decrypt(ciphertext, sv.Nonce)
+				if decErr == nil {
+					val = string(plaintext)
+				} else {
+					d.Log.Warn("Failed to decrypt variable", "name", sv.Name, "deployment_id", dep.ID)
+				}
+			}
+		}
+
+		existing.Value = val
+		ds.Variables[sv.Name] = existing
+	}
+
+	return nil
 }
 
 func imagePullPolicyForMode(mode string) corev1.PullPolicy {

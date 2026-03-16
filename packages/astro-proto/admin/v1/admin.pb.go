@@ -299,6 +299,14 @@ type DriftReport struct {
 	Summary    *DriftSummary        `json:"summary"`
 }
 
+type AdminVariable struct {
+	Name     string   `json:"name,omitempty"`
+	Secret   bool     `json:"secret,omitempty"`
+	Optional bool     `json:"optional,omitempty"`
+	Value    string   `json:"value,omitempty"`
+	Targets  []string `json:"targets,omitempty"`
+}
+
 type GetDeploymentResponse struct {
 	Deployment        *AdminDeployment           `json:"deployment,omitempty"`
 	SpecJSON          string                     `json:"spec_json,omitempty"`
@@ -310,6 +318,7 @@ type GetDeploymentResponse struct {
 	ExpectedIngresses []*ExpectedIngress         `json:"expected_ingresses,omitempty"`
 	DriftReport       *DriftReport               `json:"drift_report,omitempty"`
 	DriftCheckedAt    string                     `json:"drift_checked_at,omitempty"`
+	Variables         []*AdminVariable           `json:"variables,omitempty"`
 }
 
 type GetPodLogsRequest struct {

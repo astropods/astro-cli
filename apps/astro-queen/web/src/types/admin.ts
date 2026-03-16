@@ -79,6 +79,14 @@ export interface DriftReport {
   summary: DriftSummary;
 }
 
+export interface AdminVariable {
+  name: string;
+  secret: boolean;
+  optional: boolean;
+  value: string;
+  targets: string[];
+}
+
 export interface GetDeploymentResponse {
   deployment: AdminDeployment;
   spec_json: string;
@@ -90,6 +98,7 @@ export interface GetDeploymentResponse {
   expected_ingresses?: ExpectedIngress[];
   drift_report?: DriftReport;
   drift_checked_at?: string;
+  variables?: AdminVariable[];
 }
 
 export interface RefreshDriftReportResponse {

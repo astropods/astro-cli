@@ -359,6 +359,24 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		}
 	}
 
+	// Include deployment variables
+	if vars, err := s.deployStore.GetDeploymentVariables(dep.ID); err == nil {
+		for _, v := range vars {
+			av := &adminv1.AdminVariable{
+				Name:     v.Name,
+				Secret:   v.Secret,
+				Optional: v.Optional,
+				Targets:  v.Targets,
+			}
+			if v.Secret {
+				av.Value = "***"
+			} else {
+				av.Value = v.Value
+			}
+			resp.Variables = append(resp.Variables, av)
+		}
+	}
+
 	return resp, nil
 }
 

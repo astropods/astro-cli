@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem } from "@/types/admin";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -156,6 +156,7 @@ export function DeploymentDetailPage() {
           <TabsTrigger value="events">Events & Jobs</TabsTrigger>
           <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="pods">Pods ({cs?.pods?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="variables">Variables ({data.variables?.length ?? 0})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="drift" className="space-y-4 mt-2">
@@ -274,6 +275,14 @@ export function DeploymentDetailPage() {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">No pods found.</p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="variables" className="mt-2">
+          {data.variables?.length ? (
+            <VariablesTable variables={data.variables} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No variables configured for this deployment.</p>
           )}
         </TabsContent>
       </Tabs>
@@ -711,6 +720,42 @@ function DriftTable({ title, items }: { title: string; items: DriftResourceItem[
         </div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+function VariablesTable({ variables }: { variables: AdminVariable[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg glass">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-glass-border-honey glass-subtle">
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Name</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Value</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Targets</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Flags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {variables.map((v) => (
+            <tr key={v.name} className="border-b border-comb-light">
+              <td className="px-3 py-1.5 font-mono font-medium">{v.name}</td>
+              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                {v.secret ? <span className="text-yellow-600">***</span> : v.value || <span className="text-muted-foreground/40">-</span>}
+              </td>
+              <td className="px-3 py-1.5 text-muted-foreground">
+                {v.targets?.length > 0 ? v.targets.join(", ") : <span className="text-muted-foreground/40">all</span>}
+              </td>
+              <td className="px-3 py-1.5">
+                <span className="flex gap-1.5">
+                  {v.secret && <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">secret</span>}
+                  {v.optional && <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">optional</span>}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
