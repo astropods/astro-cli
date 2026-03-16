@@ -663,12 +663,22 @@ func TestDrift_EmptySecretNotInResolvedKeys(t *testing.T) {
 		t.Error("expected EMPTY_SECRET to be excluded from resolved SecretData")
 	}
 
-	// Re-save normalized spec with the new variable set
+	// Re-save normalized spec with the new variable set.
+	// Delete existing workloads/sidecars first to avoid duplicate key errors.
 	tx, err := env.db.Begin()
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec("DELETE FROM deployment_workloads WHERE deployment_id = $1", env.depID); err != nil {
+		t.Fatalf("delete workloads: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM deployment_sidecars WHERE deployment_id = $1", env.depID); err != nil {
+		t.Fatalf("delete sidecars: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM deployment_variables WHERE deployment_id = $1", env.depID); err != nil {
+		t.Fatalf("delete variables: %v", err)
+	}
 	if err := ds.SaveNormalizedSpec(tx, env.depID, &specObj, resolved, nil, &ds.NormalizedSpecConfig{
 		Namespace: env.ns,
 	}); err != nil {
@@ -714,9 +724,10 @@ func TestDrift_EmptySecretNotInResolvedKeys(t *testing.T) {
 	}
 }
 
-// TestDrift_RepairDoesNotAddEmptySecrets verifies that RepairNormalizedSpec
-// does not add stripped (empty) secret keys to the resolved keys table.
-func TestDrift_RepairDoesNotAddEmptySecrets(t *testing.T) {
+// TestDrift_RepairPreservesStrippedSecretKeys verifies that RepairNormalizedSpec
+// includes stripped secret keys in resolved keys (for key-presence checking)
+// but without value hashes (since values are unavailable after stripping).
+func TestDrift_RepairPreservesStrippedSecretKeys(t *testing.T) {
 	env := setupDriftEnv(t)
 
 	// Run repair — the stored spec has secrets stripped (empty values)
@@ -735,25 +746,27 @@ func TestDrift_RepairDoesNotAddEmptySecrets(t *testing.T) {
 		t.Fatal("expected resolved keys after repair, got nil")
 	}
 
-	// The stored spec has SECRET_KEY stripped to "". ResolveDeploymentSpecEnv
-	// skips empty secrets, so SECRET_KEY should NOT be in secret_keys after repair.
+	// Repair re-adds stripped secret keys so drift can check key presence.
+	foundSecret := false
 	for _, k := range rk.SecretKeys {
 		if k == "SECRET_KEY" {
-			t.Error("stripped SECRET_KEY should not be in resolved secret_keys after repair")
+			foundSecret = true
 		}
 	}
-
-	// No secret hashes should exist (all secrets were stripped)
-	if len(rk.SecretHashes) > 0 {
-		t.Errorf("expected empty secret_hashes after repair, got %v", rk.SecretHashes)
+	if !foundSecret {
+		t.Errorf("expected SECRET_KEY in secret_keys after repair, got %v", rk.SecretKeys)
 	}
 
-	// Drift should be clean — K8s has SECRET_KEY in the Secret, but since
-	// resolved keys don't track it, it falls through to the legacy variable
-	// check OR is simply not compared. Either way, no false drift.
+	// No secret hashes — values were stripped, so we can't verify them
+	if len(rk.SecretHashes) > 0 {
+		t.Errorf("expected empty secret_hashes after repair (values stripped), got %v", rk.SecretHashes)
+	}
+
+	// Drift should be clean — keys match, value comparison is skipped
 	report := env.buildReport()
-	if report.Summary.Missing > 0 {
-		t.Errorf("expected 0 missing after repair, got %d", report.Summary.Missing)
+	if report.Summary.Missing > 0 || report.Summary.Drift > 0 {
+		t.Errorf("expected all match after repair, got missing=%d drift=%d",
+			report.Summary.Missing, report.Summary.Drift)
 		for _, item := range report.Secrets {
 			t.Logf("  secret %s: %s expected=%v actual=%v", item.Name, item.Status, item.Expected, item.Actual)
 		}
