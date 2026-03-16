@@ -723,7 +723,11 @@ func SaveNormalizedSpec(
 // the deployment_workloads, deployment_services, deployment_ingresses, and
 // deployment_volumes tables. Variables are preserved (they require resolved
 // env and encryptor which are not available at repair time).
-func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecConfig) (workloads, services, ingresses int, err error) {
+//
+// liveSecretData, if non-nil, supplies the actual K8s Secret data so that
+// secret value hashes can be computed for drift detection. When nil, secret
+// keys are still tracked but without value hashes.
+func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecConfig, liveSecretData map[string][]byte) (workloads, services, ingresses int, err error) {
 	dep, err := s.GetDeploymentByID(deploymentID)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("get deployment: %w", err)
@@ -774,10 +778,19 @@ func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecC
 
 	// The stored spec has secret values stripped, so ResolveDeploymentSpecEnv
 	// won't include them in SecretData. Rebuild secret keys from the variable
-	// definitions (key names are still present, only values are blanked).
+	// definitions, using live K8s values for hashing when available.
 	for key, v := range ds.Variables {
 		if v.Secret {
-			resolved.SecretData[strings.ToUpper(key)] = ""
+			upperKey := strings.ToUpper(key)
+			if liveSecretData != nil {
+				if liveVal, ok := liveSecretData[upperKey]; ok {
+					resolved.SecretData[upperKey] = string(liveVal)
+				} else {
+					resolved.SecretData[upperKey] = ""
+				}
+			} else {
+				resolved.SecretData[upperKey] = ""
+			}
 		}
 	}
 

@@ -295,7 +295,7 @@ func TestRepairPreservesVariables(t *testing.T) {
 	// Run repair — this used to delete deployment_variables
 	_, _, _, err = store.RepairNormalizedSpec(dep.ID, &ds.NormalizedSpecConfig{
 		Namespace: dep.Namespace,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}

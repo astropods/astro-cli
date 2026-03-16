@@ -1343,15 +1343,30 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 
 // RepairNormalizedSpec re-parses the stored spec JSON and rebuilds the
 // deployment_workloads, services, ingresses, volumes, and variables tables.
-func (s *Server) RepairNormalizedSpec(_ context.Context, req *adminv1.RepairNormalizedSpecRequest) (*adminv1.RepairNormalizedSpecResponse, error) {
+func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNormalizedSpecRequest) (*adminv1.RepairNormalizedSpecResponse, error) {
 	if req.DeploymentId == "" {
 		return nil, fmt.Errorf("deployment_id is required")
+	}
+
+	// Read the live K8s Secret so repair can store correct value hashes.
+	dep, err := s.deployStore.GetDeploymentByID(req.DeploymentId)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found: %s", req.DeploymentId)
+	}
+	var liveSecretData map[string][]byte
+	secretName := deployment.GenerateSecretName(dep.AgentName, dep.BuildID)
+	secret, err := s.k8sClient.Clientset().CoreV1().Secrets(dep.Namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err == nil {
+		liveSecretData = secret.Data
 	}
 
 	workloads, services, ingresses, err := s.deployStore.RepairNormalizedSpec(req.DeploymentId, &deploymentstore.NormalizedSpecConfig{
 		IngressDomain:          s.ingressDomain,
 		IngestionIngressDomain: s.ingestionIngressDomain,
-	})
+	}, liveSecretData)
 	if err != nil {
 		return nil, fmt.Errorf("repair normalized spec: %w", err)
 	}

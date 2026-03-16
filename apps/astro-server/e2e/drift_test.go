@@ -191,6 +191,18 @@ func setupDriftEnv(t *testing.T) *driftTestEnv {
 	}
 }
 
+func (e *driftTestEnv) liveSecretData() map[string][]byte {
+	e.t.Helper()
+	secretName := deployment.GenerateSecretName("drift-agent", "dbuild01")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	secret, err := e.client.Clientset().CoreV1().Secrets(e.ns).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil
+	}
+	return secret.Data
+}
+
 func (e *driftTestEnv) buildReport() *ds.DriftReport {
 	e.t.Helper()
 	workloads, err := e.store.GetWorkloads(e.depID)
@@ -400,7 +412,7 @@ func TestDrift_RepairRestoresDBState(t *testing.T) {
 	// Repair with config
 	workloads, services, _, err := env.store.RepairNormalizedSpec(env.depID, &ds.NormalizedSpecConfig{
 		Namespace: env.ns,
-	})
+	}, env.liveSecretData())
 	if err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}
@@ -600,7 +612,7 @@ func TestDrift_RepairRegeneratesResolvedKeys(t *testing.T) {
 	// Repair
 	_, _, _, err := env.store.RepairNormalizedSpec(env.depID, &ds.NormalizedSpecConfig{
 		Namespace: env.ns,
-	})
+	}, env.liveSecretData())
 	if err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}
@@ -724,16 +736,16 @@ func TestDrift_EmptySecretNotInResolvedKeys(t *testing.T) {
 	}
 }
 
-// TestDrift_RepairPreservesStrippedSecretKeys verifies that RepairNormalizedSpec
-// includes stripped secret keys in resolved keys (for key-presence checking)
-// but without value hashes (since values are unavailable after stripping).
-func TestDrift_RepairPreservesStrippedSecretKeys(t *testing.T) {
+// TestDrift_RepairWithLiveSecrets verifies that RepairNormalizedSpec reads
+// live K8s secret values to store correct hashes, enabling full value drift
+// detection after repair.
+func TestDrift_RepairWithLiveSecrets(t *testing.T) {
 	env := setupDriftEnv(t)
 
-	// Run repair — the stored spec has secrets stripped (empty values)
+	// Run repair with live secret data from K8s
 	_, _, _, err := env.store.RepairNormalizedSpec(env.depID, &ds.NormalizedSpecConfig{
 		Namespace: env.ns,
-	})
+	}, env.liveSecretData())
 	if err != nil {
 		t.Fatalf("RepairNormalizedSpec: %v", err)
 	}
@@ -746,7 +758,7 @@ func TestDrift_RepairPreservesStrippedSecretKeys(t *testing.T) {
 		t.Fatal("expected resolved keys after repair, got nil")
 	}
 
-	// Repair re-adds stripped secret keys so drift can check key presence.
+	// Secret key should be tracked
 	foundSecret := false
 	for _, k := range rk.SecretKeys {
 		if k == "SECRET_KEY" {
@@ -757,12 +769,12 @@ func TestDrift_RepairPreservesStrippedSecretKeys(t *testing.T) {
 		t.Errorf("expected SECRET_KEY in secret_keys after repair, got %v", rk.SecretKeys)
 	}
 
-	// No secret hashes — values were stripped, so we can't verify them
-	if len(rk.SecretHashes) > 0 {
-		t.Errorf("expected empty secret_hashes after repair (values stripped), got %v", rk.SecretHashes)
+	// Live secret values should produce hashes
+	if _, ok := rk.SecretHashes["SECRET_KEY"]; !ok {
+		t.Error("expected SECRET_KEY hash after repair with live data")
 	}
 
-	// Drift should be clean — keys match, value comparison is skipped
+	// Drift should be fully clean — keys and values match
 	report := env.buildReport()
 	if report.Summary.Missing > 0 || report.Summary.Drift > 0 {
 		t.Errorf("expected all match after repair, got missing=%d drift=%d",
