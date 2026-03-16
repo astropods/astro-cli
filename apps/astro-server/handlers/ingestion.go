@@ -27,14 +27,15 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
-			return
-		}
 
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 

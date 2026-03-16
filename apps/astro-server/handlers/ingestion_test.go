@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -55,14 +56,16 @@ func setAuthUser(userID string) gin.HandlerFunc {
 func setupIngestionRouter(
 	k8sClient k8s.ClusterClient,
 	withAuth bool,
-) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 
 	accountDB, accountMock, _ := sqlmock.New()
 	indexDB, indexMock, _ := sqlmock.New()
+	deployDB, deployMock, _ := sqlmock.New()
 
 	accountStore := account.NewAccountStore(accountDB)
 	index := agentindex.NewIndexWithDB(indexDB)
+	deployStore := deploymentstore.NewStore(deployDB)
 	log := logger.New("error", "json")
 
 	router := gin.New()
@@ -71,16 +74,42 @@ func setupIngestionRouter(
 	}
 	router.POST(
 		"/api/v1/deployments/:id/ingestion/:ingestion/trigger",
-		TriggerIngestion(log, index, accountStore, k8sClient, nil),
+		TriggerIngestion(log, index, accountStore, k8sClient, deployStore),
 	)
-	return router, accountMock, indexMock
+	return router, accountMock, indexMock, deployMock
+}
+
+// deploymentColumns matches the columns used by deploymentstore.GetDeploymentByID.
+var testDeploymentColumns = []string{
+	"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+	"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+	"status", "error_message", "error_details", "status_changed_at", "current_revision",
+	"deployed_at", "undeployed_at",
+}
+
+// expectDeploymentLookup sets up sqlmock to return a deployment for GetDeploymentByID.
+func expectDeploymentLookup(mock sqlmock.Sqlmock, deploymentID, accountID, agentName, buildID, namespace string) {
+	mock.ExpectQuery("SELECT .+ FROM deployments").
+		WithArgs(deploymentID).
+		WillReturnRows(sqlmock.NewRows(testDeploymentColumns).
+			AddRow(deploymentID, accountID, agentName, buildID, namespace, agentName,
+				"{}", nil, nil,
+				"active", nil, nil, time.Now(), 1,
+				time.Now(), nil))
+}
+
+// expectDeploymentNotFound sets up sqlmock to return no rows for GetDeploymentByID.
+func expectDeploymentNotFound(mock sqlmock.Sqlmock, deploymentID string) {
+	mock.ExpectQuery("SELECT .+ FROM deployments").
+		WithArgs(deploymentID).
+		WillReturnRows(sqlmock.NewRows(testDeploymentColumns))
 }
 
 func TestTriggerIngestion_NoAuth(t *testing.T) {
-	router, _, _ := setupIngestionRouter(nil, false)
+	router, _, _, _ := setupIngestionRouter(nil, false)
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/ns/ingestion/data/trigger?account=acme", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=acme", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -90,49 +119,55 @@ func TestTriggerIngestion_NoAuth(t *testing.T) {
 }
 
 func TestTriggerIngestion_MissingAccount(t *testing.T) {
-	router, _, _ := setupIngestionRouter(nil, true)
+	router, _, _, deployMock := setupIngestionRouter(nil, true)
+
+	// Deployment lookup returns no rows → resolveDeployment returns "deployment not found"
+	expectDeploymentNotFound(deployMock, "dep-1")
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/ns/ingestion/data/trigger", nil) // no account param
+		"/api/v1/deployments/dep-1/ingestion/data/trigger", nil) // no account param
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	// resolveDeployment fails before account check — returns 403 (forbidden)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
 	}
 }
 
 func TestTriggerIngestion_AccountNotFound(t *testing.T) {
-	router, accountMock, _ := setupIngestionRouter(nil, true)
+	router, accountMock, _, deployMock := setupIngestionRouter(nil, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+	// Deployment exists but belongs to acct-1; membership check will fail
+	expectDeploymentLookup(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns")
+
+	// resolveDeployment calls isAccountMember → account lookup
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/ns/ingestion/data/trigger?account=unknown", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=unknown", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected %d, got %d: %s", http.StatusNotFound, rec.Code, rec.Body.String())
+	// resolveDeployment returns "insufficient permissions" → 403
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected %d, got %d: %s", http.StatusForbidden, rec.Code, rec.Body.String())
 	}
 }
 
 func TestTriggerIngestion_NotMember(t *testing.T) {
-	router, accountMock, _ := setupIngestionRouter(nil, true)
+	router, accountMock, _, deployMock := setupIngestionRouter(nil, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", nil, nil, time.Now(), time.Now()))
+	expectDeploymentLookup(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns")
 
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/ns/ingestion/data/trigger?account=acme", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=acme", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -142,18 +177,16 @@ func TestTriggerIngestion_NotMember(t *testing.T) {
 }
 
 func TestTriggerIngestion_NilK8sClient(t *testing.T) {
-	router, accountMock, _ := setupIngestionRouter(nil, true)
+	router, accountMock, _, deployMock := setupIngestionRouter(nil, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", nil, nil, time.Now(), time.Now()))
+	expectDeploymentLookup(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns")
+
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/ns/ingestion/data/trigger?account=acme", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=acme", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -163,30 +196,12 @@ func TestTriggerIngestion_NilK8sClient(t *testing.T) {
 }
 
 func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
-	// Fake K8s API: return namespace with correct labels
 	k8sHandler := http.NewServeMux()
-	k8sHandler.HandleFunc("/api/v1/namespaces/test-ns", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{
-			"apiVersion": "v1", "kind": "Namespace",
-			"metadata": {
-				"name": "test-ns",
-				"labels": {
-					"astro.dev/account-id": "acct-1",
-					"astro.dev/agent": "my-agent",
-					"astro.dev/build": "build-1"
-				}
-			}
-		}`)
-	})
 	k8sClient := newMockK8sClient(k8sHandler)
-	router, accountMock, indexMock := setupIngestionRouter(k8sClient, true)
+	router, accountMock, indexMock, deployMock := setupIngestionRouter(k8sClient, true)
 
-	// account + membership
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", nil, nil, time.Now(), time.Now()))
+	expectDeploymentLookup(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns")
+
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -199,7 +214,7 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 			AddRow("build-1", "acme", specJSON, "", "", "[]", time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/test-ns/ingestion/data/trigger?account=acme", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=acme", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -218,27 +233,11 @@ func TestTriggerIngestion_NotManualTrigger(t *testing.T) {
 
 func TestTriggerIngestion_IngestionNotInSpec(t *testing.T) {
 	k8sHandler := http.NewServeMux()
-	k8sHandler.HandleFunc("/api/v1/namespaces/test-ns", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{
-			"apiVersion": "v1", "kind": "Namespace",
-			"metadata": {
-				"name": "test-ns",
-				"labels": {
-					"astro.dev/account-id": "acct-1",
-					"astro.dev/agent": "my-agent",
-					"astro.dev/build": "build-1"
-				}
-			}
-		}`)
-	})
 	k8sClient := newMockK8sClient(k8sHandler)
-	router, accountMock, indexMock := setupIngestionRouter(k8sClient, true)
+	router, accountMock, indexMock, deployMock := setupIngestionRouter(k8sClient, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", nil, nil, time.Now(), time.Now()))
+	expectDeploymentLookup(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns")
+
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -251,7 +250,7 @@ func TestTriggerIngestion_IngestionNotInSpec(t *testing.T) {
 			AddRow("build-1", "acme", specJSON, "", "", "[]", time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/test-ns/ingestion/data/trigger?account=acme", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=acme", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -264,20 +263,6 @@ func TestTriggerIngestion_Success(t *testing.T) {
 	var createdJobName string
 
 	k8sHandler := http.NewServeMux()
-	k8sHandler.HandleFunc("/api/v1/namespaces/test-ns", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{
-			"apiVersion": "v1", "kind": "Namespace",
-			"metadata": {
-				"name": "test-ns",
-				"labels": {
-					"astro.dev/account-id": "acct-1",
-					"astro.dev/agent": "my-agent",
-					"astro.dev/build": "build-1"
-				}
-			}
-		}`)
-	})
 	k8sHandler.HandleFunc("/apis/batch/v1/namespaces/test-ns/jobs", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -292,12 +277,10 @@ func TestTriggerIngestion_Success(t *testing.T) {
 	})
 
 	k8sClient := newMockK8sClient(k8sHandler)
-	router, accountMock, indexMock := setupIngestionRouter(k8sClient, true)
+	router, accountMock, indexMock, deployMock := setupIngestionRouter(k8sClient, true)
 
-	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
-		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "acme", "team", nil, nil, time.Now(), time.Now()))
+	expectDeploymentLookup(deployMock, "dep-1", "acct-1", "my-agent", "build-1", "test-ns")
+
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -309,7 +292,7 @@ func TestTriggerIngestion_Success(t *testing.T) {
 			AddRow("build-1", "acme", specJSON, "", "", "[]", time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/deployments/test-ns/ingestion/data/trigger?account=acme", nil)
+		"/api/v1/deployments/dep-1/ingestion/data/trigger?account=acme", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -324,9 +307,6 @@ func TestTriggerIngestion_Success(t *testing.T) {
 
 	if resp["status"] != "triggered" {
 		t.Errorf("expected status 'triggered', got %v", resp["status"])
-	}
-	if resp["namespace"] != "test-ns" {
-		t.Errorf("expected namespace 'test-ns', got %v", resp["namespace"])
 	}
 	if resp["job_name"] == nil || resp["job_name"] == "" {
 		t.Errorf("expected job_name to be set, got %v", resp["job_name"])
