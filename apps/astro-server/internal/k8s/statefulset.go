@@ -208,10 +208,6 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 						Tolerations:  cfg.Tolerations,
 					}
 					hardenPodSpec(&ps)
-					if vols := providerWritableVolumes(cfg.Provider); len(vols) > 0 {
-						ps.Volumes = append(ps.Volumes, vols...)
-						ps.Containers[0].VolumeMounts = append(ps.Containers[0].VolumeMounts, providerWritablePaths(cfg.Provider)...)
-					}
 					return ps
 				}(),
 			},

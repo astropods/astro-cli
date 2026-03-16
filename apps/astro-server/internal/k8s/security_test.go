@@ -32,17 +32,6 @@ func assertHardenedPodSpec(t *testing.T, ps corev1.PodSpec) {
 	if ps.AutomountServiceAccountToken == nil || *ps.AutomountServiceAccountToken {
 		t.Error("expected automountServiceAccountToken=false")
 	}
-
-	// /tmp emptyDir volume
-	found := false
-	for _, v := range ps.Volumes {
-		if v.Name == "tmp" && v.EmptyDir != nil {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected tmp emptyDir volume")
-	}
 }
 
 // assertHardenedContainer checks that a Container has the restricted security defaults applied.
@@ -62,25 +51,11 @@ func assertHardenedContainer(t *testing.T, c corev1.Container) {
 	if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
 		t.Errorf("container %q: expected allowPrivilegeEscalation=false", c.Name)
 	}
-	if sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem {
-		t.Errorf("container %q: expected readOnlyRootFilesystem=true", c.Name)
-	}
 	if sc.Capabilities == nil || len(sc.Capabilities.Drop) == 0 || sc.Capabilities.Drop[0] != "ALL" {
 		t.Errorf("container %q: expected capabilities.drop=[ALL]", c.Name)
 	}
 	if sc.SeccompProfile == nil || sc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Errorf("container %q: expected seccompProfile RuntimeDefault", c.Name)
-	}
-
-	// /tmp mount
-	found := false
-	for _, vm := range c.VolumeMounts {
-		if vm.Name == "tmp" && vm.MountPath == "/tmp" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("container %q: expected /tmp volumeMount", c.Name)
 	}
 }
 
@@ -190,49 +165,6 @@ func TestJobSecurityHardening(t *testing.T) {
 	assertHardenedContainer(t, ps.Containers[0])
 }
 
-func TestHardenPodSpec_PreservesExistingVolumes(t *testing.T) {
-	ps := corev1.PodSpec{
-		Volumes: []corev1.Volume{
-			{Name: "config", VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: "my-config"},
-				},
-			}},
-		},
-	}
-	hardenPodSpec(&ps)
-
-	if len(ps.Volumes) != 2 {
-		t.Fatalf("expected 2 volumes (config + tmp), got %d", len(ps.Volumes))
-	}
-	if ps.Volumes[0].Name != "config" {
-		t.Errorf("expected first volume to be config, got %s", ps.Volumes[0].Name)
-	}
-	if ps.Volumes[1].Name != "tmp" {
-		t.Errorf("expected second volume to be tmp, got %s", ps.Volumes[1].Name)
-	}
-}
-
-func TestHardenContainer_PreservesExistingMounts(t *testing.T) {
-	c := corev1.Container{
-		Name: "app",
-		VolumeMounts: []corev1.VolumeMount{
-			{Name: "data", MountPath: "/data"},
-		},
-	}
-	hardenContainer(&c)
-
-	if len(c.VolumeMounts) != 2 {
-		t.Fatalf("expected 2 mounts (data + tmp), got %d", len(c.VolumeMounts))
-	}
-	if c.VolumeMounts[0].MountPath != "/data" {
-		t.Errorf("expected first mount at /data, got %s", c.VolumeMounts[0].MountPath)
-	}
-	if c.VolumeMounts[1].MountPath != "/tmp" {
-		t.Errorf("expected second mount at /tmp, got %s", c.VolumeMounts[1].MountPath)
-	}
-}
-
 func TestStatefulSetSecurityHardening_PreservesDataMount(t *testing.T) {
 	cfg := StatefulSetConfig{
 		Name:            "agent-knowledge-vectors",
@@ -252,102 +184,12 @@ func TestStatefulSetSecurityHardening_PreservesDataMount(t *testing.T) {
 
 	container := ss.Spec.Template.Spec.Containers[0]
 
-	// Should have both the data mount and the /tmp mount
 	mountMap := make(map[string]string)
 	for _, vm := range container.VolumeMounts {
 		mountMap[vm.Name] = vm.MountPath
 	}
 	if mountMap["data"] != "/qdrant/storage" {
 		t.Errorf("expected data mount at /qdrant/storage, got %q", mountMap["data"])
-	}
-	if mountMap["tmp"] != "/tmp" {
-		t.Errorf("expected tmp mount at /tmp, got %q", mountMap["tmp"])
-	}
-}
-
-func TestNeo4jDeploymentWritablePaths(t *testing.T) {
-	cfg := DeploymentConfig{
-		Name:            "agent-knowledge-graph",
-		Namespace:       "default",
-		AgentName:       "my-agent",
-		BuildID:         "1.0",
-		Component:       "knowledge-graph",
-		Container:       spec.ContainerConfig{Image: "neo4j:5-community"},
-		Provider:        "neo4j",
-		ProviderSection: "knowledge",
-		Port:            7474,
-	}
-	depl := BuildDeployment(cfg)
-	container := depl.Spec.Template.Spec.Containers[0]
-
-	mountMap := make(map[string]string)
-	for _, vm := range container.VolumeMounts {
-		mountMap[vm.Name] = vm.MountPath
-	}
-	if mountMap["neo4j-data"] != "/var/lib/neo4j" {
-		t.Errorf("expected neo4j-data mount at /var/lib/neo4j, got %q", mountMap["neo4j-data"])
-	}
-	if mountMap["tmp"] != "/tmp" {
-		t.Errorf("expected tmp mount at /tmp, got %q", mountMap["tmp"])
-	}
-
-	// Verify the volume exists
-	volMap := make(map[string]bool)
-	for _, v := range depl.Spec.Template.Spec.Volumes {
-		volMap[v.Name] = true
-	}
-	if !volMap["neo4j-data"] {
-		t.Error("expected neo4j-data emptyDir volume")
-	}
-}
-
-func TestNeo4jStatefulSetWritablePaths(t *testing.T) {
-	cfg := StatefulSetConfig{
-		Name:            "agent-knowledge-graph",
-		Namespace:       "default",
-		AgentName:       "my-agent",
-		BuildID:         "1.0",
-		Component:       "knowledge-graph",
-		Container:       spec.ContainerConfig{Image: "neo4j:5-community"},
-		Provider:        "neo4j",
-		ProviderSection: "knowledge",
-	}
-	ss, err := BuildStatefulSet(cfg)
-	if err != nil {
-		t.Fatalf("BuildStatefulSet: %v", err)
-	}
-	container := ss.Spec.Template.Spec.Containers[0]
-
-	mountMap := make(map[string]string)
-	for _, vm := range container.VolumeMounts {
-		mountMap[vm.Name] = vm.MountPath
-	}
-	if mountMap["neo4j-data"] != "/var/lib/neo4j" {
-		t.Errorf("expected neo4j-data mount at /var/lib/neo4j, got %q", mountMap["neo4j-data"])
-	}
-}
-
-func TestRedisDeploymentWritablePaths(t *testing.T) {
-	cfg := DeploymentConfig{
-		Name:            "agent-knowledge-cache",
-		Namespace:       "default",
-		AgentName:       "my-agent",
-		BuildID:         "1.0",
-		Component:       "knowledge-cache",
-		Container:       spec.ContainerConfig{Image: "redis:7-alpine"},
-		Provider:        "redis",
-		ProviderSection: "knowledge",
-		Port:            6379,
-	}
-	depl := BuildDeployment(cfg)
-	container := depl.Spec.Template.Spec.Containers[0]
-
-	mountMap := make(map[string]string)
-	for _, vm := range container.VolumeMounts {
-		mountMap[vm.Name] = vm.MountPath
-	}
-	if mountMap["redis-data"] != "/data" {
-		t.Errorf("expected redis-data mount at /data, got %q", mountMap["redis-data"])
 	}
 }
 
@@ -364,10 +206,8 @@ func TestNoProviderNoExtraMounts(t *testing.T) {
 	depl := BuildDeployment(cfg)
 	container := depl.Spec.Template.Spec.Containers[0]
 
-	for _, vm := range container.VolumeMounts {
-		if vm.Name != "tmp" {
-			t.Errorf("unexpected volume mount %q for provider-less deployment", vm.Name)
-		}
+	if len(container.VolumeMounts) != 0 {
+		t.Errorf("expected no volume mounts for provider-less deployment, got %d", len(container.VolumeMounts))
 	}
 }
 
