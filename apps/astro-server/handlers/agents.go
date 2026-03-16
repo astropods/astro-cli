@@ -487,6 +487,11 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		if len(validationWarnings) > 0 {
 			response["validation_warnings"] = validationWarnings
 		}
+		if strings.TrimSpace(req.Readme) == "" {
+			response["hints"] = []string{
+				"No AGENT.md provided — add one next to your astropods.yml to make your agent more discoverable",
+			}
+		}
 		c.JSON(http.StatusCreated, response)
 	}
 }
