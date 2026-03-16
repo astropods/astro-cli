@@ -55,6 +55,30 @@ export interface ExpectedIngress {
   service: string;
 }
 
+export interface DriftResourceItem {
+  name: string;
+  type: string;     // deployment, statefulset, service, ingress
+  status: string;   // match, missing, extra, drift
+  expected: Record<string, string>;
+  actual: Record<string, string>;
+}
+
+export interface DriftSummary {
+  total: number;
+  match: number;
+  missing: number;
+  extra: number;
+  drift: number;
+}
+
+export interface DriftReport {
+  detected_at: string;
+  workloads: DriftResourceItem[];
+  services: DriftResourceItem[];
+  ingresses: DriftResourceItem[];
+  summary: DriftSummary;
+}
+
 export interface GetDeploymentResponse {
   deployment: AdminDeployment;
   spec_json: string;
@@ -64,6 +88,13 @@ export interface GetDeploymentResponse {
   workloads?: AdminWorkload[];
   expected_services?: ExpectedService[];
   expected_ingresses?: ExpectedIngress[];
+  drift_report?: DriftReport;
+  drift_checked_at?: string;
+}
+
+export interface RefreshDriftReportResponse {
+  drift_report?: DriftReport;
+  drift_checked_at?: string;
 }
 
 export interface GetDeploymentEventsResponse {

@@ -14,6 +14,7 @@ import type {
   SendCommandResponse,
   GetDeploymentEventsResponse,
   GetDeploymentJobsResponse,
+  RefreshDriftReportResponse,
 } from "@/types/admin";
 
 export function useEnv() {
@@ -367,5 +368,18 @@ export function usePodEnv(id: string, pod: string) {
         `/api/admin/pods/${encodeURIComponent(id)}/${encodeURIComponent(pod)}/env`
       ),
     enabled: !!id && !!pod,
+  });
+}
+
+export function useRefreshDriftReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<RefreshDriftReportResponse>(
+        `/api/admin/deployments/${encodeURIComponent(id)}/refresh-drift`,
+      ),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: adminKeys.deployment(id) });
+    },
   });
 }

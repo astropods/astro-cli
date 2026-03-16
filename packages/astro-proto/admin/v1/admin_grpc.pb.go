@@ -42,6 +42,7 @@ type AdminServiceClient interface {
 	GetDeploymentJobs(ctx context.Context, in *GetDeploymentJobsRequest, opts ...grpc.CallOption) (*GetDeploymentJobsResponse, error)
 	BackfillDeployments(ctx context.Context, in *BackfillDeploymentsRequest, opts ...grpc.CallOption) (*BackfillDeploymentsResponse, error)
 	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
+	RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error)
 }
 
 type adminServiceClient struct {
@@ -284,6 +285,14 @@ func (c *adminServiceClient) RepairNormalizedSpec(ctx context.Context, in *Repai
 	return out, nil
 }
 
+func (c *adminServiceClient) RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error) {
+	out := new(RefreshDriftReportResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RefreshDriftReport", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -316,6 +325,7 @@ type AdminServiceServer interface {
 	GetDeploymentJobs(context.Context, *GetDeploymentJobsRequest) (*GetDeploymentJobsResponse, error)
 	BackfillDeployments(context.Context, *BackfillDeploymentsRequest) (*BackfillDeploymentsResponse, error)
 	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
+	RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -436,6 +446,10 @@ func (UnimplementedAdminServiceServer) BackfillDeployments(context.Context, *Bac
 
 func (UnimplementedAdminServiceServer) RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RepairNormalizedSpec not implemented")
+}
+
+func (UnimplementedAdminServiceServer) RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RefreshDriftReport not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -885,6 +899,21 @@ func _AdminService_RepairNormalizedSpec_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_RefreshDriftReport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefreshDriftReportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RefreshDriftReport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RefreshDriftReport"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RefreshDriftReport(ctx, req.(*RefreshDriftReportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -919,6 +948,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetDeploymentJobs", Handler: _AdminService_GetDeploymentJobs_Handler},
 		{MethodName: "BackfillDeployments", Handler: _AdminService_BackfillDeployments_Handler},
 		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
+		{MethodName: "RefreshDriftReport", Handler: _AdminService_RefreshDriftReport_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

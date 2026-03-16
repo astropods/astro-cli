@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartDeployment, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { K8sPodInfo, K8sDeploymentInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, AdminWorkload, ExpectedService, ExpectedIngress } from "@/types/admin";
+import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem } from "@/types/admin";
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,7 @@ export function DeploymentDetailPage() {
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
   const repairMut = useRepairNormalizedSpec();
+  const refreshDriftMut = useRefreshDriftReport();
   const jobsQuery = useDeploymentJobs(id ?? "");
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
@@ -148,35 +150,93 @@ export function DeploymentDetailPage() {
         </div>
       )}
 
-      {/* Per-resource expected vs current diffs */}
-      <DeploymentsDiff workloads={data.workloads} k8sDeployments={cs?.deployments} k8sPods={cs?.pods} />
-      <StatefulSetsDiff workloads={data.workloads} k8sStatefulSets={cs?.statefulsets} k8sPods={cs?.pods} />
-      <ServicesDiff expectedServices={data.expected_services} k8sServices={cs?.services} />
-      <IngressesDiff expectedIngresses={data.expected_ingresses} k8sIngresses={cs?.ingresses} />
+      <Tabs defaultValue="drift">
+        <TabsList variant="line">
+          <TabsTrigger value="drift">Drift Report</TabsTrigger>
+          <TabsTrigger value="events">Events & Jobs</TabsTrigger>
+          <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="pods">Pods ({cs?.pods?.length ?? 0})</TabsTrigger>
+        </TabsList>
 
-      {/* Event Timeline */}
-      <Collapsible>
-        <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-          <ChevronDown className="size-4" />
-          Event Timeline ({events?.length ?? 0})
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2">
-          {events && events.length > 0 ? (
-            <EventTimeline events={events} />
-          ) : (
-            <p className="text-xs text-muted-foreground">No events. Run "Backfill Revisions" on the deployments list to migrate legacy deployments.</p>
+        <TabsContent value="drift" className="space-y-4 mt-2">
+          <DriftReportSection
+            report={data.drift_report}
+            checkedAt={data.drift_checked_at}
+            onRefresh={() => refreshDriftMut.mutate(id!, { onSuccess: () => refetch() })}
+            isRefreshing={refreshDriftMut.isPending}
+          />
+        </TabsContent>
+
+        <TabsContent value="events" className="space-y-4 mt-2">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Event Timeline */}
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">Event Timeline ({events?.length ?? 0})</h3>
+              {events && events.length > 0 ? (
+                <EventTimeline events={events} />
+              ) : (
+                <p className="text-xs text-muted-foreground">No events. Run "Backfill Revisions" on the deployments list to migrate legacy deployments.</p>
+              )}
+            </div>
+
+            {/* Job History */}
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                Job History ({jobsQuery.data?.jobs?.length ?? 0})
+                {jobsQuery.data?.last_reconcile_at && (
+                  <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                    last reconcile: {formatDistanceToNow(new Date(jobsQuery.data.last_reconcile_at), { addSuffix: true })}
+                  </span>
+                )}
+              </h3>
+              {jobsQuery.isLoading && <Skeleton className="h-20 w-full" />}
+              {jobsQuery.error && <p className="text-destructive text-sm">{jobsQuery.error.message}</p>}
+              {jobsQuery.data?.jobs?.length ? (
+                <JobsTable jobs={jobsQuery.data.jobs} />
+              ) : (
+                !jobsQuery.isLoading && <p className="text-xs text-muted-foreground">No jobs found for this deployment.</p>
+              )}
+            </div>
+          </div>
+
+          {/* K8s Events */}
+          {cs?.events?.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">K8s Events ({cs.events.length})</h3>
+              <div className="max-h-[400px] overflow-auto rounded-lg glass">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 z-10 glass-subtle">
+                    <tr className="border-b border-glass-border-honey">
+                      <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Last Seen</th>
+                      <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
+                      <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Reason</th>
+                      <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Object</th>
+                      <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Message</th>
+                      <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...cs.events].sort((a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()).map((ev, i) => (
+                      <tr key={i} className="border-b border-comb-light">
+                        <td className="px-3 py-1.5 text-muted-foreground" title={ev.last_seen}>
+                          {ev.last_seen ? formatDistanceToNow(new Date(ev.last_seen), { addSuffix: true }) : "-"}
+                        </td>
+                        <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-600" : ev.type === "Normal" ? "text-green-600" : "text-muted-foreground"}`}>{ev.type}</td>
+                        <td className="px-3 py-1.5">{ev.reason}</td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{ev.involved_object}</td>
+                        <td className="max-w-md whitespace-normal break-words px-3 py-1.5 text-muted-foreground">{ev.message}</td>
+                        <td className="px-3 py-1.5 text-right text-muted-foreground">{ev.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
-        </CollapsibleContent>
-      </Collapsible>
+        </TabsContent>
 
-      {/* Revision History */}
-      {revisions && revisions.length > 0 && (
-        <Collapsible>
-          <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-            <ChevronDown className="size-4" />
-            Revisions ({revisions.length})
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
+        <TabsContent value="revisions" className="mt-2">
+          {revisions && revisions.length > 0 ? (
             <RevisionTable
               revisions={revisions}
               currentRevision={dep.current_revision}
@@ -188,101 +248,34 @@ export function DeploymentDetailPage() {
               }}
               isRollingBack={rollbackMut.isPending}
             />
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* Job History */}
-      <Collapsible>
-        <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-          <ChevronDown className="size-4" />
-          Job History ({jobsQuery.data?.jobs?.length ?? 0})
-          {jobsQuery.data?.last_reconcile_at && (
-            <span className="ml-2 text-[10px] font-normal text-muted-foreground">
-              last reconcile: {formatDistanceToNow(new Date(jobsQuery.data.last_reconcile_at), { addSuffix: true })}
-            </span>
-          )}
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2">
-          {jobsQuery.isLoading && <Skeleton className="h-20 w-full" />}
-          {jobsQuery.error && <p className="text-destructive text-sm">{jobsQuery.error.message}</p>}
-          {jobsQuery.data?.jobs?.length ? (
-            <JobsTable jobs={jobsQuery.data.jobs} />
           ) : (
-            !jobsQuery.isLoading && <p className="text-xs text-muted-foreground">No jobs found for this deployment.</p>
+            <p className="text-xs text-muted-foreground">No revisions found.</p>
           )}
-        </CollapsibleContent>
-      </Collapsible>
+        </TabsContent>
 
-      {cs && (
-        <>
-          {cs.pods?.length > 0 && (
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-4" />
-                Pods ({cs.pods.length})
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                <div className="space-y-2">
-                  {cs.pods.map((pod) => (
-                    <div key={pod.name}>
-                      <PodRow pod={pod} deploymentId={id!} onSelect={setSelectedPod} />
-                      {selectedPod && selectedPod.name === pod.name && (
-                        <PodDetail
-                          deploymentId={selectedPod.deploymentId}
-                          pod={selectedPod.name}
-                          container={selectedPod.container}
-                          mode={selectedPod.mode}
-                          onClose={() => setSelectedPod(null)}
-                        />
-                      )}
-                    </div>
-                  ))}
+        <TabsContent value="pods" className="mt-2">
+          {cs?.pods?.length > 0 ? (
+            <div className="space-y-2">
+              {cs.pods.map((pod) => (
+                <div key={pod.name}>
+                  <PodRow pod={pod} deploymentId={id!} onSelect={setSelectedPod} />
+                  {selectedPod && selectedPod.name === pod.name && (
+                    <PodDetail
+                      deploymentId={selectedPod.deploymentId}
+                      pod={selectedPod.name}
+                      container={selectedPod.container}
+                      mode={selectedPod.mode}
+                      onClose={() => setSelectedPod(null)}
+                    />
+                  )}
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No pods found.</p>
           )}
-
-          {cs.events?.length > 0 && (
-            <Collapsible>
-              <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <ChevronDown className="size-4" />
-                K8s Events ({cs.events.length})
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                <div className="overflow-x-auto rounded-lg glass">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-glass-border-honey glass-subtle">
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Last Seen</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Type</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Reason</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Object</th>
-                        <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Message</th>
-                        <th className="px-3 py-1.5 text-right font-medium text-muted-foreground">Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...cs.events].sort((a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()).map((ev, i) => (
-                        <tr key={i} className="border-b border-comb-light">
-                          <td className="px-3 py-1.5 text-muted-foreground" title={ev.last_seen}>
-                            {ev.last_seen ? formatDistanceToNow(new Date(ev.last_seen), { addSuffix: true }) : "-"}
-                          </td>
-                          <td className={`px-3 py-1.5 ${ev.type === "Warning" ? "text-yellow-600" : ev.type === "Normal" ? "text-green-600" : "text-muted-foreground"}`}>{ev.type}</td>
-                          <td className="px-3 py-1.5">{ev.reason}</td>
-                          <td className="px-3 py-1.5 text-muted-foreground">{ev.involved_object}</td>
-                          <td className="max-w-md whitespace-normal break-words px-3 py-1.5 text-muted-foreground">{ev.message}</td>
-                          <td className="px-3 py-1.5 text-right text-muted-foreground">{ev.count}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-        </>
-      )}
+        </TabsContent>
+      </Tabs>
 
     </div>
   );
@@ -300,25 +293,32 @@ function EventTimeline({ events }: { events: DeploymentEvent[] }) {
   };
 
   return (
-    <div className="space-y-0">
-      {events.map((ev, i) => (
-        <div key={i} className="flex items-start gap-3 py-1.5">
-          <div className="flex flex-col items-center">
-            <div className={`size-2 rounded-full ${statusColors[ev.status] ?? "bg-gray-400"}`} />
-            {i < events.length - 1 && <div className="w-px flex-1 bg-border" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-muted-foreground">{formatDateTime(ev.created_at)}</span>
-              <span className="text-xs font-medium capitalize">{ev.status}</span>
-              <span className="text-[10px] text-muted-foreground">
-                ({formatDistanceToNow(new Date(ev.created_at), { addSuffix: true })})
-              </span>
-            </div>
-            {ev.message && <p className="text-xs text-muted-foreground">{ev.message}</p>}
-          </div>
-        </div>
-      ))}
+    <div className="max-h-[400px] overflow-auto rounded-lg glass">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 z-10 glass-subtle">
+          <tr className="border-b border-glass-border-honey">
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Time</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Status</th>
+            <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((ev, i) => (
+            <tr key={i} className="border-b border-comb-light">
+              <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap" title={formatDateTime(ev.created_at)}>
+                {formatDistanceToNow(new Date(ev.created_at), { addSuffix: true })}
+              </td>
+              <td className="px-3 py-1.5 whitespace-nowrap">
+                <span className="flex items-center gap-1.5">
+                  <span className={`size-1.5 rounded-full shrink-0 ${statusColors[ev.status] ?? "bg-gray-400"}`} />
+                  <span className="capitalize">{ev.status}</span>
+                </span>
+              </td>
+              <td className="px-3 py-1.5 text-muted-foreground">{ev.message || "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -393,10 +393,10 @@ function JobsTable({ jobs }: { jobs: DeploymentJob[] }) {
   };
 
   return (
-    <div className="overflow-x-auto rounded-lg glass">
+    <div className="max-h-[400px] overflow-auto rounded-lg glass">
       <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-glass-border-honey glass-subtle">
+        <thead className="sticky top-0 z-10 glass-subtle">
+          <tr className="border-b border-glass-border-honey">
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Time</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Kind</th>
             <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">State</th>
@@ -537,62 +537,90 @@ function PodRow({
   );
 }
 
-// --- Generic DiffSection helper ---
+// --- Drift Report Section (renders pre-computed drift report from server) ---
 
-interface DiffItem {
-  name: string;
-  fields: Record<string, string>;
+function DriftReportSection({ report, checkedAt, onRefresh, isRefreshing }: {
+  report?: DriftReport;
+  checkedAt?: string;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  if (!report) {
+    return (
+      <div className="flex items-center gap-3 rounded-lg glass px-4 py-3">
+        <p className="text-sm text-muted-foreground">No drift report available yet.</p>
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing}>
+          <RotateCw className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+          Check Now
+        </Button>
+      </div>
+    );
+  }
+
+  const { summary } = report;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {checkedAt && (
+            <span>Checked {formatDistanceToNow(new Date(checkedAt), { addSuffix: true })}</span>
+          )}
+          {summary.match === summary.total && summary.total > 0 && (
+            <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700">all match</span>
+          )}
+          {summary.missing > 0 && (
+            <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">{summary.missing} missing</span>
+          )}
+          {summary.drift > 0 && (
+            <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] text-orange-700">{summary.drift} drifted</span>
+          )}
+          {summary.extra > 0 && (
+            <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">{summary.extra} extra</span>
+          )}
+        </div>
+        <Button variant="outline" size="xs" onClick={onRefresh} disabled={isRefreshing}>
+          <RotateCw className={`size-3 ${isRefreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {report.workloads?.length > 0 && (
+        <DriftTable title="Workloads" items={report.workloads} />
+      )}
+      {report.services?.length > 0 && (
+        <DriftTable title="Services" items={report.services} />
+      )}
+      {report.ingresses?.length > 0 && (
+        <DriftTable title="Ingresses" items={report.ingresses} />
+      )}
+    </div>
+  );
 }
 
-type DiffStatus = "match" | "missing" | "extra" | "drift";
+type DriftStatus = "match" | "missing" | "extra" | "drift";
 
-function DiffSection({ title, expectedItems, currentItems, columns, replicasCompare }: {
-  title: string;
-  expectedItems: DiffItem[];
-  currentItems: DiffItem[];
-  columns: string[];
-  replicasCompare?: boolean;
-}) {
-  const allNames = Array.from(new Set([...expectedItems.map((e) => e.name), ...currentItems.map((c) => c.name)]));
-  const expectedByName = new Map(expectedItems.map((e) => [e.name, e]));
-  const currentByName = new Map(currentItems.map((c) => [c.name, c]));
+function DriftTable({ title, items }: { title: string; items: DriftResourceItem[] }) {
+  const missingCount = items.filter((i) => i.status === "missing").length;
+  const extraCount = items.filter((i) => i.status === "extra").length;
+  const driftCount = items.filter((i) => i.status === "drift").length;
 
-  const rows = allNames.map((name) => {
-    const exp = expectedByName.get(name);
-    const cur = currentByName.get(name);
-    let status: DiffStatus = "match";
-    if (exp && !cur) status = "missing";
-    else if (!exp && cur) status = "extra";
-    else if (exp && cur) {
-      const hasDrift = columns.some((col) => {
-        const expVal = exp.fields[col] ?? "";
-        const curVal = cur.fields[col] ?? "";
-        // For Replicas, expected is "N" and current is "ready/N" — compare totals only
-        if (replicasCompare && col === "Replicas") {
-          const curTotal = curVal.includes("/") ? curVal.split("/")[1] : curVal;
-          return expVal !== curTotal;
-        }
-        return expVal !== curVal;
-      });
-      if (hasDrift) status = "drift";
-    }
-    return { name, exp, cur, status };
-  });
+  // Collect all field keys across expected and actual
+  const allKeys = new Set<string>();
+  for (const item of items) {
+    for (const k of Object.keys(item.expected ?? {})) allKeys.add(k);
+    for (const k of Object.keys(item.actual ?? {})) allKeys.add(k);
+  }
+  const columns = Array.from(allKeys);
 
-  const missingCount = rows.filter((r) => r.status === "missing").length;
-  const extraCount = rows.filter((r) => r.status === "extra").length;
-  const driftCount = rows.filter((r) => r.status === "drift").length;
-
-  if (rows.length === 0) return null;
-
-  const rowBg: Record<DiffStatus, string> = {
+  const rowBg: Record<DriftStatus, string> = {
     match: "",
     missing: "bg-red-500/5",
     extra: "bg-yellow-500/5",
     drift: "bg-orange-500/5",
   };
 
-  const statusLabel: Record<DiffStatus, { text: string; cls: string }> = {
+  const statusLabel: Record<DriftStatus, { text: string; cls: string }> = {
     match: { text: "ok", cls: "text-green-600" },
     missing: { text: "missing", cls: "text-red-600" },
     extra: { text: "extra", cls: "text-yellow-600" },
@@ -603,7 +631,7 @@ function DiffSection({ title, expectedItems, currentItems, columns, replicasComp
     <Collapsible defaultOpen>
       <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
         <ChevronDown className="size-4" />
-        {title} ({rows.length})
+        {title} ({items.length})
         {missingCount > 0 && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700">{missingCount} missing</span>}
         {extraCount > 0 && <span className="rounded-full bg-yellow-100 px-1.5 py-0.5 text-[10px] text-yellow-700">{extraCount} extra</span>}
         {driftCount > 0 && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] text-orange-700">{driftCount} drifted</span>}
@@ -614,182 +642,66 @@ function DiffSection({ title, expectedItems, currentItems, columns, replicasComp
             <thead>
               <tr className="border-b border-glass-border-honey glass-subtle">
                 <th className="px-3 py-1.5 text-left font-medium text-muted-foreground" rowSpan={2}>Name</th>
-                <th className="px-3 py-1.5 text-center font-medium text-blue-600 border-l border-glass-border-honey" colSpan={columns.length}>Expected</th>
-                <th className="px-3 py-1.5 text-center font-medium text-green-600 border-l border-glass-border-honey" colSpan={columns.length}>Current</th>
+                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground" rowSpan={2}>Type</th>
+                {columns.length > 0 && (
+                  <>
+                    <th className="px-3 py-1.5 text-center font-medium text-blue-600 border-l border-glass-border-honey" colSpan={columns.length}>Expected</th>
+                    <th className="px-3 py-1.5 text-center font-medium text-green-600 border-l border-glass-border-honey" colSpan={columns.length}>Actual</th>
+                  </>
+                )}
                 <th className="px-3 py-1.5 text-left font-medium text-muted-foreground border-l border-glass-border-honey" rowSpan={2}>Status</th>
               </tr>
-              <tr className="border-b border-glass-border-honey glass-subtle">
-                {columns.map((col) => (
-                  <th key={`exp-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
-                ))}
-                {columns.map((col) => (
-                  <th key={`cur-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
-                ))}
-              </tr>
+              {columns.length > 0 && (
+                <tr className="border-b border-glass-border-honey glass-subtle">
+                  {columns.map((col) => (
+                    <th key={`exp-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
+                  ))}
+                  {columns.map((col) => (
+                    <th key={`cur-${col}`} className="px-3 py-1 text-left font-normal text-muted-foreground text-[10px] first:border-l first:border-glass-border-honey">{col}</th>
+                  ))}
+                </tr>
+              )}
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.name} className={`border-b border-comb-light ${rowBg[r.status]}`}>
-                  <td className="px-3 py-1.5 font-medium">{r.name}</td>
-                  {columns.map((col, i) => (
-                    <td key={`exp-${col}`} className={`px-3 py-1.5 font-mono text-muted-foreground ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
-                      {r.exp?.fields[col] ?? <span className="text-muted-foreground/40">-</span>}
-                    </td>
-                  ))}
-                  {columns.map((col, i) => {
-                    const expVal = r.exp?.fields[col] ?? "";
-                    const curVal = r.cur?.fields[col] ?? "";
-                    const differs = r.status === "drift" && expVal !== curVal && expVal !== "" && curVal !== "";
-                    return (
-                      <td key={`cur-${col}`} className={`px-3 py-1.5 font-mono ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
-                        {!r.cur ? (
-                          <span className="text-red-500">-</span>
-                        ) : differs ? (
-                          <span className="text-orange-600">{curVal}</span>
-                        ) : (
-                          curVal || <span className="text-muted-foreground/40">-</span>
-                        )}
+              {items.map((item) => {
+                const status = item.status as DriftStatus;
+                return (
+                  <tr key={item.name} className={`border-b border-comb-light ${rowBg[status] ?? ""}`}>
+                    <td className="px-3 py-1.5 font-medium">{item.name}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{item.type}</td>
+                    {columns.map((col, i) => (
+                      <td key={`exp-${col}`} className={`px-3 py-1.5 font-mono text-muted-foreground ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
+                        {item.expected?.[col] ?? <span className="text-muted-foreground/40">-</span>}
                       </td>
-                    );
-                  })}
-                  <td className="px-3 py-1.5 border-l border-glass-border-honey">
-                    <span className={statusLabel[r.status].cls}>{statusLabel[r.status].text}</span>
-                  </td>
-                </tr>
-              ))}
+                    ))}
+                    {columns.map((col, i) => {
+                      const expVal = item.expected?.[col] ?? "";
+                      const actVal = item.actual?.[col] ?? "";
+                      const differs = status === "drift" && expVal !== actVal && expVal !== "" && actVal !== "";
+                      return (
+                        <td key={`cur-${col}`} className={`px-3 py-1.5 font-mono ${i === 0 ? "border-l border-glass-border-honey" : ""}`}>
+                          {status === "missing" ? (
+                            <span className="text-red-500">-</span>
+                          ) : differs ? (
+                            <span className="text-orange-600">{actVal}</span>
+                          ) : (
+                            actVal || <span className="text-muted-foreground/40">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-1.5 border-l border-glass-border-honey">
+                      <span className={statusLabel[status]?.cls ?? ""}>{statusLabel[status]?.text ?? status}</span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
-}
-
-// --- Per-resource diff sections ---
-
-function shortImage(img: string) {
-  const parts = img.split("/");
-  return parts[parts.length - 1];
-}
-
-function DeploymentsDiff({ workloads, k8sDeployments, k8sPods }: {
-  workloads?: AdminWorkload[];
-  k8sDeployments?: K8sDeploymentInfo[];
-  k8sPods?: K8sPodInfo[];
-}) {
-  const expected: DiffItem[] = (workloads ?? [])
-    .filter((w) => w.workload_type === "deployment")
-    .map((w) => ({
-      name: w.name,
-      fields: { Image: shortImage(w.image), Replicas: String(w.replicas) },
-    }));
-
-  const current: DiffItem[] = (k8sDeployments ?? []).map((d) => {
-    const pods = (k8sPods ?? []).filter((p) => p.name.startsWith(d.name));
-    const liveImage = pods.flatMap((p) => (p.container_statuses ?? []).map((c) => c.image)).filter(Boolean)[0];
-    return {
-      name: d.name,
-      fields: {
-        Image: liveImage ? shortImage(liveImage) : "-",
-        Replicas: `${d.ready_replicas}/${d.replicas}`,
-      },
-    };
-  });
-
-  // For comparison, expected replicas is just a number ("1") while current is "ready/total" ("1/1").
-  // Override comparison: match when current "ready/total" has total == expected.
-  return <DiffSection title="Deployments" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} replicasCompare />;
-}
-
-function StatefulSetsDiff({ workloads, k8sStatefulSets, k8sPods }: {
-  workloads?: AdminWorkload[];
-  k8sStatefulSets?: K8sDeploymentInfo[];
-  k8sPods?: K8sPodInfo[];
-}) {
-  const expected: DiffItem[] = (workloads ?? [])
-    .filter((w) => w.workload_type === "statefulset")
-    .map((w) => ({
-      name: w.name,
-      fields: { Image: shortImage(w.image), Replicas: String(w.replicas) },
-    }));
-
-  const current: DiffItem[] = (k8sStatefulSets ?? []).map((ss) => {
-    const pods = (k8sPods ?? []).filter((p) => p.name.startsWith(ss.name));
-    const liveImage = pods.flatMap((p) => (p.container_statuses ?? []).map((c) => c.image)).filter(Boolean)[0];
-    return {
-      name: ss.name,
-      fields: {
-        Image: liveImage ? shortImage(liveImage) : "-",
-        Replicas: `${ss.ready_replicas}/${ss.replicas}`,
-      },
-    };
-  });
-
-  if (expected.length === 0 && current.length === 0) return null;
-  return <DiffSection title="StatefulSets" expectedItems={expected} currentItems={current} columns={["Image", "Replicas"]} replicasCompare />;
-}
-
-function ServicesDiff({ expectedServices, k8sServices }: {
-  expectedServices?: ExpectedService[];
-  k8sServices?: { name: string; type: string; cluster_ip: string; ports?: { port: number; target_port: string; protocol: string }[] }[];
-}) {
-  // Group expected services by workload_name (K8s resource name) since multiple
-  // endpoints (e.g. "http", "grpc") map to a single K8s Service resource.
-  const grouped = new Map<string, ExpectedService[]>();
-  for (const s of expectedServices ?? []) {
-    const key = s.workload_name || s.name;
-    const arr = grouped.get(key) ?? [];
-    arr.push(s);
-    grouped.set(key, arr);
-  }
-
-  const expected: DiffItem[] = Array.from(grouped.entries()).map(([name, svcs]) => {
-    const sorted = [...svcs].sort((a, b) => a.port - b.port);
-    return {
-      name,
-      fields: {
-        Port: sorted.map((s) => String(s.port)).join(", "),
-        TargetPort: sorted.map((s) => String(s.target_port)).join(", "),
-      },
-    };
-  });
-
-  const current: DiffItem[] = (k8sServices ?? []).map((s) => {
-    const sorted = [...(s.ports ?? [])].sort((a, b) => a.port - b.port);
-    return {
-      name: s.name,
-      fields: {
-        Port: sorted.map((p) => String(p.port)).join(", ") ?? "-",
-        TargetPort: sorted.map((p) => p.target_port).join(", ") ?? "-",
-      },
-    };
-  });
-
-  if (expected.length === 0 && current.length === 0) return null;
-  return <DiffSection title="Services" expectedItems={expected} currentItems={current} columns={["Port", "TargetPort"]} />;
-}
-
-function IngressesDiff({ expectedIngresses, k8sIngresses }: {
-  expectedIngresses?: ExpectedIngress[];
-  k8sIngresses?: { name: string; rules?: { host: string; paths?: { path: string; backend_service: string; backend_port: string }[] }[]; tls?: { hosts: string[] }[] }[];
-}) {
-  const expected: DiffItem[] = (expectedIngresses ?? []).map((ing) => ({
-    name: ing.hostname,
-    fields: { Hostname: ing.hostname, Path: ing.path, Service: ing.service },
-  }));
-
-  const current: DiffItem[] = (k8sIngresses ?? []).map((ing) => {
-    const host = ing.rules?.[0]?.host ?? ing.name;
-    const paths = ing.rules?.flatMap((r) => r.paths?.map((p) => p.path) ?? []).join(", ") ?? "-";
-    const backends = ing.rules?.flatMap((r) => r.paths?.map((p) => `${p.backend_service}:${p.backend_port}`) ?? []).join(", ") ?? "-";
-    return {
-      name: host,
-      fields: { Hostname: host, Path: paths, Service: backends },
-    };
-  });
-
-  if (expected.length === 0 && current.length === 0) return null;
-  return <DiffSection title="Ingresses" expectedItems={expected} currentItems={current} columns={["Hostname", "Path", "Service"]} />;
 }
 
 function PodDetail({ deploymentId, pod, container, mode, onClose }: { deploymentId: string; pod: string; container?: string; mode: "logs" | "env"; onClose: () => void }) {

@@ -105,6 +105,9 @@ func (m *mockAdminClient) BackfillDeployments(context.Context, *adminv1.Backfill
 func (m *mockAdminClient) RepairNormalizedSpec(context.Context, *adminv1.RepairNormalizedSpecRequest, ...grpc.CallOption) (*adminv1.RepairNormalizedSpecResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) RefreshDriftReport(context.Context, *adminv1.RefreshDriftReportRequest, ...grpc.CallOption) (*adminv1.RefreshDriftReportResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

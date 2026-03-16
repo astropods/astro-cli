@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -192,7 +191,7 @@ func TestNamespaceOrphanLogic(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Drift detection tests
+// Drift report tests
 // ---------------------------------------------------------------------------
 
 // fakeK8sResources defines the resources that exist in the fake cluster.
@@ -218,6 +217,7 @@ type fakeCronJob struct {
 }
 
 // newFakeDriftK8s creates an HTTP server that simulates the K8s API for drift checks.
+// Supports both GET (single resource) and LIST (all resources in namespace).
 func newFakeDriftK8s(t *testing.T, ns string, res fakeK8sResources) *kubernetes.Clientset {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +225,25 @@ func newFakeDriftK8s(t *testing.T, ns string, res fakeK8sResources) *kubernetes.
 		path := r.URL.Path
 
 		switch {
+		// LIST deployments
+		case strings.HasSuffix(path, "/deployments") || strings.HasSuffix(path, "/deployments/"):
+			var items []map[string]any
+			for name, d := range res.deployments {
+				items = append(items, map[string]any{
+					"kind": "Deployment", "apiVersion": "apps/v1",
+					"metadata": map[string]any{"name": name, "namespace": ns},
+					"spec": map[string]any{
+						"replicas": d.Replicas,
+						"template": map[string]any{"spec": map[string]any{
+							"containers": []map[string]any{{"name": name, "image": d.Image}},
+						}},
+					},
+					"status": map[string]any{"readyReplicas": d.Replicas},
+				})
+			}
+			writeDriftJSON(w, map[string]any{"kind": "DeploymentList", "apiVersion": "apps/v1", "items": items})
+
+		// GET deployment
 		case strings.Contains(path, "/deployments/"):
 			name := path[strings.LastIndex(path, "/")+1:]
 			if d, ok := res.deployments[name]; ok {
@@ -237,11 +256,31 @@ func newFakeDriftK8s(t *testing.T, ns string, res fakeK8sResources) *kubernetes.
 							"containers": []map[string]any{{"name": name, "image": d.Image}},
 						}},
 					},
+					"status": map[string]any{"readyReplicas": d.Replicas},
 				})
 			} else {
 				writeDriftNotFound(w, "deployments", name)
 			}
 
+		// LIST statefulsets
+		case strings.HasSuffix(path, "/statefulsets") || strings.HasSuffix(path, "/statefulsets/"):
+			var items []map[string]any
+			for name, ss := range res.statefulsets {
+				items = append(items, map[string]any{
+					"kind": "StatefulSet", "apiVersion": "apps/v1",
+					"metadata": map[string]any{"name": name, "namespace": ns},
+					"spec": map[string]any{
+						"replicas": ss.Replicas,
+						"template": map[string]any{"spec": map[string]any{
+							"containers": []map[string]any{{"name": name, "image": ss.Image}},
+						}},
+					},
+					"status": map[string]any{"readyReplicas": ss.Replicas},
+				})
+			}
+			writeDriftJSON(w, map[string]any{"kind": "StatefulSetList", "apiVersion": "apps/v1", "items": items})
+
+		// GET statefulset
 		case strings.Contains(path, "/statefulsets/"):
 			name := path[strings.LastIndex(path, "/")+1:]
 			if ss, ok := res.statefulsets[name]; ok {
@@ -254,11 +293,13 @@ func newFakeDriftK8s(t *testing.T, ns string, res fakeK8sResources) *kubernetes.
 							"containers": []map[string]any{{"name": name, "image": ss.Image}},
 						}},
 					},
+					"status": map[string]any{"readyReplicas": ss.Replicas},
 				})
 			} else {
 				writeDriftNotFound(w, "statefulsets", name)
 			}
 
+		// GET cronjob
 		case strings.Contains(path, "/cronjobs/"):
 			name := path[strings.LastIndex(path, "/")+1:]
 			if cj, ok := res.cronjobs[name]; ok {
@@ -271,6 +312,19 @@ func newFakeDriftK8s(t *testing.T, ns string, res fakeK8sResources) *kubernetes.
 				writeDriftNotFound(w, "cronjobs", name)
 			}
 
+		// LIST services
+		case strings.HasSuffix(path, "/services") || strings.HasSuffix(path, "/services/"):
+			var items []map[string]any
+			for name := range res.services {
+				items = append(items, map[string]any{
+					"kind": "Service", "apiVersion": "v1",
+					"metadata": map[string]any{"name": name, "namespace": ns},
+					"spec":     map[string]any{},
+				})
+			}
+			writeDriftJSON(w, map[string]any{"kind": "ServiceList", "apiVersion": "v1", "items": items})
+
+		// GET service
 		case strings.Contains(path, "/services/"):
 			name := path[strings.LastIndex(path, "/")+1:]
 			if res.services[name] {
@@ -282,6 +336,10 @@ func newFakeDriftK8s(t *testing.T, ns string, res fakeK8sResources) *kubernetes.
 			} else {
 				writeDriftNotFound(w, "services", name)
 			}
+
+		// LIST ingresses
+		case strings.HasSuffix(path, "/ingresses") || strings.HasSuffix(path, "/ingresses/"):
+			writeDriftJSON(w, map[string]any{"kind": "IngressList", "apiVersion": "networking.k8s.io/v1", "items": []any{}})
 
 		default:
 			writeDriftNotFound(w, "unknown", path)
@@ -314,6 +372,32 @@ func writeDriftNotFound(w http.ResponseWriter, kind, name string) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// testBuildReport is a helper that calls buildDriftReport with nil ingresses.
+func testBuildReport(ctx context.Context, cs *kubernetes.Clientset, ns string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service) *deploymentstore.DriftReport {
+	return buildDriftReport(ctx, cs, ns, workloads, services, nil, nil)
+}
+
+// countStatus returns the number of items with the given status in a report.
+func countStatus(items []deploymentstore.DriftResourceItem, status string) int {
+	n := 0
+	for _, item := range items {
+		if item.Status == status {
+			n++
+		}
+	}
+	return n
+}
+
+// findItem finds a drift item by name.
+func findItem(items []deploymentstore.DriftResourceItem, name string) *deploymentstore.DriftResourceItem {
+	for i := range items {
+		if items[i].Name == name {
+			return &items[i]
+		}
+	}
+	return nil
+}
 
 // --- Real sasbot deployment data ---
 
@@ -374,28 +458,38 @@ func sasbotK8sResources() fakeK8sResources {
 	}
 }
 
-// TestCheckDrift_Sasbot_NoDrift verifies that a healthy sasbot deployment
+// TestBuildDriftReport_Sasbot_NoDrift verifies that a healthy sasbot deployment
 // reports zero drift with the fixed data model.
-func TestCheckDrift_Sasbot_NoDrift(t *testing.T) {
+func TestBuildDriftReport_Sasbot_NoDrift(t *testing.T) {
 	ns := "sasbot-ns"
 	cs := newFakeDriftK8s(t, ns, sasbotK8sResources())
 
-	drifts := checkDrift(context.Background(), cs, ns, sasbotWorkloads(), sasbotServices())
-	if len(drifts) > 0 {
-		t.Errorf("expected zero drift for healthy sasbot, got %d:\n  %s", len(drifts), strings.Join(drifts, "\n  "))
+	report := testBuildReport(context.Background(), cs, ns, sasbotWorkloads(), sasbotServices())
+	if report == nil {
+		t.Fatal("expected non-nil report")
+	}
+	if report.Summary.Missing+report.Summary.Drift > 0 {
+		t.Errorf("expected zero drift for healthy sasbot, got missing=%d drift=%d", report.Summary.Missing, report.Summary.Drift)
+		for _, item := range report.Workloads {
+			if item.Status != "match" {
+				t.Logf("  workload %s: %s", item.Name, item.Status)
+			}
+		}
+		for _, item := range report.Services {
+			if item.Status != "match" {
+				t.Logf("  service %s: %s", item.Name, item.Status)
+			}
+		}
 	}
 }
 
-// TestCheckDrift_Sasbot_OldBugReproduction reproduces the exact bug from
+// TestBuildDriftReport_Sasbot_OldBugReproduction reproduces the exact bug from
 // production: storing messaging/collector as "deployment" and services by
-// endpoint name caused 14 false drifts on a healthy cluster.
-func TestCheckDrift_Sasbot_OldBugReproduction(t *testing.T) {
+// endpoint name caused false drifts on a healthy cluster.
+func TestBuildDriftReport_Sasbot_OldBugReproduction(t *testing.T) {
 	ns := "sasbot-ns"
 	cs := newFakeDriftK8s(t, ns, sasbotK8sResources())
 
-	// Old (buggy) normalized data:
-	// - messaging/collector stored as "deployment" instead of "sidecar"
-	// - services use endpoint name, no WorkloadName
 	oldWorkloads := []*deploymentstore.Workload{
 		{Name: "sasbot-agent", WorkloadType: "deployment", Image: "sasbot:14f4c4dd", Replicas: 1},
 		{Name: "sasbot-knowledge-cache", WorkloadType: "deployment", Image: "redis:7-alpine", Replicas: 1},
@@ -408,7 +502,6 @@ func TestCheckDrift_Sasbot_OldBugReproduction(t *testing.T) {
 		{Name: "sasbot-collector", WorkloadType: "deployment", Image: "prod-astro-collector:latest", Replicas: 1},
 	}
 
-	// BUG: services use endpoint names ("http", "grpc") with no WorkloadName
 	oldServices := []*deploymentstore.Service{
 		{Name: "http", Port: 8080},
 		{Name: "http", Port: 8090},
@@ -423,46 +516,39 @@ func TestCheckDrift_Sasbot_OldBugReproduction(t *testing.T) {
 		{Name: "otlp-http", Port: 4318},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, oldWorkloads, oldServices)
+	report := testBuildReport(context.Background(), cs, ns, oldWorkloads, oldServices)
 
-	var deployMissing, svcMissing int
-	for _, d := range drifts {
-		if strings.Contains(d, "Deployment") && strings.Contains(d, "missing") {
-			deployMissing++
-		}
-		if strings.Contains(d, "Service") && strings.Contains(d, "missing") {
-			svcMissing++
-		}
-	}
+	deployMissing := countStatus(report.Workloads, "missing")
+	svcMissing := countStatus(report.Services, "missing")
 
 	// Reproduces: 2 deployment missing (messaging, collector) + service missing (endpoint names)
 	if deployMissing != 2 {
-		t.Errorf("expected 2 false deployment-missing drifts, got %d", deployMissing)
+		t.Errorf("expected 2 false deployment-missing, got %d", deployMissing)
 	}
 	if svcMissing == 0 {
-		t.Error("expected service-missing drifts from endpoint-named data")
+		t.Error("expected service-missing from endpoint-named data")
 	}
 
-	t.Logf("Old bug reproduced: %d total drifts (%d deploy, %d svc)", len(drifts), deployMissing, svcMissing)
-	for _, d := range drifts {
-		t.Logf("  %s", d)
-	}
+	t.Logf("Old bug reproduced: %d total items, %d missing, %d drift", report.Summary.Total, report.Summary.Missing, report.Summary.Drift)
 }
 
-// TestCheckDrift_EmptyWorkloads verifies zero workloads produces zero drift.
-func TestCheckDrift_EmptyWorkloads(t *testing.T) {
+// TestBuildDriftReport_EmptyWorkloads verifies zero workloads produces an all-match report.
+func TestBuildDriftReport_EmptyWorkloads(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{})
 
-	drifts := checkDrift(context.Background(), cs, ns, nil, nil)
-	if len(drifts) > 0 {
-		t.Errorf("empty workloads should not produce drift, got: %s", strings.Join(drifts, "; "))
+	report := testBuildReport(context.Background(), cs, ns, nil, nil)
+	if report == nil {
+		t.Fatal("expected non-nil report")
+	}
+	if report.Summary.Missing+report.Summary.Drift > 0 {
+		t.Errorf("empty workloads should not produce drift, got missing=%d drift=%d", report.Summary.Missing, report.Summary.Drift)
 	}
 }
 
-// TestCheckDrift_ServiceDedup verifies multiple endpoints sharing one K8s
+// TestBuildDriftReport_ServiceDedup verifies multiple endpoints sharing one K8s
 // Service only result in a single check (no duplicate "missing" reports).
-func TestCheckDrift_ServiceDedup(t *testing.T) {
+func TestBuildDriftReport_ServiceDedup(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		services: map[string]bool{"my-svc": true},
@@ -474,15 +560,18 @@ func TestCheckDrift_ServiceDedup(t *testing.T) {
 		{Name: "metrics", Port: 9191, WorkloadName: "my-svc"},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, nil, services)
-	if len(drifts) > 0 {
-		t.Errorf("3 endpoints on 1 existing service should not drift, got: %s", strings.Join(drifts, "; "))
+	report := testBuildReport(context.Background(), cs, ns, nil, services)
+	if len(report.Services) != 1 {
+		t.Fatalf("expected 1 service entry (deduped), got %d", len(report.Services))
+	}
+	if report.Services[0].Status != "match" {
+		t.Errorf("expected match, got %s", report.Services[0].Status)
 	}
 }
 
-// TestCheckDrift_ServiceMissing_ReportedOnce verifies a missing service is
+// TestBuildDriftReport_ServiceMissing_ReportedOnce verifies a missing service is
 // reported exactly once even with multiple endpoints.
-func TestCheckDrift_ServiceMissing_ReportedOnce(t *testing.T) {
+func TestBuildDriftReport_ServiceMissing_ReportedOnce(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{})
 
@@ -491,20 +580,20 @@ func TestCheckDrift_ServiceMissing_ReportedOnce(t *testing.T) {
 		{Name: "http", Port: 8090, WorkloadName: "my-svc"},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, nil, services)
-	if len(drifts) != 1 {
-		t.Fatalf("expected 1 drift for missing service, got %d: %v", len(drifts), drifts)
+	report := testBuildReport(context.Background(), cs, ns, nil, services)
+	missing := countStatus(report.Services, "missing")
+	if missing != 1 {
+		t.Fatalf("expected 1 missing service, got %d", missing)
 	}
-	if !strings.Contains(drifts[0], `"my-svc"`) {
-		t.Errorf("drift should use K8s name 'my-svc', got: %s", drifts[0])
+	if report.Services[0].Name != "my-svc" {
+		t.Errorf("expected service name 'my-svc', got %q", report.Services[0].Name)
 	}
 }
 
-// TestCheckDrift_ServiceUsesWorkloadName verifies services are looked up by
+// TestBuildDriftReport_ServiceUsesWorkloadName verifies services are looked up by
 // WorkloadName (K8s resource name), not endpoint Name.
-func TestCheckDrift_ServiceUsesWorkloadName(t *testing.T) {
+func TestBuildDriftReport_ServiceUsesWorkloadName(t *testing.T) {
 	ns := "test-ns"
-	// K8s has "agent-svc" but NOT "http"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		services: map[string]bool{"agent-svc": true},
 	})
@@ -513,15 +602,15 @@ func TestCheckDrift_ServiceUsesWorkloadName(t *testing.T) {
 		{Name: "http", Port: 8080, WorkloadName: "agent-svc"},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, nil, services)
-	if len(drifts) > 0 {
-		t.Errorf("should match on WorkloadName not Name, got: %s", strings.Join(drifts, "; "))
+	report := testBuildReport(context.Background(), cs, ns, nil, services)
+	if report.Summary.Missing > 0 {
+		t.Errorf("should match on WorkloadName not Name, got missing=%d", report.Summary.Missing)
 	}
 }
 
-// TestCheckDrift_ServiceFallbackToName verifies legacy data (no WorkloadName)
+// TestBuildDriftReport_ServiceFallbackToName verifies legacy data (no WorkloadName)
 // falls back to using the endpoint Name for lookup.
-func TestCheckDrift_ServiceFallbackToName(t *testing.T) {
+func TestBuildDriftReport_ServiceFallbackToName(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		services: map[string]bool{"old-svc": true},
@@ -531,14 +620,14 @@ func TestCheckDrift_ServiceFallbackToName(t *testing.T) {
 		{Name: "old-svc", Port: 8080, WorkloadName: ""},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, nil, services)
-	if len(drifts) > 0 {
-		t.Errorf("fallback to Name should work, got: %s", strings.Join(drifts, "; "))
+	report := testBuildReport(context.Background(), cs, ns, nil, services)
+	if report.Summary.Missing > 0 {
+		t.Errorf("fallback to Name should work, got missing=%d", report.Summary.Missing)
 	}
 }
 
-// TestCheckDrift_DeploymentImageMismatch detects image drift.
-func TestCheckDrift_DeploymentImageMismatch(t *testing.T) {
+// TestBuildDriftReport_DeploymentImageMismatch detects image drift.
+func TestBuildDriftReport_DeploymentImageMismatch(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		deployments: map[string]fakeDeployment{
@@ -550,14 +639,18 @@ func TestCheckDrift_DeploymentImageMismatch(t *testing.T) {
 		{Name: "my-agent", WorkloadType: "deployment", Image: "agent:new-tag", Replicas: 1},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, workloads, nil)
-	if len(drifts) != 1 || !strings.Contains(drifts[0], "image mismatch") {
-		t.Errorf("expected image mismatch drift, got: %v", drifts)
+	report := testBuildReport(context.Background(), cs, ns, workloads, nil)
+	item := findItem(report.Workloads, "my-agent")
+	if item == nil || item.Status != "drift" {
+		t.Errorf("expected drift for image mismatch, got %v", item)
+	}
+	if item != nil && item.Actual["Image"] != "agent:old-tag" {
+		t.Errorf("expected actual image 'agent:old-tag', got %q", item.Actual["Image"])
 	}
 }
 
-// TestCheckDrift_ReplicaMismatch detects replica count drift.
-func TestCheckDrift_ReplicaMismatch(t *testing.T) {
+// TestBuildDriftReport_ReplicaMismatch detects replica count drift.
+func TestBuildDriftReport_ReplicaMismatch(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		deployments: map[string]fakeDeployment{
@@ -569,14 +662,15 @@ func TestCheckDrift_ReplicaMismatch(t *testing.T) {
 		{Name: "my-agent", WorkloadType: "deployment", Image: "agent:v1", Replicas: 1},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, workloads, nil)
-	if len(drifts) != 1 || !strings.Contains(drifts[0], "replicas") {
-		t.Errorf("expected replica drift, got: %v", drifts)
+	report := testBuildReport(context.Background(), cs, ns, workloads, nil)
+	item := findItem(report.Workloads, "my-agent")
+	if item == nil || item.Status != "drift" {
+		t.Errorf("expected drift for replica mismatch, got %v", item)
 	}
 }
 
-// TestCheckDrift_CronJobScheduleMismatch detects schedule drift.
-func TestCheckDrift_CronJobScheduleMismatch(t *testing.T) {
+// TestBuildDriftReport_CronJobScheduleMismatch detects schedule drift.
+func TestBuildDriftReport_CronJobScheduleMismatch(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		cronjobs: map[string]fakeCronJob{
@@ -588,14 +682,15 @@ func TestCheckDrift_CronJobScheduleMismatch(t *testing.T) {
 		{Name: "my-cron", WorkloadType: "cronjob", TriggerSchedule: strPtr("0 * * * *")},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, workloads, nil)
-	if len(drifts) != 1 || !strings.Contains(drifts[0], "schedule mismatch") {
-		t.Errorf("expected schedule mismatch drift, got: %v", drifts)
+	report := testBuildReport(context.Background(), cs, ns, workloads, nil)
+	item := findItem(report.Workloads, "my-cron")
+	if item == nil || item.Status != "drift" {
+		t.Errorf("expected drift for schedule mismatch, got %v", item)
 	}
 }
 
-// TestCheckDrift_MixedWorkloadTypes tests all workload types together.
-func TestCheckDrift_MixedWorkloadTypes(t *testing.T) {
+// TestBuildDriftReport_MixedWorkloadTypes tests all workload types together.
+func TestBuildDriftReport_MixedWorkloadTypes(t *testing.T) {
 	ns := "mixed-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		deployments:  map[string]fakeDeployment{"web": {Image: "web:v1", Replicas: 2}},
@@ -614,14 +709,14 @@ func TestCheckDrift_MixedWorkloadTypes(t *testing.T) {
 		{Name: "tcp", Port: 5432, WorkloadName: "db"},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, workloads, services)
-	if len(drifts) > 0 {
-		t.Errorf("all matching, should produce zero drift, got: %s", strings.Join(drifts, "; "))
+	report := testBuildReport(context.Background(), cs, ns, workloads, services)
+	if report.Summary.Missing+report.Summary.Drift > 0 {
+		t.Errorf("all matching, should produce zero drift, got missing=%d drift=%d", report.Summary.Missing, report.Summary.Drift)
 	}
 }
 
-// TestCheckDrift_MultipleServicesMissing tests dedup across multiple missing services.
-func TestCheckDrift_MultipleServicesMissing(t *testing.T) {
+// TestBuildDriftReport_MultipleServicesMissing tests dedup across multiple missing services.
+func TestBuildDriftReport_MultipleServicesMissing(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
 		services: map[string]bool{"svc-a": true},
@@ -634,21 +729,15 @@ func TestCheckDrift_MultipleServicesMissing(t *testing.T) {
 		{Name: "tcp", Port: 5432, WorkloadName: "svc-c"},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, nil, services)
-	sort.Strings(drifts)
-	if len(drifts) != 2 {
-		t.Fatalf("expected 2 missing services (svc-b, svc-c), got %d: %v", len(drifts), drifts)
-	}
-	if !strings.Contains(drifts[0], `"svc-b"`) {
-		t.Errorf("drift[0] should mention svc-b, got: %s", drifts[0])
-	}
-	if !strings.Contains(drifts[1], `"svc-c"`) {
-		t.Errorf("drift[1] should mention svc-c, got: %s", drifts[1])
+	report := testBuildReport(context.Background(), cs, ns, nil, services)
+	missing := countStatus(report.Services, "missing")
+	if missing != 2 {
+		t.Fatalf("expected 2 missing services (svc-b, svc-c), got %d", missing)
 	}
 }
 
-// TestCheckDrift_StatefulSetMissing verifies StatefulSet drift detection.
-func TestCheckDrift_StatefulSetMissing(t *testing.T) {
+// TestBuildDriftReport_StatefulSetMissing verifies StatefulSet drift detection.
+func TestBuildDriftReport_StatefulSetMissing(t *testing.T) {
 	ns := "test-ns"
 	cs := newFakeDriftK8s(t, ns, fakeK8sResources{})
 
@@ -656,8 +745,35 @@ func TestCheckDrift_StatefulSetMissing(t *testing.T) {
 		{Name: "my-db", WorkloadType: "statefulset", Image: "pg:15", Replicas: 1},
 	}
 
-	drifts := checkDrift(context.Background(), cs, ns, workloads, nil)
-	if len(drifts) != 1 || !strings.Contains(drifts[0], `StatefulSet "my-db" missing`) {
-		t.Errorf("expected StatefulSet missing, got: %v", drifts)
+	report := testBuildReport(context.Background(), cs, ns, workloads, nil)
+	item := findItem(report.Workloads, "my-db")
+	if item == nil || item.Status != "missing" {
+		t.Errorf("expected StatefulSet missing, got %v", item)
+	}
+}
+
+// TestBuildDriftReport_Summary verifies summary counts are correct.
+func TestBuildDriftReport_Summary(t *testing.T) {
+	ns := "test-ns"
+	cs := newFakeDriftK8s(t, ns, fakeK8sResources{
+		deployments: map[string]fakeDeployment{
+			"web": {Image: "web:v1", Replicas: 1},
+		},
+	})
+
+	workloads := []*deploymentstore.Workload{
+		{Name: "web", WorkloadType: "deployment", Image: "web:v1", Replicas: 1},
+		{Name: "api", WorkloadType: "deployment", Image: "api:v1", Replicas: 1}, // missing in K8s
+	}
+
+	report := testBuildReport(context.Background(), cs, ns, workloads, nil)
+	if report.Summary.Match != 1 {
+		t.Errorf("expected 1 match, got %d", report.Summary.Match)
+	}
+	if report.Summary.Missing != 1 {
+		t.Errorf("expected 1 missing, got %d", report.Summary.Missing)
+	}
+	if report.Summary.Total < 2 {
+		t.Errorf("expected total >= 2, got %d", report.Summary.Total)
 	}
 }

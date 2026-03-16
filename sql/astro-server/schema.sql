@@ -111,6 +111,8 @@ CREATE TABLE public.deployments (
     current_revision int,
     deployed_at timestamp NOT NULL DEFAULT now(),
     undeployed_at timestamp,
+    drift_report jsonb,
+    drift_checked_at timestamptz,
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
     CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id)
 );

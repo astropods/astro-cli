@@ -81,12 +81,23 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 			continue
 		}
 
-		drifts := w.detectDrift(ctx, dep)
-		if len(drifts) > 0 {
-			driftMsg := fmt.Sprintf("Drift detected (%d): %s", len(drifts), strings.Join(drifts, "; "))
+		report := w.buildDeploymentDriftReport(ctx, dep)
+		if report == nil {
+			continue
+		}
+
+		// Always save the report (queen needs "all match" state too)
+		if err := w.store.SaveDriftReport(dep.ID, report); err != nil {
+			w.log.Error("Reconcile: failed to save drift report", "error", err, "deployment_id", dep.ID)
+		}
+
+		// Trigger re-deploy only when there's actual drift or missing resources
+		if report.Summary.Missing+report.Summary.Drift > 0 {
+			driftMsg := fmt.Sprintf("Drift detected: %d missing, %d drifted (of %d total)", report.Summary.Missing, report.Summary.Drift, report.Summary.Total)
 			w.log.Warn("Reconcile: drift detected, enqueuing re-apply",
 				"deployment_id", dep.ID,
-				"drifts", len(drifts),
+				"missing", report.Summary.Missing,
+				"drift", report.Summary.Drift,
 			)
 			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, driftMsg, nil); err != nil {
 				w.log.Error("Reconcile: failed to set pending for drift", "error", err, "deployment_id", dep.ID)
@@ -264,98 +275,354 @@ func (w *ReconcileWorker) hasAnnotation(ctx context.Context, namespace, key, val
 	return ns.Annotations[key] == value
 }
 
-// detectDrift checks a deployment's K8s resources against the normalized DB state.
-// Adapted from driftcheck.Checker.checkDeployment.
-func (w *ReconcileWorker) detectDrift(ctx context.Context, dep *deploymentstore.Deployment) []string {
+// buildDeploymentDriftReport fetches expected state from DB and compares against live K8s.
+func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *deploymentstore.Deployment) *deploymentstore.DriftReport {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	workloads, err := w.store.GetWorkloads(dep.ID)
-	if err != nil || len(workloads) == 0 {
+	if err != nil {
 		return nil
 	}
 
 	services, _ := w.store.GetServices(dep.ID)
+	ingresses, _ := w.store.GetIngresses(dep.ID)
 
-	return checkDrift(ctx, w.k8s.Clientset(), dep.Namespace, workloads, services)
+	// Build service ID -> name map for ingress display
+	svcNameByID := map[int]string{}
+	for _, svc := range services {
+		svcNameByID[svc.ID] = svc.WorkloadName
+	}
+
+	return buildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, workloads, services, ingresses, svcNameByID)
 }
 
-// checkDrift is the core drift detection logic, separated for testability.
-// It compares expected workloads and services against the live K8s state.
-func checkDrift(ctx context.Context, clientset *kubernetes.Clientset, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service) []string {
-	var drifts []string
+// buildDriftReport is the core drift detection logic, separated for testability.
+// It compares expected workloads, services, and ingresses against the live K8s state,
+// producing a structured DriftReport.
+func buildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string) *deploymentstore.DriftReport {
+	report := &deploymentstore.DriftReport{
+		DetectedAt: time.Now().UTC().Format(time.RFC3339),
+	}
 
+	// --- Workloads ---
+	expectedWorkloadNames := map[string]bool{}
 	for _, wl := range workloads {
+		expectedWorkloadNames[wl.Name] = true
+		item := deploymentstore.DriftResourceItem{
+			Name:     wl.Name,
+			Type:     wl.WorkloadType,
+			Expected: map[string]string{"Image": wl.Image, "Replicas": fmt.Sprintf("%d", wl.Replicas)},
+		}
+
 		switch wl.WorkloadType {
 		case "deployment":
 			actual, err := clientset.AppsV1().Deployments(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					drifts = append(drifts, fmt.Sprintf("Deployment %q missing", wl.Name))
+					item.Status = "missing"
+					item.Actual = map[string]string{}
+				} else {
+					continue // transient error, skip
 				}
-				continue
-			}
-			actualReplicas := int32(1)
-			if actual.Spec.Replicas != nil {
-				actualReplicas = *actual.Spec.Replicas
-			}
-			if int(actualReplicas) != wl.Replicas {
-				drifts = append(drifts, fmt.Sprintf("Deployment %q replicas: desired=%d actual=%d", wl.Name, wl.Replicas, actualReplicas))
-			}
-			if len(actual.Spec.Template.Spec.Containers) > 0 && actual.Spec.Template.Spec.Containers[0].Image != wl.Image {
-				drifts = append(drifts, fmt.Sprintf("Deployment %q image mismatch", wl.Name))
+			} else {
+				actualReplicas := int32(1)
+				if actual.Spec.Replicas != nil {
+					actualReplicas = *actual.Spec.Replicas
+				}
+				actualImage := ""
+				if len(actual.Spec.Template.Spec.Containers) > 0 {
+					actualImage = actual.Spec.Template.Spec.Containers[0].Image
+				}
+				item.Actual = map[string]string{
+					"Image":    actualImage,
+					"Replicas": fmt.Sprintf("%d/%d", actual.Status.ReadyReplicas, actualReplicas),
+				}
+				if int(actualReplicas) != wl.Replicas || actualImage != wl.Image {
+					item.Status = "drift"
+				} else {
+					item.Status = "match"
+				}
 			}
 
 		case "statefulset":
 			actual, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					drifts = append(drifts, fmt.Sprintf("StatefulSet %q missing", wl.Name))
+					item.Status = "missing"
+					item.Actual = map[string]string{}
+				} else {
+					continue
 				}
-				continue
-			}
-			actualReplicas := int32(1)
-			if actual.Spec.Replicas != nil {
-				actualReplicas = *actual.Spec.Replicas
-			}
-			if int(actualReplicas) != wl.Replicas {
-				drifts = append(drifts, fmt.Sprintf("StatefulSet %q replicas: desired=%d actual=%d", wl.Name, wl.Replicas, actualReplicas))
-			}
-			if len(actual.Spec.Template.Spec.Containers) > 0 && actual.Spec.Template.Spec.Containers[0].Image != wl.Image {
-				drifts = append(drifts, fmt.Sprintf("StatefulSet %q image mismatch", wl.Name))
+			} else {
+				actualReplicas := int32(1)
+				if actual.Spec.Replicas != nil {
+					actualReplicas = *actual.Spec.Replicas
+				}
+				actualImage := ""
+				if len(actual.Spec.Template.Spec.Containers) > 0 {
+					actualImage = actual.Spec.Template.Spec.Containers[0].Image
+				}
+				item.Actual = map[string]string{
+					"Image":    actualImage,
+					"Replicas": fmt.Sprintf("%d/%d", actual.Status.ReadyReplicas, actualReplicas),
+				}
+				if int(actualReplicas) != wl.Replicas || actualImage != wl.Image {
+					item.Status = "drift"
+				} else {
+					item.Status = "match"
+				}
 			}
 
 		case "cronjob":
 			actual, err := clientset.BatchV1().CronJobs(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
-					drifts = append(drifts, fmt.Sprintf("CronJob %q missing", wl.Name))
+					item.Status = "missing"
+					item.Actual = map[string]string{}
+				} else {
+					continue
 				}
-				continue
+			} else {
+				item.Expected = map[string]string{}
+				if wl.TriggerSchedule != nil {
+					item.Expected["Schedule"] = *wl.TriggerSchedule
+				}
+				item.Actual = map[string]string{"Schedule": actual.Spec.Schedule}
+				if wl.TriggerSchedule != nil && actual.Spec.Schedule != *wl.TriggerSchedule {
+					item.Status = "drift"
+				} else {
+					item.Status = "match"
+				}
 			}
-			if wl.TriggerSchedule != nil && actual.Spec.Schedule != *wl.TriggerSchedule {
-				drifts = append(drifts, fmt.Sprintf("CronJob %q schedule mismatch", wl.Name))
+
+		default:
+			continue // skip unknown types
+		}
+
+		report.Workloads = append(report.Workloads, item)
+	}
+
+	// Detect extra deployments/statefulsets not in expected set
+	if liveDeployments, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{}); err == nil {
+		for _, d := range liveDeployments.Items {
+			if !expectedWorkloadNames[d.Name] {
+				actualReplicas := int32(1)
+				if d.Spec.Replicas != nil {
+					actualReplicas = *d.Spec.Replicas
+				}
+				actualImage := ""
+				if len(d.Spec.Template.Spec.Containers) > 0 {
+					actualImage = d.Spec.Template.Spec.Containers[0].Image
+				}
+				report.Workloads = append(report.Workloads, deploymentstore.DriftResourceItem{
+					Name:     d.Name,
+					Type:     "deployment",
+					Status:   "extra",
+					Expected: map[string]string{},
+					Actual: map[string]string{
+						"Image":    actualImage,
+						"Replicas": fmt.Sprintf("%d/%d", d.Status.ReadyReplicas, actualReplicas),
+					},
+				})
+			}
+		}
+	}
+	if liveStatefulSets, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{}); err == nil {
+		for _, ss := range liveStatefulSets.Items {
+			if !expectedWorkloadNames[ss.Name] {
+				actualReplicas := int32(1)
+				if ss.Spec.Replicas != nil {
+					actualReplicas = *ss.Spec.Replicas
+				}
+				actualImage := ""
+				if len(ss.Spec.Template.Spec.Containers) > 0 {
+					actualImage = ss.Spec.Template.Spec.Containers[0].Image
+				}
+				report.Workloads = append(report.Workloads, deploymentstore.DriftResourceItem{
+					Name:     ss.Name,
+					Type:     "statefulset",
+					Status:   "extra",
+					Expected: map[string]string{},
+					Actual: map[string]string{
+						"Image":    actualImage,
+						"Replicas": fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, actualReplicas),
+					},
+				})
 			}
 		}
 	}
 
-	// Check services — deduplicate by WorkloadName since multiple endpoints
-	// (e.g. "http", "grpc") share a single K8s Service resource.
+	// --- Services (deduplicate by WorkloadName) ---
+	expectedSvcNames := map[string]bool{}
 	checked := map[string]bool{}
+	// Group expected services by workload name for port comparison
+	svcPortsByName := map[string]string{}
 	for _, svc := range services {
 		svcName := svc.WorkloadName
 		if svcName == "" {
-			svcName = svc.Name // fallback for old data without workload join
+			svcName = svc.Name
+		}
+		expectedSvcNames[svcName] = true
+		if existing, ok := svcPortsByName[svcName]; ok {
+			svcPortsByName[svcName] = existing + ", " + fmt.Sprintf("%d", svc.Port)
+		} else {
+			svcPortsByName[svcName] = fmt.Sprintf("%d", svc.Port)
+		}
+	}
+
+	for _, svc := range services {
+		svcName := svc.WorkloadName
+		if svcName == "" {
+			svcName = svc.Name
 		}
 		if checked[svcName] {
 			continue
 		}
 		checked[svcName] = true
-		_, err := clientset.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
-		if err != nil && apierrors.IsNotFound(err) {
-			drifts = append(drifts, fmt.Sprintf("Service %q missing", svcName))
+
+		item := deploymentstore.DriftResourceItem{
+			Name:     svcName,
+			Type:     "service",
+			Expected: map[string]string{"Ports": svcPortsByName[svcName]},
+		}
+
+		actual, err := clientset.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				item.Status = "missing"
+				item.Actual = map[string]string{}
+			} else {
+				continue
+			}
+		} else {
+			var actualPorts []string
+			for _, p := range actual.Spec.Ports {
+				actualPorts = append(actualPorts, fmt.Sprintf("%d", p.Port))
+			}
+			item.Actual = map[string]string{"Ports": strings.Join(actualPorts, ", ")}
+			item.Status = "match"
+		}
+		report.Services = append(report.Services, item)
+	}
+
+	// Detect extra services
+	if liveSvcs, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{}); err == nil {
+		for _, s := range liveSvcs.Items {
+			if !expectedSvcNames[s.Name] {
+				var actualPorts []string
+				for _, p := range s.Spec.Ports {
+					actualPorts = append(actualPorts, fmt.Sprintf("%d", p.Port))
+				}
+				report.Services = append(report.Services, deploymentstore.DriftResourceItem{
+					Name:     s.Name,
+					Type:     "service",
+					Status:   "extra",
+					Expected: map[string]string{},
+					Actual:   map[string]string{"Ports": strings.Join(actualPorts, ", ")},
+				})
+			}
 		}
 	}
 
-	return drifts
+	// --- Ingresses ---
+	expectedIngressHosts := map[string]bool{}
+	for _, ing := range ingresses {
+		expectedIngressHosts[ing.Hostname] = true
+		item := deploymentstore.DriftResourceItem{
+			Name: ing.Hostname,
+			Type: "ingress",
+			Expected: map[string]string{
+				"Hostname": ing.Hostname,
+				"Path":     ing.Path,
+				"Service":  svcNameByID[ing.ServiceID],
+			},
+		}
+
+		// Check if any live ingress has this host
+		found := false
+		if liveIngresses, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{}); err == nil {
+			for _, li := range liveIngresses.Items {
+				for _, rule := range li.Spec.Rules {
+					if rule.Host == ing.Hostname {
+						found = true
+						paths := ""
+						backend := ""
+						if rule.HTTP != nil {
+							for _, p := range rule.HTTP.Paths {
+								paths = p.Path
+								if p.Backend.Service != nil {
+									backend = fmt.Sprintf("%s:%d", p.Backend.Service.Name, p.Backend.Service.Port.Number)
+								}
+							}
+						}
+						item.Actual = map[string]string{
+							"Hostname": rule.Host,
+							"Path":     paths,
+							"Service":  backend,
+						}
+						item.Status = "match"
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+		}
+		if !found {
+			item.Status = "missing"
+			item.Actual = map[string]string{}
+		}
+		report.Ingresses = append(report.Ingresses, item)
+	}
+
+	// Detect extra ingresses
+	if liveIngresses, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{}); err == nil {
+		for _, li := range liveIngresses.Items {
+			for _, rule := range li.Spec.Rules {
+				if !expectedIngressHosts[rule.Host] {
+					paths := ""
+					backend := ""
+					if rule.HTTP != nil {
+						for _, p := range rule.HTTP.Paths {
+							paths = p.Path
+							if p.Backend.Service != nil {
+								backend = fmt.Sprintf("%s:%d", p.Backend.Service.Name, p.Backend.Service.Port.Number)
+							}
+						}
+					}
+					report.Ingresses = append(report.Ingresses, deploymentstore.DriftResourceItem{
+						Name:     rule.Host,
+						Type:     "ingress",
+						Status:   "extra",
+						Expected: map[string]string{},
+						Actual: map[string]string{
+							"Hostname": rule.Host,
+							"Path":     paths,
+							"Service":  backend,
+						},
+					})
+				}
+			}
+		}
+	}
+
+	// Compute summary
+	allItems := append(append(report.Workloads, report.Services...), report.Ingresses...)
+	report.Summary.Total = len(allItems)
+	for _, item := range allItems {
+		switch item.Status {
+		case "match":
+			report.Summary.Match++
+		case "missing":
+			report.Summary.Missing++
+		case "extra":
+			report.Summary.Extra++
+		case "drift":
+			report.Summary.Drift++
+		}
+	}
+
+	return report
 }
