@@ -294,13 +294,13 @@ func (w *ReconcileWorker) buildDeploymentDriftReport(ctx context.Context, dep *d
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	return buildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, workloads, services, ingresses, svcNameByID)
+	return BuildDriftReport(ctx, w.k8s.Clientset(), dep.Namespace, workloads, services, ingresses, svcNameByID)
 }
 
-// buildDriftReport is the core drift detection logic, separated for testability.
+// BuildDriftReport is the core drift detection logic.
 // It compares expected workloads, services, and ingresses against the live K8s state,
-// producing a structured DriftReport.
-func buildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string) *deploymentstore.DriftReport {
+// producing a structured DriftReport. Used by both the reconciler and the admin gRPC server.
+func BuildDriftReport(ctx context.Context, clientset *kubernetes.Clientset, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string) *deploymentstore.DriftReport {
 	report := &deploymentstore.DriftReport{
 		DetectedAt: time.Now().UTC().Format(time.RFC3339),
 	}

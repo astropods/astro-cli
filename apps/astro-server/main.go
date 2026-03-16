@@ -286,7 +286,7 @@ func runAPI(
 	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, orgClient, orgSync, omClient, ent, db, rq)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)

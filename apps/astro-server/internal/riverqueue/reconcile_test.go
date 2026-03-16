@@ -375,7 +375,7 @@ func strPtr(s string) *string { return &s }
 
 // testBuildReport is a helper that calls buildDriftReport with nil ingresses.
 func testBuildReport(ctx context.Context, cs *kubernetes.Clientset, ns string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service) *deploymentstore.DriftReport {
-	return buildDriftReport(ctx, cs, ns, workloads, services, nil, nil)
+	return BuildDriftReport(ctx, cs, ns, workloads, services, nil, nil)
 }
 
 // countStatus returns the number of items with the given status in a report.

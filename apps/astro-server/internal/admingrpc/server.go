@@ -21,7 +21,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -44,6 +43,10 @@ type Server struct {
 	workosClientID string
 	databaseURL    string
 	queue          *riverqueue.Queue
+
+	// Ingress domain config — needed by RepairNormalizedSpec to regenerate ingress rows
+	ingressDomain          string
+	ingestionIngressDomain string
 
 	riverMu        sync.Mutex
 	riverUIHandler http.Handler
@@ -69,15 +72,19 @@ func New(
 	openMeterURL string,
 	databaseURL string,
 	queue *riverqueue.Queue,
+	ingressDomain string,
+	ingestionIngressDomain string,
 ) *Server {
 	return &Server{
-		log:          log,
-		deployStore:  deployStore,
-		k8sClient:    k8sClient,
-		db:           db,
-		openMeterURL: strings.TrimRight(openMeterURL, "/"),
-		databaseURL:  databaseURL,
-		queue:        queue,
+		log:                    log,
+		deployStore:            deployStore,
+		k8sClient:              k8sClient,
+		db:                     db,
+		openMeterURL:           strings.TrimRight(openMeterURL, "/"),
+		databaseURL:            databaseURL,
+		queue:                  queue,
+		ingressDomain:          ingressDomain,
+		ingestionIngressDomain: ingestionIngressDomain,
 	}
 }
 
@@ -1402,7 +1409,10 @@ func (s *Server) RepairNormalizedSpec(_ context.Context, req *adminv1.RepairNorm
 		return nil, fmt.Errorf("deployment_id is required")
 	}
 
-	workloads, services, ingresses, err := s.deployStore.RepairNormalizedSpec(req.DeploymentId)
+	workloads, services, ingresses, err := s.deployStore.RepairNormalizedSpec(req.DeploymentId, &deploymentstore.NormalizedSpecConfig{
+		IngressDomain:          s.ingressDomain,
+		IngestionIngressDomain: s.ingestionIngressDomain,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("repair normalized spec: %w", err)
 	}
@@ -1521,7 +1531,7 @@ func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDri
 		svcNameByID[svc.ID] = svc.WorkloadName
 	}
 
-	report := s.buildDriftReportFromK8s(ctx, dep.Namespace, workloads, services, ingresses, svcNameByID)
+	report := riverqueue.BuildDriftReport(ctx, s.k8sClient.Clientset(), dep.Namespace, workloads, services, ingresses, svcNameByID)
 	if report == nil {
 		return nil, fmt.Errorf("failed to build drift report")
 	}
@@ -1541,230 +1551,6 @@ func (s *Server) RefreshDriftReport(ctx context.Context, req *adminv1.RefreshDri
 	}
 
 	return resp, nil
-}
-
-// buildDriftReportFromK8s is the admin server's version of the reconciler's buildDriftReport.
-// It reuses the same core logic from the riverqueue package.
-func (s *Server) buildDriftReportFromK8s(ctx context.Context, namespace string, workloads []*deploymentstore.Workload, services []*deploymentstore.Service, ingresses []*deploymentstore.Ingress, svcNameByID map[int]string) *deploymentstore.DriftReport {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	report := &deploymentstore.DriftReport{
-		DetectedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-
-	clientset := s.k8sClient.Clientset()
-
-	// --- Workloads ---
-	expectedWorkloadNames := map[string]bool{}
-	for _, wl := range workloads {
-		expectedWorkloadNames[wl.Name] = true
-		item := deploymentstore.DriftResourceItem{
-			Name:     wl.Name,
-			Type:     wl.WorkloadType,
-			Expected: map[string]string{"Image": wl.Image, "Replicas": fmt.Sprintf("%d", wl.Replicas)},
-		}
-
-		switch wl.WorkloadType {
-		case "deployment":
-			actual, err := clientset.AppsV1().Deployments(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					item.Status = "missing"
-					item.Actual = map[string]string{}
-				} else {
-					continue
-				}
-			} else {
-				actualReplicas := int32(1)
-				if actual.Spec.Replicas != nil {
-					actualReplicas = *actual.Spec.Replicas
-				}
-				actualImage := ""
-				if len(actual.Spec.Template.Spec.Containers) > 0 {
-					actualImage = actual.Spec.Template.Spec.Containers[0].Image
-				}
-				item.Actual = map[string]string{
-					"Image":    actualImage,
-					"Replicas": fmt.Sprintf("%d/%d", actual.Status.ReadyReplicas, actualReplicas),
-				}
-				if int(actualReplicas) != wl.Replicas || actualImage != wl.Image {
-					item.Status = "drift"
-				} else {
-					item.Status = "match"
-				}
-			}
-
-		case "statefulset":
-			actual, err := clientset.AppsV1().StatefulSets(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					item.Status = "missing"
-					item.Actual = map[string]string{}
-				} else {
-					continue
-				}
-			} else {
-				actualReplicas := int32(1)
-				if actual.Spec.Replicas != nil {
-					actualReplicas = *actual.Spec.Replicas
-				}
-				actualImage := ""
-				if len(actual.Spec.Template.Spec.Containers) > 0 {
-					actualImage = actual.Spec.Template.Spec.Containers[0].Image
-				}
-				item.Actual = map[string]string{
-					"Image":    actualImage,
-					"Replicas": fmt.Sprintf("%d/%d", actual.Status.ReadyReplicas, actualReplicas),
-				}
-				if int(actualReplicas) != wl.Replicas || actualImage != wl.Image {
-					item.Status = "drift"
-				} else {
-					item.Status = "match"
-				}
-			}
-
-		case "cronjob":
-			actual, err := clientset.BatchV1().CronJobs(namespace).Get(ctx, wl.Name, metav1.GetOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					item.Status = "missing"
-					item.Actual = map[string]string{}
-				} else {
-					continue
-				}
-			} else {
-				item.Expected = map[string]string{}
-				if wl.TriggerSchedule != nil {
-					item.Expected["Schedule"] = *wl.TriggerSchedule
-				}
-				item.Actual = map[string]string{"Schedule": actual.Spec.Schedule}
-				if wl.TriggerSchedule != nil && actual.Spec.Schedule != *wl.TriggerSchedule {
-					item.Status = "drift"
-				} else {
-					item.Status = "match"
-				}
-			}
-
-		default:
-			continue
-		}
-
-		report.Workloads = append(report.Workloads, item)
-	}
-
-	// --- Services ---
-	checked := map[string]bool{}
-	svcPortsByName := map[string]string{}
-	for _, svc := range services {
-		svcName := svc.WorkloadName
-		if svcName == "" {
-			svcName = svc.Name
-		}
-		if existing, ok := svcPortsByName[svcName]; ok {
-			svcPortsByName[svcName] = existing + ", " + fmt.Sprintf("%d", svc.Port)
-		} else {
-			svcPortsByName[svcName] = fmt.Sprintf("%d", svc.Port)
-		}
-	}
-
-	for _, svc := range services {
-		svcName := svc.WorkloadName
-		if svcName == "" {
-			svcName = svc.Name
-		}
-		if checked[svcName] {
-			continue
-		}
-		checked[svcName] = true
-
-		item := deploymentstore.DriftResourceItem{
-			Name:     svcName,
-			Type:     "service",
-			Expected: map[string]string{"Ports": svcPortsByName[svcName]},
-		}
-
-		_, err := clientset.CoreV1().Services(namespace).Get(ctx, svcName, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				item.Status = "missing"
-				item.Actual = map[string]string{}
-			} else {
-				continue
-			}
-		} else {
-			item.Actual = map[string]string{"Ports": svcPortsByName[svcName]}
-			item.Status = "match"
-		}
-		report.Services = append(report.Services, item)
-	}
-
-	// --- Ingresses ---
-	for _, ing := range ingresses {
-		item := deploymentstore.DriftResourceItem{
-			Name: ing.Hostname,
-			Type: "ingress",
-			Expected: map[string]string{
-				"Hostname": ing.Hostname,
-				"Path":     ing.Path,
-				"Service":  svcNameByID[ing.ServiceID],
-			},
-		}
-
-		found := false
-		if liveIngresses, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{}); err == nil {
-			for _, li := range liveIngresses.Items {
-				for _, rule := range li.Spec.Rules {
-					if rule.Host == ing.Hostname {
-						found = true
-						paths := ""
-						backend := ""
-						if rule.HTTP != nil {
-							for _, p := range rule.HTTP.Paths {
-								paths = p.Path
-								if p.Backend.Service != nil {
-									backend = fmt.Sprintf("%s:%d", p.Backend.Service.Name, p.Backend.Service.Port.Number)
-								}
-							}
-						}
-						item.Actual = map[string]string{
-							"Hostname": rule.Host,
-							"Path":     paths,
-							"Service":  backend,
-						}
-						item.Status = "match"
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-		}
-		if !found {
-			item.Status = "missing"
-			item.Actual = map[string]string{}
-		}
-		report.Ingresses = append(report.Ingresses, item)
-	}
-
-	// Compute summary
-	allItems := append(append(report.Workloads, report.Services...), report.Ingresses...)
-	report.Summary.Total = len(allItems)
-	for _, item := range allItems {
-		switch item.Status {
-		case "match":
-			report.Summary.Match++
-		case "missing":
-			report.Summary.Missing++
-		case "extra":
-			report.Summary.Extra++
-		case "drift":
-			report.Summary.Drift++
-		}
-	}
-
-	return report
 }
 
 // storeDriftReportToProto converts a store DriftReport to the proto type.

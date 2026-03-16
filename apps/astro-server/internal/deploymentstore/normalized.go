@@ -680,7 +680,7 @@ func SaveNormalizedSpec(
 // the deployment_workloads, deployment_services, deployment_ingresses, and
 // deployment_volumes tables. Variables are preserved (they require resolved
 // env and encryptor which are not available at repair time).
-func (s *Store) RepairNormalizedSpec(deploymentID string) (workloads, services, ingresses int, err error) {
+func (s *Store) RepairNormalizedSpec(deploymentID string, nsCfg *NormalizedSpecConfig) (workloads, services, ingresses int, err error) {
 	dep, err := s.GetDeploymentByID(deploymentID)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("get deployment: %w", err)
@@ -695,6 +695,11 @@ func (s *Store) RepairNormalizedSpec(deploymentID string) (workloads, services, 
 	var ds spec.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err != nil {
 		return 0, 0, 0, fmt.Errorf("parse spec JSON: %w", err)
+	}
+
+	// Fill in namespace from the deployment record so ingress hosts can be generated
+	if nsCfg != nil && nsCfg.Namespace == "" {
+		nsCfg.Namespace = dep.Namespace
 	}
 
 	tx, err := s.db.Begin()
@@ -714,8 +719,9 @@ func (s *Store) RepairNormalizedSpec(deploymentID string) (workloads, services, 
 		return 0, 0, 0, fmt.Errorf("delete variables: %w", err)
 	}
 
-	// Re-run SaveNormalizedSpec with nil resolved/enc/cfg (skips variable encryption and ingress generation)
-	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil, nil); err != nil {
+	// Re-run SaveNormalizedSpec with nil resolved/enc (skips variable encryption)
+	// but WITH nsCfg so ingress rows are regenerated correctly
+	if err := SaveNormalizedSpec(tx, deploymentID, &ds, nil, nil, nsCfg); err != nil {
 		return 0, 0, 0, fmt.Errorf("save normalized spec: %w", err)
 	}
 

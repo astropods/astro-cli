@@ -101,7 +101,7 @@ func TestProxyOpenMeter(t *testing.T) {
 				omURL = tt.omURL
 			}
 
-			srv := New(nil, nil, nil, nil, omURL, "", nil)
+			srv := New(nil, nil, nil, nil, omURL, "", nil, "", "")
 			resp, err := srv.ProxyOpenMeter(context.Background(), tt.req)
 
 			if tt.wantErr {
