@@ -142,7 +142,14 @@ func (w *ReconcileWorker) detectStaleJobs(ctx context.Context) {
 // maintainNamespaceOwnership upserts namespace_ownership rows for active deployments
 // and detects orphaned K8s namespaces. Adapted from nsscan.Scanner.Scan.
 func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
-	deps, err := w.store.GetDeploymentsInStatus(deploymentstore.StatusActive, deploymentstore.StatusScaledDown)
+	deps, err := w.store.GetDeploymentsInStatus(
+		deploymentstore.StatusActive,
+		deploymentstore.StatusScaledDown,
+		deploymentstore.StatusPending,
+		deploymentstore.StatusProvisioning,
+		deploymentstore.StatusFailed,
+		deploymentstore.StatusUndeploying,
+	)
 	if err != nil {
 		w.log.Error("Reconcile: failed to list deployments for ownership", "error", err)
 		return
