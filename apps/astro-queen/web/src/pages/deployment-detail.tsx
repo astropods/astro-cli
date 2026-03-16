@@ -10,16 +10,16 @@ import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob } from "@/types/admin";
 
 export function DeploymentDetailPage() {
-  const { namespace } = useParams<{ namespace: string }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data, isLoading, error, refetch } = useDeployment(namespace ?? "", 5_000);
+  const { data, isLoading, error, refetch } = useDeployment(id ?? "", 5_000);
   const deleteMut = useDeleteDeployment();
   const restartMut = useRestartDeployment();
   const wakeUpMut = useWakeUpDeployment();
   const rollbackMut = useRollbackDeployment();
   const reapplyMut = useReapplyDeployment();
-  const jobsQuery = useDeploymentJobs(namespace ?? "");
-  const [selectedPod, setSelectedPod] = useState<{ ns: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
+  const jobsQuery = useDeploymentJobs(id ?? "");
+  const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
   // Auto-refresh when in transitional states
   const isTransitional = data?.deployment?.status && ["pending", "provisioning", "undeploying"].includes(data.deployment.status);
@@ -42,7 +42,7 @@ export function DeploymentDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => wakeUpMut.mutate(namespace!, { onSuccess: () => refetch() })}
+              onClick={() => wakeUpMut.mutate(id!, { onSuccess: () => refetch() })}
               disabled={wakeUpMut.isPending}
             >
               <Sun className="size-3.5" />
@@ -54,7 +54,7 @@ export function DeploymentDetailPage() {
             size="sm"
             onClick={() => {
               if (confirm("Re-apply this deployment? This will rebuild and apply all K8s resources.")) {
-                reapplyMut.mutate(namespace!, { onSuccess: () => refetch() });
+                reapplyMut.mutate(id!, { onSuccess: () => refetch() });
               }
             }}
             disabled={reapplyMut.isPending || dep.status === "undeploying"}
@@ -65,7 +65,7 @@ export function DeploymentDetailPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => restartMut.mutate(namespace!)}
+            onClick={() => restartMut.mutate(id!)}
             disabled={restartMut.isPending || dep.status !== "active"}
           >
             <RotateCw className="size-3.5" />
@@ -76,7 +76,7 @@ export function DeploymentDetailPage() {
             size="sm"
             onClick={() => {
               if (confirm("Delete this deployment?")) {
-                deleteMut.mutate(namespace!, { onSuccess: () => navigate("/admin/deployments") });
+                deleteMut.mutate(id!, { onSuccess: () => navigate("/admin/deployments") });
               }
             }}
             disabled={deleteMut.isPending}
@@ -124,6 +124,16 @@ export function DeploymentDetailPage() {
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
       </div>
 
+      {cs?.summary && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <StatCard label="Pods" value={cs.summary.total_pods} sub={`${cs.summary.running_pods} running`} />
+          <StatCard label="Deployments" value={cs.summary.total_deployments} />
+          <StatCard label="Services" value={cs.summary.total_services} />
+          <StatCard label="Ingresses" value={cs.summary.total_ingresses} />
+          <StatCard label="Events" value={cs.summary.total_events} sub={cs.summary.warning_events > 0 ? `${cs.summary.warning_events} warnings` : undefined} warn={cs.summary.warning_events > 0} />
+        </div>
+      )}
+
       {dep.components?.length > 0 && (
         <div>
           <h3 className="mb-2 text-sm font-medium text-muted-foreground">Components</h3>
@@ -164,7 +174,7 @@ export function DeploymentDetailPage() {
               canRollback={dep.status === "active" || dep.status === "failed"}
               onRollback={(rev) => {
                 if (confirm(`Rollback to revision ${rev}?`)) {
-                  rollbackMut.mutate({ namespace: namespace!, revision: rev }, { onSuccess: () => refetch() });
+                  rollbackMut.mutate({ id: id!, revision: rev }, { onSuccess: () => refetch() });
                 }
               }}
               isRollingBack={rollbackMut.isPending}
@@ -197,16 +207,6 @@ export function DeploymentDetailPage() {
 
       {cs && (
         <>
-          {cs.summary && (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-              <StatCard label="Pods" value={cs.summary.total_pods} sub={`${cs.summary.running_pods} running`} />
-              <StatCard label="Deployments" value={cs.summary.total_deployments} />
-              <StatCard label="Services" value={cs.summary.total_services} />
-              <StatCard label="Ingresses" value={cs.summary.total_ingresses} />
-              <StatCard label="Events" value={cs.summary.total_events} sub={cs.summary.warning_events > 0 ? `${cs.summary.warning_events} warnings` : undefined} warn={cs.summary.warning_events > 0} />
-            </div>
-          )}
-
           {cs.deployments?.length > 0 && (
             <Collapsible>
               <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
@@ -330,10 +330,10 @@ export function DeploymentDetailPage() {
                 <div className="space-y-2">
                   {cs.pods.map((pod) => (
                     <div key={pod.name}>
-                      <PodRow pod={pod} namespace={namespace!} onSelect={setSelectedPod} />
+                      <PodRow pod={pod} deploymentId={id!} onSelect={setSelectedPod} />
                       {selectedPod && selectedPod.name === pod.name && (
                         <PodDetail
-                          namespace={selectedPod.ns}
+                          deploymentId={selectedPod.deploymentId}
                           pod={selectedPod.name}
                           container={selectedPod.container}
                           mode={selectedPod.mode}
@@ -568,12 +568,12 @@ function StatCard({ label, value, sub, warn }: { label: string; value: number; s
 
 function PodRow({
   pod,
-  namespace,
+  deploymentId,
   onSelect,
 }: {
   pod: K8sPodInfo;
-  namespace: string;
-  onSelect: (sel: { ns: string; name: string; container?: string; mode: "logs" | "env" }) => void;
+  deploymentId: string;
+  onSelect: (sel: { deploymentId: string; name: string; container?: string; mode: "logs" | "env" }) => void;
 }) {
   const hasMultipleContainers = (pod.container_statuses?.length ?? 0) > 1;
 
@@ -589,10 +589,10 @@ function PodRow({
         {/* Pod-level env button (shows all containers) */}
         {!hasMultipleContainers && (
           <div className="flex shrink-0 gap-1">
-            <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ ns: namespace, name: pod.name, container: pod.container_statuses?.[0]?.name, mode: "logs" })}>
+            <Button variant="ghost" size="icon-xs" title="Logs" onClick={() => onSelect({ deploymentId, name: pod.name, container: pod.container_statuses?.[0]?.name, mode: "logs" })}>
               <FileText className="size-3.5" />
             </Button>
-            <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ ns: namespace, name: pod.name, mode: "env" })}>
+            <Button variant="ghost" size="icon-xs" title="Env" onClick={() => onSelect({ deploymentId, name: pod.name, mode: "env" })}>
               <Settings className="size-3.5" />
             </Button>
           </div>
@@ -614,10 +614,10 @@ function PodRow({
               <span className="truncate text-muted-foreground">{cs.image}</span>
               {hasMultipleContainers && (
                 <span className="ml-auto flex shrink-0 gap-0.5">
-                  <Button variant="ghost" size="icon-xs" title={`Logs: ${cs.name}`} onClick={() => onSelect({ ns: namespace, name: pod.name, container: cs.name, mode: "logs" })}>
+                  <Button variant="ghost" size="icon-xs" title={`Logs: ${cs.name}`} onClick={() => onSelect({ deploymentId, name: pod.name, container: cs.name, mode: "logs" })}>
                     <FileText className="size-3" />
                   </Button>
-                  <Button variant="ghost" size="icon-xs" title={`Env: ${cs.name}`} onClick={() => onSelect({ ns: namespace, name: pod.name, container: cs.name, mode: "env" })}>
+                  <Button variant="ghost" size="icon-xs" title={`Env: ${cs.name}`} onClick={() => onSelect({ deploymentId, name: pod.name, container: cs.name, mode: "env" })}>
                     <Settings className="size-3" />
                   </Button>
                 </span>
@@ -640,9 +640,9 @@ function PodRow({
   );
 }
 
-function PodDetail({ namespace, pod, container, mode, onClose }: { namespace: string; pod: string; container?: string; mode: "logs" | "env"; onClose: () => void }) {
-  const logsQuery = usePodLogs(mode === "logs" ? namespace : "", mode === "logs" ? pod : "", container);
-  const envQuery = usePodEnv(mode === "env" ? namespace : "", mode === "env" ? pod : "");
+function PodDetail({ deploymentId, pod, container, mode, onClose }: { deploymentId: string; pod: string; container?: string; mode: "logs" | "env"; onClose: () => void }) {
+  const logsQuery = usePodLogs(mode === "logs" ? deploymentId : "", mode === "logs" ? pod : "", container);
+  const envQuery = usePodEnv(mode === "env" ? deploymentId : "", mode === "env" ? pod : "");
 
   return (
     <div className="mt-1 rounded-lg glass-heavy p-4">

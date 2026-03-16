@@ -59,9 +59,9 @@ export function DeploymentsPage() {
             </thead>
             <tbody>
               {data.deployments?.map((d) => (
-                <tr key={d.namespace} className="border-b border-comb-light hover:bg-glass-light">
+                <tr key={d.deployment_id} className="border-b border-comb-light hover:bg-glass-light">
                   <td className="px-2 py-0.5">
-                    <Link to={`/admin/deployments/${d.namespace}`} className="text-amber hover:underline">
+                    <Link to={`/admin/deployments/${d.deployment_id}`} className="text-amber hover:underline">
                       {d.name}
                     </Link>
                   </td>

@@ -10,21 +10,21 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/accounts", s.handleListAccounts)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
 	mux.HandleFunc("GET /api/admin/deployments", s.handleListDeployments)
-	mux.HandleFunc("GET /api/admin/deployments/{namespace}", s.handleGetDeployment)
-	mux.HandleFunc("DELETE /api/admin/deployments/{namespace}", s.handleDeleteDeployment)
-	mux.HandleFunc("POST /api/admin/deployments/{namespace}/restart", s.handleRestartDeployment)
+	mux.HandleFunc("GET /api/admin/deployments/{id}", s.handleGetDeployment)
+	mux.HandleFunc("DELETE /api/admin/deployments/{id}", s.handleDeleteDeployment)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/restart", s.handleRestartDeployment)
 	mux.HandleFunc("GET /api/admin/cluster-status", s.handleGetClusterStatus)
-	mux.HandleFunc("GET /api/admin/pods/{namespace}/{pod}/logs", s.handleGetPodLogs)
-	mux.HandleFunc("GET /api/admin/pods/{namespace}/{pod}/env", s.handleGetPodEnv)
+	mux.HandleFunc("GET /api/admin/pods/{id}/{pod}/logs", s.handleGetPodLogs)
+	mux.HandleFunc("GET /api/admin/pods/{id}/{pod}/env", s.handleGetPodEnv)
 	mux.HandleFunc("GET /api/admin/agents", s.handleListAgents)
 	mux.HandleFunc("GET /api/admin/agents/{account}/{name}/builds", s.handleGetAgentBuilds)
 	mux.HandleFunc("GET /api/admin/devices", s.handleListConnectedDevices)
 	mux.HandleFunc("POST /api/admin/devices/{deviceId}/command", s.handleSendCommand)
-	mux.HandleFunc("GET /api/admin/deployments/{namespace}/events", s.handleGetDeploymentEvents)
-	mux.HandleFunc("POST /api/admin/deployments/{namespace}/wakeup", s.handleWakeUpDeployment)
-	mux.HandleFunc("POST /api/admin/deployments/{namespace}/rollback", s.handleRollbackDeployment)
-	mux.HandleFunc("POST /api/admin/deployments/{namespace}/reapply", s.handleReapplyDeployment)
-	mux.HandleFunc("GET /api/admin/deployments/{namespace}/jobs", s.handleGetDeploymentJobs)
+	mux.HandleFunc("GET /api/admin/deployments/{id}/events", s.handleGetDeploymentEvents)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/wakeup", s.handleWakeUpDeployment)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/rollback", s.handleRollbackDeployment)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/reapply", s.handleReapplyDeployment)
+	mux.HandleFunc("GET /api/admin/deployments/{id}/jobs", s.handleGetDeploymentJobs)
 	mux.HandleFunc("POST /api/admin/backfill-deployments", s.handleBackfillDeployments)
 }
 
@@ -67,9 +67,9 @@ func (s *Server) handleListDeployments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetDeployment(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.GetDeployment(r.Context(), &adminv1.GetDeploymentRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -79,9 +79,9 @@ func (s *Server) handleGetDeployment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteDeployment(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.DeleteDeployment(r.Context(), &adminv1.DeleteDeploymentRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -91,9 +91,9 @@ func (s *Server) handleDeleteDeployment(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleRestartDeployment(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.RestartDeployment(r.Context(), &adminv1.RestartDeploymentRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -115,14 +115,14 @@ func (s *Server) handleGetClusterStatus(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleGetPodLogs(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	pod := r.PathValue("pod")
 	container := r.URL.Query().Get("container")
 	resp, err := s.admin.GetPodLogs(r.Context(), &adminv1.GetPodLogsRequest{
-		Namespace: ns,
-		Pod:       pod,
-		Container: container,
-		TailLines: 200,
+		DeploymentId: id,
+		Pod:          pod,
+		Container:    container,
+		TailLines:    200,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -132,11 +132,11 @@ func (s *Server) handleGetPodLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetPodEnv(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	pod := r.PathValue("pod")
 	resp, err := s.admin.GetPodEnv(r.Context(), &adminv1.GetPodEnvRequest{
-		Namespace: ns,
-		Pod:       pod,
+		DeploymentId: id,
+		Pod:          pod,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -206,9 +206,9 @@ func (s *Server) handleGetAgentBuilds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetDeploymentEvents(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.GetDeploymentEvents(r.Context(), &adminv1.GetDeploymentEventsRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -218,9 +218,9 @@ func (s *Server) handleGetDeploymentEvents(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleWakeUpDeployment(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.WakeUpDeployment(r.Context(), &adminv1.WakeUpDeploymentRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -230,7 +230,7 @@ func (s *Server) handleWakeUpDeployment(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleRollbackDeployment(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	var body struct {
 		Revision int32 `json:"revision"`
 	}
@@ -239,8 +239,8 @@ func (s *Server) handleRollbackDeployment(w http.ResponseWriter, r *http.Request
 		return
 	}
 	resp, err := s.admin.RollbackDeployment(r.Context(), &adminv1.RollbackDeploymentRequest{
-		Namespace: ns,
-		Revision:  body.Revision,
+		DeploymentId: id,
+		Revision:     body.Revision,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -259,9 +259,9 @@ func (s *Server) handleBackfillDeployments(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleReapplyDeployment(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.ReapplyDeployment(r.Context(), &adminv1.ReapplyDeploymentRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -271,9 +271,9 @@ func (s *Server) handleReapplyDeployment(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleGetDeploymentJobs(w http.ResponseWriter, r *http.Request) {
-	ns := r.PathValue("namespace")
+	id := r.PathValue("id")
 	resp, err := s.admin.GetDeploymentJobs(r.Context(), &adminv1.GetDeploymentJobsRequest{
-		Namespace: ns,
+		DeploymentId: id,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

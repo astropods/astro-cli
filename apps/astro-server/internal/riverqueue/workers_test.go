@@ -3,7 +3,6 @@ package riverqueue
 import (
 	"testing"
 
-	"github.com/riverqueue/river/rivertype"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -52,18 +51,9 @@ func TestDeployArgs_InsertOpts(t *testing.T) {
 		t.Error("UniqueOpts.ByArgs should be true")
 	}
 
-	wantStates := map[rivertype.JobState]bool{
-		rivertype.JobStateAvailable: true,
-		rivertype.JobStateRunning:   true,
-	}
-	for _, s := range opts.UniqueOpts.ByState {
-		if !wantStates[s] {
-			t.Errorf("unexpected ByState entry: %s", s)
-		}
-		delete(wantStates, s)
-	}
-	if len(wantStates) > 0 {
-		t.Errorf("missing ByState entries: %v", wantStates)
+	// ByState should use River's defaults (nil/empty), not explicit states.
+	if len(opts.UniqueOpts.ByState) != 0 {
+		t.Errorf("UniqueOpts.ByState should be empty (use defaults), got %v", opts.UniqueOpts.ByState)
 	}
 }
 

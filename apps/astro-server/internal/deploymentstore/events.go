@@ -35,12 +35,14 @@ func (s *Store) GetDeploymentEvents(deploymentID string, limit int) ([]Deploymen
 	for rows.Next() {
 		var e DeploymentEvent
 		var msg sql.NullString
-		var details json.RawMessage
+		var details []byte
 		if err := rows.Scan(&e.ID, &e.DeploymentID, &e.Status, &msg, &details, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment event: %w", err)
 		}
 		e.Message = msg.String
-		e.Details = details
+		if details != nil {
+			e.Details = details
+		}
 		events = append(events, e)
 	}
 	if err := rows.Err(); err != nil {

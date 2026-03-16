@@ -26,7 +26,7 @@ export const router = createBrowserRouter([
       { path: "openmeter", element: <OpenMeterHomePage /> },
       { path: "admin/accounts", element: <AccountsPage /> },
       { path: "admin/deployments", element: <DeploymentsPage /> },
-      { path: "admin/deployments/:namespace", element: <DeploymentDetailPage /> },
+      { path: "admin/deployments/:id", element: <DeploymentDetailPage /> },
       { path: "admin/agents", element: <AgentsPage /> },
 
       { path: "admin/devices", element: <ConnectedDevicesPage /> },

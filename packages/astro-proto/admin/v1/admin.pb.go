@@ -202,7 +202,7 @@ type GetClusterStatusResponse struct {
 }
 
 type DeleteDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type DeleteDeploymentResponse struct {
@@ -210,8 +210,8 @@ type DeleteDeploymentResponse struct {
 }
 
 type RestartDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
-	Pod       string `json:"pod,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
+	Pod          string `json:"pod,omitempty"`
 }
 
 type RestartDeploymentResponse struct {
@@ -245,7 +245,7 @@ type RenameAccountResponse struct {
 }
 
 type GetDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type GetDeploymentResponse struct {
@@ -257,10 +257,10 @@ type GetDeploymentResponse struct {
 }
 
 type GetPodLogsRequest struct {
-	Namespace string `json:"namespace,omitempty"`
-	Pod       string `json:"pod,omitempty"`
-	Container string `json:"container,omitempty"`
-	TailLines int32  `json:"tail_lines,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
+	Pod          string `json:"pod,omitempty"`
+	Container    string `json:"container,omitempty"`
+	TailLines    int32  `json:"tail_lines,omitempty"`
 }
 
 type GetPodLogsResponse struct {
@@ -268,8 +268,8 @@ type GetPodLogsResponse struct {
 }
 
 type GetPodEnvRequest struct {
-	Namespace string `json:"namespace,omitempty"`
-	Pod       string `json:"pod,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
+	Pod          string `json:"pod,omitempty"`
 }
 
 type EnvVar struct {
@@ -456,7 +456,7 @@ type DenyQuotaIncreaseResponse struct {
 }
 
 type GetDeploymentEventsRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type GetDeploymentEventsResponse struct {
@@ -464,7 +464,7 @@ type GetDeploymentEventsResponse struct {
 }
 
 type WakeUpDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type WakeUpDeploymentResponse struct {
@@ -472,8 +472,8 @@ type WakeUpDeploymentResponse struct {
 }
 
 type RollbackDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
-	Revision  int32  `json:"revision,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
+	Revision     int32  `json:"revision,omitempty"`
 }
 
 type RollbackDeploymentResponse struct {
@@ -481,7 +481,7 @@ type RollbackDeploymentResponse struct {
 }
 
 type ReapplyDeploymentRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type ReapplyDeploymentResponse struct {
@@ -489,7 +489,7 @@ type ReapplyDeploymentResponse struct {
 }
 
 type GetDeploymentJobsRequest struct {
-	Namespace string `json:"namespace,omitempty"`
+	DeploymentId string `json:"deployment_id,omitempty"`
 }
 
 type DeploymentJob struct {

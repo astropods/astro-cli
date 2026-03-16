@@ -32,14 +32,14 @@ export function useDeployments() {
   });
 }
 
-export function useDeployment(namespace: string, refetchInterval?: number) {
+export function useDeployment(id: string, refetchInterval?: number) {
   return useQuery({
-    queryKey: adminKeys.deployment(namespace),
+    queryKey: adminKeys.deployment(id),
     queryFn: () =>
       api.get<GetDeploymentResponse>(
-        `/api/admin/deployments/${encodeURIComponent(namespace)}`
+        `/api/admin/deployments/${encodeURIComponent(id)}`
       ),
-    enabled: !!namespace,
+    enabled: !!id,
     refetchInterval,
   });
 }
@@ -47,8 +47,8 @@ export function useDeployment(namespace: string, refetchInterval?: number) {
 export function useDeleteDeployment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (namespace: string) =>
-      api.del(`/api/admin/deployments/${encodeURIComponent(namespace)}`),
+    mutationFn: (id: string) =>
+      api.del(`/api/admin/deployments/${encodeURIComponent(id)}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },
@@ -58,8 +58,8 @@ export function useDeleteDeployment() {
 export function useRestartDeployment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (namespace: string) =>
-      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/restart`),
+    mutationFn: (id: string) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/restart`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },
@@ -115,14 +115,14 @@ export function useClusterStatus(namespace: string) {
   });
 }
 
-export function usePodLogs(namespace: string, pod: string, container?: string) {
+export function usePodLogs(id: string, pod: string, container?: string) {
   return useQuery({
-    queryKey: [...adminKeys.podLogs(namespace, pod), container ?? ""],
+    queryKey: [...adminKeys.podLogs(id, pod), container ?? ""],
     queryFn: () =>
       api.get<GetPodLogsResponse>(
-        `/api/admin/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/logs${container ? `?container=${encodeURIComponent(container)}` : ""}`
+        `/api/admin/pods/${encodeURIComponent(id)}/${encodeURIComponent(pod)}/logs${container ? `?container=${encodeURIComponent(container)}` : ""}`
       ),
-    enabled: !!namespace && !!pod,
+    enabled: !!id && !!pod,
   });
 }
 
@@ -278,22 +278,22 @@ export function useDenyQuotaRequest() {
 
 export type { QuotaRequest };
 
-export function useDeploymentEvents(namespace: string) {
+export function useDeploymentEvents(id: string) {
   return useQuery({
-    queryKey: adminKeys.deploymentEvents(namespace),
+    queryKey: adminKeys.deploymentEvents(id),
     queryFn: () =>
       api.get<GetDeploymentEventsResponse>(
-        `/api/admin/deployments/${encodeURIComponent(namespace)}/events`
+        `/api/admin/deployments/${encodeURIComponent(id)}/events`
       ),
-    enabled: !!namespace,
+    enabled: !!id,
   });
 }
 
 export function useWakeUpDeployment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (namespace: string) =>
-      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/wakeup`),
+    mutationFn: (id: string) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/wakeup`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },
@@ -310,14 +310,14 @@ export function useBackfillDeployments() {
   });
 }
 
-export function useDeploymentJobs(namespace: string) {
+export function useDeploymentJobs(id: string) {
   return useQuery({
-    queryKey: adminKeys.deploymentJobs(namespace),
+    queryKey: adminKeys.deploymentJobs(id),
     queryFn: () =>
       api.get<GetDeploymentJobsResponse>(
-        `/api/admin/deployments/${encodeURIComponent(namespace)}/jobs`
+        `/api/admin/deployments/${encodeURIComponent(id)}/jobs`
       ),
-    enabled: !!namespace,
+    enabled: !!id,
     refetchInterval: 10_000,
   });
 }
@@ -325,8 +325,8 @@ export function useDeploymentJobs(namespace: string) {
 export function useReapplyDeployment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (namespace: string) =>
-      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/reapply`),
+    mutationFn: (id: string) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/reapply`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.deployments() });
     },
@@ -336,8 +336,8 @@ export function useReapplyDeployment() {
 export function useRollbackDeployment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ namespace, revision }: { namespace: string; revision: number }) =>
-      api.post(`/api/admin/deployments/${encodeURIComponent(namespace)}/rollback`, {
+    mutationFn: ({ id, revision }: { id: string; revision: number }) =>
+      api.post(`/api/admin/deployments/${encodeURIComponent(id)}/rollback`, {
         revision,
       }),
     onSuccess: () => {
@@ -346,13 +346,13 @@ export function useRollbackDeployment() {
   });
 }
 
-export function usePodEnv(namespace: string, pod: string) {
+export function usePodEnv(id: string, pod: string) {
   return useQuery({
-    queryKey: adminKeys.podEnv(namespace, pod),
+    queryKey: adminKeys.podEnv(id, pod),
     queryFn: () =>
       api.get<GetPodEnvResponse>(
-        `/api/admin/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(pod)}/env`
+        `/api/admin/pods/${encodeURIComponent(id)}/${encodeURIComponent(pod)}/env`
       ),
-    enabled: !!namespace && !!pod,
+    enabled: !!id && !!pod,
   });
 }

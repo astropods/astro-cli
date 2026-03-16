@@ -1,7 +1,7 @@
 export const adminKeys = {
   all: ["admin"] as const,
   deployments: () => [...adminKeys.all, "deployments"] as const,
-  deployment: (ns: string) => [...adminKeys.all, "deployment", ns] as const,
+  deployment: (id: string) => [...adminKeys.all, "deployment", id] as const,
   accounts: () => [...adminKeys.all, "accounts"] as const,
   agents: () => [...adminKeys.all, "agents"] as const,
   agentBuilds: (account: string, name: string) =>
@@ -11,15 +11,15 @@ export const adminKeys = {
   images: () => [...adminKeys.all, "images"] as const,
   schema: () => [...adminKeys.all, "schema"] as const,
   query: (sql: string) => [...adminKeys.all, "query", sql] as const,
-  podLogs: (ns: string, pod: string) =>
-    [...adminKeys.all, "podLogs", ns, pod] as const,
-  podEnv: (ns: string, pod: string) =>
-    [...adminKeys.all, "podEnv", ns, pod] as const,
+  podLogs: (id: string, pod: string) =>
+    [...adminKeys.all, "podLogs", id, pod] as const,
+  podEnv: (id: string, pod: string) =>
+    [...adminKeys.all, "podEnv", id, pod] as const,
   connectedDevices: () => [...adminKeys.all, "connectedDevices"] as const,
   astroOpenapi: () => [...adminKeys.all, "astroOpenapi"] as const,
   riverUIStatus: () => [...adminKeys.all, "riverUIStatus"] as const,
-  deploymentEvents: (ns: string) => [...adminKeys.all, "deploymentEvents", ns] as const,
-  deploymentJobs: (ns: string) => [...adminKeys.all, "deploymentJobs", ns] as const,
+  deploymentEvents: (id: string) => [...adminKeys.all, "deploymentEvents", id] as const,
+  deploymentJobs: (id: string) => [...adminKeys.all, "deploymentJobs", id] as const,
   quotaRequests: (status?: string) => [...adminKeys.all, "quotaRequests", status ?? "all"] as const,
 };
 

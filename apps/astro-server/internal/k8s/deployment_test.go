@@ -580,12 +580,12 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 
 		foundHTTP := false
 		for _, p := range msg.Ports {
-			if p.Name == "http" && p.ContainerPort == 8080 {
+			if p.Name == "msg-http" && p.ContainerPort == 8080 {
 				foundHTTP = true
 			}
 		}
 		if !foundHTTP {
-			t.Error("expected http port 8080")
+			t.Error("expected msg-http port 8080")
 		}
 	})
 
