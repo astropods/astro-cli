@@ -1,138 +1,47 @@
 package cmd
 
 import (
-	"slices"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-func TestComposeBuildArgs(t *testing.T) {
-	tests := []struct {
-		name          string
-		rebuild       bool
-		noPull        bool
-		wantPull      bool
-		wantPullFalse bool
-		wantNoCache   bool
-	}{
-		{
-			name:          "normal mode pulls base images",
-			rebuild:       false,
-			noPull:        false,
-			wantPull:      true,
-			wantPullFalse: false,
-			wantNoCache:   false,
-		},
-		{
-			name:          "local mode explicitly disables pull",
-			rebuild:       false,
-			noPull:        true,
-			wantPull:      false,
-			wantPullFalse: true,
-			wantNoCache:   false,
-		},
-		{
-			name:          "rebuild disables cache and pulls",
-			rebuild:       true,
-			noPull:        false,
-			wantPull:      true,
-			wantPullFalse: false,
-			wantNoCache:   true,
-		},
-		{
-			name:          "rebuild + no-pull disables cache and pull",
-			rebuild:       true,
-			noPull:        true,
-			wantPull:      false,
-			wantPullFalse: true,
-			wantNoCache:   true,
-		},
+func TestDevStatePath(t *testing.T) {
+	path, err := devStatePath()
+	if err != nil {
+		t.Fatalf("devStatePath() error = %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := composeBuildArgs("test-compose.yml", tt.rebuild, tt.noPull)
-
-			hasPull := slices.Contains(args, "--pull")
-			if hasPull != tt.wantPull {
-				t.Errorf("--pull present = %v, want %v (args: %v)", hasPull, tt.wantPull, args)
-			}
-
-			hasPullFalse := slices.Contains(args, "--pull=false")
-			if hasPullFalse != tt.wantPullFalse {
-				t.Errorf("--pull=false present = %v, want %v (args: %v)", hasPullFalse, tt.wantPullFalse, args)
-			}
-
-			if hasPull && hasPullFalse {
-				t.Errorf("--pull and --pull=false are mutually exclusive (args: %v)", args)
-			}
-
-			hasNoCache := slices.Contains(args, "--no-cache")
-			if hasNoCache != tt.wantNoCache {
-				t.Errorf("--no-cache present = %v, want %v (args: %v)", hasNoCache, tt.wantNoCache, args)
-			}
-		})
+	if !strings.HasSuffix(path, filepath.Join(".ast", ".running")) {
+		t.Errorf("devStatePath() = %q, want suffix %q", path, filepath.Join(".ast", ".running"))
 	}
 }
 
-func TestDevLogsArgs(t *testing.T) {
-	tests := []struct {
-		name        string
-		args        []string
-		all         bool
-		wantService string
-	}{
-		{
-			name:        "default tails agent",
-			args:        nil,
-			all:         false,
-			wantService: "agent",
-		},
-		{
-			name:        "all flag tails everything",
-			args:        nil,
-			all:         true,
-			wantService: "",
-		},
-		{
-			name:        "explicit service overrides default",
-			args:        []string{"astro-messaging"},
-			all:         false,
-			wantService: "astro-messaging",
-		},
-		{
-			name:        "explicit service overrides all",
-			args:        []string{"playground"},
-			all:         true,
-			wantService: "playground",
-		},
-	}
+func TestReadDevProjectName(t *testing.T) {
+	t.Run("reads project name from file", func(t *testing.T) {
+		dir := t.TempDir()
+		statePath := filepath.Join(dir, ".running")
+		if err := os.WriteFile(statePath, []byte("my-agent\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		name, err := readDevProjectName(statePath, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if name != "my-agent" {
+			t.Errorf("name = %q, want %q", name, "my-agent")
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := devLogsArgs("test-compose.yml", tt.args, tt.all)
-
-			baseArgs := []string{"compose", "-f", "test-compose.yml", "logs", "-f"}
-			for _, base := range baseArgs {
-				if !slices.Contains(args, base) {
-					t.Errorf("missing base arg %q in %v", base, args)
-				}
-			}
-
-			lastArg := args[len(args)-1]
-			if tt.wantService == "" {
-				if lastArg != "-f" {
-					t.Errorf("--all should not append a service, got trailing arg %q (args: %v)", lastArg, args)
-				}
-			} else {
-				if lastArg != tt.wantService {
-					t.Errorf("last arg = %q, want %q (args: %v)", lastArg, tt.wantService, args)
-				}
-			}
-		})
-	}
+	t.Run("returns error when file does not exist", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := readDevProjectName(filepath.Join(dir, ".running"), nil)
+		if err == nil {
+			t.Fatal("expected error when state file is missing")
+		}
+	})
 }
 
 func TestLocalAstroPackagesPointToModules(t *testing.T) {

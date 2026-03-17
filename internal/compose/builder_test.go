@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	spec "github.com/astropods/astro/packages/astro-spec"
+	"github.com/docker/compose/v5/pkg/api"
 )
 
 // helper to dereference a *string from env maps, returning "" if nil.
@@ -809,6 +810,54 @@ func TestBuildProject_CustomProviderBareKeys(t *testing.T) {
 	}
 	if envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY") != "bare-key" {
 		t.Errorf("CLOUDFLARE_AI_API_KEY = %q, want %q", envVal(agent.Environment, "CLOUDFLARE_AI_API_KEY"), "bare-key")
+	}
+}
+
+func TestBuildProject_CustomLabels(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Ingestion: map[string]spec.Ingestion{
+			"run": {
+				Container: spec.ContainerConfig{
+					Build: &spec.BuildConfig{Context: ".", Dockerfile: "Dockerfile"},
+				},
+				Trigger: spec.IngestionTrigger{Type: "startup"},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	requiredKeys := []string{
+		api.ProjectLabel,
+		api.ServiceLabel,
+		api.VersionLabel,
+		api.WorkingDirLabel,
+		api.OneoffLabel,
+	}
+
+	for name, svc := range project.Services {
+		for _, key := range requiredKeys {
+			if _, ok := svc.CustomLabels[key]; !ok {
+				t.Errorf("service %q missing required CustomLabel %q", name, key)
+			}
+		}
+		if svc.CustomLabels[api.ProjectLabel] != project.Name {
+			t.Errorf("service %q: ProjectLabel = %q, want %q", name, svc.CustomLabels[api.ProjectLabel], project.Name)
+		}
+		if svc.CustomLabels[api.ServiceLabel] != name {
+			t.Errorf("service %q: ServiceLabel = %q, want %q", name, svc.CustomLabels[api.ServiceLabel], name)
+		}
+		if svc.CustomLabels[api.WorkingDirLabel] != project.WorkingDir {
+			t.Errorf("service %q: WorkingDirLabel = %q, want %q", name, svc.CustomLabels[api.WorkingDirLabel], project.WorkingDir)
+		}
+		if svc.CustomLabels[api.OneoffLabel] != "False" {
+			t.Errorf("service %q: OneoffLabel = %q, want %q", name, svc.CustomLabels[api.OneoffLabel], "False")
+		}
 	}
 }
 
