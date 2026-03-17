@@ -33,8 +33,7 @@ jobs:
       - name: Run local-dev regression tests
         working-directory: apps/astro-cli
         run: |
-          gotestsum --format pkgname -- -v -run "TestLocalAstroPackages|TestLocalDockerImages|TestComposeBuildArgs|TestDevLogsArgs|TestResolveAstroSourceRoot" ./cmd/...
-          gotestsum --format pkgname -- -v -run "TestImageNameForLocal|TestImageStrippingStrategy" ./internal/utils/...
+          gotestsum --format pkgname -- -v ./cmd/... ./internal/utils/...
 
       - name: Verify CLI builds with production ldflags
         working-directory: apps/astro-cli
