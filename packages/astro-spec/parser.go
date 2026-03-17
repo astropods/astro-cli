@@ -257,6 +257,53 @@ func validateBuildConfig(path string, b *BuildConfig) error {
 	return nil
 }
 
+// SecretDefaultViolations returns the names of all secret inputs that still
+// carry a non-empty default value. These must be stripped before registration
+// to avoid storing credentials in the registry.
+func SecretDefaultViolations(s *AstroSpec) []string {
+	var violations []string
+
+	check := func(location, name, def string, secret bool) {
+		if secret && def != "" {
+			violations = append(violations, location+"."+name)
+		}
+	}
+
+	for key, inp := range s.Inputs {
+		check("inputs."+key, inp.Name, inp.Default, inp.Secret)
+	}
+	for _, inp := range s.Agent.Inputs {
+		check("agent.inputs", inp.Name, inp.Default, inp.Secret)
+	}
+	for name, m := range s.Models {
+		for _, inp := range m.Inputs {
+			check("models."+name+".inputs", inp.Name, inp.Default, inp.Secret)
+		}
+	}
+	for name, k := range s.Knowledge {
+		for _, inp := range k.Inputs {
+			check("knowledge."+name+".inputs", inp.Name, inp.Default, inp.Secret)
+		}
+	}
+	for name, t := range s.Tools {
+		for _, inp := range t.Inputs {
+			check("tools."+name+".inputs", inp.Name, inp.Default, inp.Secret)
+		}
+	}
+	for name, ing := range s.Ingestion {
+		for _, inp := range ing.Inputs {
+			check("ingestion."+name+".inputs", inp.Name, inp.Default, inp.Secret)
+		}
+	}
+	for name, prov := range s.Providers {
+		for _, v := range prov.Variables {
+			check("providers."+name+".variables", v.Name, v.Default, v.Secret)
+		}
+	}
+
+	return violations
+}
+
 func scopeContains(scope []string, value string) bool {
 	for _, s := range scope {
 		if s == value {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -284,6 +285,50 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 
 	if resp["error"] != "Invalid spec YAML" {
 		t.Errorf("expected 'Invalid spec YAML' error, got %v", resp["error"])
+	}
+}
+
+func TestRegisterAgent_RejectsSecretDefaults(t *testing.T) {
+	router, index, _ := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, nil, ""))
+
+	// Spec with a secret input that still has a default value
+	specYAML := `name: test-agent
+spec: package/v1
+agent:
+  image: test:latest
+inputs:
+  api_key:
+    name: API_KEY
+    secret: true
+    default: sk-leaked-secret
+    datatype: string
+`
+	body := fmt.Sprintf(`{
+		"build_id": "a3f2b1c9",
+		"registry": "registry.example.com",
+		"spec_content": %q
+	}`, specYAML)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if !strings.Contains(resp["error"].(string), "Secret inputs must not have default values") {
+		t.Errorf("expected secret default rejection error, got %v", resp["error"])
 	}
 }
 

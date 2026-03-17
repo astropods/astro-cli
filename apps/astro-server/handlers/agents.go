@@ -439,6 +439,16 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		if err == nil {
 			var astroSpec spec.AstroSpec
 			if err := json.Unmarshal(specJSON, &astroSpec); err == nil {
+				// Reject specs that contain default values for secret inputs.
+				// The CLI must strip these before pushing (v0.5.2+).
+				if violations := spec.SecretDefaultViolations(&astroSpec); len(violations) > 0 {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error":   "Secret inputs must not have default values in the registered spec",
+						"details": fmt.Sprintf("found %d secret input(s) with defaults: %s. Upgrade your CLI to v0.5.2+ which strips these automatically", len(violations), strings.Join(violations, ", ")),
+					})
+					return
+				}
+
 				validator := deployment.NewValidator()
 				result := validator.ValidateSpec(&astroSpec, nil, nil, nil)
 

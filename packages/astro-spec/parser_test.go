@@ -1137,6 +1137,40 @@ dev:
 	}
 }
 
+func TestSecretDefaultViolations(t *testing.T) {
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Inputs: map[string]Input{
+			"api_key":   {Name: "API_KEY", Secret: true, Default: "sk-secret"},
+			"log_level": {Name: "LOG_LEVEL", Default: "debug"},
+		},
+		Providers: map[string]CustomProvider{
+			"jira": {Scope: []string{"integrations"}, Variables: []Input{
+				{Name: "JIRA_TOKEN", Secret: true, Default: "jira-secret"},
+				{Name: "JIRA_URL", Default: "https://jira.example.com"},
+			}},
+		},
+	}
+
+	violations := SecretDefaultViolations(s)
+	if len(violations) != 2 {
+		t.Fatalf("expected 2 violations, got %d: %v", len(violations), violations)
+	}
+
+	// Clean spec should have zero violations
+	clean := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Inputs: map[string]Input{
+			"api_key": {Name: "API_KEY", Secret: true}, // no default
+		},
+	}
+	if v := SecretDefaultViolations(clean); len(v) != 0 {
+		t.Errorf("expected 0 violations for clean spec, got %d: %v", len(v), v)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
