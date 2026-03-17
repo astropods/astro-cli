@@ -70,7 +70,6 @@ export const OftenUsedTogether: Story = {
     name: "alert-router",
     description: "Routes alerts to the correct responders.",
     variant: "oftenUsedTogether",
-    rating: 4.6,
     installs: 1203,
   },
 };

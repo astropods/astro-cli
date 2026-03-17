@@ -58,7 +58,6 @@ describe("AgentDetailSidebar", () => {
             account: "steve_jobs",
             name: "alert-router",
             description: "Routes alerts to the right team.",
-            rating: 4.6,
             installs: 1203,
           },
         ]}
