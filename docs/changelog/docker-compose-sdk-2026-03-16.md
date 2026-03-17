@@ -4,8 +4,6 @@
 
 The `ast dev` command previously orchestrated local containers by shelling out to the `docker compose` CLI binary, which required it to be installed separately and made error handling brittle. This migrates all compose operations to the in-process `docker/compose/v5` Go SDK, giving the CLI direct programmatic control over build, up, down, logs, and one-off container runs.
 
-A separate fix preserves KMS-encrypted secret variables during `RepairNormalizedSpec` — previously, repair deleted `deployment_variables`, making secrets unrecoverable without re-deploying.
-
 ## Design
 
 ### Compose SDK migration
@@ -21,10 +19,6 @@ Key behavioural changes:
 - **Logs** — `ast dev logs [service]` streams container logs through `svc.Logs` with a `stdoutLogConsumer`, with Ctrl+C handled via context cancellation.
 
 Container images produced by `BuildProject` are tagged with the required compose SDK labels (`com.docker.compose.project`, `com.docker.compose.service`, etc.) so the SDK can discover running containers by project name rather than relying on a compose file on disk.
-
-### Secret preservation during repair
-
-`RepairNormalizedSpec` rebuilds workload, sidecar, service, and ingress rows from the stored spec JSON. It previously also deleted and re-inserted `deployment_variables`, but spec JSON has secrets stripped — re-inserting them wrote empty values over the KMS-encrypted originals. The fix skips deleting `deployment_variables` entirely and clears the variables field on the in-memory spec before calling `SaveNormalizedSpec`, so only workloads and routing rows are regenerated.
 
 ## Migration
 
