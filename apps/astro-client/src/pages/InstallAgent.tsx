@@ -31,10 +31,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 export const meta: Route.MetaFunction = ({ data }) => {
   const agent = data?.agent;
   if (!agent) {
-    return [{ title: "Install Agent | Astro" }];
+    return [{ title: "Deploy Agent | Astro" }];
   }
   return [
-    { title: `Install ${agent.account}/${agent.name} | Astro` },
+    { title: `Deploy ${agent.account}/${agent.name} | Astro` },
   ];
 };
 
@@ -98,7 +98,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
             />
             <div>
               <h1 className="text-sm font-bold text-foreground">
-                Install {agent.account}/{agent.name}
+                Deploy {agent.account}/{agent.name}
               </h1>
               <div className="text-body-sm text-faint-foreground">
                 Configure and deploy this agent to your account
