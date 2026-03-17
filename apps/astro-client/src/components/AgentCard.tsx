@@ -31,7 +31,7 @@ export function AgentCard({
     return (
       <Link
         to={`/${slug}`}
-        className="group flex items-start gap-3 overflow-hidden rounded-md border border-border-strong bg-stone-200 p-4 transition-all duration-150 hover:bg-stone-300 hover:border-teal-500 hover:shadow-md dark:bg-muted/30 dark:hover:border-teal-400 [@media(max-height:1000px)]:p-2.5"
+        className="group flex items-start gap-3 overflow-hidden rounded-md border border-border-strong bg-stone-200 px-4 py-3 transition-all duration-150 hover:bg-stone-300 hover:border-teal-500 hover:shadow-md dark:bg-muted/30 dark:hover:border-teal-400"
       >
         <AgentIdentity
           account={account}
@@ -44,7 +44,7 @@ export function AgentCard({
             {name}
           </h3>
           <p className="font-mono text-mono-sm text-faint-foreground">
-            {account}{installs != null && <> · {formattedInstalls} requests</>}
+            {account}
           </p>
         </div>
       </Link>
