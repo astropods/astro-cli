@@ -97,21 +97,16 @@ func (w *ReconcileWorker) reconcileActive(ctx context.Context) {
 			w.log.Error("Reconcile: failed to save drift report", "error", err, "deployment_id", dep.ID)
 		}
 
-		// Trigger re-deploy only when there's actual drift or missing resources
+		// Log drift but do NOT auto-remediate. The drift report is saved above
+		// for visibility in the admin UI; operators can trigger a manual reapply.
 		if report.Summary.Missing+report.Summary.Drift > 0 {
-			driftMsg := fmt.Sprintf("Drift detected: %d missing, %d drifted (of %d total)", report.Summary.Missing, report.Summary.Drift, report.Summary.Total)
-			w.log.Warn("Reconcile: drift detected, enqueuing re-apply",
+			w.log.Warn("Reconcile: drift detected",
 				"deployment_id", dep.ID,
+				"namespace", dep.Namespace,
 				"missing", report.Summary.Missing,
 				"drift", report.Summary.Drift,
+				"total", report.Summary.Total,
 			)
-			if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusPending, driftMsg, nil); err != nil {
-				w.log.Error("Reconcile: failed to set pending for drift", "error", err, "deployment_id", dep.ID)
-				continue
-			}
-			if _, err := w.queue.Insert(ctx, DeployArgs{DeploymentID: dep.ID}, nil); err != nil {
-				w.log.Error("Reconcile: failed to enqueue deploy job", "error", err, "deployment_id", dep.ID)
-			}
 		}
 	}
 }
