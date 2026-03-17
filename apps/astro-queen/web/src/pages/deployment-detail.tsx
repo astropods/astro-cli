@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv } from "@/api/admin";
+import { useDeployment, useDeleteDeployment, useRestartPod, useWakeUpDeployment, useRollbackDeployment, useReapplyDeployment, useRepairNormalizedSpec, useRefreshDriftReport, useDeploymentJobs, usePodLogs, usePodEnv, useSetAdapters } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
@@ -21,6 +22,7 @@ export function DeploymentDetailPage() {
   const repairMut = useRepairNormalizedSpec();
   const refreshDriftMut = useRefreshDriftReport();
   const restartPodMut = useRestartPod();
+  const setAdaptersMut = useSetAdapters();
   const jobsQuery = useDeploymentJobs(id ?? "");
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
 
@@ -130,6 +132,31 @@ export function DeploymentDetailPage() {
         <InfoCard label="Revision" value={dep.current_revision != null ? `rev ${dep.current_revision}` : "-"} />
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
       </div>
+
+      {data.adapters !== undefined && (
+        <div className="flex items-center gap-3 rounded-lg glass px-3 py-2">
+          <span className="text-xs text-muted-foreground font-medium">Adapters</span>
+          <Select
+            value={data.adapters?.length ? data.adapters.sort().join(",") : "none"}
+            onValueChange={(v) => {
+              const adapters = v === "none" ? [] : v.split(",");
+              setAdaptersMut.mutate({ id: id!, adapters }, { onSuccess: () => refetch() });
+            }}
+            disabled={setAdaptersMut.isPending}
+          >
+            <SelectTrigger className="w-40 h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="slack">Slack</SelectItem>
+              <SelectItem value="web">Web</SelectItem>
+              <SelectItem value="slack,web">Slack + Web</SelectItem>
+              <SelectItem value="none">None</SelectItem>
+            </SelectContent>
+          </Select>
+          {setAdaptersMut.isPending && <span className="text-xs text-muted-foreground">Saving...</span>}
+        </div>
+      )}
 
       {cs?.summary && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

@@ -361,6 +361,7 @@ type GetDeploymentResponse struct {
 	DriftReport       *DriftReport               `json:"drift_report,omitempty"`
 	DriftCheckedAt    string                     `json:"drift_checked_at,omitempty"`
 	Variables         []*AdminVariable           `json:"variables,omitempty"`
+	Adapters          []string                   `json:"adapters,omitempty"`
 }
 
 type GetPodLogsRequest struct {
@@ -639,4 +640,14 @@ type BackfillResolvedKeysRequest struct{}
 
 type BackfillResolvedKeysResponse struct {
 	BackfilledCount int32 `json:"backfilled_count"`
+}
+
+type SetAdaptersRequest struct {
+	DeploymentId string   `json:"deployment_id,omitempty"`
+	Adapters     []string `json:"adapters"`
+}
+
+type SetAdaptersResponse struct {
+	Status   string   `json:"status,omitempty"`
+	Adapters []string `json:"adapters"`
 }

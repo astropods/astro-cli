@@ -108,6 +108,9 @@ func (m *mockAdminClient) RefreshDriftReport(context.Context, *adminv1.RefreshDr
 func (m *mockAdminClient) BackfillResolvedKeys(context.Context, *adminv1.BackfillResolvedKeysRequest, ...grpc.CallOption) (*adminv1.BackfillResolvedKeysResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) SetAdapters(context.Context, *adminv1.SetAdaptersRequest, ...grpc.CallOption) (*adminv1.SetAdaptersResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {

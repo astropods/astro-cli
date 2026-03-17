@@ -28,6 +28,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/deployments/{id}/jobs", s.handleGetDeploymentJobs)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/repair-normalized", s.handleRepairNormalizedSpec)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/refresh-drift", s.handleRefreshDriftReport)
+	mux.HandleFunc("POST /api/admin/deployments/{id}/adapters", s.handleSetAdapters)
 	mux.HandleFunc("POST /api/admin/backfill-resolved-keys", s.handleBackfillResolvedKeys)
 }
 
@@ -300,6 +301,26 @@ func (s *Server) handleRefreshDriftReport(w http.ResponseWriter, r *http.Request
 	id := r.PathValue("id")
 	resp, err := s.admin.RefreshDriftReport(r.Context(), &adminv1.RefreshDriftReportRequest{
 		DeploymentId: id,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSetAdapters(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Adapters []string `json:"adapters"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	resp, err := s.admin.SetAdapters(r.Context(), &adminv1.SetAdaptersRequest{
+		DeploymentId: id,
+		Adapters:     body.Adapters,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

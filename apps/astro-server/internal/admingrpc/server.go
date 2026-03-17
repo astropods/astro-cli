@@ -365,6 +365,14 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		ExpectedIngresses: protoIngresses,
 	}
 
+	// Include adapters from the stored deployment spec
+	{
+		var ds spec.AstroDeploymentSpec
+		if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err == nil && ds.Interfaces != nil {
+			resp.Adapters = ds.Interfaces.Adapters
+		}
+	}
+
 	// Include stored drift report (cheap DB read, same row)
 	if report, checkedAt, err := s.deployStore.GetDriftReport(dep.ID); err == nil && report != nil {
 		resp.DriftReport = storeDriftReportToProto(report)
@@ -1572,6 +1580,47 @@ func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, store
 	}
 
 	return nil
+}
+
+// SetAdapters updates the messaging adapters on a deployment's stored spec.
+func (s *Server) SetAdapters(_ context.Context, req *adminv1.SetAdaptersRequest) (*adminv1.SetAdaptersResponse, error) {
+	if req.DeploymentId == "" {
+		return nil, fmt.Errorf("deployment_id is required")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByID(req.DeploymentId)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found: %s", req.DeploymentId)
+	}
+
+	var ds spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err != nil {
+		return nil, fmt.Errorf("parse deployment spec: %w", err)
+	}
+
+	if ds.Interfaces == nil {
+		return nil, fmt.Errorf("deployment has no interfaces block (messaging not supported)")
+	}
+
+	ds.Interfaces.Adapters = req.Adapters
+
+	fixedJSON, err := json.Marshal(&ds)
+	if err != nil {
+		return nil, fmt.Errorf("marshal updated spec: %w", err)
+	}
+	if err := s.deployStore.UpdateDeploymentSpecJSON(dep.ID, string(fixedJSON)); err != nil {
+		return nil, fmt.Errorf("update deployment spec: %w", err)
+	}
+
+	s.log.Info("Set adapters", "deployment_id", req.DeploymentId, "adapters", req.Adapters)
+
+	return &adminv1.SetAdaptersResponse{
+		Status:   "ok",
+		Adapters: req.Adapters,
+	}, nil
 }
 
 // GetDeploymentJobs returns River job history and last reconcile time for a deployment.

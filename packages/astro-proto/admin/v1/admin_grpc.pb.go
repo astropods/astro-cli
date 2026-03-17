@@ -43,6 +43,7 @@ type AdminServiceClient interface {
 	RepairNormalizedSpec(ctx context.Context, in *RepairNormalizedSpecRequest, opts ...grpc.CallOption) (*RepairNormalizedSpecResponse, error)
 	RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error)
 	BackfillResolvedKeys(ctx context.Context, in *BackfillResolvedKeysRequest, opts ...grpc.CallOption) (*BackfillResolvedKeysResponse, error)
+	SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error)
 }
 
 type adminServiceClient struct {
@@ -293,6 +294,14 @@ func (c *adminServiceClient) BackfillResolvedKeys(ctx context.Context, in *Backf
 	return out, nil
 }
 
+func (c *adminServiceClient) SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error) {
+	out := new(SetAdaptersResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAdapters", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -326,6 +335,7 @@ type AdminServiceServer interface {
 	RepairNormalizedSpec(context.Context, *RepairNormalizedSpecRequest) (*RepairNormalizedSpecResponse, error)
 	RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error)
 	BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error)
+	SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -450,6 +460,10 @@ func (UnimplementedAdminServiceServer) RefreshDriftReport(context.Context, *Refr
 
 func (UnimplementedAdminServiceServer) BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BackfillResolvedKeys not implemented")
+}
+
+func (UnimplementedAdminServiceServer) SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAdapters not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -914,6 +928,21 @@ func _AdminService_BackfillResolvedKeys_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_SetAdapters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAdaptersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetAdapters(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAdapters"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetAdapters(ctx, req.(*SetAdaptersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -949,6 +978,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "RepairNormalizedSpec", Handler: _AdminService_RepairNormalizedSpec_Handler},
 		{MethodName: "RefreshDriftReport", Handler: _AdminService_RefreshDriftReport_Handler},
 		{MethodName: "BackfillResolvedKeys", Handler: _AdminService_BackfillResolvedKeys_Handler},
+		{MethodName: "SetAdapters", Handler: _AdminService_SetAdapters_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",
