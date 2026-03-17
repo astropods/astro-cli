@@ -391,6 +391,8 @@ func TestBuildProject_SlackConfigJSON(t *testing.T) {
 					Adapters: []string{"slack"},
 					Slack: &spec.SlackAdapterConfig{
 						ActionableReactions: []string{"ticket", "bug"},
+						AllowedChannelIDs:   []string{"C123", "C999"},
+						AllowedUserIDs:      []string{"U123", "U999"},
 						SocketMode:          boolPtr(false),
 						AutoThread:          boolPtr(true),
 					},
@@ -429,6 +431,12 @@ func TestBuildProject_SlackConfigJSON(t *testing.T) {
 	}
 	if len(cfg.ActionableReactions) != 2 || cfg.ActionableReactions[0] != "ticket" || cfg.ActionableReactions[1] != "bug" {
 		t.Errorf("ActionableReactions = %v, want [ticket bug]", cfg.ActionableReactions)
+	}
+	if len(cfg.AllowedChannelIDs) != 2 || cfg.AllowedChannelIDs[0] != "C123" || cfg.AllowedChannelIDs[1] != "C999" {
+		t.Errorf("AllowedChannelIDs = %v, want [C123 C999]", cfg.AllowedChannelIDs)
+	}
+	if len(cfg.AllowedUserIDs) != 2 || cfg.AllowedUserIDs[0] != "U123" || cfg.AllowedUserIDs[1] != "U999" {
+		t.Errorf("AllowedUserIDs = %v, want [U123 U999]", cfg.AllowedUserIDs)
 	}
 	if cfg.SocketMode == nil || *cfg.SocketMode != false {
 		t.Errorf("SocketMode = %v, want false", cfg.SocketMode)
