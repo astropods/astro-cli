@@ -21,8 +21,8 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
-	composeTypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/charmbracelet/lipgloss"
+	composeTypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/spf13/cobra"
 
@@ -359,8 +359,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if err := withSpinner("Starting services...", "Services started", verbose, func() error {
 		return svc.Up(context.Background(), upProject, api.UpOptions{
 			Create: api.CreateOptions{
-				Build:         nil,   // --no-build (already built above)
-				RemoveOrphans: true,  // remove stale containers from previous runs
+				Build:         nil,  // --no-build (already built above)
+				RemoveOrphans: true, // remove stale containers from previous runs
 			},
 			Start: api.StartOptions{Project: upProject}, // pass project to skip container label lookup
 		})
@@ -466,6 +466,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	logsCtx, logsCancel := context.WithCancel(context.Background())
 	logsSvc, err := newComposeService(false)
 	if err != nil {
+		logsCancel()
 		agentCancel()
 		return fmt.Errorf("failed to init compose service for logs: %w", err)
 	}
@@ -715,21 +716,6 @@ func checkComposeHealth(projectName string) {
 		}
 	}
 	fmt.Println()
-}
-
-// killProcessGroup sends SIGKILL to the entire process group of cmd.
-// Falls back to killing just the process if the group kill fails.
-func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process == nil {
-		return
-	}
-	pgid, err := syscall.Getpgid(cmd.Process.Pid)
-	if err == nil {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	} else {
-		_ = cmd.Process.Kill()
-	}
-	_ = cmd.Wait()
 }
 
 // devLogsArgs returns the docker compose logs command arguments.
