@@ -548,10 +548,84 @@ function PodRow({
           {pod.containers.map((c) => (
             <span key={c.name}>
               {c.name}: {c.request_cpu || "-"}/{c.limit_cpu || "-"} CPU, {c.request_memory || "-"}/{c.limit_memory || "-"} mem
+              {c.image_pull_policy ? ` (${c.image_pull_policy})` : ""}
             </span>
           ))}
         </div>
       )}
+      {/* Pod security + service account */}
+      <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
+        {(pod.pod_security || pod.service_account != null) && (
+          <div className="flex flex-wrap gap-x-3">
+            {pod.pod_security && (
+              <span>
+                uid={pod.pod_security.run_as_user ?? "-"} gid={pod.pod_security.run_as_group ?? "-"} fsGroup={pod.pod_security.fs_group ?? "-"}
+                {pod.pod_security.seccomp_profile ? ` seccomp=${pod.pod_security.seccomp_profile}` : ""}
+              </span>
+            )}
+            {pod.service_account && <span>sa={pod.service_account}</span>}
+            {pod.automount_service_token != null && (
+              <span>automount={pod.automount_service_token ? "true" : "false"}</span>
+            )}
+          </div>
+        )}
+        {/* Per-container security */}
+        {pod.containers?.map((c) =>
+          c.security ? (
+            <div key={`sec-${c.name}`} className="flex flex-wrap gap-x-2">
+              <span className="font-medium">{c.name}:</span>
+              {c.security.run_as_non_root != null && <span>{c.security.run_as_non_root ? "nonRoot" : "root-ok"}</span>}
+              {c.security.run_as_user != null && <span>uid={c.security.run_as_user}</span>}
+              {c.security.read_only_root_filesystem != null && (
+                <span className={c.security.read_only_root_filesystem ? "" : "text-yellow-600"}>
+                  {c.security.read_only_root_filesystem ? "ro-fs" : "rw-fs"}
+                </span>
+              )}
+              {c.security.allow_privilege_escalation != null && <span>{c.security.allow_privilege_escalation ? "escalation" : "no-escalation"}</span>}
+              {c.security.privileged && <span className="text-red-600">PRIVILEGED</span>}
+              {(c.security.capabilities?.length ?? 0) > 0 && <span>drop=[{c.security.capabilities!.join(",")}]</span>}
+              {(c.security.add_capabilities?.length ?? 0) > 0 && <span className="text-yellow-600">add=[{c.security.add_capabilities!.join(",")}]</span>}
+              {c.security.seccomp_profile && <span>seccomp={c.security.seccomp_profile}</span>}
+            </div>
+          ) : null
+        )}
+        {/* Volume mounts */}
+        {pod.containers?.some((c) => c.volume_mounts?.length) && (
+          <div className="mt-0.5">
+            {pod.containers.map((c) =>
+              c.volume_mounts?.length ? (
+                <div key={`mnt-${c.name}`} className="flex flex-wrap gap-x-3">
+                  <span className="font-medium">{c.name} mounts:</span>
+                  {c.volume_mounts.map((vm) => (
+                    <span key={vm.name}>
+                      {vm.mount_path}{vm.sub_path ? `(${vm.sub_path})` : ""}{vm.read_only ? " ro" : ""}
+                      <span className="text-muted-foreground/60"> [{vm.name}]</span>
+                    </span>
+                  ))}
+                </div>
+              ) : null
+            )}
+          </div>
+        )}
+        {/* Volumes */}
+        {(pod.volumes?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap gap-x-3 mt-0.5">
+            <span className="font-medium">volumes:</span>
+            {pod.volumes!.map((v) => (
+              <span key={v.name}>{v.name}={v.type}{v.source ? `:${v.source}` : ""}</span>
+            ))}
+          </div>
+        )}
+        {/* EnvFrom sources */}
+        {pod.containers?.some((c) => c.env_from?.length) && (
+          <div className="flex flex-wrap gap-x-3 mt-0.5">
+            <span className="font-medium">envFrom:</span>
+            {pod.containers.flatMap((c) => c.env_from ?? []).filter((v, i, a) => a.indexOf(v) === i).map((src) => (
+              <span key={src}>{src}</span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

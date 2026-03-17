@@ -88,11 +88,40 @@ type K8sContainerStatus struct {
 }
 
 type K8sContainerResources struct {
-	Name          string `json:"name,omitempty"`
-	RequestCPU    string `json:"request_cpu,omitempty"`
-	RequestMemory string `json:"request_memory,omitempty"`
-	LimitCPU      string `json:"limit_cpu,omitempty"`
-	LimitMemory   string `json:"limit_memory,omitempty"`
+	Name            string              `json:"name,omitempty"`
+	RequestCPU      string              `json:"request_cpu,omitempty"`
+	RequestMemory   string              `json:"request_memory,omitempty"`
+	LimitCPU        string              `json:"limit_cpu,omitempty"`
+	LimitMemory     string              `json:"limit_memory,omitempty"`
+	Security        *K8sSecurityContext `json:"security,omitempty"`
+	VolumeMounts    []*K8sVolumeMount   `json:"volume_mounts,omitempty"`
+	EnvFrom         []string            `json:"env_from,omitempty"` // "configmap:name" or "secret:name"
+	ImagePullPolicy string              `json:"image_pull_policy,omitempty"`
+}
+
+type K8sSecurityContext struct {
+	RunAsUser                *int64   `json:"run_as_user,omitempty"`
+	RunAsNonRoot             *bool    `json:"run_as_non_root,omitempty"`
+	ReadOnlyRootFilesystem   *bool    `json:"read_only_root_filesystem,omitempty"`
+	AllowPrivilegeEscalation *bool    `json:"allow_privilege_escalation,omitempty"`
+	Privileged               *bool    `json:"privileged,omitempty"`
+	Capabilities             []string `json:"capabilities,omitempty"`     // dropped capabilities
+	AddCapabilities          []string `json:"add_capabilities,omitempty"` // added capabilities
+	SeccompProfile           string   `json:"seccomp_profile,omitempty"`  // e.g. "RuntimeDefault"
+}
+
+type K8sPodSecurityContext struct {
+	RunAsUser      *int64 `json:"run_as_user,omitempty"`
+	RunAsGroup     *int64 `json:"run_as_group,omitempty"`
+	FSGroup        *int64 `json:"fs_group,omitempty"`
+	SeccompProfile string `json:"seccomp_profile,omitempty"`
+}
+
+type K8sVolumeMount struct {
+	Name      string `json:"name,omitempty"`
+	MountPath string `json:"mount_path,omitempty"`
+	ReadOnly  bool   `json:"read_only,omitempty"`
+	SubPath   string `json:"sub_path,omitempty"`
 }
 
 type K8sEventInfo struct {
@@ -108,16 +137,26 @@ type K8sEventInfo struct {
 }
 
 type K8sPodInfo struct {
-	Name              string                   `json:"name,omitempty"`
-	Namespace         string                   `json:"namespace,omitempty"`
-	Phase             string                   `json:"phase,omitempty"`
-	NodeName          string                   `json:"node_name,omitempty"`
-	PodIP             string                   `json:"pod_ip,omitempty"`
-	Labels            map[string]string        `json:"labels,omitempty"`
-	CreatedAt         string                   `json:"created_at,omitempty"`
-	ContainerStatuses []*K8sContainerStatus    `json:"container_statuses,omitempty"`
-	Containers        []*K8sContainerResources `json:"containers,omitempty"`
-	Conditions        []string                 `json:"conditions,omitempty"`
+	Name                  string                   `json:"name,omitempty"`
+	Namespace             string                   `json:"namespace,omitempty"`
+	Phase                 string                   `json:"phase,omitempty"`
+	NodeName              string                   `json:"node_name,omitempty"`
+	PodIP                 string                   `json:"pod_ip,omitempty"`
+	Labels                map[string]string        `json:"labels,omitempty"`
+	CreatedAt             string                   `json:"created_at,omitempty"`
+	ContainerStatuses     []*K8sContainerStatus    `json:"container_statuses,omitempty"`
+	Containers            []*K8sContainerResources `json:"containers,omitempty"`
+	Conditions            []string                 `json:"conditions,omitempty"`
+	PodSecurity           *K8sPodSecurityContext   `json:"pod_security,omitempty"`
+	ServiceAccount        string                   `json:"service_account,omitempty"`
+	AutomountServiceToken *bool                    `json:"automount_service_token,omitempty"`
+	Volumes               []*K8sVolume             `json:"volumes,omitempty"`
+}
+
+type K8sVolume struct {
+	Name   string `json:"name,omitempty"`
+	Type   string `json:"type,omitempty"`   // "pvc", "configmap", "secret", "emptydir", "projected", etc.
+	Source string `json:"source,omitempty"` // PVC name, ConfigMap name, Secret name, etc.
 }
 
 type K8sServicePort struct {

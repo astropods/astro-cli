@@ -175,6 +175,17 @@ export interface K8sPodInfo {
   container_statuses: K8sContainerStatus[];
   containers: K8sContainerResources[];
   conditions: string[];
+  pod_security?: K8sPodSecurityContext;
+  service_account?: string;
+  automount_service_token?: boolean;
+  volumes?: K8sVolume[];
+}
+
+export interface K8sPodSecurityContext {
+  run_as_user?: number;
+  run_as_group?: number;
+  fs_group?: number;
+  seccomp_profile?: string;
 }
 
 export interface K8sContainerStatus {
@@ -191,6 +202,34 @@ export interface K8sContainerResources {
   request_memory: string;
   limit_cpu: string;
   limit_memory: string;
+  security?: K8sContainerSecurityContext;
+  volume_mounts?: K8sVolumeMount[];
+  env_from?: string[];
+  image_pull_policy?: string;
+}
+
+export interface K8sContainerSecurityContext {
+  run_as_user?: number;
+  run_as_non_root?: boolean;
+  read_only_root_filesystem?: boolean;
+  allow_privilege_escalation?: boolean;
+  privileged?: boolean;
+  capabilities?: string[];
+  add_capabilities?: string[];
+  seccomp_profile?: string;
+}
+
+export interface K8sVolumeMount {
+  name: string;
+  mount_path: string;
+  read_only?: boolean;
+  sub_path?: string;
+}
+
+export interface K8sVolume {
+  name: string;
+  type: string;
+  source?: string;
 }
 
 export interface K8sServiceInfo {

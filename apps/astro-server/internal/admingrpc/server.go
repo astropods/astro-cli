@@ -496,9 +496,12 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 				})
 			}
 
-			// Container resources
+			// Container resources, security, mounts, envFrom
 			for _, c := range p.Spec.Containers {
-				cr := &adminv1.K8sContainerResources{Name: c.Name}
+				cr := &adminv1.K8sContainerResources{
+					Name:            c.Name,
+					ImagePullPolicy: string(c.ImagePullPolicy),
+				}
 				if req := c.Resources.Requests; req != nil {
 					if v, ok := req[corev1.ResourceCPU]; ok {
 						cr.RequestCPU = v.String()
@@ -515,7 +518,82 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 						cr.LimitMemory = v.String()
 					}
 				}
+				if sc := c.SecurityContext; sc != nil {
+					sec := &adminv1.K8sSecurityContext{
+						RunAsUser:                sc.RunAsUser,
+						RunAsNonRoot:             sc.RunAsNonRoot,
+						ReadOnlyRootFilesystem:   sc.ReadOnlyRootFilesystem,
+						AllowPrivilegeEscalation: sc.AllowPrivilegeEscalation,
+						Privileged:               sc.Privileged,
+					}
+					if sc.Capabilities != nil {
+						for _, cap := range sc.Capabilities.Drop {
+							sec.Capabilities = append(sec.Capabilities, string(cap))
+						}
+						for _, cap := range sc.Capabilities.Add {
+							sec.AddCapabilities = append(sec.AddCapabilities, string(cap))
+						}
+					}
+					if sc.SeccompProfile != nil {
+						sec.SeccompProfile = string(sc.SeccompProfile.Type)
+					}
+					cr.Security = sec
+				}
+				for _, vm := range c.VolumeMounts {
+					cr.VolumeMounts = append(cr.VolumeMounts, &adminv1.K8sVolumeMount{
+						Name: vm.Name, MountPath: vm.MountPath,
+						ReadOnly: vm.ReadOnly, SubPath: vm.SubPath,
+					})
+				}
+				for _, ef := range c.EnvFrom {
+					if ef.ConfigMapRef != nil {
+						cr.EnvFrom = append(cr.EnvFrom, "configmap:"+ef.ConfigMapRef.Name)
+					}
+					if ef.SecretRef != nil {
+						cr.EnvFrom = append(cr.EnvFrom, "secret:"+ef.SecretRef.Name)
+					}
+				}
 				pi.Containers = append(pi.Containers, cr)
+			}
+
+			// Pod-level security context
+			if psc := p.Spec.SecurityContext; psc != nil {
+				podSec := &adminv1.K8sPodSecurityContext{
+					RunAsUser:  psc.RunAsUser,
+					RunAsGroup: psc.RunAsGroup,
+					FSGroup:    psc.FSGroup,
+				}
+				if psc.SeccompProfile != nil {
+					podSec.SeccompProfile = string(psc.SeccompProfile.Type)
+				}
+				pi.PodSecurity = podSec
+			}
+
+			// Service account
+			pi.ServiceAccount = p.Spec.ServiceAccountName
+			pi.AutomountServiceToken = p.Spec.AutomountServiceAccountToken
+
+			// Volumes
+			for _, vol := range p.Spec.Volumes {
+				v := &adminv1.K8sVolume{Name: vol.Name}
+				switch {
+				case vol.PersistentVolumeClaim != nil:
+					v.Type = "pvc"
+					v.Source = vol.PersistentVolumeClaim.ClaimName
+				case vol.ConfigMap != nil:
+					v.Type = "configmap"
+					v.Source = vol.ConfigMap.Name
+				case vol.Secret != nil:
+					v.Type = "secret"
+					v.Source = vol.Secret.SecretName
+				case vol.EmptyDir != nil:
+					v.Type = "emptydir"
+				case vol.Projected != nil:
+					v.Type = "projected"
+				default:
+					v.Type = "other"
+				}
+				pi.Volumes = append(pi.Volumes, v)
 			}
 
 			// Conditions (only true ones)
