@@ -102,6 +102,7 @@ export interface GetDeploymentResponse {
   drift_report?: DriftReport;
   drift_checked_at?: string;
   variables?: AdminVariable[];
+  adapters?: string[];
 }
 
 export interface RefreshDriftReportResponse {
