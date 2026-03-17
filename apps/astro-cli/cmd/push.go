@@ -564,6 +564,9 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	// Transform spec: replace build sections with actual image references
 	specObj = transformSpecForRegistry(specObj, registry, agentName, pushTag)
 
+	// Strip default values from secret inputs so credentials are not stored in the registry
+	stripSecretDefaults(specObj)
+
 	// Marshal back to YAML
 	transformedSpecData, err := yaml.Marshal(specObj)
 	if err != nil {
@@ -925,6 +928,66 @@ func transformSpecForRegistry(specObj map[string]interface{}, registry, agentNam
 	}
 
 	return specObj
+}
+
+// stripSecretDefaults removes default values from secret inputs across all spec
+// sections so credentials are not stored in the registry. Operates on the raw
+// map representation (same pattern as transformSpecForRegistry).
+func stripSecretDefaults(specObj map[string]interface{}) {
+	// Top-level inputs (map[string]input)
+	if inputs, ok := specObj["inputs"].(map[string]interface{}); ok {
+		for _, inputData := range inputs {
+			stripSecretInputDefault(inputData)
+		}
+	}
+
+	// Agent inputs (list)
+	if agent, ok := specObj["agent"].(map[string]interface{}); ok {
+		stripSecretInputList(agent["inputs"])
+	}
+
+	// Models/knowledge/tools/ingestion — each entry may have an inputs list
+	for _, section := range []string{"models", "knowledge", "tools", "ingestion"} {
+		if entries, ok := specObj[section].(map[string]interface{}); ok {
+			for _, entryData := range entries {
+				if entry, ok := entryData.(map[string]interface{}); ok {
+					stripSecretInputList(entry["inputs"])
+				}
+			}
+		}
+	}
+
+	// Providers — variables list
+	if providers, ok := specObj["providers"].(map[string]interface{}); ok {
+		for _, provData := range providers {
+			if prov, ok := provData.(map[string]interface{}); ok {
+				stripSecretInputList(prov["variables"])
+			}
+		}
+	}
+}
+
+// stripSecretInputList strips defaults from a YAML list of inputs ([]interface{}).
+func stripSecretInputList(v interface{}) {
+	list, ok := v.([]interface{})
+	if !ok {
+		return
+	}
+	for _, item := range list {
+		stripSecretInputDefault(item)
+	}
+}
+
+// stripSecretInputDefault removes the "default" field from a single input map
+// if it has secret: true.
+func stripSecretInputDefault(v interface{}) {
+	input, ok := v.(map[string]interface{})
+	if !ok {
+		return
+	}
+	if secret, _ := input["secret"].(bool); secret {
+		delete(input, "default")
+	}
 }
 
 // retagInfraImagesForK8s tags locally built infrastructure images with the
