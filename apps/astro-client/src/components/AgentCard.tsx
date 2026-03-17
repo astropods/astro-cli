@@ -1,6 +1,4 @@
 import { Link } from "react-router";
-import { Star } from "lucide-react";
-import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 import { AgentIdentity } from "./AgentIdentity";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
 
@@ -48,21 +46,9 @@ export function AgentCard({
           <p className="font-mono text-mono-sm text-faint-foreground">
             {account}
           </p>
-          {(rating != null || installs != null) && (
-            <p className="inline-flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
-              {rating != null && (
-                <>
-                  <Star className="h-3 w-3 fill-current text-yellow-500" />
-                  <span>{rating.toFixed(1)}</span>
-                </>
-              )}
-              {rating != null && installs != null && <span className="text-faint-foreground">·</span>}
-              {installs != null && (
-                <span className="inline-flex items-center gap-1">
-                  <ArrowDownTrayIcon className="h-3.5 w-3.5" />
-                  <span>{formattedInstalls}</span>
-                </span>
-              )}
+          {installs != null && (
+            <p className="text-mono-sm font-mono text-faint-foreground">
+              {formattedInstalls} requests
             </p>
           )}
         </div>
