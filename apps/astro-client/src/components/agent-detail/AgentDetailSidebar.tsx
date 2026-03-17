@@ -51,7 +51,7 @@ export function SidebarCard({
       <div className="rounded-md border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
         <Button asChild size="default" className="h-11 w-full">
           <Link to={`/deploy/${agent.account}/${agent.name}`}>
-            Hire this agent
+            Install this agent
             <ArrowRight className="h-4 w-4" />
           </Link>
         </Button>
