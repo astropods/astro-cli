@@ -15,7 +15,7 @@ test("app-token-only template does not inject SLACK_BOT_TOKEN", async ({ page })
 
   await expect(page).toHaveURL(new RegExp(`/deploy/${ACCOUNT}/${AGENT_APP_TOKEN_ONLY}$`));
   await expect(page.getByText("Agent not found")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByLabel("Openai Api Key")).toBeVisible();
 
   await page.getByRole("button", { name: /slack/i }).click();
@@ -35,7 +35,7 @@ test("app-token-only template does not inject SLACK_BOT_TOKEN", async ({ page })
   await Promise.all([
     deployRequest,
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   const request = await deployRequest;
@@ -57,7 +57,7 @@ test("full slack template sends reactions when provided", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /slack/i }).click();
 
   await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
@@ -76,7 +76,7 @@ test("full slack template sends reactions when provided", async ({ page }) => {
   await Promise.all([
     deployRequest,
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   const payload = (await deployRequest).postDataJSON() as {
@@ -93,7 +93,7 @@ test("optional actionable reactions can be omitted without blocking deploy", asy
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /slack/i }).click();
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
@@ -108,7 +108,7 @@ test("optional actionable reactions can be omitted without blocking deploy", asy
   await Promise.all([
     deployRequest,
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   const payload = (await deployRequest).postDataJSON() as {
@@ -125,7 +125,7 @@ test("overlapping slack bot token targets still deploy when token is filled in U
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_OVERLAP}`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /slack/i }).click();
 
   await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
@@ -142,7 +142,7 @@ test("overlapping slack bot token targets still deploy when token is filled in U
   await Promise.all([
     deployRequest,
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   const payload = (await deployRequest).postDataJSON() as {
@@ -158,7 +158,7 @@ test("import variables fills config and slack fields, then deploy uses imported 
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("button", { name: /^import$/i }).click();
 
@@ -191,7 +191,7 @@ test("import variables fills config and slack fields, then deploy uses imported 
   await Promise.all([
     deployRequest,
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   const payload = (await deployRequest).postDataJSON() as {
@@ -277,7 +277,7 @@ test("shows server validation error when deploy API rejects slack bot token", as
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /slack/i }).click();
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
@@ -290,7 +290,7 @@ test("shows server validation error when deploy API rejects slack bot token", as
 
   await Promise.all([
     deployRequest,
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   await expect(page).toHaveURL(new RegExp(`/deploy/${ACCOUNT}/${AGENT_SLACK_FULL}$`));
