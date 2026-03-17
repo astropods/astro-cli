@@ -44,13 +44,8 @@ export function AgentCard({
             {name}
           </h3>
           <p className="font-mono text-mono-sm text-faint-foreground">
-            {account}
+            {account}{installs != null && <> · {formattedInstalls} requests</>}
           </p>
-          {installs != null && (
-            <p className="text-mono-sm font-mono text-faint-foreground">
-              {formattedInstalls} requests
-            </p>
-          )}
         </div>
       </Link>
     );
