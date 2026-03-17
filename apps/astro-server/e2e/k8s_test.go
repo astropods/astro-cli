@@ -88,11 +88,15 @@ const slackSpecJSON = `{
     "endpoints": {"grpc": {"port": 9090, "protocol": "grpc"}},
     "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
     "environment": {
-      "SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}"
+      "SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}",
+      "SLACK_ALLOWED_CHANNEL_IDS": "${variables.SLACK_ALLOWED_CHANNEL_IDS}",
+      "SLACK_ALLOWED_USER_IDS": "${variables.SLACK_ALLOWED_USER_IDS}"
     }
   },
   "variables": {
     "SLACK_ACTIONABLE_REACTIONS": {"value": "ticket, bug", "secret": false, "targets": ["interface.slack"]},
+    "SLACK_ALLOWED_CHANNEL_IDS": {"value": "C123, C999", "secret": false, "targets": ["interface.slack"]},
+    "SLACK_ALLOWED_USER_IDS": {"value": "U123, U999", "secret": false, "targets": ["interface.slack"]},
     "SLACK_BOT_TOKEN": {"value": "xoxb-test", "secret": true, "targets": ["interface.slack"]}
   },
   "observability": {"enabled": false}
@@ -337,6 +341,21 @@ func applySlackSpec(t *testing.T, client k8s.ClusterClient, ns string) *k8s.Appl
 	return applySpec(t, client, ns, s, nil)
 }
 
+func applySlackSpecWithEmptyAllowlist(t *testing.T, client k8s.ClusterClient, ns string) *k8s.ApplyResult {
+	t.Helper()
+	s := parseSlackSpec(t)
+	if v, ok := s.Variables["SLACK_ALLOWED_CHANNEL_IDS"]; ok {
+		v.Value = ""
+		s.Variables["SLACK_ALLOWED_CHANNEL_IDS"] = v
+	}
+	if v, ok := s.Variables["SLACK_ALLOWED_USER_IDS"]; ok {
+		v.Value = ""
+		s.Variables["SLACK_ALLOWED_USER_IDS"] = v
+	}
+	fillSecrets(s)
+	return applySpec(t, client, ns, s, nil)
+}
+
 // --- Tests ---
 
 func TestK8s_ApplyCreatesNamespace(t *testing.T) {
@@ -484,8 +503,120 @@ func TestK8s_SlackReactionsEnvOnMessagingSidecar(t *testing.T) {
 	if envMap["SLACK_ACTIONABLE_REACTIONS"] != "ticket, bug" {
 		t.Errorf("SLACK_ACTIONABLE_REACTIONS = %q, want %q", envMap["SLACK_ACTIONABLE_REACTIONS"], "ticket, bug")
 	}
+	if envMap["SLACK_ALLOWED_CHANNEL_IDS"] != "C123, C999" {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS = %q, want %q", envMap["SLACK_ALLOWED_CHANNEL_IDS"], "C123, C999")
+	}
+	if envMap["SLACK_ALLOWED_USER_IDS"] != "U123, U999" {
+		t.Errorf("SLACK_ALLOWED_USER_IDS = %q, want %q", envMap["SLACK_ALLOWED_USER_IDS"], "U123, U999")
+	}
 	if _, ok := envMap["SLACK_SOCKET_MODE"]; ok {
 		t.Error("SLACK_SOCKET_MODE should not be set; behavior config is provided via structured slack config")
+	}
+}
+
+func TestK8s_SlackAllowlistEmptyDefaultsOnMessagingSidecar(t *testing.T) {
+	client := clusterClient(t)
+	ns := uniqueNS(t)
+	cleanupNamespace(t, client.Clientset(), ns)
+
+	applySlackSpecWithEmptyAllowlist(t, client, ns)
+
+	waitForDeployments(t, client.Clientset(), ns, 1)
+
+	ctx := context.Background()
+	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
+	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+	}
+
+	var messaging *corev1.Container
+	for i := range agentDepl.Spec.Template.Spec.Containers {
+		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if messaging == nil {
+		t.Fatal("messaging sidecar not found on agent deployment")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range messaging.Env {
+		envMap[e.Name] = e.Value
+	}
+
+	if envMap["SLACK_ALLOWED_CHANNEL_IDS"] != "" {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS = %q, want empty string", envMap["SLACK_ALLOWED_CHANNEL_IDS"])
+	}
+	if envMap["SLACK_ALLOWED_USER_IDS"] != "" {
+		t.Errorf("SLACK_ALLOWED_USER_IDS = %q, want empty string", envMap["SLACK_ALLOWED_USER_IDS"])
+	}
+}
+
+func TestK8s_SlackSecretsStayInSecretRef(t *testing.T) {
+	client := clusterClient(t)
+	ns := uniqueNS(t)
+	cleanupNamespace(t, client.Clientset(), ns)
+
+	applySlackSpec(t, client, ns)
+
+	waitForDeployments(t, client.Clientset(), ns, 1)
+
+	ctx := context.Background()
+	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
+	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+	}
+
+	var messaging *corev1.Container
+	for i := range agentDepl.Spec.Template.Spec.Containers {
+		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if messaging == nil {
+		t.Fatal("messaging sidecar not found on agent deployment")
+	}
+
+	for _, e := range messaging.Env {
+		if e.Name == "SLACK_BOT_TOKEN" || e.Name == "SLACK_APP_TOKEN" {
+			t.Errorf("%s should not be present as plaintext env var on messaging container", e.Name)
+		}
+	}
+
+	secretName := deployment.GenerateSecretName("k8s-slack-e2e", "build001")
+	hasSecretEnvFrom := false
+	for _, from := range messaging.EnvFrom {
+		if from.SecretRef != nil && from.SecretRef.Name == secretName {
+			hasSecretEnvFrom = true
+			break
+		}
+	}
+	if !hasSecretEnvFrom {
+		t.Fatalf("messaging sidecar should source credentials from Secret %q via envFrom", secretName)
+	}
+
+	secret, err := client.Clientset().CoreV1().Secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("credentials secret %q not found: %v", secretName, err)
+	}
+	if _, ok := secret.Data["SLACK_BOT_TOKEN"]; !ok {
+		t.Error("credentials secret missing SLACK_BOT_TOKEN")
+	}
+
+	configMapName := deployment.GenerateConfigMapName("k8s-slack-e2e", "build001")
+	cm, err := client.Clientset().CoreV1().ConfigMaps(ns).Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("configmap %q not found: %v", configMapName, err)
+	}
+	if _, ok := cm.Data["SLACK_BOT_TOKEN"]; ok {
+		t.Error("SLACK_BOT_TOKEN should not be present in ConfigMap data")
+	}
+	if _, ok := cm.Data["SLACK_APP_TOKEN"]; ok {
+		t.Error("SLACK_APP_TOKEN should not be present in ConfigMap data")
 	}
 }
 

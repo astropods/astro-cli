@@ -60,6 +60,8 @@ export const ADAPTER_SECRETS: Record<string, AdapterFieldDef[]> = {
 export const ADAPTER_CONFIG: Record<string, AdapterFieldDef[]> = {
   slack: [
     { key: "SLACK_ACTIONABLE_REACTIONS", label: "Actionable Reactions", description: "Emoji names the bot acts on (comma-separated)", optional: true, placeholder: "ticket, bug" },
+    { key: "SLACK_ALLOWED_CHANNEL_IDS", label: "Allowed Channel IDs", description: "Restrict access to specific Slack channel IDs (comma-separated)", optional: true, placeholder: "C12345, C67890" },
+    { key: "SLACK_ALLOWED_USER_IDS", label: "Allowed User IDs", description: "Restrict access to specific Slack user IDs (comma-separated)", optional: true, placeholder: "U12345, U67890" },
   ],
 };
 

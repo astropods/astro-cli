@@ -327,6 +327,8 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		mergeSlackVar("SLACK_APP_TOKEN", "Slack app-level token for socket mode connections")
 
 		reactionsDefault := slackReactionsDefault(astroSpec)
+		allowedChannelsDefault := slackAllowedChannelIDsDefault(astroSpec)
+		allowedUsersDefault := slackAllowedUserIDsDefault(astroSpec)
 		ds.Variables["SLACK_ACTIONABLE_REACTIONS"] = spec.Variable{
 			Description: "Emoji names the bot acts on (comma-separated, e.g. ticket, bug)",
 			Optional:    true,
@@ -334,6 +336,22 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 			Targets:     []string{"interface.slack"},
 			Value:       reactionsDefault,
 			Default:     reactionsDefault,
+		}
+		ds.Variables["SLACK_ALLOWED_CHANNEL_IDS"] = spec.Variable{
+			Description: "Slack channel IDs allowed to interact with the agent (comma-separated)",
+			Optional:    true,
+			Secret:      false,
+			Targets:     []string{"interface.slack"},
+			Value:       allowedChannelsDefault,
+			Default:     allowedChannelsDefault,
+		}
+		ds.Variables["SLACK_ALLOWED_USER_IDS"] = spec.Variable{
+			Description: "Slack user IDs allowed to interact with the agent (comma-separated)",
+			Optional:    true,
+			Secret:      false,
+			Targets:     []string{"interface.slack"},
+			Value:       allowedUsersDefault,
+			Default:     allowedUsersDefault,
 		}
 
 		wireInterfaceEnvironment(ds)
@@ -673,6 +691,22 @@ func slackReactionsDefault(s *spec.AstroSpec) string {
 		return ""
 	}
 	return strings.Join(cfg.ActionableReactions, ", ")
+}
+
+func slackAllowedChannelIDsDefault(s *spec.AstroSpec) string {
+	cfg := s.Dev.SlackConfig()
+	if cfg == nil || len(cfg.AllowedChannelIDs) == 0 {
+		return ""
+	}
+	return strings.Join(cfg.AllowedChannelIDs, ", ")
+}
+
+func slackAllowedUserIDsDefault(s *spec.AstroSpec) string {
+	cfg := s.Dev.SlackConfig()
+	if cfg == nil || len(cfg.AllowedUserIDs) == 0 {
+		return ""
+	}
+	return strings.Join(cfg.AllowedUserIDs, ", ")
 }
 
 func defaultEditableFields() []string {

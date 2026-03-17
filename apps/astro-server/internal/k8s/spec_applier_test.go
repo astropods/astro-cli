@@ -631,10 +631,14 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 		Resources: spec.MessagingResources,
 		Environment: map[string]string{
 			"SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}",
+			"SLACK_ALLOWED_CHANNEL_IDS":  "${variables.SLACK_ALLOWED_CHANNEL_IDS}",
+			"SLACK_ALLOWED_USER_IDS":     "${variables.SLACK_ALLOWED_USER_IDS}",
 		},
 	}
 	ds.Variables = map[string]spec.Variable{
 		"SLACK_ACTIONABLE_REACTIONS": {Value: "ticket, bug", Secret: false, Targets: []string{"interface.slack"}},
+		"SLACK_ALLOWED_CHANNEL_IDS":  {Value: "C123, C999", Secret: false, Targets: []string{"interface.slack"}},
+		"SLACK_ALLOWED_USER_IDS":     {Value: "U123, U999", Secret: false, Targets: []string{"interface.slack"}},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -675,9 +679,92 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 	if val != "ticket, bug" {
 		t.Errorf("SLACK_ACTIONABLE_REACTIONS = %q, want %q", val, "ticket, bug")
 	}
+	if envMap["SLACK_ALLOWED_CHANNEL_IDS"] != "C123, C999" {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS = %q, want %q", envMap["SLACK_ALLOWED_CHANNEL_IDS"], "C123, C999")
+	}
+	if envMap["SLACK_ALLOWED_USER_IDS"] != "U123, U999" {
+		t.Errorf("SLACK_ALLOWED_USER_IDS = %q, want %q", envMap["SLACK_ALLOWED_USER_IDS"], "U123, U999")
+	}
 
 	if _, exists := envMap["SLACK_SOCKET_MODE"]; exists {
 		t.Error("SLACK_SOCKET_MODE should not be hardcoded in messaging container")
+	}
+}
+
+func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+
+	input := deployment.TemplateInput{
+		Spec: &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "test-registry.example.com/my-agent:latest"},
+			Dev: &spec.Dev{
+				Interfaces: &spec.DevInterfaces{
+					Messaging: &spec.DevMessaging{
+						Adapters: []string{"slack"},
+						Slack: &spec.SlackAdapterConfig{
+							ActionableReactions: []string{"ticket", "bug"},
+							AllowedChannelIDs:   []string{"C123", "C999"},
+							AllowedUserIDs:      []string{"U123", "U999"},
+							SocketMode:          boolPtr(false),
+							AutoThread:          boolPtr(true),
+						},
+					},
+				},
+			},
+		},
+		Account:     "acme",
+		BuildID:     "build-123",
+		RegistryURL: "test-registry.example.com",
+	}
+
+	ds, err := deployment.GenerateDeploymentTemplate(input)
+	if err != nil {
+		t.Fatalf("GenerateDeploymentTemplate: %v", err)
+	}
+
+	a := newTestApplier()
+	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("unexpected error applying generated template: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Errorf("expected no errors, got %v", result.Errors)
+	}
+
+	agentDepl, err := a.clientset.AppsV1().Deployments("default").Get(
+		context.Background(), "my-agent-agent", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("failed to get agent Deployment: %v", err)
+	}
+
+	var msgContainer *corev1.Container
+	for i := range agentDepl.Spec.Template.Spec.Containers {
+		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
+			msgContainer = &agentDepl.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if msgContainer == nil {
+		t.Fatal("messaging sidecar container not found in agent Deployment")
+	}
+
+	envMap := make(map[string]string, len(msgContainer.Env))
+	for _, e := range msgContainer.Env {
+		envMap[e.Name] = e.Value
+	}
+
+	for _, key := range []string{
+		"SLACK_ACTIONABLE_REACTIONS",
+		"SLACK_ALLOWED_CHANNEL_IDS",
+		"SLACK_ALLOWED_USER_IDS",
+	} {
+		want := ds.Variables[key].Value
+		got := envMap[key]
+		if got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
 }
 

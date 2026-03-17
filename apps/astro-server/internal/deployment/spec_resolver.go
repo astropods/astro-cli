@@ -230,6 +230,7 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 	resolved := value
 	for _, ref := range refs {
 		var replacement string
+		shouldReplace := false
 
 		switch ref.Kind {
 		case spec.RefModel, spec.RefKnowledge, spec.RefTool:
@@ -242,6 +243,7 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 			if ref.Attribute == "host" {
 				// 3-part host ref
 				replacement = info.Host
+				shouldReplace = true
 			} else if ref.Endpoint != "" {
 				// 4-part endpoint ref: section.name.endpoint.attr
 				ep, epOK := info.Endpoints[ref.Endpoint]
@@ -251,6 +253,7 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 				switch ref.Attribute {
 				case "port":
 					replacement = fmt.Sprintf("%d", ep.Port)
+					shouldReplace = true
 				case "url":
 					scheme := ep.Protocol
 					if scheme == "" || scheme == "tcp" || scheme == "grpc" {
@@ -265,28 +268,39 @@ func resolveValue(value string, lookup map[string]componentInfo, ds *spec.AstroD
 						scheme = info.URLScheme
 					}
 					replacement = fmt.Sprintf("%s://%s:%d", scheme, info.Host, ep.Port)
+					shouldReplace = true
 				}
 			}
 
 		case spec.RefVariable:
 			if v, ok := ds.Variables[ref.Name]; ok {
 				replacement = v.Value
+				// Non-secret variables should resolve even when empty.
+				// Secret empty values are intentionally left unresolved so stripped specs
+				// keep HasSecretValues() false and avoid creating junk secret values.
+				if !v.Secret || v.Value != "" {
+					shouldReplace = true
+				}
 			}
 
 		case spec.RefSource:
 			switch ref.Name {
 			case "name":
 				replacement = ds.Source.Name
+				shouldReplace = true
 			case "build":
 				replacement = ds.Source.Build
+				shouldReplace = true
 			case "account":
 				replacement = ds.Source.Account
+				shouldReplace = true
 			case "registry":
 				replacement = ds.Source.Registry
+				shouldReplace = true
 			}
 		}
 
-		if replacement != "" {
+		if shouldReplace {
 			resolved = strings.Replace(resolved, ref.Raw, replacement, 1)
 		}
 	}

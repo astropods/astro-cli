@@ -1406,6 +1406,23 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
 }
 
+func expectVariableInsertsByName(deployMock sqlmock.Sqlmock, names ...string) {
+	deployMock.MatchExpectationsInOrder(false)
+	for _, name := range names {
+		deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+			WithArgs(
+				sqlmock.AnyArg(),
+				name,
+				sqlmock.AnyArg(),
+				sqlmock.AnyArg(),
+				sqlmock.AnyArg(),
+				sqlmock.AnyArg(),
+				sqlmock.AnyArg(),
+			).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+}
+
 // deployableSpec builds a JSON deployment spec that matches the template the server
 // generates from the agent spec `{"name":"my-agent"}` with RegistryURL "docker.io/library".
 // The caller can optionally set deploymentID to test the in-place update path.
@@ -1429,7 +1446,9 @@ func deployableSpec(deploymentID string) string {
 		"variables": {
 			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
 			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_ACTIONABLE_REACTIONS": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+			"SLACK_ACTIONABLE_REACTIONS": {"secret": false, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_ALLOWED_CHANNEL_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_ALLOWED_USER_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"]}
 		},
 		"observability": {"enabled": true, "provider": "galileo"}
 	}`, targetExtra)
@@ -1475,12 +1494,14 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVariableInsertsByName(
+		deployMock,
+		"SLACK_BOT_TOKEN",
+		"SLACK_APP_TOKEN",
+		"SLACK_ACTIONABLE_REACTIONS",
+		"SLACK_ALLOWED_CHANNEL_IDS",
+		"SLACK_ALLOWED_USER_IDS",
+	)
 	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
@@ -1549,12 +1570,14 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVariableInsertsByName(
+		deployMock,
+		"SLACK_BOT_TOKEN",
+		"SLACK_APP_TOKEN",
+		"SLACK_ACTIONABLE_REACTIONS",
+		"SLACK_ALLOWED_CHANNEL_IDS",
+		"SLACK_ALLOWED_USER_IDS",
+	)
 	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()

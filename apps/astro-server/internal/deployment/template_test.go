@@ -768,6 +768,8 @@ func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
 				Adapters: []string{"slack"},
 				Slack: &spec.SlackAdapterConfig{
 					ActionableReactions: []string{"ticket", "bug"},
+					AllowedChannelIDs:   []string{"C123", "C999"},
+					AllowedUserIDs:      []string{"U123", "U999"},
 					SocketMode:          boolPtr(false),
 					AutoThread:          boolPtr(true),
 				},
@@ -805,6 +807,42 @@ func TestTemplate_SlackConfigVariable_WithSpecConfig(t *testing.T) {
 		t.Errorf("interfaces.environment ref = %q, want ${variables.SLACK_ACTIONABLE_REACTIONS}", envRef)
 	}
 
+	allowedChannelsVar, ok := ds.Variables["SLACK_ALLOWED_CHANNEL_IDS"]
+	if !ok {
+		t.Fatal("SLACK_ALLOWED_CHANNEL_IDS variable not found in template")
+	}
+	if allowedChannelsVar.Value != "C123, C999" {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS value = %q, want %q", allowedChannelsVar.Value, "C123, C999")
+	}
+	if allowedChannelsVar.Default != allowedChannelsVar.Value {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS default should equal value, got default=%q value=%q", allowedChannelsVar.Default, allowedChannelsVar.Value)
+	}
+	envRef, ok = ds.Interfaces.Environment["SLACK_ALLOWED_CHANNEL_IDS"]
+	if !ok {
+		t.Fatal("interfaces.environment should contain SLACK_ALLOWED_CHANNEL_IDS")
+	}
+	if envRef != "${variables.SLACK_ALLOWED_CHANNEL_IDS}" {
+		t.Errorf("interfaces.environment ref = %q, want ${variables.SLACK_ALLOWED_CHANNEL_IDS}", envRef)
+	}
+
+	allowedUsersVar, ok := ds.Variables["SLACK_ALLOWED_USER_IDS"]
+	if !ok {
+		t.Fatal("SLACK_ALLOWED_USER_IDS variable not found in template")
+	}
+	if allowedUsersVar.Value != "U123, U999" {
+		t.Errorf("SLACK_ALLOWED_USER_IDS value = %q, want %q", allowedUsersVar.Value, "U123, U999")
+	}
+	if allowedUsersVar.Default != allowedUsersVar.Value {
+		t.Errorf("SLACK_ALLOWED_USER_IDS default should equal value, got default=%q value=%q", allowedUsersVar.Default, allowedUsersVar.Value)
+	}
+	envRef, ok = ds.Interfaces.Environment["SLACK_ALLOWED_USER_IDS"]
+	if !ok {
+		t.Fatal("interfaces.environment should contain SLACK_ALLOWED_USER_IDS")
+	}
+	if envRef != "${variables.SLACK_ALLOWED_USER_IDS}" {
+		t.Errorf("interfaces.environment ref = %q, want ${variables.SLACK_ALLOWED_USER_IDS}", envRef)
+	}
+
 	if _, ok := ds.Interfaces.Environment["SLACK_BOT_TOKEN"]; ok {
 		t.Error("secret variables should not appear in interfaces.environment")
 	}
@@ -823,6 +861,16 @@ func TestTemplate_SlackReactionsVariable_NoSpecConfig(t *testing.T) {
 	if v.Default != "" {
 		t.Errorf("SLACK_ACTIONABLE_REACTIONS default should be empty when no slack config in spec, got %q", v.Default)
 	}
+	if v, ok := ds.Variables["SLACK_ALLOWED_CHANNEL_IDS"]; !ok {
+		t.Fatal("SLACK_ALLOWED_CHANNEL_IDS variable should always be present when messaging is enabled")
+	} else if v.Value != "" || v.Default != "" {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS should be empty by default, got value=%q default=%q", v.Value, v.Default)
+	}
+	if v, ok := ds.Variables["SLACK_ALLOWED_USER_IDS"]; !ok {
+		t.Fatal("SLACK_ALLOWED_USER_IDS variable should always be present when messaging is enabled")
+	} else if v.Value != "" || v.Default != "" {
+		t.Errorf("SLACK_ALLOWED_USER_IDS should be empty by default, got value=%q default=%q", v.Value, v.Default)
+	}
 }
 
 func TestTemplate_SlackReactionsVariable_MessagingDisabled(t *testing.T) {
@@ -832,6 +880,12 @@ func TestTemplate_SlackReactionsVariable_MessagingDisabled(t *testing.T) {
 
 	if _, ok := ds.Variables["SLACK_ACTIONABLE_REACTIONS"]; ok {
 		t.Error("SLACK_ACTIONABLE_REACTIONS should not be present when messaging is disabled")
+	}
+	if _, ok := ds.Variables["SLACK_ALLOWED_CHANNEL_IDS"]; ok {
+		t.Error("SLACK_ALLOWED_CHANNEL_IDS should not be present when messaging is disabled")
+	}
+	if _, ok := ds.Variables["SLACK_ALLOWED_USER_IDS"]; ok {
+		t.Error("SLACK_ALLOWED_USER_IDS should not be present when messaging is disabled")
 	}
 }
 

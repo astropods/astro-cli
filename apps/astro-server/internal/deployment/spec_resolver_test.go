@@ -549,6 +549,30 @@ func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 	}
 }
 
+func TestResolveDeploymentSpecEnv_EmptyNonSecretVariableResolvesToEmptyString(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{},
+		Agent: spec.DeploymentAgent{
+			Image:     "x",
+			Endpoints: httpEndpoints(8080),
+			Environment: map[string]string{
+				"SLACK_ALLOWED_CHANNEL_IDS": "${variables.SLACK_ALLOWED_CHANNEL_IDS}",
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"SLACK_ALLOWED_CHANNEL_IDS": {Value: "", Secret: false},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	if got := result.ConfigMapData["SLACK_ALLOWED_CHANNEL_IDS"]; got != "" {
+		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS: expected empty string, got %q", got)
+	}
+}
+
 func TestResolveDeploymentSpecEnv_StrippedSecretRouting(t *testing.T) {
 	// Stripped spec (empty secret values): env keys referencing secret variables
 	// should still route to SecretData so backfill/repair key sets are correct.

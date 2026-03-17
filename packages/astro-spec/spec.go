@@ -282,6 +282,16 @@ func (DevInterfaces) JSONSchema() *jsonschema.Schema {
 		Items:       &jsonschema.Schema{Type: "string"},
 		Description: "Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded.",
 	})
+	slackConfigProps.Set("allowed_channel_ids", &jsonschema.Schema{
+		Type:        "array",
+		Items:       &jsonschema.Schema{Type: "string"},
+		Description: "Slack channel IDs allowed to interact with the agent. Empty means allow all channels.",
+	})
+	slackConfigProps.Set("allowed_user_ids", &jsonschema.Schema{
+		Type:        "array",
+		Items:       &jsonschema.Schema{Type: "string"},
+		Description: "Slack user IDs allowed to interact with the agent. Empty means allow all users.",
+	})
 	slackConfigProps.Set("socket_mode", &jsonschema.Schema{
 		Type:        "boolean",
 		Description: "Use Slack Socket Mode for real-time events. Default: true",
@@ -389,6 +399,8 @@ type DevMessaging struct {
 // Serialized as JSON into the SLACK_CONFIG env var for the messaging sidecar.
 type SlackAdapterConfig struct {
 	ActionableReactions []string `json:"actionable_reactions,omitempty" yaml:"actionable_reactions,omitempty" jsonschema:"description=Emoji names that trigger agent behavior (e.g. ticket). When omitted no reactions are forwarded."`
+	AllowedChannelIDs   []string `json:"allowed_channel_ids,omitempty" yaml:"allowed_channel_ids,omitempty" jsonschema:"description=Slack channel IDs allowed to interact with the agent. Empty means allow all channels."`
+	AllowedUserIDs      []string `json:"allowed_user_ids,omitempty" yaml:"allowed_user_ids,omitempty" jsonschema:"description=Slack user IDs allowed to interact with the agent. Empty means allow all users."`
 	SocketMode          *bool    `json:"socket_mode,omitempty" yaml:"socket_mode,omitempty" jsonschema:"description=Use Slack Socket Mode for real-time events. Default: true"`
 	AutoThread          *bool    `json:"auto_thread,omitempty" yaml:"auto_thread,omitempty" jsonschema:"description=Automatically thread bot replies. Default: true"`
 }

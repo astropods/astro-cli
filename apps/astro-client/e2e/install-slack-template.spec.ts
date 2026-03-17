@@ -63,11 +63,15 @@ test("full slack template sends reactions when provided", async ({ page }) => {
   await expect(page.getByLabel("Slack Bot Token")).toBeVisible();
   await expect(page.getByLabel("Slack App Token")).toBeVisible();
   await expect(page.getByLabel("Actionable Reactions")).toBeVisible();
+  await expect(page.getByLabel("Allowed Channel IDs")).toBeVisible();
+  await expect(page.getByLabel("Allowed User IDs")).toBeVisible();
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
   await page.getByLabel("Slack Bot Token").fill("xoxb-test-value");
   await page.getByLabel("Slack App Token").fill("xapp-test-value");
   await page.getByLabel("Actionable Reactions").fill("ticket, bug");
+  await page.getByLabel("Allowed Channel IDs").fill("C123, C999");
+  await page.getByLabel("Allowed User IDs").fill("U123, U999");
 
   const deployRequest = page.waitForRequest((request) =>
     request.method() === "POST" && request.url().includes("/api/v1/deploy"),
@@ -85,6 +89,8 @@ test("full slack template sends reactions when provided", async ({ page }) => {
   expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-test-value");
   expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-test-value");
   expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value).toBe("ticket, bug");
+  expect(payload.variables?.SLACK_ALLOWED_CHANNEL_IDS?.value).toBe("C123, C999");
+  expect(payload.variables?.SLACK_ALLOWED_USER_IDS?.value).toBe("U123, U999");
 });
 
 // Prevents regressions where optional fields accidentally become required and block launch.
@@ -117,6 +123,8 @@ test("optional actionable reactions can be omitted without blocking deploy", asy
   expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-test-value");
   expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-test-value");
   expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value ?? "").toBe("");
+  expect(payload.variables?.SLACK_ALLOWED_CHANNEL_IDS?.value ?? "").toBe("");
+  expect(payload.variables?.SLACK_ALLOWED_USER_IDS?.value ?? "").toBe("");
 });
 
 // Core overlap regression: one key targeted to both agent + interface must still be treated
@@ -167,6 +175,8 @@ test("import variables fills config and slack fields, then deploy uses imported 
     "SLACK_BOT_TOKEN=xoxb-imported-value",
     "SLACK_APP_TOKEN=xapp-imported-value",
     "SLACK_ACTIONABLE_REACTIONS=ticket, bug",
+    "SLACK_ALLOWED_CHANNEL_IDS=C123, C999",
+    "SLACK_ALLOWED_USER_IDS=U123, U999",
     "UNUSED_KEY=skip-me",
   ].join("\n");
 
@@ -176,13 +186,15 @@ test("import variables fills config and slack fields, then deploy uses imported 
     buffer: Buffer.from(envContents),
   });
 
-  await expect(page.getByText(/Filled 4 variables/i)).toBeVisible();
+  await expect(page.getByText(/Filled 6 variables/i)).toBeVisible();
   await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-imported-value");
 
   await page.getByRole("button", { name: /slack/i }).click();
   await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-imported-value");
   await expect(page.getByLabel("Slack App Token")).toHaveValue("xapp-imported-value");
   await expect(page.getByLabel("Actionable Reactions")).toHaveValue("ticket, bug");
+  await expect(page.getByLabel("Allowed Channel IDs")).toHaveValue("C123, C999");
+  await expect(page.getByLabel("Allowed User IDs")).toHaveValue("U123, U999");
 
   const deployRequest = page.waitForRequest((request) =>
     request.method() === "POST" && request.url().includes("/api/v1/deploy"),
@@ -201,6 +213,8 @@ test("import variables fills config and slack fields, then deploy uses imported 
   expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-imported-value");
   expect(payload.variables?.SLACK_APP_TOKEN?.value).toBe("xapp-imported-value");
   expect(payload.variables?.SLACK_ACTIONABLE_REACTIONS?.value).toBe("ticket, bug");
+  expect(payload.variables?.SLACK_ALLOWED_CHANNEL_IDS?.value).toBe("C123, C999");
+  expect(payload.variables?.SLACK_ALLOWED_USER_IDS?.value).toBe("U123, U999");
 });
 
 // Configure-page redeploy coverage: edits to existing deployment credentials must flow into
@@ -214,8 +228,12 @@ test("configure deployment save and redeploy sends updated slack bot token", asy
   await expect(page.getByText("Deployment not found")).toHaveCount(0);
   await expect(page.getByLabel("Openai Api Key")).toHaveValue("sk-existing-value");
   await expect(page.getByLabel("Slack Bot Token")).toHaveValue("xoxb-existing-value");
+  await expect(page.getByLabel("Allowed Channel IDs")).toHaveValue("C123, C999");
+  await expect(page.getByLabel("Allowed User IDs")).toHaveValue("U123, U999");
 
   await page.getByLabel("Slack Bot Token").fill("xoxb-redeployed-value");
+  await page.getByLabel("Allowed Channel IDs").fill("C111, C222");
+  await page.getByLabel("Allowed User IDs").fill("U111, U222");
 
   await expect(page.getByRole("button", { name: /save\s*&\s*redeploy/i })).toBeVisible();
 
@@ -235,6 +253,8 @@ test("configure deployment save and redeploy sends updated slack bot token", asy
     variables?: Record<string, { value?: string }>;
   };
   expect(payload.variables?.SLACK_BOT_TOKEN?.value).toBe("xoxb-redeployed-value");
+  expect(payload.variables?.SLACK_ALLOWED_CHANNEL_IDS?.value).toBe("C111, C222");
+  expect(payload.variables?.SLACK_ALLOWED_USER_IDS?.value).toBe("U111, U222");
   expect(payload.variables?.OPENAI_API_KEY?.value).toBe("sk-existing-value");
 });
 
