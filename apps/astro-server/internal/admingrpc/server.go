@@ -1427,14 +1427,14 @@ func (s *Server) ReapplyDeployment(_ context.Context, req *adminv1.ReapplyDeploy
 	return &adminv1.ReapplyDeploymentResponse{Status: "reapplying"}, nil
 }
 
-// RepairNormalizedSpec re-parses the stored spec JSON and rebuilds the
-// deployment_workloads, services, ingresses, volumes, and variables tables.
+// RepairNormalizedSpec re-generates the deployment template from the original
+// package spec, merges existing variable values, updates the stored deployment
+// spec JSON, and rebuilds normalized tables.
 func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNormalizedSpecRequest) (*adminv1.RepairNormalizedSpecResponse, error) {
 	if req.DeploymentId == "" {
 		return nil, fmt.Errorf("deployment_id is required")
 	}
 
-	// Read the live K8s Secret so repair can store correct value hashes.
 	dep, err := s.deployStore.GetDeploymentByID(req.DeploymentId)
 	if err != nil {
 		return nil, fmt.Errorf("get deployment: %w", err)
@@ -1442,6 +1442,30 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 	if dep == nil {
 		return nil, fmt.Errorf("deployment not found: %s", req.DeploymentId)
 	}
+
+	// Parse the currently stored deployment spec.
+	var storedDS spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &storedDS); err != nil {
+		return nil, fmt.Errorf("parse stored deployment spec: %w", err)
+	}
+
+	// Re-generate the deployment template from the original package spec.
+	// This picks up fixes to credential dedup, variable merging, etc.
+	if err := s.retemplateDeploymentSpec(dep, &storedDS); err != nil {
+		s.log.Warn("Re-template from package spec failed, falling back to stored spec",
+			"deployment_id", req.DeploymentId, "error", err)
+	} else {
+		// Persist the fixed deployment spec JSON.
+		fixedJSON, err := json.Marshal(&storedDS)
+		if err != nil {
+			return nil, fmt.Errorf("marshal fixed spec: %w", err)
+		}
+		if err := s.deployStore.UpdateDeploymentSpecJSON(dep.ID, string(fixedJSON)); err != nil {
+			return nil, fmt.Errorf("update deployment spec JSON: %w", err)
+		}
+	}
+
+	// Read the live K8s Secret so repair can store correct value hashes.
 	var liveSecretData map[string][]byte
 	secretName := deployment.GenerateSecretName(dep.AgentName, dep.BuildID)
 	secret, err := s.k8sClient.Clientset().CoreV1().Secrets(dep.Namespace).Get(ctx, secretName, metav1.GetOptions{})
@@ -1470,6 +1494,73 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 		Services:  int32(services),  //nolint:gosec
 		Ingresses: int32(ingresses), //nolint:gosec
 	}, nil
+}
+
+// retemplateDeploymentSpec re-generates the template from the original package
+// spec and merges the new variables/environment into the stored deployment spec.
+// Existing variable Values are preserved (they hold user-supplied secrets).
+func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, storedDS *spec.AstroDeploymentSpec) error {
+	// Look up the package spec from agent_versions.
+	var specJSON string
+	var ecrNamespace string
+	err := s.db.QueryRow(`
+		SELECT spec_json, ecr_namespace FROM agent_versions
+		WHERE account_id = $1 AND name = $2 AND build_id = $3
+	`, dep.AccountID, dep.AgentName, dep.BuildID).Scan(&specJSON, &ecrNamespace)
+	if err != nil {
+		return fmt.Errorf("look up package spec: %w", err)
+	}
+
+	var astroSpec spec.AstroSpec
+	if err := json.Unmarshal([]byte(specJSON), &astroSpec); err != nil {
+		return fmt.Errorf("parse package spec: %w", err)
+	}
+
+	// Re-generate the template using the fixed code.
+	newTemplate, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
+		Spec:         &astroSpec,
+		Account:      storedDS.Source.Account,
+		ECRNamespace: ecrNamespace,
+		BuildID:      dep.BuildID,
+		RegistryURL:  storedDS.Source.Registry,
+	})
+	if err != nil {
+		return fmt.Errorf("generate template: %w", err)
+	}
+
+	// Collect existing variable Values from the stored spec (these contain
+	// user-supplied or KMS-encrypted data that we must not lose).
+	existingValues := make(map[string]string)
+	for key, v := range storedDS.Variables {
+		if v.Value != "" {
+			existingValues[key] = v.Value
+		}
+	}
+
+	// Also pull values from the DB variables table (they survive stripping).
+	dbVars, err := s.deployStore.GetDeploymentVariables(dep.ID)
+	if err == nil {
+		for _, v := range dbVars {
+			if v.Value != "" {
+				existingValues[v.Name] = v.Value
+			}
+		}
+	}
+
+	// Replace variables and agent environment with the re-generated template.
+	storedDS.Variables = newTemplate.Variables
+	storedDS.Agent.Environment = newTemplate.Agent.Environment
+	storedDS.Interfaces = newTemplate.Interfaces
+
+	// Restore variable values from the existing deployment.
+	for key, v := range storedDS.Variables {
+		if val, ok := existingValues[key]; ok {
+			v.Value = val
+			storedDS.Variables[key] = v
+		}
+	}
+
+	return nil
 }
 
 // GetDeploymentJobs returns River job history and last reconcile time for a deployment.

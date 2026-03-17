@@ -519,6 +519,16 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	return &d, nil
 }
 
+// UpdateDeploymentSpecJSON updates only the stored deployment spec JSON.
+// Used by repair to persist a re-generated template without changing status or revision.
+func (s *Store) UpdateDeploymentSpecJSON(deploymentID, specJSON string) error {
+	_, err := s.db.Exec(`UPDATE deployments SET deployment_spec_json = $2 WHERE id = $1`, deploymentID, specJSON)
+	if err != nil {
+		return fmt.Errorf("update deployment spec JSON: %w", err)
+	}
+	return nil
+}
+
 // UpdateDeploymentPending updates an existing deployment for a redeploy, creating a new revision.
 // Sets status='pending'. The txFn callback runs in the same transaction.
 func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.Tx, deploymentID string) error) (*Deployment, error) {
