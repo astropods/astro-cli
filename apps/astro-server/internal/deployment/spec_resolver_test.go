@@ -873,10 +873,21 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 		}
 	}
 
+	// Preserve user-selected adapters
+	var userAdapters []string
+	if stripped.Interfaces != nil {
+		userAdapters = stripped.Interfaces.Adapters
+	}
+
 	// Replace variables and agent env with the re-generated template
 	stripped.Variables = newTemplate.Variables
 	stripped.Agent.Environment = newTemplate.Agent.Environment
 	stripped.Interfaces = newTemplate.Interfaces
+
+	// Restore user-selected adapters
+	if stripped.Interfaces != nil && userAdapters != nil {
+		stripped.Interfaces.Adapters = userAdapters
+	}
 
 	// Restore variable values
 	for key, v := range stripped.Variables {
@@ -887,6 +898,14 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	}
 
 	// --- Verify the fixed spec ---
+	// User-selected adapters must be preserved
+	if stripped.Interfaces == nil {
+		t.Fatal("Interfaces should not be nil after re-template")
+	}
+	if len(stripped.Interfaces.Adapters) != 2 || stripped.Interfaces.Adapters[0] != "web" || stripped.Interfaces.Adapters[1] != "slack" {
+		t.Errorf("Adapters should be [web slack], got %v", stripped.Interfaces.Adapters)
+	}
+
 	// Bogus duplicate keys should be gone
 	if _, ok := stripped.Variables["ANTHROPIC_ANTHROPIC_API_KEY"]; ok {
 		t.Error("ANTHROPIC_ANTHROPIC_API_KEY should not exist after re-template")

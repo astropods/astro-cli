@@ -1547,10 +1547,21 @@ func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, store
 		}
 	}
 
+	// Preserve user-selected adapters from the stored interfaces block.
+	var userAdapters []string
+	if storedDS.Interfaces != nil {
+		userAdapters = storedDS.Interfaces.Adapters
+	}
+
 	// Replace variables and agent environment with the re-generated template.
 	storedDS.Variables = newTemplate.Variables
 	storedDS.Agent.Environment = newTemplate.Agent.Environment
 	storedDS.Interfaces = newTemplate.Interfaces
+
+	// Restore user-selected adapters (the template generates empty adapters).
+	if storedDS.Interfaces != nil && userAdapters != nil {
+		storedDS.Interfaces.Adapters = userAdapters
+	}
 
 	// Restore variable values from the existing deployment.
 	for key, v := range storedDS.Variables {
