@@ -390,10 +390,28 @@ Bun.serve({
       }
       const deploymentName = body.source?.name ?? AGENT_APP_TOKEN_ONLY;
       const newBuildId = latestBuildByAgent[deploymentName] ?? "build-123";
-      // Update in-memory deployment so subsequent list fetches reflect the redeploy
-      deployments = deployments.map((d) =>
-        d.name === deploymentName ? { ...d, build_id: newBuildId } : d,
-      );
+      const exists = deployments.some((d) => d.name === deploymentName);
+      if (exists) {
+        deployments = deployments.map((d) =>
+          d.name === deploymentName ? { ...d, build_id: newBuildId } : d,
+        );
+      } else {
+        deployments = [...deployments, {
+          id: `dep-${deploymentName}-${Date.now()}`,
+          name: deploymentName,
+          display_name: deploymentName,
+          build_id: newBuildId,
+          namespace: "astro-namespace",
+          status: "healthy",
+          replicas: 1,
+          ready: 1,
+          created_at: nowIso,
+          components: ["agent", "web"],
+          external_urls: [],
+          pods: [],
+          jobs: [],
+        }];
+      }
       return json({
         status: "deployed",
         name: deploymentName,

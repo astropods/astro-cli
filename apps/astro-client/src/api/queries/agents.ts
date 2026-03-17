@@ -70,18 +70,26 @@ export function useDeployAgent(account: string, agentName: string) {
     mutationFn: api.deployAgent.bind(api),
     onSuccess: (data: DeployResponse) => {
       // Optimistically patch build_id so the "new build" badge clears before the server catches up
-      queryClient.setQueryData<DeploymentsListResponse>(
-        deploymentKeys.all(account),
-        (prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            deployments: prev.deployments.map((d) =>
-              d.name === data.name ? { ...d, build_id: data.build_id } : d,
-            ),
-          };
-        },
-      );
+      const prev = queryClient.getQueryData<DeploymentsListResponse>(deploymentKeys.all(account));
+      const isExistingDeployment = prev?.deployments.some((d) => d.name === data.name);
+
+      if (isExistingDeployment) {
+        queryClient.setQueryData<DeploymentsListResponse>(
+          deploymentKeys.all(account),
+          (old) => {
+            if (!old) return old;
+            return {
+              ...old,
+              deployments: old.deployments.map((d) =>
+                d.name === data.name ? { ...d, build_id: data.build_id } : d,
+              ),
+            };
+          },
+        );
+      } else {
+        // Fresh install — no existing entry to patch, so invalidate to pick up the new deployment
+        queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      }
 
       queryClient.invalidateQueries({ queryKey: agentKeys.template(account, agentName) });
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, agentName) });

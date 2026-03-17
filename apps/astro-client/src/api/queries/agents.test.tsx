@@ -72,27 +72,53 @@ describe('useAgent', () => {
 });
 
 describe('useDeployAgent', () => {
-  it('deploys an agent and invalidates deployments cache', async () => {
+  const deployPayload = {
+    spec: 'deployment/v1',
+    source: { account: testAccount, name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
+    target: { runtime: 'kubernetes', namespace: 'prod' },
+    agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
+  } as unknown as Parameters<ReturnType<typeof useDeployAgent>['mutate']>[0];
+
+  // Redeploys optimistically patch build_id via setQueryData rather than
+  // invalidating, avoiding a refetch that could return a stale build_id while
+  // the server is still reconciling. The write only runs inside onSuccess, so
+  // a failed mutation never touches the cache.
+  it('redeploy optimistically patches deployment build_id in cache', async () => {
     const { wrapper, queryClient } = createHookWrapper();
 
-    // Prime the deployments cache so we can verify invalidation
-    queryClient.setQueryData(deploymentKeys.all(testAccount), { deployments: [], count: 0, namespace: 'test' });
+    queryClient.setQueryData(deploymentKeys.all(testAccount), {
+      deployments: [{ name: 'code-reviewer', build_id: 'old-build' }],
+      count: 1,
+    });
 
     const { result } = renderHook(() => useDeployAgent(testAccount, 'code-reviewer'), { wrapper });
-
-    result.current.mutate({
-      spec: 'deployment/v1',
-      source: { account: testAccount, name: 'code-reviewer', build: 'a1b2c3d4e5f6', registry: 'registry.example.com' },
-      target: { runtime: 'kubernetes', namespace: 'prod' },
-      agent: { image: 'registry.example.com/testuser/code-reviewer:a1b2c3d4e5f6', endpoints: { http: { port: 8080 } } },
-    } as unknown as Parameters<typeof result.current.mutate>[0]);
+    result.current.mutate(deployPayload);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.status).toBe('deployed');
-    expect(result.current.data?.name).toBe('code-reviewer');
 
-    // Deployments cache should have been invalidated
+    const cached = queryClient.getQueryData<{ deployments: { name: string; build_id: string }[] }>(
+      deploymentKeys.all(testAccount),
+    );
+    expect(cached?.deployments[0].build_id).toBe(result.current.data?.build_id);
+  });
+
+  // Fresh installs have no existing entry to patch, so the deployments cache
+  // is invalidated instead to pick up the new deployment from the server.
+  it('fresh install invalidates deployments cache', async () => {
+    const { wrapper, queryClient } = createHookWrapper();
+
+    queryClient.setQueryData(deploymentKeys.all(testAccount), {
+      deployments: [],
+      count: 0,
+    });
+
+    const { result } = renderHook(() => useDeployAgent(testAccount, 'code-reviewer'), { wrapper });
+    result.current.mutate(deployPayload);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
     const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
     expect(deploymentsState?.isInvalidated).toBe(true);
   });
