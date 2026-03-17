@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench } from "lucide-react";
+import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench, Layers } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
@@ -25,6 +26,8 @@ export function DeploymentDetailPage() {
   const setAdaptersMut = useSetAdapters();
   const jobsQuery = useDeploymentJobs(id ?? "");
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
+  const [adaptersOpen, setAdaptersOpen] = useState(false);
+  const [pendingAdapters, setPendingAdapters] = useState<string>("none");
 
   // Auto-refresh when in transitional states
   const isTransitional = data?.deployment?.status && ["pending", "provisioning", "undeploying"].includes(data.deployment.status);
@@ -81,6 +84,17 @@ export function DeploymentDetailPage() {
             Repair
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setPendingAdapters(data.adapters?.length ? data.adapters.sort().join(",") : "none");
+              setAdaptersOpen(true);
+            }}
+          >
+            <Layers className="size-3.5" />
+            Set Adapters
+          </Button>
+          <Button
             variant="destructive"
             size="sm"
             onClick={() => {
@@ -133,30 +147,44 @@ export function DeploymentDetailPage() {
         <InfoCard label="Created" value={formatDateTime(dep.created_at)} />
       </div>
 
-      {data.adapters !== undefined && (
-        <div className="flex items-center gap-3 rounded-lg glass px-3 py-2">
-          <span className="text-xs text-muted-foreground font-medium">Adapters</span>
-          <Select
-            value={data.adapters?.length ? data.adapters.sort().join(",") : "none"}
-            onValueChange={(v) => {
-              const adapters = v === "none" ? [] : v.split(",");
-              setAdaptersMut.mutate({ id: id!, adapters }, { onSuccess: () => refetch() });
-            }}
-            disabled={setAdaptersMut.isPending}
-          >
-            <SelectTrigger className="w-40 h-7">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="slack">Slack</SelectItem>
-              <SelectItem value="web">Web</SelectItem>
-              <SelectItem value="slack,web">Slack + Web</SelectItem>
-              <SelectItem value="none">None</SelectItem>
-            </SelectContent>
-          </Select>
-          {setAdaptersMut.isPending && <span className="text-xs text-muted-foreground">Saving...</span>}
-        </div>
-      )}
+      <Dialog open={adaptersOpen} onOpenChange={setAdaptersOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Set Adapters</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Select value={pendingAdapters} onValueChange={setPendingAdapters}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="slack">Slack</SelectItem>
+                <SelectItem value="web">Web</SelectItem>
+                <SelectItem value="slack,web">Slack + Web</SelectItem>
+                <SelectItem value="none">None</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setAdaptersOpen(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={setAdaptersMut.isPending}
+              onClick={() => {
+                const adapters = pendingAdapters === "none" ? [] : pendingAdapters.split(",");
+                setAdaptersMut.mutate({ id: id!, adapters }, {
+                  onSuccess: () => {
+                    refetch();
+                    setAdaptersOpen(false);
+                  },
+                });
+              }}
+            >
+              {setAdaptersMut.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {cs?.summary && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

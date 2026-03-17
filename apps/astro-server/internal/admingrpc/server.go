@@ -365,10 +365,11 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		ExpectedIngresses: protoIngresses,
 	}
 
-	// Include adapters from the stored deployment spec
+	// Include adapters from the stored deployment spec (default to empty list)
+	resp.Adapters = []string{}
 	{
 		var ds spec.AstroDeploymentSpec
-		if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err == nil && ds.Interfaces != nil {
+		if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &ds); err == nil && ds.Interfaces != nil && len(ds.Interfaces.Adapters) > 0 {
 			resp.Adapters = ds.Interfaces.Adapters
 		}
 	}
@@ -1602,7 +1603,7 @@ func (s *Server) SetAdapters(_ context.Context, req *adminv1.SetAdaptersRequest)
 	}
 
 	if ds.Interfaces == nil {
-		return nil, fmt.Errorf("deployment has no interfaces block (messaging not supported)")
+		ds.Interfaces = &spec.DeploymentInterfaces{}
 	}
 
 	ds.Interfaces.Adapters = req.Adapters
