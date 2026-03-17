@@ -67,7 +67,7 @@ describe("AgentDetailSidebar", () => {
 
     expect(screen.getByText("Often used together")).toBeInTheDocument();
     expect(screen.getByText("alert-router")).toBeInTheDocument();
-    expect(screen.getByText("@steve_jobs")).toBeInTheDocument();
+    expect(screen.getByText("steve_jobs")).toBeInTheDocument();
   });
 
   it("does not render often used together section when no recommended agents", () => {
