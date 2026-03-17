@@ -16,9 +16,8 @@ jobs:
   # ---------------------------------------------------------------------------
   plan:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: prod-astro-runner
     timeout-minutes: 5
-    environment: prod
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,13 +26,11 @@ jobs:
         run: curl -sSf https://atlasgo.sh | sh
 
       - name: Schema diff
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           DIFF=$(atlas schema diff \
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
-            --dev-url "docker://postgres/17/dev" \
+            --dev-url "postgres://postgres:dev@localhost:5432/dev?sslmode=disable" \
             --exclude "atlas_schema_revisions,river" 2>&1) || true
 
           if [ -z "$DIFF" ]; then
@@ -49,8 +46,6 @@ jobs:
           fi
 
       - name: River migration status
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           STATUS=$(atlas migrate status \
             --url "$DATABASE_URL" \
@@ -80,9 +75,8 @@ jobs:
   # ---------------------------------------------------------------------------
   apply:
     needs: [approve]
-    runs-on: ubuntu-latest
+    runs-on: prod-astro-runner
     timeout-minutes: 5
-    environment: prod
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,13 +85,11 @@ jobs:
         run: curl -sSf https://atlasgo.sh | sh
 
       - name: Apply declarative schema
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           OUTPUT=$(atlas schema apply \
             --url "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
-            --dev-url "docker://postgres/17/dev" \
+            --dev-url "postgres://postgres:dev@localhost:5432/dev?sslmode=disable" \
             --exclude "atlas_schema_revisions,river" \
             --auto-approve 2>&1)
 
@@ -108,8 +100,6 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply River migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           OUTPUT=$(atlas migrate apply \
             --url "$DATABASE_URL" \
