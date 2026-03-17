@@ -708,6 +708,24 @@ func configMapKeys(cm *corev1.ConfigMap) []string {
 	return keys
 }
 
+// assertSecretValues checks that the given key-value pairs exist in the K8s Secret.
+func assertSecretValues(t *testing.T, r *e2eResult, want map[string]string) {
+	t.Helper()
+	ns := r.Namespace
+	secretName := deployment.GenerateSecretName(r.DeploymentSpec.Source.Name, r.DeploymentSpec.Source.Build)
+	secret := r.getSecret(t, ns, secretName)
+	for key, expected := range want {
+		got, ok := secret.Data[key]
+		if !ok {
+			t.Errorf("Secret missing key %s; available keys: %v", key, keysOf(secret.Data))
+			continue
+		}
+		if string(got) != expected {
+			t.Errorf("Secret[%s] = %q, want %q", key, string(got), expected)
+		}
+	}
+}
+
 // serviceDNS is a shorthand to build the expected k8s service DNS.
 func serviceDNS(name, ns string) string {
 	return name + "." + ns + ".svc.cluster.local"
@@ -807,23 +825,13 @@ models:
 
 	requireNoErrors(t, r)
 
-	// Cloud provider → credential in Secret, reference resolved in ConfigMap
-	ns := r.Namespace
-	secretName := deployment.GenerateSecretName("my-agent", "build-001")
-	secret := r.getSecret(t, ns, secretName)
-	if string(secret.Data["OPENAI_API_KEY"]) != "sk-openai-test" {
-		t.Errorf("expected OPENAI_API_KEY=sk-openai-test in secret")
-	}
+	// Cloud provider → credential in Secret only (not ConfigMap)
+	assertSecretValues(t, r, map[string]string{
+		"OPENAI_API_KEY": "sk-openai-test",
+	})
 
-	// Resolved credential value should be in ConfigMap
-	cmName := deployment.GenerateConfigMapName("my-agent", "build-001")
-	cm := r.getConfigMap(t, ns, cmName)
-	if cm.Data["OPENAI_API_KEY"] != "sk-openai-test" {
-		t.Errorf("expected OPENAI_API_KEY resolved to credential value in ConfigMap, got %q", cm.Data["OPENAI_API_KEY"])
-	}
-
-	// No container env vars for cloud provider
-	assertConfigMapAbsent(t, r, []string{"OPENAI_HOST", "OPENAI_PORT", "MODEL_GPT_HOST"})
+	// No container env vars for cloud provider, and credential should not be in ConfigMap
+	assertConfigMapAbsent(t, r, []string{"OPENAI_HOST", "OPENAI_PORT", "MODEL_GPT_HOST", "OPENAI_API_KEY"})
 }
 
 func TestE2E_ProviderEnv_CloudModelMultiple(t *testing.T) {
@@ -1169,27 +1177,14 @@ providers:
 
 	requireNoErrors(t, r)
 
-	ns := r.Namespace
-
-	// All credential values should be in the Secret
-	secretName := deployment.GenerateSecretName("my-agent", "build-001")
-	secret := r.getSecret(t, ns, secretName)
-	wantSecret := map[string]string{
+	// All credential values should be in the Secret only (not ConfigMap)
+	assertSecretValues(t, r, map[string]string{
 		"ANTHROPIC_API_KEY":          "sk-ant-real",
 		"GITHUB_TOKEN":               "ghp_real",
 		"SLACK_PROVIDER_WEBHOOK_URL": "https://hooks.slack.com/test",
-	}
-	for key, val := range wantSecret {
-		if string(secret.Data[key]) != val {
-			t.Errorf("Secret[%s] = %q, want %q", key, string(secret.Data[key]), val)
-		}
-	}
-
-	// Resolved values should also appear in ConfigMap (credential refs resolve to actual values)
-	assertConfigMapValues(t, r, map[string]string{
-		"ANTHROPIC_API_KEY":          "sk-ant-real",
-		"GITHUB_TOKEN":               "ghp_real",
-		"SLACK_PROVIDER_WEBHOOK_URL": "https://hooks.slack.com/test",
+	})
+	assertConfigMapAbsent(t, r, []string{
+		"ANTHROPIC_API_KEY", "GITHUB_TOKEN", "SLACK_PROVIDER_WEBHOOK_URL",
 	})
 }
 
@@ -1349,11 +1344,9 @@ models:
 		t.Errorf("expected ANTHROPIC_CLAUDE-OPUS_API_KEY=sk-opus in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	// All resolved in ConfigMap
-	assertConfigMapValues(t, r, map[string]string{
-		"ANTHROPIC_API_KEY":              "sk-bare",
-		"ANTHROPIC_CLAUDE-HAIKU_API_KEY": "sk-haiku",
-		"ANTHROPIC_CLAUDE-OPUS_API_KEY":  "sk-opus",
+	// Credentials should NOT be in ConfigMap
+	assertConfigMapAbsent(t, r, []string{
+		"ANTHROPIC_API_KEY", "ANTHROPIC_CLAUDE-HAIKU_API_KEY", "ANTHROPIC_CLAUDE-OPUS_API_KEY",
 	})
 }
 
@@ -1439,12 +1432,9 @@ models:
 		t.Errorf("expected ANTHROPIC_FALLBACK_API_KEY=sk-fallback in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	// Should NOT have the redundant ANTHROPIC_ANTHROPIC_API_KEY
-	assertConfigMapAbsent(t, r, []string{"ANTHROPIC_ANTHROPIC_API_KEY"})
-
-	assertConfigMapValues(t, r, map[string]string{
-		"ANTHROPIC_API_KEY":          "sk-primary",
-		"ANTHROPIC_FALLBACK_API_KEY": "sk-fallback",
+	// Should NOT have the redundant ANTHROPIC_ANTHROPIC_API_KEY or credentials in ConfigMap
+	assertConfigMapAbsent(t, r, []string{
+		"ANTHROPIC_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_FALLBACK_API_KEY",
 	})
 }
 
@@ -1489,10 +1479,9 @@ models:
 		t.Errorf("expected OPENAI_GPT-SMART_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	assertConfigMapValues(t, r, map[string]string{
-		"OPENAI_API_KEY":           "sk-bare",
-		"OPENAI_GPT-FAST_API_KEY":  "sk-fast",
-		"OPENAI_GPT-SMART_API_KEY": "sk-smart",
+	// Credentials should NOT be in ConfigMap
+	assertConfigMapAbsent(t, r, []string{
+		"OPENAI_API_KEY", "OPENAI_GPT-FAST_API_KEY", "OPENAI_GPT-SMART_API_KEY",
 	})
 }
 
@@ -1537,10 +1526,9 @@ models:
 		t.Errorf("expected GOOGLE_GEMINI-PRO_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	assertConfigMapValues(t, r, map[string]string{
-		"GOOGLE_API_KEY":              "goog-bare",
-		"GOOGLE_GEMINI-FLASH_API_KEY": "goog-flash",
-		"GOOGLE_GEMINI-PRO_API_KEY":   "goog-pro",
+	// Credentials should NOT be in ConfigMap
+	assertConfigMapAbsent(t, r, []string{
+		"GOOGLE_API_KEY", "GOOGLE_GEMINI-FLASH_API_KEY", "GOOGLE_GEMINI-PRO_API_KEY",
 	})
 }
 
@@ -1585,10 +1573,9 @@ models:
 		t.Errorf("expected COHERE_RERANK_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	assertConfigMapValues(t, r, map[string]string{
-		"COHERE_API_KEY":        "co-bare",
-		"COHERE_EMBED_API_KEY":  "co-embed",
-		"COHERE_RERANK_API_KEY": "co-rerank",
+	// Credentials should NOT be in ConfigMap
+	assertConfigMapAbsent(t, r, []string{
+		"COHERE_API_KEY", "COHERE_EMBED_API_KEY", "COHERE_RERANK_API_KEY",
 	})
 }
 
@@ -1637,14 +1624,11 @@ knowledge:
 		t.Errorf("expected PINECONE_SEARCH_API_KEY in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	assertConfigMapValues(t, r, map[string]string{
-		"PINECONE_API_KEY":            "pc-bare",
-		"PINECONE_EMBEDDINGS_API_KEY": "pc-embed",
-		"PINECONE_SEARCH_API_KEY":     "pc-search",
+	// Credentials should NOT be in ConfigMap; no container env vars either
+	assertConfigMapAbsent(t, r, []string{
+		"PINECONE_API_KEY", "PINECONE_EMBEDDINGS_API_KEY", "PINECONE_SEARCH_API_KEY",
+		"PINECONE_HOST", "PINECONE_PORT",
 	})
-
-	// No container env vars
-	assertConfigMapAbsent(t, r, []string{"PINECONE_HOST", "PINECONE_PORT"})
 }
 
 func TestE2E_ProviderEnv_TwoCloudToolsGitLab(t *testing.T) {
@@ -1689,10 +1673,9 @@ integrations:
 		t.Errorf("expected GITLAB_GL-MAIN_TOKEN in secret, got keys: %v", keysOf(secret.Data))
 	}
 
-	assertConfigMapValues(t, r, map[string]string{
-		"GITLAB_TOKEN":           "glpat-bare",
-		"GITLAB_GL-DEPLOY_TOKEN": "glpat-deploy",
-		"GITLAB_GL-MAIN_TOKEN":   "glpat-main",
+	// Credentials should NOT be in ConfigMap
+	assertConfigMapAbsent(t, r, []string{
+		"GITLAB_TOKEN", "GITLAB_GL-DEPLOY_TOKEN", "GITLAB_GL-MAIN_TOKEN",
 	})
 }
 

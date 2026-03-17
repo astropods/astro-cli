@@ -185,12 +185,14 @@ func resolveEnvMap(
 }
 
 // referencesSecret returns true if the value contains any ${variables.*}
-// reference to a variable marked as secret.
+// reference to a variable marked as secret with a non-empty value.
+// Empty secret values (stripped specs) are excluded so the resolver doesn't
+// route unresolvable references into SecretData.
 func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
 	refs := spec.ParseReferences(value)
 	for _, ref := range refs {
 		if ref.Kind == spec.RefVariable {
-			if v, ok := ds.Variables[ref.Name]; ok && v.Secret {
+			if v, ok := ds.Variables[ref.Name]; ok && v.Secret && v.Value != "" {
 				return true
 			}
 		}
