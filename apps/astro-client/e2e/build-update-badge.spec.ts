@@ -12,14 +12,15 @@ test.beforeEach(async () => {
 });
 
 // Ensures the My Agents card advertises version drift when latest published build
-// is newer than the deployment's current build.
+// is newer than the deployment's current build. The card shows a minimal "update"
+// badge rather than the full build ID transition.
 test("my agents card shows new build badge for out-of-date deployment", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
   const staleCard = page.locator(`a[href="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(staleCard).toBeVisible({ timeout: 20_000 });
-  await expect(staleCard.getByText(BUILD_UPGRADE_LABEL)).toBeVisible();
+  await expect(staleCard.getByText("update", { exact: true })).toBeVisible();
 });
 
 // Mirrors card-level drift signal on the deployment detail header so users can

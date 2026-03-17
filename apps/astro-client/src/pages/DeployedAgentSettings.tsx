@@ -18,7 +18,6 @@ import {
   SidebarBody,
 } from "@/components/ui/sidebar-layout";
 
-const BUILD_UPDATE_POLL_MS = 15_000;
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -48,7 +47,6 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
   const { data: agentData } = useAgent(account, deployment?.name ?? "", {
     initialData: undefined,
-    refetchInterval: BUILD_UPDATE_POLL_MS,
   });
 
   const latestBuildId = useMemo(() => {

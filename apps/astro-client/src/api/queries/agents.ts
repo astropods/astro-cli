@@ -2,16 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type AgentsListResponse, type Agent, type DeploymentTemplate, type DeployResponse, type DeploymentsListResponse } from '../../lib/api';
 import { agentKeys, deploymentKeys } from './keys';
 
-interface AccountAgentsQueryOptions {
-  refetchInterval?: number | false;
-  refetchIntervalInBackground?: boolean;
-}
-
 interface AgentQueryOptions {
   initialData?: Agent;
   enabled?: boolean;
-  refetchInterval?: number | false;
-  refetchIntervalInBackground?: boolean;
 }
 
 export function useAgents(opts?: { initialData?: AgentsListResponse }) {
@@ -23,13 +16,11 @@ export function useAgents(opts?: { initialData?: AgentsListResponse }) {
   });
 }
 
-export function useAccountAgents(account: string, enabled = true, opts?: AccountAgentsQueryOptions) {
+export function useAccountAgents(account: string, enabled = true) {
   return useQuery({
     queryKey: agentKeys.byAccount(account),
     queryFn: () => api.listAccountAgents(account),
     enabled: !!account && enabled,
-    refetchInterval: opts?.refetchInterval,
-    refetchIntervalInBackground: opts?.refetchIntervalInBackground ?? false,
   });
 }
 
@@ -40,8 +31,6 @@ export function useAgent(account: string, name: string, opts?: AgentQueryOptions
     enabled: (opts?.enabled ?? true) && !!account && !!name,
     initialData: opts?.initialData,
     initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
-    refetchInterval: opts?.refetchInterval,
-    refetchIntervalInBackground: opts?.refetchIntervalInBackground ?? false,
   });
 }
 

@@ -22,7 +22,6 @@ import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
 import { getPodStableName, getPodDisplayName } from "@/lib/pod-utils";
 
-const BUILD_UPDATE_POLL_MS = 15_000;
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -87,9 +86,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
-  const { data: agentData } = useAgent(account, deployment?.name ?? "", {
-    refetchInterval: BUILD_UPDATE_POLL_MS,
-  });
+  const { data: agentData } = useAgent(account, deployment?.name ?? "");
 
   if (!deployment) {
     return (

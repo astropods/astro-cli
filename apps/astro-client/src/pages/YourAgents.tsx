@@ -12,8 +12,6 @@ import { useAuth } from "../lib/auth";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 
-const BUILD_UPDATE_POLL_MS = 15_000;
-
 function YourAgentsContent() {
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -21,9 +19,7 @@ function YourAgentsContent() {
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data } = useDeployments(userAccount, isAuthenticated);
-  const { data: accountAgents } = useAccountAgents(userAccount, isAuthenticated, {
-    refetchInterval: BUILD_UPDATE_POLL_MS,
-  });
+  const { data: accountAgents } = useAccountAgents(userAccount, isAuthenticated);
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
@@ -87,8 +83,6 @@ function YourAgentsContent() {
               installedAt={formatDate(deployment.created_at)}
               updatedAt={formatDate(deployment.created_at)}
               hasNewBuildAvailable={hasNewBuildAvailable}
-              currentBuildId={deployment.build_id}
-              latestBuildId={latestBuildId}
             />
             );
           })}
