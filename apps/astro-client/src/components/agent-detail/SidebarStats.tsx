@@ -72,11 +72,11 @@ export function SidebarStats({
   }
 
   return (
-    <SidebarSection title="Details" headerClassName="py-2" bodyClassName="px-0 py-0">
+    <SidebarSection title="Details" headerClassName="py-2" bodyClassName="px-0 py-1">
       <dl>
         {rows.map((row, index) => (
           <div key={row.label}>
-            <div className={index === 0 ? "pt-2 pb-2.5" : "py-2.5"}>
+            <div className="py-2">
               <div className="flex items-center justify-between gap-6">
                 <dt className="text-[13px] text-muted-foreground">{row.label}</dt>
                 <dd className="text-right font-mono text-mono-sm font-medium text-foreground">
