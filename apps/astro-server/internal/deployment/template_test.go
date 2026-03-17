@@ -1783,3 +1783,79 @@ func TestTemplate_ECRNamespace_MixedTenantAndPublic(t *testing.T) {
 		t.Errorf("public model should use pull-through cache, got %s", ds.Models["public"].Image)
 	}
 }
+
+// ===== Regression: Slack input defaults preserved through interfaces merge =====
+
+func TestGenerateDeploymentTemplate_SlackInputDefaultsPreserved(t *testing.T) {
+	input := TemplateInput{
+		Spec: &spec.AstroSpec{
+			Name: "test-agent",
+			Agent: spec.Container{
+				Image:      "test:latest",
+				Interfaces: &spec.Interfaces{Messaging: true},
+			},
+			Inputs: map[string]spec.Input{
+				"slack_bot_token": {Name: "SLACK_BOT_TOKEN", Secret: true, Default: "xoxb-default", Optional: true},
+				"slack_app_token": {Name: "SLACK_APP_TOKEN", Secret: true, Default: "xapp-default", Optional: true},
+			},
+		},
+		Account:     "acme",
+		BuildID:     "abc",
+		RegistryURL: "registry.example.com",
+	}
+	ds := mustGenerate(t, input)
+
+	botVar := ds.Variables["SLACK_BOT_TOKEN"]
+	if botVar.Default != "xoxb-default" {
+		t.Errorf("SLACK_BOT_TOKEN.Default: expected xoxb-default, got %q", botVar.Default)
+	}
+	if botVar.Value != "xoxb-default" {
+		t.Errorf("SLACK_BOT_TOKEN.Value: expected xoxb-default, got %q", botVar.Value)
+	}
+	if len(botVar.Targets) != 1 || botVar.Targets[0] != "interface.slack" {
+		t.Errorf("SLACK_BOT_TOKEN.Targets: expected [interface.slack], got %v", botVar.Targets)
+	}
+
+	appVar := ds.Variables["SLACK_APP_TOKEN"]
+	if appVar.Default != "xapp-default" {
+		t.Errorf("SLACK_APP_TOKEN.Default: expected xapp-default, got %q", appVar.Default)
+	}
+	if appVar.Value != "xapp-default" {
+		t.Errorf("SLACK_APP_TOKEN.Value: expected xapp-default, got %q", appVar.Value)
+	}
+	if len(appVar.Targets) != 1 || appVar.Targets[0] != "interface.slack" {
+		t.Errorf("SLACK_APP_TOKEN.Targets: expected [interface.slack], got %v", appVar.Targets)
+	}
+}
+
+// ===== Regression: Credential+input collision preserves input default =====
+
+func TestGenerateDeploymentTemplate_CredentialInputDefaultMerge(t *testing.T) {
+	input := TemplateInput{
+		Spec: &spec.AstroSpec{
+			Name:  "test-agent",
+			Agent: spec.Container{Image: "test:latest"},
+			Models: map[string]spec.Model{
+				"anthropic": {Provider: "anthropic"},
+			},
+			Inputs: map[string]spec.Input{
+				"anthropic_api_key": {Name: "ANTHROPIC_API_KEY", Secret: true, Default: "sk-test", Optional: true},
+			},
+		},
+		Account:     "acme",
+		BuildID:     "abc",
+		RegistryURL: "registry.example.com",
+	}
+	ds := mustGenerate(t, input)
+
+	v := ds.Variables["ANTHROPIC_API_KEY"]
+	if v.Default != "sk-test" {
+		t.Errorf("ANTHROPIC_API_KEY.Default: expected sk-test, got %q", v.Default)
+	}
+	if v.Value != "sk-test" {
+		t.Errorf("ANTHROPIC_API_KEY.Value: expected sk-test, got %q", v.Value)
+	}
+	if !v.Secret {
+		t.Error("ANTHROPIC_API_KEY.Secret: expected true")
+	}
+}

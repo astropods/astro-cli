@@ -194,8 +194,12 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 
 	for name, m := range s.Models {
 		if m.IsProviderMode() {
+			// Skip custom-only providers (not builtin cloud). When a provider is
+			// both in s.Providers AND a builtin cloud provider, the cloud path wins.
 			if _, isCustom := s.Providers[m.Provider]; isCustom {
-				continue
+				if _, isCloud := GetCloudModelCredentials(m.Provider); !isCloud {
+					continue
+				}
 			}
 			if suffixes, ok := GetCloudModelCredentials(m.Provider); ok {
 				p := strings.ToLower(m.Provider)
@@ -206,7 +210,9 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	for name, k := range s.Knowledge {
 		if k.IsProviderMode() {
 			if _, isCustom := s.Providers[k.Provider]; isCustom {
-				continue
+				if _, isCloud := GetCloudKnowledgeCredentials(k.Provider); !isCloud {
+					continue
+				}
 			}
 			if suffixes, ok := GetCloudKnowledgeCredentials(k.Provider); ok {
 				p := strings.ToLower(k.Provider)
@@ -217,7 +223,9 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	for name, t := range s.Tools {
 		if t.IsProviderMode() {
 			if _, isCustom := s.Providers[t.Provider]; isCustom {
-				continue
+				if _, isCloud := GetCloudToolCredentials(t.Provider); !isCloud {
+					continue
+				}
 			}
 			if suffixes, ok := GetCloudToolCredentials(t.Provider); ok {
 				p := strings.ToLower(t.Provider)
@@ -289,18 +297,34 @@ func CustomProviderCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	}
 	groups := make(map[string][]customEntry) // provider name → entries
 
+	// isBuiltinCloud returns true when a provider name matches a builtin cloud
+	// provider in any section. These are already handled by CloudCredentialKeys
+	// so we must skip them here to avoid generating duplicate/wrong keys.
+	isBuiltinCloud := func(provider string) bool {
+		if _, ok := GetCloudModelCredentials(provider); ok {
+			return true
+		}
+		if _, ok := GetCloudKnowledgeCredentials(provider); ok {
+			return true
+		}
+		if _, ok := GetCloudToolCredentials(provider); ok {
+			return true
+		}
+		return false
+	}
+
 	for name, m := range s.Models {
-		if _, ok := s.Providers[m.Provider]; ok {
+		if _, ok := s.Providers[m.Provider]; ok && !isBuiltinCloud(m.Provider) {
 			groups[m.Provider] = append(groups[m.Provider], customEntry{name, s.Providers[m.Provider].Variables})
 		}
 	}
 	for name, k := range s.Knowledge {
-		if _, ok := s.Providers[k.Provider]; ok {
+		if _, ok := s.Providers[k.Provider]; ok && !isBuiltinCloud(k.Provider) {
 			groups[k.Provider] = append(groups[k.Provider], customEntry{name, s.Providers[k.Provider].Variables})
 		}
 	}
 	for name, t := range s.Tools {
-		if _, ok := s.Providers[t.Provider]; ok {
+		if _, ok := s.Providers[t.Provider]; ok && !isBuiltinCloud(t.Provider) {
 			groups[t.Provider] = append(groups[t.Provider], customEntry{name, s.Providers[t.Provider].Variables})
 		}
 	}

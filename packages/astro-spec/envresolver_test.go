@@ -760,6 +760,38 @@ func TestCustomProviderCredentialKeys_JiraIntegration(t *testing.T) {
 	}
 }
 
+func TestCustomProviderCredentialKeys_SkipsBuiltinCloudProviders(t *testing.T) {
+	// When a provider (e.g. "anthropic") is both a builtin cloud provider and
+	// declared in the spec's custom providers map, CustomProviderCredentialKeys
+	// must skip it — CloudCredentialKeys already handles the bare key correctly.
+	s := &AstroSpec{
+		Name:  "agent",
+		Agent: Container{Image: "a:1"},
+		Models: map[string]Model{
+			"anthropic": {Provider: "anthropic"},
+		},
+		Providers: map[string]CustomProvider{
+			"anthropic": {Scope: []string{"models"}, Variables: []Input{
+				{Name: "ANTHROPIC_API_KEY", Datatype: "string", Secret: true},
+			}},
+		},
+	}
+	keys := CustomProviderCredentialKeys(s)
+	if _, ok := keys["ANTHROPIC_ANTHROPIC_API_KEY"]; ok {
+		t.Error("should not generate ANTHROPIC_ANTHROPIC_API_KEY for builtin cloud provider")
+	}
+	if _, ok := keys["ANTHROPIC_API_KEY"]; ok {
+		t.Error("should not generate ANTHROPIC_API_KEY from custom path (cloud path handles it)")
+	}
+	if len(keys) != 0 {
+		t.Errorf("expected 0 custom keys for builtin cloud provider, got %d: %v", len(keys), keys)
+	}
+
+	// CloudCredentialKeys should still produce the bare key
+	cloud := CloudCredentialKeys(s)
+	assertCredKey(t, cloud, "ANTHROPIC_API_KEY", "model", false)
+}
+
 func TestResolveEnvVars_JiraIntegration(t *testing.T) {
 	// Verifies that Jira custom provider credentials are injected into the agent
 	// container environment via ResolveEnvVars.

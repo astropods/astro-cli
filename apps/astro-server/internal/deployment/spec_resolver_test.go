@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"testing"
@@ -674,6 +675,101 @@ func equalSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// supportSignalSpecJSON is the exact package/v1 spec from the support-signal-agent
+// deployment that triggered false drift (secret keys appearing in configmap expected keys).
+const supportSignalSpecJSON = `{"agent":{"image":"registry.astropods.ai/zain/support-signal-agent:8f406458"},"dev":{"interfaces":["web","slack"]},"ingestion":{"sync":{"container":{"image":"registry.astropods.ai/zain/support-signal-agent-ingestion-sync:8f406458"},"trigger":{"type":"manual"}}},"inputs":{"anthropic_api_key":{"datatype":"string","default":"sk-ant-api03-test","name":"ANTHROPIC_API_KEY","optional":true,"secret":true},"cue_api_token":{"datatype":"string","default":"ATATT3xFfGF0-test","name":"CUE_API_TOKEN","optional":true,"secret":true},"cue_base_url":{"datatype":"string","default":"https://postmanlabs.atlassian.net","name":"CUE_BASE_URL","optional":true},"cue_email":{"datatype":"string","default":"zain.jandali@postman.com","name":"CUE_EMAIL","optional":true},"gong_access_key":{"datatype":"string","default":"HI3ORHRGYZRY4J7V-test","name":"GONG_ACCESS_KEY","optional":true,"secret":true},"gong_access_key_secret":{"datatype":"string","default":"eyJhbGci-test","name":"GONG_ACCESS_KEY_SECRET","optional":true,"secret":true},"gong_base_url":{"datatype":"string","default":"https://us-14496.api.gong.io","name":"GONG_BASE_URL","optional":true},"gong_lookback_days":{"datatype":"string","default":"365","name":"GONG_LOOKBACK_DAYS","optional":true},"kepler_client_id":{"datatype":"string","default":"13568d48-test","name":"KEPLER_CLIENT_ID","optional":true,"secret":true},"kepler_client_secret":{"datatype":"string","default":"ucIOdfid-test","name":"KEPLER_CLIENT_SECRET","optional":true,"secret":true},"local_mode":{"datatype":"string","default":"false","name":"LOCAL_MODE","optional":true},"openai_api_key":{"datatype":"string","default":"sk-proj-test","name":"OPENAI_API_KEY","optional":true,"secret":true},"otel_exporter_otlp_endpoint":{"datatype":"string","default":"http://localhost:4318","name":"OTEL_EXPORTER_OTLP_ENDPOINT","optional":true},"qdrant_api_key":{"datatype":"string","default":"eyJhbGci-qdrant-test","name":"QDRANT_API_KEY","optional":true,"secret":true},"qdrant_url":{"datatype":"string","default":"https://qdrant.example.com","name":"QDRANT_URL","optional":true},"redash_api_key":{"datatype":"string","default":"LItUCCzab-test","name":"REDASH_API_KEY","optional":true,"secret":true},"salesforce_consumer_key":{"datatype":"string","default":"3MVG9szVa-test","name":"SALESFORCE_CONSUMER_KEY","optional":true,"secret":true},"salesforce_consumer_secret":{"datatype":"string","default":"516C80A7CA-test","name":"SALESFORCE_CONSUMER_SECRET","optional":true,"secret":true},"salesforce_instance_url":{"datatype":"string","default":"https://postman.my.salesforce.com","name":"SALESFORCE_INSTANCE_URL","optional":true},"salesforce_login_url":{"datatype":"string","default":"https://login.salesforce.com","name":"SALESFORCE_LOGIN_URL","optional":true},"salesforce_refresh_token":{"datatype":"string","default":"5Aep861HDR-test","name":"SALESFORCE_REFRESH_TOKEN","optional":true,"secret":true},"slack_allowed_channel_ids":{"datatype":"string","default":"C0AJ478DB1Q","name":"SLACK_ALLOWED_CHANNEL_IDS","optional":true},"slack_allowed_team_ids":{"datatype":"string","default":"","name":"SLACK_ALLOWED_TEAM_IDS","optional":true},"slack_allowed_user_ids":{"datatype":"string","default":"","name":"SLACK_ALLOWED_USER_IDS","optional":true},"slack_app_token":{"datatype":"string","default":"xapp-test","name":"SLACK_APP_TOKEN","optional":true,"secret":true},"slack_bot_token":{"datatype":"string","default":"xoxb-test","name":"SLACK_BOT_TOKEN","optional":true,"secret":true},"slack_direct":{"datatype":"string","default":"false","name":"SLACK_DIRECT","optional":true},"web_enabled":{"datatype":"string","default":"true","name":"WEB_ENABLED","optional":true},"zendesk_access_token":{"datatype":"string","default":"47597e57-test","name":"ZENDESK_ACCESS_TOKEN","optional":true,"secret":true},"zendesk_client_id":{"datatype":"string","default":"fde_integration","name":"ZENDESK_CLIENT_ID","optional":true,"secret":true},"zendesk_client_secret":{"datatype":"string","default":"c57596e9-test","name":"ZENDESK_CLIENT_SECRET","optional":true,"secret":true},"zendesk_lookback_days":{"datatype":"string","default":"90","name":"ZENDESK_LOOKBACK_DAYS","optional":true},"zendesk_max_description_chars":{"datatype":"string","default":"1000","name":"ZENDESK_MAX_DESCRIPTION_CHARS","optional":true},"zendesk_refresh_token":{"datatype":"string","default":"9562510682-test","name":"ZENDESK_REFRESH_TOKEN","optional":true,"secret":true},"zendesk_retention_days":{"datatype":"string","default":"180","name":"ZENDESK_RETENTION_DAYS","optional":true},"zendesk_subdomain":{"datatype":"string","default":"postman","name":"ZENDESK_SUBDOMAIN","optional":true}},"meta":{"description":"Evaluates inbound support tickets during the deal process, implementation, and ongoing work"},"models":{"anthropic":{"provider":"anthropic"},"openai":{"provider":"openai"}},"name":"support-signal-agent","providers":{"anthropic":{"scope":["models"],"variables":[{"datatype":"string","default":"sk-ant-api03-test","name":"ANTHROPIC_API_KEY","optional":true,"secret":true}]},"openai":{"scope":["models"],"variables":[{"datatype":"string","default":"sk-proj-test","name":"OPENAI_API_KEY","optional":true,"secret":true}]}},"spec":"package/v1"}`
+
+// TestResolveDeploymentSpecEnv_SupportSignalAgent exercises the full
+// package/v1 → deployment template → filled deployment/v1 → resolve pipeline
+// using the exact support-signal-agent spec that triggered false drift.
+func TestResolveDeploymentSpecEnv_SupportSignalAgent(t *testing.T) {
+	// Parse the package/v1 spec
+	var astroSpec spec.AstroSpec
+	if err := json.Unmarshal([]byte(supportSignalSpecJSON), &astroSpec); err != nil {
+		t.Fatalf("parse package/v1 spec: %v", err)
+	}
+
+	// Generate deployment template (same as the server does)
+	template, err := GenerateDeploymentTemplate(TemplateInput{
+		Spec:         &astroSpec,
+		Account:      "zain",
+		BuildID:      "8f406458",
+		RegistryURL:  "registry.astropods.ai",
+		ECRNamespace: "zain",
+	})
+	if err != nil {
+		t.Fatalf("GenerateDeploymentTemplate: %v", err)
+	}
+
+	// Fill the template: set variable values from inputs (simulates CLI fill)
+	for key, v := range template.Variables {
+		if v.Value == "" && v.Default != "" {
+			v.Value = v.Default
+			template.Variables[key] = v
+		}
+	}
+	// Enable adapters
+	if template.Interfaces != nil {
+		template.Interfaces.Adapters = []string{"web", "slack"}
+	}
+	template.Spec = "deployment/v1"
+	template.Target.Account = "zain"
+
+	// Resolve (same as deploy handler)
+	rctx := ResolveContext{
+		Namespace:  "ns-support-signal",
+		AgentName:  "support-signal-agent",
+		BuildID:    "8f406458",
+		SecretName: GenerateSecretName("support-signal-agent", "8f406458"),
+	}
+	result := ResolveDeploymentSpecEnv(template, rctx)
+
+	// All secret inputs must be in SecretData, NOT ConfigMapData
+	secretInputs := []string{
+		"ANTHROPIC_API_KEY", "CUE_API_TOKEN", "GONG_ACCESS_KEY",
+		"GONG_ACCESS_KEY_SECRET", "KEPLER_CLIENT_ID", "KEPLER_CLIENT_SECRET",
+		"OPENAI_API_KEY", "QDRANT_API_KEY", "REDASH_API_KEY",
+		"SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET",
+		"SALESFORCE_REFRESH_TOKEN", "ZENDESK_ACCESS_TOKEN",
+		"ZENDESK_CLIENT_ID", "ZENDESK_CLIENT_SECRET", "ZENDESK_REFRESH_TOKEN",
+	}
+	for _, key := range secretInputs {
+		if _, inSecret := result.SecretData[key]; !inSecret {
+			t.Errorf("%s: expected in SecretData, not found", key)
+		}
+		if _, inCM := result.ConfigMapData[key]; inCM {
+			t.Errorf("%s: should NOT be in ConfigMapData (would cause false drift)", key)
+		}
+	}
+
+	// Non-secret inputs must be in ConfigMapData, NOT SecretData
+	nonSecretInputs := []string{
+		"CUE_BASE_URL", "CUE_EMAIL", "GONG_BASE_URL", "GONG_LOOKBACK_DAYS",
+		"LOCAL_MODE", "QDRANT_URL", "SALESFORCE_INSTANCE_URL",
+		"SALESFORCE_LOGIN_URL", "SLACK_ALLOWED_CHANNEL_IDS", "SLACK_DIRECT",
+		"WEB_ENABLED", "ZENDESK_LOOKBACK_DAYS", "ZENDESK_MAX_DESCRIPTION_CHARS",
+		"ZENDESK_RETENTION_DAYS", "ZENDESK_SUBDOMAIN",
+	}
+	for _, key := range nonSecretInputs {
+		if _, inCM := result.ConfigMapData[key]; !inCM {
+			t.Errorf("%s: expected in ConfigMapData, not found", key)
+		}
+		if _, inSecret := result.SecretData[key]; inSecret {
+			t.Errorf("%s: should NOT be in SecretData", key)
+		}
+	}
+
+	// Platform vars should also be in ConfigMapData
+	for _, key := range []string{"ASTRO_AGENT_NAME", "ASTRO_AGENT_BUILD", "AGENT_URL", "AGENT_HOST", "OTEL_EXPORTER_OTLP_ENDPOINT", "GRPC_SERVER_ADDR"} {
+		if _, inCM := result.ConfigMapData[key]; !inCM {
+			t.Errorf("platform var %s: expected in ConfigMapData", key)
+		}
+	}
+
+	t.Logf("ConfigMapData keys (%d): %v", len(result.ConfigMapData), sortedKeys(result.ConfigMapData))
+	t.Logf("SecretData keys (%d): %v", len(result.SecretData), sortedKeys(result.SecretData))
 }
 
 func TestHasSecretValues(t *testing.T) {

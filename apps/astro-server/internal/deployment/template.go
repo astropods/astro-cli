@@ -304,24 +304,27 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		}
 
 		// All Slack-related variables are forced to targets: ["interface.slack"] so they
-		// group under the Slack toggle in the deploy UI. We unconditionally overwrite
-		// because collectVariablesFromInputs may have added them with agent/ingestion
-		// targets first.
+		// group under the Slack toggle in the deploy UI. We merge into existing
+		// variables (preserving Value/Default from inputs) rather than overwriting.
 		if ds.Variables == nil {
 			ds.Variables = make(map[string]spec.Variable)
 		}
-		ds.Variables["SLACK_BOT_TOKEN"] = spec.Variable{
-			Description: "Slack bot token for API access and messaging",
-			Optional:    true,
-			Secret:      true,
-			Targets:     []string{"interface.slack"},
+		mergeSlackVar := func(key, description string) {
+			if existing, ok := ds.Variables[key]; ok {
+				existing.Targets = []string{"interface.slack"}
+				existing.Description = description
+				ds.Variables[key] = existing
+			} else {
+				ds.Variables[key] = spec.Variable{
+					Description: description,
+					Optional:    true,
+					Secret:      true,
+					Targets:     []string{"interface.slack"},
+				}
+			}
 		}
-		ds.Variables["SLACK_APP_TOKEN"] = spec.Variable{
-			Description: "Slack app-level token for socket mode connections",
-			Optional:    true,
-			Secret:      true,
-			Targets:     []string{"interface.slack"},
-		}
+		mergeSlackVar("SLACK_BOT_TOKEN", "Slack bot token for API access and messaging")
+		mergeSlackVar("SLACK_APP_TOKEN", "Slack app-level token for socket mode connections")
 
 		reactionsDefault := slackReactionsDefault(astroSpec)
 		ds.Variables["SLACK_ACTIONABLE_REACTIONS"] = spec.Variable{
@@ -728,8 +731,16 @@ func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *spec.AstroDeploym
 		if input.Default != "" {
 			v.Value = input.Default
 		}
-		// Use first-write-wins to avoid overwriting a more specific target
-		if _, exists := variables[input.Name]; !exists {
+		// Merge: if the variable already exists (e.g. from credentials), preserve
+		// its secret/targets but fill in Default/Value from the input so that
+		// user-specified defaults are not lost.
+		if existing, exists := variables[input.Name]; exists {
+			if existing.Default == "" && input.Default != "" {
+				existing.Default = input.Default
+				existing.Value = input.Default
+				variables[input.Name] = existing
+			}
+		} else {
 			variables[input.Name] = v
 		}
 	}
