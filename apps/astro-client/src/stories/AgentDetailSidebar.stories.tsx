@@ -37,7 +37,6 @@ const recommendedAgents = [
     account: "steve_jobs",
     name: "alert-router",
     description: "Routes alerts to the right team.",
-    rating: 4.6,
     installs: 1203,
   },
   {
@@ -45,7 +44,6 @@ const recommendedAgents = [
     account: "steve_jobs",
     name: "data-classifier",
     description: "Classifies incoming events by urgency.",
-    rating: 4.9,
     installs: 3571,
   },
 ];
