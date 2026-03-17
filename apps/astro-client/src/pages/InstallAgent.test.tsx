@@ -46,7 +46,7 @@ function renderInstallWithAgentsRoute() {
 /** Wait for the install form to be fully loaded. */
 async function waitForForm() {
   await waitFor(() => {
-    expect(screen.getByRole('heading', { level: 1, name: /Install/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Deploy/ })).toBeInTheDocument();
   });
   // Also wait for template-driven sections to appear
   await waitFor(() => {
@@ -62,7 +62,7 @@ describe('InstallAgent page', () => {
       renderInstall();
       await waitForForm();
 
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Install');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Deploy');
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('code-reviewer');
     });
 
@@ -154,7 +154,7 @@ describe('InstallAgent page', () => {
       // Fill required credential
       await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
 
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(capturedRequests).toHaveLength(1);
@@ -178,7 +178,7 @@ describe('InstallAgent page', () => {
       // Fill credentials so that's not the blocker
       await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
 
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByText('Enter a name for the agent')).toBeInTheDocument();
@@ -274,7 +274,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       // Button should be enabled even with empty credentials
-      expect(screen.getByRole('button', { name: /launch agent/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /deploy/i })).toBeEnabled();
     });
 
     it('shows inline errors on required credentials when submitting with empty fields', async () => {
@@ -282,7 +282,7 @@ describe('InstallAgent page', () => {
       renderInstall();
       await waitForForm();
 
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByLabelText('Openai Api Key')).toHaveAttribute('aria-invalid', 'true');
@@ -304,7 +304,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       // Submit with empty fields
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
       await waitFor(() => {
         expect(screen.getByLabelText('Openai Api Key')).toHaveAttribute('aria-invalid', 'true');
       });
@@ -333,7 +333,7 @@ describe('InstallAgent page', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
       // Submit
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent('Select at least one messaging type');
@@ -347,7 +347,7 @@ describe('InstallAgent page', () => {
 
       await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
       await user.click(screen.getByRole('button', { name: /web/i }));
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -376,7 +376,7 @@ describe('InstallAgent page', () => {
       });
 
       // Submit without filling Slack tokens
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByLabelText('Slack Bot Token')).toHaveAttribute('aria-invalid', 'true');
@@ -398,7 +398,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       // Submit with empty required fields
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       // Wait a tick and verify no request was made
       await waitFor(() => {
@@ -417,7 +417,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByText('Agents Page')).toBeInTheDocument();
@@ -455,7 +455,7 @@ describe('InstallAgent page', () => {
       await user.type(screen.getByLabelText('Slack Bot Token'), 'xoxb-test');
       await user.type(screen.getByLabelText('Slack App Token'), 'xapp-test');
 
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(capturedRequests).toHaveLength(1);
@@ -534,7 +534,7 @@ describe('InstallAgent page', () => {
       // Fill only required adapter token; intentionally leave optional config empty.
       await user.type(screen.getByLabelText('Slack App Token'), 'xapp-required');
 
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(capturedRequests).toHaveLength(1);
@@ -566,7 +566,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByText('Deployment failed')).toBeInTheDocument();
@@ -592,7 +592,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       await user.type(screen.getByLabelText('Openai Api Key'), 'bad-key');
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/OPENAI_API_KEY: invalid key format/)).toBeInTheDocument();
@@ -617,7 +617,7 @@ describe('InstallAgent page', () => {
       await waitForForm();
 
       await user.type(screen.getByLabelText('Openai Api Key'), 'sk-test123');
-      await user.click(screen.getByRole('button', { name: /launch agent/i }));
+      await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/Missing variables: SECRET_TOKEN/)).toBeInTheDocument();
