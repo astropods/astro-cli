@@ -18,7 +18,7 @@ test("fresh install shows new deployment on agents list after redirect", async (
   test.setTimeout(60_000);
   await page.goto(`/deploy/${ACCOUNT}/${AGENT_APP_TOKEN_ONLY}`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
   await page.getByRole("button", { name: /slack/i }).click();
@@ -26,7 +26,7 @@ test("fresh install shows new deployment on agents list after redirect", async (
 
   await Promise.all([
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   // The newly deployed agent should appear as a card on the agents list
@@ -44,7 +44,7 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
   // its configure page and redeploying should keep the card on /agents.
   await page.goto(`/deploy/${ACCOUNT}/slack-config-full`, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /deploy/i })).toBeVisible({ timeout: 20_000 });
 
   await page.getByLabel("Openai Api Key").fill("sk-test-value");
   await page.getByRole("button", { name: /slack/i }).click();
@@ -53,7 +53,7 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
 
   await Promise.all([
     page.waitForURL("**/agents", { timeout: 20_000 }),
-    page.getByRole("button", { name: /launch agent/i }).click(),
+    page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
