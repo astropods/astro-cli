@@ -47,7 +47,7 @@ export function SidebarStats({
 
   if (installs != null) {
     rows.push({
-      label: "Installs",
+      label: "Deployments",
       value: (
         <span className="inline-flex items-center justify-end gap-1.5">
           <ArrowDownTrayIcon className="h-3.5 w-3.5 text-foreground" />
