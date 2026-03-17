@@ -22,7 +22,7 @@ export function SidebarSection({
           {title}
         </span>
       </header>
-      <div className={`px-4 py-3.5 ${bodyClassName ?? ""}`}>
+      <div className={`px-4 py-3 ${bodyClassName ?? ""}`}>
         {children}
       </div>
     </section>
