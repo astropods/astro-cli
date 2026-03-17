@@ -138,7 +138,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
                   ) : (
                     <>
                       <Rocket size={16} />
-                      Launch Agent
+                      Deploy
                     </>
                   )}
                 </Button>
