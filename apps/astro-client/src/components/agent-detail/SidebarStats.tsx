@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Star } from "lucide-react";
 import { RocketLaunchIcon } from "@heroicons/react/24/outline";
 import { SidebarSection } from "./SidebarSection";
 
@@ -35,13 +34,8 @@ export function SidebarStats({
 
   if (rating != null) {
     rows.push({
-      label: "Rating",
-      value: (
-        <span className="inline-flex items-center justify-end gap-1.5">
-          <Star className="h-3 w-3 fill-current text-yellow-500" />
-          {rating.toFixed(1)}
-        </span>
-      ),
+      label: "Requests",
+      value: rating.toFixed(1),
     });
   }
 

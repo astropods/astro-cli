@@ -95,12 +95,9 @@ export function AgentCard({
         </div>
       </div>
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
-        <div className="flex items-center gap-1.5">
-          <ArrowDownTrayIcon className="h-3.5 w-3.5 text-faint-foreground" />
-          <span className="text-mono-sm font-mono text-faint-foreground">
-            {formattedInstalls ?? "1.2K"}
-          </span>
-        </div>
+        <span className="text-mono-sm font-mono text-faint-foreground">
+          {formattedInstalls ?? "1.2K"}
+        </span>
         <span className="text-mono-sm font-mono text-faint-foreground">
           {account}
         </span>
