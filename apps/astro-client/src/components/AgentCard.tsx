@@ -9,7 +9,6 @@ export interface AgentCardProps {
   description: string;
   visibility?: string;
   variant?: "default" | "oftenUsedTogether";
-  rating?: number;
   installs?: number;
 }
 
@@ -20,7 +19,6 @@ export function AgentCard({
   description,
   visibility,
   variant = "default",
-  rating,
   installs,
 }: AgentCardProps) {
   const formattedInstalls = installs != null
