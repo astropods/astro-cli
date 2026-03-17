@@ -5,4 +5,6 @@ export interface ConfigureContext {
   deployment: AgentDeployment;
   template: DeploymentTemplate;
   hasNewerBuildAvailable: boolean;
+  currentBuildId?: string;
+  latestBuildId?: string;
 }

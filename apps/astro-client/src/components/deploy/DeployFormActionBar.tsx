@@ -1,11 +1,14 @@
 import { Loader2, Rocket, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 
 export interface DeployFormActionBarProps {
   isDirty: boolean;
   changeCount: number;
   requiresRedeploy: boolean;
   showBuildUpgradeRedeploy?: boolean;
+  currentBuildId?: string;
+  latestBuildId?: string;
   isSaving: boolean;
   formId: string;
   onReset: () => void;
@@ -16,13 +19,14 @@ export function DeployFormActionBar({
   changeCount,
   requiresRedeploy,
   showBuildUpgradeRedeploy = false,
+  currentBuildId,
+  latestBuildId,
   isSaving,
   formId,
   onReset,
 }: DeployFormActionBarProps) {
   const isVisible = isDirty || showBuildUpgradeRedeploy;
   const isBuildOnlyRedeploy = showBuildUpgradeRedeploy && !isDirty;
-
   return (
     <div className="fixed bottom-0 left-0 right-0 md:left-[calc(9rem+1.5rem)] z-10 flex justify-center pb-4 pointer-events-none">
       <div
@@ -34,11 +38,17 @@ export function DeployFormActionBar({
       >
         <div className="px-5 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-muted-foreground text-center sm:text-left">
-            <span>
-              {isBuildOnlyRedeploy
-                ? "New build available"
-                : `${changeCount} pending ${changeCount === 1 ? "update" : "updates"}`}
-            </span>
+            {isBuildOnlyRedeploy ? (
+              <BuildUpdateBadge
+                currentBuildId={currentBuildId}
+                latestBuildId={latestBuildId}
+                stacked
+                availableLabel
+                className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30"
+              />
+            ) : (
+              <span>{changeCount} pending {changeCount === 1 ? "update" : "updates"}</span>
+            )}
           </div>
           <div className="flex gap-3 sm:shrink-0">
             {isDirty && (

@@ -4,7 +4,7 @@ import { EllipsisVertical, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { AgentIdentity } from "@/components/AgentIdentity";
-import { InlineBadge } from "@/components/InlineBadge";
+import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import {
   DropdownMenu,
@@ -29,6 +29,8 @@ export interface DeployedAgentCardProps {
   updatedAt: string;
   avatarUrl?: string;
   hasNewBuildAvailable?: boolean;
+  currentBuildId?: string;
+  latestBuildId?: string;
   className?: string;
 }
 
@@ -54,6 +56,8 @@ export function DeployedAgentCard({
   updatedAt,
   avatarUrl,
   hasNewBuildAvailable = false,
+  currentBuildId,
+  latestBuildId,
   className,
 }: DeployedAgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -118,9 +122,11 @@ export function DeployedAgentCard({
                 {deploymentStatusLabel[status]}
               </StatusIndicator>
               {hasNewBuildAvailable && (
-                <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
-                  New build
-                </InlineBadge>
+                <BuildUpdateBadge
+                  currentBuildId={currentBuildId}
+                  latestBuildId={latestBuildId}
+                  className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30"
+                />
               )}
             </div>
           </div>

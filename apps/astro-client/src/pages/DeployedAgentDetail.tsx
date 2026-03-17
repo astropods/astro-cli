@@ -8,6 +8,7 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import { AgentIdentity } from "@/components/AgentIdentity";
+import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { InlineBadge } from "@/components/InlineBadge";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ExternalUrls } from "@/components/deployed-agent/ExternalUrls";
@@ -20,6 +21,8 @@ import { createServerApi } from "@/lib/api.server";
 import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
 import { getPodStableName, getPodDisplayName } from "@/lib/pod-utils";
+
+const BUILD_UPDATE_POLL_MS = 15_000;
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
@@ -84,7 +87,9 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
-  const { data: agentData } = useAgent(account, deployment?.name ?? "");
+  const { data: agentData } = useAgent(account, deployment?.name ?? "", {
+    refetchInterval: BUILD_UPDATE_POLL_MS,
+  });
 
   if (!deployment) {
     return (
@@ -150,14 +155,19 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
                 {deploymentStatusLabel[status]}
               </StatusIndicator>
               {hasNewBuildAvailable && (
-                <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
-                  New build
-                </InlineBadge>
+                <BuildUpdateBadge
+                  currentBuildId={deployment.build_id}
+                  latestBuildId={latestBuildId}
+                  className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30"
+                />
               )}
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Deployed {formatDate(deployment.created_at)}
-            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                Deployed {formatDate(deployment.created_at)}
+              </p>
+              {deployment.build_id && <InlineBadge>{deployment.build_id}</InlineBadge>}
+            </div>
           </div>
           {selectedPod && (
             <Button

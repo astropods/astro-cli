@@ -11,7 +11,14 @@ import { useChangeTracking, type TrackedFormState } from "@/components/deploy/us
 const FORM_ID = "configure-deployment-form";
 
 export default function ConfigureDeployment() {
-  const { account, deployment, template, hasNewerBuildAvailable } = useOutletContext<ConfigureContext>();
+  const {
+    account,
+    deployment,
+    template,
+    hasNewerBuildAvailable,
+    currentBuildId,
+    latestBuildId,
+  } = useOutletContext<ConfigureContext>();
   const navigate = useNavigate();
 
   const basePath = deploymentPath(account, deployment.id);
@@ -77,6 +84,8 @@ export default function ConfigureDeployment() {
         changeCount={changes.changeCount}
         requiresRedeploy={changes.requiresRedeploy || hasNewerBuildAvailable}
         showBuildUpgradeRedeploy={hasNewerBuildAvailable}
+        currentBuildId={currentBuildId}
+        latestBuildId={latestBuildId}
         isSaving={form.isDeploying}
         formId={FORM_ID}
         onReset={() => form.reset(initialValues)}

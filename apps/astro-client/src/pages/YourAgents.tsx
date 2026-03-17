@@ -12,6 +12,8 @@ import { useAuth } from "../lib/auth";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 
+const BUILD_UPDATE_POLL_MS = 15_000;
+
 function YourAgentsContent() {
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -19,7 +21,9 @@ function YourAgentsContent() {
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data } = useDeployments(userAccount, isAuthenticated);
-  const { data: accountAgents } = useAccountAgents(userAccount, isAuthenticated);
+  const { data: accountAgents } = useAccountAgents(userAccount, isAuthenticated, {
+    refetchInterval: BUILD_UPDATE_POLL_MS,
+  });
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
@@ -66,7 +70,10 @@ function YourAgentsContent() {
         />
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((deployment) => (
+          {filtered.map((deployment) => {
+            const latestBuildId = latestBuildByName.get(deployment.name);
+            const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
+            return (
             <DeployedAgentCard
               key={deployment.id}
               name={deployment.name}
@@ -79,12 +86,12 @@ function YourAgentsContent() {
               lastActive="—"
               installedAt={formatDate(deployment.created_at)}
               updatedAt={formatDate(deployment.created_at)}
-              hasNewBuildAvailable={
-                !!latestBuildByName.get(deployment.name) &&
-                latestBuildByName.get(deployment.name) !== deployment.build_id
-              }
+              hasNewBuildAvailable={hasNewBuildAvailable}
+              currentBuildId={deployment.build_id}
+              latestBuildId={latestBuildId}
             />
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

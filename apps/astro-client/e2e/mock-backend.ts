@@ -14,6 +14,11 @@ const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const REJECT_BOT_TOKEN = "xoxb-server-reject";
 
 const nowIso = new Date().toISOString();
+const latestBuildByAgent: Record<string, string> = {
+  [AGENT_APP_TOKEN_ONLY]: "build-123",
+  [AGENT_SLACK_FULL]: "build-124",
+  [AGENT_SLACK_OVERLAP]: "build-123",
+};
 
 const authResponse = {
   user: {
@@ -230,7 +235,7 @@ const prefilledTemplatesByDeployment = {
   },
 } satisfies Record<string, unknown>;
 
-const deployments = [
+const makeInitialDeployments = () => [
   {
     id: DEPLOYMENT_SLACK_FULL_ID,
     name: AGENT_SLACK_FULL,
@@ -263,18 +268,29 @@ const deployments = [
   },
 ];
 
+let deployments = makeInitialDeployments();
+
 const agentFor = (agentName: string) => ({
   name: agentName,
   account: ACCOUNT,
   registry: "registry.example.com",
   versions: [
     {
-      build_id: "build-123",
+      build_id: latestBuildByAgent[agentName] ?? "build-123",
       spec: { model: "gpt-4o" },
       published_at: nowIso,
     },
   ],
 });
+
+const accountAgents = {
+  agents: [
+    agentFor(AGENT_APP_TOKEN_ONLY),
+    agentFor(AGENT_SLACK_FULL),
+    agentFor(AGENT_SLACK_OVERLAP),
+  ],
+  count: 3,
+};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -289,6 +305,12 @@ Bun.serve({
     const pathname = url.pathname;
 
     if (pathname === "/health") return new Response("ok");
+
+    // Reset mutable state between tests so parallel workers don't leak side-effects
+    if (pathname === "/test/reset" && request.method === "POST") {
+      deployments = makeInitialDeployments();
+      return json({ ok: true });
+    }
 
     if (pathname === "/auth/me") return json(authResponse);
     if (pathname === "/auth/refresh") return json(authResponse);
@@ -330,6 +352,15 @@ Bun.serve({
       return json({ error: "not_found" }, 404);
     }
 
+    const accountAgentsMatch = pathname.match(/^\/api\/v1\/agents\/([^/]+)$/);
+    if (accountAgentsMatch) {
+      const [, accountName] = accountAgentsMatch;
+      if (accountName === ACCOUNT) {
+        return json(accountAgents);
+      }
+      return json({ agents: [], count: 0 });
+    }
+
     if (pathname === "/api/v1/deployments") {
       const accountParam = url.searchParams.get("account");
       if (accountParam === ACCOUNT) {
@@ -358,10 +389,15 @@ Bun.serve({
         );
       }
       const deploymentName = body.source?.name ?? AGENT_APP_TOKEN_ONLY;
+      const newBuildId = latestBuildByAgent[deploymentName] ?? "build-123";
+      // Update in-memory deployment so subsequent list fetches reflect the redeploy
+      deployments = deployments.map((d) =>
+        d.name === deploymentName ? { ...d, build_id: newBuildId } : d,
+      );
       return json({
         status: "deployed",
         name: deploymentName,
-        build_id: "build-123",
+        build_id: newBuildId,
         k8s_namespace: "astro-namespace",
         deployed_at: nowIso,
         resources: [{ kind: "Deployment", name: deploymentName, status: "created" }],
