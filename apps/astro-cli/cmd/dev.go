@@ -718,18 +718,6 @@ func checkComposeHealth(projectName string) {
 	fmt.Println()
 }
 
-// devLogsArgs returns the docker compose logs command arguments.
-// Defaults to the agent service; --all tails everything; a specific service overrides both.
-func devLogsArgs(composePath string, args []string, all bool) []string {
-	logsArgs := []string{"compose", "-f", composePath, "logs", "-f"}
-	if len(args) > 0 {
-		logsArgs = append(logsArgs, args[0])
-	} else if !all {
-		logsArgs = append(logsArgs, "agent")
-	}
-	return logsArgs
-}
-
 // localDockerImage describes a Docker image to build in --local mode.
 type localDockerImage struct {
 	tag        string // e.g. "messaging:latest"
@@ -776,21 +764,6 @@ func buildLocalImages(images []localDockerImage, rebuild bool) error {
 		}
 	}
 	return nil
-}
-
-// composeBuildArgs returns the docker compose build command arguments.
-// --pull is a boolean flag: true = always pull base images, false = use cache.
-func composeBuildArgs(composePath string, rebuild, noPull bool) []string {
-	args := []string{"compose", "--profile", "ingestion", "-f", composePath, "build"}
-	if rebuild {
-		args = append(args, "--no-cache")
-	}
-	if noPull {
-		args = append(args, "--pull=false")
-	} else {
-		args = append(args, "--pull")
-	}
-	return args
 }
 
 // resolveAstroSourceRoot returns the Astro monorepo root from ASTRO_ROOT.
