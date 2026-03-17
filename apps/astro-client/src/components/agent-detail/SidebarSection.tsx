@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export interface SidebarSectionProps {
   title: string;
@@ -17,12 +18,12 @@ export function SidebarSection({
 }: SidebarSectionProps) {
   return (
     <section className={`overflow-hidden rounded-md border border-border-strong bg-surface ${className ?? ""}`}>
-      <header className={`border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30 ${headerClassName ?? ""}`}>
+      <header className={cn("border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30", headerClassName)}>
         <span className="block text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
           {title}
         </span>
       </header>
-      <div className={`px-4 py-3 ${bodyClassName ?? ""}`}>
+      <div className={cn("px-4 py-3", bodyClassName)}>
         {children}
       </div>
     </section>

@@ -72,7 +72,7 @@ export function SidebarStats({
   }
 
   return (
-    <SidebarSection title="Details" headerClassName="py-2" bodyClassName="px-0 py-1">
+    <SidebarSection title="Details" headerClassName="py-2" bodyClassName="py-1">
       <dl>
         {rows.map((row, index) => (
           <div key={row.label}>
