@@ -45,8 +45,8 @@ export function AgentCard({
           <h3 className="truncate text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
             {name}
           </h3>
-          <p className="font-mono text-mono-sm text-muted-foreground">
-            @{account}
+          <p className="font-mono text-mono-sm text-faint-foreground">
+            {account}
           </p>
           {(rating != null || installs != null) && (
             <p className="inline-flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
