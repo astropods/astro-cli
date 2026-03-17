@@ -47,7 +47,7 @@ interface AvatarSample {
   label: string;
   avatar: CardAvatar | undefined;
   thumb: string;
-  source: string | null; // image source for canvas color extraction
+  source: string | null;
 }
 
 function identityAvatar(seed: string, label: string): AvatarSample {
