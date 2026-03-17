@@ -333,12 +333,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
+	// Activate the "ingestion" profile so the SDK resolves profiled services by name.
+	buildProject := *project
+	buildProject.Profiles = []string{"ingestion"}
 	buildTitle := "Building services..."
 	if rebuild {
 		buildTitle = "Building services (no cache)..."
 	}
 	if err := withSpinner(buildTitle, "Build complete", verbose, func() error {
-		return svc.Build(context.Background(), project, api.BuildOptions{
+		return svc.Build(context.Background(), &buildProject, api.BuildOptions{
 			NoCache:  rebuild,
 			Quiet:    !verbose,
 			Services: allServiceNames(project),
