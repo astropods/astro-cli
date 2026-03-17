@@ -20,107 +20,24 @@
     .avatar-pick.active { border-color: #6366f1; }
     .avatar-pick span { font-size: 10px; opacity: 0.5; }
     .avatar-pick svg, .avatar-pick img { border-radius: 8px; display: block; }
-
-    /* --- Card wrapper with 3D transforms --- */
-    .card-wrapper {
-      display: inline-block;
-      perspective: 600px;
+    .downloads {
+      margin-top: 24px;
+      display: flex; gap: 8px;
     }
-
-    .card {
-      position: relative;
-      display: inline-block;
-      border-radius: 16px;
-      transform-style: preserve-3d;
-      transform: rotateY(var(--rotate-x, 0deg)) rotateX(var(--rotate-y, 0deg));
-      transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
-      will-change: transform;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+    .downloads button {
+      padding: 6px 14px; border-radius: 8px; border: 1px solid #333;
+      background: #222; color: #e0e0e0; cursor: pointer; font-size: 12px;
     }
-    .card:hover {
-      box-shadow: 0 12px 48px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4);
-    }
-    .card svg { display: block; border-radius: 16px; }
-    .card { user-select: none; -webkit-user-select: none; }
-
-    /* --- Shine overlay (foil effect) --- */
-    .card__shine {
-      position: absolute;
-      inset: 0;
-      border-radius: 16px;
-      z-index: 2;
-      pointer-events: none;
-      opacity: 0;
-      mix-blend-mode: color-dodge;
-      transition: opacity 0.15s ease-out;
-
-      background-image:
-        radial-gradient(
-          circle at var(--pointer-x, 50%) var(--pointer-y, 50%),
-          #fff 5%, #000 50%, #fff 80%
-        ),
-        linear-gradient(
-          -45deg,
-          #000 15%, #fff, #000 85%
-        ),
-        repeating-linear-gradient(
-          var(--foil-angle, 135deg),
-          hsl(280, 80%, 50%) 0%,
-          hsl(200, 80%, 50%) 10%,
-          hsl(140, 80%, 50%) 20%,
-          hsl(60, 80%, 50%) 30%,
-          hsl(330, 80%, 50%) 40%,
-          hsl(280, 80%, 50%) 50%
-        );
-
-      background-blend-mode: soft-light, difference;
-      background-size: 120% 120%, 200% 200%, 150% 150%;
-      background-position:
-        center center,
-        calc(100% * var(--pointer-from-left, 0.5)) calc(100% * var(--pointer-from-top, 0.5)),
-        center center;
-
-      filter: brightness(0.55) contrast(1.5) saturate(1);
-      opacity: 0.4;
-    }
-    .card:hover .card__shine {
-      opacity: calc(1.5 * var(--card-opacity, 0.4) - var(--pointer-from-center, 0));
-    }
-
-    /* --- Glare overlay (specular highlight) --- */
-    .card__glare {
-      position: absolute;
-      inset: 0;
-      border-radius: 16px;
-      z-index: 3;
-      pointer-events: none;
-      opacity: 0;
-      mix-blend-mode: overlay;
-      transition: opacity 0.15s ease-out;
-
-      background-image:
-        radial-gradient(
-          farthest-corner circle at var(--pointer-x, 50%) var(--pointer-y, 50%),
-          hsla(0, 0%, 100%, 0.8) 10%,
-          hsla(0, 0%, 100%, 0.5) 20%,
-          hsla(0, 0%, 0%, 0.75) 90%
-        );
-      filter: brightness(0.7) contrast(1.5);
-      opacity: 0.3;
-    }
-    .card:hover .card__glare {
-      opacity: var(--card-opacity, 0.3);
-    }
+    .downloads button:hover { border-color: #555; }
   </style>
 </head>
 <body>
   <h1>astro-trading-card</h1>
   <div class="avatar-row" id="avatar-row"></div>
-  <div class="card-wrapper">
-    <div class="card" id="card-output">
-      <div class="card__shine"></div>
-      <div class="card__glare"></div>
-    </div>
+  <astro-trading-card></astro-trading-card>
+  <div class="downloads">
+    <button id="dl-svg">Download SVG</button>
+    <button id="dl-png">Download PNG</button>
   </div>
   <script type="module" src="./dev-client.ts"></script>
 </body>

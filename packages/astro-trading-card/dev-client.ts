@@ -11,8 +11,12 @@ if (import.meta.hot) {
 }
 import { extractPalette, pickCardColors } from "./src/mmcq";
 import { generateCard } from "./src/index";
+import { downloadSvg, downloadPng, registerCardElement } from "./src/browser";
+import type { AstroTradingCardElement } from "./src/card-element";
 import { generateIdentity } from "identity-gen";
 import type { CardAvatar, CardColors, CardData } from "./src/types";
+
+registerCardElement();
 
 // --- Sample data ---
 
@@ -135,6 +139,8 @@ function buildPicker() {
   });
 }
 
+let lastSvg = "";
+
 async function render(idx: number) {
   selectedIdx = idx;
 
@@ -145,51 +151,22 @@ async function render(idx: number) {
   const sample = avatars[idx];
   const colors = await extractColors(sample.source);
   const data: CardData = { ...sampleData, avatar: sample.avatar, colors, displayName: sample.label };
-  const svg = generateCard(data, { variant: "standard" });
+  lastSvg = generateCard(data, { variant: "standard" });
 
-  const card = document.getElementById("card-output")!;
-  // Preserve the shine/glare overlays, replace only the SVG
-  const existing = card.querySelector("svg");
-  if (existing) existing.remove();
-  card.insertAdjacentHTML("afterbegin", svg);
-
-  // Set glow color for box-shadow
-  card.style.setProperty("--card-glow", colors.glow ?? colors.accent);
+  const card = document.querySelector("astro-trading-card") as AstroTradingCardElement;
+  card.svg = lastSvg;
 }
 
-// --- Mouse tracking for holo effect ---
-function setupHoloTracking() {
-  const card = document.getElementById("card-output")!;
-
-  const clamp = (v: number, min = 0, max = 100) => Math.min(max, Math.max(min, v));
-
-  card.addEventListener("pointermove", (e) => {
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const px = clamp((x / rect.width) * 100);
-    const py = clamp((y / rect.height) * 100);
-    const cx = px - 50;
-    const cy = py - 50;
-    const dist = Math.sqrt(cx * cx + cy * cy) / 50;
-
-    card.style.setProperty("--pointer-x", `${px}%`);
-    card.style.setProperty("--pointer-y", `${py}%`);
-    card.style.setProperty("--pointer-from-left", String(px / 100));
-    card.style.setProperty("--pointer-from-top", String(py / 100));
-    card.style.setProperty("--pointer-from-center", String(clamp(dist, 0, 1)));
-    card.style.setProperty("--card-opacity", "1");
-    card.style.setProperty("--rotate-x", `${-(cx / 4)}deg`);
-    card.style.setProperty("--rotate-y", `${cy / 4}deg`);
+// --- Download buttons ---
+function setupDownloads() {
+  document.getElementById("dl-svg")?.addEventListener("click", async () => {
+    if (lastSvg) await downloadSvg(lastSvg, { name: sampleData.name, id: sampleData.barcodeId ?? "unknown" });
   });
-
-  card.addEventListener("pointerleave", () => {
-    card.style.setProperty("--card-opacity", "0");
-    card.style.setProperty("--rotate-x", "0deg");
-    card.style.setProperty("--rotate-y", "0deg");
+  document.getElementById("dl-png")?.addEventListener("click", async () => {
+    if (lastSvg) await downloadPng(lastSvg, { name: sampleData.name, id: sampleData.barcodeId ?? "unknown" });
   });
 }
 
 buildPicker();
 render(0);
-setupHoloTracking();
+setupDownloads();

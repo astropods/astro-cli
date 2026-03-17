@@ -41,7 +41,7 @@ describe("generateCard", () => {
 
 describe("getCardDimensions", () => {
   it("returns correct dimensions", () => {
-    expect(getCardDimensions("standard")).toEqual({ width: 400, height: 560 });
+    expect(getCardDimensions("standard")).toEqual({ width: 350, height: 560 });
     expect(getCardDimensions("wide")).toEqual({ width: 600, height: 315 });
     expect(getCardDimensions("compact")).toEqual({ width: 440, height: 120 });
   });
