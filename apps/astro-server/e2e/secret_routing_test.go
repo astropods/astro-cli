@@ -54,109 +54,108 @@ const secretRoutingSpec = `{
   "observability": {"enabled": false}
 }`
 
-func TestSecretRouting_Separation(t *testing.T) {
+func TestSecretRouting(t *testing.T) {
 	env := setupSecretRoutingEnv(t)
 
-	ns := env.ns
-	agentName := "sr-agent"
-	buildID := "srbuild01"
+	t.Run("Separation", func(t *testing.T) {
+		agentName := "sr-agent"
+		buildID := "srbuild01"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 
-	// --- Verify ConfigMap contents ---
-	cmName := deployment.GenerateConfigMapName(agentName, buildID)
-	cm, err := env.client.Clientset().CoreV1().ConfigMaps(ns).Get(ctx, cmName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get ConfigMap %s: %v", cmName, err)
-	}
+		// --- Verify ConfigMap contents ---
+		cmName := deployment.GenerateConfigMapName(agentName, buildID)
+		cm, err := env.client.Clientset().CoreV1().ConfigMaps(env.ns).Get(ctx, cmName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get ConfigMap %s: %v", cmName, err)
+		}
 
-	// LOG_LEVEL (plain value) must be in ConfigMap
-	if cm.Data["LOG_LEVEL"] != "debug" {
-		t.Errorf("ConfigMap LOG_LEVEL: expected 'debug', got %q", cm.Data["LOG_LEVEL"])
-	}
-	// APP_NAME (non-secret variable ref) must be in ConfigMap
-	if cm.Data["APP_NAME"] != "my-app" {
-		t.Errorf("ConfigMap APP_NAME: expected 'my-app', got %q", cm.Data["APP_NAME"])
-	}
-	// API_KEY (secret ref) must NOT be in ConfigMap
-	if _, ok := cm.Data["API_KEY"]; ok {
-		t.Errorf("ConfigMap should NOT contain API_KEY (secret ref), but found %q", cm.Data["API_KEY"])
-	}
-	// AUTH_HEADER (composite secret ref) must NOT be in ConfigMap
-	if _, ok := cm.Data["AUTH_HEADER"]; ok {
-		t.Errorf("ConfigMap should NOT contain AUTH_HEADER (composite secret ref), but found %q", cm.Data["AUTH_HEADER"])
-	}
+		// LOG_LEVEL (plain value) must be in ConfigMap
+		if cm.Data["LOG_LEVEL"] != "debug" {
+			t.Errorf("ConfigMap LOG_LEVEL: expected 'debug', got %q", cm.Data["LOG_LEVEL"])
+		}
+		// APP_NAME (non-secret variable ref) must be in ConfigMap
+		if cm.Data["APP_NAME"] != "my-app" {
+			t.Errorf("ConfigMap APP_NAME: expected 'my-app', got %q", cm.Data["APP_NAME"])
+		}
+		// API_KEY (secret ref) must NOT be in ConfigMap
+		if _, ok := cm.Data["API_KEY"]; ok {
+			t.Errorf("ConfigMap should NOT contain API_KEY (secret ref), but found %q", cm.Data["API_KEY"])
+		}
+		// AUTH_HEADER (composite secret ref) must NOT be in ConfigMap
+		if _, ok := cm.Data["AUTH_HEADER"]; ok {
+			t.Errorf("ConfigMap should NOT contain AUTH_HEADER (composite secret ref), but found %q", cm.Data["AUTH_HEADER"])
+		}
 
-	// --- Verify Secret contents ---
-	secretName := deployment.GenerateSecretName(agentName, buildID)
-	secret, err := env.client.Clientset().CoreV1().Secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get Secret %s: %v", secretName, err)
-	}
+		// --- Verify Secret contents ---
+		secretName := deployment.GenerateSecretName(agentName, buildID)
+		secret, err := env.client.Clientset().CoreV1().Secrets(env.ns).Get(ctx, secretName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("get Secret %s: %v", secretName, err)
+		}
 
-	// API_KEY (direct secret ref) must be in Secret with resolved value
-	if got := string(secret.Data["API_KEY"]); got != "test-API_KEY" {
-		t.Errorf("Secret API_KEY: expected 'test-API_KEY', got %q", got)
-	}
-	// AUTH_HEADER (composite secret ref) must be in Secret
-	if got := string(secret.Data["AUTH_HEADER"]); got != "Bearer test-API_KEY" {
-		t.Errorf("Secret AUTH_HEADER: expected 'Bearer test-API_KEY', got %q", got)
-	}
-	// LOG_LEVEL must NOT be in Secret
-	if _, ok := secret.Data["LOG_LEVEL"]; ok {
-		t.Errorf("Secret should NOT contain LOG_LEVEL (plain value)")
-	}
-	// APP_NAME must NOT be in Secret
-	if _, ok := secret.Data["APP_NAME"]; ok {
-		t.Errorf("Secret should NOT contain APP_NAME (non-secret variable)")
-	}
-}
+		// API_KEY (direct secret ref) must be in Secret with resolved value
+		if got := string(secret.Data["API_KEY"]); got != "test-API_KEY" {
+			t.Errorf("Secret API_KEY: expected 'test-API_KEY', got %q", got)
+		}
+		// AUTH_HEADER (composite secret ref) must be in Secret
+		if got := string(secret.Data["AUTH_HEADER"]); got != "Bearer test-API_KEY" {
+			t.Errorf("Secret AUTH_HEADER: expected 'Bearer test-API_KEY', got %q", got)
+		}
+		// LOG_LEVEL must NOT be in Secret
+		if _, ok := secret.Data["LOG_LEVEL"]; ok {
+			t.Errorf("Secret should NOT contain LOG_LEVEL (plain value)")
+		}
+		// APP_NAME must NOT be in Secret
+		if _, ok := secret.Data["APP_NAME"]; ok {
+			t.Errorf("Secret should NOT contain APP_NAME (non-secret variable)")
+		}
+	})
 
-func TestSecretRouting_NoDrift(t *testing.T) {
-	env := setupSecretRoutingEnv(t)
+	t.Run("NoDrift", func(t *testing.T) {
+		workloads, err := env.store.GetWorkloads(env.depID)
+		if err != nil {
+			t.Fatalf("GetWorkloads: %v", err)
+		}
+		services, _ := env.store.GetServices(env.depID)
+		ingresses, _ := env.store.GetIngresses(env.depID)
+		variables, _ := env.store.GetDeploymentVariables(env.depID)
+		resolvedKeys, _ := env.store.GetResolvedKeys(env.depID)
 
-	workloads, err := env.store.GetWorkloads(env.depID)
-	if err != nil {
-		t.Fatalf("GetWorkloads: %v", err)
-	}
-	services, _ := env.store.GetServices(env.depID)
-	ingresses, _ := env.store.GetIngresses(env.depID)
-	variables, _ := env.store.GetDeploymentVariables(env.depID)
-	resolvedKeys, _ := env.store.GetResolvedKeys(env.depID)
+		svcNameByID := map[int]string{}
+		for _, svc := range services {
+			svcNameByID[svc.ID] = svc.WorkloadName
+		}
 
-	svcNameByID := map[int]string{}
-	for _, svc := range services {
-		svcNameByID[svc.ID] = svc.WorkloadName
-	}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+		report := riverqueue.BuildDriftReport(ctx, env.client.Clientset(), env.ns,
+			"sr-agent", "srbuild01", workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
 
-	report := riverqueue.BuildDriftReport(ctx, env.client.Clientset(), env.ns,
-		"sr-agent", "srbuild01", workloads, services, ingresses, svcNameByID, variables, resolvedKeys)
-
-	if report.Summary.Missing != 0 {
-		t.Errorf("expected 0 missing, got %d", report.Summary.Missing)
-		for _, wl := range report.Workloads {
-			if wl.Status == "missing" {
-				t.Logf("  missing workload: %s", wl.Name)
+		if report.Summary.Missing != 0 {
+			t.Errorf("expected 0 missing, got %d", report.Summary.Missing)
+			for _, wl := range report.Workloads {
+				if wl.Status == "missing" {
+					t.Logf("  missing workload: %s", wl.Name)
+				}
 			}
 		}
-	}
-	if report.Summary.Drift != 0 {
-		t.Errorf("expected 0 drift, got %d", report.Summary.Drift)
-		for _, item := range report.EnvVars {
-			if item.Status == "drift" {
-				t.Logf("  env drift: %s expected=%v actual=%v", item.Name, item.Expected, item.Actual)
+		if report.Summary.Drift != 0 {
+			t.Errorf("expected 0 drift, got %d", report.Summary.Drift)
+			for _, item := range report.EnvVars {
+				if item.Status == "drift" {
+					t.Logf("  env drift: %s expected=%v actual=%v", item.Name, item.Expected, item.Actual)
+				}
+			}
+			for _, item := range report.Secrets {
+				if item.Status == "drift" {
+					t.Logf("  secret drift: %s expected=%v actual=%v", item.Name, item.Expected, item.Actual)
+				}
 			}
 		}
-		for _, item := range report.Secrets {
-			if item.Status == "drift" {
-				t.Logf("  secret drift: %s expected=%v actual=%v", item.Name, item.Expected, item.Actual)
-			}
-		}
-	}
+	})
 }
 
 // --- setup ---

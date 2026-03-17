@@ -170,6 +170,34 @@ func sanitize(s string) string {
 
 func cleanupNamespace(t *testing.T, clientset kubernetes.Interface, ns string) {
 	t.Helper()
+
+	// If a namespace from a previous run is stuck in Terminating, delete it
+	// and wait for it to be fully gone before proceeding. Creating resources
+	// in a Terminating namespace silently discards them.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	existing, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+	if err == nil && existing.Status.Phase == corev1.NamespaceTerminating {
+		t.Logf("namespace %s is Terminating from previous run, waiting for deletion", ns)
+		_ = wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+			_, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, nil
+		})
+	} else if err == nil {
+		// Namespace exists and is active — delete it and wait
+		_ = clientset.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
+		_ = wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(ctx context.Context) (bool, error) {
+			_, err := clientset.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, nil
+		})
+	}
+
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -182,6 +210,7 @@ func cleanupNamespace(t *testing.T, clientset kubernetes.Interface, ns string) {
 func waitForDeployments(t *testing.T, clientset kubernetes.Interface, ns string, count int) []appsv1.Deployment {
 	t.Helper()
 	var result []appsv1.Deployment
+	var lastSeen int
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	err := wait.PollUntilContextCancel(ctx, 500*time.Millisecond, true, func(ctx context.Context) (bool, error) {
@@ -191,14 +220,17 @@ func waitForDeployments(t *testing.T, clientset kubernetes.Interface, ns string,
 		if err != nil {
 			return false, nil
 		}
-		if len(depls.Items) == count {
+		lastSeen = len(depls.Items)
+		if lastSeen == count {
 			result = depls.Items
 			return true, nil
 		}
 		return false, nil
 	})
 	if err != nil {
-		t.Fatalf("timed out waiting for %d deployments in %s: %v", count, ns, err)
+		// List what we actually found for debugging
+		names := listResourceNames(clientset, ns, "deployments")
+		t.Fatalf("timed out waiting for %d deployments in %s (saw %d): %v\n  found: %v", count, ns, lastSeen, err, names)
 	}
 	return result
 }
@@ -208,6 +240,7 @@ func waitForDeployments(t *testing.T, clientset kubernetes.Interface, ns string,
 func waitForStatefulSets(t *testing.T, clientset kubernetes.Interface, ns string, count int) []appsv1.StatefulSet {
 	t.Helper()
 	var result []appsv1.StatefulSet
+	var lastSeen int
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	err := wait.PollUntilContextCancel(ctx, 500*time.Millisecond, true, func(ctx context.Context) (bool, error) {
@@ -217,16 +250,42 @@ func waitForStatefulSets(t *testing.T, clientset kubernetes.Interface, ns string
 		if err != nil {
 			return false, nil
 		}
-		if len(ssets.Items) == count {
+		lastSeen = len(ssets.Items)
+		if lastSeen == count {
 			result = ssets.Items
 			return true, nil
 		}
 		return false, nil
 	})
 	if err != nil {
-		t.Fatalf("timed out waiting for %d statefulsets in %s: %v", count, ns, err)
+		names := listResourceNames(clientset, ns, "statefulsets")
+		t.Fatalf("timed out waiting for %d statefulsets in %s (saw %d): %v\n  found: %v", count, ns, lastSeen, err, names)
 	}
 	return result
+}
+
+// listResourceNames returns the names of managed resources in a namespace for diagnostics.
+func listResourceNames(clientset kubernetes.Interface, ns, kind string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var names []string
+	switch kind {
+	case "deployments":
+		list, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+		if err == nil {
+			for _, d := range list.Items {
+				names = append(names, d.Name)
+			}
+		}
+	case "statefulsets":
+		list, err := clientset.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{})
+		if err == nil {
+			for _, s := range list.Items {
+				names = append(names, s.Name)
+			}
+		}
+	}
+	return names
 }
 
 func fillSecrets(s *spec.AstroDeploymentSpec) {
