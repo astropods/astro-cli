@@ -43,7 +43,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Only generate resource names when there is data to back them;
 	// referencing a non-existent Secret/ConfigMap causes K8s errors.
 	secretName := ""
-	if len(resolved.SecretData) > 0 {
+	if resolved.HasSecretValues() {
 		secretName = deployment.GenerateSecretName(agentName, buildID)
 	}
 	configMapName := ""
@@ -66,7 +66,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Phase 1: Create Secret (credentials)
-	if len(resolved.SecretData) > 0 {
+	if resolved.HasSecretValues() {
 		secret := BuildSecret(a.namespace, agentName, buildID, resolved.SecretData)
 		status, err := a.applySecret(ctx, secret)
 		result.Resources = append(result.Resources, status)

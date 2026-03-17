@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -544,5 +545,149 @@ func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 	// Empty secret variables should NOT be in secret data
 	if _, ok := result.SecretData["EMPTY_KEY"]; ok {
 		t.Error("empty secret variable should not be in SecretData")
+	}
+}
+
+func TestResolveDeploymentSpecEnv_StrippedSecretRouting(t *testing.T) {
+	// Stripped spec (empty secret values): env keys referencing secret variables
+	// should still route to SecretData so backfill/repair key sets are correct.
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{},
+		Agent: spec.DeploymentAgent{
+			Image:     "x",
+			Endpoints: httpEndpoints(8080),
+			Environment: map[string]string{
+				"API_KEY":     "${variables.API_KEY}",
+				"AUTH_HEADER": "Bearer ${variables.API_KEY}",
+				"LOG_LEVEL":   "debug",
+				"APP_NAME":    "${variables.APP_NAME}",
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"API_KEY":  {Value: "", Secret: true}, // stripped
+			"APP_NAME": {Value: "my-app", Secret: false},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Secret-referencing keys go to SecretData even with empty values
+	if _, ok := result.SecretData["API_KEY"]; !ok {
+		t.Error("expected API_KEY in SecretData")
+	}
+	if _, ok := result.ConfigMapData["API_KEY"]; ok {
+		t.Error("API_KEY should not be in ConfigMapData")
+	}
+	if _, ok := result.SecretData["AUTH_HEADER"]; !ok {
+		t.Error("expected AUTH_HEADER in SecretData")
+	}
+
+	// Non-secret keys stay in ConfigMapData
+	if result.ConfigMapData["LOG_LEVEL"] != "debug" {
+		t.Errorf("LOG_LEVEL: expected debug, got %s", result.ConfigMapData["LOG_LEVEL"])
+	}
+	if result.ConfigMapData["APP_NAME"] != "my-app" {
+		t.Errorf("APP_NAME: expected my-app, got %s", result.ConfigMapData["APP_NAME"])
+	}
+
+	// HasSecretValues should be false (all secret values are empty/unresolved)
+	if result.HasSecretValues() {
+		t.Error("HasSecretValues should be false for stripped spec")
+	}
+}
+
+// Regression test: backfill resolves a stripped spec and must produce the same
+// key sets (which keys are in ConfigMap vs Secret) as a fresh deploy with full
+// values. Before the fix, stripped specs routed secret-referencing env keys to
+// ConfigMapData because referencesSecret required v.Value != "".
+func TestResolveDeploymentSpecEnv_BackfillKeySetMatchesFreshDeploy(t *testing.T) {
+	makeSpec := func(secretValue string) *spec.AstroDeploymentSpec {
+		return &spec.AstroDeploymentSpec{
+			Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+			Target: spec.DeploymentTarget{},
+			Agent: spec.DeploymentAgent{
+				Image:     "x",
+				Endpoints: httpEndpoints(8080),
+				Environment: map[string]string{
+					"API_KEY":     "${variables.API_KEY}",
+					"AUTH_HEADER": "Bearer ${variables.API_KEY}",
+					"LOG_LEVEL":   "debug",
+					"APP_NAME":    "${variables.APP_NAME}",
+				},
+			},
+			Variables: map[string]spec.Variable{
+				"API_KEY":  {Value: secretValue, Secret: true},
+				"APP_NAME": {Value: "my-app", Secret: false},
+			},
+		}
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+
+	// Fresh deploy: secret has a real value
+	fresh := ResolveDeploymentSpecEnv(makeSpec("sk-secret-123"), rctx)
+
+	// Backfill: secret value stripped (empty)
+	stripped := ResolveDeploymentSpecEnv(makeSpec(""), rctx)
+
+	// Key sets must match: same keys in ConfigMapData, same keys in SecretData
+	freshCMKeys := sortedKeys(fresh.ConfigMapData)
+	strippedCMKeys := sortedKeys(stripped.ConfigMapData)
+	if !equalSlices(freshCMKeys, strippedCMKeys) {
+		t.Errorf("ConfigMap key mismatch:\n  fresh:    %v\n  stripped: %v", freshCMKeys, strippedCMKeys)
+	}
+
+	freshSecKeys := sortedKeys(fresh.SecretData)
+	strippedSecKeys := sortedKeys(stripped.SecretData)
+	if !equalSlices(freshSecKeys, strippedSecKeys) {
+		t.Errorf("Secret key mismatch:\n  fresh:    %v\n  stripped: %v", freshSecKeys, strippedSecKeys)
+	}
+
+	// Fresh deploy should have real values → HasSecretValues true
+	if !fresh.HasSecretValues() {
+		t.Error("fresh deploy should have secret values")
+	}
+	// Stripped spec should not → HasSecretValues false
+	if stripped.HasSecretValues() {
+		t.Error("stripped spec should not have secret values")
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func equalSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestHasSecretValues(t *testing.T) {
+	empty := &ResolvedEnv{
+		SecretData: map[string]string{"KEY": ""},
+	}
+	if empty.HasSecretValues() {
+		t.Error("expected false for empty secret values")
+	}
+
+	populated := &ResolvedEnv{
+		SecretData: map[string]string{"KEY": "real-value"},
+	}
+	if !populated.HasSecretValues() {
+		t.Error("expected true for populated secret values")
 	}
 }

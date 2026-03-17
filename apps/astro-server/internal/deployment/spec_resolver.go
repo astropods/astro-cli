@@ -185,14 +185,14 @@ func resolveEnvMap(
 }
 
 // referencesSecret returns true if the value contains any ${variables.*}
-// reference to a variable marked as secret with a non-empty value.
-// Empty secret values (stripped specs) are excluded so the resolver doesn't
-// route unresolvable references into SecretData.
+// reference to a variable marked as secret (regardless of whether the
+// value is populated). This ensures correct routing for both fresh deploys
+// and backfill/repair with stripped specs.
 func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
 	refs := spec.ParseReferences(value)
 	for _, ref := range refs {
 		if ref.Kind == spec.RefVariable {
-			if v, ok := ds.Variables[ref.Name]; ok && v.Secret && v.Value != "" {
+			if v, ok := ds.Variables[ref.Name]; ok && v.Secret {
 				return true
 			}
 		}
@@ -205,6 +205,19 @@ func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
 func secretKeyExists(key string, result *ResolvedEnv) bool {
 	_, ok := result.SecretData[key]
 	return ok
+}
+
+// HasSecretValues returns true if SecretData contains at least one value that
+// is non-empty and fully resolved (no remaining ${} references). Used by the
+// applier to skip Secret creation for stripped specs where keys are tracked
+// but values are empty or contain unresolved references.
+func (r *ResolvedEnv) HasSecretValues() bool {
+	for _, v := range r.SecretData {
+		if v != "" && !spec.IsReference(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveValue resolves a single value that may contain ${} references.
