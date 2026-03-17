@@ -1,74 +1,116 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { useDeployments, useBackfillResolvedKeys } from "@/api/admin";
+import { useDeployments, useRepairNormalizedSpec, useReapplyDeployment, useRefreshDriftReport } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import { DatabaseZap } from "lucide-react";
+import { X } from "lucide-react";
+import type { AdminDeployment } from "@/types/admin";
 
 export function DeploymentsPage() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useDeployments();
-  const backfillMut = useBackfillResolvedKeys();
-  const [backfillResult, setBackfillResult] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClicked, setLastClicked] = useState<number | null>(null);
+
+  const deployments = data?.deployments ?? [];
+
+  const handleRowClick = (index: number, e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => {
+    const id = deployments[index].deployment_id;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (e.shiftKey && lastClicked !== null) {
+        const start = Math.min(lastClicked, index);
+        const end = Math.max(lastClicked, index);
+        for (let i = start; i <= end; i++) next.add(deployments[i].deployment_id);
+      } else if (e.metaKey || e.ctrlKey) {
+        if (next.has(id)) next.delete(id); else next.add(id);
+      } else {
+        if (next.has(id)) next.delete(id); else next.add(id);
+      }
+      return next;
+    });
+    setLastClicked(index);
+  };
+
+  const toggleAll = () => {
+    setSelected((s) => s.size === deployments.length ? new Set() : new Set(deployments.map((d) => d.deployment_id)));
+  };
+
+  const selectedDeployments = deployments.filter((d) => selected.has(d.deployment_id));
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4">
         <h2 className="text-xl font-semibold">Deployments</h2>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={backfillMut.isPending}
-          onClick={() => {
-            backfillMut.mutate(undefined, {
-              onSuccess: (data) => {
-                setBackfillResult(`Backfilled ${(data as { backfilled_count: number }).backfilled_count} deployments`);
-                setTimeout(() => setBackfillResult(null), 5000);
-              },
-            });
-          }}
-        >
-          <DatabaseZap className="size-3.5" />
-          Backfill Resolved Keys
-        </Button>
       </div>
-      {backfillResult && (
-        <p className="mb-3 text-sm text-green-600">{backfillResult}</p>
-      )}
+
+      <BulkActions
+        deployments={selectedDeployments}
+        onDone={() => setSelected(new Set())}
+        disabled={selected.size === 0}
+      />
+
       {isLoading && <TableSkeleton />}
       {error && <p className="text-destructive">Error: {error.message}</p>}
       {data && (
-        <div className="overflow-x-auto rounded-lg glass">
+        <div className="overflow-x-auto rounded-lg glass mt-3">
           <table className="w-full text-[11px] whitespace-nowrap">
             <thead>
               <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-2 py-0.5 w-6">
+                  <input
+                    type="checkbox"
+                    checked={deployments.length > 0 && selected.size === deployments.length}
+                    onChange={toggleAll}
+                    className="size-3 accent-amber"
+                  />
+                </th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Name</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Namespace</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Rev</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Account</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Build</th>
+                <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Drift</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Created</th>
                 <th className="px-2 py-0.5 text-left font-medium text-muted-foreground">Error</th>
               </tr>
             </thead>
             <tbody>
-              {data.deployments?.map((d) => (
+              {deployments.map((d, i) => (
                 <tr
                   key={d.deployment_id}
-                  className={`border-b border-comb-light cursor-pointer transition-colors ${
-                    selectedId === d.deployment_id
-                      ? "bg-amber/10 border-l-2 border-l-amber"
+                  className={`border-b border-comb-light select-none cursor-pointer transition-colors ${
+                    selected.has(d.deployment_id)
+                      ? "bg-pollen/10"
                       : "hover:bg-glass-light"
                   }`}
-                  onClick={() => {
-                    setSelectedId(d.deployment_id);
-                    navigate(`/admin/deployments/${d.deployment_id}`);
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a, button")) return;
+                    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                      handleRowClick(i, e);
+                    } else if (selected.size > 0) {
+                      handleRowClick(i, e);
+                    } else {
+                      navigate(`/admin/deployments/${d.deployment_id}`);
+                    }
                   }}
                 >
+                  <td className="px-2 py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(d.deployment_id)}
+                      readOnly
+                      className="size-3 accent-amber cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRowClick(i, e);
+                      }}
+                    />
+                  </td>
                   <td className="px-2 py-0.5">
                     <span className="text-amber">{d.name}</span>
                   </td>
@@ -86,6 +128,9 @@ export function DeploymentsPage() {
                   </td>
                   <td className="px-2 py-0.5 text-muted-foreground">{d.account_name}</td>
                   <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{truncateUUID(d.build_id)}</td>
+                  <td className="px-2 py-0.5">
+                    <DriftBadge summary={d.drift_summary} />
+                  </td>
                   <td className="px-2 py-0.5 text-muted-foreground">{formatDateTime(d.created_at)}</td>
                   <td className="max-w-[200px] truncate px-2 py-0.5 text-muted-foreground" title={d.error_message}>
                     {d.error_message || ""}
@@ -97,6 +142,93 @@ export function DeploymentsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDeployment[]; onDone: () => void; disabled: boolean }) {
+  const repairMut = useRepairNormalizedSpec();
+  const reapplyMut = useReapplyDeployment();
+  const refreshDriftMut = useRefreshDriftReport();
+
+  const [action, setAction] = useState<string>("");
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const run = async () => {
+    setRunning(true);
+    setProgress(0);
+
+    for (let i = 0; i < deployments.length; i++) {
+      const d = deployments[i];
+      try {
+        if (action === "repair") {
+          await repairMut.mutateAsync(d.deployment_id);
+        } else if (action === "reapply") {
+          await reapplyMut.mutateAsync(d.deployment_id);
+        } else if (action === "refresh-drift") {
+          await refreshDriftMut.mutateAsync(d.deployment_id);
+        }
+      } catch {
+        // continue on error
+      }
+      setProgress(i + 1);
+    }
+
+    setRunning(false);
+    setAction("");
+    onDone();
+  };
+
+  return (
+    <div className={`rounded-lg glass px-3 py-2 flex items-center gap-3 ${disabled ? "opacity-50" : ""}`}>
+      <span className="text-[11px] font-semibold shrink-0">
+        {disabled ? "Select deployments to apply bulk actions" : `${deployments.length} selected`}
+      </span>
+
+      {!disabled && (
+        <Button variant="ghost" size="icon-xs" onClick={onDone} title="Clear selection" className="shrink-0">
+          <X className="size-3" />
+        </Button>
+      )}
+
+      <Select value={action} onValueChange={(v) => setAction(v)} disabled={disabled}>
+        <SelectTrigger className="w-48 h-7"><SelectValue placeholder="Choose action..." /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="repair">Repair Normalized Spec</SelectItem>
+          <SelectItem value="reapply">Reapply to K8s</SelectItem>
+          <SelectItem value="refresh-drift">Refresh Drift Report</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {action && !disabled && (
+        <Button
+          size="xs"
+          onClick={run}
+          disabled={running}
+        >
+          {running ? `${progress}/${deployments.length}` : "Apply"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function DriftBadge({ summary }: { summary?: { total: number; match: number; missing: number; extra: number; drift: number } }) {
+  if (!summary) {
+    return <span className="text-[10px] text-muted-foreground">-</span>;
+  }
+  const issues = summary.missing + summary.drift + summary.extra;
+  if (issues === 0) {
+    return <span className="inline-block rounded-full bg-green-100/60 backdrop-blur-sm text-green-700 px-2 py-0.5 text-xs">{summary.match} ok</span>;
+  }
+  const parts: string[] = [];
+  if (summary.missing > 0) parts.push(`${summary.missing} missing`);
+  if (summary.drift > 0) parts.push(`${summary.drift} drift`);
+  if (summary.extra > 0) parts.push(`${summary.extra} extra`);
+  return (
+    <span className="inline-block rounded-full bg-red-100/60 backdrop-blur-sm text-red-700 px-2 py-0.5 text-xs" title={parts.join(", ")}>
+      {issues} issue{issues !== 1 ? "s" : ""}
+    </span>
   );
 }
 

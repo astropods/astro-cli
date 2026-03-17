@@ -35,17 +35,18 @@ type ListDeploymentsRequest struct {
 }
 
 type AdminDeployment struct {
-	Name            string   `json:"name,omitempty"`
-	BuildID         string   `json:"build_id,omitempty"`
-	Namespace       string   `json:"namespace,omitempty"`
-	Status          string   `json:"status,omitempty"`
-	CreatedAt       string   `json:"created_at,omitempty"`
-	AccountName     string   `json:"account_name,omitempty"`
-	Components      []string `json:"components,omitempty"`
-	DeploymentID    string   `json:"deployment_id,omitempty"`
-	ErrorMessage    string   `json:"error_message,omitempty"`
-	StatusChangedAt string   `json:"status_changed_at,omitempty"`
-	CurrentRevision int32    `json:"current_revision,omitempty"`
+	Name            string        `json:"name,omitempty"`
+	BuildID         string        `json:"build_id,omitempty"`
+	Namespace       string        `json:"namespace,omitempty"`
+	Status          string        `json:"status,omitempty"`
+	CreatedAt       string        `json:"created_at,omitempty"`
+	AccountName     string        `json:"account_name,omitempty"`
+	Components      []string      `json:"components,omitempty"`
+	DeploymentID    string        `json:"deployment_id,omitempty"`
+	ErrorMessage    string        `json:"error_message,omitempty"`
+	StatusChangedAt string        `json:"status_changed_at,omitempty"`
+	CurrentRevision int32         `json:"current_revision,omitempty"`
+	DriftSummary    *DriftSummary `json:"drift_summary,omitempty"`
 }
 
 type AdminDeploymentEvent struct {

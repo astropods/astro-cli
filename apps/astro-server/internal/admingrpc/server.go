@@ -203,6 +203,14 @@ func (s *Server) ListDeployments(_ context.Context, req *adminv1.ListDeployments
 		if d.CurrentRevision != nil {
 			ad.CurrentRevision = int32(*d.CurrentRevision) //nolint:gosec // revision numbers are small
 		}
+		if d.DriftReportJSON != nil {
+			var report struct {
+				Summary adminv1.DriftSummary `json:"summary"`
+			}
+			if json.Unmarshal([]byte(*d.DriftReportJSON), &report) == nil {
+				ad.DriftSummary = &report.Summary
+			}
+		}
 
 		results = append(results, ad)
 	}

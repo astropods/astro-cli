@@ -10,6 +10,7 @@ export interface AdminDeployment {
   error_message?: string;
   status_changed_at?: string;
   current_revision?: number;
+  drift_summary?: DriftSummary;
 }
 
 export interface DeploymentEvent {

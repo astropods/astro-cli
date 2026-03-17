@@ -262,7 +262,8 @@ func (s *Store) GetDeploymentHistory(accountID, agentName string) ([]*Deployment
 // DeploymentWithAccount extends Deployment with the owning account name.
 type DeploymentWithAccount struct {
 	Deployment
-	AccountName string `json:"account_name"`
+	AccountName     string  `json:"account_name"`
+	DriftReportJSON *string `json:"-"` // raw JSONB from DB, parsed by caller
 }
 
 // ListAllActive returns all active deployments across all accounts, joined with account names.
@@ -306,7 +307,7 @@ func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
 		SELECT d.id, d.account_id, d.agent_name, d.build_id, d.namespace, d.display_name,
 		       d.deployment_spec_json, d.status, d.error_message, d.status_changed_at,
 		       d.current_revision, d.deployed_at, d.undeployed_at,
-		       a.name AS account_name
+		       a.name AS account_name, d.drift_report
 		FROM deployments d
 		JOIN accounts a ON d.account_id = a.id
 		WHERE d.status != 'undeployed'
@@ -324,7 +325,7 @@ func (s *Store) ListAllWithAccount() ([]*DeploymentWithAccount, error) {
 			&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
 			&d.DeploymentSpecJSON, &d.Status, &d.ErrorMessage, &d.StatusChangedAt,
 			&d.CurrentRevision, &d.DeployedAt, &d.UndeployedAt,
-			&d.AccountName,
+			&d.AccountName, &d.DriftReportJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan deployment row: %w", err)
 		}
