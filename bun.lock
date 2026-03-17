@@ -106,6 +106,14 @@
         "vite": "^6.0.0",
       },
     },
+    "packages/astro-trading-card": {
+      "name": "astro-trading-card",
+      "version": "0.1.0",
+      "devDependencies": {
+        "identity-gen": "workspace:*",
+        "typescript": "^5.3.0",
+      },
+    },
   },
   "packages": {
     "@acemir/cssom": ["@acemir/cssom@0.9.31", "", {}, "sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA=="],
@@ -811,6 +819,8 @@
     "astro-client": ["astro-client@workspace:apps/astro-client"],
 
     "astro-theme": ["astro-theme@workspace:packages/astro-theme"],
+
+    "astro-trading-card": ["astro-trading-card@workspace:packages/astro-trading-card"],
 
     "axe-core": ["axe-core@4.11.1", "", {}, "sha512-BASOg+YwO2C+346x3LZOeoovTIoTrRqEsqMa6fmfAV0P+U9mFr9NsyOEpiYvFjbc64NMrSswhV50WdXzdb/Z5A=="],
 

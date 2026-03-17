@@ -1,0 +1,22 @@
+language: "typescript"
+type: "library"
+
+tasks:
+  build:
+    command: "bun run tsc"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+    outputs:
+      - "dist"
+
+  typecheck:
+    command: "bun run tsc --noEmit"
+    inputs:
+      - "src/**/*"
+      - "tsconfig.json"
+      - "/tsconfig.base.json"
+
+  clean:
+    command: "rm -rf dist"
