@@ -15,7 +15,6 @@ jobs:
   # Plan: show exactly what SQL will run against production (no changes made)
   # ---------------------------------------------------------------------------
   plan:
-    if: github.ref == 'refs/heads/main'
     runs-on: prod-astro-runner
     timeout-minutes: 5
     steps:
