@@ -132,12 +132,15 @@ func TestResolveDeploymentSpecEnv_VariableReferences(t *testing.T) {
 	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
 	result := ResolveDeploymentSpecEnv(ds, rctx)
 
-	// Variable ref in env should resolve to the actual value
-	if result.ConfigMapData["API_KEY"] != "sk-secret-123" {
-		t.Errorf("API_KEY: expected sk-secret-123, got %s", result.ConfigMapData["API_KEY"])
+	// Variable ref in env referencing a secret should be in SecretData, not ConfigMapData
+	if result.SecretData["API_KEY"] != "sk-secret-123" {
+		t.Errorf("SecretData API_KEY: expected sk-secret-123, got %s", result.SecretData["API_KEY"])
+	}
+	if _, inCM := result.ConfigMapData["API_KEY"]; inCM {
+		t.Error("API_KEY should not be in ConfigMapData when it references a secret variable")
 	}
 
-	// Secret variable should also be in SecretData
+	// Secret variable itself should also be in SecretData (from phase 1)
 	if result.SecretData["ANTHROPIC_API_KEY"] != "sk-secret-123" {
 		t.Errorf("SecretData: expected sk-secret-123, got %s", result.SecretData["ANTHROPIC_API_KEY"])
 	}
@@ -407,17 +410,18 @@ func TestResolveDeploymentSpecEnv_InterfaceEnvVariableRefs(t *testing.T) {
 	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
 	result := ResolveDeploymentSpecEnv(ds, rctx)
 
-	// Interface env variable refs should be resolved in ConfigMapData
-	if result.ConfigMapData["SLACK_BOT_TOKEN"] != "xoxb-test-token" {
-		t.Errorf("SLACK_BOT_TOKEN: expected xoxb-test-token, got %s", result.ConfigMapData["SLACK_BOT_TOKEN"])
-	}
-	if result.ConfigMapData["SLACK_APP_TOKEN"] != "xapp-test-token" {
-		t.Errorf("SLACK_APP_TOKEN: expected xapp-test-token, got %s", result.ConfigMapData["SLACK_APP_TOKEN"])
-	}
-
-	// Secret variable values should also be in SecretData
+	// Interface env variable refs to secrets should be in SecretData, not ConfigMapData
 	if result.SecretData["SLACK_BOT_TOKEN"] != "xoxb-test-token" {
 		t.Errorf("SecretData SLACK_BOT_TOKEN: expected xoxb-test-token, got %s", result.SecretData["SLACK_BOT_TOKEN"])
+	}
+	if result.SecretData["SLACK_APP_TOKEN"] != "xapp-test-token" {
+		t.Errorf("SecretData SLACK_APP_TOKEN: expected xapp-test-token, got %s", result.SecretData["SLACK_APP_TOKEN"])
+	}
+	if _, inCM := result.ConfigMapData["SLACK_BOT_TOKEN"]; inCM {
+		t.Error("SLACK_BOT_TOKEN should not be in ConfigMapData")
+	}
+	if _, inCM := result.ConfigMapData["SLACK_APP_TOKEN"]; inCM {
+		t.Error("SLACK_APP_TOKEN should not be in ConfigMapData")
 	}
 }
 
@@ -447,25 +451,80 @@ func TestResolveDeploymentSpecEnv_JiraIntegrationSecrets(t *testing.T) {
 	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
 	result := ResolveDeploymentSpecEnv(ds, rctx)
 
-	// Variable references in agent env should resolve to concrete values.
-	if result.ConfigMapData["JIRA_API_KEY"] != "jira-token-abc" {
-		t.Errorf("JIRA_API_KEY: expected jira-token-abc, got %s", result.ConfigMapData["JIRA_API_KEY"])
-	}
-	if result.ConfigMapData["JIRA_BASE_URL"] != "https://myorg.atlassian.net" {
-		t.Errorf("JIRA_BASE_URL: expected https://myorg.atlassian.net, got %s", result.ConfigMapData["JIRA_BASE_URL"])
-	}
-	if result.ConfigMapData["JIRA_EMAIL"] != "bot@myorg.com" {
-		t.Errorf("JIRA_EMAIL: expected bot@myorg.com, got %s", result.ConfigMapData["JIRA_EMAIL"])
-	}
-
-	// All three must appear in SecretData (since secret=true).
-	for _, key := range []string{"JIRA_API_KEY", "JIRA_BASE_URL", "JIRA_EMAIL"} {
-		if _, ok := result.SecretData[key]; !ok {
-			t.Errorf("SecretData: expected %s to be present", key)
-		}
-	}
+	// Variable references to secrets should resolve to SecretData, not ConfigMapData.
 	if result.SecretData["JIRA_API_KEY"] != "jira-token-abc" {
 		t.Errorf("SecretData JIRA_API_KEY: expected jira-token-abc, got %s", result.SecretData["JIRA_API_KEY"])
+	}
+	if result.SecretData["JIRA_BASE_URL"] != "https://myorg.atlassian.net" {
+		t.Errorf("SecretData JIRA_BASE_URL: expected https://myorg.atlassian.net, got %s", result.SecretData["JIRA_BASE_URL"])
+	}
+	if result.SecretData["JIRA_EMAIL"] != "bot@myorg.com" {
+		t.Errorf("SecretData JIRA_EMAIL: expected bot@myorg.com, got %s", result.SecretData["JIRA_EMAIL"])
+	}
+	// Should NOT be in ConfigMapData
+	for _, key := range []string{"JIRA_API_KEY", "JIRA_BASE_URL", "JIRA_EMAIL"} {
+		if _, inCM := result.ConfigMapData[key]; inCM {
+			t.Errorf("%s should not be in ConfigMapData", key)
+		}
+	}
+}
+
+func TestResolveDeploymentSpecEnv_CompositeSecretRef(t *testing.T) {
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{},
+		Agent: spec.DeploymentAgent{
+			Image:     "x",
+			Endpoints: httpEndpoints(8080),
+			Environment: map[string]string{
+				"AUTH_HEADER": "Bearer ${variables.API_KEY}",
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"API_KEY": {Value: "sk-secret-123", Secret: true},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// Composite value containing a secret ref should go to SecretData
+	if result.SecretData["AUTH_HEADER"] != "Bearer sk-secret-123" {
+		t.Errorf("SecretData AUTH_HEADER: expected 'Bearer sk-secret-123', got %s", result.SecretData["AUTH_HEADER"])
+	}
+	if _, inCM := result.ConfigMapData["AUTH_HEADER"]; inCM {
+		t.Error("AUTH_HEADER should not be in ConfigMapData")
+	}
+}
+
+func TestResolveDeploymentSpecEnv_HardcodedValueMatchingSecretKey(t *testing.T) {
+	// When a hardcoded env key matches a secret variable key (collected in phase 1),
+	// the hardcoded value should stay in SecretData (not duplicate into ConfigMap).
+	ds := &spec.AstroDeploymentSpec{
+		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
+		Target: spec.DeploymentTarget{},
+		Agent: spec.DeploymentAgent{
+			Image:     "x",
+			Endpoints: httpEndpoints(8080),
+			Environment: map[string]string{
+				"API_KEY": "hardcoded-override",
+			},
+		},
+		Variables: map[string]spec.Variable{
+			"API_KEY": {Value: "sk-secret-123", Secret: true},
+		},
+	}
+
+	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
+	result := ResolveDeploymentSpecEnv(ds, rctx)
+
+	// The env key "API_KEY" already exists in SecretData from phase 1,
+	// so the hardcoded override should also go to SecretData.
+	if result.SecretData["API_KEY"] != "hardcoded-override" {
+		t.Errorf("SecretData API_KEY: expected hardcoded-override, got %s", result.SecretData["API_KEY"])
+	}
+	if _, inCM := result.ConfigMapData["API_KEY"]; inCM {
+		t.Error("API_KEY should not be in ConfigMapData when key exists in SecretData")
 	}
 }
 

@@ -165,6 +165,8 @@ func endpointInfoMap(endpoints map[string]spec.Endpoint) map[string]componentEnd
 
 // resolveEnvMap resolves ${} references in an environment map and adds the
 // resolved values to the result's ConfigMapData (or SecretData for secrets).
+// Values that reference secret variables are routed to SecretData instead of
+// ConfigMapData so that secret values never appear as plaintext in the ConfigMap.
 func resolveEnvMap(
 	env map[string]string,
 	lookup map[string]componentInfo,
@@ -174,8 +176,33 @@ func resolveEnvMap(
 ) {
 	for key, value := range env {
 		resolved := resolveValue(value, lookup, ds, rctx)
-		result.ConfigMapData[key] = resolved
+		if referencesSecret(value, ds) || secretKeyExists(key, result) {
+			result.SecretData[key] = resolved
+		} else {
+			result.ConfigMapData[key] = resolved
+		}
 	}
+}
+
+// referencesSecret returns true if the value contains any ${variables.*}
+// reference to a variable marked as secret.
+func referencesSecret(value string, ds *spec.AstroDeploymentSpec) bool {
+	refs := spec.ParseReferences(value)
+	for _, ref := range refs {
+		if ref.Kind == spec.RefVariable {
+			if v, ok := ds.Variables[ref.Name]; ok && v.Secret {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// secretKeyExists returns true if the key already exists in SecretData
+// (e.g. collected from phase 1 secret variables).
+func secretKeyExists(key string, result *ResolvedEnv) bool {
+	_, ok := result.SecretData[key]
+	return ok
 }
 
 // resolveValue resolves a single value that may contain ${} references.
