@@ -164,6 +164,87 @@ func TestRegisterAgent_NoHintsWhenReadmePresent(t *testing.T) {
 	}
 }
 
+func TestStripSecretDefaults(t *testing.T) {
+	specObj := map[string]interface{}{
+		"name": "test-agent",
+		// Top-level inputs (map)
+		"inputs": map[string]interface{}{
+			"api_key": map[string]interface{}{
+				"name": "API_KEY", "secret": true, "default": "sk-secret",
+			},
+			"log_level": map[string]interface{}{
+				"name": "LOG_LEVEL", "default": "debug",
+			},
+		},
+		// Agent inputs (list)
+		"agent": map[string]interface{}{
+			"image": "test:latest",
+			"inputs": []interface{}{
+				map[string]interface{}{"name": "AGENT_SECRET", "secret": true, "default": "agent-val"},
+				map[string]interface{}{"name": "AGENT_PLAIN", "default": "plain-val"},
+			},
+		},
+		// Model inputs (list)
+		"models": map[string]interface{}{
+			"llm": map[string]interface{}{
+				"inputs": []interface{}{
+					map[string]interface{}{"name": "MODEL_KEY", "secret": true, "default": "model-secret"},
+				},
+			},
+		},
+		// Provider variables (list)
+		"providers": map[string]interface{}{
+			"anthropic": map[string]interface{}{
+				"scope": []interface{}{"models"},
+				"variables": []interface{}{
+					map[string]interface{}{"name": "ANTHROPIC_API_KEY", "secret": true, "default": "sk-ant-test"},
+					map[string]interface{}{"name": "ANTHROPIC_ORG", "default": "org-123"},
+				},
+			},
+		},
+	}
+
+	stripSecretDefaults(specObj)
+
+	// Secret input default should be stripped
+	apiKey := specObj["inputs"].(map[string]interface{})["api_key"].(map[string]interface{})
+	if _, ok := apiKey["default"]; ok {
+		t.Error("secret input API_KEY should have default stripped")
+	}
+
+	// Non-secret input default should be preserved
+	logLevel := specObj["inputs"].(map[string]interface{})["log_level"].(map[string]interface{})
+	if logLevel["default"] != "debug" {
+		t.Error("non-secret LOG_LEVEL default should be preserved")
+	}
+
+	// Agent secret input stripped
+	agentInputs := specObj["agent"].(map[string]interface{})["inputs"].([]interface{})
+	if _, ok := agentInputs[0].(map[string]interface{})["default"]; ok {
+		t.Error("agent secret input should have default stripped")
+	}
+	// Agent non-secret preserved
+	if agentInputs[1].(map[string]interface{})["default"] != "plain-val" {
+		t.Error("agent non-secret input default should be preserved")
+	}
+
+	// Model secret input stripped
+	modelInputs := specObj["models"].(map[string]interface{})["llm"].(map[string]interface{})["inputs"].([]interface{})
+	if _, ok := modelInputs[0].(map[string]interface{})["default"]; ok {
+		t.Error("model secret input should have default stripped")
+	}
+
+	// Provider secret variable stripped
+	provVars := specObj["providers"].(map[string]interface{})["anthropic"].(map[string]interface{})["variables"].([]interface{})
+	if _, ok := provVars[0].(map[string]interface{})["default"]; ok {
+		t.Error("provider secret variable should have default stripped")
+	}
+	// Provider non-secret variable preserved
+	if provVars[1].(map[string]interface{})["default"] != "org-123" {
+		t.Error("provider non-secret variable default should be preserved")
+	}
+}
+
 func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
