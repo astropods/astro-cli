@@ -14,6 +14,7 @@ import (
 
 	"bufio"
 
+	"github.com/containerd/platforms"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	controlapi "github.com/moby/buildkit/api/services/control"
@@ -333,15 +334,10 @@ func prePullBaseImages(ctx context.Context, cli *client.Client, contextPath, doc
 
 	pullOpts := client.ImagePullOptions{}
 	if platform != "" {
-		parts := strings.SplitN(platform, "/", 3)
-		p := ocispec.Platform{OS: parts[0]}
-		if len(parts) > 1 {
-			p.Architecture = parts[1]
+		p, err := platforms.Parse(platform)
+		if err == nil {
+			pullOpts.Platforms = []ocispec.Platform{p}
 		}
-		if len(parts) > 2 {
-			p.Variant = parts[2]
-		}
-		pullOpts.Platforms = []ocispec.Platform{p}
 	}
 
 	seen := make(map[string]bool)
@@ -443,15 +439,10 @@ func buildImageSDK(ctx context.Context, cli *client.Client, contextPath, dockerf
 		opts.SessionID = sess.ID()
 
 		if platform != "" {
-			parts := strings.SplitN(platform, "/", 3)
-			p := ocispec.Platform{OS: parts[0]}
-			if len(parts) > 1 {
-				p.Architecture = parts[1]
+			p, err := platforms.Parse(platform)
+			if err == nil {
+				opts.Platforms = []ocispec.Platform{p}
 			}
-			if len(parts) > 2 {
-				p.Variant = parts[2]
-			}
-			opts.Platforms = []ocispec.Platform{p}
 		}
 	}
 
