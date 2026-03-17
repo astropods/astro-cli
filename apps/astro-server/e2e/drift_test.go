@@ -10,7 +10,9 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,7 +25,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -815,6 +817,145 @@ func TestDrift_RepairWithLiveSecrets(t *testing.T) {
 	if !found {
 		t.Errorf("expected Changed to include SECRET_KEY after post-repair tampering, got: %+v", report.Secrets)
 	}
+}
+
+// TestDrift_BackfillResolvedKeys verifies that backfilling resolved keys for a
+// deployment that predates the table produces correct keys and hashes, and that
+// running it again overwrites stale data instead of skipping.
+func TestDrift_BackfillResolvedKeys(t *testing.T) {
+	env := setupDriftEnv(t)
+
+	// Delete resolved keys to simulate a pre-migration deployment
+	if _, err := env.db.Exec("DELETE FROM deployment_resolved_keys WHERE deployment_id = $1", env.depID); err != nil {
+		t.Fatalf("delete resolved keys: %v", err)
+	}
+	rk, _ := env.store.GetResolvedKeys(env.depID)
+	if rk != nil {
+		t.Fatal("expected nil resolved keys after delete")
+	}
+
+	// Without resolved keys, drift falls back to variable-based check.
+	// This produces false drift for pre-migration deployments.
+	report := env.buildReport()
+	t.Logf("pre-backfill: drift=%d missing=%d match=%d",
+		report.Summary.Drift, report.Summary.Missing, report.Summary.Match)
+
+	// Run backfill: resolve spec + merge live secrets + upsert
+	env.runBackfill(t)
+
+	// Verify resolved keys are populated
+	rk, err := env.store.GetResolvedKeys(env.depID)
+	if err != nil {
+		t.Fatalf("GetResolvedKeys: %v", err)
+	}
+	if rk == nil {
+		t.Fatal("expected resolved keys after backfill")
+	}
+	if len(rk.ConfigMapKeys) == 0 {
+		t.Error("expected non-empty configmap_keys")
+	}
+	if len(rk.ConfigMapHashes) == 0 {
+		t.Error("expected non-empty configmap_hashes")
+	}
+
+	// Should have platform vars
+	for _, want := range []string{"AGENT_PORT", "ASTRO_AGENT_NAME", "AGENT_URL"} {
+		found := false
+		for _, k := range rk.ConfigMapKeys {
+			if k == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected %s in configmap_keys, got %v", want, rk.ConfigMapKeys)
+		}
+	}
+
+	// Should have secret hashes from live K8s
+	if _, ok := rk.SecretHashes["SECRET_KEY"]; !ok {
+		t.Error("expected SECRET_KEY hash from live K8s data")
+	}
+
+	// Drift should be clean now
+	report = env.buildReport()
+	if report.Summary.Drift > 0 || report.Summary.Missing > 0 {
+		t.Errorf("expected no drift after backfill, got drift=%d missing=%d",
+			report.Summary.Drift, report.Summary.Missing)
+	}
+
+	// Run backfill again — should overwrite, not skip
+	env.runBackfill(t)
+	rk2, err := env.store.GetResolvedKeys(env.depID)
+	if err != nil {
+		t.Fatalf("GetResolvedKeys after second backfill: %v", err)
+	}
+	if rk2 == nil {
+		t.Fatal("expected resolved keys after second backfill")
+	}
+	if len(rk2.ConfigMapKeys) != len(rk.ConfigMapKeys) {
+		t.Errorf("second backfill changed key count: %d vs %d",
+			len(rk2.ConfigMapKeys), len(rk.ConfigMapKeys))
+	}
+}
+
+// runBackfill simulates BackfillResolvedKeys for the test deployment:
+// resolve spec → read live K8s secrets → upsert resolved keys.
+func (e *driftTestEnv) runBackfill(t *testing.T) {
+	t.Helper()
+
+	var specObj spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(driftSpecJSON), &specObj); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+
+	rctx := deployment.ResolveContext{
+		Namespace:  e.ns,
+		AgentName:  "drift-agent",
+		BuildID:    "dbuild01",
+		SecretName: deployment.GenerateSecretName("drift-agent", "dbuild01"),
+	}
+	resolved := deployment.ResolveDeploymentSpecEnv(&specObj, rctx)
+
+	// Merge live secret data
+	if liveData := e.liveSecretData(); liveData != nil {
+		for k, v := range liveData {
+			resolved.SecretData[k] = string(v)
+		}
+	}
+
+	// Build keys + hashes and upsert (mirrors BackfillResolvedKeys logic)
+	cmKeys := make([]string, 0, len(resolved.ConfigMapData))
+	cmHashes := make(map[string]string, len(resolved.ConfigMapData))
+	for k, v := range resolved.ConfigMapData {
+		cmKeys = append(cmKeys, k)
+		cmHashes[k] = hashString(v)
+	}
+	secKeys := make([]string, 0, len(resolved.SecretData))
+	secHashes := make(map[string]string, len(resolved.SecretData))
+	for k, v := range resolved.SecretData {
+		secKeys = append(secKeys, k)
+		if v != "" {
+			secHashes[k] = hashString(v)
+		}
+	}
+
+	cmJSON, _ := json.Marshal(cmHashes)
+	secJSON, _ := json.Marshal(secHashes)
+
+	if _, err := e.db.Exec(`
+		INSERT INTO deployment_resolved_keys (deployment_id, configmap_keys, secret_keys, configmap_hashes, secret_hashes)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (deployment_id) DO UPDATE
+		SET configmap_keys = EXCLUDED.configmap_keys, secret_keys = EXCLUDED.secret_keys,
+		    configmap_hashes = EXCLUDED.configmap_hashes, secret_hashes = EXCLUDED.secret_hashes
+	`, e.depID, pq.Array(cmKeys), pq.Array(secKeys), cmJSON, secJSON); err != nil {
+		t.Fatalf("upsert resolved keys: %v", err)
+	}
+}
+
+func hashString(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
 }
 
 func mapKeys(m map[string]string) []string {

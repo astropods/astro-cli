@@ -1565,7 +1565,6 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 		SELECT d.id, d.agent_name, d.build_id, d.namespace, d.deployment_spec_json
 		FROM deployments d
 		WHERE d.status NOT IN ('undeployed', 'undeploying')
-		  AND NOT EXISTS (SELECT 1 FROM deployment_resolved_keys rk WHERE rk.deployment_id = d.id)
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("query deployments: %w", err)
@@ -1602,6 +1601,15 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 			SecretName: deployment.GenerateSecretName(r.agentName, r.buildID),
 		}
 		resolved := deployment.ResolveDeploymentSpecEnv(&ds, rctx)
+
+		// Read live K8s secret to get correct secret hashes
+		secretName := deployment.GenerateSecretName(r.agentName, r.buildID)
+		liveSecret, err := s.k8sClient.Clientset().CoreV1().Secrets(r.namespace).Get(ctx, secretName, metav1.GetOptions{})
+		if err == nil {
+			for key, val := range liveSecret.Data {
+				resolved.SecretData[key] = string(val)
+			}
+		}
 
 		cmKeys := make([]string, 0, len(resolved.ConfigMapData))
 		cmHashes := make(map[string]string, len(resolved.ConfigMapData))
