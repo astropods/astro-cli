@@ -32,7 +32,7 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
   return (
     <div className="space-y-12">
       {/* Agent name & account */}
-      <FormSection title="General" description="Choose what to call your agent and where to install it.">
+      <FormSection title="General" description="Choose what to call your agent and where to deploy it.">
         <div className="space-y-5">
           <div>
             <Label size="md">Agent Name</Label>
@@ -50,7 +50,7 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
 
           {!hideAccountPicker && form.accounts.length > 1 && (
             <div>
-              <Label size="md">Install to</Label>
+              <Label size="md">Deploy to</Label>
               <AccountPicker
                 accounts={form.accounts}
                 selected={form.targetAccount}
