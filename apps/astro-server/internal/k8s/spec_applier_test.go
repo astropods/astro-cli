@@ -723,6 +723,9 @@ func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
 		t.Fatalf("GenerateDeploymentTemplate: %v", err)
 	}
 
+	ds.Interfaces.Adapters = []string{"slack"}
+	deployment.ResolveDeploymentSpecEnv(ds, deployment.ResolveContext{})
+
 	a := newTestApplier()
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
 	if err != nil {
