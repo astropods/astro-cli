@@ -18,7 +18,7 @@ export function SidebarSection({
 }: SidebarSectionProps) {
   return (
     <section className={`overflow-hidden rounded-md border border-border-strong bg-surface ${className ?? ""}`}>
-      <header className={cn("border-b border-border-strong bg-stone-200 px-4 py-2.5 dark:bg-muted/30", headerClassName)}>
+      <header className={cn("border-b border-border-strong bg-stone-200 px-4 py-2 dark:bg-muted/30", headerClassName)}>
         <span className="block text-[11px] leading-4 font-mono uppercase tracking-[0.14em] text-muted-foreground">
           {title}
         </span>
