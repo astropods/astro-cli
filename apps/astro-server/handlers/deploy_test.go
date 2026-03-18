@@ -1447,9 +1447,7 @@ func deployableSpec(deploymentID string) string {
 		"variables": {
 			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
 			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_ACTIONABLE_REACTIONS": {"secret": false, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_ALLOWED_CHANNEL_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"]},
-			"SLACK_ALLOWED_USER_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
 		},
 		"observability": {"enabled": true, "provider": "galileo"}
 	}`, targetExtra)
@@ -1499,9 +1497,7 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 		deployMock,
 		"SLACK_BOT_TOKEN",
 		"SLACK_APP_TOKEN",
-		"SLACK_ACTIONABLE_REACTIONS",
-		"SLACK_ALLOWED_CHANNEL_IDS",
-		"SLACK_ALLOWED_USER_IDS",
+		"SLACK_CONFIG",
 	)
 	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1575,9 +1571,7 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 		deployMock,
 		"SLACK_BOT_TOKEN",
 		"SLACK_APP_TOKEN",
-		"SLACK_ACTIONABLE_REACTIONS",
-		"SLACK_ALLOWED_CHANNEL_IDS",
-		"SLACK_ALLOWED_USER_IDS",
+		"SLACK_CONFIG",
 	)
 	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
 		WillReturnResult(sqlmock.NewResult(0, 1))

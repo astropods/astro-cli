@@ -630,15 +630,11 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 		},
 		Resources: spec.MessagingResources,
 		Environment: map[string]string{
-			"SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}",
-			"SLACK_ALLOWED_CHANNEL_IDS":  "${variables.SLACK_ALLOWED_CHANNEL_IDS}",
-			"SLACK_ALLOWED_USER_IDS":     "${variables.SLACK_ALLOWED_USER_IDS}",
+			"SLACK_CONFIG": "${variables.SLACK_CONFIG}",
 		},
 	}
 	ds.Variables = map[string]spec.Variable{
-		"SLACK_ACTIONABLE_REACTIONS": {Value: "ticket, bug", Secret: false, Targets: []string{"interface.slack"}},
-		"SLACK_ALLOWED_CHANNEL_IDS":  {Value: "C123, C999", Secret: false, Targets: []string{"interface.slack"}},
-		"SLACK_ALLOWED_USER_IDS":     {Value: "U123, U999", Secret: false, Targets: []string{"interface.slack"}},
+		"SLACK_CONFIG": {Value: `{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}`, Secret: false, Targets: []string{"interface.slack"}},
 	}
 
 	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
@@ -672,22 +668,13 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 		envMap[e.Name] = e.Value
 	}
 
-	val, ok := envMap["SLACK_ACTIONABLE_REACTIONS"]
+	slackCfg, ok := envMap["SLACK_CONFIG"]
 	if !ok {
-		t.Fatal("SLACK_ACTIONABLE_REACTIONS not found in messaging container env")
+		t.Fatal("SLACK_CONFIG not found in messaging container env")
 	}
-	if val != "ticket, bug" {
-		t.Errorf("SLACK_ACTIONABLE_REACTIONS = %q, want %q", val, "ticket, bug")
-	}
-	if envMap["SLACK_ALLOWED_CHANNEL_IDS"] != "C123, C999" {
-		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS = %q, want %q", envMap["SLACK_ALLOWED_CHANNEL_IDS"], "C123, C999")
-	}
-	if envMap["SLACK_ALLOWED_USER_IDS"] != "U123, U999" {
-		t.Errorf("SLACK_ALLOWED_USER_IDS = %q, want %q", envMap["SLACK_ALLOWED_USER_IDS"], "U123, U999")
-	}
-
-	if _, exists := envMap["SLACK_SOCKET_MODE"]; exists {
-		t.Error("SLACK_SOCKET_MODE should not be hardcoded in messaging container")
+	wantCfg := `{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}`
+	if slackCfg != wantCfg {
+		t.Errorf("SLACK_CONFIG = %q, want %q", slackCfg, wantCfg)
 	}
 }
 
@@ -758,16 +745,10 @@ func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
 		envMap[e.Name] = e.Value
 	}
 
-	for _, key := range []string{
-		"SLACK_ACTIONABLE_REACTIONS",
-		"SLACK_ALLOWED_CHANNEL_IDS",
-		"SLACK_ALLOWED_USER_IDS",
-	} {
-		want := ds.Variables[key].Value
-		got := envMap[key]
-		if got != want {
-			t.Errorf("%s = %q, want %q", key, got, want)
-		}
+	want := ds.Variables["SLACK_CONFIG"].Value
+	got := envMap["SLACK_CONFIG"]
+	if got != want {
+		t.Errorf("SLACK_CONFIG = %q, want %q", got, want)
 	}
 }
 

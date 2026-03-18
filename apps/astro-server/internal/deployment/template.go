@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -326,32 +327,14 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		mergeSlackVar("SLACK_BOT_TOKEN", "Slack bot token for API access and messaging")
 		mergeSlackVar("SLACK_APP_TOKEN", "Slack app-level token for socket mode connections")
 
-		reactionsDefault := slackReactionsDefault(astroSpec)
-		allowedChannelsDefault := slackAllowedChannelIDsDefault(astroSpec)
-		allowedUsersDefault := slackAllowedUserIDsDefault(astroSpec)
-		ds.Variables["SLACK_ACTIONABLE_REACTIONS"] = spec.Variable{
-			Description: "Emoji names the bot acts on (comma-separated, e.g. ticket, bug)",
+		slackCfgDefault := slackConfigDefault(astroSpec)
+		ds.Variables["SLACK_CONFIG"] = spec.Variable{
+			Description: "Slack adapter configuration as JSON (actionable_reactions, allowed_channel_ids, allowed_user_ids, socket_mode, auto_thread)",
 			Optional:    true,
 			Secret:      false,
 			Targets:     []string{"interface.slack"},
-			Value:       reactionsDefault,
-			Default:     reactionsDefault,
-		}
-		ds.Variables["SLACK_ALLOWED_CHANNEL_IDS"] = spec.Variable{
-			Description: "Slack channel IDs allowed to interact with the agent (comma-separated)",
-			Optional:    true,
-			Secret:      false,
-			Targets:     []string{"interface.slack"},
-			Value:       allowedChannelsDefault,
-			Default:     allowedChannelsDefault,
-		}
-		ds.Variables["SLACK_ALLOWED_USER_IDS"] = spec.Variable{
-			Description: "Slack user IDs allowed to interact with the agent (comma-separated)",
-			Optional:    true,
-			Secret:      false,
-			Targets:     []string{"interface.slack"},
-			Value:       allowedUsersDefault,
-			Default:     allowedUsersDefault,
+			Value:       slackCfgDefault,
+			Default:     slackCfgDefault,
 		}
 
 		wireInterfaceEnvironment(ds)
@@ -685,28 +668,16 @@ func wireInterfaceEnvironment(ds *spec.AstroDeploymentSpec) {
 	}
 }
 
-func slackReactionsDefault(s *spec.AstroSpec) string {
+func slackConfigDefault(s *spec.AstroSpec) string {
 	cfg := s.Dev.SlackConfig()
-	if cfg == nil || len(cfg.ActionableReactions) == 0 {
+	if cfg == nil {
 		return ""
 	}
-	return strings.Join(cfg.ActionableReactions, ", ")
-}
-
-func slackAllowedChannelIDsDefault(s *spec.AstroSpec) string {
-	cfg := s.Dev.SlackConfig()
-	if cfg == nil || len(cfg.AllowedChannelIDs) == 0 {
+	b, err := json.Marshal(cfg)
+	if err != nil {
 		return ""
 	}
-	return strings.Join(cfg.AllowedChannelIDs, ", ")
-}
-
-func slackAllowedUserIDsDefault(s *spec.AstroSpec) string {
-	cfg := s.Dev.SlackConfig()
-	if cfg == nil || len(cfg.AllowedUserIDs) == 0 {
-		return ""
-	}
-	return strings.Join(cfg.AllowedUserIDs, ", ")
+	return string(b)
 }
 
 func defaultEditableFields() []string {

@@ -88,15 +88,11 @@ const slackSpecJSON = `{
     "endpoints": {"grpc": {"port": 9090, "protocol": "grpc"}},
     "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
     "environment": {
-      "SLACK_ACTIONABLE_REACTIONS": "${variables.SLACK_ACTIONABLE_REACTIONS}",
-      "SLACK_ALLOWED_CHANNEL_IDS": "${variables.SLACK_ALLOWED_CHANNEL_IDS}",
-      "SLACK_ALLOWED_USER_IDS": "${variables.SLACK_ALLOWED_USER_IDS}"
+      "SLACK_CONFIG": "${variables.SLACK_CONFIG}"
     }
   },
   "variables": {
-    "SLACK_ACTIONABLE_REACTIONS": {"value": "ticket, bug", "secret": false, "targets": ["interface.slack"]},
-    "SLACK_ALLOWED_CHANNEL_IDS": {"value": "C123, C999", "secret": false, "targets": ["interface.slack"]},
-    "SLACK_ALLOWED_USER_IDS": {"value": "U123, U999", "secret": false, "targets": ["interface.slack"]},
+    "SLACK_CONFIG": {"value": "{\"actionable_reactions\":[\"ticket\",\"bug\"],\"allowed_channel_ids\":[\"C123\",\"C999\"],\"allowed_user_ids\":[\"U123\",\"U999\"]}", "secret": false, "targets": ["interface.slack"]},
     "SLACK_BOT_TOKEN": {"value": "xoxb-test", "secret": true, "targets": ["interface.slack"]}
   },
   "observability": {"enabled": false}
@@ -344,13 +340,9 @@ func applySlackSpec(t *testing.T, client k8s.ClusterClient, ns string) *k8s.Appl
 func applySlackSpecWithEmptyAllowlist(t *testing.T, client k8s.ClusterClient, ns string) *k8s.ApplyResult {
 	t.Helper()
 	s := parseSlackSpec(t)
-	if v, ok := s.Variables["SLACK_ALLOWED_CHANNEL_IDS"]; ok {
-		v.Value = ""
-		s.Variables["SLACK_ALLOWED_CHANNEL_IDS"] = v
-	}
-	if v, ok := s.Variables["SLACK_ALLOWED_USER_IDS"]; ok {
-		v.Value = ""
-		s.Variables["SLACK_ALLOWED_USER_IDS"] = v
+	if v, ok := s.Variables["SLACK_CONFIG"]; ok {
+		v.Value = `{"actionable_reactions":["ticket","bug"]}`
+		s.Variables["SLACK_CONFIG"] = v
 	}
 	fillSecrets(s)
 	return applySpec(t, client, ns, s, nil)
@@ -500,17 +492,9 @@ func TestK8s_SlackReactionsEnvOnMessagingSidecar(t *testing.T) {
 	for _, e := range messaging.Env {
 		envMap[e.Name] = e.Value
 	}
-	if envMap["SLACK_ACTIONABLE_REACTIONS"] != "ticket, bug" {
-		t.Errorf("SLACK_ACTIONABLE_REACTIONS = %q, want %q", envMap["SLACK_ACTIONABLE_REACTIONS"], "ticket, bug")
-	}
-	if envMap["SLACK_ALLOWED_CHANNEL_IDS"] != "C123, C999" {
-		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS = %q, want %q", envMap["SLACK_ALLOWED_CHANNEL_IDS"], "C123, C999")
-	}
-	if envMap["SLACK_ALLOWED_USER_IDS"] != "U123, U999" {
-		t.Errorf("SLACK_ALLOWED_USER_IDS = %q, want %q", envMap["SLACK_ALLOWED_USER_IDS"], "U123, U999")
-	}
-	if _, ok := envMap["SLACK_SOCKET_MODE"]; ok {
-		t.Error("SLACK_SOCKET_MODE should not be set; behavior config is provided via structured slack config")
+	wantCfg := `{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}`
+	if envMap["SLACK_CONFIG"] != wantCfg {
+		t.Errorf("SLACK_CONFIG = %q, want %q", envMap["SLACK_CONFIG"], wantCfg)
 	}
 }
 
@@ -546,11 +530,9 @@ func TestK8s_SlackAllowlistEmptyDefaultsOnMessagingSidecar(t *testing.T) {
 		envMap[e.Name] = e.Value
 	}
 
-	if envMap["SLACK_ALLOWED_CHANNEL_IDS"] != "" {
-		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS = %q, want empty string", envMap["SLACK_ALLOWED_CHANNEL_IDS"])
-	}
-	if envMap["SLACK_ALLOWED_USER_IDS"] != "" {
-		t.Errorf("SLACK_ALLOWED_USER_IDS = %q, want empty string", envMap["SLACK_ALLOWED_USER_IDS"])
+	wantCfg := `{"actionable_reactions":["ticket","bug"]}`
+	if envMap["SLACK_CONFIG"] != wantCfg {
+		t.Errorf("SLACK_CONFIG = %q, want %q", envMap["SLACK_CONFIG"], wantCfg)
 	}
 }
 
