@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -109,8 +110,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	// Knowledge services
 	for name, knowledge := range ds.Knowledge {
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
-		port := primaryPort(knowledge.Endpoints)
-		svc := a.buildKnowledgeService(resourceName, accountName, agentName, buildID, name, port)
+		svc := a.buildKnowledgeService(resourceName, accountName, agentName, buildID, name, knowledge.Endpoints)
 		a.applyServiceAndRecord(ctx, svc, result)
 	}
 
@@ -216,6 +216,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Strategy:        BuildStatefulSetUpdateStrategy(knowledge.Update),
 			Provider:        knowledge.Provider,
 			ProviderSection: "knowledge",
+			LocalMode:       a.localMode,
 		}
 		ss, err := BuildStatefulSet(ssCfg)
 		if err != nil {
@@ -288,6 +289,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Tolerations:     BuildGPUTolerations(model.GPU),
 			Provider:        model.Provider,
 			ProviderSection: "models",
+			LocalMode:       a.localMode,
 		}
 
 		// Add model pull postStart hook
@@ -354,6 +356,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Strategy:        BuildDeploymentStrategy(model.Update),
 			NodeSelector:    BuildGPUNodeSelector(model.GPU),
 			Tolerations:     BuildGPUTolerations(model.GPU),
+			LocalMode:       a.localMode,
 		}
 		depl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, depl)
@@ -393,6 +396,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Replicas:        int32(knowledge.Replicas), //nolint:gosec
 			Resources:       BuildResourceRequirements(knowledge.Resources),
 			Strategy:        BuildDeploymentStrategy(knowledge.Update),
+			LocalMode:       a.localMode,
 		}
 		depl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, depl)
@@ -679,13 +683,14 @@ func (a *Applier) ApplyDeploymentSpec(
 		switch ingestion.Trigger.Type {
 		case "schedule":
 			if ingestion.Trigger.Schedule != "" {
-				cronJob := BuildCronJob(CronJobConfig{
-					Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
-					BuildID: buildID, Component: component,
-					Schedule:   ingestion.Trigger.Schedule,
-					SecretName: secretName, ConfigMapName: configMapName,
-					Ingestion: ingestionSpec,
-				})
+			cronJob := BuildCronJob(CronJobConfig{
+				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
+				BuildID: buildID, Component: component,
+				Schedule:        ingestion.Trigger.Schedule,
+				SecretName:      secretName, ConfigMapName: configMapName,
+				Ingestion:       ingestionSpec,
+				ImagePullPolicy: a.imagePullPolicy,
+			})
 				status, err := a.applyCronJob(ctx, cronJob)
 				result.Resources = append(result.Resources, status)
 				if err != nil {
@@ -700,7 +705,8 @@ func (a *Applier) ApplyDeploymentSpec(
 				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: component,
 				SecretName: secretName, ConfigMapName: configMapName,
-				Ingestion: ingestionSpec,
+				Ingestion:       ingestionSpec,
+				ImagePullPolicy: a.imagePullPolicy,
 			})
 			status, err := a.applyJob(ctx, job)
 			result.Resources = append(result.Resources, status)
@@ -726,8 +732,9 @@ func (a *Applier) ApplyDeploymentSpec(
 				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: component,
 				SecretName: secretName, ConfigMapName: configMapName,
-				Ingestion: ingestionSpec,
-			}, port, a.imagePullPolicy)
+				Ingestion:       ingestionSpec,
+				ImagePullPolicy: a.imagePullPolicy,
+			}, port)
 			status, err := a.applyDeployment(ctx, depl)
 			result.Resources = append(result.Resources, status)
 			if err != nil {
@@ -977,19 +984,23 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 	return nil
 }
 
-// buildKnowledgeService builds a knowledge service with provider-aware extra ports.
+// buildKnowledgeService builds a knowledge service exposing all declared endpoints.
 func (a *Applier) buildKnowledgeService(
-	resourceName, accountName, agentName, buildID, name string, port int32,
+	resourceName, accountName, agentName, buildID, name string, endpoints map[string]spec.Endpoint,
 ) *corev1.Service {
 	labels := deployment.GenerateLabels(accountName, agentName, buildID, fmt.Sprintf("knowledge-%s", name))
 	selector := deployment.GenerateSelector(accountName, agentName, fmt.Sprintf("knowledge-%s", name))
 
-	servicePorts := []corev1.ServicePort{
-		{
-			Name: "tcp", Protocol: corev1.ProtocolTCP,
-			Port: port, TargetPort: intstr.FromInt(int(port)),
-		},
+	servicePorts := make([]corev1.ServicePort, 0, len(endpoints))
+	for epName, ep := range endpoints {
+		servicePorts = append(servicePorts, corev1.ServicePort{
+			Name: epName, Protocol: corev1.ProtocolTCP,
+			Port: int32(ep.Port), TargetPort: intstr.FromInt(ep.Port), //nolint:gosec
+		})
 	}
+	sort.Slice(servicePorts, func(i, j int) bool {
+		return servicePorts[i].Name < servicePorts[j].Name
+	})
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{

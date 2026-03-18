@@ -12,19 +12,24 @@ import (
 
 // JobConfig holds configuration for building a one-shot Job or ingestion Deployment
 type JobConfig struct {
-	Name          string
-	Namespace     string
-	AccountID     string
-	AgentName     string
-	BuildID       string
-	Component     string
-	SecretName    string
-	ConfigMapName string
-	Ingestion     spec.Ingestion
+	Name            string
+	Namespace       string
+	AccountID       string
+	AgentName       string
+	BuildID         string
+	Component       string
+	SecretName      string
+	ConfigMapName   string
+	Ingestion       spec.Ingestion
+	ImagePullPolicy corev1.PullPolicy // Defaults to PullAlways if empty
 }
 
 // buildIngestionContainer creates the container spec shared by CronJob, Job, and ingestion Deployment
-func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName string) corev1.Container {
+func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName string, pullPolicy corev1.PullPolicy) corev1.Container {
+	if pullPolicy == "" {
+		pullPolicy = corev1.PullAlways
+	}
+
 	var envVars []corev1.EnvVar
 	for key, val := range ingestion.Container.Environment {
 		envVars = append(envVars, corev1.EnvVar{
@@ -37,7 +42,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 		Name:            "ingestion-worker",
 		Image:           ingestion.Container.Image,
 		Env:             envVars,
-		ImagePullPolicy: corev1.PullAlways,
+		ImagePullPolicy: pullPolicy,
 	}
 
 	if configMapName != "" {
@@ -78,7 +83,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 // BuildJob creates a one-shot Kubernetes Job manifest for ingestion (startup/manual triggers)
 func BuildJob(cfg JobConfig) *batchv1.Job {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
-	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy)
 
 	backoffLimit := int32(3)
 	ttl := int32(86400) // 1 day
@@ -116,22 +121,17 @@ func BuildJob(cfg JobConfig) *batchv1.Job {
 }
 
 // BuildIngestionDeployment creates a long-running Deployment for webhook-triggered ingestion
-func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.PullPolicy) *appsv1.Deployment {
+func BuildIngestionDeployment(cfg JobConfig, port int32) *appsv1.Deployment {
 	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
-	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
+	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName, cfg.ImagePullPolicy)
 
-	// Override container port for the webhook listener
 	container.Ports = []corev1.ContainerPort{
 		{
 			Name:          "http",
 			ContainerPort: port,
 			Protocol:      corev1.ProtocolTCP,
 		},
-	}
-
-	if imagePullPolicy != "" {
-		container.ImagePullPolicy = imagePullPolicy
 	}
 
 	replicas := int32(1)

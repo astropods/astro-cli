@@ -40,11 +40,21 @@ export const extractInitialValues = (template: DeploymentTemplate, account: stri
   const adapters = interfaces?.adapters;
   const selectedAdapters: string[] = Array.isArray(adapters) ? adapters : ["web"];
 
+  const ingestionSchedules: Record<string, string> = {};
+  if (template.ingestion) {
+    for (const [name, ing] of Object.entries(template.ingestion)) {
+      if (ing.trigger?.type === "schedule") {
+        ingestionSchedules[name] = ing.trigger.schedule ?? "";
+      }
+    }
+  }
+
   return {
     deployName: template.target.display_name || "",
     targetAccount: account,
     variableValues,
     selectedAdapters,
     adapterCredentials,
+    ingestionSchedules,
   };
 };

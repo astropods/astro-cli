@@ -376,6 +376,7 @@ func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
 	return "http"
 }
 
+
 func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
 	container := model.ResolvedContainer()
 	port := container.Port

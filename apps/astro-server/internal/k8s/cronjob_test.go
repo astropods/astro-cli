@@ -261,7 +261,8 @@ func TestBuildIngestionDeployment(t *testing.T) {
 		},
 	}
 
-	d := BuildIngestionDeployment(cfg, 8080, corev1.PullAlways)
+	cfg.ImagePullPolicy = corev1.PullAlways
+	d := BuildIngestionDeployment(cfg, 8080)
 
 	if d.Kind != "Deployment" {
 		t.Errorf("kind: expected Deployment, got %s", d.Kind)
@@ -284,7 +285,7 @@ func TestBuildIngestionDeployment(t *testing.T) {
 	}
 
 	// Custom port
-	d2 := BuildIngestionDeployment(cfg, 9090, corev1.PullAlways)
+	d2 := BuildIngestionDeployment(cfg, 9090)
 	container2 := d2.Spec.Template.Spec.Containers[0]
 	if container2.Ports[0].ContainerPort != 9090 {
 		t.Errorf("expected custom port 9090, got %d", container2.Ports[0].ContainerPort)
@@ -305,7 +306,8 @@ func TestBuildIngestionDeployment_EnvAndLabels(t *testing.T) {
 		},
 	}
 
-	d := BuildIngestionDeployment(cfg, 3001, corev1.PullIfNotPresent)
+	cfg.ImagePullPolicy = corev1.PullIfNotPresent
+	d := BuildIngestionDeployment(cfg, 3001)
 
 	// Labels
 	if d.Labels["astro.dev/agent"] != "my-agent" {

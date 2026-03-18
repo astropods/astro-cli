@@ -821,6 +821,94 @@ func TestK8s_DeployWithStaleVarsStrippedByEnforceEditable(t *testing.T) {
 	}
 }
 
+// ingestionScheduleSpecJSON includes a schedule ingestion trigger with a daily
+// cron expression, used to verify that ApplyDeploymentSpec creates a CronJob.
+const ingestionScheduleSpecJSON = `{
+  "spec": "deployment/v1",
+  "source": {"account": "test-account", "name": "k8s-ingest-e2e", "build": "build001", "registry": "test-registry.example.com"},
+  "target": {"runtime": "kubernetes", "account": "test-account", "display_name": "K8s Ingestion E2E"},
+  "agent": {
+    "image": "gcr.io/google-containers/pause:3.2",
+    "endpoints": {"http": {"port": 8080, "protocol": "http"}},
+    "replicas": 1,
+    "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"},
+    "environment": {"AGENT_PORT": "8080"},
+    "update": {"strategy": "rolling"}
+  },
+  "ingestion": {
+    "daily": {
+      "image": "gcr.io/google-containers/pause:3.2",
+      "trigger": {"type": "schedule", "schedule": "0 0 * * *"},
+      "resources": {"cpu": "50m", "memory": "64Mi", "cpu_limit": "100m", "memory_limit": "128Mi"}
+    }
+  },
+  "observability": {"enabled": false}
+}`
+
+func parseIngestionScheduleSpec(t *testing.T) *spec.AstroDeploymentSpec {
+	t.Helper()
+	var s spec.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(ingestionScheduleSpecJSON), &s); err != nil {
+		t.Fatalf("parse ingestion schedule spec: %v", err)
+	}
+	return &s
+}
+
+func applyIngestionScheduleSpec(t *testing.T, client k8s.ClusterClient, ns string) *k8s.ApplyResult {
+	t.Helper()
+	s := parseIngestionScheduleSpec(t)
+	fillSecrets(s)
+	return applySpec(t, client, ns, s, nil)
+}
+
+// Applies a spec with a schedule ingestion trigger and verifies that a CronJob
+// is created in the namespace with the expected cron schedule.
+func TestK8s_ScheduleIngestionCreatesCronJob(t *testing.T) {
+	client := clusterClient(t)
+	ns := uniqueNS(t)
+	clientset := client.Clientset()
+	cleanupNamespace(t, clientset, ns)
+
+	applyIngestionScheduleSpec(t, client, ns)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	var cronJobNames []string
+	err := wait.PollUntilContextCancel(ctx, 2*time.Second, true, func(ctx context.Context) (bool, error) {
+		cronJobs, listErr := clientset.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+		})
+		if listErr != nil {
+			return false, nil
+		}
+		if len(cronJobs.Items) == 0 {
+			return false, nil
+		}
+		cronJobNames = make([]string, len(cronJobs.Items))
+		for i, cj := range cronJobs.Items {
+			cronJobNames[i] = cj.Name
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("timed out waiting for CronJob: %v", err)
+	}
+
+	if len(cronJobNames) != 1 {
+		t.Fatalf("expected 1 CronJob, got %d: %v", len(cronJobNames), cronJobNames)
+	}
+
+	cj, err := clientset.BatchV1().CronJobs(ns).Get(ctx, cronJobNames[0], metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get CronJob: %v", err)
+	}
+
+	if cj.Spec.Schedule != "0 0 * * *" {
+		t.Errorf("CronJob schedule = %q, want %q", cj.Spec.Schedule, "0 0 * * *")
+	}
+}
+
 // --- helpers ---
 
 func secretKeys(s *corev1.Secret) []string {

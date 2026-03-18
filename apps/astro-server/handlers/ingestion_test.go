@@ -12,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -72,9 +73,10 @@ func setupIngestionRouter(
 	if withAuth {
 		router.Use(setAuthUser("user-1"))
 	}
+	testCfg := &config.Config{}
 	router.POST(
 		"/api/v1/deployments/:id/ingestion/:ingestion/trigger",
-		TriggerIngestion(log, index, accountStore, k8sClient, deployStore),
+		TriggerIngestion(log, index, accountStore, k8sClient, deployStore, testCfg),
 	)
 	return router, accountMock, indexMock, deployMock
 }

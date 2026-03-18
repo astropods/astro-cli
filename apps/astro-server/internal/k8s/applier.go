@@ -42,6 +42,10 @@ type ApplierConfig struct {
 	// PodSubnetCIDRs are the private subnet CIDRs where cluster pods run.
 	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
 	PodSubnetCIDRs []string
+	// LocalMode relaxes pod security hardening for third-party provider
+	// containers (qdrant, neo4j, etc.) that expect to run as their image's
+	// default user. Only set true for local K8s (Docker Desktop / kind).
+	LocalMode bool
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -68,6 +72,7 @@ type Applier struct {
 	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
 	podSubnetCIDRs []string
+	localMode      bool
 }
 
 // NewApplier creates a new applier
@@ -93,6 +98,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		namespaceLabels:        cfg.NamespaceLabels,
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
+		localMode:              cfg.LocalMode,
 	}
 }
 

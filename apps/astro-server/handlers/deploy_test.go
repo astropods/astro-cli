@@ -2245,6 +2245,165 @@ func TestGetDeploymentLogs_LokiPath_PodOptional(t *testing.T) {
 	}
 }
 
+// Submits a deployment spec with a schedule ingestion containing a valid cron
+// expression. The handler regenerates the template from the registered agent spec
+// (which includes a schedule trigger), runs EnforceEditable and ValidateAndResolve,
+// and should accept the spec with 202.
+func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrepWithIngestion(accountMock, indexMock)
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}))
+
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	deployMock.ExpectQuery(`INSERT INTO deployments`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at",
+		}).AddRow("new-sched-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Normalized insert order: agent workload → agent service → ingestion workload
+	// → collector sidecar → collector services → variables → resolved keys
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_sidecars`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_variables`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := deployableSpecWithScheduleIngestion("0 0 * * *")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// Submits a deployment spec with a schedule ingestion but an empty cron
+// expression. The resolver should reject it with a validation error.
+func TestDeploy_WithEmptySchedule_Rejected(t *testing.T) {
+	router, indexMock, accountMock, _ := setupDeployRouter("user-1")
+
+	expectDeployPrepWithIngestion(accountMock, indexMock)
+
+	body := deployableSpecWithScheduleIngestion("")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	errors, ok := resp["validation_errors"].([]interface{})
+	if !ok || len(errors) == 0 {
+		t.Fatalf("expected validation_errors array, got %v", resp)
+	}
+	firstErr := errors[0].(map[string]interface{})
+	msg, _ := firstErr["message"].(string)
+	if !strings.Contains(msg, "cron expression required") {
+		t.Errorf("expected cron error, got: %s", msg)
+	}
+}
+
+// expectDeployPrepWithIngestion sets up mocks for prepareDeployment with an
+// agent spec that includes a schedule ingestion trigger.
+func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
+	now := time.Now()
+	specJSON := `{"name":"my-agent","ingestion":{"daily":{"container":{"image":"docker.io/library/my-agent:build-1"},"trigger":{"type":"schedule"}}}}`
+
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now))
+
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+}
+
+func deployableSpecWithScheduleIngestion(schedule string) string {
+	return fmt.Sprintf(`{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "docker.io/library"},
+		"target": {"runtime": "kubernetes"},
+		"agent": {
+			"image": "docker.io/library/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%%", "max_surge": "25%%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
+		},
+		"ingestion": {
+			"daily": {
+				"image": "docker.io/library/my-agent:build-1",
+				"trigger": {"type": "schedule", "schedule": %q},
+				"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"}
+			}
+		},
+		"observability": {"enabled": true, "provider": "galileo"}
+	}`, schedule)
+}
+
 func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 	router, deployMock, accountMock := setupLogsTest(t, nil /* no Loki, no k8s */)
 

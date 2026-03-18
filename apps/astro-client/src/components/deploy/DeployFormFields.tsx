@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AccountPicker } from "./AccountPicker";
@@ -6,7 +7,9 @@ import { VariableFields } from "./VariableFields";
 import { FormSection } from "./FormSection";
 import { ErrorPanel } from "./ErrorPanel";
 import { ImportVariables } from "./ImportVariables";
+import { SchedulePicker } from "./SchedulePicker";
 import type { useDeployForm } from "./useDeployForm";
+import { slugToTitle } from "./useDeployForm";
 
 type DeployForm = ReturnType<typeof useDeployForm>;
 
@@ -14,9 +17,11 @@ export interface DeployFormFieldsProps {
   form: DeployForm;
   /** Hide the account picker (e.g. on settings page where account is fixed). */
   hideAccountPicker?: boolean;
+  /** Extra content rendered at the end of the Ingestion Schedules section (e.g. manual trigger buttons). */
+  ingestionExtra?: ReactNode;
 }
 
-export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsProps) {
+export function DeployFormFields({ form, hideAccountPicker, ingestionExtra }: DeployFormFieldsProps) {
   const importableKeys = new Set<string>([
     ...form.requiredVariables.map(([key]) => key),
     ...form.optionalVariables.map(([key]) => key),
@@ -102,6 +107,32 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
             values={form.variableValues}
             onChange={form.setVariableValues}
           />
+        </FormSection>
+      )}
+
+      {/* Ingestion schedules + manual triggers */}
+      {(form.scheduleIngestions.length > 0 || ingestionExtra) && (
+        <FormSection title="Ingestion" description="Configure scheduled and manual ingestion jobs.">
+          {form.scheduleIngestions.length > 0 && (
+            <div className="space-y-6">
+              {form.scheduleIngestions.map((name) => (
+                <SchedulePicker
+                  key={name}
+                  label={slugToTitle(name)}
+                  value={form.ingestionSchedules[name] ?? ""}
+                  onChange={(cron) =>
+                    form.setIngestionSchedules((prev) => ({ ...prev, [name]: cron }))
+                  }
+                  error={
+                    form.errors.ingestionSchedules?.includes(name)
+                      ? "A schedule is required"
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
+          {ingestionExtra}
         </FormSection>
       )}
 

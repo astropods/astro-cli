@@ -13,6 +13,7 @@ export interface DeployFormInitialValues {
   selectedAdapters?: string[];
   adapterCredentials?: Record<string, string>;
   targetAccount?: string;
+  ingestionSchedules?: Record<string, string>;
 }
 
 export interface UseDeployFormOptions {
@@ -126,6 +127,7 @@ function fulfillTemplate(
   adapterVariableDefs: Record<string, [string, VariableDisplay][]>,
   targetAccount: string,
   deployName: string,
+  ingestionSchedules: Record<string, string>,
 ): DeploymentSpec {
   // Destructure out editable (template-only) so it is not present in the fulfilled spec
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
@@ -163,6 +165,18 @@ function fulfillTemplate(
     };
   }
 
+  // Merge user-supplied cron expressions into ingestion schedule triggers
+  const ingestion = rest.ingestion
+    ? Object.fromEntries(
+        Object.entries(rest.ingestion).map(([name, ing]) => {
+          if (ing.trigger?.type === "schedule" && name in ingestionSchedules) {
+            return [name, { ...ing, trigger: { ...ing.trigger, schedule: ingestionSchedules[name] } }];
+          }
+          return [name, ing];
+        }),
+      )
+    : rest.ingestion;
+
   return {
     ...rest,
     spec: 'deployment/v1',
@@ -171,6 +185,7 @@ function fulfillTemplate(
     interfaces: rest.interfaces
       ? { ...rest.interfaces, adapters: selectedAdapters }
       : rest.interfaces,
+    ingestion,
   };
 }
 
@@ -182,6 +197,7 @@ export interface FormErrors {
   adapters?: string;
   credentials?: string[];
   adapterCredentials?: string[];
+  ingestionSchedules?: string[];
 }
 
 // --- Hook ---
@@ -209,12 +225,36 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const [variableValues, setVariableValues] = useState<Record<string, string>>(iv?.variableValues ?? {});
   const [selectedAdapters, setSelectedAdapters] = useState<string[]>(iv?.selectedAdapters ?? ["web"]);
   const [adapterCredentials, setAdapterCredentials] = useState<Record<string, string>>(iv?.adapterCredentials ?? {});
+  const [ingestionSchedules, setIngestionSchedules] = useState<Record<string, string>>(iv?.ingestionSchedules ?? {});
   const [deployError, setDeployError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const allFormValues = useMemo(
     () => mergeFormValues(variableValues, adapterCredentials),
     [variableValues, adapterCredentials],
   );
+
+  const scheduleIngestions = useMemo<string[]>(
+    () =>
+      template?.ingestion
+        ? Object.entries(template.ingestion)
+            .filter(([, ing]) => ing.trigger?.type === "schedule")
+            .map(([name]) => name)
+        : [],
+    [template],
+  );
+
+  // Initialize ingestion schedule values when template loads
+  useEffect(() => {
+    if (scheduleIngestions.length > 0) {
+      setIngestionSchedules((prev) => {
+        const initial: Record<string, string> = {};
+        for (const name of scheduleIngestions) {
+          initial[name] = prev[name] ?? template?.ingestion?.[name]?.trigger?.schedule ?? "";
+        }
+        return initial;
+      });
+    }
+  }, [scheduleIngestions, template]);
 
   // Derived variable lists (agent/ingestion-targeting variables)
   const variableEntries = useMemo<[string, VariableDisplay][]>(
@@ -377,11 +417,18 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       result.adapterCredentials = emptyAdapterCreds;
     }
 
+    const emptySchedules = scheduleIngestions.filter(
+      (name) => !ingestionSchedules[name]?.trim(),
+    );
+    if (emptySchedules.length > 0) {
+      result.ingestionSchedules = emptySchedules;
+    }
+
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, allFormValues, adapterDisplayFields]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules]);
 
   const isValid = submitted
-    ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials
+    ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules
     : true;
 
   // Try to submit: marks form as submitted and returns validity
@@ -397,8 +444,9 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       const creds = adapterDisplayFields[adapterId] ?? [];
       return creds.every(([key, def]) => def.optional || allFormValues[key]?.trim());
     });
+    const schedulesValid = scheduleIngestions.every((n) => ingestionSchedules[n]?.trim());
 
-    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid;
+    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid;
   };
 
   // Submission
@@ -413,6 +461,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       adapterVariableDefs,
       targetAccount,
       deployName.trim(),
+      ingestionSchedules,
     );
 
     try {
@@ -464,6 +513,10 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setVariableValues,
     requiredVariables,
     optionalVariables,
+
+    scheduleIngestions,
+    ingestionSchedules,
+    setIngestionSchedules,
 
     errors,
     submitted,
@@ -522,6 +575,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       setVariableValues(v?.variableValues ?? {});
       setSelectedAdapters(v?.selectedAdapters ?? ["web"]);
       setAdapterCredentials(v?.adapterCredentials ?? {});
+      setIngestionSchedules(v?.ingestionSchedules ?? {});
     },
   };
 }

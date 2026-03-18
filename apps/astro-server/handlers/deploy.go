@@ -1420,12 +1420,18 @@ func GetPrefilledDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.I
 			}
 		}
 
-		// Merge adapters from stored spec
-		if existing.DeploymentSpecJSON != "" && template.Interfaces != nil {
+		// Merge adapters and ingestion schedules from stored spec
+		if existing.DeploymentSpecJSON != "" {
 			var storedSpec spec.AstroDeploymentSpec
 			if jsonErr := json.Unmarshal([]byte(existing.DeploymentSpecJSON), &storedSpec); jsonErr == nil {
-				if storedSpec.Interfaces != nil {
+				if storedSpec.Interfaces != nil && template.Interfaces != nil {
 					template.Interfaces.Adapters = storedSpec.Interfaces.Adapters
+				}
+				for name, storedIng := range storedSpec.Ingestion {
+					if tmplIng, ok := template.Ingestion[name]; ok && storedIng.Trigger.Schedule != "" {
+						tmplIng.Trigger.Schedule = storedIng.Trigger.Schedule
+						template.Ingestion[name] = tmplIng
+					}
 				}
 			}
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -19,7 +20,7 @@ import (
 )
 
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
-func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ingestionName := c.Param("ingestion")
 
@@ -92,14 +93,15 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		configMapName := deployment.GenerateConfigMapName(agentName, buildID)
 
 		jobCfg := k8s.JobConfig{
-			Name:          jobName,
-			Namespace:     k8sNamespace,
-			AgentName:     agentName,
-			BuildID:       buildID,
-			Component:     fmt.Sprintf("ingestion-%s", ingestionName),
-			SecretName:    secretName,
-			ConfigMapName: configMapName,
-			Ingestion:     ingestion,
+			Name:            jobName,
+			Namespace:       k8sNamespace,
+			AgentName:       agentName,
+			BuildID:         buildID,
+			Component:       fmt.Sprintf("ingestion-%s", ingestionName),
+			SecretName:      secretName,
+			ConfigMapName:   configMapName,
+			Ingestion:       ingestion,
+			ImagePullPolicy: imagePullPolicyForMode(cfg.Deployment.K8sClientMode),
 		}
 		job := k8s.BuildJob(jobCfg)
 

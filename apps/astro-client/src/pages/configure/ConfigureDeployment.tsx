@@ -1,12 +1,16 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
+import { Play, Check, Loader2 } from "lucide-react";
 import type { ConfigureContext } from "./types";
 import { deploymentPath } from "@/lib/routes";
+import { Button } from "@/components/ui/button";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
+import { slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
+import { useTriggerIngestion } from "@/api/queries/deployments";
 
 const FORM_ID = "configure-deployment-form";
 
@@ -39,12 +43,14 @@ export default function ConfigureDeployment() {
     variableValues: form.variableValues,
     selectedAdapters: form.selectedAdapters,
     adapterCredentials: form.adapterCredentials,
+    ingestionSchedules: form.ingestionSchedules,
   };
   const initialTrackedState: TrackedFormState = {
     deployName: initialValues.deployName ?? "",
     variableValues: initialValues.variableValues ?? {},
     selectedAdapters: initialValues.selectedAdapters ?? ["web"],
     adapterCredentials: initialValues.adapterCredentials ?? {},
+    ingestionSchedules: initialValues.ingestionSchedules ?? {},
   };
   const changes = useChangeTracking(initialTrackedState, trackedState);
 
@@ -57,6 +63,60 @@ export default function ConfigureDeployment() {
       window.scrollTo({ top: doc.scrollHeight, behavior: "smooth" });
     }
   }, [deployError]);
+
+  const manualIngestions = deployment.manual_ingestions ?? [];
+  const triggerMutation = useTriggerIngestion(account);
+  const [triggeredName, setTriggeredName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!triggeredName) return;
+    const timer = setTimeout(() => setTriggeredName(null), 2000);
+    return () => clearTimeout(timer);
+  }, [triggeredName]);
+
+  const handleTrigger = (name: string) => {
+    triggerMutation.mutate(
+      { deploymentId: deployment.id, ingestion: name },
+      { onSuccess: () => setTriggeredName(name) },
+    );
+  };
+
+  const ingestionExtra = manualIngestions.length > 0 ? (
+    <div className={form.scheduleIngestions.length > 0 ? "mt-6 pt-6 border-t border-border" : ""}>
+      <p className="text-sm font-medium text-foreground mb-3">Manual Triggers</p>
+      <div className="flex flex-wrap gap-2">
+        {manualIngestions.map((name) => {
+          const isTriggering = triggerMutation.isPending && triggerMutation.variables?.ingestion === name;
+          const justTriggered = triggeredName === name;
+
+          return (
+            <Button
+              key={name}
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isTriggering || justTriggered}
+              onClick={() => handleTrigger(name)}
+            >
+              {justTriggered ? (
+                <Check className="size-3.5 text-green-600" />
+              ) : isTriggering ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Play className="size-3.5" />
+              )}
+              {slugToTitle(name)}
+            </Button>
+          );
+        })}
+      </div>
+      {triggerMutation.isError && (
+        <p className="text-sm text-destructive mt-2">
+          Failed to trigger ingestion. Please try again.
+        </p>
+      )}
+    </div>
+  ) : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +136,7 @@ export default function ConfigureDeployment() {
         onSubmit={handleSubmit}
         className={changes.isDirty || hasNewerBuildAvailable ? "pb-24" : ""}
       >
-        <DeployFormFields form={form} hideAccountPicker />
+        <DeployFormFields form={form} hideAccountPicker ingestionExtra={ingestionExtra} />
       </form>
 
       <DeployFormActionBar

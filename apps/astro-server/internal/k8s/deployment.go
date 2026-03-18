@@ -41,6 +41,7 @@ type DeploymentConfig struct {
 	// Sidecar containers colocated in the same pod
 	Messaging *MessagingDeploymentConfig // nil means no messaging sidecar
 	Collector *CollectorDeploymentConfig // nil means no collector sidecar
+	LocalMode bool                       // Skip security hardening for provider containers (local K8s only)
 }
 
 // MessagingDeploymentConfig holds configuration for building a messaging sidecar Deployment
@@ -107,7 +108,10 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		podSpec.Tolerations = cfg.Tolerations
 	}
 
-	hardenPodSpec(&podSpec)
+	isProvider := cfg.Provider != ""
+	if !(cfg.LocalMode && isProvider) {
+		hardenPodSpec(&podSpec)
+	}
 
 	depl := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -455,7 +459,10 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 		}
 	}
 
-	hardenContainer(&container)
+	isProvider := cfg.Provider != ""
+	if !(cfg.LocalMode && isProvider) {
+		hardenContainer(&container)
+	}
 	return container
 }
 

@@ -962,6 +962,75 @@ knowledge:
 	})
 }
 
+func TestE2E_KnowledgeService_ExposesAllProviderPorts(t *testing.T) {
+	r := runE2E(t, `
+spec: package/v1
+name: my-agent
+agent:
+  image: my-agent:latest
+knowledge:
+  graph:
+    provider: neo4j
+    persistent: true
+  docs:
+    provider: qdrant
+    persistent: true
+  cache:
+    provider: redis
+`, e2eOpts{})
+
+	requireNoErrors(t, r)
+
+	ctx := context.Background()
+
+	// Neo4j: Service must expose both http (7474) and bolt (7687)
+	neo4jSvc, err := r.Clientset.CoreV1().Services(r.Namespace).Get(ctx,
+		deployment.GenerateResourceName("my-agent", "knowledge", "graph"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("neo4j service not found: %v", err)
+	}
+	neo4jPorts := make(map[string]int32)
+	for _, p := range neo4jSvc.Spec.Ports {
+		neo4jPorts[p.Name] = p.Port
+	}
+	if neo4jPorts["http"] != 7474 {
+		t.Errorf("neo4j service: http port = %d, want 7474", neo4jPorts["http"])
+	}
+	if neo4jPorts["bolt"] != 7687 {
+		t.Errorf("neo4j service: bolt port = %d, want 7687", neo4jPorts["bolt"])
+	}
+
+	// Qdrant: Service must expose both http (6333) and grpc (6334)
+	qdrantSvc, err := r.Clientset.CoreV1().Services(r.Namespace).Get(ctx,
+		deployment.GenerateResourceName("my-agent", "knowledge", "docs"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("qdrant service not found: %v", err)
+	}
+	qdrantPorts := make(map[string]int32)
+	for _, p := range qdrantSvc.Spec.Ports {
+		qdrantPorts[p.Name] = p.Port
+	}
+	if qdrantPorts["http"] != 6333 {
+		t.Errorf("qdrant service: http port = %d, want 6333", qdrantPorts["http"])
+	}
+	if qdrantPorts["grpc"] != 6334 {
+		t.Errorf("qdrant service: grpc port = %d, want 6334", qdrantPorts["grpc"])
+	}
+
+	// Redis: single port only (no extra ports)
+	redisSvc, err := r.Clientset.CoreV1().Services(r.Namespace).Get(ctx,
+		deployment.GenerateResourceName("my-agent", "knowledge", "cache"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("redis service not found: %v", err)
+	}
+	if len(redisSvc.Spec.Ports) != 1 {
+		t.Errorf("redis service: expected 1 port, got %d", len(redisSvc.Spec.Ports))
+	}
+	if redisSvc.Spec.Ports[0].Port != 6379 {
+		t.Errorf("redis service: port = %d, want 6379", redisSvc.Spec.Ports[0].Port)
+	}
+}
+
 func TestE2E_ProviderEnv_KnowledgeContainer(t *testing.T) {
 	// Container-mode knowledge (no provider) → generic KNOWLEDGE_{NAME}_ prefix
 	r := runE2E(t, `

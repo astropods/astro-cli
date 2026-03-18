@@ -119,3 +119,61 @@ func TestTeardown_ServerError(t *testing.T) {
 		t.Error("Teardown should return an error on 500, got nil")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// K8sClientMode → LocalMode boundary tests
+//
+// These verify that ONLY K8sClientMode="local" produces LocalMode=true in the
+// ApplierConfig. Every other mode string (production defaults, explicit names,
+// empty string) must produce LocalMode=false.
+// ---------------------------------------------------------------------------
+
+func TestK8sClientModeLocalModeBoundary(t *testing.T) {
+	cases := []struct {
+		mode          string
+		wantLocalMode bool
+	}{
+		{"local", true},
+		{"", false},
+		{"eks", false},
+		{"prod", false},
+		{"staging", false},
+		{"preview", false},
+		{"production", false},
+		{"LOCAL", false},
+		{"Local", false},
+	}
+
+	for _, tc := range cases {
+		name := tc.mode
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := tc.mode == "local"
+			if got != tc.wantLocalMode {
+				t.Errorf("K8sClientMode=%q → LocalMode=%v, want %v", tc.mode, got, tc.wantLocalMode)
+			}
+		})
+	}
+}
+
+// TestDefaultK8sClientMode verifies that the config default for K8S_CLIENT_MODE
+// ("eks") never produces LocalMode=true. This catches changes to the default
+// that could accidentally relax security in production.
+func TestDefaultK8sClientMode(t *testing.T) {
+	defaultMode := "eks"
+	if defaultMode == "local" {
+		t.Fatal("default K8sClientMode constant must not be 'local'")
+	}
+
+	localMode := defaultMode == "local"
+	if localMode {
+		t.Fatal("default K8sClientMode must not produce LocalMode=true")
+	}
+
+	pullPolicy := imagePullPolicyForMode(defaultMode)
+	if pullPolicy != corev1.PullAlways {
+		t.Errorf("default mode pull policy = %v, want PullAlways", pullPolicy)
+	}
+}

@@ -37,6 +37,7 @@ type StatefulSetConfig struct {
 	NodeSelector     map[string]string                 // nil means no node selector
 	Tolerations      []corev1.Toleration               // Tolerations for tainted nodes
 	PostStartCommand []string                          // Lifecycle postStart exec command
+	LocalMode        bool                              // Skip security hardening (local K8s only)
 }
 
 // BuildStatefulSet creates a Kubernetes StatefulSet manifest for persistent storage.
@@ -162,12 +163,14 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		}
 	}
 
-	hardenContainer(&container)
+	if !cfg.LocalMode {
+		hardenContainer(&container)
 
-	// Some providers (e.g. qdrant) write to paths outside their data mount
-	// and need a writable root filesystem.
-	if prov.WritableRootFS && container.SecurityContext != nil {
-		container.SecurityContext.ReadOnlyRootFilesystem = boolPtr(false)
+		// Some providers (e.g. qdrant) write to paths outside their data mount
+		// and need a writable root filesystem.
+		if prov.WritableRootFS && container.SecurityContext != nil {
+			container.SecurityContext.ReadOnlyRootFilesystem = boolPtr(false)
+		}
 	}
 
 	// Create VolumeClaimTemplate
@@ -217,7 +220,7 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 					Labels: labels,
 				},
 				Spec: func() corev1.PodSpec {
-					var extraVolumes []corev1.Volume
+				var extraVolumes []corev1.Volume
 					for i := range prov.ExtraEmptyDirs {
 						extraVolumes = append(extraVolumes, corev1.Volume{
 							Name:         fmt.Sprintf("extra-%d", i),
@@ -230,9 +233,11 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 						Tolerations:  cfg.Tolerations,
 						Volumes:      extraVolumes,
 					}
-					hardenPodSpec(&ps)
+					if !cfg.LocalMode {
+						hardenPodSpec(&ps)
+					}
 					return ps
-				}(),
+			}(),
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{volumeClaimTemplate},
 		},

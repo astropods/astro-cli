@@ -48,6 +48,7 @@ export interface TrackedFormState {
   variableValues: Record<string, string>;
   selectedAdapters: string[];
   adapterCredentials: Record<string, string>;
+  ingestionSchedules: Record<string, string>;
 }
 
 const FIELD_CONFIG: { [K in keyof TrackedFormState]: TrackedField<TrackedFormState[K]> } = {
@@ -55,6 +56,7 @@ const FIELD_CONFIG: { [K in keyof TrackedFormState]: TrackedField<TrackedFormSta
   variableValues:      { category: "redeploy", isChanged: recordChanged, countChanges: recordChangeCount },
   selectedAdapters:    { category: "redeploy", isChanged: stringArrayChanged, countChanges: stringArrayChangeCount },
   adapterCredentials:  { category: "redeploy", isChanged: recordChanged, countChanges: recordChangeCount },
+  ingestionSchedules:  { category: "redeploy", isChanged: recordChanged, countChanges: recordChangeCount },
 };
 
 // ---------------------------------------------------------------------------

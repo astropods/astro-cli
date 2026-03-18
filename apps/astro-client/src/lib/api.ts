@@ -572,6 +572,20 @@ export interface DeploymentEndpoint {
   expose?: { enabled: boolean; domain?: string };
 }
 
+export interface DeploymentTrigger {
+  type: string;
+  schedule?: string;
+}
+
+export interface DeploymentIngestion {
+  image: string;
+  trigger: DeploymentTrigger;
+  resources?: Record<string, unknown>;
+  environment?: Record<string, string>;
+  endpoints?: Record<string, DeploymentEndpoint>;
+  healthcheck?: Record<string, unknown>;
+}
+
 export interface DeploymentTemplate {
   spec: 'deployment-template/v1';
   source: { account: string; name: string; build: string; registry: string };
@@ -580,7 +594,7 @@ export interface DeploymentTemplate {
   models?: Record<string, unknown>;
   knowledge?: Record<string, unknown>;
   tools?: Record<string, unknown>;
-  ingestion?: Record<string, unknown>;
+  ingestion?: Record<string, DeploymentIngestion>;
   interfaces?: Record<string, unknown>;
   variables?: Record<string, DeploymentVariable>;
   observability?: Record<string, unknown>;

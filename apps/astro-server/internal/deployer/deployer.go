@@ -77,6 +77,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		GalileoAPIKey:          d.Cfg.Deployment.GalileoAPIKey,
 		GalileoProject:         d.Cfg.Deployment.GalileoProject,
 		PodSubnetCIDRs:         d.Cfg.Deployment.PodSubnetCIDRs,
+		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,

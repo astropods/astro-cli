@@ -6,6 +6,7 @@ const AGENT_SLACK_FULL = "slack-config-full";
 const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
+const MOCK_BACKEND = "http://localhost:48787";
 
 test.describe("deploy page", () => {
   // Guards against over-injecting Slack variables: when template only requires app token,
@@ -307,6 +308,10 @@ test.describe("deploy page", () => {
 });
 
 test.describe("configure page", () => {
+  test.beforeEach(async () => {
+    await fetch(`${MOCK_BACKEND}/test/reset`, { method: "POST" });
+  });
+
   // Configure-page redeploy coverage: edits to existing deployment credentials must flow into
   // Save & Redeploy payload, not just initial install flow.
   test("save and redeploy sends updated slack bot token and SLACK_CONFIG", async ({ page }) => {

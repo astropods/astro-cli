@@ -10,10 +10,12 @@ const AGENT_APP_TOKEN_ONLY = "code-reviewer";
 const AGENT_SLACK_FULL = "slack-config-full";
 const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
 const AGENT_CROSS_ACCOUNT = "cross-agent";
+const AGENT_INGESTION_SCHEDULE = "ingestion-scheduled";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
 const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
+const DEPLOYMENT_INGESTION_SCHEDULE_ID = "dep-ingestion-schedule-1";
 const REJECT_BOT_TOKEN = "xoxb-server-reject";
 
 const nowIso = new Date().toISOString();
@@ -22,6 +24,7 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_SLACK_FULL]: "build-124",
   [AGENT_SLACK_OVERLAP]: "build-123",
   [AGENT_CROSS_ACCOUNT]: "build-cross-1",
+  [AGENT_INGESTION_SCHEDULE]: "build-125",
 };
 
 const authResponse = {
@@ -170,6 +173,32 @@ const templatesByAgent = {
     },
     editable: ["variables.*.value", "interfaces.adapters"],
   },
+  [AGENT_INGESTION_SCHEDULE]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: ACCOUNT,
+      name: AGENT_INGESTION_SCHEDULE,
+      build: "build-125",
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes" },
+    agent: {
+      image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { adapters: ["web"] },
+    ingestion: {
+      scheduled: {
+        image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
+        trigger: { type: "schedule", schedule: "" },
+        resources: { cpu: "100m", memory: "256Mi" },
+      },
+    },
+    variables: {
+      ...baseVariables,
+    },
+    editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
+  },
 } satisfies Record<string, unknown>;
 
 const prefilledTemplatesByDeployment = {
@@ -279,6 +308,35 @@ const prefilledTemplatesByDeployment = {
     },
     editable: ["variables.*.value", "interfaces.adapters"],
   },
+  [DEPLOYMENT_INGESTION_SCHEDULE_ID]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: ACCOUNT,
+      name: AGENT_INGESTION_SCHEDULE,
+      build: "build-125",
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes", display_name: "Scheduled Ingestor" },
+    agent: {
+      image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { adapters: ["web"] },
+    ingestion: {
+      scheduled: {
+        image: `registry.example.com/testuser/${AGENT_INGESTION_SCHEDULE}:build-125`,
+        trigger: { type: "schedule", schedule: "0 0 * * *" },
+        resources: { cpu: "100m", memory: "256Mi" },
+      },
+    },
+    variables: {
+      OPENAI_API_KEY: {
+        ...baseVariables.OPENAI_API_KEY,
+        value: "sk-ingest-key",
+      },
+    },
+    editable: ["variables.*.value", "interfaces.adapters", "ingestion.*.trigger.schedule"],
+  },
 } satisfies Record<string, unknown>;
 
 const makeInitialDeployments = () => [
@@ -327,9 +385,26 @@ const makeInitialDeployments = () => [
     pods: [],
     jobs: [],
   },
+  {
+    id: DEPLOYMENT_INGESTION_SCHEDULE_ID,
+    name: AGENT_INGESTION_SCHEDULE,
+    display_name: "Scheduled Ingestor",
+    build_id: "build-125",
+    namespace: "astro-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    manual_ingestions: ["manual", "full-sync"],
+    external_urls: [],
+    pods: [],
+    jobs: [],
+  },
 ];
 
 let deployments = makeInitialDeployments();
+let storedPayloads: Record<string, Record<string, unknown>> = {};
 
 const agentFor = (agentName: string) => ({
   name: agentName,
@@ -350,8 +425,9 @@ const accountAgents = {
     agentFor(AGENT_SLACK_FULL),
     agentFor(AGENT_SLACK_OVERLAP),
     agentFor(AGENT_CROSS_ACCOUNT),
+    agentFor(AGENT_INGESTION_SCHEDULE),
   ],
-  count: 4,
+  count: 5,
 };
 
 const json = (body: unknown, status = 200) =>
@@ -371,6 +447,7 @@ Bun.serve({
     // Reset mutable state between tests so parallel workers don't leak side-effects
     if (pathname === "/test/reset" && request.method === "POST") {
       deployments = makeInitialDeployments();
+      storedPayloads = {};
       return json({ ok: true });
     }
 
@@ -393,15 +470,49 @@ Bun.serve({
     );
     if (prefilledTemplateMatch) {
       const [, accountName, agentName, deploymentId] = prefilledTemplateMatch;
-      const template = prefilledTemplatesByDeployment[deploymentId as keyof typeof prefilledTemplatesByDeployment];
-      if (
-        accountName === ACCOUNT &&
-        ((deploymentId === DEPLOYMENT_SLACK_FULL_ID && agentName === AGENT_SLACK_FULL) ||
-          (deploymentId === DEPLOYMENT_SLACK_OVERLAP_ID && agentName === AGENT_SLACK_OVERLAP) ||
-          (deploymentId === DEPLOYMENT_CROSS_ACCOUNT_ID && agentName === AGENT_CROSS_ACCOUNT)) &&
-        template
-      ) {
-        return json(template);
+      if (accountName !== ACCOUNT) return json({ error: "not_found" }, 404);
+
+      const storedPayload = storedPayloads[deploymentId] as Record<string, unknown> | undefined;
+      if (storedPayload && agentName in templatesByAgent) {
+        const base = structuredClone(templatesByAgent[agentName as keyof typeof templatesByAgent]);
+        const result = base as Record<string, unknown>;
+        result.target = { ...(result.target as Record<string, unknown>), deployment_id: deploymentId, display_name: agentName };
+
+        const storedVars = storedPayload.variables as Record<string, Record<string, unknown>> | undefined;
+        if (storedVars && result.variables) {
+          const tmplVars = result.variables as Record<string, Record<string, unknown>>;
+          for (const [key, sv] of Object.entries(storedVars)) {
+            if (tmplVars[key] && sv.value !== undefined) {
+              tmplVars[key] = { ...tmplVars[key], value: sv.value };
+            }
+          }
+        }
+
+        const storedIngestion = storedPayload.ingestion as Record<string, Record<string, unknown>> | undefined;
+        if (storedIngestion && result.ingestion) {
+          const tmplIngestion = result.ingestion as Record<string, Record<string, unknown>>;
+          for (const [name, si] of Object.entries(storedIngestion)) {
+            if (tmplIngestion[name]) {
+              const trigger = si.trigger as Record<string, unknown> | undefined;
+              const tmplTrigger = (tmplIngestion[name] as Record<string, unknown>).trigger as Record<string, unknown>;
+              if (trigger?.schedule) {
+                tmplTrigger.schedule = trigger.schedule;
+              }
+            }
+          }
+        }
+
+        const storedInterfaces = storedPayload.interfaces as Record<string, unknown> | undefined;
+        if (storedInterfaces?.adapters && result.interfaces) {
+          (result.interfaces as Record<string, unknown>).adapters = storedInterfaces.adapters;
+        }
+
+        return json(result);
+      }
+
+      const staticTemplate = prefilledTemplatesByDeployment[deploymentId as keyof typeof prefilledTemplatesByDeployment];
+      if (staticTemplate) {
+        return json(staticTemplate);
       }
       return json({ error: "not_found" }, 404);
     }
@@ -432,8 +543,41 @@ Bun.serve({
       return json({ deployments: [], count: 0 });
     }
 
+    const triggerMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/ingestion\/([^/]+)\/trigger$/,
+    );
+    if (triggerMatch && request.method === "POST") {
+      const [, deploymentId, ingestionName] = triggerMatch;
+      const dep = deployments.find((d) => d.id === deploymentId);
+      if (!dep) return json({ error: "not_found" }, 404);
+      const jobName = `${dep.name}-ingestion-${ingestionName}-manual`;
+      const podName = `${jobName}-abc12-x9k2p`;
+      deployments = deployments.map((d) =>
+        d.id === deploymentId
+          ? {
+              ...d,
+              pods: [
+                ...(d.pods ?? []),
+                {
+                  name: podName,
+                  phase: "Running",
+                  pod_ip: "10.1.0.42",
+                  age: "5s",
+                  containers: [{ name: ingestionName, state: "running", ready: true, restart_count: 0 }],
+                },
+              ],
+            }
+          : d,
+      );
+      return json({
+        status: "triggered",
+        job_name: jobName,
+        namespace: dep.namespace,
+      });
+    }
+
     if (pathname === "/api/v1/deploy" && request.method === "POST") {
-      const body = (await request.json()) as {
+      const body = (await request.json()) as Record<string, unknown> & {
         source?: { name?: string };
         variables?: Record<string, { value?: string }>;
       };
@@ -453,14 +597,15 @@ Bun.serve({
       }
       const deploymentName = body.source?.name ?? AGENT_APP_TOKEN_ONLY;
       const newBuildId = latestBuildByAgent[deploymentName] ?? "build-123";
-      const exists = deployments.some((d) => d.name === deploymentName);
-      if (exists) {
+      const existing = deployments.find((d) => d.name === deploymentName);
+      const deploymentId = existing?.id ?? `dep-${deploymentName}-live`;
+      if (existing) {
         deployments = deployments.map((d) =>
           d.name === deploymentName ? { ...d, build_id: newBuildId } : d,
         );
       } else {
         deployments = [...deployments, {
-          id: `dep-${deploymentName}-${Date.now()}`,
+          id: deploymentId,
           name: deploymentName,
           display_name: deploymentName,
           build_id: newBuildId,
@@ -475,7 +620,9 @@ Bun.serve({
           jobs: [],
         }];
       }
+      storedPayloads[deploymentId] = body;
       return json({
+        deployment_id: deploymentId,
         status: "deployed",
         name: deploymentName,
         build_id: newBuildId,

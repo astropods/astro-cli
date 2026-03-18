@@ -21,7 +21,7 @@ tasks:
       - "bin/astro-server"
 
   test:
-    command: "go test -v ./..."
+    command: "gotestsum --format testdox --hide-summary skipped -- -v ./..."
     inputs:
       - "**/*.go"
       - "go.mod"

@@ -7,6 +7,7 @@ const base: TrackedFormState = {
   variableValues: { OPENAI_API_KEY: "sk-123" },
   selectedAdapters: ["web"],
   adapterCredentials: {},
+  ingestionSchedules: {},
 };
 
 function track(current: Partial<TrackedFormState>) {
@@ -101,6 +102,17 @@ describe("useChangeTracking", () => {
     expect(r.isDirty).toBe(true);
     expect(r.requiresRedeploy).toBe(true);
     expect(r.changeCount).toBe(2);
+  });
+
+  it("detects redeploy-required change (ingestionSchedules)", () => {
+    const baseWithSchedule: TrackedFormState = { ...base, ingestionSchedules: { daily: "0 0 * * *" } };
+    const { result } = renderHook(() =>
+      useChangeTracking(baseWithSchedule, { ...baseWithSchedule, ingestionSchedules: { daily: "0 * * * *" } }),
+    );
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.requiresRedeploy).toBe(true);
+    expect(result.current.dirtyFields.ingestionSchedules).toBe(true);
+    expect(result.current.changeCount).toBe(1);
   });
 
   it("counts per-key credential changes", () => {
