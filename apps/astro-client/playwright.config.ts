@@ -4,19 +4,19 @@ export default defineConfig({
   testDir: "./e2e",
   workers: 1,
   use: {
-    baseURL: "http://127.0.0.1:4317",
+    baseURL: "http://127.0.0.1:44317",
     trace: "on-first-retry",
   },
   webServer: [
     {
       command: "bun run ./e2e/mock-backend.ts",
-      url: "http://127.0.0.1:8787/health",
+      url: "http://127.0.0.1:48787/health",
       reuseExistingServer: false,
       timeout: 30_000,
     },
     {
-      command: "API_URL=http://127.0.0.1:8787 E2E_SUPPRESS_ABORT_LOGS=1 PORT=4317 bun run build && API_URL=http://127.0.0.1:8787 E2E_SUPPRESS_ABORT_LOGS=1 PORT=4317 bun run start",
-      url: "http://127.0.0.1:4317",
+      command: "API_URL=http://127.0.0.1:48787 E2E_SUPPRESS_ABORT_LOGS=1 PORT=44317 bun run build && API_URL=http://127.0.0.1:48787 E2E_SUPPRESS_ABORT_LOGS=1 PORT=44317 bun run start",
+      url: "http://127.0.0.1:44317",
       reuseExistingServer: false,
       timeout: 180_000,
     },

@@ -184,15 +184,70 @@ func TestEnforceEditable_VariableValueAllowed(t *testing.T) {
 	}
 }
 
-func TestEnforceEditable_AddingVariableNotAllowed(t *testing.T) {
+// Verifies that variables not present in the template are silently removed from
+// the submitted spec rather than producing a validation error. This is the core
+// behavioral change that prevents "cannot add variables not present in template"
+// errors when an agent spec renames or consolidates variables between builds.
+func TestEnforceEditable_ExtraVariablesStripped(t *testing.T) {
 	tmpl := baseTemplate()
 	subm := CloneDeploymentSpec(tmpl)
 	subm.Variables = map[string]Variable{
 		"INJECTED": {Secret: true, Targets: []string{"agent"}, Value: "val"},
 	}
 	errs := EnforceEditable(tmpl, subm)
-	if len(errs) == 0 {
-		t.Fatal("expected error for adding variable not in template")
+	if len(errs) > 0 {
+		t.Errorf("expected no errors, got: %v", errs)
+	}
+	if _, ok := subm.Variables["INJECTED"]; ok {
+		t.Fatal("expected INJECTED to be stripped from submitted variables")
+	}
+}
+
+// Mixed submission: some variables match the template, others don't. Only the
+// unknown ones should be stripped; known variables must pass through unchanged.
+// Catches off-by-one or map-clearing bugs where stripping removes too much.
+func TestEnforceEditable_StripsUnknownPreservesKnown(t *testing.T) {
+	tmpl := baseTemplate()
+	tmpl.Variables = map[string]Variable{
+		"SLACK_CONFIG": {Secret: false, Optional: true, Targets: []string{"interface.slack"}},
+	}
+	subm := CloneDeploymentSpec(tmpl)
+	subm.Variables["SLACK_CONFIG"] = Variable{Secret: false, Optional: true, Targets: []string{"interface.slack"}, Value: `{"actionable_reactions":["ticket"]}`}
+	subm.Variables["SLACK_ACTIONABLE_REACTIONS"] = Variable{Secret: false, Targets: []string{"interface.slack"}, Value: "ticket"}
+	subm.Variables["SLACK_ALLOWED_CHANNEL_IDS"] = Variable{Secret: false, Targets: []string{"interface.slack"}, Value: "C123"}
+
+	errs := EnforceEditable(tmpl, subm)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors, got: %v", errs)
+	}
+	if _, ok := subm.Variables["SLACK_CONFIG"]; !ok {
+		t.Fatal("SLACK_CONFIG should be preserved")
+	}
+	if _, ok := subm.Variables["SLACK_ACTIONABLE_REACTIONS"]; ok {
+		t.Fatal("SLACK_ACTIONABLE_REACTIONS should be stripped")
+	}
+	if _, ok := subm.Variables["SLACK_ALLOWED_CHANNEL_IDS"]; ok {
+		t.Fatal("SLACK_ALLOWED_CHANNEL_IDS should be stripped")
+	}
+}
+
+// Edge case: every submitted variable is unknown to the template. All must be
+// stripped and the result should be an empty variables map with no errors. Guards
+// against accidental early-return or nil-map panics in the stripping loop.
+func TestEnforceEditable_AllUnknownStripsAll(t *testing.T) {
+	tmpl := baseTemplate()
+	subm := CloneDeploymentSpec(tmpl)
+	subm.Variables = map[string]Variable{
+		"UNKNOWN_A": {Targets: []string{"agent"}, Value: "a"},
+		"UNKNOWN_B": {Targets: []string{"agent"}, Value: "b"},
+		"UNKNOWN_C": {Targets: []string{"agent"}, Value: "c"},
+	}
+	errs := EnforceEditable(tmpl, subm)
+	if len(errs) > 0 {
+		t.Errorf("expected no errors, got: %v", errs)
+	}
+	if len(subm.Variables) > 0 {
+		t.Errorf("expected all variables to be stripped, got: %v", subm.Variables)
 	}
 }
 

@@ -20,7 +20,7 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
   const importableKeys = new Set<string>([
     ...form.requiredVariables.map(([key]) => key),
     ...form.optionalVariables.map(([key]) => key),
-    ...Object.values(form.allAdapterFieldDefs).flatMap((defs) => defs.map(([key]) => key)),
+    ...Object.values(form.adapterDisplayFields).flatMap((defs) => defs.map(([key]) => key)),
   ]);
   const showImport = importableKeys.size > 1;
   if (form.templateErrorMessage) {
@@ -66,7 +66,7 @@ export function DeployFormFields({ form, hideAccountPicker }: DeployFormFieldsPr
         <InterfacesPicker
           selected={form.selectedAdapters}
           onChange={form.setSelectedAdapters}
-          adapterCredDefs={form.allAdapterFieldDefs}
+          adapterCredDefs={form.adapterDisplayFields}
           adapterCredentials={form.adapterCredentials}
           onAdapterCredentialsChange={form.setAdapterCredentials}
           showError={!!form.errors.adapters}

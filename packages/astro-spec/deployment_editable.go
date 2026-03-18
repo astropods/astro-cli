@@ -164,7 +164,7 @@ func EnforceEditable(template, submitted *AstroDeploymentSpec) []string {
 	}
 	for name := range submitted.Variables {
 		if _, ok := template.Variables[name]; !ok {
-			errs = append(errs, fmt.Sprintf("variables.%s: cannot add variables not present in template", name))
+			delete(submitted.Variables, name)
 		}
 	}
 

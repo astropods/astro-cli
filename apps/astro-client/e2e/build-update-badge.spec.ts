@@ -4,7 +4,7 @@ const ACCOUNT = "testuser";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
 const BUILD_UPGRADE_LABEL = "build-123 \u2192 build-124";
-const MOCK_BACKEND = "http://localhost:8787";
+const MOCK_BACKEND = "http://localhost:48787";
 
 // The mock backend is stateful (deploys update build_id), so reset between tests.
 test.beforeEach(async () => {

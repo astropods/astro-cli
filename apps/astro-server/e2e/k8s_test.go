@@ -750,6 +750,76 @@ func TestK8s_LabelsAndSelectors(t *testing.T) {
 	}
 }
 
+// End-to-end migration test on a real cluster. Simulates a client that submits
+// stale individual Slack variables alongside the new SLACK_CONFIG. Runs
+// EnforceEditable to strip the stale keys, then applies to K8s and verifies that
+// only SLACK_CONFIG appears as an env var on the messaging sidecar — confirming
+// the full pipeline from validation through K8s resource creation.
+func TestK8s_DeployWithStaleVarsStrippedByEnforceEditable(t *testing.T) {
+	client := clusterClient(t)
+	ns := uniqueNS(t)
+	cleanupNamespace(t, client.Clientset(), ns)
+
+	s := parseSlackSpec(t)
+	s.Variables["SLACK_ACTIONABLE_REACTIONS"] = spec.Variable{Secret: false, Targets: []string{"interface.slack"}, Value: "ticket"}
+	s.Variables["SLACK_ALLOWED_CHANNEL_IDS"] = spec.Variable{Secret: false, Targets: []string{"interface.slack"}, Value: "C123"}
+	s.Variables["SLACK_ALLOWED_USER_IDS"] = spec.Variable{Secret: false, Targets: []string{"interface.slack"}, Value: ""}
+
+	template := copySpec(t, s)
+	delete(template.Variables, "SLACK_ACTIONABLE_REACTIONS")
+	delete(template.Variables, "SLACK_ALLOWED_CHANNEL_IDS")
+	delete(template.Variables, "SLACK_ALLOWED_USER_IDS")
+
+	errs := spec.EnforceEditable(template, s)
+	if len(errs) > 0 {
+		t.Fatalf("EnforceEditable returned errors: %v", errs)
+	}
+	if _, ok := s.Variables["SLACK_ACTIONABLE_REACTIONS"]; ok {
+		t.Fatal("SLACK_ACTIONABLE_REACTIONS should have been stripped")
+	}
+	if _, ok := s.Variables["SLACK_ALLOWED_CHANNEL_IDS"]; ok {
+		t.Fatal("SLACK_ALLOWED_CHANNEL_IDS should have been stripped")
+	}
+
+	fillSecrets(s)
+	applySpec(t, client, ns, s, nil)
+
+	waitForDeployments(t, client.Clientset(), ns, 1)
+
+	ctx := context.Background()
+	agentDeplName := deployment.GenerateAgentResourceName("k8s-slack-e2e", "agent")
+	agentDepl, err := client.Clientset().AppsV1().Deployments(ns).Get(ctx, agentDeplName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("agent deployment %q not found: %v", agentDeplName, err)
+	}
+
+	var messaging *corev1.Container
+	for i := range agentDepl.Spec.Template.Spec.Containers {
+		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if messaging == nil {
+		t.Fatal("messaging sidecar not found on agent deployment")
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range messaging.Env {
+		envMap[e.Name] = e.Value
+	}
+
+	wantCfg := `{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}`
+	if envMap["SLACK_CONFIG"] != wantCfg {
+		t.Errorf("SLACK_CONFIG = %q, want %q", envMap["SLACK_CONFIG"], wantCfg)
+	}
+	for _, stale := range []string{"SLACK_ACTIONABLE_REACTIONS", "SLACK_ALLOWED_CHANNEL_IDS", "SLACK_ALLOWED_USER_IDS"} {
+		if _, ok := envMap[stale]; ok {
+			t.Errorf("stale env var %s should not be present on messaging sidecar", stale)
+		}
+	}
+}
+
 // --- helpers ---
 
 func secretKeys(s *corev1.Secret) []string {

@@ -103,26 +103,13 @@ const templatesByAgent = {
         optional: false,
         description: "Slack app token",
       },
-      SLACK_ACTIONABLE_REACTIONS: {
-        default: "",
+      SLACK_CONFIG: {
+        default: '{"actionable_reactions":["ticket"],"allowed_channel_ids":["C123"]}',
+        value: '{"actionable_reactions":["ticket"],"allowed_channel_ids":["C123"]}',
         targets: ["interface.slack"],
         secret: false,
         optional: true,
-        description: "Optional reactions list",
-      },
-      SLACK_ALLOWED_CHANNEL_IDS: {
-        default: "",
-        targets: ["interface.slack"],
-        secret: false,
-        optional: true,
-        description: "Optional allowlist of Slack channel IDs",
-      },
-      SLACK_ALLOWED_USER_IDS: {
-        default: "",
-        targets: ["interface.slack"],
-        secret: false,
-        optional: true,
-        description: "Optional allowlist of Slack user IDs",
+        description: "Slack adapter configuration as JSON",
       },
     },
     editable: ["variables.*.value", "interfaces.adapters"],
@@ -198,29 +185,13 @@ const prefilledTemplatesByDeployment = {
         description: "Slack app token",
         value: "xapp-existing-value",
       },
-      SLACK_ACTIONABLE_REACTIONS: {
-        default: "",
+      SLACK_CONFIG: {
+        default: '{"actionable_reactions":["ticket"],"allowed_channel_ids":["C123"]}',
         targets: ["interface.slack"],
         secret: false,
         optional: true,
-        description: "Optional reactions list",
-        value: "ticket, bug",
-      },
-      SLACK_ALLOWED_CHANNEL_IDS: {
-        default: "",
-        targets: ["interface.slack"],
-        secret: false,
-        optional: true,
-        description: "Optional allowlist of Slack channel IDs",
-        value: "C123, C999",
-      },
-      SLACK_ALLOWED_USER_IDS: {
-        default: "",
-        targets: ["interface.slack"],
-        secret: false,
-        optional: true,
-        description: "Optional allowlist of Slack user IDs",
-        value: "U123, U999",
+        description: "Slack adapter configuration as JSON",
+        value: '{"actionable_reactions":["ticket","bug"],"allowed_channel_ids":["C123","C999"],"allowed_user_ids":["U123","U999"]}',
       },
     },
     editable: ["variables.*.value", "interfaces.adapters"],
@@ -329,7 +300,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 Bun.serve({
-  port: 8787,
+  port: 48787,
   async fetch(request) {
     const url = new URL(request.url);
     const pathname = url.pathname;
@@ -456,4 +427,4 @@ Bun.serve({
   },
 });
 
-console.log("mock-backend listening on :8787");
+console.log("mock-backend listening on :48787");

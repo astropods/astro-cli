@@ -1946,6 +1946,104 @@ func TestRollbackDeployment_WrongStatus(t *testing.T) {
 	}
 }
 
+// Handler-level integration test for the variable consolidation migration. Submits
+// a deploy spec containing both SLACK_CONFIG and the three legacy individual Slack
+// variables. The mock DB only expects INSERTs for SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
+// and SLACK_CONFIG — any unexpected INSERT (from a leaked legacy var) would cause
+// sqlmock to error and the handler to return non-202. ExpectationsWereMet confirms
+// no stale variables slipped through to persistence.
+func TestDeploy_LegacyVariablesStripped_DeploySucceeds(t *testing.T) {
+	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+
+	expectDeployPrep(accountMock, indexMock)
+
+	deployMock.ExpectQuery(`SELECT`). // GetActiveDeployment — no existing
+						WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "deployed_at", "undeployed_at",
+		}))
+
+	deployMock.ExpectBegin()
+	deployMock.ExpectQuery(`UPDATE deployments`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	deployMock.ExpectQuery(`INSERT INTO deployments`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace",
+			"display_name", "deployment_spec_json", "status", "deployed_at",
+		}).AddRow("new-id", "acct-1", "my-agent", "build-1", "astro-new", "", "{}", "pending", time.Now()))
+	deployMock.ExpectExec(`INSERT INTO deployment_revisions`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT INTO deployment_events`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_workloads`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_sidecars`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	deployMock.ExpectQuery(`INSERT INTO deployment_services`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(3))
+	expectVariableInsertsByName(
+		deployMock,
+		"SLACK_BOT_TOKEN",
+		"SLACK_APP_TOKEN",
+		"SLACK_CONFIG",
+	)
+	deployMock.ExpectExec(`INSERT INTO deployment_resolved_keys`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+
+	body := deployableSpecWithLegacySlackVars()
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := deployMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled deploy expectations (legacy vars may have leaked): %v", err)
+	}
+
+	var resp map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["status"] != "pending" {
+		t.Errorf("expected status 'pending', got %v", resp["status"])
+	}
+}
+
+// deployableSpecWithLegacySlackVars returns a deploy payload that includes the
+// three legacy individual Slack variables alongside SLACK_CONFIG, mimicking what
+// an older client or cached form would submit after a spec upgrade.
+func deployableSpecWithLegacySlackVars() string {
+	return `{
+		"spec": "deployment/v1",
+		"source": {"account": "myorg", "name": "my-agent", "build": "build-1", "registry": "docker.io/library"},
+		"target": {"runtime": "kubernetes"},
+		"agent": {
+			"image": "docker.io/library/my-agent:build-1",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"},
+			"environment": {"ASTRO_AGENT_NAME": "my-agent", "ASTRO_AGENT_BUILD": "build-1"},
+			"update": {"strategy": "rolling", "max_unavailable": "25%", "max_surge": "25%"}
+		},
+		"variables": {
+			"SLACK_BOT_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]},
+			"SLACK_ACTIONABLE_REACTIONS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": "ticket"},
+			"SLACK_ALLOWED_CHANNEL_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": "C123"},
+			"SLACK_ALLOWED_USER_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": ""}
+		},
+		"observability": {"enabled": true, "provider": "galileo"}
+	}`
+}
+
 // TestImagePullPolicyForMode verifies that local mode returns IfNotPresent
 // (allowing locally-built images to be used as-is while still pulling third-
 // party images on first use) and all other modes return Always.

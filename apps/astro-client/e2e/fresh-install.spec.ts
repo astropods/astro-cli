@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const ACCOUNT = "testuser";
 const AGENT_APP_TOKEN_ONLY = "code-reviewer";
-const MOCK_BACKEND = "http://localhost:8787";
+const MOCK_BACKEND = "http://localhost:48787";
 
 // Fresh installs add a new deployment to the mock backend's in-memory list,
 // so reset between tests to avoid stale entries from prior runs.
