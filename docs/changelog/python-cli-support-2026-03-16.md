@@ -32,3 +32,39 @@ Three Python helpers parallel the TypeScript equivalents:
 ## Migration
 
 No changes required for existing TypeScript agents or deployments. This is the first release of Python agent support in the CLI.
+
+## Test plan
+
+### Scaffold
+
+- [ ] `ast create my-py-agent --lang py` generates a project with `agent/main.py`, `requirements.txt`, `Dockerfile`, `astropods.yml`, `.gitignore`, `.dockerignore`, `README.md` — no `package.json`, `tsconfig.json`, or `agent/index.ts`
+- [ ] `ast create my-py-agent --lang py --template langchain` produces the same result (explicit template flag)
+- [ ] `ast create my-ts-agent --lang ts` still generates a TypeScript project unchanged
+- [ ] `ast create my-agent --lang py --template mastra` returns an error: `template mastra requires --lang ts`
+- [ ] `ast create my-agent --lang ts --template langchain` returns an error: `template langchain requires --lang py`
+- [ ] `ast create my-agent --lang ruby` returns an error: `unsupported language`
+- [ ] Creating with `--lang py` and ingestion types (e.g. `webhook`, `startup`) generates `ingestion/<type>/main.py`, `ingestion/<type>/requirements.txt`, and `ingestion/<type>/Dockerfile` for each type
+- [ ] The generated `README.md` project structure tree includes `requirements.txt` under each ingestion type folder
+
+### `ast dev` (Docker mode)
+
+- [ ] `ast dev` in a Python agent directory starts the agent container; `ast dev logs` shows "Starting...", "Connected to messaging service", and "ready and listening"
+- [ ] `ast dev` in a TypeScript agent directory is unaffected
+
+### `ast dev --local`
+
+- [ ] `ast dev --local` in a Python agent directory prints `Using local Python packages from <ASTRO_ROOT>` and pip-installs `astropods-messaging`, `astropods-adapter-core`, and `astropods-adapter-langchain` as editable packages in that order
+- [ ] After `--local`, the agent starts with `python -m agent.main` and logs are visible via `ast dev logs`
+- [ ] `ast dev --local-reset` in a Python agent directory uninstalls the editable packages and restores from `requirements.txt`
+- [ ] `ast dev --local` in a TypeScript agent directory still symlinks `@astropods/*` packages as before
+
+### Ingestion containers
+
+- [ ] Building the ingestion Dockerfile for a Python agent succeeds (`docker build -f ingestion/<type>/Dockerfile .`)
+- [ ] The ingestion container installs dependencies from `ingestion/<type>/requirements.txt` and runs `python ingestion/<type>/main.py`
+- [ ] Adding packages to `ingestion/<type>/requirements.txt` and rebuilding picks them up correctly
+
+### Startup logs
+
+- [ ] `ast dev logs` for a Python agent shows the adapter startup sequence without needing to set any extra env vars
+- [ ] Restarting the agent (`ast dev restart`) shows the startup logs again
