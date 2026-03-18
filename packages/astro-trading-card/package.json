@@ -12,10 +12,6 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
-    },
-    "./element": {
-      "types": "./dist/element.d.ts",
-      "import": "./dist/element.js"
     }
   },
   "files": [

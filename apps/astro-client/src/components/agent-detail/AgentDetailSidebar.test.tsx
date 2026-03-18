@@ -39,8 +39,8 @@ const baseProps = {
   agent: mockAgent,
   description: "Monitors API behavior and alert conditions.",
   integrations: [
-    { id: "github", name: "GitHub" },
-    { id: "slack", name: "Slack" },
+    { id: "github", name: "GitHub", known: true },
+    { id: "slack", name: "Slack", known: true },
   ],
   capabilities: ["Read-only access", "Send channel notifications"],
   authors: [{ name: "Steve Jobs", account: "acme" }],

@@ -47,8 +47,9 @@ type KnownIntegration struct {
 
 // ResolvedIntegration is an integration entry resolved against the known registry.
 type ResolvedIntegration struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Known bool   `json:"known"`
 }
 
 // ParsedAgentCard is the result of parsing an AGENT.md file.
@@ -181,9 +182,9 @@ func MergeResolvedIntegrations(existing []ResolvedIntegration, additional []stri
 		known := ResolveIntegration(s)
 		var ri ResolvedIntegration
 		if known != nil {
-			ri = ResolvedIntegration{ID: known.ID, Name: known.Name}
+			ri = ResolvedIntegration{ID: known.ID, Name: known.Name, Known: true}
 		} else {
-			ri = ResolvedIntegration{ID: strings.ToLower(strings.TrimSpace(s)), Name: s}
+			ri = ResolvedIntegration{ID: strings.ToLower(strings.TrimSpace(s)), Name: s, Known: false}
 		}
 		if ri.ID != "" && !seen[ri.ID] {
 			seen[ri.ID] = true

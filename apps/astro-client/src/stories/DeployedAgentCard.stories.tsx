@@ -30,6 +30,7 @@ export const Active: Story = {
     lastActive: "2 min ago",
     installedAt: "Jan 12, 2026",
     updatedAt: "Feb 17, 2026",
+
   },
 };
 
@@ -44,6 +45,7 @@ export const Inactive: Story = {
     lastActive: "3 days ago",
     installedAt: "Dec 5, 2025",
     updatedAt: "Jan 20, 2026",
+
   },
 };
 
@@ -58,6 +60,7 @@ export const Pending: Story = {
     lastActive: "Never",
     installedAt: "Feb 24, 2026",
     updatedAt: "Feb 24, 2026",
+
   },
 };
 
@@ -72,6 +75,7 @@ export const Error: Story = {
     lastActive: "5 min ago",
     installedAt: "Oct 1, 2025",
     updatedAt: "Feb 20, 2026",
+
   },
 };
 
@@ -86,6 +90,7 @@ export const WithCustomAvatar: Story = {
     lastActive: "2 min ago",
     installedAt: "Jan 12, 2026",
     updatedAt: "Feb 17, 2026",
+
     avatarUrl: "https://picsum.photos/seed/agent/36/36",
   },
 };
@@ -101,6 +106,7 @@ export const LongName: Story = {
     lastActive: "Just now",
     installedAt: "Nov 15, 2025",
     updatedAt: "Feb 22, 2026",
+
   },
 };
 
@@ -115,6 +121,7 @@ export const AllStatuses: Story = {
     lastActive: "2 min ago",
     installedAt: "Jan 12, 2026",
     updatedAt: "Feb 17, 2026",
+
   },
   decorators: [
     (Story) => (
@@ -137,6 +144,7 @@ export const AllStatuses: Story = {
         lastActive="2 min ago"
         installedAt="Jan 12, 2026"
         updatedAt="Feb 17, 2026"
+
       />
       <DeployedAgentCard
         name="Security Monitor"
@@ -148,6 +156,7 @@ export const AllStatuses: Story = {
         lastActive="3 days ago"
         installedAt="Dec 5, 2025"
         updatedAt="Jan 20, 2026"
+
       />
       <DeployedAgentCard
         name="Customer Insight Engine"
@@ -159,6 +168,7 @@ export const AllStatuses: Story = {
         lastActive="Never"
         installedAt="Feb 24, 2026"
         updatedAt="Feb 24, 2026"
+
       />
       <DeployedAgentCard
         name="Data Pipeline Orchestrator"
@@ -170,6 +180,7 @@ export const AllStatuses: Story = {
         lastActive="5 min ago"
         installedAt="Oct 1, 2025"
         updatedAt="Feb 20, 2026"
+
       />
     </>
   ),

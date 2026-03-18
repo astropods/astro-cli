@@ -134,7 +134,7 @@ function renderAccountValue(
     ].join("\n    ");
   }
 
-  const handleEl = `<text x="${rightX}" y="${textY}" font-family="system-ui, sans-serif" font-size="11" font-weight="500" fill="${colors.foreground}" text-anchor="end">${escapeXml(handleText)}</text>`;
+  const handleEl = `<text x="${rightX}" y="${textY}" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="${colors.foreground}" text-anchor="end">${escapeXml(handleText)}</text>`;
 
   return `${avatarEl}\n    ${handleEl}`;
 }
@@ -158,7 +158,7 @@ export function renderStatRows(opts: StatRowsOptions): { content: string; height
     if (stat.account) {
       valueEl = renderAccountValue(stat.account, x + width - padding, labelY + 2, colors, `stat-avatar-${i}`);
     } else {
-      valueEl = `<text x="${x + width - padding}" y="${labelY + 2}" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="${colors.foreground}" text-anchor="end">${escapeXml(stat.value!.toUpperCase())}</text>`;
+      valueEl = `<text x="${x + width - padding}" y="${labelY + 2}" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="${colors.foreground}" text-anchor="end">${escapeXml(stat.value!)}</text>`;
     }
 
     return [
@@ -220,7 +220,8 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
 
   for (const integration of integrations) {
     const textW = approxTextWidth(integration.name, fontSize);
-    const pillW = pillPadX + (integration.icon ? iconSize + iconTextGap : 0) + textW + pillPadX;
+    const hasIcon = !!(integration.icon || integration.iconUrl);
+    const pillW = pillPadX + (hasIcon ? iconSize + iconTextGap : 0) + textW + pillPadX;
 
     if (curX > 0 && curX + pillW > maxWidth) {
       curRow++;
@@ -242,16 +243,21 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
 
   const pills = rows.map((pill) => {
     const ry = 4;
-    const textX = pill.x + pillPadX + (pill.integration.icon ? iconSize + iconTextGap : 0);
+    const hasIcon = !!(pill.integration.icon || pill.integration.iconUrl);
+    const textX = pill.x + pillPadX + (hasIcon ? iconSize + iconTextGap : 0);
     const textY = pill.y + pillHeight / 2 + fontSize * 0.35;
 
     let iconEl = "";
-    if (pill.integration.icon) {
+    if (hasIcon) {
       const iconX = pill.x + pillPadX;
       const iconY = pill.y + (pillHeight - iconSize) / 2;
       const glowColor = colors.glow ?? colors.foreground;
-      const iconContent = pill.integration.icon.replace(/currentColor/g, glowColor);
-      iconEl = `<g transform="translate(${iconX}, ${iconY})" fill="${glowColor}" opacity="0.8"><g transform="scale(${iconSize / 24})">${iconContent}</g></g>`;
+      if (pill.integration.icon) {
+        const iconContent = pill.integration.icon.replace(/currentColor/g, glowColor);
+        iconEl = `<g transform="translate(${iconX}, ${iconY})" fill="${glowColor}" opacity="0.8"><g transform="scale(${iconSize / 24})">${iconContent}</g></g>`;
+      } else {
+        iconEl = `<image href="${escapeXml(pill.integration.iconUrl!)}" x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}"/>`;
+      }
     }
 
     return [

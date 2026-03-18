@@ -1,6 +1,6 @@
 import { InlineBadge } from "@/components/InlineBadge";
 import type { ResolvedIntegration } from "@/lib/api";
-import { integrationIconMap } from "@/lib/integrationIcons";
+import { getIntegrationIcon } from "@/lib/integrationIcons";
 import { SidebarSection } from "./SidebarSection";
 
 export interface RequiredAppsListProps {
@@ -18,11 +18,9 @@ function getIntegrationKey(integration: ResolvedIntegration | string): string {
   return integration.id || integration.name;
 }
 
-function getIntegrationIcon(integration: ResolvedIntegration | string) {
-  if (typeof integration === "string") {
-    return integrationIconMap[integration];
-  }
-  return integrationIconMap[integration.id] ?? integrationIconMap[integration.name];
+function isKnown(integration: ResolvedIntegration | string): boolean {
+  if (typeof integration === "string") return false;
+  return integration.known;
 }
 
 export function RequiredAppsList({ integrations, title = "Integrations" }: RequiredAppsListProps) {
@@ -32,15 +30,16 @@ export function RequiredAppsList({ integrations, title = "Integrations" }: Requi
     <SidebarSection title={title}>
       <div className="flex flex-wrap gap-2">
         {integrations.map((integration) => {
-          const icon = getIntegrationIcon(integration);
+          const key = getIntegrationKey(integration);
+          const known = isKnown(integration);
           return (
             <InlineBadge
-              key={getIntegrationKey(integration)}
+              key={key}
               className="gap-1.5 rounded-full border-border-strong bg-stone-200 px-2.5 py-1 font-sans text-[12px] font-medium normal-case tracking-normal text-foreground dark:border-border-strong dark:bg-muted/30 dark:text-foreground"
             >
-              {icon && (
+              {known && (
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">
-                  {icon}
+                  {getIntegrationIcon(key)}
                 </span>
               )}
               <span className="whitespace-nowrap">{getIntegrationName(integration)}</span>

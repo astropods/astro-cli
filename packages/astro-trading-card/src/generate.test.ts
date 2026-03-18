@@ -13,12 +13,10 @@ const sampleData: CardData = {
 };
 
 describe("generateCard", () => {
-  it("returns a valid SVG string for each variant", () => {
-    for (const variant of ["standard", "wide", "compact"] as const) {
-      const svg = generateCard(sampleData, { variant });
-      expect(svg).toStartWith("<svg");
-      expect(svg).toEndWith("</svg>");
-    }
+  it("returns a valid SVG string", () => {
+    const svg = generateCard(sampleData);
+    expect(svg).toStartWith("<svg");
+    expect(svg).toEndWith("</svg>");
   });
 
   it("uses provided background color", () => {
@@ -41,8 +39,6 @@ describe("generateCard", () => {
 
 describe("getCardDimensions", () => {
   it("returns correct dimensions", () => {
-    expect(getCardDimensions("standard")).toEqual({ width: 350, height: 560 });
-    expect(getCardDimensions("wide")).toEqual({ width: 600, height: 315 });
-    expect(getCardDimensions("compact")).toEqual({ width: 440, height: 120 });
+    expect(getCardDimensions()).toEqual({ width: 350, height: 560 });
   });
 });

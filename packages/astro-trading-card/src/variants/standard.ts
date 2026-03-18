@@ -12,7 +12,7 @@ export function renderStandard(data: CardData, colors: CardColors): string {
   for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
   const uid = (h >>> 0).toString(36);
 
-  const nameText = (data.displayName ?? data.name).toUpperCase();
+  const nameText = data.displayName ?? data.name;
   const nameFontSize = Math.round(Math.min(32, Math.max(20, 400 / nameText.length)));
 
   const avatarSize = 120;

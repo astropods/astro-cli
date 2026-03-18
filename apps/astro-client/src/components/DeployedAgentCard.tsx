@@ -188,9 +188,8 @@ export function DeployedAgentCard({
                 avatarUrl: user?.profile_picture_url ?? null,
               },
             },
-            { label: "Status", value: status },
-            { label: "Requests", value: requests.toLocaleString() },
-            { label: "Installed", value: installedAt },
+            { label: "Deployed", value: installedAt },
+            { label: "From", value: `${account}/${name}` },
           ],
           barcodeId: deploymentId,
         } satisfies CardData}

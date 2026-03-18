@@ -5,13 +5,7 @@ import * as IntegrationIconsStories from "./IntegrationIcons.stories"
 
 # Integration Icons
 
-A centralized registry mapping integration names to their SVG icons. Use this instead of importing individual SVG components throughout the app.
-
-## Import
-
-```tsx
-import { integrationIconMap, getIntegrationItems } from "@/lib/integrationIcons"
-```
+Integration icons are served from the CDN (`assets.astropods.ai`) in production and from the repo-root `assets/integrations/` folder in local dev. Icons are only rendered for **known** integrations (those in the `agent_card_integrations.json` registry).
 
 ## Available Icons
 
@@ -19,29 +13,18 @@ import { integrationIconMap, getIntegrationItems } from "@/lib/integrationIcons"
 
 ## Usage with IntegrationIconStack
 
-`getIntegrationItems` takes an array of integration name strings, filters to those with known icons, and returns items ready for `IntegrationIconStack`:
+`getIntegrationItems` filters to integrations with `known: true` and returns items ready for `IntegrationIconStack`:
 
 ```tsx
 import { getIntegrationItems } from "@/lib/integrationIcons"
 import { IntegrationIconStack } from "@/components/IntegrationIconStack"
 
-const items = getIntegrationItems(["Slack", "GitHub", "Jira"])
-// "Jira" is filtered out (no icon), returns Slack + GitHub
+const items = getIntegrationItems(integrations)
 
 <IntegrationIconStack integrations={items} max={3} />
 ```
 
-## Direct icon lookup
-
-Use `integrationIconMap` when you need a single icon by name:
-
-```tsx
-import { integrationIconMap } from "@/lib/integrationIcons"
-
-const slackIcon = integrationIconMap["Slack"] // <Slack /> ReactNode
-```
-
 ## Adding new icons
 
-1. Install the SVG via shadcn: `bun x shadcn@latest add @svgl/<name>`
-2. Add the entry to `integrationIconMap` in `src/lib/integrationIcons.tsx`
+1. Add the SVG to `assets/integrations/light/` and `assets/integrations/dark/` at the repo root
+2. Ensure the integration is registered in `packages/astro-spec/agent_card_integrations.json`

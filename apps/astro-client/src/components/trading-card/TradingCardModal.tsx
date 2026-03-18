@@ -4,7 +4,7 @@ import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { HoloCard } from "./HoloCard";
-import type { CardColors, CardData, CardIntegration } from "astro-trading-card";
+import type { CardColors, CardData } from "astro-trading-card";
 import { generateCard, extractPalette, pickCardColors } from "astro-trading-card";
 import type { ResolvedIntegration } from "@/lib/api";
 import { resolveCardIntegrations } from "./integrationIcons";
@@ -67,22 +67,10 @@ function useResolvedIntegrations(
   integrations: ResolvedIntegration[] | undefined,
   open: boolean,
 ) {
-  const [resolved, setResolved] = useState<CardIntegration[]>([]);
-
-  useEffect(() => {
-    if (!open || !integrations?.length) {
-      setResolved([]);
-      return;
-    }
-
-    let cancelled = false;
-    resolveCardIntegrations(integrations).then((result) => {
-      if (!cancelled) setResolved(result);
-    });
-    return () => { cancelled = true; };
-  }, [integrations, open]);
-
-  return resolved;
+  return useMemo(
+    () => (open && integrations?.length ? resolveCardIntegrations(integrations) : []),
+    [integrations, open],
+  );
 }
 
 interface TradingCardModalProps {

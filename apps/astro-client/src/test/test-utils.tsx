@@ -30,9 +30,11 @@ function createWrapper({ initialEntries = ['/'] }: WrapperOptions = {}) {
 
   function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
-      </QueryClientProvider>
+      <AuthContext.Provider value={mockAuthContext}>
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+        </QueryClientProvider>
+      </AuthContext.Provider>
     );
   }
 

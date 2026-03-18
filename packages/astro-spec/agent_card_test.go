@@ -451,19 +451,19 @@ func TestMergeResolvedIntegrations(t *testing.T) {
 	if result[0].ID != "slack" {
 		t.Errorf("result[0].ID = %q, want %q", result[0].ID, "slack")
 	}
-	if result[1].ID != "github" {
-		t.Errorf("result[1].ID = %q, want %q", result[1].ID, "github")
+	if result[1].ID != "github" || !result[1].Known {
+		t.Errorf("result[1] = %+v, want {ID:github Known:true}", result[1])
 	}
-	// Unknown integration should use raw string as name
-	if result[2].ID != "my custom api" || result[2].Name != "My Custom API" {
-		t.Errorf("result[2] = %+v, want {ID:my custom api Name:My Custom API}", result[2])
+	// Unknown integration should use raw string as name and Known=false
+	if result[2].ID != "my custom api" || result[2].Name != "My Custom API" || result[2].Known {
+		t.Errorf("result[2] = %+v, want {ID:my custom api Name:My Custom API Known:false}", result[2])
 	}
 }
 
 func TestMergeResolvedIntegrations_NilExisting(t *testing.T) {
 	result := MergeResolvedIntegrations(nil, []string{"Slack"})
-	if len(result) != 1 || result[0].ID != "slack" {
-		t.Errorf("result = %v, want [{slack Slack}]", result)
+	if len(result) != 1 || result[0].ID != "slack" || !result[0].Known {
+		t.Errorf("result = %v, want [{ID:slack Name:Slack Known:true}]", result)
 	}
 }
 

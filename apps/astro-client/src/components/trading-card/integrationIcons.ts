@@ -1,11 +1,17 @@
 import type { ResolvedIntegration } from "@/lib/api";
 import type { CardIntegration } from "astro-trading-card";
+import { getIntegrationIconUrl } from "@/lib/assets";
 
 /**
- * Convert resolved integrations to CardIntegration[] (names only, no icons for now).
+ * Convert resolved integrations to CardIntegration[].
+ * Known integrations get an icon URL; custom ones render name-only.
  */
-export async function resolveCardIntegrations(
+export function resolveCardIntegrations(
   integrations: ResolvedIntegration[],
-): Promise<CardIntegration[]> {
-  return integrations.map((i) => ({ name: i.name }));
+): CardIntegration[] {
+  return integrations.map((i) =>
+    i.known
+      ? { name: i.name, iconUrl: getIntegrationIconUrl(i.id, "dark") }
+      : { name: i.name },
+  );
 }

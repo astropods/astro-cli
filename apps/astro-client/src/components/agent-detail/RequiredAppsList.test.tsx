@@ -7,10 +7,10 @@ describe("RequiredAppsList", () => {
   it("renders integration labels as provided by data", () => {
     renderWithProviders(
       <RequiredAppsList integrations={[
-        { id: "slack", name: "Slack" },
-        { id: "google-drive", name: "Google Drive" },
-        { id: "github", name: "github" },
-        { id: "custom-app", name: "custom-app" },
+        { id: "slack", name: "Slack", known: true },
+        { id: "google-drive", name: "Google Drive", known: true },
+        { id: "github", name: "github", known: true },
+        { id: "custom-app", name: "custom-app", known: true },
       ]} />,
     );
 

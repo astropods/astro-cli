@@ -11,12 +11,9 @@ if (import.meta.hot) {
 }
 import { extractPalette, pickCardColors } from "./src/mmcq";
 import { generateCard } from "./src/index";
-import { downloadSvg, downloadPng, registerCardElement } from "./src/browser";
-import type { AstroTradingCardElement } from "./src/card-element";
+import { downloadSvg, downloadPng } from "./src/browser";
 import { generateIdentity } from "identity-gen";
 import type { CardAvatar, CardColors, CardData } from "./src/types";
-
-registerCardElement();
 
 // --- Sample data ---
 
@@ -153,8 +150,38 @@ async function render(idx: number) {
   const data: CardData = { ...sampleData, avatar: sample.avatar, colors, displayName: sample.label };
   lastSvg = generateCard(data, { variant: "standard" });
 
-  const card = document.querySelector("astro-trading-card") as AstroTradingCardElement;
-  card.svg = lastSvg;
+  const slot = document.getElementById("card-slot")!;
+  slot.innerHTML = `<div style="perspective:600px;display:inline-block"><div class="holo-card"><div style="border-radius:16px;overflow:hidden">${lastSvg}</div><div class="holo-card__shine"></div><div class="holo-card__glare"></div></div></div>`;
+  setupHolo(slot.querySelector<HTMLElement>(".holo-card")!);
+}
+
+// --- Holographic hover ---
+
+function clamp(v: number, min = 0, max = 100) { return Math.min(max, Math.max(min, v)); }
+
+function setupHolo(el: HTMLElement) {
+  el.addEventListener("pointermove", (e: PointerEvent) => {
+    const rect = el.getBoundingClientRect();
+    const px = clamp(((e.clientX - rect.left) / rect.width) * 100);
+    const py = clamp(((e.clientY - rect.top) / rect.height) * 100);
+    const cx = px - 50;
+    const cy = py - 50;
+    const dist = Math.sqrt(cx * cx + cy * cy) / 50;
+    const s = el.style;
+    s.setProperty("--px", `${px}%`);
+    s.setProperty("--py", `${py}%`);
+    s.setProperty("--fl", String(px / 100));
+    s.setProperty("--ft", String(py / 100));
+    s.setProperty("--fc", String(clamp(dist, 0, 1)));
+    s.setProperty("--o", "1");
+    s.setProperty("--rx", `${-(cx / 4)}deg`);
+    s.setProperty("--ry", `${cy / 4}deg`);
+  });
+  el.addEventListener("pointerleave", () => {
+    el.style.setProperty("--o", "0");
+    el.style.setProperty("--rx", "0deg");
+    el.style.setProperty("--ry", "0deg");
+  });
 }
 
 // --- Download buttons ---

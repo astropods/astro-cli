@@ -73,8 +73,8 @@ export const Default: Story = {
   args: {
     agent: mockAgent,
     integrations: [
-      { id: "slack", name: "Slack" },
-      { id: "github", name: "GitHub" },
+      { id: "slack", name: "Slack", known: true },
+      { id: "github", name: "GitHub", known: true },
     ],
     capabilities: [
       "Read Slack messages",
@@ -92,10 +92,10 @@ export const Full: Story = {
   args: {
     agent: mockAgent,
     integrations: [
-      { id: "slack", name: "Slack" },
-      { id: "github", name: "GitHub" },
-      { id: "linear", name: "Linear" },
-      { id: "notion", name: "Notion" },
+      { id: "slack", name: "Slack", known: true },
+      { id: "github", name: "GitHub", known: true },
+      { id: "linear", name: "Linear", known: true },
+      { id: "notion", name: "Notion", known: true },
     ],
     capabilities: [
       "Read Slack messages",
@@ -116,11 +116,11 @@ export const DenseDetails: Story = {
   args: {
     agent: mockAgent,
     integrations: [
-      { id: "slack", name: "Slack" },
-      { id: "github", name: "GitHub" },
-      { id: "linear", name: "Linear" },
-      { id: "notion", name: "Notion" },
-      { id: "google-drive", name: "Google Drive" },
+      { id: "slack", name: "Slack", known: true },
+      { id: "github", name: "GitHub", known: true },
+      { id: "linear", name: "Linear", known: true },
+      { id: "notion", name: "Notion", known: true },
+      { id: "google-drive", name: "Google Drive", known: true },
     ],
     capabilities: [
       "Read Slack messages",
@@ -149,7 +149,7 @@ export const Minimal: Story = {
 export const NoAvatar: Story = {
   args: {
     agent: mockAgent,
-    integrations: [{ id: "slack", name: "Slack" }],
+    integrations: [{ id: "slack", name: "Slack", known: true }],
     capabilities: ["Read Slack messages"],
     initialAccountData: {
       ...mockAccount,
@@ -169,7 +169,7 @@ export const BuildIdVersion: Story = {
         },
       ],
     },
-    integrations: [{ id: "github", name: "GitHub" }],
+    integrations: [{ id: "github", name: "GitHub", known: true }],
     capabilities: ["Access GitHub repositories"],
     initialAccountData: mockAccount,
   },

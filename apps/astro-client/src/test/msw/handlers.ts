@@ -28,8 +28,8 @@ export const mockAgents: Agent[] = [
           description: 'Automated code review agent that analyzes pull requests for quality and security issues.',
           tags: ['Development', 'Support'],
           integrations: [
-            { id: 'github', name: 'GitHub' },
-            { id: 'slack', name: 'Slack' },
+            { id: 'github', name: 'GitHub', known: true },
+            { id: 'slack', name: 'Slack', known: true },
           ],
         },
         published_at: '2025-02-01T00:00:00Z',
@@ -43,7 +43,7 @@ export const mockAgents: Agent[] = [
           description: 'Automated code review agent.',
           tags: ['Development'],
           integrations: [
-            { id: 'github', name: 'GitHub' },
+            { id: 'github', name: 'GitHub', known: true },
           ],
         },
         published_at: '2025-01-01T00:00:00Z',
@@ -69,9 +69,9 @@ export const mockAgents: Agent[] = [
           description: 'Analyzes datasets and generates visual reports with actionable insights.',
           tags: ['Data'],
           integrations: [
-            { id: 'snowflake', name: 'Snowflake' },
-            { id: 'slack', name: 'Slack' },
-            { id: 'google-sheets', name: 'Google Sheets' },
+            { id: 'snowflake', name: 'Snowflake', known: true },
+            { id: 'slack', name: 'Slack', known: true },
+            { id: 'google-sheets', name: 'Google Sheets', known: true },
           ],
         },
         published_at: '2025-03-01T00:00:00Z',

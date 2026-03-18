@@ -29,12 +29,50 @@
       background: #222; color: #e0e0e0; cursor: pointer; font-size: 12px;
     }
     .downloads button:hover { border-color: #555; }
+
+    #card-slot { display: inline-block; }
+    .holo-card {
+      position: relative; display: inline-block; border-radius: 16px;
+      transform-style: preserve-3d;
+      transform: rotateY(var(--rx, 0deg)) rotateX(var(--ry, 0deg));
+      transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+      will-change: transform; user-select: none; -webkit-user-select: none;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .holo-card:hover { box-shadow: 0 12px 48px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4); }
+    .holo-card svg { display: block; border-radius: 16px; }
+    .holo-card__shine {
+      position: absolute; inset: 0; border-radius: 16px; z-index: 2;
+      pointer-events: none; mix-blend-mode: color-dodge;
+      transition: opacity 0.15s ease-out; opacity: 0.4;
+      background-image:
+        radial-gradient(circle at var(--px,50%) var(--py,50%), #fff 5%, #000 50%, #fff 80%),
+        linear-gradient(-45deg, #000 15%, #fff, #000 85%),
+        repeating-linear-gradient(135deg,
+          hsl(280,80%,50%) 0%, hsl(200,80%,50%) 10%, hsl(140,80%,50%) 20%,
+          hsl(60,80%,50%) 30%, hsl(330,80%,50%) 40%, hsl(280,80%,50%) 50%);
+      background-blend-mode: soft-light, difference;
+      background-size: 120% 120%, 200% 200%, 150% 150%;
+      background-position: center center, calc(100% * var(--fl,0.5)) calc(100% * var(--ft,0.5)), center center;
+      filter: brightness(0.55) contrast(1.5) saturate(1);
+    }
+    .holo-card:hover .holo-card__shine { opacity: calc(1.5 * var(--o, 0.4) - var(--fc, 0)); }
+    .holo-card__glare {
+      position: absolute; inset: 0; border-radius: 16px; z-index: 3;
+      pointer-events: none; mix-blend-mode: overlay;
+      transition: opacity 0.15s ease-out; opacity: 0.3;
+      background-image:
+        radial-gradient(farthest-corner circle at var(--px,50%) var(--py,50%),
+          hsla(0,0%,100%,0.8) 10%, hsla(0,0%,100%,0.5) 20%, hsla(0,0%,0%,0.75) 90%);
+      filter: brightness(0.7) contrast(1.5);
+    }
+    .holo-card:hover .holo-card__glare { opacity: var(--o, 0.3); }
   </style>
 </head>
 <body>
   <h1>astro-trading-card</h1>
   <div class="avatar-row" id="avatar-row"></div>
-  <astro-trading-card></astro-trading-card>
+  <div id="card-slot"></div>
   <div class="downloads">
     <button id="dl-svg">Download SVG</button>
     <button id="dl-png">Download PNG</button>

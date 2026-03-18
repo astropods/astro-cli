@@ -37,8 +37,10 @@ export type CardStat =
 export interface CardIntegration {
   /** Display name (e.g. "Slack"). */
   name: string;
-  /** SVG icon content (no outer <svg> wrapper). */
+  /** SVG icon content (no outer <svg> wrapper, assumes 24x24 coordinate space). */
   icon?: string;
+  /** URL to an icon image (used if `icon` is not provided). */
+  iconUrl?: string;
 }
 
 /** Data used to populate a trading card. */
@@ -67,12 +69,9 @@ export interface CardData {
   barcodeId?: string;
 }
 
-/** Available card variants for different sharing contexts. */
-export type CardVariant = "standard" | "wide" | "compact";
-
 export interface CardOptions {
-  /** Card variant/layout (default: "standard"). */
-  variant?: CardVariant;
+  /** Reserved for future variant support. */
+  variant?: "standard";
 }
 
 /** Dimensions for a card variant in pixels. */
@@ -81,12 +80,6 @@ export interface CardDimensions {
   height: number;
 }
 
-/** Maps variant names to their pixel dimensions. */
-export const CARD_DIMENSIONS: Record<CardVariant, CardDimensions> = {
-  /** Square-ish card — good for social sharing, stories. */
+export const CARD_DIMENSIONS = {
   standard: { width: 350, height: 560 },
-  /** Wide card — good for Open Graph, Twitter cards, link previews. */
-  wide: { width: 600, height: 315 },
-  /** Compact card — small horizontal badge. */
-  compact: { width: 440, height: 120 },
-};
+} as const;

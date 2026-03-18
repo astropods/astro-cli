@@ -511,6 +511,7 @@ export interface AgentCardAuthor {
 export interface ResolvedIntegration {
   id: string;
   name: string;
+  known: boolean;
 }
 
 export interface AgentCardData {
