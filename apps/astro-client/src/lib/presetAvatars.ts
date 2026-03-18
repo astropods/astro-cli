@@ -38,8 +38,8 @@ function hashUserId(userId: string): number {
   return hash;
 }
 
-export function getPresetAvatarForUser(userId: string): PresetAvatar {
-  return PRESET_AVATARS[hashUserId(userId) % PRESET_AVATARS.length];
+export function getPresetAvatar(seed: string): PresetAvatar {
+  return PRESET_AVATARS[hashUserId(seed) % PRESET_AVATARS.length];
 }
 
 export const PRESET_AVATARS: PresetAvatar[] = [

@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SidebarSection } from "./SidebarSection";
+import { getPresetAvatar } from "@/lib/presetAvatars";
 import type { AgentCardAuthor } from "@/lib/api";
 
 const AVATAR_THRESHOLD = 3;
@@ -22,26 +23,28 @@ export interface SidebarAuthorProps {
 }
 
 function AuthorAvatar({
+  seed,
   name,
   className = "h-9 w-9",
 }: {
+  seed: string;
   name: string;
   className?: string;
 }) {
-  const initial = name.charAt(0).toUpperCase();
+  const preset = getPresetAvatar(seed);
   return (
-    <div
-      className={`flex items-center justify-center rounded-full bg-stone-300 text-sm font-semibold text-muted-foreground dark:bg-teal-900 shrink-0 ${className}`}
-    >
-      {initial}
-    </div>
+    <img
+      src={preset.src}
+      alt={name}
+      className={`rounded-lg object-cover shrink-0 ${className}`}
+    />
   );
 }
 
 function AuthorFullCard({ author }: { author: AgentCardAuthor }) {
   const inner = (
     <div className="flex items-center gap-3">
-      <AuthorAvatar name={author.name} />
+      <AuthorAvatar seed={author.account ?? author.name} name={author.name} />
       <div className="flex flex-col min-w-0">
         <span className="text-[13px] font-medium text-foreground truncate">
           {author.name}
@@ -87,11 +90,11 @@ export function SidebarAuthor({
                   <TooltipTrigger asChild>
                     {author.account ? (
                       <Link to={`/${author.account}`} className="hover:opacity-80 transition-opacity">
-                        <AuthorAvatar name={author.name} className="h-8 w-8 text-xs" />
+                        <AuthorAvatar seed={author.account ?? author.name} name={author.name} className="h-8 w-8" />
                       </Link>
                     ) : (
                       <div>
-                        <AuthorAvatar name={author.name} className="h-8 w-8 text-xs" />
+                        <AuthorAvatar seed={author.account ?? author.name} name={author.name} className="h-8 w-8" />
                       </div>
                     )}
                   </TooltipTrigger>
@@ -120,7 +123,7 @@ export function SidebarAuthor({
               className="h-9 w-9 shrink-0 rounded-full object-cover"
             />
           ) : (
-            <AuthorAvatar name={ownerName} />
+            <AuthorAvatar seed={ownerHandle} name={ownerName} />
           )}
           <div className="flex flex-col">
             <span className="text-[13px] font-medium text-foreground">{ownerName}</span>

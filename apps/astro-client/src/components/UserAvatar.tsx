@@ -1,7 +1,7 @@
 import { getUserDisplayName } from "@/lib/auth";
 import type { User } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { getPresetAvatarForUser } from "@/lib/presetAvatars";
+import { getPresetAvatar } from "@/lib/presetAvatars";
 
 export interface UserAvatarProps {
   user: User;
@@ -19,7 +19,7 @@ export function UserAvatar({ user, className }: UserAvatarProps) {
     );
   }
 
-  const preset = getPresetAvatarForUser(user.id);
+  const preset = getPresetAvatar(user.id);
   return (
     <img
       src={preset.src}
