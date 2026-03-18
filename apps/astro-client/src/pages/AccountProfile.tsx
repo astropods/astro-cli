@@ -9,6 +9,7 @@ import { getAgentDescription } from "../lib/agent-utils";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import { ShieldCheck } from "lucide-react";
+import { getPresetAvatar } from "@/lib/presetAvatars";
 import {
   Tooltip,
   TooltipContent,
@@ -59,9 +60,11 @@ function AccountProfileContent() {
             className="size-16 shrink-0 rounded-full object-cover"
           />
         ) : (
-          <div className="flex size-16 shrink-0 items-center justify-center rounded-full bg-teal-800 text-xl font-medium text-white">
-            {(data.owner?.first_name?.[0] ?? data.name[0] ?? "").toUpperCase()}
-          </div>
+          <img
+            src={getPresetAvatar(data.name).src}
+            alt={data.name}
+            className="size-16 shrink-0 rounded-lg object-cover"
+          />
         )}
         <div>
           {data.owner?.first_name && (
