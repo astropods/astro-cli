@@ -102,7 +102,7 @@ jobs:
             --url "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
             --dev-url "docker://postgres/17/dev" \
-            --exclude "atlas_schema_revisions,river" \
+            --exclude "atlas_schema_revisions" --exclude "river" \
             --auto-approve
 
       - name: Apply River migrations

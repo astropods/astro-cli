@@ -130,7 +130,7 @@ jobs:
             --url "$DATABASE_URL" \
             --to file://sql/astro-server/schema.sql \
             --dev-url "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" \
-            --exclude "atlas_schema_revisions,river" \
+            --exclude "atlas_schema_revisions" --exclude "river" \
             --auto-approve
 
       - name: Apply River migrations
@@ -192,7 +192,7 @@ jobs:
             --url "$DATABASE_URL" \
             --to file://sql/astro-server/schema.sql \
             --dev-url "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" \
-            --exclude "atlas_schema_revisions,river" \
+            --exclude "atlas_schema_revisions" --exclude "river" \
             --auto-approve
 
       - name: Apply River migrations

@@ -76,7 +76,7 @@ migrate_postgres() {
     --url "$DATABASE_URL" \
     --to "file://${ROOT}/sql/astro-server/schema.sql" \
     --dev-url "$DEV_URL" \
-    --exclude "atlas_schema_revisions,river" \
+    --exclude "atlas_schema_revisions" --exclude "river" \
     --auto-approve
 
   atlas migrate apply \

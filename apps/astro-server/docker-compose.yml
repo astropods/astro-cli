@@ -33,7 +33,9 @@ services:
       - --dev-url
       - postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
       - --exclude
-      - atlas_schema_revisions,river
+      - atlas_schema_revisions
+      - --exclude
+      - river
       - --auto-approve
 
   # Versioned migrations for River queue tables (Atlas migrate apply)

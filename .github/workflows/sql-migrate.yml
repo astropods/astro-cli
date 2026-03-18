@@ -30,7 +30,7 @@ jobs:
             --from "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
             --dev-url "postgres://postgres:dev@localhost:5432/dev?sslmode=disable" \
-            --exclude "atlas_schema_revisions,river" 2>&1) || true
+            --exclude "atlas_schema_revisions" --exclude "river" 2>&1) || true
 
           if [ -z "$DIFF" ]; then
             echo "### Declarative Schema" >> "$GITHUB_STEP_SUMMARY"
@@ -89,7 +89,7 @@ jobs:
             --url "$DATABASE_URL" \
             --to "file://sql/astro-server/schema.sql" \
             --dev-url "postgres://postgres:dev@localhost:5432/dev?sslmode=disable" \
-            --exclude "atlas_schema_revisions,river" \
+            --exclude "atlas_schema_revisions" --exclude "river" \
             --auto-approve 2>&1)
 
           echo "### Declarative Schema — Applied" >> "$GITHUB_STEP_SUMMARY"
