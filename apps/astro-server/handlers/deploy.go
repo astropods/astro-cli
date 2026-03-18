@@ -1185,7 +1185,6 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			var sb strings.Builder
 			for _, l := range lines {
 				sb.WriteString(l.Line)
-				sb.WriteByte('\n')
 			}
 			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(sb.String()))
 			return

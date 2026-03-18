@@ -7,16 +7,23 @@ import { RefreshCw, Loader2, ArrowDown } from "lucide-react";
 import type { PodDetail, ApiError } from "@/lib/api";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
+const TIME_RANGES = [
+  { value: '15m', label: 'Last 15 min' },
+  { value: '1h',  label: 'Last 1 hour' },
+  { value: '6h',  label: 'Last 6 hours' },
+  { value: '24h', label: 'Last 24 hours' },
+  { value: '7d',  label: 'Last 7 days' },
+];
+
 export function PodLogViewer({ deploymentId, pod }: { deploymentId: string; pod: PodDetail }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const containerParam = searchParams.get("container");
   const selectedContainer = containerParam && pod.containers.some((c) => c.name === containerParam)
     ? containerParam
     : pod.containers[0]?.name ?? "";
-  const [tailLines, setTailLines] = useState(200);
-
+  const [timeRange, setTimeRange] = useState("1h");
   const { data: logs, isLoading, error: logsError, refetch } = useDeploymentLogs(
-    deploymentId, pod.name, selectedContainer, tailLines,
+    deploymentId, pod.name, selectedContainer, timeRange,
   );
   const lines = useMemo(() => (logs ?? "").split("\n"), [logs]);
   const listRef = useRef<HTMLDivElement>(null);
@@ -68,16 +75,13 @@ export function PodLogViewer({ deploymentId, pod }: { deploymentId: string; pod:
             </Select>
           </div>
         )}
-        <Select
-          value={String(tailLines)}
-          onValueChange={(value) => setTailLines(Number(value))}
-        >
-          <SelectTrigger className="h-7 w-auto min-w-[60px] text-xs">
+        <Select value={timeRange} onValueChange={setTimeRange}>
+          <SelectTrigger className="h-7 w-auto min-w-[120px] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {[50, 100, 200, 500].map((n) => (
-              <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+            {TIME_RANGES.map((r) => (
+              <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>

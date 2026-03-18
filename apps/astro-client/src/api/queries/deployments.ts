@@ -11,18 +11,29 @@ export function useDeployments(account: string, enabled = true) {
   });
 }
 
+const TIME_RANGE_MS: Record<string, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+};
+
 export function useDeploymentLogs(
   deploymentId: string,
   pod: string,
   container: string,
-  tailLines?: number,
+  timeRange = '1h',
 ) {
   const api = useApiClient();
   return useQuery({
-    queryKey: deploymentKeys.logs(deploymentId, pod, container, tailLines),
-    queryFn: () => api.getDeploymentLogs(deploymentId, pod, container, tailLines),
+    queryKey: deploymentKeys.logs(deploymentId, pod, container, timeRange),
+    queryFn: () => {
+      const ms = TIME_RANGE_MS[timeRange];
+      const since = ms ? new Date(Date.now() - ms).toISOString() : undefined;
+      return api.getDeploymentLogs(deploymentId, pod, container, since);
+    },
     enabled: !!deploymentId && !!pod && !!container,
-    // Logs are ephemeral — always refetch, never serve stale
     staleTime: 0,
     gcTime: 1000 * 30,
   });
