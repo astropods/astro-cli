@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { generateCard, getCardDimensions } from "./index";
+import { generateCard, getCardDimensions, DEFAULT_COLORS } from "./index";
 import type { CardData } from "./types";
 
 const sampleData: CardData = {
@@ -9,7 +9,7 @@ const sampleData: CardData = {
   description: "A helpful agent that does things and helps people with stuff.",
   tags: ["assistant", "productivity"],
   heartCount: 42,
-  colors: { background: "#1a1a2e", foreground: "#e8e8ec", accent: "#6366f1", accentLight: "#a5b4fc" },
+  colors: { background: "#1a1a2e", foreground: "#e8e8ec", accent: "#6366f1", accentLight: "#a5b4fc", glow: "#b4bfff" },
 };
 
 describe("generateCard", () => {
@@ -24,10 +24,11 @@ describe("generateCard", () => {
     expect(svg).toContain("#1a1a2e");
   });
 
-  it("uses default colors when none provided", () => {
+  it("uses default teal colors when none provided", () => {
     const data: CardData = { name: "bare", account: "test" };
     const svg = generateCard(data);
-    expect(svg).toContain("#1a1a2e");
+    expect(svg).toContain(DEFAULT_COLORS.background);
+    expect(svg).toContain(DEFAULT_COLORS.accent);
   });
 
   it("is deterministic for the same input", () => {

@@ -1,8 +1,8 @@
-import { CARD_DIMENSIONS, type CardColors, type CardData } from "../types";
+import { CARD_DIMENSIONS, type ResolvedCardColors, type CardData } from "../types";
 import { renderAvatar, renderStatRows, renderIntegrationPills, escapeXml } from "../svg";
 import { renderBarcode } from "../barcode";
 
-export function renderStandard(data: CardData, colors: CardColors): string {
+export function renderStandard(data: CardData, colors: ResolvedCardColors): string {
   const { width, height } = CARD_DIMENSIONS.standard;
   const bannerHeight = Math.round(height * 0.075);
   const r = 16;
@@ -43,9 +43,10 @@ export function renderStandard(data: CardData, colors: CardColors): string {
   const integrationsDividerY = integrationsY + integrations.height + 12;
 
   const barcodeBottomPadding = 16;
-  const barcodeMeasure = renderBarcode({ id: data.barcodeId ?? "", x: 0, y: 0, width, colors });
-  const barcodeY = height - barcodeMeasure.height - barcodeBottomPadding;
-  const barcode = renderBarcode({ id: data.barcodeId ?? "", x: 0, y: barcodeY, width, colors });
+  const barcodeBarHeight = 40;
+  const barcodeHeight = (data.barcodeId ? barcodeBarHeight + 20 : 0);
+  const barcodeY = height - barcodeHeight - barcodeBottomPadding;
+  const barcode = renderBarcode({ id: data.barcodeId ?? "", x: 0, y: barcodeY, width, colors, barHeight: barcodeBarHeight });
 
   const avatar = renderAvatar({
     avatar: data.avatar,
@@ -53,7 +54,7 @@ export function renderStandard(data: CardData, colors: CardColors): string {
     y: avatarY,
     size: avatarSize,
     clipId: `avatar-clip-${uid}`,
-    borderColor: colors.glow ?? colors.foreground,
+    borderColor: colors.glow,
     borderWidth: 1,
     radius: 8,
   });
@@ -72,13 +73,13 @@ export function renderStandard(data: CardData, colors: CardColors): string {
     <rect width="${width}" height="${bannerHeight}" fill="${colors.accent}" mask="url(#banner-mask-${uid})"/>
     ${avatar?.content ?? ""}
     <text x="${width / 2}" y="${nameY}" font-family="system-ui, sans-serif" font-size="${nameFontSize}" font-weight="600" fill="${colors.foreground}" text-anchor="middle" letter-spacing="0.05em">${escapeXml(nameText)}</text>
-    <line x1="0" y1="${nameDividerY}" x2="${width}" y2="${nameDividerY}" stroke="${colors.glow ?? colors.foreground}" stroke-width="1" opacity="0.15"/>
+    <line x1="0" y1="${nameDividerY}" x2="${width}" y2="${nameDividerY}" stroke="${colors.glow}" stroke-width="1" opacity="0.15"/>
     ${stats.content}
-    ${stats.height > 0 ? `<line x1="0" y1="${statsDividerY}" x2="${width}" y2="${statsDividerY}" stroke="${colors.glow ?? colors.foreground}" stroke-width="1" opacity="0.15"/>` : ""}
+    ${stats.height > 0 ? `<line x1="0" y1="${statsDividerY}" x2="${width}" y2="${statsDividerY}" stroke="${colors.glow}" stroke-width="1" opacity="0.15"/>` : ""}
     ${integrations.content}
-    ${integrations.height > 0 ? `<line x1="0" y1="${integrationsDividerY}" x2="${width}" y2="${integrationsDividerY}" stroke="${colors.glow ?? colors.foreground}" stroke-width="1" opacity="0.15"/>` : ""}
+    ${integrations.height > 0 ? `<line x1="0" y1="${integrationsDividerY}" x2="${width}" y2="${integrationsDividerY}" stroke="${colors.glow}" stroke-width="1" opacity="0.15"/>` : ""}
     ${barcode.content}
   </g>
-  <rect width="${width}" height="${height}" rx="${r}" fill="none" stroke="${colors.glow ?? colors.foreground}" stroke-width="1" opacity="0.3"/>
+  <rect width="${width}" height="${height}" rx="${r}" fill="none" stroke="${colors.glow}" stroke-width="1" opacity="0.3"/>
 </svg>`;
 }

@@ -21,6 +21,9 @@ export interface CardColors {
   glow?: string;
 }
 
+/** CardColors with all optional fields resolved. Used internally by renderers. */
+export type ResolvedCardColors = Required<CardColors>;
+
 /** A user account displayed inline in a stat row. */
 export interface CardAccount {
   fullName: string;
@@ -67,11 +70,6 @@ export interface CardData {
   integrations?: CardIntegration[];
   /** ID string to render as a barcode at the bottom of the card. */
   barcodeId?: string;
-}
-
-export interface CardOptions {
-  /** Reserved for future variant support. */
-  variant?: "standard";
 }
 
 /** Dimensions for a card variant in pixels. */

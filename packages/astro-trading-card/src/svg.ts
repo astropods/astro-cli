@@ -1,4 +1,4 @@
-import type { CardAccount, CardAvatar, CardColors, CardIntegration, CardStat } from "./types";
+import type { CardAccount, CardAvatar, CardIntegration, CardStat, ResolvedCardColors } from "./types";
 
 export interface AvatarRenderOptions {
   avatar: CardAvatar | undefined;
@@ -35,6 +35,11 @@ export function renderAvatar(opts: AvatarRenderOptions): { defs: string; content
     : "";
 
   return { defs: clip, content: `${content}\n    ${border}` };
+}
+
+/** Strip the outer `<svg>` wrapper, returning only the inner content. */
+export function stripSvgWrapper(svg: string): string {
+  return svg.replace(/<svg[^>]*>/, "").replace(/<\/svg>/, "");
 }
 
 /** Escape text for safe SVG embedding. */
@@ -91,7 +96,7 @@ export interface StatRowsOptions {
   x: number;
   y: number;
   width: number;
-  colors: CardColors;
+  colors: ResolvedCardColors;
   rowHeight?: number;
   padding?: number;
 }
@@ -108,7 +113,7 @@ function renderAccountValue(
   account: CardAccount,
   rightX: number,
   textY: number,
-  colors: CardColors,
+  colors: ResolvedCardColors,
   clipId: string,
 ): string {
   const avatarSize = 16;
@@ -152,7 +157,7 @@ export function renderStatRows(opts: StatRowsOptions): { content: string; height
     const labelY = rowY + rowHeight * 0.6;
     const dividerY = rowY + rowHeight;
 
-    const labelEl = `<text x="${x + padding}" y="${labelY}" font-family="ui-monospace, monospace" font-size="7" font-weight="300" fill="${colors.glow ?? colors.foreground}" opacity="0.7" letter-spacing="0.18em">${escapeXml(stat.label.toUpperCase())}</text>`;
+    const labelEl = `<text x="${x + padding}" y="${labelY}" font-family="ui-monospace, monospace" font-size="7" font-weight="300" fill="${colors.glow}" opacity="0.7" letter-spacing="0.18em">${escapeXml(stat.label.toUpperCase())}</text>`;
 
     let valueEl: string;
     if (stat.account) {
@@ -165,7 +170,7 @@ export function renderStatRows(opts: StatRowsOptions): { content: string; height
       labelEl,
       valueEl,
       i < stats.length - 1
-        ? `<line x1="${x}" y1="${dividerY}" x2="${x + width}" y2="${dividerY}" stroke="${colors.glow ?? colors.foreground}" stroke-width="1" opacity="0.15"/>`
+        ? `<line x1="${x}" y1="${dividerY}" x2="${x + width}" y2="${dividerY}" stroke="${colors.glow}" stroke-width="1" opacity="0.15"/>`
         : "",
     ].join("\n    ");
   });
@@ -181,7 +186,7 @@ export interface IntegrationPillsOptions {
   x: number;
   y: number;
   width: number;
-  colors: CardColors;
+  colors: ResolvedCardColors;
   padding?: number;
   pillHeight?: number;
   pillGap?: number;
@@ -251,7 +256,7 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
     if (hasIcon) {
       const iconX = pill.x + pillPadX;
       const iconY = pill.y + (pillHeight - iconSize) / 2;
-      const glowColor = colors.glow ?? colors.foreground;
+      const glowColor = colors.glow;
       if (pill.integration.icon) {
         const iconContent = pill.integration.icon.replace(/currentColor/g, glowColor);
         iconEl = `<g transform="translate(${iconX}, ${iconY})" fill="${glowColor}" opacity="0.8"><g transform="scale(${iconSize / 24})">${iconContent}</g></g>`;
@@ -261,9 +266,9 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
     }
 
     return [
-      `<rect x="${pill.x}" y="${pill.y}" width="${pill.pillWidth}" height="${pillHeight}" rx="${ry}" fill="${colors.glow ?? colors.foreground}" opacity="0.1"/>`,
+      `<rect x="${pill.x}" y="${pill.y}" width="${pill.pillWidth}" height="${pillHeight}" rx="${ry}" fill="${colors.glow}" opacity="0.1"/>`,
       iconEl,
-      `<text x="${textX}" y="${textY}" font-family="system-ui, sans-serif" font-size="${fontSize}" fill="${colors.glow ?? colors.foreground}" opacity="0.8">${escapeXml(pill.integration.name)}</text>`,
+      `<text x="${textX}" y="${textY}" font-family="system-ui, sans-serif" font-size="${fontSize}" fill="${colors.glow}" opacity="0.8">${escapeXml(pill.integration.name)}</text>`,
     ].join("\n    ");
   });
 

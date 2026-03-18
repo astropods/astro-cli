@@ -12,7 +12,8 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
-    }
+    },
+    "./holo.css": "./src/holo.css"
   },
   "files": [
     "dist"

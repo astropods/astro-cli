@@ -18,6 +18,7 @@ import { useAgent } from "@/api/queries/agents";
 import { getAgentIntegrations } from "@/lib/agent-utils";
 import { useAuth } from "@/lib/use-auth";
 import type { CardData, CardAvatar } from "astro-trading-card";
+import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "error";
@@ -74,9 +75,28 @@ export function DeployedAgentCard({
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
     if (avatarUrl) return { url: avatarUrl };
     const svg = generateIdentity({ seed: `${account}/${name}`, size: 128 });
-    const inner = svg.replace(/<svg[^>]*>/, "").replace(/<\/svg>/, "");
-    return { svg: inner };
+    return { svg: stripSvgWrapper(svg) };
   }, [avatarUrl, account, name]);
+
+  const cardData = useMemo<CardData>(() => ({
+    name,
+    displayName,
+    account,
+    avatar: cardAvatar,
+    stats: [
+      {
+        label: "Deployed by",
+        account: {
+          fullName: [user?.first_name, user?.last_name].filter(Boolean).join(" ") || account,
+          handle: account,
+          avatarUrl: user?.profile_picture_url ?? null,
+        },
+      },
+      { label: "Deployed", value: installedAt },
+      { label: "From", value: `${account}/${name}` },
+    ],
+    barcodeId: deploymentId,
+  }), [name, displayName, account, cardAvatar, user, installedAt, deploymentId]);
 
   return (
     <>
@@ -174,25 +194,7 @@ export function DeployedAgentCard({
       <TradingCardModal
         open={shareOpen}
         onOpenChange={setShareOpen}
-        data={{
-          name,
-          displayName,
-          account,
-          avatar: cardAvatar,
-          stats: [
-            {
-              label: "Deployed by",
-              account: {
-                fullName: [user?.first_name, user?.last_name].filter(Boolean).join(" ") || account,
-                handle: account,
-                avatarUrl: user?.profile_picture_url ?? null,
-              },
-            },
-            { label: "Deployed", value: installedAt },
-            { label: "From", value: `${account}/${name}` },
-          ],
-          barcodeId: deploymentId,
-        } satisfies CardData}
+        data={cardData}
         integrations={integrations}
       />
     </>

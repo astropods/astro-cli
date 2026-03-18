@@ -5,17 +5,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { HoloCard } from "./HoloCard";
 import type { CardColors, CardData } from "astro-trading-card";
-import { generateCard, extractPalette, pickCardColors } from "astro-trading-card";
+import { generateCard, DEFAULT_COLORS } from "astro-trading-card";
+import { extractColorsFromImage, svgToImageSource } from "astro-trading-card/browser";
 import type { ResolvedIntegration } from "@/lib/api";
-import { resolveCardIntegrations } from "./integrationIcons";
-
-const DEFAULT_COLORS: CardColors = {
-  background: "#0d0d12",
-  foreground: "#f0f0f4",
-  accent: "#6366f1",
-  accentLight: "#a5b4fc",
-  glow: "#b4bfff",
-};
+import { resolveCardIntegrations } from "@/lib/integrationIcons";
 
 function useExtractedColors(avatar: CardData["avatar"], open: boolean) {
   const [colors, setColors] = useState<CardColors>(DEFAULT_COLORS);
@@ -29,8 +22,7 @@ function useExtractedColors(avatar: CardData["avatar"], open: boolean) {
     if (avatar?.url) {
       source = avatar.url;
     } else if (avatar?.svg) {
-      const full = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">${avatar.svg}</svg>`;
-      source = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(full);
+      source = svgToImageSource(avatar.svg);
     }
 
     if (!source) {
@@ -38,24 +30,9 @@ function useExtractedColors(avatar: CardData["avatar"], open: boolean) {
       return;
     }
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = source;
-    img.onload = () => {
-      if (cancelled) return;
-      const canvas = document.createElement("canvas");
-      canvas.width = 64;
-      canvas.height = 64;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, 64, 64);
-      const { data } = ctx.getImageData(0, 0, 64, 64);
-      const palette = extractPalette(data, 8, 1);
-      const result = pickCardColors(palette);
+    extractColorsFromImage(source).then((result) => {
       if (!cancelled) setColors(result ?? DEFAULT_COLORS);
-    };
-    img.onerror = () => {
-      if (!cancelled) setColors(DEFAULT_COLORS);
-    };
+    });
 
     return () => { cancelled = true; };
   }, [avatar, open]);
@@ -102,7 +79,7 @@ export function TradingCardModal({
   );
 
   const svg = useMemo(
-    () => generateCard(cardData, { variant: "standard" }),
+    () => generateCard(cardData),
     [cardData],
   );
 

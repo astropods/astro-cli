@@ -9,10 +9,10 @@ if (import.meta.hot) {
     location.reload();
   });
 }
-import { extractPalette, pickCardColors } from "./src/mmcq";
-import { generateCard } from "./src/index";
-import { downloadSvg, downloadPng } from "./src/browser";
+import { generateCard, DEFAULT_COLORS } from "./src/index";
+import { downloadSvg, downloadPng, extractColorsFromImage, svgToImageSource, setupHolo } from "./src/browser";
 import { generateIdentity } from "identity-gen";
+import { stripSvgWrapper } from "./src/svg";
 import type { CardAvatar, CardColors, CardData } from "./src/types";
 
 // --- Sample data ---
@@ -49,14 +49,13 @@ interface AvatarSample {
 
 function identityAvatar(seed: string, label: string): AvatarSample {
   const svg = generateIdentity({ seed, size: 128 });
-  const inner = svg.replace(/<svg[^>]*>/, "").replace(/<\/svg>/, "");
+  const inner = stripSvgWrapper(svg);
   const thumbSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 128 128">${inner}</svg>`;
-  const full = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">${inner}</svg>`;
   return {
     label,
     avatar: { svg: inner },
     thumb: thumbSvg,
-    source: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(full),
+    source: svgToImageSource(inner),
   };
 }
 
@@ -90,34 +89,6 @@ const avatars: AvatarSample[] = [
   },
 ];
 
-// --- Color extraction ---
-
-const DEFAULT_COLORS: CardColors = {
-  background: "#1a1a2e",
-  foreground: "#eaeaee",
-  accent: "#6366f1",
-  accentLight: "#a5b4fc",
-};
-
-async function extractColors(source: string | null): Promise<CardColors> {
-  if (!source) return DEFAULT_COLORS;
-
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.src = source;
-  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
-
-  const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = size; canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  ctx.drawImage(img, 0, 0, size, size);
-  const { data } = ctx.getImageData(0, 0, size, size);
-
-  const palette = extractPalette(data, 8, 1);
-  return pickCardColors(palette) ?? DEFAULT_COLORS;
-}
-
 // --- UI ---
 
 let selectedIdx = 0;
@@ -146,42 +117,15 @@ async function render(idx: number) {
   });
 
   const sample = avatars[idx];
-  const colors = await extractColors(sample.source);
+  const colors: CardColors = sample.source
+    ? (await extractColorsFromImage(sample.source)) ?? DEFAULT_COLORS
+    : DEFAULT_COLORS;
   const data: CardData = { ...sampleData, avatar: sample.avatar, colors, displayName: sample.label };
-  lastSvg = generateCard(data, { variant: "standard" });
+  lastSvg = generateCard(data);
 
   const slot = document.getElementById("card-slot")!;
   slot.innerHTML = `<div style="perspective:600px;display:inline-block"><div class="holo-card"><div style="border-radius:16px;overflow:hidden">${lastSvg}</div><div class="holo-card__shine"></div><div class="holo-card__glare"></div></div></div>`;
   setupHolo(slot.querySelector<HTMLElement>(".holo-card")!);
-}
-
-// --- Holographic hover ---
-
-function clamp(v: number, min = 0, max = 100) { return Math.min(max, Math.max(min, v)); }
-
-function setupHolo(el: HTMLElement) {
-  el.addEventListener("pointermove", (e: PointerEvent) => {
-    const rect = el.getBoundingClientRect();
-    const px = clamp(((e.clientX - rect.left) / rect.width) * 100);
-    const py = clamp(((e.clientY - rect.top) / rect.height) * 100);
-    const cx = px - 50;
-    const cy = py - 50;
-    const dist = Math.sqrt(cx * cx + cy * cy) / 50;
-    const s = el.style;
-    s.setProperty("--px", `${px}%`);
-    s.setProperty("--py", `${py}%`);
-    s.setProperty("--fl", String(px / 100));
-    s.setProperty("--ft", String(py / 100));
-    s.setProperty("--fc", String(clamp(dist, 0, 1)));
-    s.setProperty("--o", "1");
-    s.setProperty("--rx", `${-(cx / 4)}deg`);
-    s.setProperty("--ry", `${cy / 4}deg`);
-  });
-  el.addEventListener("pointerleave", () => {
-    el.style.setProperty("--o", "0");
-    el.style.setProperty("--rx", "0deg");
-    el.style.setProperty("--ry", "0deg");
-  });
 }
 
 // --- Download buttons ---

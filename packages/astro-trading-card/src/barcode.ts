@@ -1,4 +1,4 @@
-import type { CardColors } from "./types";
+import type { ResolvedCardColors } from "./types";
 import { escapeXml } from "./svg";
 
 /**
@@ -66,7 +66,7 @@ export interface BarcodeOptions {
   y: number;
   width: number;
   barHeight?: number;
-  colors: CardColors;
+  colors: ResolvedCardColors;
   padding?: number;
 }
 
@@ -90,13 +90,13 @@ export function renderBarcode(opts: BarcodeOptions): { content: string; height: 
     const w = bars[i] * unitWidth;
     if (i % 2 === 0) {
       // Even indices are bars
-      rects.push(`<rect x="${curX}" y="${y}" width="${w}" height="${barHeight}" fill="${colors.glow ?? colors.foreground}" opacity="0.7"/>`);
+      rects.push(`<rect x="${curX}" y="${y}" width="${w}" height="${barHeight}" fill="${colors.glow}" opacity="0.7"/>`);
     }
     curX += w;
   }
 
   const footerY = y + barHeight + 12;
-  const glowColor = colors.glow ?? colors.foreground;
+  const glowColor = colors.glow;
 
   // Astro logo + wordmark (viewBox 0 0 96 18, scaled to ~10px tall)
   const logoScale = 0.55;
