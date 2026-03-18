@@ -530,6 +530,7 @@ func TestResolveDeploymentSpecEnv_HardcodedValueMatchingSecretKey(t *testing.T) 
 	}
 }
 
+
 func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
