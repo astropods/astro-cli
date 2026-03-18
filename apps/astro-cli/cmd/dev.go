@@ -729,6 +729,7 @@ type localDockerImage struct {
 var devLocalImages = []localDockerImage{
 	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
 	{"playground:latest", "modules/playground/Dockerfile", "modules/playground"},
+	{"prod-astro-collector:latest", "deployment/Dockerfile.astro-collector", "."},
 }
 
 // pushLocalInfraImages are the infrastructure images built during `ast push --local`.
@@ -857,7 +858,8 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 	rewriteDockerHostsToLocalhost(s, envMap)
 
 	if s.Dev.HasMessagingAdapters() {
-		envMap["GRPC_SERVER_ADDR"] = "localhost:9090"
+		// Keep this in sync with buildMessagingPorts host-published gRPC port.
+		envMap["GRPC_SERVER_ADDR"] = "localhost:19090"
 	}
 	envMap["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
 	out := make([]string, 0, len(envMap))

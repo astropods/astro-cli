@@ -15,8 +15,11 @@
  */
 
 import { Agent } from '@mastra/core/agent';
+import { Mastra } from '@mastra/core/mastra';
 import { Memory } from '@mastra/memory';
 import { LibSQLStore } from '@mastra/libsql';
+import { Observability } from '@mastra/observability';
+import { OtelExporter } from '@mastra/otel-exporter';
 import { serve } from '@astropods/adapter-mastra';
 
 const memory = new Memory({
@@ -24,6 +27,37 @@ const memory = new Memory({
     id: 'memory',
     url: ':memory:',
   }),
+});
+
+function resolveOtlpTracesEndpoint(): string {
+  const raw = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+  try {
+    const url = new URL(raw);
+    if (!url.pathname || url.pathname === '/') {
+      url.pathname = '/v1/traces';
+    }
+    return url.toString();
+  } catch {
+    return `${raw.replace(/\/+$/, '')}/v1/traces`;
+  }
+}
+
+const observability = new Observability({
+  configs: {
+    otel: {
+      serviceName: '{{.Name}}',
+      exporters: [
+        new OtelExporter({
+          provider: {
+            custom: {
+              endpoint: resolveOtlpTracesEndpoint(),
+              protocol: 'http/protobuf',
+            },
+          },
+        }),
+      ],
+    },
+  },
 });
 
 const agent = new Agent({
@@ -40,6 +74,23 @@ const agent = new Agent({
   model: 'anthropic/claude-sonnet-4-5',
 {{- end}}
   memory,
+  // Ensure traces include stable Astro metadata by default.
+  // The collector endpoint is injected by `ast dev`.
+  defaultOptions: {
+    tracingOptions: {
+      tags: ['astro', 'agent:{{.Name}}'],
+      metadata: {
+        agent_id: '{{.Name}}',
+      },
+    },
+  },
+});
+
+new Mastra({
+  agents: {
+    '{{.Name}}': agent,
+  },
+  observability,
 });
 
 serve(agent);
