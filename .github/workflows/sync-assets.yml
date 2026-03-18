@@ -19,6 +19,7 @@ jobs:
   sync-preview:
     name: Sync to Preview
     runs-on: ubuntu-latest
+    environment: preview
     permissions:
       id-token: write
       contents: read
@@ -38,6 +39,7 @@ jobs:
   sync-prod:
     name: Sync to Prod
     runs-on: ubuntu-latest
+    environment: prod
     permissions:
       id-token: write
       contents: read
