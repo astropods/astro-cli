@@ -366,9 +366,11 @@ type GetDeploymentResponse struct {
 
 type GetPodLogsRequest struct {
 	DeploymentId string `json:"deployment_id,omitempty"`
-	Pod          string `json:"pod,omitempty"`
+	Pod          string `json:"pod,omitempty"` // optional when Loki is configured
 	Container    string `json:"container,omitempty"`
 	TailLines    int32  `json:"tail_lines,omitempty"`
+	SinceUnixNs  int64  `json:"since_unix_ns,omitempty"` // optional start time (Unix nanoseconds)
+	UntilUnixNs  int64  `json:"until_unix_ns,omitempty"` // optional end time (Unix nanoseconds)
 }
 
 type GetPodLogsResponse struct {

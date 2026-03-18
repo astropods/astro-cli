@@ -26,6 +26,7 @@ service AdminService {
   rpc WakeUpDeployment(WakeUpDeploymentRequest) returns (WakeUpDeploymentResponse);
   rpc RollbackDeployment(RollbackDeploymentRequest) returns (RollbackDeploymentResponse);
   rpc ReapplyDeployment(ReapplyDeploymentRequest) returns (ReapplyDeploymentResponse);
+  rpc GetPodLogs(GetPodLogsRequest) returns (GetPodLogsResponse);
 }
 
 message ListDeploymentsRequest {
@@ -329,4 +330,17 @@ message ReapplyDeploymentRequest {
 
 message ReapplyDeploymentResponse {
   string status = 1;
+}
+
+message GetPodLogsRequest {
+  string deployment_id = 1;
+  string pod           = 2; // optional when Loki is configured
+  string container     = 3;
+  int32  tail_lines    = 4;
+  int64  since_unix_ns = 5; // optional start time (Unix nanoseconds)
+  int64  until_unix_ns = 6; // optional end time (Unix nanoseconds)
+}
+
+message GetPodLogsResponse {
+  string logs = 1;
 }

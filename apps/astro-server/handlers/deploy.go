@@ -21,6 +21,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	spec "github.com/astropods/astro/packages/astro-spec"
@@ -840,7 +841,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				key := agentName + ":" + version
 				host := ing.Spec.Rules[0].Host
 				if host != "" {
-				agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
+					agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
 						Name: component,
 						URL:  fmt.Sprintf("https://%s", host),
 						Type: component,
@@ -1125,14 +1126,10 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 	}
 }
 
-func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, lokiClient *loki.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-		if k8sClient == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return
 		}
 
@@ -1145,11 +1142,6 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		podName := c.Query("pod")
 		containerName := c.Query("container")
 
-		if podName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "pod query parameter is required"})
-			return
-		}
-
 		tailLines := int64(200)
 		if tl := c.Query("tailLines"); tl != "" {
 			if parsed, err := strconv.ParseInt(tl, 10, 64); err == nil && parsed > 0 {
@@ -1157,9 +1149,59 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			}
 		}
 
-		logOpts := &corev1.PodLogOptions{
-			TailLines: &tailLines,
+		// Loki path: query the centralized log store.
+		if lokiClient != nil {
+			p := loki.QueryParams{
+				Namespace: dep.Namespace,
+				Pod:       podName,
+				Container: containerName,
+				Limit:     tailLines,
+			}
+			if s := c.Query("since"); s != "" {
+				if t, err := time.Parse(time.RFC3339, s); err == nil {
+					p.Start = t
+				} else if ns, err := strconv.ParseInt(s, 10, 64); err == nil {
+					p.Start = time.Unix(0, ns)
+				}
+			}
+			if u := c.Query("until"); u != "" {
+				if t, err := time.Parse(time.RFC3339, u); err == nil {
+					p.End = t
+				} else if ns, err := strconv.ParseInt(u, 10, 64); err == nil {
+					p.End = time.Unix(0, ns)
+				}
+			}
+
+			lines, err := lokiClient.QueryLogs(c.Request.Context(), p)
+			if err != nil {
+				log.Error("Failed to query Loki logs", "error", err, "namespace", dep.Namespace)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "failed to query logs",
+					"details": err.Error(),
+				})
+				return
+			}
+
+			var sb strings.Builder
+			for _, l := range lines {
+				sb.WriteString(l.Line)
+				sb.WriteByte('\n')
+			}
+			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(sb.String()))
+			return
 		}
+
+		// K8s fallback: direct pod log stream (used when LOKI_URL is not configured).
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
+			return
+		}
+		if podName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "pod query parameter is required"})
+			return
+		}
+
+		logOpts := &corev1.PodLogOptions{TailLines: &tailLines}
 		if containerName != "" {
 			logOpts.Container = containerName
 		}

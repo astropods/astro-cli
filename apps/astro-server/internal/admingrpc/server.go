@@ -23,6 +23,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/lib/pq"
@@ -42,6 +43,7 @@ type Server struct {
 	log            *logger.Logger
 	deployStore    *deploymentstore.Store
 	k8sClient      k8s.ClusterClient
+	lokiClient     *loki.Client
 	db             *sql.DB
 	openMeterURL   string
 	cmdDispatch    CommandDispatcher
@@ -74,6 +76,7 @@ func New(
 	log *logger.Logger,
 	deployStore *deploymentstore.Store,
 	k8sClient k8s.ClusterClient,
+	lokiClient *loki.Client,
 	db *sql.DB,
 	openMeterURL string,
 	databaseURL string,
@@ -85,6 +88,7 @@ func New(
 		log:                    log,
 		deployStore:            deployStore,
 		k8sClient:              k8sClient,
+		lokiClient:             lokiClient,
 		db:                     db,
 		openMeterURL:           strings.TrimRight(openMeterURL, "/"),
 		databaseURL:            databaseURL,
@@ -834,13 +838,11 @@ func (s *Server) RestartDeployment(ctx context.Context, req *adminv1.RestartDepl
 	return &adminv1.RestartDeploymentResponse{Status: "restarting"}, nil
 }
 
-// GetPodLogs returns the tail of a pod's logs.
+// GetPodLogs returns the tail of a deployment's logs.
+// Uses Loki when configured; falls back to direct K8s pod log streaming otherwise.
 func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest) (*adminv1.GetPodLogsResponse, error) {
-	if s.k8sClient == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
-	}
-	if req.DeploymentId == "" || req.Pod == "" {
-		return nil, fmt.Errorf("deployment_id and pod are required")
+	if req.DeploymentId == "" {
+		return nil, fmt.Errorf("deployment_id is required")
 	}
 
 	dep, err := s.deployStore.GetDeploymentByID(req.DeploymentId)
@@ -854,6 +856,42 @@ func (s *Server) GetPodLogs(ctx context.Context, req *adminv1.GetPodLogsRequest)
 	tailLines := int64(req.TailLines)
 	if tailLines <= 0 {
 		tailLines = 100
+	}
+
+	// Loki path: query the centralized log store.
+	if s.lokiClient != nil {
+		p := loki.QueryParams{
+			Namespace: dep.Namespace,
+			Pod:       req.Pod,
+			Container: req.Container,
+			Limit:     tailLines,
+		}
+		if req.SinceUnixNs > 0 {
+			p.Start = time.Unix(0, req.SinceUnixNs)
+		}
+		if req.UntilUnixNs > 0 {
+			p.End = time.Unix(0, req.UntilUnixNs)
+		}
+
+		lines, err := s.lokiClient.QueryLogs(ctx, p)
+		if err != nil {
+			return nil, fmt.Errorf("query loki logs: %w", err)
+		}
+
+		var sb strings.Builder
+		for _, l := range lines {
+			sb.WriteString(l.Line)
+			sb.WriteByte('\n')
+		}
+		return &adminv1.GetPodLogsResponse{Logs: sb.String()}, nil
+	}
+
+	// K8s fallback: direct pod log stream.
+	if s.k8sClient == nil {
+		return nil, fmt.Errorf("log backend not configured")
+	}
+	if req.Pod == "" {
+		return nil, fmt.Errorf("pod is required when Loki is not configured")
 	}
 
 	logOpts := &corev1.PodLogOptions{TailLines: &tailLines}
