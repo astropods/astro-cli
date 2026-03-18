@@ -11,7 +11,7 @@ Use this checklist to validate the full telemetry path for local development.
 ## One-time setup (shell session)
 
 ```bash
-export ASTRO_ROOT="/Users/sohum.dalal@postman.com/Desktop/all-astro/astro"
+export ASTRO_ROOT="/path/to/astro"
 export GALILEO_API_KEY="..."
 export GALILEO_PROJECT="..."
 ```
