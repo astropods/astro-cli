@@ -740,6 +740,52 @@ func TestTemplate_JiraIntegrationInputs(t *testing.T) {
 	}
 }
 
+func TestTemplate_TopLevelInputs_WiredAsVariableRefs(t *testing.T) {
+	// Non-secret top-level inputs must always produce ${variables.NAME} references
+	// in the agent environment, regardless of whether they have a default value.
+	input := baseInput()
+	input.Spec.Inputs = map[string]spec.Input{
+		"CUSTOM_PROMPT": {Name: "CUSTOM_PROMPT", Datatype: "string", Description: "Custom prompt", Optional: true},
+		"SERVICE_URL":   {Name: "SERVICE_URL", Datatype: "string", Description: "Service URL", Default: "http://localhost:8080"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// Both inputs must appear in Variables
+	if _, ok := ds.Variables["CUSTOM_PROMPT"]; !ok {
+		t.Error("variables: CUSTOM_PROMPT not found")
+	}
+	if _, ok := ds.Variables["SERVICE_URL"]; !ok {
+		t.Error("variables: SERVICE_URL not found")
+	}
+
+	// Both must be wired as ${variables.*} references in agent environment
+	assertEnvRef(t, ds.Agent.Environment, "CUSTOM_PROMPT", "${variables.CUSTOM_PROMPT}")
+	assertEnvRef(t, ds.Agent.Environment, "SERVICE_URL", "${variables.SERVICE_URL}")
+
+	// Default value must be stored on the variable
+	if ds.Variables["SERVICE_URL"].Value != "http://localhost:8080" {
+		t.Errorf("SERVICE_URL variable value: expected %q, got %q", "http://localhost:8080", ds.Variables["SERVICE_URL"].Value)
+	}
+}
+
+func TestTemplate_TopLevelInputs_SecretNotInAgentEnv(t *testing.T) {
+	// Secret inputs must NOT be wired into agent environment (they go via SecretData).
+	input := baseInput()
+	input.Spec.Inputs = map[string]spec.Input{
+		"CUSTOM_SECRET": {Name: "CUSTOM_SECRET", Datatype: "string", Secret: true, Description: "A secret"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	if _, ok := ds.Variables["CUSTOM_SECRET"]; !ok {
+		t.Error("variables: CUSTOM_SECRET not found")
+	}
+	if _, ok := ds.Agent.Environment["CUSTOM_SECRET"]; ok {
+		t.Error("secret input CUSTOM_SECRET should not appear in agent environment (uses SecretData path)")
+	}
+}
+
 func TestTemplate_NoIntegrations_AdapterVariablesPresent(t *testing.T) {
 	ds := mustGenerate(t, baseInput())
 

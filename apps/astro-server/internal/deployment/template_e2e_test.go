@@ -648,13 +648,9 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	assertEnvRef(t, env, "CLOUDFLARE_AI_API_KEY", "${variables.CLOUDFLARE_AI_API_KEY}")
 	assertEnvRef(t, env, "CLOUDFLARE_ACCOUNT_ID", "${variables.CLOUDFLARE_ACCOUNT_ID}")
 
-	// Agent input defaults wired into env
-	if env["EMBEDDING_MODEL"] != "nomic-embed-text" {
-		t.Errorf("agent env EMBEDDING_MODEL: expected nomic-embed-text, got %s", env["EMBEDDING_MODEL"])
-	}
-	if env["EMBEDDING_DIMENSION"] != "768" {
-		t.Errorf("agent env EMBEDDING_DIMENSION: expected 768, got %s", env["EMBEDDING_DIMENSION"])
-	}
+	// Agent inputs wired as ${variables.*} references (default value stored on the variable, not hardcoded)
+	assertEnvRef(t, env, "EMBEDDING_MODEL", "${variables.EMBEDDING_MODEL}")
+	assertEnvRef(t, env, "EMBEDDING_DIMENSION", "${variables.EMBEDDING_DIMENSION}")
 
 	// Platform metadata
 	assertEnvRef(t, env, "ASTRO_AGENT_NAME", "${source.name}")
