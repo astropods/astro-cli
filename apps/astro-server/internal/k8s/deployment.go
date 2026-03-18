@@ -166,6 +166,11 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 				ContainerPort: port,
 				Protocol:      corev1.ProtocolTCP,
 			},
+			{
+				Name:          "metrics",
+				ContainerPort: 9091,
+				Protocol:      corev1.ProtocolTCP,
+			},
 		},
 		ImagePullPolicy: msgPullPolicy,
 	}
