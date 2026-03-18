@@ -22,6 +22,9 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 COPY apps/astro-client ./apps/astro-client
 COPY packages ./packages
 
+# Remove the local-dev-only assets symlink (production serves these from CDN)
+RUN rm -f apps/astro-client/public/assets
+
 # Build workspace packages first
 WORKDIR /app/packages/astro-identity-gen
 RUN bun run build
