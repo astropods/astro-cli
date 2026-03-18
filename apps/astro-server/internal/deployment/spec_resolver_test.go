@@ -558,19 +558,19 @@ func TestResolveDeploymentSpecEnv_EmptyNonSecretVariableResolvesToEmptyString(t 
 			Image:     "x",
 			Endpoints: httpEndpoints(8080),
 			Environment: map[string]string{
-				"SLACK_ALLOWED_CHANNEL_IDS": "${variables.SLACK_ALLOWED_CHANNEL_IDS}",
+				"SLACK_CONFIG": "${variables.SLACK_CONFIG}",
 			},
 		},
 		Variables: map[string]spec.Variable{
-			"SLACK_ALLOWED_CHANNEL_IDS": {Value: "", Secret: false},
+			"SLACK_CONFIG": {Value: "", Secret: false},
 		},
 	}
 
 	rctx := ResolveContext{Namespace: "ns", AgentName: "agent"}
 	result := ResolveDeploymentSpecEnv(ds, rctx)
 
-	if got := result.ConfigMapData["SLACK_ALLOWED_CHANNEL_IDS"]; got != "" {
-		t.Errorf("SLACK_ALLOWED_CHANNEL_IDS: expected empty string, got %q", got)
+	if got := result.ConfigMapData["SLACK_CONFIG"]; got != "" {
+		t.Errorf("SLACK_CONFIG: expected empty string, got %q", got)
 	}
 }
 
