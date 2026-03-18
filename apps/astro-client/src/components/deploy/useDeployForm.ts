@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
+import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
 
 export interface DeployFormInitialValues {
   deployName?: string;
@@ -154,6 +155,14 @@ function fulfillTemplate(
     }
   }
 
+  // SLACK_CONFIG is stored as three virtual fields in the form; serialize them back
+  if (SLACK_CONFIG_KEY in variables) {
+    variables[SLACK_CONFIG_KEY] = {
+      ...variables[SLACK_CONFIG_KEY],
+      value: serializeSlackConfig(variableValues),
+    };
+  }
+
   return {
     ...rest,
     spec: 'deployment/v1',
@@ -241,6 +250,30 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
           v.targets.some((t) => t === `interface.${adapter.id}`),
         );
         if (derived.length > 0) {
+          // For slack: expand SLACK_CONFIG into three user-friendly virtual fields
+          if (adapter.id === "slack" && derived.some(([key]) => key === SLACK_CONFIG_KEY)) {
+            const enriched = derived
+              .filter(([key]) => key !== SLACK_CONFIG_KEY)
+              .map(([key, v]) => {
+                const meta = hardcoded.find((c) => c.key === key);
+                const display = toVariableDisplay(v);
+                return [key, {
+                  ...display,
+                  description: meta?.description ?? display.description,
+                  secret: display.secret ?? meta?.secret,
+                  label: meta?.label,
+                  placeholder: meta?.placeholder,
+                  helpUrl: meta?.helpUrl,
+                }] as [string, VariableDisplay];
+              });
+            const virtualConfig: [string, VariableDisplay][] = (ADAPTER_CONFIG.slack ?? []).map((c) => [
+              c.key,
+              { description: c.description, optional: true, secret: false, label: c.label, placeholder: c.placeholder },
+            ]);
+            defs[adapter.id] = [...enriched, ...virtualConfig];
+            continue;
+          }
+
           defs[adapter.id] = derived.map(([key, v]) => {
             const meta = hardcoded.find((c) => c.key === key);
             const display = toVariableDisplay(v);
@@ -291,10 +324,18 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
         if (v.defaultValue) defaults[key] = v.defaultValue;
       }
     }
+    // SLACK_CONFIG is a compound field — parse its default into the three virtual fields
+    const slackCfgDefault = template?.variables?.[SLACK_CONFIG_KEY]?.default;
+    if (slackCfgDefault) {
+      const parsed = deserializeSlackConfig(slackCfgDefault);
+      for (const [key, val] of Object.entries(parsed)) {
+        if (val && !defaults[key]) defaults[key] = val;
+      }
+    }
     if (Object.keys(defaults).length > 0) {
       setAdapterCredentials((prev) => ({ ...defaults, ...prev }));
     }
-  }, [allAdapterFieldDefs]);
+  }, [allAdapterFieldDefs, template]);
 
   // Compute validation errors (only surfaced after first submit attempt)
   const errors = useMemo<FormErrors>(() => {

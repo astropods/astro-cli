@@ -1,6 +1,7 @@
 import type { DeploymentTemplate } from "@/lib/api";
 import type { DeployFormInitialValues } from "./useDeployForm";
 import { ADAPTER_SECRETS, ADAPTER_CONFIG } from "./useDeployForm";
+import { SLACK_CONFIG_KEY, deserializeSlackConfig } from "./slackConfig";
 
 const adapterFieldKeys = new Set(
   [ADAPTER_SECRETS, ADAPTER_CONFIG].flatMap((map) =>
@@ -16,6 +17,14 @@ export const extractInitialValues = (template: DeploymentTemplate, account: stri
   if (template.variables) {
     for (const [key, v] of Object.entries(template.variables)) {
       const val = v.value ?? v.default ?? "";
+      // SLACK_CONFIG is a compound field — expand into three virtual fields
+      if (key === SLACK_CONFIG_KEY) {
+        const parsed = deserializeSlackConfig(val);
+        for (const [vKey, vVal] of Object.entries(parsed)) {
+          adapterCredentials[vKey] = vVal;
+        }
+        continue;
+      }
       const isAdapterField =
         adapterFieldKeys.has(key) ||
         v.targets?.some((t: string) => t.startsWith("interface."));

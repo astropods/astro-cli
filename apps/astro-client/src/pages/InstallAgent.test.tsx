@@ -494,12 +494,12 @@ describe('InstallAgent page', () => {
                 optional: false,
                 description: 'Slack app token',
               },
-              SLACK_ACTIONABLE_REACTIONS: {
+              SLACK_CONFIG: {
                 default: '',
                 targets: ['interface.slack'],
                 secret: false,
                 optional: true,
-                description: 'Optional reactions list',
+                description: 'Slack adapter configuration',
               },
             },
           }),
@@ -548,7 +548,7 @@ describe('InstallAgent page', () => {
       expect(variables.OPENAI_API_KEY?.value).toBe('sk-required');
       expect(variables.SLACK_APP_TOKEN?.value).toBe('xapp-required');
       expect(variables.SLACK_BOT_TOKEN).toBeUndefined();
-      expect(variables.SLACK_ACTIONABLE_REACTIONS?.value ?? '').toBe('');
+      expect(variables.SLACK_CONFIG?.value ?? '').toBe('');
     });
 
     it('shows error panel when deploy fails', async () => {
