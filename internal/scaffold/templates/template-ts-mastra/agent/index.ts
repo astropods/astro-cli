@@ -86,6 +86,8 @@ const agent = new Agent({
   },
 });
 
+// Instantiate Mastra so it registers agents/observability plugins at startup.
+// `serve(agent)` handles request serving; this constructor call wires runtime integration.
 new Mastra({
   agents: {
     '{{.Name}}': agent,
