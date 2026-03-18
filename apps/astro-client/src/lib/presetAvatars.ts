@@ -30,18 +30,6 @@ export interface PresetAvatar {
   label: string;
 }
 
-function hashUserId(userId: string): number {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
-  }
-  return hash;
-}
-
-export function getPresetAvatar(seed: string): PresetAvatar {
-  return PRESET_AVATARS[hashUserId(seed) % PRESET_AVATARS.length];
-}
-
 export const PRESET_AVATARS: PresetAvatar[] = [
   { id: "avatar_01", src: avatar01, label: "Avatar 1" },
   { id: "avatar_02", src: avatar02, label: "Avatar 2" },
@@ -69,3 +57,15 @@ export const PRESET_AVATARS: PresetAvatar[] = [
   { id: "avatar_24", src: avatar24, label: "Avatar 24" },
   { id: "avatar_25", src: avatar25, label: "Avatar 25" },
 ];
+
+function hashSeed(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+export function getPresetAvatar(seed: string): PresetAvatar {
+  return PRESET_AVATARS[hashSeed(seed) % PRESET_AVATARS.length];
+}
