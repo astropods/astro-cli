@@ -185,6 +185,47 @@ func TestRewriteDockerHostsToLocalhost(t *testing.T) {
 	}
 }
 
+func TestLocalAstroPythonPackagesPointToModules(t *testing.T) {
+	for _, pkg := range localAstroPythonPackages {
+		t.Run(pkg.name, func(t *testing.T) {
+			if !strings.HasPrefix(pkg.path, "modules/") {
+				t.Errorf("path %q should start with modules/ (not packages/)", pkg.path)
+			}
+		})
+	}
+}
+
+func TestLocalAstroPythonPackagesDependencyOrder(t *testing.T) {
+	// messaging must be installed before adapter-core, and adapter-core before langchain.
+	indexOf := func(name string) int {
+		for i, pkg := range localAstroPythonPackages {
+			if pkg.name == name {
+				return i
+			}
+		}
+		return -1
+	}
+	msgIdx := indexOf("astropods-messaging")
+	coreIdx := indexOf("astropods-adapter-core")
+	langchainIdx := indexOf("astropods-adapter-langchain")
+
+	if msgIdx < 0 {
+		t.Fatal("astropods-messaging not found in localAstroPythonPackages")
+	}
+	if coreIdx < 0 {
+		t.Fatal("astropods-adapter-core not found in localAstroPythonPackages")
+	}
+	if langchainIdx < 0 {
+		t.Fatal("astropods-adapter-langchain not found in localAstroPythonPackages")
+	}
+	if msgIdx >= coreIdx {
+		t.Errorf("astropods-messaging (index %d) must come before astropods-adapter-core (index %d)", msgIdx, coreIdx)
+	}
+	if coreIdx >= langchainIdx {
+		t.Errorf("astropods-adapter-core (index %d) must come before astropods-adapter-langchain (index %d)", coreIdx, langchainIdx)
+	}
+}
+
 func TestResolveAstroSourceRoot(t *testing.T) {
 	t.Run("missing env var returns error with guidance", func(t *testing.T) {
 		t.Setenv("ASTRO_ROOT", "")

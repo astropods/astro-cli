@@ -442,3 +442,305 @@ func TestGenerateFiles_UnsupportedTemplate(t *testing.T) {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
 	}
 }
+
+// --- Python/langchain template path tests ---
+
+func TestGetTemplatePaths_LangchainUsesOverridePaths(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths(py, langchain): %v", err)
+	}
+
+	if !strings.Contains(paths.AgentMain, "template-py-langchain") {
+		t.Errorf("AgentMain = %q, want path containing template-py-langchain", paths.AgentMain)
+	}
+	if !strings.Contains(paths.RequirementsTxt, "template-py-langchain") {
+		t.Errorf("RequirementsTxt = %q, want path containing template-py-langchain", paths.RequirementsTxt)
+	}
+}
+
+func TestGetTemplatePaths_Python_UnsupportedTemplate(t *testing.T) {
+	_, err := GetTemplatePaths("py", "mastra")
+	if err == nil {
+		t.Fatal("expected error for py+mastra, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported template") {
+		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
+	}
+}
+
+func TestGetTemplatePaths_Python_AllEmbeddedFilesExist(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+
+	allPaths := []string{
+		paths.AstroYml, paths.Dockerfile, paths.DockerfileIngestion,
+		paths.Gitignore, paths.Dockerignore,
+		paths.AgentMain, paths.RequirementsTxt,
+		paths.IngestionMain, paths.IngestionWebhookPy, paths.IngestionRequirementsTxt,
+		paths.LlmMd, paths.Readme, paths.PostmanCollection,
+	}
+
+	for _, p := range allPaths {
+		content, err := GetTemplate(p)
+		if err != nil {
+			t.Errorf("GetTemplate(%q): %v", p, err)
+			continue
+		}
+		if len(content) == 0 {
+			t.Errorf("GetTemplate(%q) returned empty content", p)
+		}
+	}
+}
+
+// --- Python/langchain template content tests ---
+
+func TestLangchainTemplate_AgentMain_UsesLangchainImports(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	content := renderTemplate(t, paths.AgentMain, defaultConfig)
+
+	if !strings.Contains(content, "langchain") {
+		t.Error("langchain agent/main.py should import from langchain")
+	}
+	if !strings.Contains(content, "astropods_adapter_langchain") {
+		t.Error("langchain agent/main.py should import from astropods_adapter_langchain")
+	}
+	if !strings.Contains(content, "serve(") {
+		t.Error("langchain agent/main.py should call serve()")
+	}
+}
+
+func TestLangchainTemplate_AgentMain_SubstitutesName(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	content := renderTemplate(t, paths.AgentMain, defaultConfig)
+
+	if !strings.Contains(content, "test-agent") {
+		t.Errorf("langchain agent/main.py should contain agent name, got:\n%s", content)
+	}
+	if !strings.Contains(content, "A test agent") {
+		t.Errorf("langchain agent/main.py should contain description, got:\n%s", content)
+	}
+}
+
+func TestLangchainTemplate_AgentMain_DefaultModel(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	config := defaultConfig // no integrations
+	content := renderTemplate(t, paths.AgentMain, config)
+
+	if !strings.Contains(content, "claude-sonnet-4-5") {
+		t.Errorf("langchain agent with no integration should default to claude-sonnet-4-5, got:\n%s", content)
+	}
+}
+
+func TestLangchainTemplate_AgentMain_AnthropicModel(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	config := defaultConfig
+	config.Integrations = []string{"anthropic"}
+	content := renderTemplate(t, paths.AgentMain, config)
+
+	if !strings.Contains(content, "ChatAnthropic") {
+		t.Errorf("langchain agent with anthropic integration should use ChatAnthropic, got:\n%s", content)
+	}
+}
+
+func TestLangchainTemplate_AgentMain_OpenAIModel(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	config := defaultConfig
+	config.Integrations = []string{"openai"}
+	content := renderTemplate(t, paths.AgentMain, config)
+
+	if !strings.Contains(content, "ChatOpenAI") {
+		t.Errorf("langchain agent with openai integration should use ChatOpenAI, got:\n%s", content)
+	}
+}
+
+func TestLangchainTemplate_RequirementsTxt_HasLangchainDeps(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	content := renderTemplate(t, paths.RequirementsTxt, defaultConfig)
+
+	if !strings.Contains(content, "langchain") {
+		t.Error("langchain requirements.txt should include langchain dependency")
+	}
+	if !strings.Contains(content, "astropods-adapter-langchain") {
+		t.Error("langchain requirements.txt should include astropods-adapter-langchain dependency")
+	}
+}
+
+func TestLangchainTemplate_RequirementsTxt_AnthropicDep(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	config := defaultConfig
+	config.Integrations = []string{"anthropic"}
+	content := renderTemplate(t, paths.RequirementsTxt, config)
+
+	if !strings.Contains(content, "langchain-anthropic") {
+		t.Errorf("requirements.txt with anthropic should include langchain-anthropic, got:\n%s", content)
+	}
+}
+
+func TestLangchainTemplate_RequirementsTxt_OpenAIDep(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	config := defaultConfig
+	config.Integrations = []string{"openai"}
+	content := renderTemplate(t, paths.RequirementsTxt, config)
+
+	if !strings.Contains(content, "langchain-openai") {
+		t.Errorf("requirements.txt with openai should include langchain-openai, got:\n%s", content)
+	}
+	if strings.Contains(content, "langchain-anthropic") {
+		t.Errorf("requirements.txt with only openai should not include langchain-anthropic, got:\n%s", content)
+	}
+}
+
+func TestLangchainTemplate_AgentMain_EscapesDoubleQuotesInDescription(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	config := defaultConfig
+	config.Description = `She said "hello" and it's fine`
+	content := renderTemplate(t, paths.AgentMain, config)
+
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, "system_prompt") {
+			if strings.Contains(line, `"hello"`) {
+				t.Errorf("unescaped double quote in system_prompt would break Python string literal:\n%s", line)
+			}
+			if !strings.Contains(line, `\"hello\"`) {
+				t.Errorf("expected escaped double quote in system_prompt line:\n%s", line)
+			}
+			return
+		}
+	}
+	t.Error("system_prompt line not found in rendered template")
+}
+
+func TestLangchainTemplate_AgentMain_EnvVarsInDocstring(t *testing.T) {
+	paths, _ := GetTemplatePaths("py", "langchain")
+	cfg := ScaffoldConfig{
+		Name:            "test-agent",
+		Description:     "A test agent",
+		Integrations:    []string{"anthropic"},
+		Knowledge:       []string{"qdrant"},
+		IntegrationKeys: map[string]string{},
+	}
+	content := renderTemplate(t, paths.AgentMain, cfg)
+
+	wantLines := []string{
+		"GRPC_SERVER_ADDR - injected by Astro messaging service",
+		"ANTHROPIC_API_KEY - injected by anthropic model",
+		"QDRANT_HOST - injected by qdrant knowledge store host",
+		"QDRANT_PORT - injected by qdrant knowledge store port",
+	}
+	for _, want := range wantLines {
+		if !strings.Contains(content, want) {
+			t.Errorf("rendered agent/main.py docstring should contain %q, got:\n%s", want, content)
+		}
+	}
+}
+
+// --- Python GenerateFiles end-to-end tests ---
+
+func TestGenerateFiles_LangchainTemplate(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "my-py-agent")
+
+	err := GenerateFiles(target, defaultConfig, "py", "langchain")
+	if err != nil {
+		t.Fatalf("GenerateFiles(langchain): %v", err)
+	}
+
+	// agent/main.py exists with langchain content
+	agentContent, err := os.ReadFile(filepath.Join(target, "agent", "main.py"))
+	if err != nil {
+		t.Fatalf("read agent/main.py: %v", err)
+	}
+	if !strings.Contains(string(agentContent), "astropods_adapter_langchain") {
+		t.Error("generated agent/main.py should import astropods_adapter_langchain")
+	}
+	if !strings.Contains(string(agentContent), "serve(") {
+		t.Error("generated agent/main.py should call serve()")
+	}
+
+	// requirements.txt exists with langchain deps
+	reqsContent, err := os.ReadFile(filepath.Join(target, "requirements.txt"))
+	if err != nil {
+		t.Fatalf("read requirements.txt: %v", err)
+	}
+	if !strings.Contains(string(reqsContent), "astropods-adapter-langchain") {
+		t.Error("generated requirements.txt should include astropods-adapter-langchain")
+	}
+
+	// TypeScript-specific files must not exist
+	for _, tsFile := range []string{"package.json", "tsconfig.json", "agent/index.ts"} {
+		if _, err := os.Stat(filepath.Join(target, tsFile)); !os.IsNotExist(err) {
+			t.Errorf("TypeScript file %q should not exist in Python scaffold", tsFile)
+		}
+	}
+
+	// Shared files exist
+	for _, f := range []string{"astropods.yml", "Dockerfile", ".gitignore", ".dockerignore"} {
+		if _, err := os.Stat(filepath.Join(target, f)); os.IsNotExist(err) {
+			t.Errorf("expected shared file %q to exist", f)
+		}
+	}
+
+	// Docs files exist
+	for _, f := range []string{"CLAUDE.md", "AGENTS.md", "README.md"} {
+		if _, err := os.Stat(filepath.Join(target, f)); os.IsNotExist(err) {
+			t.Errorf("expected file %q to exist", f)
+		}
+	}
+}
+
+func TestGenerateFiles_LangchainTemplate_WithIngestion(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "my-py-agent")
+
+	config := defaultConfig
+	config.Ingestions = []string{"webhook", "startup"}
+
+	err := GenerateFiles(target, config, "py", "langchain")
+	if err != nil {
+		t.Fatalf("GenerateFiles(langchain, ingestion): %v", err)
+	}
+
+	for _, ingType := range []string{"webhook", "startup"} {
+		mainPy := filepath.Join(target, "ingestion", ingType, "main.py")
+		reqsTxt := filepath.Join(target, "ingestion", ingType, "requirements.txt")
+		dockerfile := filepath.Join(target, "ingestion", ingType, "Dockerfile")
+
+		if _, err := os.Stat(mainPy); os.IsNotExist(err) {
+			t.Errorf("expected ingestion/%s/main.py to exist", ingType)
+		}
+		if _, err := os.Stat(reqsTxt); os.IsNotExist(err) {
+			t.Errorf("expected ingestion/%s/requirements.txt to exist", ingType)
+		}
+		if _, err := os.Stat(dockerfile); os.IsNotExist(err) {
+			t.Errorf("expected ingestion/%s/Dockerfile to exist", ingType)
+		}
+
+		// Dockerfile must install from requirements.txt and set PYTHONUNBUFFERED
+		dfContent, err := os.ReadFile(dockerfile)
+		if err != nil {
+			t.Fatalf("read ingestion/%s/Dockerfile: %v", ingType, err)
+		}
+		if !strings.Contains(string(dfContent), "pip install") {
+			t.Errorf("ingestion/%s/Dockerfile should install pip dependencies", ingType)
+		}
+		if !strings.Contains(string(dfContent), "PYTHONUNBUFFERED=1") {
+			t.Errorf("ingestion/%s/Dockerfile should set PYTHONUNBUFFERED=1", ingType)
+		}
+	}
+}
+
+func TestGenerateFiles_Python_UnsupportedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "my-py-agent")
+
+	err := GenerateFiles(target, defaultConfig, "py", "mastra")
+	if err == nil {
+		t.Fatal("expected error for py+mastra, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported template") {
+		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
+	}
+}

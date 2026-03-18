@@ -974,6 +974,237 @@ func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
 	}
 }
 
+// generateWithPyMemFs runs generateFiles with lang=py against an in-memory filesystem.
+func generateWithPyMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
+	t.Helper()
+	memfs := newMemFs()
+	if err := generateFiles(memfs, "/proj", config, "py", "langchain"); err != nil {
+		t.Fatalf("generateFiles: %v", err)
+	}
+	return memfs
+}
+
+// TestGetTemplatePaths_Python_HasIngestionRequirementsTxt ensures the IngestionRequirementsTxt
+// field is set for the Python langchain template so the scaffold can generate requirements.txt.
+func TestGetTemplatePaths_Python_HasIngestionRequirementsTxt(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+	if paths.IngestionRequirementsTxt == "" {
+		t.Error("IngestionRequirementsTxt should be set for Python langchain template")
+	}
+}
+
+// TestGenerateFiles_Python_AgentMainPy verifies that Python scaffolds produce agent/main.py
+// and not the TypeScript agent/index.ts.
+func TestGenerateFiles_Python_AgentMainPy(t *testing.T) {
+	memfs := generateWithPyMemFs(t, ScaffoldConfig{
+		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Integrations: []string{}, IntegrationKeys: map[string]string{},
+		Knowledge: []string{}, Ingestions: []string{},
+	})
+
+	if !memfs.HasFile(filepath.Join("/proj", "agent", "main.py")) {
+		t.Error("expected agent/main.py for Python scaffold")
+	}
+	if memfs.HasFile(filepath.Join("/proj", "agent", "index.ts")) {
+		t.Error("unexpected agent/index.ts for Python scaffold")
+	}
+}
+
+// TestGenerateFiles_Python_NoTypescriptFiles verifies that TypeScript-only files are
+// not generated for Python scaffolds.
+func TestGenerateFiles_Python_NoTypescriptFiles(t *testing.T) {
+	memfs := generateWithPyMemFs(t, ScaffoldConfig{
+		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Integrations: []string{}, IntegrationKeys: map[string]string{},
+		Knowledge: []string{}, Ingestions: []string{},
+	})
+
+	for _, tsFile := range []string{"package.json", "tsconfig.json"} {
+		if memfs.HasFile(filepath.Join("/proj", tsFile)) {
+			t.Errorf("unexpected TypeScript file %s in Python scaffold", tsFile)
+		}
+	}
+}
+
+// TestGenerateFiles_Python_IngestionRequirementsTxt verifies that a requirements.txt
+// is generated alongside main.py for each ingestion type in a Python scaffold.
+func TestGenerateFiles_Python_IngestionRequirementsTxt(t *testing.T) {
+	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
+		t.Run(ingType, func(t *testing.T) {
+			memfs := generateWithPyMemFs(t, ScaffoldConfig{
+				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Integrations: []string{}, IntegrationKeys: map[string]string{},
+				Knowledge: []string{}, Ingestions: []string{ingType},
+			})
+
+			mainPy := filepath.Join("/proj", "ingestion", ingType, "main.py")
+			reqsTxt := filepath.Join("/proj", "ingestion", ingType, "requirements.txt")
+
+			if !memfs.HasFile(mainPy) {
+				t.Errorf("expected ingestion/%s/main.py", ingType)
+			}
+			if !memfs.HasFile(reqsTxt) {
+				t.Errorf("expected ingestion/%s/requirements.txt alongside main.py", ingType)
+			}
+			if memfs.HasFile(filepath.Join("/proj", "ingestion", ingType, "index.ts")) {
+				t.Errorf("unexpected ingestion/%s/index.ts in Python scaffold", ingType)
+			}
+		})
+	}
+}
+
+// TestPythonIngestionDockerfile_CorrectPathsPerType verifies each rendered Python ingestion
+// Dockerfile references the correct ingestion type in its COPY and CMD instructions.
+func TestPythonIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+
+	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
+		t.Run(ingType, func(t *testing.T) {
+			content, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, ingType)
+			if err != nil {
+				t.Fatalf("RenderIngestionDockerfile: %v", err)
+			}
+			wantCopy := "COPY ingestion/" + ingType
+			wantCmd := `"ingestion/` + ingType + `/main.py"`
+			if !strings.Contains(content, wantCopy) {
+				t.Errorf("expected COPY referencing %q in:\n%s", wantCopy, content)
+			}
+			if !strings.Contains(content, wantCmd) {
+				t.Errorf("expected CMD referencing %q in:\n%s", wantCmd, content)
+			}
+			if strings.Contains(content, "index.ts") {
+				t.Errorf("found TypeScript path index.ts in Python Dockerfile:\n%s", content)
+			}
+		})
+	}
+}
+
+// TestPythonIngestionDockerfile_HasRequirementsInstall verifies the ingestion Dockerfile
+// installs dependencies from requirements.txt.
+func TestPythonIngestionDockerfile_HasRequirementsInstall(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+
+	content, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, "schedule")
+	if err != nil {
+		t.Fatalf("RenderIngestionDockerfile: %v", err)
+	}
+	if !strings.Contains(content, "pip install") {
+		t.Errorf("Python ingestion Dockerfile should install pip dependencies, got:\n%s", content)
+	}
+	if !strings.Contains(content, "requirements.txt") {
+		t.Errorf("Python ingestion Dockerfile should reference requirements.txt, got:\n%s", content)
+	}
+}
+
+// TestPythonIngestionDockerfile_HasPythonUnbuffered verifies the ingestion Dockerfile
+// sets PYTHONUNBUFFERED=1 so logs are visible in Docker without buffering.
+func TestPythonIngestionDockerfile_HasPythonUnbuffered(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+
+	content, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, "schedule")
+	if err != nil {
+		t.Fatalf("RenderIngestionDockerfile: %v", err)
+	}
+	if !strings.Contains(content, "PYTHONUNBUFFERED=1") {
+		t.Errorf("Python ingestion Dockerfile should set PYTHONUNBUFFERED=1, got:\n%s", content)
+	}
+}
+
+// TestAllPythonTemplatesRender renders every Python template against a representative
+// set of config combinations to catch stale field references.
+func TestAllPythonTemplatesRender(t *testing.T) {
+	paths, err := GetTemplatePaths("py", "langchain")
+	if err != nil {
+		t.Fatalf("GetTemplatePaths: %v", err)
+	}
+
+	standardTemplates := []struct {
+		name string
+		path string
+	}{
+		{"astropods.yml", paths.AstroYml},
+		{"Dockerfile", paths.Dockerfile},
+		{"gitignore", paths.Gitignore},
+		{"dockerignore", paths.Dockerignore},
+		{"agent/main.py", paths.AgentMain},
+		{"requirements.txt", paths.RequirementsTxt},
+		{"ingestion/main.py", paths.IngestionMain},
+		{"ingestion/webhook.py", paths.IngestionWebhookPy},
+		{"agents.md", paths.LlmMd},
+		{"AGENT.md", paths.AgentMd},
+		{"README.md", paths.Readme},
+	}
+
+	ingestionDockerfileTypes := []string{"schedule", "webhook", "manual", "startup"}
+	interfaceSubsets := subsets([]string{"web", "slack"})
+	integrationSubsets := subsets([]string{"anthropic", "openai", "github"})
+	knowledgeSubsets := subsets([]string{"qdrant", "redis", "neo4j"})
+	ingestionSubsets := subsets([]string{"schedule", "webhook", "manual", "startup"})
+
+	type modelState struct{ provider, model string }
+	modelStates := []modelState{
+		{"", ""},
+		{"ollama", ""},
+		{"ollama", "llama3.2:1b"},
+	}
+
+	for _, tmpl := range standardTemplates {
+		t.Run(tmpl.name, func(t *testing.T) {
+			for _, ifaces := range interfaceSubsets {
+				for _, ms := range modelStates {
+					for _, integs := range integrationSubsets {
+						for _, know := range knowledgeSubsets {
+							for _, ings := range ingestionSubsets {
+								cfg := ScaffoldConfig{
+									Name:            "a",
+									Description:     "d",
+									Interfaces:      ifaces,
+									ModelProvider:   ms.provider,
+									Model:           ms.model,
+									Integrations:    integs,
+									IntegrationKeys: map[string]string{},
+									Knowledge:       know,
+									Ingestions:      ings,
+								}
+								if _, err := RenderTemplate(tmpl.path, cfg); err != nil {
+									t.Errorf(
+										"interfaces=%v model=%q/%q integrations=%v knowledge=%v ingestions=%v: %v",
+										ifaces, ms.provider, ms.model, integs, know, ings, err,
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+
+	t.Run("ingestion/<type>/Dockerfile", func(t *testing.T) {
+		cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+		for _, ingType := range ingestionDockerfileTypes {
+			if _, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, ingType); err != nil {
+				t.Errorf("ingestionType=%q: %v", ingType, err)
+			}
+		}
+	})
+}
+
 // TestAstroYml_ScheduleIngestion_NoDevSchedules ensures the generated spec does
 // not include a dev.schedules block — triggering is handled via `ast dev trigger`.
 func TestAstroYml_ScheduleIngestion_NoDevSchedules(t *testing.T) {
