@@ -570,8 +570,8 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		d := BuildDeployment(cfg)
 		msg := d.Spec.Template.Spec.Containers[1]
 
-		if len(msg.Ports) != 2 {
-			t.Fatalf("expected 2 ports (grpc + http), got %d", len(msg.Ports))
+		if len(msg.Ports) != 3 {
+			t.Fatalf("expected 3 ports (grpc + metrics + http), got %d", len(msg.Ports))
 		}
 
 		envMap := make(map[string]string)
@@ -590,6 +590,31 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		}
 		if !foundHTTP {
 			t.Error("expected msg-http port 8080")
+		}
+	})
+
+	t.Run("metrics port always present", func(t *testing.T) {
+		cfg := DeploymentConfig{
+			Name:      "test-agent-agent",
+			Namespace: "default",
+			AgentName: "my-agent",
+			BuildID:   "1.0",
+			Component: "agent",
+			Container: spec.ContainerConfig{Image: "agent:latest"},
+			Messaging: &MessagingDeploymentConfig{
+				Image: "messaging:latest",
+			},
+		}
+
+		d := BuildDeployment(cfg)
+		msg := d.Spec.Template.Spec.Containers[1]
+
+		portMap := make(map[string]int32)
+		for _, p := range msg.Ports {
+			portMap[p.Name] = p.ContainerPort
+		}
+		if portMap["metrics"] != 9091 {
+			t.Errorf("expected metrics port 9091, got %d (ports: %v)", portMap["metrics"], msg.Ports)
 		}
 	})
 
