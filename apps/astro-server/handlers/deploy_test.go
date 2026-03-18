@@ -2014,8 +2014,8 @@ func TestGetDeploymentLogs_LokiPath(t *testing.T) {
 				"result": [{
 					"stream": {"pod": "my-pod"},
 					"values": [
-						["1000000000", "line one"],
-						["2000000000", "line two"]
+						["1000000000", "line one\n"],
+						["2000000000", "line two\n"]
 					]
 				}]
 			}
