@@ -109,11 +109,41 @@ func TestMastraTemplate_AgentIndex_UsesMastraImports(t *testing.T) {
 	if !strings.Contains(content, `@mastra/core/agent`) {
 		t.Error("mastra agent/index.ts should import from @mastra/core/agent")
 	}
+	if !strings.Contains(content, `@mastra/core/mastra`) {
+		t.Error("mastra agent/index.ts should import from @mastra/core/mastra")
+	}
+	if !strings.Contains(content, `@mastra/observability`) {
+		t.Error("mastra agent/index.ts should import from @mastra/observability")
+	}
+	if !strings.Contains(content, `@mastra/otel-exporter`) {
+		t.Error("mastra agent/index.ts should import from @mastra/otel-exporter")
+	}
 	if !strings.Contains(content, `@astropods/adapter-mastra`) {
 		t.Error("mastra agent/index.ts should import from @astropods/adapter-mastra")
 	}
+	if !strings.Contains(content, `new Mastra({`) {
+		t.Error("mastra agent/index.ts should instantiate Mastra runtime")
+	}
+	if !strings.Contains(content, `observability,`) {
+		t.Error("mastra agent/index.ts should wire an observability object")
+	}
 	if !strings.Contains(content, `serve(agent)`) {
 		t.Error("mastra agent/index.ts should call serve(agent)")
+	}
+}
+
+func TestMastraTemplate_AgentIndex_IncludesTracingDefaults(t *testing.T) {
+	paths, _ := GetTemplatePaths("ts", "mastra")
+	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
+
+	if !strings.Contains(content, "defaultOptions:") {
+		t.Error("mastra agent/index.ts should include defaultOptions")
+	}
+	if !strings.Contains(content, "tracingOptions:") {
+		t.Error("mastra agent/index.ts should include tracingOptions")
+	}
+	if !strings.Contains(content, "tags: ['astro', 'agent:test-agent']") {
+		t.Error("mastra agent/index.ts should include astro tracing tags")
 	}
 }
 
@@ -140,6 +170,15 @@ func TestMastraTemplate_PackageJson_HasMastraDeps(t *testing.T) {
 
 	if !strings.Contains(content, `"@mastra/core"`) {
 		t.Error("mastra package.json should depend on @mastra/core")
+	}
+	if !strings.Contains(content, `"@mastra/observability"`) {
+		t.Error("mastra package.json should depend on @mastra/observability")
+	}
+	if !strings.Contains(content, `"@mastra/otel-exporter"`) {
+		t.Error("mastra package.json should depend on @mastra/otel-exporter")
+	}
+	if !strings.Contains(content, `"@opentelemetry/exporter-trace-otlp-proto"`) {
+		t.Error("mastra package.json should depend on OTLP protobuf exporter")
 	}
 	if !strings.Contains(content, `"@astropods/adapter-mastra"`) {
 		t.Error("mastra package.json should depend on @astropods/adapter-mastra")

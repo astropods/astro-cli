@@ -157,9 +157,42 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		t.Error("WEB_ENABLED should be true")
 	}
 
-	// Messaging should expose both gRPC (9090) and HTTP (3100) ports
+	// Messaging should expose both gRPC (19090->9090) and HTTP (3100->8080) ports
 	if len(messaging.Ports) != 2 {
 		t.Errorf("messaging ports = %d, want 2 (grpc + http)", len(messaging.Ports))
+	}
+	hasGrpc := false
+	hasWeb := false
+	for _, p := range messaging.Ports {
+		if p.Target == 9090 && p.Published == "19090" {
+			hasGrpc = true
+		}
+		if p.Target == 8080 && p.Published == "3100" {
+			hasWeb = true
+		}
+	}
+	if !hasGrpc {
+		t.Errorf("messaging should publish gRPC as 19090->9090, got %#v", messaging.Ports)
+	}
+	if !hasWeb {
+		t.Errorf("messaging should publish web as 3100->8080, got %#v", messaging.Ports)
+	}
+
+	collector, ok := project.Services["astro-collector"]
+	if !ok {
+		t.Fatal("missing astro-collector service")
+	}
+	if len(collector.Ports) != 2 {
+		t.Fatalf("collector ports = %d, want 2 (4317 + 4318)", len(collector.Ports))
+	}
+	if collector.Ports[0].Target != 4317 || collector.Ports[1].Target != 4318 {
+		t.Errorf("unexpected collector ports: %#v", collector.Ports)
+	}
+
+	agent := project.Services["agent"]
+	if envVal(agent.Environment, "OTEL_EXPORTER_OTLP_ENDPOINT") != "http://astro-collector:4318" {
+		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT = %q, want %q",
+			envVal(agent.Environment, "OTEL_EXPORTER_OTLP_ENDPOINT"), "http://astro-collector:4318")
 	}
 }
 

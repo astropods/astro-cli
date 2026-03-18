@@ -61,22 +61,24 @@ func TestLocalDockerImagesConsistency(t *testing.T) {
 				t.Errorf("tag %q should end with :latest", img.tag)
 			}
 
-			if !strings.HasPrefix(img.dockerfile, "modules/") {
-				t.Errorf("dockerfile %q should start with modules/", img.dockerfile)
+			if !strings.HasPrefix(img.dockerfile, "modules/") && !strings.HasPrefix(img.dockerfile, "deployment/") {
+				t.Errorf("dockerfile %q should start with modules/ or deployment/", img.dockerfile)
 			}
 
-			if !strings.HasPrefix(img.context, "modules/") {
-				t.Errorf("context %q should start with modules/", img.context)
+			if img.context != "." && !strings.HasPrefix(img.context, "modules/") {
+				t.Errorf("context %q should be '.' or start with modules/", img.context)
 			}
 
-			if !strings.HasPrefix(img.dockerfile, img.context) {
+			if img.context != "." && !strings.HasPrefix(img.dockerfile, img.context) {
 				t.Errorf("dockerfile %q should be inside context %q", img.dockerfile, img.context)
 			}
 
-			tagName := strings.TrimSuffix(img.tag, ":latest")
-			contextDir := img.context[strings.LastIndex(img.context, "/")+1:]
-			if tagName != contextDir {
-				t.Errorf("tag name %q doesn't match context dir %q", tagName, contextDir)
+			if img.context != "." {
+				tagName := strings.TrimSuffix(img.tag, ":latest")
+				contextDir := img.context[strings.LastIndex(img.context, "/")+1:]
+				if tagName != contextDir {
+					t.Errorf("tag name %q doesn't match context dir %q", tagName, contextDir)
+				}
 			}
 		})
 	}
