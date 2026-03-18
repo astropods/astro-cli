@@ -12,6 +12,7 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY apps/astro-client/package.json ./apps/astro-client/
 COPY packages/astro-identity-gen/package.json ./packages/astro-identity-gen/
 COPY packages/astro-theme/package.json ./packages/astro-theme/
+COPY packages/astro-trading-card/package.json ./packages/astro-trading-card/
 
 # Install dependencies with cache mount
 RUN --mount=type=cache,target=/root/.bun/install/cache \
@@ -26,6 +27,9 @@ WORKDIR /app/packages/astro-identity-gen
 RUN bun run build
 
 WORKDIR /app/packages/astro-theme
+RUN bun run build
+
+WORKDIR /app/packages/astro-trading-card
 RUN bun run build
 
 # Build the SSR app (VITE_ vars are inlined at build time)
