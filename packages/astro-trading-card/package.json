@@ -13,7 +13,7 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
-    "./holo.css": "./src/holo.css"
+    "./holo.css": "./holo.css"
   },
   "files": [
     "dist"
