@@ -22,7 +22,8 @@ ast dev
 ├── ingestion/
 {{- range .Ingestions}}
 │   ├── {{.}}/
-│   │   ├── main.py       # {{.}} ingestion pipeline
+│   │   ├── main.py           # {{.}} ingestion pipeline
+│   │   ├── requirements.txt  # {{.}} dependencies
 │   │   └── Dockerfile
 {{- end}}
 {{- end}}
@@ -87,7 +88,7 @@ Self-hosted **{{.ModelProvider}}** provider{{if ne .Model ""}} running `{{.Model
 
 ### Ingestion
 
-Data pipeline triggered via **{{range $i, $v := .Ingestions}}{{if $i}}, {{end}}{{$v}}{{end}}**. Edit `ingestion/main.py` to define how data flows into your knowledge stores.
+Data pipeline triggered via **{{range $i, $v := .Ingestions}}{{if $i}}, {{end}}{{$v}}{{end}}**. Edit `ingestion/<type>/main.py` to define how data flows into your knowledge stores.
 {{- end}}
 
 
