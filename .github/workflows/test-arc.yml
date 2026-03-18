@@ -1,0 +1,14 @@
+name: Test ARC Runner
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: prod-astro-runner
+    timeout-minutes: 2
+    steps:
+      - name: Hello
+        run: echo "Hello from ARC runner"
+      - name: Check env
+        run: env | grep -i DATABASE | head -5 || echo "no DATABASE vars"
+      - name: Check network
+        run: curl -s https://api.github.com/zen
