@@ -158,11 +158,14 @@ export class AstroTradingCardElement extends HTMLElement {
   /** Set the card SVG content. */
   set svg(value: string) {
     this._svgSlot.innerHTML = value;
+    this._rawSvg = value;
   }
 
   get svg(): string {
-    return this._svgSlot.innerHTML;
+    return this._rawSvg;
   }
+
+  private _rawSvg = "";
 
   /** Idle shine opacity (0-1, default 0.4). */
   set shineIdle(value: number) {

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisVertical, Trash2 } from "lucide-react";
+import { EllipsisVertical, Share2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { AgentIdentity } from "@/components/AgentIdentity";
@@ -13,6 +13,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
+import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
+import { useAgent } from "@/api/queries/agents";
+import { getAgentIntegrations } from "@/lib/agent-utils";
+import { useAuth } from "@/lib/use-auth";
+import type { CardData, CardAvatar } from "astro-trading-card";
+import { generateIdentity } from "identity-gen";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "error";
 
@@ -56,8 +62,21 @@ export function DeployedAgentCard({
   hasNewBuildAvailable = false,
   className,
 }: DeployedAgentCardProps) {
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  // Fetch agent data on demand for integrations (only when share modal is open)
+  const { data: agent } = useAgent(account, name, { enabled: shareOpen });
+  const integrations = agent ? getAgentIntegrations(agent) : [];
+
+  const cardAvatar = useMemo<CardAvatar | undefined>(() => {
+    if (avatarUrl) return { url: avatarUrl };
+    const svg = generateIdentity({ seed: `${account}/${name}`, size: 128 });
+    const inner = svg.replace(/<svg[^>]*>/, "").replace(/<\/svg>/, "");
+    return { svg: inner };
+  }, [avatarUrl, account, name]);
 
   return (
     <>
@@ -80,6 +99,15 @@ export function DeployedAgentCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => {
+                  setMenuOpen(false);
+                  setShareOpen(true);
+                }}
+              >
+                <Share2 />
+                Share Agent Card
+              </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
                 onSelect={() => {
@@ -141,6 +169,32 @@ export function DeployedAgentCard({
         deploymentName={name}
         displayName={displayName}
         account={account}
+      />
+
+      <TradingCardModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        data={{
+          name,
+          displayName,
+          account,
+          avatar: cardAvatar,
+          stats: [
+            {
+              label: "Deployed by",
+              account: {
+                fullName: [user?.first_name, user?.last_name].filter(Boolean).join(" ") || account,
+                handle: account,
+                avatarUrl: user?.profile_picture_url ?? null,
+              },
+            },
+            { label: "Status", value: status },
+            { label: "Requests", value: requests.toLocaleString() },
+            { label: "Installed", value: installedAt },
+          ],
+          barcodeId: deploymentId,
+        } satisfies CardData}
+        integrations={integrations}
       />
     </>
   );

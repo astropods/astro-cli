@@ -246,7 +246,7 @@ export function pickCardColors(swatches: Swatch[]): CardColors | null {
   return {
     accent: accent.hex,
     accentLight: hslToHex(secH, Math.min(secS, 0.6), 0.75),
-    background: hslToHex(accentH, Math.min(accentS, 0.5), 0.06),
+    background: hslToHex(accentH, Math.min(accentS, 0.5), 0.09),
     foreground: hslToHex(accentH, Math.min(accentS, 0.1), 0.96),
     glow: hslToHex(accentH, Math.min(accentS, 0.9), 0.8),
   };
@@ -284,7 +284,7 @@ export function deriveCardColors(accent: string, secondaryAccent?: string): Card
   return {
     accent,
     accentLight: accentLightHex,
-    background: hslToHex(h, Math.min(s, 0.5), 0.06),
+    background: hslToHex(h, Math.min(s, 0.5), 0.09),
     foreground: hslToHex(h, Math.min(s, 0.1), 0.96),
     glow: hslToHex(h, Math.min(s, 0.9), 0.8),
   };

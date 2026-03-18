@@ -112,7 +112,7 @@ function renderAccountValue(
   clipId: string,
 ): string {
   const avatarSize = 16;
-  const gap = 5;
+  const gap = 3;
   const handleText = `@${account.handle}`;
   const handleWidth = handleText.length * 11 * 0.55; // approximate
   const avatarX = rightX - handleWidth - gap - avatarSize;

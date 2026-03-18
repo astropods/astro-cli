@@ -36,6 +36,7 @@
     "@tanstack/react-virtual": "^3.13.20",
     "@xyflow/react": "^12.10.0",
     "astro-theme": "workspace:*",
+    "astro-trading-card": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "downshift": "^9.3.2",
