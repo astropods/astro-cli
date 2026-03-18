@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { UserAvatar } from "@/components/UserAvatar";
+import { PRESET_AVATARS } from "@/lib/presetAvatars";
 import type { User } from "@/lib/api";
 
 const baseUser: User = {
@@ -26,26 +27,8 @@ type Story = StoryObj<typeof meta>;
 
 export const WithPhoto: Story = {};
 
-export const Initials: Story = {
+export const PresetFallback: Story = {
   args: {
-    user: { ...baseUser, profile_picture_url: undefined },
-  },
-};
-
-export const EmailOnly: Story = {
-  args: {
-    user: {
-      ...baseUser,
-      first_name: undefined,
-      last_name: undefined,
-      profile_picture_url: undefined,
-    },
-  },
-};
-
-export const CustomSize: Story = {
-  args: {
-    className: "size-12 text-base",
     user: { ...baseUser, profile_picture_url: undefined },
   },
 };
@@ -53,10 +36,35 @@ export const CustomSize: Story = {
 export const Sizes: Story = {
   render: () => (
     <div className="flex items-end gap-3">
-      <UserAvatar user={baseUser} className="size-6" />
-      <UserAvatar user={baseUser} />
-      <UserAvatar user={baseUser} className="size-10" />
-      <UserAvatar user={baseUser} className="size-12" />
+      <UserAvatar user={{ ...baseUser, profile_picture_url: undefined }} className="size-6 rounded" />
+      <UserAvatar user={{ ...baseUser, profile_picture_url: undefined }} />
+      <UserAvatar user={{ ...baseUser, profile_picture_url: undefined }} className="size-10" />
+      <UserAvatar user={{ ...baseUser, profile_picture_url: undefined }} className="size-12" />
+    </div>
+  ),
+};
+
+export const DeterministicAssignment: Story = {
+  render: () => (
+    <div className="flex flex-col gap-4 p-2">
+      <p className="text-body-sm text-muted-foreground">
+        Each user ID consistently maps to the same avatar across all sessions.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        {PRESET_AVATARS.map((_, i) => {
+          const user: User = {
+            ...baseUser,
+            id: `user-${i + 1}`,
+            profile_picture_url: undefined,
+          };
+          return (
+            <div key={user.id} className="flex flex-col items-center gap-1">
+              <UserAvatar user={user} className="size-10" />
+              <span className="text-mono-sm font-mono text-faint-foreground">{user.id}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   ),
 };

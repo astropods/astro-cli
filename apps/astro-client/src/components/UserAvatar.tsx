@@ -1,6 +1,7 @@
-import { getUserDisplayName, getUserInitials } from "@/lib/auth";
+import { getUserDisplayName } from "@/lib/auth";
 import type { User } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { getPresetAvatarForUser } from "@/lib/presetAvatars";
 
 export interface UserAvatarProps {
   user: User;
@@ -17,14 +18,13 @@ export function UserAvatar({ user, className }: UserAvatarProps) {
       />
     );
   }
+
+  const preset = getPresetAvatarForUser(user.id);
   return (
-    <div
-      className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-800 text-sm font-medium text-white",
-        className,
-      )}
-    >
-      {getUserInitials(user)}
-    </div>
+    <img
+      src={preset.src}
+      alt={getUserDisplayName(user)}
+      className={cn("size-8 shrink-0 rounded-lg object-cover", className)}
+    />
   );
 }

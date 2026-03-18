@@ -34,7 +34,7 @@ type Story = StoryObj<typeof meta>;
 
 export const WithPhoto: Story = {};
 
-export const WithInitials: Story = {
+export const WithPresetAvatar: Story = {
   args: {
     user: { ...baseUser, profile_picture_url: undefined },
   },
