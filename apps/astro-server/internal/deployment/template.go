@@ -782,16 +782,16 @@ func collectVariablesFromInputs(astroSpec *spec.AstroSpec, ds *spec.AstroDeploym
 	// Top-level inputs → agent + ingestion
 	for _, inp := range astroSpec.Inputs {
 		addVariable(inp, []string{"agent", "ingestion"})
-		if inp.Default != "" {
-			agentEnv[inp.Name] = inp.Default
+		if !inp.Secret {
+			agentEnv[inp.Name] = fmt.Sprintf("${variables.%s}", inp.Name)
 		}
 	}
 
 	// Agent inputs → agent only
 	for _, inp := range astroSpec.Agent.Inputs {
 		addVariable(inp, []string{"agent"})
-		if inp.Default != "" {
-			agentEnv[inp.Name] = inp.Default
+		if !inp.Secret {
+			agentEnv[inp.Name] = fmt.Sprintf("${variables.%s}", inp.Name)
 		}
 	}
 
