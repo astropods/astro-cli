@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -112,32 +112,26 @@ export function SchedulePicker({ label, value, onChange, error }: SchedulePicker
     return ["*", "*", "*", "*", "*"];
   });
 
-  const handlePresetChange = useCallback(
-    (selected: string) => {
-      if (selected === CUSTOM_VALUE) {
-        setMode("custom");
-        const assembled = customFields.join(" ");
-        onChange(assembled === "* * * * *" ? "" : assembled);
-        return;
-      }
-      setMode("preset");
-      const preset = PRESETS.find((p) => p.cron === selected);
-      if (preset) onChange(preset.cron);
-    },
-    [customFields, onChange],
-  );
+  const handlePresetChange = (selected: string) => {
+    if (selected === CUSTOM_VALUE) {
+      setMode("custom");
+      const assembled = customFields.join(" ");
+      onChange(assembled === "* * * * *" ? "" : assembled);
+      return;
+    }
+    setMode("preset");
+    const preset = PRESETS.find((p) => p.cron === selected);
+    if (preset) onChange(preset.cron);
+  };
 
-  const updateCustomField = useCallback(
-    (index: number, fieldValue: string) => {
-      setCustomFields((prev) => {
-        const next = [...prev] as [string, string, string, string, string];
-        next[index] = fieldValue;
-        onChange(next.join(" "));
-        return next;
-      });
-    },
-    [onChange],
-  );
+  const updateCustomField = (index: number, fieldValue: string) => {
+    setCustomFields((prev) => {
+      const next = [...prev] as [string, string, string, string, string];
+      next[index] = fieldValue;
+      onChange(next.join(" "));
+      return next;
+    });
+  };
 
   const selectValue = mode === "custom" ? CUSTOM_VALUE : (matchedPreset?.cron ?? "");
   const description = value.trim() ? describeCron(value) : "";

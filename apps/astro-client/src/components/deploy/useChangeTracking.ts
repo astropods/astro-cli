@@ -60,6 +60,18 @@ const FIELD_CONFIG: { [K in keyof TrackedFormState]: TrackedField<TrackedFormSta
 };
 
 // ---------------------------------------------------------------------------
+// Typed field helpers — let TypeScript narrow per-key without `as any`.
+// ---------------------------------------------------------------------------
+
+const isFieldChanged = <K extends keyof TrackedFormState>(
+  key: K, initial: TrackedFormState, current: TrackedFormState,
+): boolean => FIELD_CONFIG[key].isChanged(initial[key], current[key]);
+
+const fieldChangeCount = <K extends keyof TrackedFormState>(
+  key: K, initial: TrackedFormState, current: TrackedFormState,
+): number => FIELD_CONFIG[key].countChanges(initial[key], current[key]);
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -84,15 +96,12 @@ export function useChangeTracking(initial: TrackedFormState, current: TrackedFor
     let changeCount = 0;
 
     for (const key of Object.keys(FIELD_CONFIG) as (keyof TrackedFormState)[]) {
-      const config = FIELD_CONFIG[key];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const changed = config.isChanged(initial[key] as any, current[key] as any);
+      const changed = isFieldChanged(key, initial, current);
       dirtyFields[key] = changed;
       if (changed) {
-        if (config.category === "cosmetic") hasCosmeticChange = true;
+        if (FIELD_CONFIG[key].category === "cosmetic") hasCosmeticChange = true;
         else hasRedeployChange = true;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        changeCount += config.countChanges(initial[key] as any, current[key] as any);
+        changeCount += fieldChangeCount(key, initial, current);
       }
     }
 

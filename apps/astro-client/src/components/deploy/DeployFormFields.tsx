@@ -17,7 +17,7 @@ export interface DeployFormFieldsProps {
   form: DeployForm;
   /** Hide the account picker (e.g. on settings page where account is fixed). */
   hideAccountPicker?: boolean;
-  /** Extra content rendered at the end of the Ingestion Schedules section (e.g. manual trigger buttons). */
+  /** Extra content rendered at the end of the Ingestion section (e.g. manual trigger buttons). */
   ingestionExtra?: ReactNode;
 }
 

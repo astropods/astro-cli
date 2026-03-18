@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import { useNavigate, useOutletContext } from "react-router";
 import { Play, Check, Loader2 } from "lucide-react";
 import type { ConfigureContext } from "./types";
 import { deploymentPath } from "@/lib/routes";
 import { Button } from "@/components/ui/button";
-import { useDeployForm } from "@/components/deploy/useDeployForm";
-import { slugToTitle } from "@/components/deploy/useDeployForm";
+import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
@@ -65,6 +64,64 @@ export default function ConfigureDeployment() {
   }, [deployError]);
 
   const manualIngestions = deployment.manual_ingestions ?? [];
+
+  const saveAndRedeploy = async (e: SyntheticEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!form.trySubmit()) return;
+    try {
+      await form.deploy();
+      navigate(basePath);
+    } catch {
+      // form.deployError captures the message
+    }
+  };
+
+  return (
+    <>
+      <form
+        id={FORM_ID}
+        onSubmit={saveAndRedeploy}
+        className={changes.isDirty || hasNewerBuildAvailable ? "pb-24" : ""}
+      >
+        <DeployFormFields
+          form={form}
+          hideAccountPicker
+          ingestionExtra={
+            manualIngestions.length > 0
+              ? <ManualTriggers
+                  deploymentId={deployment.id}
+                  names={manualIngestions}
+                  account={account}
+                  hasBorderTop={form.scheduleIngestions.length > 0}
+                />
+              : undefined
+          }
+        />
+      </form>
+
+      <DeployFormActionBar
+        isDirty={changes.isDirty}
+        changeCount={changes.changeCount}
+        requiresRedeploy={changes.requiresRedeploy || hasNewerBuildAvailable}
+        showBuildUpgradeRedeploy={hasNewerBuildAvailable}
+        currentBuildId={currentBuildId}
+        latestBuildId={latestBuildId}
+        isSaving={form.isDeploying}
+        formId={FORM_ID}
+        onReset={() => form.reset(initialValues)}
+      />
+    </>
+  );
+}
+
+interface ManualTriggersProps {
+  deploymentId: string;
+  names: string[];
+  account: string;
+  hasBorderTop: boolean;
+}
+
+function ManualTriggers({ deploymentId, names, account, hasBorderTop }: ManualTriggersProps) {
   const triggerMutation = useTriggerIngestion(account);
   const [triggeredName, setTriggeredName] = useState<string | null>(null);
 
@@ -76,16 +133,16 @@ export default function ConfigureDeployment() {
 
   const handleTrigger = (name: string) => {
     triggerMutation.mutate(
-      { deploymentId: deployment.id, ingestion: name },
+      { deploymentId, ingestion: name },
       { onSuccess: () => setTriggeredName(name) },
     );
   };
 
-  const ingestionExtra = manualIngestions.length > 0 ? (
-    <div className={form.scheduleIngestions.length > 0 ? "mt-6 pt-6 border-t border-border" : ""}>
+  return (
+    <div className={hasBorderTop ? "mt-6 pt-6 border-t border-border" : ""}>
       <p className="text-sm font-medium text-foreground mb-3">Manual Triggers</p>
       <div className="flex flex-wrap gap-2">
-        {manualIngestions.map((name) => {
+        {names.map((name) => {
           const isTriggering = triggerMutation.isPending && triggerMutation.variables?.ingestion === name;
           const justTriggered = triggeredName === name;
 
@@ -116,40 +173,5 @@ export default function ConfigureDeployment() {
         </p>
       )}
     </div>
-  ) : null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.trySubmit()) return;
-    try {
-      await form.deploy();
-      navigate(basePath);
-    } catch {
-      // Error is captured in form.deployError
-    }
-  };
-
-  return (
-    <>
-      <form
-        id={FORM_ID}
-        onSubmit={handleSubmit}
-        className={changes.isDirty || hasNewerBuildAvailable ? "pb-24" : ""}
-      >
-        <DeployFormFields form={form} hideAccountPicker ingestionExtra={ingestionExtra} />
-      </form>
-
-      <DeployFormActionBar
-        isDirty={changes.isDirty}
-        changeCount={changes.changeCount}
-        requiresRedeploy={changes.requiresRedeploy || hasNewerBuildAvailable}
-        showBuildUpgradeRedeploy={hasNewerBuildAvailable}
-        currentBuildId={currentBuildId}
-        latestBuildId={latestBuildId}
-        isSaving={form.isDeploying}
-        formId={FORM_ID}
-        onReset={() => form.reset(initialValues)}
-      />
-    </>
   );
 }
