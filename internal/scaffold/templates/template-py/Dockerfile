@@ -11,6 +11,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1
+
 RUN adduser --disabled-password --uid 1000 agent
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages

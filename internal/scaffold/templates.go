@@ -23,6 +23,7 @@ type TemplatePaths struct {
 	IngestionIndex           string
 	IngestionMain            string // Python: ingestion/main.py
 	IngestionWebhookPy       string // Python: ingestion/webhook.py
+	IngestionRequirementsTxt string // Python: ingestion/<type>/requirements.txt
 	LlmMd                    string
 	AgentMd                  string
 	Readme                   string
@@ -75,6 +76,7 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
 			IngestionMain:            "templates/template-py/ingestion/main.py",
 			IngestionWebhookPy:       "templates/template-py/ingestion/webhook.py",
+			IngestionRequirementsTxt: "templates/template-py/ingestion/requirements.txt",
 		}
 		switch templateName {
 		case "langchain":

@@ -207,11 +207,22 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	_, statErr := os.Stat(filepath.Join(workingDir, "requirements.txt"))
+	isPython := statErr == nil
+	isTypeScript := !isPython
+
 	if localReset {
-		if err := unlinkLocalPackages(workingDir); err != nil {
-			return fmt.Errorf("local-reset: %w", err)
+		if isTypeScript {
+			if err := unlinkLocalPackages(workingDir); err != nil {
+				return fmt.Errorf("local-reset: %w", err)
+			}
+			fmt.Printf("%s→%s Removed local packages. Run 'bun install' to restore dependencies.\n", colorCyan, colorReset)
+		} else if isPython {
+			if err := uninstallLocalPythonPackages(workingDir); err != nil {
+				return fmt.Errorf("local-reset: %w", err)
+			}
+			fmt.Printf("%s→%s Removed local Python packages. Restored from requirements.txt.\n", colorCyan, colorReset)
 		}
-		fmt.Printf("%s→%s Removed local packages. Run 'bun install' to restore dependencies.\n", colorCyan, colorReset)
 		return nil
 	}
 
@@ -410,27 +421,8 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 
 	_, statErr := os.Stat(filepath.Join(workingDir, "requirements.txt"))
 	isPython := statErr == nil
-	if isPython {
-		// Python agent: pip install -e local packages so the agent uses local source.
-		// Install in dependency order: messaging → adapter-core → adapter-langchain.
-		pyPackages := []struct{ name, path string }{
-			{"astropods-messaging", filepath.Join(astroRoot, "modules", "messaging", "sdk", "python")},
-			{"astropods-adapter-core", filepath.Join(astroRoot, "modules", "adapters", "packages", "core-py")},
-			{"astropods-adapter-langchain", filepath.Join(astroRoot, "modules", "adapters", "packages", "langchain")},
-		}
-		fmt.Printf("%s→%s Using local Python packages from %s\n", colorCyan, colorReset, astroRoot)
-		for _, pkg := range pyPackages {
-			fmt.Printf("%s→%s Installing %s...\n", colorCyan, colorReset, pkg.name)
-			pipCmd := exec.Command("python3", "-m", "pip", "install", "-e", pkg.path, "--quiet") //nolint:gosec
-			pipCmd.Dir = workingDir
-			pipCmd.Stdout = os.Stdout
-			pipCmd.Stderr = os.Stderr
-			if err := pipCmd.Run(); err != nil {
-				agentCancel()
-				return fmt.Errorf("failed to install %s: %w", pkg.name, err)
-			}
-		}
-	} else {
+	isTypeScript := !isPython
+	if isTypeScript {
 		// TypeScript agent: symlink @astropods/* packages and build SDKs.
 		if err := linkLocalPackages(workingDir, astroRoot); err != nil {
 			agentCancel()
@@ -463,6 +455,13 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 			}
 		}
 		fmt.Printf("%s→%s Using local packages from %s\n", colorCyan, colorReset, astroRoot)
+	} else if isPython {
+		// Python agent: pip install -e local packages so the agent uses local source.
+		fmt.Printf("%s→%s Using local Python packages from %s\n", colorCyan, colorReset, astroRoot)
+		if err := installLocalPythonPackages(workingDir, astroRoot); err != nil {
+			agentCancel()
+			return err
+		}
 	}
 
 	// Resolve start command from spec. Default differs by language.
@@ -856,6 +855,56 @@ func unlinkLocalPackages(workingDir string) error {
 		}
 	}
 	return nil
+}
+
+// localPythonPackage describes a Python package to install in --local mode.
+// Packages must be listed in dependency order (dependencies before dependents).
+type localPythonPackage struct {
+	name string // PyPI package name, e.g. "astropods-messaging"
+	path string // relative to astroRoot, e.g. "modules/messaging/sdk/python"
+}
+
+// localAstroPythonPackages are the packages installed editable in --local and removed in --local-reset.
+var localAstroPythonPackages = []localPythonPackage{
+	{"astropods-messaging", "modules/messaging/sdk/python"},
+	{"astropods-adapter-core", "modules/adapters/packages/core-py"},
+	{"astropods-adapter-langchain", "modules/adapters/packages/langchain"},
+}
+
+// installLocalPythonPackages pip-installs each package as editable from ASTRO_ROOT source
+// so the agent uses local source in --local mode.
+func installLocalPythonPackages(workingDir, astroRoot string) error {
+	for _, pkg := range localAstroPythonPackages {
+		fmt.Printf("%s→%s Installing %s...\n", colorCyan, colorReset, pkg.name)
+		pkgPath := filepath.Join(astroRoot, pkg.path)
+		pipCmd := exec.Command("python3", "-m", "pip", "install", "-e", pkgPath, "--quiet") //nolint:gosec
+		pipCmd.Dir = workingDir
+		pipCmd.Stdout = os.Stdout
+		pipCmd.Stderr = os.Stderr
+		if err := pipCmd.Run(); err != nil {
+			return fmt.Errorf("failed to install %s: %w", pkg.name, err)
+		}
+	}
+	return nil
+}
+
+// uninstallLocalPythonPackages removes the editable installs and restores PyPI versions
+// from requirements.txt so the user can work without ASTRO_ROOT.
+func uninstallLocalPythonPackages(workingDir string) error {
+	for _, pkg := range localAstroPythonPackages {
+		pipCmd := exec.Command("python3", "-m", "pip", "uninstall", "-y", pkg.name) //nolint:gosec
+		pipCmd.Dir = workingDir
+		pipCmd.Stdout = os.Stdout
+		pipCmd.Stderr = os.Stderr
+		// Ignore errors — package may not be installed.
+		_ = pipCmd.Run()
+	}
+	// Reinstall from requirements.txt to restore PyPI versions.
+	pipCmd := exec.Command("python3", "-m", "pip", "install", "-r", "requirements.txt", "--quiet") //nolint:gosec
+	pipCmd.Dir = workingDir
+	pipCmd.Stdout = os.Stdout
+	pipCmd.Stderr = os.Stderr
+	return pipCmd.Run()
 }
 
 // buildLocalAgentEnv returns env for the agent process when running with --no-container.

@@ -288,6 +288,9 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string
 			files = append(files, struct{ path, templatePath string }{
 				filepath.Join(targetDir, "ingestion", ing, "main.py"), ingestionTemplate,
 			})
+			files = append(files, struct{ path, templatePath string }{
+				filepath.Join(targetDir, "ingestion", ing, "requirements.txt"), paths.IngestionRequirementsTxt,
+			})
 		}
 	}
 
