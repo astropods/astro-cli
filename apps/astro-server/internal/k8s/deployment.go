@@ -109,7 +109,7 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	}
 
 	isProvider := cfg.Provider != ""
-	if !(cfg.LocalMode && isProvider) {
+	if !cfg.LocalMode || !isProvider {
 		hardenPodSpec(&podSpec)
 	}
 
@@ -460,7 +460,7 @@ func buildContainer(cfg DeploymentConfig) corev1.Container {
 	}
 
 	isProvider := cfg.Provider != ""
-	if !(cfg.LocalMode && isProvider) {
+	if !cfg.LocalMode || !isProvider {
 		hardenContainer(&container)
 	}
 	return container
