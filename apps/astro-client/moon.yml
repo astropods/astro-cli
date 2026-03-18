@@ -30,6 +30,7 @@ tasks:
       - "e2e.setup"
       - "astro-theme:build"
       - "astro-identity-gen:build"
+      - "astro-trading-card:build"
     inputs:
       - "e2e/**/*"
       - "playwright.config.ts"

@@ -3,7 +3,7 @@ type: "library"
 
 tasks:
   build:
-    command: "bun run tsc"
+    command: "bun run build"
     inputs:
       - "src/**/*"
       - "tsconfig.json"
@@ -12,11 +12,13 @@ tasks:
       - "dist"
 
   typecheck:
-    command: "bun run tsc --noEmit"
+    command: "bun run typecheck"
     inputs:
       - "src/**/*"
       - "tsconfig.json"
       - "/tsconfig.base.json"
+    options:
+      mergeArgs: "replace"
 
   clean:
     command: "rm -rf dist"
