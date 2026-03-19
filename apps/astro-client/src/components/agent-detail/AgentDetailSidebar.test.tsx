@@ -58,7 +58,7 @@ describe("AgentDetailSidebar", () => {
             account: "steve_jobs",
             name: "alert-router",
             description: "Routes alerts to the right team.",
-            installs: 1203,
+            lifetimeMessages: 1203,
           },
         ]}
       />,
