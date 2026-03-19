@@ -230,6 +230,21 @@ func (a *Applier) applyDeployment(ctx context.Context, depl *appsv1.Deployment) 
 		if errors.IsAlreadyExists(err) {
 			_, err = a.clientset.AppsV1().Deployments(a.namespace).Update(ctx, depl, metav1.UpdateOptions{})
 			if err != nil {
+				// Selector is immutable — if it changed, delete and recreate.
+				if errors.IsInvalid(err) {
+					if delErr := a.clientset.AppsV1().Deployments(a.namespace).Delete(ctx, depl.Name, metav1.DeleteOptions{}); delErr != nil {
+						status.Status = "failed"
+						status.Message = fmt.Sprintf("delete for recreate: %v", delErr)
+						return status, delErr
+					}
+					if _, createErr := a.clientset.AppsV1().Deployments(a.namespace).Create(ctx, depl, metav1.CreateOptions{}); createErr != nil {
+						status.Status = "failed"
+						status.Message = createErr.Error()
+						return status, createErr
+					}
+					status.Status = "recreated"
+					return status, nil
+				}
 				status.Status = "failed"
 				status.Message = err.Error()
 				return status, err
@@ -249,7 +264,8 @@ func (a *Applier) applyDeployment(ctx context.Context, depl *appsv1.Deployment) 
 // applyStatefulSet creates or updates a StatefulSet.
 // On update it preserves immutable fields (selector, serviceName,
 // volumeClaimTemplates) from the existing resource so that Kubernetes
-// does not reject the request.
+// does not reject the request. If the selector has changed (e.g. label
+// scheme migration), the StatefulSet is deleted and recreated.
 func (a *Applier) applyStatefulSet(ctx context.Context, ss *appsv1.StatefulSet) (deployment.ResourceStatus, error) {
 	status := deployment.ResourceStatus{
 		Kind:      "StatefulSet",
@@ -265,6 +281,24 @@ func (a *Applier) applyStatefulSet(ctx context.Context, ss *appsv1.StatefulSet) 
 				status.Status = "failed"
 				status.Message = getErr.Error()
 				return status, getErr
+			}
+
+			// If the selector has changed, we must delete and recreate —
+			// K8s does not allow updating the selector or template labels
+			// to not match it.
+			if !selectorMatchesLabels(existing.Spec.Selector, ss.Spec.Template.Labels) {
+				if delErr := a.clientset.AppsV1().StatefulSets(a.namespace).Delete(ctx, ss.Name, metav1.DeleteOptions{}); delErr != nil {
+					status.Status = "failed"
+					status.Message = fmt.Sprintf("delete for recreate: %v", delErr)
+					return status, delErr
+				}
+				if _, createErr := a.clientset.AppsV1().StatefulSets(a.namespace).Create(ctx, ss, metav1.CreateOptions{}); createErr != nil {
+					status.Status = "failed"
+					status.Message = createErr.Error()
+					return status, createErr
+				}
+				status.Status = "recreated"
+				return status, nil
 			}
 
 			// Preserve immutable fields from the existing StatefulSet
@@ -289,6 +323,20 @@ func (a *Applier) applyStatefulSet(ctx context.Context, ss *appsv1.StatefulSet) 
 
 	status.Status = "created"
 	return status, nil
+}
+
+// selectorMatchesLabels returns true if every key/value in the selector's
+// MatchLabels exists in the given labels map.
+func selectorMatchesLabels(sel *metav1.LabelSelector, labels map[string]string) bool {
+	if sel == nil {
+		return true
+	}
+	for k, v := range sel.MatchLabels {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // applyCronJob creates or updates a CronJob

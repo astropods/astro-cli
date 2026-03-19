@@ -216,6 +216,7 @@ export function DeploymentDetailPage() {
           <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="pods">Pods ({cs?.pods?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="variables">Variables ({data.variables?.length ?? 0})</TabsTrigger>
+          <TabsTrigger value="spec">Spec</TabsTrigger>
         </TabsList>
 
         <TabsContent value="drift" className="space-y-4 mt-2">
@@ -352,6 +353,16 @@ export function DeploymentDetailPage() {
             <VariablesTable variables={data.variables} />
           ) : (
             <p className="text-xs text-muted-foreground">No variables configured for this deployment.</p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="spec" className="mt-2">
+          {data.spec_json ? (
+            <pre className="max-h-[600px] overflow-auto rounded-lg glass p-4 text-xs font-mono text-foreground">
+              {(() => { try { return JSON.stringify(JSON.parse(data.spec_json), null, 2); } catch { return data.spec_json; } })()}
+            </pre>
+          ) : (
+            <p className="text-xs text-muted-foreground">No spec available.</p>
           )}
         </TabsContent>
       </Tabs>
