@@ -38,6 +38,8 @@ RUN bun run build
 # Build the SSR app (VITE_ vars are inlined at build time)
 ARG VITE_AMPLITUDE_API_KEY=""
 ENV VITE_AMPLITUDE_API_KEY=$VITE_AMPLITUDE_API_KEY
+ARG VITE_ASSETS_URL=""
+ENV VITE_ASSETS_URL=$VITE_ASSETS_URL
 WORKDIR /app/apps/astro-client
 RUN bun run build
 
