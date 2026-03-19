@@ -122,4 +122,37 @@ describe('useDeployAgent', () => {
     const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
     expect(deploymentsState?.isInvalidated).toBe(true);
   });
+
+  // If the cached DeploymentsListResponse has deployments: null (e.g. the list
+  // query hasn't resolved yet), .some() must not throw. The cache should be
+  // invalidated so the server resolves the new state.
+  it('does not throw when cached deployments is null', async () => {
+    const { wrapper, queryClient } = createHookWrapper();
+
+    queryClient.setQueryData(deploymentKeys.all(testAccount), {
+      deployments: null,
+      count: 0,
+    });
+
+    const { result } = renderHook(() => useDeployAgent(testAccount, 'code-reviewer'), { wrapper });
+    result.current.mutate(deployPayload);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.isError).toBe(false);
+    const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
+    expect(deploymentsState?.isInvalidated).toBe(true);
+  });
+
+  // If there is no cache entry at all, .some() must not throw either.
+  it('does not throw when deployments cache is empty', async () => {
+    const { wrapper } = createHookWrapper();
+
+    const { result } = renderHook(() => useDeployAgent(testAccount, 'code-reviewer'), { wrapper });
+    result.current.mutate(deployPayload);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.isError).toBe(false);
+  });
 });
