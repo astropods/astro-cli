@@ -60,7 +60,7 @@ export function useDeployAgent(account: string, agentName: string) {
     onSuccess: (data: DeployResponse) => {
       // Optimistically patch build_id so the "new build" badge clears before the server catches up
       const prev = queryClient.getQueryData<DeploymentsListResponse>(deploymentKeys.all(account));
-      const isExistingDeployment = prev?.deployments.some((d) => d.name === data.name);
+      const isExistingDeployment = prev?.deployments?.some((d) => d.name === data.name);
 
       if (isExistingDeployment) {
         queryClient.setQueryData<DeploymentsListResponse>(
