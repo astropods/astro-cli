@@ -46,7 +46,7 @@ export function AgentDetailContent({
             </span>
           </div>
           <div className="px-6 py-5">
-              <StyledMarkdown className="prose-headings:font-mono prose-p:font-mono prose-li:font-mono prose-a:font-mono prose-strong:font-mono prose-th:font-mono prose-td:font-mono [&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
+              <StyledMarkdown className="[&>h1:first-child]:mt-0 [&>h2:first-child]:mt-0 [&>h3:first-child]:mt-0">
                 {readmeContent}
               </StyledMarkdown>
           </div>
