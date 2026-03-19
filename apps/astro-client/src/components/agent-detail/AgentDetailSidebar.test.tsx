@@ -64,7 +64,7 @@ describe("AgentDetailSidebar", () => {
       />,
     );
 
-    expect(screen.getByText("Often used together")).toBeInTheDocument();
+    expect(screen.getByText("More agents")).toBeInTheDocument();
     expect(screen.getByText("alert-router")).toBeInTheDocument();
     expect(screen.getByText("steve_jobs")).toBeInTheDocument();
   });
@@ -77,6 +77,6 @@ describe("AgentDetailSidebar", () => {
       />,
     );
 
-    expect(screen.queryByText("Often used together")).not.toBeInTheDocument();
+    expect(screen.queryByText("More agents")).not.toBeInTheDocument();
   });
 });

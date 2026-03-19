@@ -82,7 +82,7 @@ export function SidebarCard({
       )}
 
       {recommendedAgents.length > 0 && (
-        <SidebarSection title="Often used together">
+        <SidebarSection title="More agents">
           <div className="space-y-2.5">
             {recommendedAgents.map((recommendedAgent) => (
               <AgentCard
