@@ -126,7 +126,7 @@ export function DeployedAgentCard({
                 }}
               >
                 <Share2 />
-                Share Agent Card
+                Share agent badge
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
