@@ -33,10 +33,10 @@ jobs:
 
           if [ "${{ inputs.astro-collector }}" == "true" ]; then
             build_items=$(echo "$build_items" | jq -c '. + [
-              {"service":"astro-collector","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_ghcr":true},
-              {"service":"astro-collector","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_ghcr":true}
+              {"service":"astro-collector","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_ghcr":true,"push_dockerhub":true},
+              {"service":"astro-collector","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_ghcr":true,"push_dockerhub":true}
             ]')
-            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-collector","push_ecr":true,"push_ghcr":true}]')
+            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-collector","push_ecr":true,"push_ghcr":true,"push_dockerhub":true}]')
           fi
 
           count=$(echo "$build_items" | jq length)
@@ -63,10 +63,14 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           errors=()
           [ -z "$AWS_ACCOUNT_ID" ] && errors+=("secret: AWS_ACCOUNT_ID")
           [ -z "$GHCR_PAT" ] && errors+=("secret: GHCR_PAT")
+          [ -z "$DOCKERHUB_USERNAME" ] && errors+=("secret: DOCKERHUB_USERNAME")
+          [ -z "$DOCKERHUB_TOKEN" ] && errors+=("secret: DOCKERHUB_TOKEN")
           if [ ${#errors[@]} -gt 0 ]; then
             echo "::error::Missing required variables: ${errors[*]}"
             exit 1
@@ -116,6 +120,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
+      - name: Login to Docker Hub
+        if: matrix.push_dockerhub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -148,6 +159,28 @@ jobs:
           build-args: |
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
+
+      - name: Build and push to Docker Hub by digest
+        if: matrix.push_dockerhub
+        id: build-dockerhub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployment/Dockerfile.${{ matrix.service }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=astropods/collector,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.service }}-dockerhub-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-dockerhub-${{ env.PLATFORM_PAIR }}
+          build-args: |
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+      - name: Export Docker Hub digest
+        if: matrix.push_dockerhub
+        run: |
+          mkdir -p ${{ runner.temp }}/digests/dockerhub/${{ matrix.service }}
+          digest="${{ steps.build-dockerhub.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/dockerhub/${{ matrix.service }}/${digest#sha256:}"
 
       - name: Export ECR digest
         if: matrix.push_ecr
@@ -214,6 +247,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
+      - name: Login to Docker Hub
+        if: matrix.push_dockerhub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -254,3 +294,14 @@ jobs:
             -t "$IMAGE:latest" \
             $(printf "$IMAGE@sha256:%s " *)
           echo "::notice::GHCR: $IMAGE:${{ github.sha }}"
+
+      - name: Create Docker Hub manifest and push
+        if: matrix.push_dockerhub
+        working-directory: ${{ runner.temp }}/digests/dockerhub/${{ matrix.service }}
+        run: |
+          IMAGE="astropods/collector"
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+          echo "::notice::Docker Hub: $IMAGE:${{ github.sha }}"

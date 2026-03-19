@@ -45,7 +45,7 @@ func TestImageStrippingStrategy(t *testing.T) {
 	}{
 		{"astropods messaging", "astropods/messaging:latest", true, "messaging:latest"},
 		{"astropods playground", "astropods/astro-playground:latest", true, "astro-playground:latest"},
-		{"astropods collector", "astropods/astro-collector:latest", true, "astro-collector:latest"},
+		{"astropods collector", "astropods/collector:latest", true, "collector:latest"},
 		{"third-party qdrant", "qdrant/qdrant:latest", false, "qdrant/qdrant:latest"},
 		{"third-party redis", "redis:7-alpine", false, "redis:7-alpine"},
 		{"no prefix", "messaging:latest", false, "messaging:latest"},

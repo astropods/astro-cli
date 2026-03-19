@@ -494,7 +494,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	}
 
 	// Add local observability collector so agent OTLP traffic has a sink in dev.
-	collectorImage := "astropods/prod-astro-collector:latest"
+	collectorImage := "astropods/collector:latest"
 	collectorPull := types.PullPolicyAlways
 	collectorService := types.ServiceConfig{
 		Name:       "astro-collector",
@@ -850,7 +850,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 	ports := []types.ServicePortConfig{
 		{
-			Target:    9090,
+			Target: 9090,
 			// Publish on a non-default host port to avoid common local conflicts
 			// (for example, kubectl port-forwards frequently bind localhost:9090).
 			Published: "19090",
