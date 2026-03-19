@@ -723,19 +723,20 @@ func TestK8s_LabelsAndSelectors(t *testing.T) {
 
 	ctx := context.Background()
 
-	// All resources should be findable by agent label
+	// All resources should be findable by agent label (account.agent format)
+	agentLabel := deployment.LabelKeyAgent + "=" + deployment.AgentLabelValue("test-account", "k8s-e2e")
 	depls, _ := client.Clientset().AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: "astro.dev/agent=k8s-e2e",
+		LabelSelector: agentLabel,
 	})
 	if len(depls.Items) == 0 {
-		t.Error("no deployments found with astro.dev/agent=k8s-e2e label")
+		t.Error("no deployments found with " + agentLabel + " label")
 	}
 
 	svcs, _ := client.Clientset().CoreV1().Services(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: "astro.dev/agent=k8s-e2e",
+		LabelSelector: agentLabel,
 	})
 	if len(svcs.Items) == 0 {
-		t.Error("no services found with astro.dev/agent=k8s-e2e label")
+		t.Error("no services found with " + agentLabel + " label")
 	}
 
 	// Verify deployment selector matches pod template labels
