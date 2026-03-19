@@ -382,8 +382,8 @@ func (a *Applier) applyNetworkPolicy(ctx context.Context, np *networkingv1.Netwo
 // agent. This prevents stale Deployments/Services/Ingresses from lingering when
 // resource names change between builds (e.g. a container is renamed).
 // Errors are logged but not returned — stale resources are annoying but not fatal.
-func (a *Applier) cleanupStaleBuildResources(ctx context.Context, agentName, buildID string) []error {
-	labelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=astro-server,astro.dev/agent=%s", agentName)
+func (a *Applier) cleanupStaleBuildResources(ctx context.Context, accountName, agentName, buildID string) []error {
+	labelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=astro-server,%s=%s", deployment.LabelKeyAgent, deployment.AgentLabelValue(accountName, agentName))
 	propagation := metav1.DeletePropagationBackground
 	deleteOpts := metav1.DeleteOptions{PropagationPolicy: &propagation}
 	listOpts := metav1.ListOptions{LabelSelector: labelSelector}

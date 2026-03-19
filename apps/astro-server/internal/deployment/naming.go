@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// LabelKeyAgent is the Kubernetes label key used to identify the agent (account.agent format).
+const LabelKeyAgent = "astro.dev/agent"
+
 var (
 	// Regex for sanitizing names (alphanumeric and hyphens only)
 	sanitizeRegex = regexp.MustCompile(`[^a-z0-9-]`)
@@ -104,14 +107,23 @@ func GenerateServiceDNS(serviceName, namespace string) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace)
 }
 
+// AgentLabelValue returns the account-qualified agent label value (account.agent).
+// If account is empty, returns just the sanitized agent name.
+func AgentLabelValue(account, agent string) string {
+	if account == "" {
+		return SanitizeName(agent)
+	}
+	return SanitizeName(account) + "." + SanitizeName(agent)
+}
+
 // GenerateLabels generates standard Kubernetes labels for resources
-func GenerateLabels(agent, version, component string) map[string]string {
+func GenerateLabels(account, agent, version, component string) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/name":       SanitizeName(agent),
 		"app.kubernetes.io/instance":   SanitizeName(agent),
 		"app.kubernetes.io/version":    SanitizeName(version),
 		"app.kubernetes.io/managed-by": "astro-server",
-		"astro.dev/agent":              SanitizeName(agent),
+		LabelKeyAgent:                  AgentLabelValue(account, agent),
 	}
 
 	if component != "" {
@@ -122,11 +134,11 @@ func GenerateLabels(agent, version, component string) map[string]string {
 }
 
 // GenerateSelector generates selector labels (subset of full labels)
-func GenerateSelector(agent, component string) map[string]string {
+func GenerateSelector(account, agent, component string) map[string]string {
 	selector := map[string]string{
 		"app.kubernetes.io/name":     SanitizeName(agent),
 		"app.kubernetes.io/instance": SanitizeName(agent),
-		"astro.dev/agent":            SanitizeName(agent),
+		LabelKeyAgent:                AgentLabelValue(account, agent),
 	}
 
 	if component != "" {

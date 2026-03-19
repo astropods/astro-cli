@@ -297,7 +297,7 @@ func TestDrift_ExtraDeployment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	labels := deployment.GenerateLabels("drift-agent", "dbuild01", "extra-thing")
+	labels := deployment.GenerateLabels("", "drift-agent", "dbuild01", "extra-thing")
 	replicas := int32(1)
 	_, err := env.client.Clientset().AppsV1().Deployments(env.ns).Create(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{

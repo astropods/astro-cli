@@ -15,6 +15,7 @@ import (
 type StatefulSetConfig struct {
 	Name            string
 	Namespace       string
+	AccountID       string
 	AgentName       string
 	BuildID         string
 	Component       string
@@ -56,8 +57,8 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		return nil, fmt.Errorf("StatefulSet %s: provider %q has no mount path", cfg.Name, cfg.Provider)
 	}
 
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
 
 	replicas := cfg.Replicas
 	if replicas == 0 {

@@ -232,7 +232,7 @@ func TestCleanupOrphanedResources_DeletesOrphanedIngress(t *testing.T) {
 	agentName := "my-agent"
 
 	// Pre-create an orphaned ingress with the right labels
-	labels := deployment.GenerateLabels(agentName, "build-123", "tool-old")
+	labels := deployment.GenerateLabels("acme", agentName, "build-123", "tool-old")
 	orphanIngress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-agent-ingress-old", Namespace: a.namespace, Labels: labels,
@@ -265,7 +265,7 @@ func TestCleanupStaleBuildResources_SanitizedBuildID(t *testing.T) {
 	// Create a resource with a sanitized dotted buildID (dots -> hyphens in labels)
 	dottedBuildID := "1.0.0"
 	sanitized := deployment.SanitizeName(dottedBuildID)
-	labels := deployment.GenerateLabels(agentName, dottedBuildID, "agent")
+	labels := deployment.GenerateLabels("acme", agentName, dottedBuildID, "agent")
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -286,7 +286,7 @@ func TestCleanupStaleBuildResources_SanitizedBuildID(t *testing.T) {
 	}
 
 	// Cleanup with the same dotted buildID should NOT delete the resource
-	errs := a.cleanupStaleBuildResources(ctx, agentName, dottedBuildID)
+	errs := a.cleanupStaleBuildResources(ctx, "acme", agentName, dottedBuildID)
 	if len(errs) > 0 {
 		t.Fatalf("unexpected cleanup errors: %v", errs)
 	}
@@ -297,7 +297,7 @@ func TestCleanupStaleBuildResources_SanitizedBuildID(t *testing.T) {
 	}
 
 	// Cleanup with a different buildID should delete it
-	errs = a.cleanupStaleBuildResources(ctx, agentName, "2.0.0")
+	errs = a.cleanupStaleBuildResources(ctx, "acme", agentName, "2.0.0")
 	if len(errs) > 0 {
 		t.Fatalf("unexpected cleanup errors: %v", errs)
 	}
@@ -314,7 +314,7 @@ func TestCleanupOrphanedResources_DeletesOrphanedStatefulSet(t *testing.T) {
 	agentName := "my-agent"
 
 	// Pre-create an orphaned statefulset
-	labels := deployment.GenerateLabels(agentName, "build-123", "knowledge-old")
+	labels := deployment.GenerateLabels("acme", agentName, "build-123", "knowledge-old")
 	orphanSS := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-agent-knowledge-old", Namespace: a.namespace, Labels: labels,
@@ -350,7 +350,7 @@ func TestCleanupOrphanedResources_DeletesOrphanedCronJob(t *testing.T) {
 	agentName := "my-agent"
 
 	// Pre-create an orphaned cronjob
-	labels := deployment.GenerateLabels(agentName, "build-123", "ingestion-old")
+	labels := deployment.GenerateLabels("acme", agentName, "build-123", "ingestion-old")
 	orphanCJ := &batchv1.CronJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-agent-ingestion-old", Namespace: a.namespace, Labels: labels,

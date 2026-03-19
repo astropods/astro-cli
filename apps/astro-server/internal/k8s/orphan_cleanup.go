@@ -139,10 +139,11 @@ func computeExpectedResourceNames(
 // any whose name is not in the expected set. Errors are logged but not fatal.
 func (a *Applier) cleanupOrphanedResources(
 	ctx context.Context,
+	accountName string,
 	agentName string,
 	expected map[string]map[string]bool,
 ) []error {
-	labelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=astro-server,astro.dev/agent=%s", agentName)
+	labelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=astro-server,%s=%s", deployment.LabelKeyAgent, deployment.AgentLabelValue(accountName, agentName))
 	propagation := metav1.DeletePropagationBackground
 	deleteOpts := metav1.DeleteOptions{PropagationPolicy: &propagation}
 	listOpts := metav1.ListOptions{LabelSelector: labelSelector}

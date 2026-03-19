@@ -215,7 +215,7 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 		}
 
 		accountID := ns.Labels["astro.dev/account-id"]
-		agentName := ns.Labels["astro.dev/agent"]
+		agentName := ns.Labels[deployment.LabelKeyAgent]
 		buildID := ns.Labels["astro.dev/build"]
 
 		if accountID == "" || agentName == "" {

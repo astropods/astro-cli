@@ -22,7 +22,7 @@ const testBuild = "build-123"
 func seedResources(t *testing.T, client *fake.Clientset) {
 	t.Helper()
 	ctx := context.Background()
-	labels := deployment.GenerateLabels(testAgent, testBuild, "agent")
+	labels := deployment.GenerateLabels("", testAgent, testBuild, "agent")
 
 	// Namespace
 	_, err := client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
@@ -65,7 +65,7 @@ func seedResources(t *testing.T, client *fake.Clientset) {
 	}
 
 	// StatefulSet
-	ssLabels := deployment.GenerateLabels(testAgent, testBuild, "knowledge-docs")
+	ssLabels := deployment.GenerateLabels("", testAgent, testBuild, "knowledge-docs")
 	_, err = client.AppsV1().StatefulSets(testNS).Create(ctx, &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-agent-knowledge-docs", Namespace: testNS, Labels: ssLabels},
 		Spec: appsv1.StatefulSetSpec{
@@ -81,7 +81,7 @@ func seedResources(t *testing.T, client *fake.Clientset) {
 	}
 
 	// CronJob
-	cjLabels := deployment.GenerateLabels(testAgent, testBuild, "ingestion-daily")
+	cjLabels := deployment.GenerateLabels("", testAgent, testBuild, "ingestion-daily")
 	_, err = client.BatchV1().CronJobs(testNS).Create(ctx, &batchv1.CronJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-agent-ingestion-daily", Namespace: testNS, Labels: cjLabels},
 		Spec: batchv1.CronJobSpec{
@@ -103,7 +103,7 @@ func seedResources(t *testing.T, client *fake.Clientset) {
 	}
 
 	// Job
-	jobLabels := deployment.GenerateLabels(testAgent, testBuild, "ingestion-init")
+	jobLabels := deployment.GenerateLabels("", testAgent, testBuild, "ingestion-init")
 	_, err = client.BatchV1().Jobs(testNS).Create(ctx, &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-agent-ingestion-init", Namespace: testNS, Labels: jobLabels},
 		Spec: batchv1.JobSpec{
@@ -152,7 +152,7 @@ func TestDeleter_DeleteAll(t *testing.T) {
 	ctx := context.Background()
 
 	deleter := NewDeleter(client, testNS)
-	result, err := deleter.Delete(ctx, testAgent, testBuild)
+	result, err := deleter.Delete(ctx, "", testAgent, testBuild)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestDeleter_DeleteAll(t *testing.T) {
 func TestDeleter_DeleteIngresses(t *testing.T) {
 	client := fake.NewClientset()
 	ctx := context.Background()
-	labels := deployment.GenerateLabels(testAgent, testBuild, "agent")
+	labels := deployment.GenerateLabels("", testAgent, testBuild, "agent")
 
 	// Create multiple ingresses
 	for _, name := range []string{"my-agent-ingress-agent", "my-agent-ingress-messaging"} {
@@ -231,7 +231,7 @@ func TestDeleter_DeleteIngresses(t *testing.T) {
 	}, metav1.CreateOptions{})
 
 	deleter := NewDeleter(client, testNS)
-	result, err := deleter.Delete(ctx, testAgent, testBuild)
+	result, err := deleter.Delete(ctx, "", testAgent, testBuild)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestDeleter_EmptyNamespace(t *testing.T) {
 	}, metav1.CreateOptions{})
 
 	deleter := NewDeleter(client, testNS)
-	result, err := deleter.Delete(ctx, testAgent, "")
+	result, err := deleter.Delete(ctx, "", testAgent, "")
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}

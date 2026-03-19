@@ -88,10 +88,10 @@ func TestSanitizeName(t *testing.T) {
 
 // TestGenerateLabels verifies that GenerateLabels produces the correct standard
 // Kubernetes labels including app.kubernetes.io/name, instance, version,
-// managed-by, astro.dev/agent, and optional component.
+// managed-by, astro.dev/account, astro.dev/agent, and optional component.
 func TestGenerateLabels(t *testing.T) {
 	t.Run("with component", func(t *testing.T) {
-		labels := GenerateLabels("my-agent", "1.0", "agent")
+		labels := GenerateLabels("my-account", "my-agent", "1.0", "agent")
 
 		expected := map[string]string{
 			"app.kubernetes.io/name":       "my-agent",
@@ -99,7 +99,7 @@ func TestGenerateLabels(t *testing.T) {
 			"app.kubernetes.io/version":    "1-0",
 			"app.kubernetes.io/managed-by": "astro-server",
 			"app.kubernetes.io/component":  "agent",
-			"astro.dev/agent":              "my-agent",
+			"astro.dev/agent":              "my-account.my-agent",
 		}
 
 		for k, want := range expected {
@@ -110,19 +110,19 @@ func TestGenerateLabels(t *testing.T) {
 	})
 
 	t.Run("without component", func(t *testing.T) {
-		labels := GenerateLabels("my-agent", "1.0", "")
+		labels := GenerateLabels("my-account", "my-agent", "1.0", "")
 
 		if _, ok := labels["app.kubernetes.io/component"]; ok {
 			t.Error("expected no component label when component is empty")
 		}
 
-		if labels["astro.dev/agent"] != "my-agent" {
-			t.Errorf("expected astro.dev/agent=my-agent, got %q", labels["astro.dev/agent"])
+		if labels["astro.dev/agent"] != "my-account.my-agent" {
+			t.Errorf("expected astro.dev/agent=my-account.my-agent, got %q", labels["astro.dev/agent"])
 		}
 	})
 
 	t.Run("sanitizes values", func(t *testing.T) {
-		labels := GenerateLabels("My_Agent", "2.0", "Model")
+		labels := GenerateLabels("My_Account", "My_Agent", "2.0", "Model")
 
 		if labels["app.kubernetes.io/name"] != "my-agent" {
 			t.Errorf("expected sanitized name my-agent, got %q", labels["app.kubernetes.io/name"])
@@ -130,21 +130,24 @@ func TestGenerateLabels(t *testing.T) {
 		if labels["app.kubernetes.io/component"] != "model" {
 			t.Errorf("expected sanitized component model, got %q", labels["app.kubernetes.io/component"])
 		}
+		if labels["astro.dev/agent"] != "my-account.my-agent" {
+			t.Errorf("expected sanitized agent my-account.my-agent, got %q", labels["astro.dev/agent"])
+		}
 	})
 }
 
 // TestGenerateSelector verifies that GenerateSelector produces the correct
-// selector labels (name, instance, astro.dev/agent, optional component) which
+// selector labels (name, instance, astro.dev/account, astro.dev/agent, optional component) which
 // are a subset of the full labels.
 func TestGenerateSelector(t *testing.T) {
 	t.Run("with component", func(t *testing.T) {
-		sel := GenerateSelector("my-agent", "agent")
+		sel := GenerateSelector("my-account", "my-agent", "agent")
 
 		expected := map[string]string{
 			"app.kubernetes.io/name":      "my-agent",
 			"app.kubernetes.io/instance":  "my-agent",
 			"app.kubernetes.io/component": "agent",
-			"astro.dev/agent":             "my-agent",
+			"astro.dev/agent":             "my-account.my-agent",
 		}
 
 		for k, want := range expected {
@@ -163,10 +166,13 @@ func TestGenerateSelector(t *testing.T) {
 	})
 
 	t.Run("without component", func(t *testing.T) {
-		sel := GenerateSelector("my-agent", "")
+		sel := GenerateSelector("my-account", "my-agent", "")
 
 		if _, ok := sel["app.kubernetes.io/component"]; ok {
 			t.Error("expected no component in selector when component is empty")
+		}
+		if sel["astro.dev/agent"] != "my-account.my-agent" {
+			t.Errorf("expected astro.dev/agent=my-account.my-agent, got %q", sel["astro.dev/agent"])
 		}
 	})
 }

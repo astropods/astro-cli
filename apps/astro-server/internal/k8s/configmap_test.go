@@ -15,7 +15,7 @@ func TestBuildConfigMap(t *testing.T) {
 		"AGENT_URL":   "http://agent.default.svc.cluster.local:8080",
 	}
 
-	cm := BuildConfigMap("prod-ns", "my-agent", "1.0", data)
+	cm := BuildConfigMap("prod-ns", "my-account", "my-agent", "1.0", data)
 
 	// Name format: {agent}-{version}-config
 	if !strings.Contains(cm.Name, "my-agent") || !strings.Contains(cm.Name, "config") {
@@ -42,13 +42,13 @@ func TestBuildConfigMap(t *testing.T) {
 	}
 
 	// Labels
-	if cm.Labels["astro.dev/agent"] != "my-agent" {
-		t.Errorf("expected agent label my-agent, got %s", cm.Labels["astro.dev/agent"])
+	if cm.Labels["astro.dev/agent"] != "my-account.my-agent" {
+		t.Errorf("expected agent label my-account.my-agent, got %s", cm.Labels["astro.dev/agent"])
 	}
 }
 
 func TestBuildConfigMap_EmptyData(t *testing.T) {
-	cm := BuildConfigMap("ns", "agent", "1.0", map[string]string{})
+	cm := BuildConfigMap("ns", "acct", "agent", "1.0", map[string]string{})
 
 	if cm.Kind != "ConfigMap" {
 		t.Errorf("kind: expected ConfigMap, got %s", cm.Kind)

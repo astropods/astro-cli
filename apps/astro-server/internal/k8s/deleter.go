@@ -30,7 +30,7 @@ type DeleteResult struct {
 }
 
 // Delete deletes all resources for an agent deployment
-func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*DeleteResult, error) {
+func (d *Deleter) Delete(ctx context.Context, accountName, agentName, buildID string) (*DeleteResult, error) {
 	result := &DeleteResult{
 		Resources: []deployment.ResourceStatus{},
 		Errors:    []deployment.DeploymentError{},
@@ -39,27 +39,30 @@ func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*Delet
 	// Sanitize buildID for resource names (replace dots with hyphens)
 	buildIDSanitized := deployment.SanitizeName(buildID)
 
+	// Compute label selector once for all resource-type queries
+	labelSelector := fmt.Sprintf("%s=%s", deployment.LabelKeyAgent, deployment.AgentLabelValue(accountName, agentName))
+
 	// Delete resources in reverse order (opposite of creation)
 	// Jobs and CronJobs first
-	d.deleteJobs(ctx, agentName, result)
-	d.deleteCronJobs(ctx, agentName, result)
+	d.deleteJobs(ctx, labelSelector, result)
+	d.deleteCronJobs(ctx, labelSelector, result)
 
 	// Ingresses
-	d.deleteIngresses(ctx, agentName, result)
+	d.deleteIngresses(ctx, labelSelector, result)
 
 	// Deployments and StatefulSets
-	d.deleteDeployments(ctx, agentName, result)
-	d.deleteStatefulSets(ctx, agentName, result)
+	d.deleteDeployments(ctx, labelSelector, result)
+	d.deleteStatefulSets(ctx, labelSelector, result)
 
 	// Services
-	d.deleteServices(ctx, agentName, result)
+	d.deleteServices(ctx, labelSelector, result)
 
 	// ConfigMaps and Secrets
 	d.deleteConfigMap(ctx, agentName, buildIDSanitized, result)
 	d.deleteSecret(ctx, agentName, buildIDSanitized, result)
 
 	// PersistentVolumeClaims (created by StatefulSets)
-	d.deletePVCs(ctx, agentName, result)
+	d.deletePVCs(ctx, labelSelector, result)
 
 	// Finally, delete the namespace itself
 	d.deleteNamespace(ctx, result)
@@ -68,8 +71,7 @@ func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*Delet
 }
 
 // deleteCronJobs deletes all CronJobs matching the agent
-func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deleteCronJobs(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	cronJobs, err := d.clientset.BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -103,8 +105,7 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, agentName string, result *
 }
 
 // deleteJobs deletes all Jobs matching the agent
-func (d *Deleter) deleteJobs(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deleteJobs(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	jobs, err := d.clientset.BatchV1().Jobs(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -141,8 +142,7 @@ func (d *Deleter) deleteJobs(ctx context.Context, agentName string, result *Dele
 }
 
 // deleteIngresses deletes all Ingresses matching the agent
-func (d *Deleter) deleteIngresses(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deleteIngresses(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	ingresses, err := d.clientset.NetworkingV1().Ingresses(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -176,8 +176,7 @@ func (d *Deleter) deleteIngresses(ctx context.Context, agentName string, result 
 }
 
 // deleteDeployments deletes all Deployments matching the agent
-func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deleteDeployments(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	deployments, err := d.clientset.AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -211,8 +210,7 @@ func (d *Deleter) deleteDeployments(ctx context.Context, agentName string, resul
 }
 
 // deleteStatefulSets deletes all StatefulSets matching the agent
-func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deleteStatefulSets(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	statefulSets, err := d.clientset.AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -246,8 +244,7 @@ func (d *Deleter) deleteStatefulSets(ctx context.Context, agentName string, resu
 }
 
 // deleteServices deletes all Services matching the agent
-func (d *Deleter) deleteServices(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deleteServices(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	services, err := d.clientset.CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -323,8 +320,7 @@ func (d *Deleter) deleteSecret(ctx context.Context, agentName, buildIDSanitized 
 }
 
 // deletePVCs deletes all PersistentVolumeClaims matching the agent (created by StatefulSets)
-func (d *Deleter) deletePVCs(ctx context.Context, agentName string, result *DeleteResult) {
-	labelSelector := fmt.Sprintf("astro.dev/agent=%s", agentName)
+func (d *Deleter) deletePVCs(ctx context.Context, labelSelector string, result *DeleteResult) {
 
 	pvcs, err := d.clientset.CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,

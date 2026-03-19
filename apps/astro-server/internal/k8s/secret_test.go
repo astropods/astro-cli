@@ -17,7 +17,7 @@ func TestBuildSecret(t *testing.T) {
 		"github_token":      "ghp-test",
 	}
 
-	secret := BuildSecret("prod-ns", "my-agent", "1.0", creds)
+	secret := BuildSecret("prod-ns", "my-account", "my-agent", "1.0", creds)
 
 	// Name format: {agent}-{version}-credentials
 	if !strings.Contains(secret.Name, "my-agent") || !strings.Contains(secret.Name, "credentials") {
@@ -53,13 +53,13 @@ func TestBuildSecret(t *testing.T) {
 	}
 
 	// Labels
-	if secret.Labels["astro.dev/agent"] != "my-agent" {
-		t.Errorf("expected agent label my-agent, got %s", secret.Labels["astro.dev/agent"])
+	if secret.Labels["astro.dev/agent"] != "my-account.my-agent" {
+		t.Errorf("expected agent label my-account.my-agent, got %s", secret.Labels["astro.dev/agent"])
 	}
 }
 
 func TestBuildSecret_EmptyValues(t *testing.T) {
-	secret := BuildSecret("ns", "agent", "1.0", map[string]string{})
+	secret := BuildSecret("ns", "acct", "agent", "1.0", map[string]string{})
 
 	if secret.Type != corev1.SecretTypeOpaque {
 		t.Errorf("type: expected Opaque, got %s", secret.Type)
@@ -76,7 +76,7 @@ func TestBuildSecret_MixedCaseKeys(t *testing.T) {
 		"MiXeD":         "val3",
 	}
 
-	secret := BuildSecret("ns", "agent", "1.0", creds)
+	secret := BuildSecret("ns", "acct", "agent", "1.0", creds)
 
 	for _, key := range []string{"ALREADY_UPPER", "LOWER_CASE", "MIXED"} {
 		if _, ok := secret.Data[key]; !ok {

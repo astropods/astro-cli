@@ -18,6 +18,7 @@ import (
 type DeploymentConfig struct {
 	Name            string
 	Namespace       string
+	AccountID       string
 	AgentName       string
 	BuildID         string
 	Component       string
@@ -66,8 +67,8 @@ type MessagingDeploymentConfig struct {
 // Optional sidecar containers (messaging, collector) are colocated in the same
 // pod when provided, so they share localhost networking with the main container.
 func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
 
 	replicas := cfg.Replicas
 	if replicas == 0 {

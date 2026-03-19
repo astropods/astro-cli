@@ -833,7 +833,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agentName:version" -> endpoints
 	if ingressList != nil {
 		for _, ing := range ingressList.Items {
-			agentName := ing.Labels["astro.dev/agent"]
+			agentName := ing.Labels[deployment.LabelKeyAgent]
 			version := ing.Labels["app.kubernetes.io/version"]
 			component := ing.Labels["app.kubernetes.io/component"]
 
@@ -855,7 +855,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	agentDeployments := make(map[string]*AgentDeployment)
 
 	for _, dep := range deploymentList.Items {
-		agentName := dep.Labels["astro.dev/agent"]
+		agentName := dep.Labels[deployment.LabelKeyAgent]
 		version := dep.Labels["app.kubernetes.io/version"]
 		component := dep.Labels["app.kubernetes.io/component"]
 
@@ -915,7 +915,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 	// Attach Jobs to their respective agent deployments (and create entries for job-only agents)
 	for _, job := range jobList.Items {
-		agentName := job.Labels["astro.dev/agent"]
+		agentName := job.Labels[deployment.LabelKeyAgent]
 		version := job.Labels["app.kubernetes.io/version"]
 		component := job.Labels["app.kubernetes.io/component"]
 		if agentName == "" {
@@ -963,7 +963,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 	// Attach pods to their respective agent deployments
 	for _, pod := range podList.Items {
-		agentName := pod.Labels["astro.dev/agent"]
+		agentName := pod.Labels[deployment.LabelKeyAgent]
 		version := pod.Labels["app.kubernetes.io/version"]
 		if agentName == "" {
 			continue

@@ -9,12 +9,13 @@ import (
 // BuildConfigMap creates a Kubernetes ConfigMap manifest
 func BuildConfigMap(
 	namespace string,
+	accountName string,
 	agentName string,
 	buildID string,
 	data map[string]string,
 ) *corev1.ConfigMap {
 	configMapName := deployment.GenerateConfigMapName(agentName, buildID)
-	labels := deployment.GenerateLabels(agentName, buildID, "config")
+	labels := deployment.GenerateLabels(accountName, agentName, buildID, "config")
 
 	configMap := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{

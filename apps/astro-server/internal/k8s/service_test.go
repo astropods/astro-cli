@@ -20,6 +20,7 @@ func TestBuildService(t *testing.T) {
 			cfg: ServiceConfig{
 				Name:      "my-agent-agent",
 				Namespace: "default",
+				AccountID: "my-account",
 				AgentName: "my-agent",
 				BuildID:   "1.0",
 				Component: "agent",
@@ -30,6 +31,7 @@ func TestBuildService(t *testing.T) {
 			cfg: ServiceConfig{
 				Name:        "my-agent-agent",
 				Namespace:   "default",
+				AccountID:   "my-account",
 				AgentName:   "my-agent",
 				BuildID:     "1.0",
 				Component:   "agent",
@@ -54,13 +56,14 @@ func TestBuildService(t *testing.T) {
 			}
 
 			// Labels
-			if svc.Labels["astro.dev/agent"] != tt.cfg.AgentName {
-				t.Errorf("agent label: expected %s, got %s", tt.cfg.AgentName, svc.Labels["astro.dev/agent"])
+			wantAgent := tt.cfg.AccountID + "." + tt.cfg.AgentName
+			if svc.Labels["astro.dev/agent"] != wantAgent {
+				t.Errorf("agent label: expected %s, got %s", wantAgent, svc.Labels["astro.dev/agent"])
 			}
 
 			// Selector
-			if svc.Spec.Selector["astro.dev/agent"] != tt.cfg.AgentName {
-				t.Errorf("selector: expected agent %s, got %s", tt.cfg.AgentName, svc.Spec.Selector["astro.dev/agent"])
+			if svc.Spec.Selector["astro.dev/agent"] != wantAgent {
+				t.Errorf("selector: expected agent %s, got %s", wantAgent, svc.Spec.Selector["astro.dev/agent"])
 			}
 			if tt.cfg.Component != "" {
 				if svc.Spec.Selector["app.kubernetes.io/component"] != tt.cfg.Component {

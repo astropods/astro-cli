@@ -12,12 +12,13 @@ import (
 // BuildSecret creates a Kubernetes Secret manifest from resolved secret variable values.
 func BuildSecret(
 	namespace string,
+	accountName string,
 	agentName string,
 	buildID string,
 	secretValues map[string]string,
 ) *corev1.Secret {
 	secretName := deployment.GenerateSecretName(agentName, buildID)
-	labels := deployment.GenerateLabels(agentName, buildID, "variables")
+	labels := deployment.GenerateLabels(accountName, agentName, buildID, "variables")
 
 	// Encode values - convert keys to uppercase
 	data := make(map[string][]byte)

@@ -26,6 +26,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		Errors:           []deployment.DeploymentError{},
 	}
 
+	accountName := ds.Source.Account
 	agentName := ds.Source.Name
 	buildID := ds.Source.Build
 
@@ -57,7 +58,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 
 	// Clean up resources from previous builds whose names may have changed
-	if cleanupErrs := a.cleanupStaleBuildResources(ctx, agentName, buildID); len(cleanupErrs) > 0 {
+	if cleanupErrs := a.cleanupStaleBuildResources(ctx, accountName, agentName, buildID); len(cleanupErrs) > 0 {
 		for _, e := range cleanupErrs {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: "cleanup", Kind: "Cleanup", Error: e.Error(),
@@ -67,7 +68,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Phase 1: Create Secret (credentials)
 	if resolved.HasSecretValues() {
-		secret := BuildSecret(a.namespace, agentName, buildID, resolved.SecretData)
+		secret := BuildSecret(a.namespace, accountName, agentName, buildID, resolved.SecretData)
 		status, err := a.applySecret(ctx, secret)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
@@ -79,7 +80,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Phase 2: Create ConfigMap (connection strings + resolved env)
 	if len(resolved.ConfigMapData) > 0 {
-		configMap := BuildConfigMap(a.namespace, agentName, buildID, resolved.ConfigMapData)
+		configMap := BuildConfigMap(a.namespace, accountName, agentName, buildID, resolved.ConfigMapData)
 		status, err := a.applyConfigMap(ctx, configMap)
 		result.Resources = append(result.Resources, status)
 		if err != nil {
@@ -98,7 +99,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			port = 8080
 		}
 		svc := BuildService(ServiceConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
 			Port: port, ServiceType: corev1.ServiceTypeClusterIP,
 		})
@@ -109,7 +110,7 @@ func (a *Applier) ApplyDeploymentSpec(
 	for name, knowledge := range ds.Knowledge {
 		resourceName := deployment.GenerateResourceName(agentName, "knowledge", name)
 		port := primaryPort(knowledge.Endpoints)
-		svc := a.buildKnowledgeService(resourceName, agentName, buildID, name, port)
+		svc := a.buildKnowledgeService(resourceName, accountName, agentName, buildID, name, port)
 		a.applyServiceAndRecord(ctx, svc, result)
 	}
 
@@ -121,7 +122,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			port = 8080
 		}
 		svc := BuildService(ServiceConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("tool-%s", name),
 			Port: port, ServiceType: corev1.ServiceTypeClusterIP,
 		})
@@ -135,7 +136,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		agentPort = 8080
 	}
 	agentService := BuildService(ServiceConfig{
-		Name: agentResourceName, Namespace: a.namespace, AgentName: agentName,
+		Name: agentResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 		BuildID: buildID, Component: "agent",
 		Port: agentPort, ServiceType: corev1.ServiceTypeClusterIP,
 	})
@@ -153,7 +154,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 		if host != "" {
 			ingress := BuildIngress(IngressConfig{
-				Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+				Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: "agent",
 				ServiceName: agentResourceName, ServicePort: int32(ep.Port), //nolint:gosec
 				Host:              host,
@@ -205,7 +206,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		ssCfg := StatefulSetConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
 			StorageSize: storageSize, StorageClass: storageClass, AccessMode: accessMode,
@@ -275,7 +276,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		ssCfg := StatefulSetConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
 			Container: resolvedContainer, Port: port,
 			StorageSize: "50Gi", AccessMode: corev1.ReadWriteOnce,
@@ -342,7 +343,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		cfg := DeploymentConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("model-%s", name),
 			Container: resolvedContainer, Port: port,
 			Provider: model.Provider, ProviderSection: "models",
@@ -383,7 +384,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		cfg := DeploymentConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("knowledge-%s", name),
 			Container: resolvedContainer, Port: port,
 			Provider: knowledge.Provider, ProviderSection: "knowledge",
@@ -422,7 +423,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 
 		cfg := DeploymentConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: fmt.Sprintf("tool-%s", name),
 			Container: resolvedContainer, Port: port,
 			ImagePullPolicy: a.imagePullPolicy,
@@ -519,7 +520,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		// Service — selects the agent pod (messaging is a sidecar container)
 		msgSvc := BuildService(ServiceConfig{
-			Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: "agent",
 			Port: grpcPort, ServiceType: corev1.ServiceTypeClusterIP,
 		})
@@ -544,7 +545,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 			if host != "" {
 				ingress := BuildIngress(IngressConfig{
-					Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: "messaging",
 					ServiceName: resourceName, ServicePort: webPort, Host: host,
 					ACMCertificateARN: a.acmCertificateARN, ALBGroupName: a.albGroupName,
@@ -615,7 +616,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		// Collector service — selects the agent pod (collector is a sidecar container)
 		collectorSvc := BuildService(ServiceConfig{
-			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: collectorResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: "agent",
 			Port: otlpGRPCPort, ServiceType: corev1.ServiceTypeClusterIP,
 		})
@@ -637,7 +638,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		})
 	} else {
 		cfg := DeploymentConfig{
-			Name: agentResourceName, Namespace: a.namespace, AgentName: agentName,
+			Name: agentResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 			BuildID: buildID, Component: "agent",
 			Container: resolvedAgentContainer, Port: agentPort,
 			SecretName: secretName, ConfigMapName: configMapName,
@@ -679,7 +680,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		case "schedule":
 			if ingestion.Trigger.Schedule != "" {
 				cronJob := BuildCronJob(CronJobConfig{
-					Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+					Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: component,
 					Schedule:   ingestion.Trigger.Schedule,
 					SecretName: secretName, ConfigMapName: configMapName,
@@ -696,7 +697,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 		case "startup":
 			job := BuildJob(JobConfig{
-				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: component,
 				SecretName: secretName, ConfigMapName: configMapName,
 				Ingestion: ingestionSpec,
@@ -714,7 +715,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			port := int32(spec.PrimaryPort(ingestion.Endpoints)) // nolint:gosec
 			// Service
 			svc := BuildService(ServiceConfig{
-				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: component,
 				Port: port, ServiceType: corev1.ServiceTypeClusterIP,
 			})
@@ -722,7 +723,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 			// Deployment
 			depl := BuildIngestionDeployment(JobConfig{
-				Name: resourceName, Namespace: a.namespace, AgentName: agentName,
+				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 				BuildID: buildID, Component: component,
 				SecretName: secretName, ConfigMapName: configMapName,
 				Ingestion: ingestionSpec,
@@ -740,7 +741,7 @@ func (a *Applier) ApplyDeploymentSpec(
 				ingressName := deployment.GenerateResourceName(agentName, "ingress", name)
 				host := GenerateIngestionIngressHost(agentName, a.namespace, name, a.ingestionIngressDomain)
 				ingress := BuildIngress(IngressConfig{
-					Name: ingressName, Namespace: a.namespace, AgentName: agentName,
+					Name: ingressName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
 					BuildID: buildID, Component: component,
 					ServiceName: resourceName, ServicePort: port, Host: host,
 					ACMCertificateARN: a.ingestionACMCertARN, ALBGroupName: a.ingestionALBGroupName,
@@ -778,7 +779,7 @@ func (a *Applier) ApplyDeploymentSpec(
 
 	// Clean up orphaned resources from previous spec (e.g. removed tools/knowledge)
 	expectedNames := computeExpectedResourceNames(ds, a.ingressDomain, a.ingestionIngressDomain)
-	if orphanErrs := a.cleanupOrphanedResources(ctx, agentName, expectedNames); len(orphanErrs) > 0 {
+	if orphanErrs := a.cleanupOrphanedResources(ctx, accountName, agentName, expectedNames); len(orphanErrs) > 0 {
 		for _, e := range orphanErrs {
 			result.Errors = append(result.Errors, deployment.DeploymentError{
 				Resource: "orphan-cleanup", Kind: "Cleanup", Error: e.Error(),
@@ -959,10 +960,10 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 
 // buildKnowledgeService builds a knowledge service with provider-aware extra ports.
 func (a *Applier) buildKnowledgeService(
-	resourceName, agentName, buildID, name string, port int32,
+	resourceName, accountName, agentName, buildID, name string, port int32,
 ) *corev1.Service {
-	labels := deployment.GenerateLabels(agentName, buildID, fmt.Sprintf("knowledge-%s", name))
-	selector := deployment.GenerateSelector(agentName, fmt.Sprintf("knowledge-%s", name))
+	labels := deployment.GenerateLabels(accountName, agentName, buildID, fmt.Sprintf("knowledge-%s", name))
+	selector := deployment.GenerateSelector(accountName, agentName, fmt.Sprintf("knowledge-%s", name))
 
 	servicePorts := []corev1.ServicePort{
 		{

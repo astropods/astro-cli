@@ -12,6 +12,7 @@ import (
 type CronJobConfig struct {
 	Name          string
 	Namespace     string
+	AccountID     string
 	AgentName     string
 	BuildID       string
 	Component     string
@@ -23,8 +24,8 @@ type CronJobConfig struct {
 
 // BuildCronJob creates a Kubernetes CronJob manifest for ingestion jobs
 func BuildCronJob(cfg CronJobConfig) *batchv1.CronJob {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
 	podSpec := corev1.PodSpec{

@@ -14,6 +14,7 @@ import (
 type IngressConfig struct {
 	Name              string
 	Namespace         string
+	AccountID         string
 	AgentName         string
 	BuildID           string
 	Component         string
@@ -26,7 +27,7 @@ type IngressConfig struct {
 
 // BuildIngress creates a Kubernetes Ingress manifest for AWS ALB
 func BuildIngress(cfg IngressConfig) *networkingv1.Ingress {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	pathType := networkingv1.PathTypePrefix
 
 	annotations := map[string]string{

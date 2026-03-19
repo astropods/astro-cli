@@ -14,6 +14,7 @@ import (
 type JobConfig struct {
 	Name          string
 	Namespace     string
+	AccountID     string
 	AgentName     string
 	BuildID       string
 	Component     string
@@ -76,7 +77,7 @@ func buildIngestionContainer(ingestion spec.Ingestion, configMapName, secretName
 
 // BuildJob creates a one-shot Kubernetes Job manifest for ingestion (startup/manual triggers)
 func BuildJob(cfg JobConfig) *batchv1.Job {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
 	backoffLimit := int32(3)
@@ -116,8 +117,8 @@ func BuildJob(cfg JobConfig) *batchv1.Job {
 
 // BuildIngestionDeployment creates a long-running Deployment for webhook-triggered ingestion
 func BuildIngestionDeployment(cfg JobConfig, port int32, imagePullPolicy corev1.PullPolicy) *appsv1.Deployment {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
 	container := buildIngestionContainer(cfg.Ingestion, cfg.ConfigMapName, cfg.SecretName)
 
 	// Override container port for the webhook listener

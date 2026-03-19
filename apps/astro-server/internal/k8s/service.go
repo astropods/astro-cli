@@ -11,6 +11,7 @@ import (
 type ServiceConfig struct {
 	Name        string
 	Namespace   string
+	AccountID   string
 	AgentName   string
 	BuildID     string
 	Component   string
@@ -20,8 +21,8 @@ type ServiceConfig struct {
 
 // BuildService creates a Kubernetes Service manifest
 func BuildService(cfg ServiceConfig) *corev1.Service {
-	labels := deployment.GenerateLabels(cfg.AgentName, cfg.BuildID, cfg.Component)
-	selector := deployment.GenerateSelector(cfg.AgentName, cfg.Component)
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
 
 	port := cfg.Port
 	if port == 0 {
