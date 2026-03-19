@@ -4,18 +4,23 @@ import { HeartIcon as HeartOutline, ShareIcon } from "@heroicons/react/24/outlin
 import { HeartIcon as HeartSolid } from "@heroicons/react/24/solid";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { useToggleHeart } from "@/api/queries/hearts";
 
 export interface AgentDetailBreadcrumbProps {
   account: string;
   agentName: string;
+  hearted?: boolean;
+  heartCount?: number;
 }
 
 export function AgentDetailBreadcrumb({
   account,
   agentName,
+  hearted: initialHearted = false,
+  heartCount: initialHeartCount = 0,
 }: AgentDetailBreadcrumbProps) {
   const [copied, setCopied] = useState(false);
-  const [hearted, setHearted] = useState(false);
+  const toggleHeart = useToggleHeart(account, agentName);
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -51,15 +56,17 @@ export function AgentDetailBreadcrumb({
         <>
           <Button
             variant="outline"
-            size="icon"
+            size="sm"
             aria-label="Heart"
-            onClick={() => setHearted((h) => !h)}
+            onClick={() => toggleHeart.mutate()}
           >
-            {hearted ? (
+            {initialHearted ? (
               <HeartSolid className="h-3.5 w-3.5 text-red-500" />
             ) : (
               <HeartOutline className="h-3.5 w-3.5" />
             )}
+            Likes
+            <span className="border-l pl-2 ml-1 text-xs tabular-nums">{initialHeartCount}</span>
           </Button>
           <Button
             variant="outline"

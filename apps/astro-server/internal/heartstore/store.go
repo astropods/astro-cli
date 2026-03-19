@@ -28,10 +28,17 @@ func (s *Store) Toggle(ctx context.Context, accountID, agentName, userID string)
 			SELECT $1, $2, $3
 			WHERE NOT EXISTS (SELECT 1 FROM toggled)
 			RETURNING true
+		),
+		prev_count AS (
+			SELECT COUNT(*) AS n FROM agent_hearts WHERE account_id = $1 AND agent_name = $2
 		)
 		SELECT
 			EXISTS (SELECT 1 FROM inserted),
-			(SELECT COUNT(*) FROM agent_hearts WHERE account_id = $1 AND agent_name = $2)`,
+			CASE
+				WHEN EXISTS (SELECT 1 FROM inserted) THEN (SELECT n FROM prev_count) + 1
+				WHEN EXISTS (SELECT 1 FROM toggled)  THEN (SELECT n FROM prev_count) - 1
+				ELSE (SELECT n FROM prev_count)
+			END`,
 		accountID, agentName, userID,
 	).Scan(&hearted, &count)
 	if err != nil {
