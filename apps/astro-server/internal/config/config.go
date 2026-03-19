@@ -21,6 +21,7 @@ type Config struct {
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
 	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
+	PrometheusURL        string // PROMETHEUS_URL — Prometheus base URL for metric queries (e.g. http://prometheus:9090)
 }
 
 // RunAPI returns true if this instance should run the HTTP/gRPC API servers.
@@ -205,6 +206,7 @@ func Load() (*Config, error) {
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
 		OpenMeterEnforce:     getEnv("OPENMETER_ENFORCE", "") == "true",
 		LokiURL:              getEnv("LOKI_URL", ""),
+		PrometheusURL:        getEnv("PROMETHEUS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {

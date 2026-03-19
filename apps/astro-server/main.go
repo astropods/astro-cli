@@ -33,10 +33,12 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
+	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	oapispec "github.com/astropods/astro/apps/astro-server/internal/openapi"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/waitlist"
 )
@@ -236,6 +238,7 @@ func runAPI(
 	deploymentStore := deploymentstore.NewStore(db)
 	waitlistStore := waitlist.NewStore(db)
 	heartStore := heartstore.New(db)
+	agentMetricsStore := metricsstore.New(db)
 	log.Info("Agent index and stores initialized")
 
 	// Initialize Kubernetes client
@@ -293,7 +296,7 @@ func runAPI(
 	}
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain)
@@ -376,6 +379,12 @@ func runWorker(
 		k8sClient = nil
 	}
 
+	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
+	promClient := promquery.NewClient(cfg.PrometheusURL)
+	if promClient != nil {
+		log.Info("Prometheus query client initialized", "url", cfg.PrometheusURL)
+	}
+
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:           db,
@@ -385,6 +394,7 @@ func runWorker(
 		ServerConfig: cfg,
 		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,
 		OrgClient:    orgClient,
+		PromClient:   promClient,
 		Logger:       log,
 	})
 	if rqErr != nil {
@@ -407,7 +417,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -482,20 +492,20 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		)
 
 		// Agent registry endpoints (public read, with optional auth for visibility)
-		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore),
+		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore),
 			oapispec.Tags("Agents"),
 			oapispec.Response(200, &handlers.ListAgentsResponse{}),
 		)
 		agentDetail := v1.Group("")
 		agentDetail.Use(authMw.OptionalAuth())
 		{
-			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore),
+			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.Response(200, &handlers.ListAgentsResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
 			)
-			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore),
+			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore, agentMetricsStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.PathParam("name", "Agent name"),

@@ -46,6 +46,12 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		dynClient, _ = dynamic.NewForConfig(cfg.K8sClient.Config())
 	}
 
+	river.AddWorker(workers, &MessageCountSyncWorker{
+		promClient: cfg.PromClient,
+		db:         cfg.DB,
+		log:        cfg.Logger,
+	})
+
 	rw := &ReconcileWorker{
 		deployer:  dep,
 		store:     store,

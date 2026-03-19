@@ -22,6 +22,20 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		),
 	}
 
+	if cfg.PromClient != nil {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(5*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return MessageCountSyncArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 5 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
 	jobs = append(jobs, river.NewPeriodicJob(
 		river.PeriodicInterval(10*time.Minute),
 		func() (river.JobArgs, *river.InsertOpts) {

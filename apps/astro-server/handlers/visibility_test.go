@@ -171,7 +171,7 @@ func setupAgentGetRouter(withUser bool, userID string) (*gin.Engine, *agentindex
 			c.Next()
 		})
 	}
-	router.GET("/agents/:account/:name", GetAgent(log, index, store, hearts))
+	router.GET("/agents/:account/:name", GetAgent(log, index, store, hearts, nil))
 
 	return router, index, store, indexMock, accountMock
 }
@@ -405,7 +405,7 @@ func TestListAgents_OnlyPublic(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/agents", ListAgents(log, index, store, hearts))
+	router.GET("/agents", ListAgents(log, index, store, hearts, nil))
 
 	now := time.Now()
 
@@ -462,7 +462,7 @@ func TestListAgents_Empty(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/agents", ListAgents(log, index, store, hearts))
+	router.GET("/agents", ListAgents(log, index, store, hearts, nil))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agents a.+WHERE a.visibility = 'public'").
 		WillReturnRows(sqlmock.NewRows([]string{

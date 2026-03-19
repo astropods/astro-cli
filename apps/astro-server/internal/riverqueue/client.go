@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
 
 const queueDeploy = "deploy"
@@ -31,6 +32,7 @@ type Config struct {
 	ServerConfig *config.Config
 	WorkOSAPIKey string
 	OrgClient    *org.Client
+	PromClient   *promquery.Client
 	Logger       *logger.Logger
 }
 

@@ -1,0 +1,79 @@
+package riverqueue
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/riverqueue/river"
+
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/promquery"
+)
+
+// MessageCountSyncArgs are the job arguments for the message count sync worker.
+type MessageCountSyncArgs struct{}
+
+func (MessageCountSyncArgs) Kind() string { return "metrics.message_count_sync" }
+
+// MessageCountSyncWorker periodically queries Prometheus for agent message counters
+// and accumulates lifetime totals in Postgres, surviving counter resets.
+type MessageCountSyncWorker struct {
+	river.WorkerDefaults[MessageCountSyncArgs]
+	promClient *promquery.Client
+	db         *sql.DB
+	log        *logger.Logger
+}
+
+func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageCountSyncArgs]) error {
+	if w.promClient == nil {
+		w.log.Debug("Message count sync skipped: no Prometheus client configured")
+		return nil
+	}
+
+	samples, err := w.promClient.Query(ctx, `sum by (account_id, agent_name) (messaging_messages_forwarded_total)`)
+	if err != nil {
+		w.log.Error("Message count sync: failed to query Prometheus", "error", err)
+		return nil // Don't retry — transient Prometheus issues shouldn't wedge the queue
+	}
+
+	if len(samples) == 0 {
+		return nil
+	}
+
+	for _, s := range samples {
+		accountID := s.Labels["account_id"]
+		agentName := s.Labels["agent_name"]
+		if accountID == "" || agentName == "" {
+			continue
+		}
+		if err := upsertMessageCount(ctx, w.db, accountID, agentName, s.Value); err != nil {
+			w.log.Error("Message count sync: upsert failed",
+				"account_id", accountID,
+				"agent_name", agentName,
+				"error", err,
+			)
+		}
+	}
+
+	w.log.Info("Message count sync completed", "agents", len(samples))
+	return nil
+}
+
+// upsertMessageCount applies delta-based accumulation with counter-reset detection.
+// If current >= last_prom_value: delta = current - last_prom_value (normal increment).
+// If current < last_prom_value: delta = current (counter reset — pod restarted).
+func upsertMessageCount(ctx context.Context, db *sql.DB, accountID, agentName string, currentValue float64) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO agent_message_counts (account_id, agent_name, lifetime_total, last_prom_value, updated_at)
+		VALUES ($1, $2, $3, $3, now())
+		ON CONFLICT (account_id, agent_name) DO UPDATE SET
+			lifetime_total = agent_message_counts.lifetime_total + CASE
+				WHEN $3 >= agent_message_counts.last_prom_value
+				THEN $3 - agent_message_counts.last_prom_value
+				ELSE $3
+			END,
+			last_prom_value = $3,
+			updated_at = now()
+	`, accountID, agentName, currentValue)
+	return err
+}

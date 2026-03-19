@@ -342,6 +342,15 @@ CREATE TABLE public.quota_increase_requests (
 CREATE INDEX idx_quota_increase_requests_status ON public.quota_increase_requests(status, created_at);
 CREATE INDEX idx_quota_increase_requests_account ON public.quota_increase_requests(account_id);
 
+CREATE TABLE public.agent_message_counts (
+    account_id uuid NOT NULL,
+    agent_name text NOT NULL,
+    lifetime_total bigint NOT NULL DEFAULT 0,
+    last_prom_value double precision NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT agent_message_counts_pkey PRIMARY KEY (account_id, agent_name)
+);
+
 CREATE TABLE public.waitlist (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     name text NOT NULL,
