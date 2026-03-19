@@ -6,7 +6,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth, getUserDisplayName, splitDisplayName } from "@/lib/auth";
+import { useAuth, getUserDisplayName, getUserAvatarProps, splitDisplayName } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
@@ -103,7 +103,7 @@ function ProfileSection() {
       {user && (
         <>
           <div className="flex items-center gap-4">
-            <UserAvatar accountId={personalAccount?.id ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} className="size-[72px] text-2xl" />
+            <UserAvatar {...getUserAvatarProps(user, personalAccount?.id)} className="size-[72px] text-2xl" />
             <div>
               <div className="text-sm font-semibold text-foreground">
                 {getUserDisplayName(user)}

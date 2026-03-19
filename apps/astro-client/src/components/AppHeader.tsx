@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
-import { useAuth, getUserDisplayName } from "@/lib/auth";
+import { useAuth, getUserDisplayName, getUserAvatarProps } from "@/lib/auth";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -207,12 +207,12 @@ export function AppHeader() {
                 size="icon"
                 className="rounded-full"
               >
-                <UserAvatar accountId={personalAccount?.id ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} />
+                <UserAvatar {...getUserAvatarProps(user, personalAccount?.id)} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 p-3">
               <div className="flex items-center gap-3 pb-3">
-                <UserAvatar accountId={personalAccount?.id ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} />
+                <UserAvatar {...getUserAvatarProps(user, personalAccount?.id)} />
                 <div className="flex min-w-0 flex-col leading-tight">
                   <span className="truncate text-sm font-semibold">
                     {getUserDisplayName(user)}

@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { ArrowLeftStartOnRectangleIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
-import { getUserDisplayName } from "@/lib/auth";
+import { getUserDisplayName, getUserAvatarProps } from "@/lib/auth";
 import type { User } from "@/lib/api";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ export function UserCard({ user, accountId, onSignOut }: UserCardProps) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        <UserAvatar accountId={accountId ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} />
+        <UserAvatar {...getUserAvatarProps(user, accountId)} />
         <div className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-sm font-semibold">
             {getUserDisplayName(user)}

@@ -1,4 +1,5 @@
 import type { User } from './api';
+import type { UserAvatarProps } from '@/components/UserAvatar';
 
 // Utility to get user display name
 export function getUserDisplayName(user: User | null): string {
@@ -29,4 +30,13 @@ export function getUserInitials(user: User | null): string {
   }
   if (user.first_name) return user.first_name[0].toUpperCase();
   return user.email[0].toUpperCase();
+}
+
+// Build props for UserAvatar from a User object + optional account ID override
+export function getUserAvatarProps(user: User, accountId?: string): Omit<UserAvatarProps, 'className'> {
+  return {
+    accountId: accountId ?? user.id,
+    name: getUserDisplayName(user),
+    profilePictureUrl: user.profile_picture_url,
+  };
 }

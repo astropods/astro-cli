@@ -3,5 +3,5 @@
 
 export { AuthProvider } from './AuthProvider';
 export { useAuth } from './use-auth';
-export { getUserDisplayName, getUserInitials, splitDisplayName } from './auth-utils';
+export { getUserDisplayName, getUserInitials, splitDisplayName, getUserAvatarProps } from './auth-utils';
 export type { AuthState, AuthContextType } from './auth-context';
