@@ -649,14 +649,19 @@ func (s *Store) RecoverOrphanedDeployment(id, accountID, agentName, buildID, nam
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	_, err = tx.Exec(`
+	res, err := tx.Exec(`
 		INSERT INTO deployments (id, account_id, agent_name, build_id, namespace,
 		    deployment_spec_json, status, error_message, status_changed_at, deployed_at)
 		VALUES ($1, $2, $3, $4, $5, '{}', $6, $7, NOW(), NOW())
+		ON CONFLICT (id) DO NOTHING
 	`, id, accountID, agentName, buildID, namespace, StatusFailed,
 		"Recovered from orphaned K8s namespace — redeploy or undeploy to fix")
 	if err != nil {
 		return fmt.Errorf("failed to insert recovered deployment: %w", err)
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		// Deployment already exists — nothing to recover.
+		return nil
 	}
 
 	_, err = tx.Exec(`
