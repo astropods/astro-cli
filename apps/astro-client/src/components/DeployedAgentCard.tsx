@@ -96,6 +96,7 @@ export function DeployedAgentCard({
       { label: "From", value: `${account}/${name}` },
     ],
     barcodeId: deploymentId,
+    qrUrl: `${window.location.origin}/${account}/${name}`,
   }), [name, displayName, account, cardAvatar, user, installedAt, deploymentId]);
 
   return (
