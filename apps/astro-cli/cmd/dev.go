@@ -108,7 +108,7 @@ Running '%[1]s dev' without a subcommand is equivalent to '%[1]s dev start'.`, b
 		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
-		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (runs 'bun install' for ts, 'pip install -r requirements.txt' for py)", binaryName))
+		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (use after %s dev --local); run 'bun install' (ts) or 'pip install -r requirements.txt' (py) to restore deps", binaryName))
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
