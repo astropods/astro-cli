@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, Share2, Star } from "lucide-react";
+import { Check, Share2 } from "lucide-react";
+import { HeartIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 
@@ -51,8 +52,8 @@ export function AgentDetailBreadcrumb({
             size="sm"
             className="h-8 rounded-md px-3 text-[13px] font-semibold text-muted-foreground"
           >
-            <Star className="h-3.5 w-3.5" />
-            Like
+            <HeartIcon className="h-3.5 w-3.5" />
+            Heart
           </Button>
           <Button
             variant="outline"
