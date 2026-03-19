@@ -95,9 +95,12 @@ func TestGetVisibleDeploymentsByAccount_FailedHasError(t *testing.T) {
 		t.Fatalf("SaveDeploymentPending: %v", err)
 	}
 
-	errDetails, _ := json.Marshal([]map[string]string{
+	errDetails, err := json.Marshal([]map[string]string{
 		{"resource": "my-agent-agent", "kind": "Deployment", "error": "image pull backoff"},
 	})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
 	if err := store.UpdateStatus(dep.ID, ds.StatusFailed, "partial failure", errDetails); err != nil {
 		t.Fatalf("UpdateStatus: %v", err)
 	}
