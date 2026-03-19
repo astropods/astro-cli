@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useAgents, useAgent, useDeployAgent } from './agents';
+import { useAgents, useAgent, useDeployAgent, usePrefilledDeploymentTemplate } from './agents';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockAgents } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
@@ -67,6 +67,51 @@ describe('useAgent', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
+    expect(result.current.error).toMatchObject({ error: 'not_found' });
+  });
+
+  // Regression: if ListDeployments returns a dotted name like
+  // "otheraccount.data-analyst", the configure page passes it to useAgent,
+  // which calls GET /api/v1/agents/testuser/otheraccount.data-analyst — an
+  // agent that doesn't exist under that account. Together with the passthrough
+  // test in deployments.test.tsx, this proves the full failure chain.
+  it('returns 404 for account-qualified name (regression: dotted name from buggy ListDeployments)', async () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useAgent(testAccount, 'otheraccount.data-analyst'), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toMatchObject({ error: 'not_found' });
+  });
+});
+
+// The configure page calls usePrefilledDeploymentTemplate(account, deployment.name, deploymentId).
+// The server resolves the template by matching all three params. If deployment.name is
+// account-qualified (the bug), the server can't find the template and returns 404.
+describe('usePrefilledDeploymentTemplate', () => {
+  // Happy path: plain name resolves to the correct prefilled template.
+  it('fetches prefilled template for a cross-account deployment using plain agent name', async () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => usePrefilledDeploymentTemplate(testAccount, 'data-analyst', 'dep-cross-account'),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.source.name).toBe('data-analyst');
+    expect(result.current.data?.variables?.OPENAI_API_KEY?.value).toBe('sk-cross-value');
+  });
+
+  // Negative: dotted name doesn't match any template route, proving the failure mode.
+  it('returns 404 when account-qualified name is used instead of plain name', async () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => usePrefilledDeploymentTemplate(testAccount, 'otheruser.data-analyst', 'dep-cross-account'),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toMatchObject({ error: 'not_found' });
   });
 });

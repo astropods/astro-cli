@@ -9,8 +9,11 @@ const ACCOUNT = "testuser";
 const AGENT_APP_TOKEN_ONLY = "code-reviewer";
 const AGENT_SLACK_FULL = "slack-config-full";
 const AGENT_SLACK_OVERLAP = "slack-overlap-targets";
+const AGENT_CROSS_ACCOUNT = "cross-agent";
 const DEPLOYMENT_SLACK_FULL_ID = "dep-slack-full-1";
 const DEPLOYMENT_SLACK_OVERLAP_ID = "dep-slack-overlap-1";
+const DEPLOYMENT_CROSS_ACCOUNT_ID = "dep-cross-acct-1";
+const CROSS_ACCOUNT_PUBLISHER = "otheraccount";
 const REJECT_BOT_TOKEN = "xoxb-server-reject";
 
 const nowIso = new Date().toISOString();
@@ -18,6 +21,7 @@ const latestBuildByAgent: Record<string, string> = {
   [AGENT_APP_TOKEN_ONLY]: "build-123",
   [AGENT_SLACK_FULL]: "build-124",
   [AGENT_SLACK_OVERLAP]: "build-123",
+  [AGENT_CROSS_ACCOUNT]: "build-cross-1",
 };
 
 const authResponse = {
@@ -147,6 +151,25 @@ const templatesByAgent = {
     },
     editable: ["variables.*.value", "interfaces.adapters"],
   },
+  [AGENT_CROSS_ACCOUNT]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: CROSS_ACCOUNT_PUBLISHER,
+      name: AGENT_CROSS_ACCOUNT,
+      build: "build-cross-1",
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes" },
+    agent: {
+      image: `registry.example.com/${CROSS_ACCOUNT_PUBLISHER}/${AGENT_CROSS_ACCOUNT}:build-cross-1`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { adapters: ["web"] },
+    variables: {
+      ...baseVariables,
+    },
+    editable: ["variables.*.value", "interfaces.adapters"],
+  },
 } satisfies Record<string, unknown>;
 
 const prefilledTemplatesByDeployment = {
@@ -234,6 +257,28 @@ const prefilledTemplatesByDeployment = {
     },
     editable: ["variables.*.value", "interfaces.adapters"],
   },
+  [DEPLOYMENT_CROSS_ACCOUNT_ID]: {
+    spec: "deployment-template/v1",
+    source: {
+      account: CROSS_ACCOUNT_PUBLISHER,
+      name: AGENT_CROSS_ACCOUNT,
+      build: "build-cross-1",
+      registry: "registry.example.com",
+    },
+    target: { runtime: "kubernetes", display_name: "Cross Account Agent" },
+    agent: {
+      image: `registry.example.com/${CROSS_ACCOUNT_PUBLISHER}/${AGENT_CROSS_ACCOUNT}:build-cross-1`,
+      endpoints: { http: { port: 8080 } },
+    },
+    interfaces: { adapters: ["web"] },
+    variables: {
+      OPENAI_API_KEY: {
+        ...baseVariables.OPENAI_API_KEY,
+        value: "sk-cross-existing",
+      },
+    },
+    editable: ["variables.*.value", "interfaces.adapters"],
+  },
 } satisfies Record<string, unknown>;
 
 const makeInitialDeployments = () => [
@@ -267,6 +312,21 @@ const makeInitialDeployments = () => [
     pods: [],
     jobs: [],
   },
+  {
+    id: DEPLOYMENT_CROSS_ACCOUNT_ID,
+    name: AGENT_CROSS_ACCOUNT,
+    display_name: "Cross Account Agent",
+    build_id: "build-cross-1",
+    namespace: "astro-cross-namespace",
+    status: "healthy",
+    replicas: 1,
+    ready: 1,
+    created_at: nowIso,
+    components: ["agent", "web"],
+    external_urls: [],
+    pods: [],
+    jobs: [],
+  },
 ];
 
 let deployments = makeInitialDeployments();
@@ -289,8 +349,9 @@ const accountAgents = {
     agentFor(AGENT_APP_TOKEN_ONLY),
     agentFor(AGENT_SLACK_FULL),
     agentFor(AGENT_SLACK_OVERLAP),
+    agentFor(AGENT_CROSS_ACCOUNT),
   ],
-  count: 3,
+  count: 4,
 };
 
 const json = (body: unknown, status = 200) =>
@@ -336,7 +397,8 @@ Bun.serve({
       if (
         accountName === ACCOUNT &&
         ((deploymentId === DEPLOYMENT_SLACK_FULL_ID && agentName === AGENT_SLACK_FULL) ||
-          (deploymentId === DEPLOYMENT_SLACK_OVERLAP_ID && agentName === AGENT_SLACK_OVERLAP)) &&
+          (deploymentId === DEPLOYMENT_SLACK_OVERLAP_ID && agentName === AGENT_SLACK_OVERLAP) ||
+          (deploymentId === DEPLOYMENT_CROSS_ACCOUNT_ID && agentName === AGENT_CROSS_ACCOUNT)) &&
         template
       ) {
         return json(template);

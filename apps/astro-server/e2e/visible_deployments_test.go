@@ -146,3 +146,63 @@ func TestGetVisibleDeploymentsByAccount_Empty(t *testing.T) {
 		t.Errorf("expected 0 visible deployments, got %d", len(visible))
 	}
 }
+
+// TestGetVisibleDeploymentsByAccount_StorePreservesAgentNameVerbatim proves the
+// deployment store does NOT sanitize or transform AgentName. Whatever the handler
+// writes is what GetVisibleDeploymentsByAccount returns. This means the handler is
+// the sole gatekeeper for name correctness — if it accidentally writes an
+// account-qualified K8s label (e.g. "simon.mindcraft"), the store will happily
+// persist and return it, breaking downstream API calls.
+func TestGetVisibleDeploymentsByAccount_StorePreservesAgentNameVerbatim(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+	accountID := ensureTestAccount(t, db)
+
+	cases := []struct {
+		name      string
+		agentName string
+	}{
+		{name: "plain name", agentName: "mindcraft"},
+		{name: "account-qualified (buggy)", agentName: "simon.mindcraft"},
+		{name: "name with special chars", agentName: "my-agent_v2"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dep, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
+				ID:          deployid.New(),
+				AccountID:   accountID,
+				AgentName:   tc.agentName,
+				DisplayName: "Test Bot",
+				BuildID:     "b-" + tc.agentName,
+				Namespace:   "ns-" + tc.agentName,
+				SpecJSON:    `{"spec":"deployment/v1"}`,
+			}, nil)
+			if err != nil {
+				t.Fatalf("SaveDeploymentPending: %v", err)
+			}
+			if err := store.UpdateStatus(dep.ID, ds.StatusActive, "", nil); err != nil {
+				t.Fatalf("UpdateStatus: %v", err)
+			}
+
+			visible, err := store.GetVisibleDeploymentsByAccount(accountID)
+			if err != nil {
+				t.Fatalf("GetVisibleDeploymentsByAccount: %v", err)
+			}
+
+			var found *ds.Deployment
+			for _, d := range visible {
+				if d.ID == dep.ID {
+					found = d
+					break
+				}
+			}
+			if found == nil {
+				t.Fatal("deployment not returned")
+			}
+			if found.AgentName != tc.agentName {
+				t.Errorf("AgentName: got %q, want %q (store must preserve verbatim)", found.AgentName, tc.agentName)
+			}
+		})
+	}
+}

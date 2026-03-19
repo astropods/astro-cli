@@ -94,8 +94,20 @@ export const mockDeployments: DeploymentsListResponse = {
       created_at: '2025-04-01T00:00:00Z',
       components: ['deployment', 'service'],
     },
+    {
+      id: 'dep-cross-account',
+      name: 'data-analyst',
+      display_name: 'Cross-Account Analyst',
+      build_id: 'c3d4e5f6a7b8',
+      namespace: 'astro-cross999',
+      status: 'Running',
+      replicas: 1,
+      ready: 1,
+      created_at: '2025-04-02T00:00:00Z',
+      components: ['deployment', 'service'],
+    },
   ],
-  count: 1,
+  count: 2,
 };
 
 export const mockTemplate: DeploymentTemplate = {
@@ -110,6 +122,17 @@ export const mockTemplate: DeploymentTemplate = {
   editable: ['variables.*.value', 'interfaces.adapters'],
 };
 
+export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
+  spec: 'deployment-template/v1',
+  source: { account: 'testuser', name: 'data-analyst', build: 'c3d4e5f6a7b8', registry: 'registry.example.com' },
+  target: { runtime: 'kubernetes', display_name: 'Cross-Account Analyst' },
+  agent: { image: 'registry.example.com/testuser/data-analyst:c3d4e5f6a7b8', endpoints: { http: { port: 8080 } } },
+  variables: {
+    OPENAI_API_KEY: { default: '', targets: ['agent'], secret: true, optional: false, description: 'OpenAI API key', value: 'sk-cross-value' },
+  },
+  editable: ['variables.*.value', 'interfaces.adapters'],
+};
+
 export const handlers = [
   // GET /api/v1/agents
   http.get('/api/v1/agents', () => {
@@ -117,6 +140,14 @@ export const handlers = [
       agents: mockAgents,
       count: mockAgents.length,
     });
+  }),
+
+  // GET /api/v1/agents/:account/:name/deployment-template/:deploymentId
+  http.get('/api/v1/agents/:account/:name/deployment-template/:deploymentId', ({ params }) => {
+    if (params.deploymentId === 'dep-cross-account' && params.name === 'data-analyst') {
+      return HttpResponse.json(mockCrossAccountPrefilledTemplate);
+    }
+    return HttpResponse.json({ error: 'not_found' }, { status: 404 });
   }),
 
   // GET /api/v1/agents/:account/:name/deployment-template
