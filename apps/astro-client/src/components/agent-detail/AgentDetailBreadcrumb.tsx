@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check } from "lucide-react";
-import { HeartIcon as HeartOutline, ArrowUpOnSquareIcon } from "@heroicons/react/24/outline";
+import { HeartIcon as HeartOutline, ShareIcon } from "@heroicons/react/24/outline";
 import { HeartIcon as HeartSolid } from "@heroicons/react/24/solid";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
@@ -72,7 +72,7 @@ export function AgentDetailBreadcrumb({
               </>
             ) : (
               <>
-                <ArrowUpOnSquareIcon className="h-3.5 w-3.5" />
+                <ShareIcon className="h-3.5 w-3.5" />
                 Share
               </>
             )}
