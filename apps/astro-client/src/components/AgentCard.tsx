@@ -9,7 +9,7 @@ export interface AgentCardProps {
   description: string;
   visibility?: string;
   variant?: "default" | "oftenUsedTogether";
-  installs?: number;
+  lifetimeMessages?: number;
 }
 
 export function AgentCard({
@@ -19,10 +19,10 @@ export function AgentCard({
   description,
   visibility,
   variant = "default",
-  installs,
+  lifetimeMessages,
 }: AgentCardProps) {
-  const formattedInstalls = installs != null
-    ? new Intl.NumberFormat("en-US").format(installs)
+  const formattedMessages = lifetimeMessages != null
+    ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(lifetimeMessages)
     : null;
 
   if (variant === "oftenUsedTogether") {
@@ -75,7 +75,7 @@ export function AgentCard({
       </div>
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
         <span className="text-mono-sm font-mono text-faint-foreground">
-          {formattedInstalls ?? "1.2K"}
+          {formattedMessages ?? "0"}
         </span>
         <span className="text-mono-sm font-mono text-faint-foreground">
           {account}

@@ -84,6 +84,7 @@ export default function Hire({ loaderData }: Route.ComponentProps) {
                   account={agent.account}
                   name={agent.name}
                   description={getAgentDescription(agent)}
+                  lifetimeMessages={agent.metrics?.lifetime_messages}
                 />
               ))}
             </div>

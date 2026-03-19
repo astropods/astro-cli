@@ -26,7 +26,7 @@ describe("AgentCard", () => {
         name="alert-router"
         description="This text should not render in this variant."
         variant="oftenUsedTogether"
-        installs={1203}
+        lifetimeMessages={1203}
       />,
     );
 

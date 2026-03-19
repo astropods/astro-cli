@@ -533,6 +533,10 @@ export interface AgentVersion {
   validation_warnings?: ValidationError[];
 }
 
+export interface AgentMetrics {
+  lifetime_messages: number;
+}
+
 export interface Agent {
   name: string;
   account: string;
@@ -541,6 +545,7 @@ export interface Agent {
   versions: AgentVersion[];
   heart_count?: number;
   hearted?: boolean;
+  metrics?: AgentMetrics;
 }
 
 export interface AgentsListResponse {

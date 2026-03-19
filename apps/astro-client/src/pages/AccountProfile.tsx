@@ -120,6 +120,7 @@ function AccountProfileContent() {
                 name={agent.name}
                 description={getAgentDescription(agent)}
                 visibility={agent.visibility}
+                lifetimeMessages={agent.metrics?.lifetime_messages}
               />
             ))}
           </div>
