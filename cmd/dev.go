@@ -28,6 +28,7 @@ import (
 
 	composeBuilder "github.com/astropods/astro/apps/astro-cli/internal/compose"
 	"github.com/astropods/astro/apps/astro-cli/internal/config"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
@@ -1011,22 +1012,22 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 
 // printReadyBlock renders the post-start summary using lipgloss.
 func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
-	heading := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	cmd := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
-	step := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	primary := lipgloss.NewStyle().Foreground(theme.Primary)
+	bold := lipgloss.NewStyle().Bold(true)
+	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	dim := lipgloss.NewStyle().Faint(true)
 
 	var lines []string
-	lines = append(lines, heading.Render("✨ "+s.Name+" is ready"))
+	lines = append(lines, "✨ "+bold.Render(s.Name)+" is ready")
 	lines = append(lines, "")
 
 	if s.Agent.HasFrontend() {
 		port := 3200
-		lines = append(lines, step.Render("➜")+"  "+cmd.Render(fmt.Sprintf("http://localhost:%d", port))+"  "+dim.Render("(frontend)"))
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(fmt.Sprintf("http://localhost:%d", port))+"  "+dim.Render("(frontend)"))
 	}
 
 	if hasWebInterface {
-		lines = append(lines, step.Render("➜")+"  "+cmd.Render("http://localhost:3000"))
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render("http://localhost:3000"))
 		lines = append(lines, dim.Render("   http://localhost:3100  (API)"))
 	}
 
@@ -1043,20 +1044,20 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool) {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, cmd.Render(binaryName+" dev logs")+"  "+dim.Render("— tail logs"))
-	lines = append(lines, cmd.Render(binaryName+" dev stop")+"  "+dim.Render("— stop"))
+	lines = append(lines, bold.Render(binaryName+" dev logs")+"  — tail logs")
+	lines = append(lines, bold.Render(binaryName+" dev stop")+"  — stop")
 
 	// Manual / schedule ingestion hints
 	for name, ingestion := range s.Ingestion {
 		if ingestion.Trigger.Type != "schedule" && ingestion.Trigger.Type != "manual" {
 			continue
 		}
-		lines = append(lines, cmd.Render(fmt.Sprintf("%s dev trigger %-8s", binaryName, name))+dim.Render("— trigger ingestion"))
+		lines = append(lines, bold.Render(fmt.Sprintf("%s dev trigger %-8s", binaryName, name))+"— trigger ingestion")
 	}
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(theme.Primary).
 		Padding(0, 2).
 		Render(strings.Join(lines, "\n"))
 
