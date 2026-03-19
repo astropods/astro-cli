@@ -879,7 +879,8 @@ func (a *Applier) ensureNamespace(ctx context.Context) error {
 // applyNetworkPolicies applies namespace isolation NetworkPolicies.
 // Policy 1 (default-deny-all): deny all ingress and egress.
 // Policy 2 (allow-namespace-traffic): allow intra-namespace pods, ALB/external
-// traffic (matching ipBlock 0.0.0.0/0 except podSubnetCIDRs), and DNS.
+// traffic (matching ipBlock 0.0.0.0/0 except podSubnetCIDRs), DNS, and
+// monitoring namespace ingress on port 9091 (for Alloy metrics scraping).
 func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 	policyTypes := []networkingv1.PolicyType{
 		networkingv1.PolicyTypeIngress,
@@ -927,6 +928,24 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 				{
 					From: []networkingv1.NetworkPolicyPeer{
 						{IPBlock: &externalIPBlock},
+					},
+				},
+				// Allow from monitoring namespace (Alloy) to scrape messaging sidecar metrics
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"name": "monitoring",
+								},
+							},
+						},
+					},
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: protocolPtr(corev1.ProtocolTCP),
+							Port:     portPtr(intstr.FromInt32(9091)),
+						},
 					},
 				},
 			},
@@ -992,3 +1011,6 @@ func (a *Applier) applyServiceAndRecord(ctx context.Context, svc *corev1.Service
 		})
 	}
 }
+
+func protocolPtr(p corev1.Protocol) *corev1.Protocol   { return &p }
+func portPtr(p intstr.IntOrString) *intstr.IntOrString { return &p }

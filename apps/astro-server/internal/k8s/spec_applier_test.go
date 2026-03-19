@@ -1069,6 +1069,57 @@ func TestNetworkPolicies_NoPortlessEgressRule(t *testing.T) {
 	}
 }
 
+// TestNetworkPolicies_MonitoringIngressRule verifies that the allow-namespace-traffic
+// policy includes an ingress rule allowing the monitoring namespace to reach
+// port 9091 (Alloy scraping messaging sidecar metrics).
+func TestNetworkPolicies_MonitoringIngressRule(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:      fakeClient,
+		namespace:      "test-ns",
+		podSubnetCIDRs: []string{"10.3.11.0/24", "10.3.12.0/24"},
+	}
+
+	if err := a.applyNetworkPolicies(context.Background()); err != nil {
+		t.Fatalf("applyNetworkPolicies: %v", err)
+	}
+
+	np, err := fakeClient.NetworkingV1().NetworkPolicies("test-ns").Get(
+		context.Background(), "allow-namespace-traffic", metav1.GetOptions{},
+	)
+	if err != nil {
+		t.Fatalf("get allow-namespace-traffic: %v", err)
+	}
+
+	// Find an ingress rule that selects the monitoring namespace on port 9091.
+	found := false
+	for _, rule := range np.Spec.Ingress {
+		for _, from := range rule.From {
+			if from.NamespaceSelector == nil {
+				continue
+			}
+			if from.NamespaceSelector.MatchLabels["name"] != "monitoring" {
+				continue
+			}
+			// Verify the rule is scoped to TCP 9091.
+			if len(rule.Ports) != 1 {
+				t.Fatalf("monitoring ingress rule has %d ports, want 1", len(rule.Ports))
+			}
+			p := rule.Ports[0]
+			if p.Protocol == nil || *p.Protocol != corev1.ProtocolTCP {
+				t.Error("monitoring ingress rule protocol is not TCP")
+			}
+			if p.Port == nil || p.Port.IntValue() != 9091 {
+				t.Errorf("monitoring ingress rule port = %v, want 9091", p.Port)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("allow-namespace-traffic is missing an ingress rule for the monitoring namespace")
+	}
+}
+
 // TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer verifies that when
 // secret variables are present in the spec (i.e. after rehydration), the K8s
 // Secret is created with the correct values AND the messaging sidecar container
