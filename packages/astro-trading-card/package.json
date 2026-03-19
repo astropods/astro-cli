@@ -35,5 +35,8 @@
   "devDependencies": {
     "identity-gen": "workspace:*",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "uqr": "^0.1.2"
   }
 }

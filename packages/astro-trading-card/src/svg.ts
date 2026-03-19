@@ -108,18 +108,47 @@ function getInitials(fullName: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-/** Render an account value: small avatar circle + @handle, right-aligned. */
+/** Measure text width using a canvas context if available, otherwise approximate. */
+function measureTextWidth(text: string, font: string, fallbackCharWidth: number): number {
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.font = font;
+      return ctx.measureText(text).width;
+    }
+  }
+  return text.length * fallbackCharWidth;
+}
+
+/** Truncate text to fit within maxWidth, appending an ellipsis if needed. */
+function truncateText(text: string, font: string, maxWidth: number, fallbackCharWidth: number): string {
+  if (measureTextWidth(text, font, fallbackCharWidth) <= maxWidth) return text;
+  const ellipsis = "\u2026";
+  for (let len = text.length - 1; len > 0; len--) {
+    const candidate = text.slice(0, len) + ellipsis;
+    if (measureTextWidth(candidate, font, fallbackCharWidth) <= maxWidth) return candidate;
+  }
+  return ellipsis;
+}
+
+/** Render an account value: small avatar circle + handle, right-aligned. */
 function renderAccountValue(
   account: CardAccount,
   rightX: number,
   textY: number,
   colors: ResolvedCardColors,
   clipId: string,
+  maxWidth: number,
 ): string {
   const avatarSize = 16;
-  const gap = 3;
-  const handleText = `@${account.handle}`;
-  const handleWidth = handleText.length * 11 * 0.55; // approximate
+  const gap = 5;
+  const handleFont = "700 13px system-ui, sans-serif";
+  const fallbackCharWidth = 13 * 0.55;
+  // Reserve space for avatar + gap, then truncate the handle to fit
+  const maxHandleWidth = maxWidth - avatarSize - gap;
+  const handleText = truncateText(account.handle, handleFont, maxHandleWidth, fallbackCharWidth);
+  const handleWidth = measureTextWidth(handleText, handleFont, fallbackCharWidth);
   const avatarX = rightX - handleWidth - gap - avatarSize;
   const avatarCenterX = avatarX + avatarSize / 2;
   const avatarCenterY = textY - avatarSize * 0.3;
@@ -139,7 +168,7 @@ function renderAccountValue(
     ].join("\n    ");
   }
 
-  const handleEl = `<text x="${rightX}" y="${textY}" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="${colors.foreground}" text-anchor="end">${escapeXml(handleText)}</text>`;
+  const handleEl = `<text x="${rightX}" y="${textY}" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="${colors.foreground}" text-anchor="end">${escapeXml(handleText)}</text>`;
 
   return `${avatarEl}\n    ${handleEl}`;
 }
@@ -157,11 +186,14 @@ export function renderStatRows(opts: StatRowsOptions): { content: string; height
     const labelY = rowY + rowHeight * 0.6;
     const dividerY = rowY + rowHeight;
 
-    const labelEl = `<text x="${x + padding}" y="${labelY}" font-family="ui-monospace, monospace" font-size="7" font-weight="300" fill="${colors.glow}" opacity="0.7" letter-spacing="0.18em">${escapeXml(stat.label.toUpperCase())}</text>`;
+    const labelEl = `<text x="${x + padding}" y="${labelY}" font-family="ui-monospace, monospace" font-size="9" font-weight="300" fill="${colors.glow}" opacity="0.7" letter-spacing="0.18em">${escapeXml(stat.label.toUpperCase())}</text>`;
 
     let valueEl: string;
     if (stat.account) {
-      valueEl = renderAccountValue(stat.account, x + width - padding, labelY + 2, colors, `stat-avatar-${i}`);
+      const labelWidth = measureTextWidth(stat.label.toUpperCase(), "300 9px ui-monospace, monospace", 9 * 0.65);
+      const labelGap = 12;
+      const availableWidth = width - padding * 2 - labelWidth - labelGap - 10;
+      valueEl = renderAccountValue(stat.account, x + width - padding, labelY + 2, colors, `stat-avatar-${i}`, availableWidth);
     } else {
       valueEl = `<text x="${x + width - padding}" y="${labelY + 2}" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="${colors.foreground}" text-anchor="end">${escapeXml(stat.value!)}</text>`;
     }
@@ -223,7 +255,11 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
   let curX = 0;
   let curRow = 0;
 
-  for (const integration of integrations) {
+  const maxRows = 2;
+  let overflowCount = 0;
+
+  for (let idx = 0; idx < integrations.length; idx++) {
+    const integration = integrations[idx];
     const textW = approxTextWidth(integration.name, fontSize);
     const hasIcon = !!(integration.icon || integration.iconUrl);
     const pillW = pillPadX + (hasIcon ? iconSize + iconTextGap : 0) + textW + pillPadX;
@@ -231,6 +267,11 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
     if (curX > 0 && curX + pillW > maxWidth) {
       curRow++;
       curX = 0;
+    }
+
+    if (curRow >= maxRows) {
+      overflowCount = integrations.length - idx;
+      break;
     }
 
     rows.push({
@@ -243,7 +284,7 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
     curX += pillW + pillGap;
   }
 
-  const totalRows = curRow + 1;
+  const totalRows = Math.min(curRow + 1, maxRows);
   const totalHeight = totalRows * pillHeight + (totalRows - 1) * rowGap;
 
   const pills = rows.map((pill) => {
@@ -272,8 +313,16 @@ export function renderIntegrationPills(opts: IntegrationPillsOptions): { content
     ].join("\n    ");
   });
 
+  let overflowEl = "";
+  if (overflowCount > 0) {
+    const lastPill = rows[rows.length - 1];
+    const moreX = lastPill.x + lastPill.pillWidth + pillGap;
+    const moreY = lastPill.y + pillHeight / 2 + fontSize * 0.35;
+    overflowEl = `\n    <text x="${moreX}" y="${moreY}" font-family="system-ui, sans-serif" font-size="${fontSize}" fill="${colors.glow}" opacity="0.5">+${overflowCount}</text>`;
+  }
+
   return {
-    content: pills.join("\n    "),
+    content: pills.join("\n    ") + overflowEl,
     height: totalHeight,
   };
 }

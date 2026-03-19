@@ -70,6 +70,8 @@ export interface CardData {
   integrations?: CardIntegration[];
   /** ID string to render as a barcode at the bottom of the card. */
   barcodeId?: string;
+  /** URL to encode as a QR code displayed beside the barcode. */
+  qrUrl?: string;
 }
 
 /** Dimensions for a card variant in pixels. */

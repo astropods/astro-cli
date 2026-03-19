@@ -46,7 +46,7 @@ export function renderStandard(data: CardData, colors: ResolvedCardColors): stri
   const barcodeBarHeight = 40;
   const barcodeHeight = (data.barcodeId ? barcodeBarHeight + 20 : 0);
   const barcodeY = height - barcodeHeight - barcodeBottomPadding;
-  const barcode = renderBarcode({ id: data.barcodeId ?? "", x: 0, y: barcodeY, width, colors, barHeight: barcodeBarHeight });
+  const barcode = renderBarcode({ id: data.barcodeId ?? "", x: 0, y: barcodeY, width, colors, barHeight: barcodeBarHeight, qrUrl: data.qrUrl });
 
   const avatar = renderAvatar({
     avatar: data.avatar,

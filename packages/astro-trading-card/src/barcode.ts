@@ -1,3 +1,4 @@
+import { encode as encodeQR } from "uqr";
 import type { ResolvedCardColors } from "./types";
 import { escapeXml } from "./svg";
 
@@ -68,19 +69,41 @@ export interface BarcodeOptions {
   barHeight?: number;
   colors: ResolvedCardColors;
   padding?: number;
+  /** URL to encode as a QR code beside the barcode. */
+  qrUrl?: string;
 }
 
-/**
- * Render a Code 128B barcode with the ID displayed below it.
- * Returns SVG markup and total height consumed.
- */
+/** Render a QR code as SVG rects within a given square area. */
+function renderQrCode(url: string, qrX: number, qrY: number, size: number, color: string): string {
+  const result = encodeQR(url, { ecc: "L" });
+  const modules = result.data;
+  const moduleCount = modules.length;
+  const scaledSize = size * 1.05;
+  const offset = (size - scaledSize) / 2;
+  const cellSize = scaledSize / moduleCount;
+
+  const rects: string[] = [];
+  for (let row = 0; row < moduleCount; row++) {
+    for (let col = 0; col < moduleCount; col++) {
+      if (modules[row][col]) {
+        rects.push(`<rect x="${qrX + offset + col * cellSize}" y="${qrY + offset + row * cellSize}" width="${cellSize}" height="${cellSize}" fill="${color}" opacity="0.7"/>`);
+      }
+    }
+  }
+  return rects.join("\n    ");
+}
+
 export function renderBarcode(opts: BarcodeOptions): { content: string; height: number } {
-  const { id, x, y, width, colors, barHeight = 40, padding = 20 } = opts;
+  const { id, x, y, width, colors, barHeight = 40, padding = 20, qrUrl } = opts;
   if (!id) return { content: "", height: 0 };
+
+  const qrSize = barHeight;
+  const qrGap = qrUrl ? 8 : 0;
+  const qrReserved = qrUrl ? qrSize + qrGap : 0;
 
   const bars = encode128B(id);
   const totalUnits = bars.reduce((sum, b) => sum + b, 0);
-  const availWidth = width - padding * 2;
+  const availWidth = width - padding * 2 - qrReserved;
   const unitWidth = availWidth / totalUnits;
   const startX = x + padding;
 
@@ -89,10 +112,16 @@ export function renderBarcode(opts: BarcodeOptions): { content: string; height: 
   for (let i = 0; i < bars.length; i++) {
     const w = bars[i] * unitWidth;
     if (i % 2 === 0) {
-      // Even indices are bars
       rects.push(`<rect x="${curX}" y="${y}" width="${w}" height="${barHeight}" fill="${colors.glow}" opacity="0.7"/>`);
     }
     curX += w;
+  }
+
+  // QR code to the right of the barcode
+  let qrEl = "";
+  if (qrUrl) {
+    const qrX = x + width - padding - qrSize;
+    qrEl = "\n    " + renderQrCode(qrUrl, qrX, y, qrSize, colors.glow);
   }
 
   const footerY = y + barHeight + 12;
@@ -118,7 +147,7 @@ export function renderBarcode(opts: BarcodeOptions): { content: string; height: 
   const totalHeight = barHeight + 20;
 
   return {
-    content: rects.join("\n    ") + "\n    " + logoEl + "\n    " + idLabel,
+    content: rects.join("\n    ") + qrEl + "\n    " + logoEl + "\n    " + idLabel,
     height: totalHeight,
   };
 }
