@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/riverqueue/river"
 
@@ -30,7 +31,7 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 		return nil
 	}
 
-	samples, err := w.promClient.Query(ctx, `sum by (account_id, agent_name) (messaging_messages_forwarded_total)`)
+	samples, err := w.promClient.Query(ctx, `sum by (agent) (messaging_messages_forwarded_total)`)
 	if err != nil {
 		w.log.Error("Message count sync: failed to query Prometheus", "error", err)
 		return nil // Don't retry — transient Prometheus issues shouldn't wedge the queue
@@ -41,9 +42,11 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 	}
 
 	for _, s := range samples {
-		accountID := s.Labels["account_id"]
-		agentName := s.Labels["agent_name"]
-		if accountID == "" || agentName == "" {
+		// The "agent" label is set by Alloy relabeling from the astro.dev/agent
+		// pod label, which uses "account.agent" format (see deployment/naming.go).
+		agentLabel := s.Labels["agent"]
+		accountID, agentName, ok := strings.Cut(agentLabel, ".")
+		if !ok || accountID == "" || agentName == "" {
 			continue
 		}
 		if err := upsertMessageCount(ctx, w.db, accountID, agentName, s.Value); err != nil {
