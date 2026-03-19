@@ -231,6 +231,12 @@ export function AppHeader() {
                       Profile
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="gap-2">
+                    <Link to="/settings">
+                      <Cog6ToothIcon className="size-4" />
+                      Settings
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>
               )}
@@ -261,12 +267,6 @@ export function AppHeader() {
                   </>
                 );
               })()}
-              <DropdownMenuItem asChild className="gap-2">
-                <Link to="/settings">
-                  <Cog6ToothIcon className="size-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
               {hasPermission('admin:view') && (
                 <DropdownMenuItem asChild className="gap-2">
                   <Link to="/admin">
