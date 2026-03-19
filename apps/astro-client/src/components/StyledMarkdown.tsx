@@ -21,7 +21,7 @@ const proseClasses = [
   "prose-h6:text-[13px] prose-h6:font-semibold prose-h6:mt-4 prose-h6:mb-1 prose-h6:text-[var(--muted-foreground)]",
   // body
   "prose-p:my-2.5",
-  "prose-ul:my-1.5 prose-ul:pl-4 prose-ol:my-1.5 [&_ol]:list-decimal [&_ul]:marker:text-foreground [&_ol]:marker:text-foreground",
+  "prose-ul:my-1.5 prose-ul:pl-4 prose-ol:my-1.5 prose-ol:pl-6 [&_ol]:list-decimal [&_ul]:marker:text-foreground [&_ol]:marker:text-foreground",
   "prose-li:my-0.5 prose-li:text-body",
   "prose-a:text-primary prose-a:underline prose-a:decoration-primary/40 prose-a:underline-offset-4 hover:prose-a:decoration-primary",
   "prose-strong:font-semibold prose-strong:text-foreground",
