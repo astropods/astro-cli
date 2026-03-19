@@ -72,8 +72,12 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
     e.preventDefault();
     if (!form.trySubmit()) return;
     try {
-      await form.deploy();
-      navigate("/agents");
+      const result = await form.deploy();
+      if (result) {
+        navigate(`/${form.targetAccount}/agents/${result.name}`, { state: { fromDeploy: true } });
+      } else {
+        navigate("/agents");
+      }
     } catch {
       // Error is captured in form.deployError
     }

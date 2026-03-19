@@ -869,11 +869,20 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		key := agentKey + ":" + version
 		info, exists := agentDeployments[key]
 		if !exists {
+			// Use Spec.Replicas (desired) rather than Status.Replicas (current).
+			// Status.Replicas starts at 0 right after creation and increments as pods
+			// are scheduled, so using it would cause a transient "Stopped" status
+			// during normal deployment startup.
+			desiredReplicas := int32(1)
+			if dep.Spec.Replicas != nil {
+				desiredReplicas = *dep.Spec.Replicas
+			}
+
 			status := "Running"
-			if dep.Status.ReadyReplicas < dep.Status.Replicas {
+			if dep.Status.ReadyReplicas < desiredReplicas {
 				status = "Pending"
 			}
-			if dep.Status.Replicas == 0 {
+			if desiredReplicas == 0 {
 				status = "Stopped"
 			}
 
@@ -881,7 +890,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				BuildID:          version,
 				Namespace:        namespace,
 				Status:           status,
-				Replicas:         dep.Status.Replicas,
+				Replicas:         desiredReplicas,
 				Ready:            dep.Status.ReadyReplicas,
 				CreatedAt:        dep.CreationTimestamp.Format(time.RFC3339),
 				Components:       []string{},
@@ -901,8 +910,12 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			info.Components = append(info.Components, component)
 		}
 
-		// Update status if any deployment is not ready
-		if dep.Status.ReadyReplicas < dep.Status.Replicas {
+		// Update status if any deployment is not ready (using same desired replica logic)
+		desiredReplicas := int32(1)
+		if dep.Spec.Replicas != nil {
+			desiredReplicas = *dep.Spec.Replicas
+		}
+		if dep.Status.ReadyReplicas < desiredReplicas && desiredReplicas > 0 {
 			info.Status = "Pending"
 		}
 	}
