@@ -8,14 +8,15 @@ import { Separator } from "@/components/ui/separator";
 
 export interface UserCardProps {
   user: User;
+  accountId?: string;
   onSignOut: () => void;
 }
 
-export function UserCard({ user, onSignOut }: UserCardProps) {
+export function UserCard({ user, accountId, onSignOut }: UserCardProps) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        <UserAvatar user={user} />
+        <UserAvatar accountId={accountId ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} />
         <div className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-sm font-semibold">
             {getUserDisplayName(user)}

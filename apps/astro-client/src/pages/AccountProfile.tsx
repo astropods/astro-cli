@@ -9,7 +9,7 @@ import { getAgentDescription } from "../lib/agent-utils";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import { ShieldCheck } from "lucide-react";
-import { getPresetAvatar } from "@/lib/presetAvatars";
+import { UserAvatar } from "@/components/UserAvatar";
 import {
   Tooltip,
   TooltipContent,
@@ -53,19 +53,7 @@ function AccountProfileContent() {
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
       <div className="flex items-center gap-4">
-        {data.owner?.profile_picture_url ? (
-          <img
-            src={data.owner.profile_picture_url}
-            alt={data.name}
-            className="size-16 shrink-0 rounded-full object-cover"
-          />
-        ) : (
-          <img
-            src={getPresetAvatar(data.name).src}
-            alt={data.name}
-            className="size-16 shrink-0 rounded-lg object-cover"
-          />
-        )}
+        <UserAvatar accountId={data.id} name={data.name} profilePictureUrl={data.owner?.profile_picture_url} className="size-16" />
         <div>
           {data.owner?.first_name && (
             <h1 className="text-2xl font-bold">

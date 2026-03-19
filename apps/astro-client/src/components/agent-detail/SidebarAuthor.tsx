@@ -6,7 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SidebarSection } from "./SidebarSection";
-import { getPresetAvatar } from "@/lib/presetAvatars";
+import { UserAvatar } from "@/components/UserAvatar";
 import type { AgentCardAuthor } from "@/lib/api";
 
 const AVATAR_THRESHOLD = 3;
@@ -18,33 +18,16 @@ export interface SidebarAuthorProps {
   ownerName: string;
   /** Account handle (fallback when no agent card authors). */
   ownerHandle: string;
+  /** Account ID (used to seed the preset avatar). */
+  ownerId?: string;
   /** Account owner profile picture URL. */
   ownerProfilePictureUrl?: string;
-}
-
-function AuthorAvatar({
-  seed,
-  name,
-  className = "h-9 w-9",
-}: {
-  seed: string;
-  name: string;
-  className?: string;
-}) {
-  const preset = getPresetAvatar(seed);
-  return (
-    <img
-      src={preset.src}
-      alt={name}
-      className={`rounded-lg object-cover shrink-0 ${className}`}
-    />
-  );
 }
 
 function AuthorFullCard({ author }: { author: AgentCardAuthor }) {
   const inner = (
     <div className="flex items-center gap-3">
-      <AuthorAvatar seed={author.account ?? author.name} name={author.name} />
+      <UserAvatar accountId={author.account ?? author.name} name={author.name} className="h-9 w-9" />
       <div className="flex flex-col min-w-0">
         <span className="text-[13px] font-medium text-foreground truncate">
           {author.name}
@@ -72,6 +55,7 @@ export function SidebarAuthor({
   authors,
   ownerName,
   ownerHandle,
+  ownerId,
   ownerProfilePictureUrl,
 }: SidebarAuthorProps) {
   // Fall back to account owner when no agent card authors
@@ -90,11 +74,11 @@ export function SidebarAuthor({
                   <TooltipTrigger asChild>
                     {author.account ? (
                       <Link to={`/${author.account}`} className="hover:opacity-80 transition-opacity">
-                        <AuthorAvatar seed={author.account ?? author.name} name={author.name} className="h-8 w-8" />
+                        <UserAvatar accountId={author.account ?? author.name} name={author.name} className="h-8 w-8" />
                       </Link>
                     ) : (
                       <div>
-                        <AuthorAvatar seed={author.account ?? author.name} name={author.name} className="h-8 w-8" />
+                        <UserAvatar accountId={author.account ?? author.name} name={author.name} className="h-8 w-8" />
                       </div>
                     )}
                   </TooltipTrigger>
@@ -116,15 +100,7 @@ export function SidebarAuthor({
       ) : (
         // Fallback: account owner
         <div className="flex items-center gap-3">
-          {ownerProfilePictureUrl ? (
-            <img
-              src={ownerProfilePictureUrl}
-              alt={ownerName}
-              className="h-9 w-9 shrink-0 rounded-full object-cover"
-            />
-          ) : (
-            <AuthorAvatar seed={ownerHandle} name={ownerName} />
-          )}
+          {ownerId && <UserAvatar accountId={ownerId} name={ownerName} profilePictureUrl={ownerProfilePictureUrl} className="h-9 w-9" />}
           <div className="flex flex-col">
             <span className="text-[13px] font-medium text-foreground">{ownerName}</span>
             <span className="text-[11px] text-[var(--faint-foreground)] font-mono">

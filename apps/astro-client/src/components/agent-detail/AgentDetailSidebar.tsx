@@ -61,6 +61,7 @@ export function SidebarCard({
         authors={authors}
         ownerName={ownerName}
         ownerHandle={agent.account}
+        ownerId={accountData?.id}
         ownerProfilePictureUrl={owner?.profile_picture_url}
       />
 

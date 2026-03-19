@@ -116,7 +116,7 @@ export function AppHeader() {
               {isLoading ? (
                 <Skeleton className="h-12 w-full" />
               ) : isAuthenticated && user ? (
-                <UserCard user={user} onSignOut={logout} />
+                <UserCard user={user} accountId={personalAccount?.id} onSignOut={logout} />
               ) : (
                 <>
                   <Button
@@ -207,12 +207,12 @@ export function AppHeader() {
                 size="icon"
                 className="rounded-full"
               >
-                <UserAvatar user={user} />
+                <UserAvatar accountId={personalAccount?.id ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 p-3">
               <div className="flex items-center gap-3 pb-3">
-                <UserAvatar user={user} />
+                <UserAvatar accountId={personalAccount?.id ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} />
                 <div className="flex min-w-0 flex-col leading-tight">
                   <span className="truncate text-sm font-semibold">
                     {getUserDisplayName(user)}

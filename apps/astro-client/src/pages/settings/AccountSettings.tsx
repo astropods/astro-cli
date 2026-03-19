@@ -103,7 +103,7 @@ function ProfileSection() {
       {user && (
         <>
           <div className="flex items-center gap-4">
-            <UserAvatar user={user} className="size-[72px] text-2xl" />
+            <UserAvatar accountId={personalAccount?.id ?? user.id} name={getUserDisplayName(user)} profilePictureUrl={user.profile_picture_url} className="size-[72px] text-2xl" />
             <div>
               <div className="text-sm font-semibold text-foreground">
                 {getUserDisplayName(user)}
