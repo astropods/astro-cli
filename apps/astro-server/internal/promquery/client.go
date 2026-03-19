@@ -55,7 +55,7 @@ func (c *Client) Query(ctx context.Context, promql string) ([]Sample, error) {
 	if err != nil {
 		return nil, fmt.Errorf("promquery: do: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
