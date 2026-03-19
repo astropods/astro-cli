@@ -72,7 +72,8 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 	if applyErr != nil {
 		// Total failure. Do NOT teardown — old pods may still be running in the
 		// same namespace (redeploy case). Mark failed and let River retry.
-		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, applyErr.Error(), nil); err != nil {
+		errDetails, _ := json.Marshal([]map[string]string{{"error": applyErr.Error()}})
+		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusFailed, applyErr.Error(), errDetails); err != nil {
 			w.log.Warn("Failed to mark deployment as failed", "error", err, "deployment_id", dep.ID)
 		}
 		return fmt.Errorf("deploy failed: %w", applyErr)

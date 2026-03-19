@@ -117,6 +117,19 @@ export function DeploymentDetailPage() {
           <div>
             <p className="font-medium">Deployment Failed</p>
             <p className="mt-0.5 text-red-700">{dep.error_message}</p>
+            {dep.error_details && dep.error_details.length > 0 && (
+              <ul className="mt-1.5 list-disc pl-4 text-red-700 space-y-0.5">
+                {dep.error_details.map((d, i) => (
+                  <li key={i}>
+                    {d.kind && d.resource ? (
+                      <><span className="font-medium">{d.kind}/{d.resource}:</span> {d.error}</>
+                    ) : (
+                      d.error
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}

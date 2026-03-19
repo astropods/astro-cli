@@ -1,3 +1,9 @@
+export interface DeploymentErrorDetail {
+  resource?: string;
+  kind?: string;
+  error: string;
+}
+
 export interface AdminDeployment {
   name: string;
   build_id: string;
@@ -8,6 +14,7 @@ export interface AdminDeployment {
   components: string[];
   deployment_id: string;
   error_message?: string;
+  error_details?: DeploymentErrorDetail[];
   status_changed_at?: string;
   current_revision?: number;
   drift_summary?: DriftSummary;

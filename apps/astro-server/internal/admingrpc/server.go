@@ -257,6 +257,9 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	if dep.ErrorMessage != nil {
 		ad.ErrorMessage = *dep.ErrorMessage
 	}
+	if len(dep.ErrorDetails) > 0 {
+		_ = json.Unmarshal(dep.ErrorDetails, &ad.ErrorDetails)
+	}
 	if dep.CurrentRevision != nil {
 		ad.CurrentRevision = int32(*dep.CurrentRevision) //nolint:gosec // revision numbers are small
 	}
