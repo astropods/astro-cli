@@ -10,7 +10,7 @@ export interface StyledMarkdownProps {
 
 const proseClasses = [
   "prose prose-stone dark:prose-invert prose-sm max-w-none overflow-x-auto",
-  "font-sans text-body text-muted-foreground",
+  "font-sans text-body text-foreground",
   // headings
   "prose-headings:font-semibold prose-headings:text-foreground",
   "prose-h1:text-[22px] prose-h1:mt-8 prose-h1:mb-3 prose-h1:pb-2 prose-h1:border-b prose-h1:border-border-strong",
