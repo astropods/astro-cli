@@ -245,7 +245,7 @@ export function AppHeader() {
                 return (
                   <>
                     {orgs.length > 0 && (
-                      <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                      <div className="px-2 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                         Organizations
                       </div>
                     )}
