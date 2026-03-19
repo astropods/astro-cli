@@ -12,6 +12,7 @@ import (
 
 	projectconfig "github.com/astropods/astro/apps/astro-cli/internal/config"
 	"github.com/astropods/astro/apps/astro-cli/internal/scaffold"
+	"github.com/astropods/astro/apps/astro-cli/internal/theme"
 	"github.com/astropods/astro/apps/astro-cli/internal/tui/create"
 )
 
@@ -169,20 +170,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 func printSuccess(name, targetDir string, usedDefaults bool) {
 	bold := lipgloss.NewStyle().Bold(true)
+	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	dim := lipgloss.NewStyle().Faint(true)
-	cmd := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
-	step := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	heading := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 
 	var lines []string
-	lines = append(lines, heading.Render("✓ Created "+name))
+	lines = append(lines, "✓ "+bold.Render("Created "+name))
 	lines = append(lines, "")
 	lines = append(lines, bold.Render("Next steps"))
 	lines = append(lines, "")
 
 	n := 1
 	addStep := func(command, desc string) {
-		lines = append(lines, fmt.Sprintf("  %s  %s   %s", step.Render(fmt.Sprintf("%d", n)), cmd.Render(command), dim.Render(desc)))
+		lines = append(lines, fmt.Sprintf("  %s  %s   %s", bold.Render(fmt.Sprintf("%d", n)), boldPrimary.Render(command), dim.Render(desc)))
 		n++
 	}
 
@@ -193,11 +192,11 @@ func printSuccess(name, targetDir string, usedDefaults bool) {
 	addStep(binaryName+" dev", "start your agent locally")
 
 	lines = append(lines, "")
-	lines = append(lines, dim.Render("Tip: run ")+cmd.Render(binaryName+" explain")+dim.Render(" for a plain-English breakdown of your spec."))
+	lines = append(lines, dim.Render("Tip: run ")+boldPrimary.Render(binaryName+" explain")+dim.Render(" for a plain-English breakdown of your spec."))
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(theme.Primary).
 		Padding(0, 2).
 		Render(strings.Join(lines, "\n"))
 
