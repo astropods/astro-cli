@@ -3,7 +3,7 @@ import { Link, NavLink as RRNavLink, useLocation } from "react-router";
 import { cn } from "@/lib/utils";
 import {
   Bars3Icon,
-  ArrowLeftStartOnRectangleIcon,
+  ArrowRightStartOnRectangleIcon,
   BuildingOffice2Icon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
@@ -276,7 +276,7 @@ export function AppHeader() {
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={logout} className="gap-2">
-                <ArrowLeftStartOnRectangleIcon className="size-4" />
+                <ArrowRightStartOnRectangleIcon className="size-4" />
                 Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>
