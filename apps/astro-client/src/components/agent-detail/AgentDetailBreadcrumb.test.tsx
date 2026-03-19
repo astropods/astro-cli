@@ -9,7 +9,7 @@ describe("AgentDetailBreadcrumb", () => {
   it("renders Like and Share action badges", () => {
     renderWithProviders(<AgentDetailBreadcrumb account="acme" agentName="signal-watcher" />);
 
-    expect(screen.getByRole("button", { name: /like/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /heart/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /share/i })).toBeInTheDocument();
   });
 

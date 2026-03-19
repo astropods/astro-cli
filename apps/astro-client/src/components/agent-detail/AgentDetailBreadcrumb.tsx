@@ -52,6 +52,7 @@ export function AgentDetailBreadcrumb({
           <Button
             variant="outline"
             size="icon"
+            aria-label="Heart"
             onClick={() => setHearted((h) => !h)}
           >
             {hearted ? (
