@@ -1,26 +1,12 @@
-import { useState, useEffect } from "react";
-import { useParams, Link, useSearchParams } from "react-router";
+import { useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
-import { Settings, RotateCcw, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PageBreadcrumb } from "@/components/PageBreadcrumb";
-import { StatusIndicator } from "@/components/StatusIndicator";
-import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
-import { AgentIdentity } from "@/components/AgentIdentity";
-import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
-import { InlineBadge } from "@/components/InlineBadge";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { ExternalUrls } from "@/components/deployed-agent/ExternalUrls";
-import { PodGrid } from "@/components/deployed-agent/PodGrid";
-import { PodLogViewer } from "@/components/deployed-agent/PodLogViewer";
-import { useDeployments, useRestartPod } from "@/api/queries/deployments";
-import { useAgent } from "@/api/queries/agents";
+import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
+import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
-import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
-import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
-import { getPodStableName, getPodDisplayName } from "@/lib/pod-utils";
 
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -66,27 +52,10 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
-  const [searchParams] = useSearchParams();
-  const podName = searchParams.get("pod");
 
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
-  const restartMutation = useRestartPod(account);
-  const [showRestarted, setShowRestarted] = useState(false);
-
-  useEffect(() => {
-    if (restartMutation.isSuccess) {
-      setShowRestarted(true);
-      const timer = setTimeout(() => {
-        setShowRestarted(false);
-        restartMutation.reset();
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [restartMutation.isSuccess]);
-
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
-  const { data: agentData } = useAgent(account, deployment?.name ?? "");
 
   if (!deployment) {
     return (
@@ -102,109 +71,14 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     );
   }
 
-  const status = mapDeploymentStatus(deployment);
-  const displayName = deployment.display_name || deployment.name;
-  const latestBuildId = agentData?.versions?.reduce((latest, current) =>
-    new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
-      ? current
-      : latest,
-  )?.build_id;
-  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
-  const pods = deployment.pods ?? [];
-  const selectedPod = podName ? pods.find((p) => getPodStableName(p.name) === podName) ?? null : null;
-  const basePath = deploymentPath(account, deployment.id);
-
   const isPersonal = personalAccount?.name === account;
-  const breadcrumbItems = [
-    isPersonal
-      ? { label: "My Agents", to: "/agents" }
-      : { label: account, to: `/${account}` },
-    ...(selectedPod
-      ? [
-          { label: displayName, to: basePath },
-          { label: getPodDisplayName(getPodStableName(selectedPod.name), deployment.name) },
-        ]
-      : [{ label: displayName }]),
-  ];
 
   return (
-    <div className="flex flex-1 flex-col">
-      <PageBreadcrumb
-        items={breadcrumbItems}
-        actions={
-          <Button variant="outline" size="sm" asChild>
-            <Link to={deploymentConfigurePath(account, deployment.id)}>
-              <Settings className="size-3.5" />
-              Configure
-            </Link>
-          </Button>
-        }
-      />
-
-      <div className={`mx-auto w-full ${selectedPod ? "max-w-6xl" : "max-w-3xl"}`}>
-        {/* Header */}
-        <div className="flex items-center gap-4 px-6 py-6">
-          <AgentIdentity account={account} name={deployment.name} size={56} className="size-14 rounded-sm overflow-hidden" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold truncate">{displayName}</h1>
-              <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
-                {deploymentStatusLabel[status]}
-              </StatusIndicator>
-              {hasNewBuildAvailable && (
-                <BuildUpdateBadge
-                  currentBuildId={deployment.build_id}
-                  latestBuildId={latestBuildId}
-                  className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30"
-                />
-              )}
-            </div>
-            <div className="mt-1 flex items-center gap-2">
-              <p className="text-sm text-muted-foreground">
-                Deployed {formatDate(deployment.created_at)}
-              </p>
-              {deployment.build_id && <InlineBadge>{deployment.build_id}</InlineBadge>}
-            </div>
-          </div>
-          {selectedPod && (
-            <Button
-              variant="outline"
-              className="ml-auto"
-              disabled={restartMutation.isPending || showRestarted}
-              onClick={() => restartMutation.mutate({ deploymentId: deployment.id, pod: selectedPod.name })}
-            >
-              {showRestarted ? (
-                <>
-                  <Check className="size-4 text-green-600" />
-                  Restarted
-                </>
-              ) : (
-                <>
-                  <RotateCcw className={`size-4 ${restartMutation.isPending ? "animate-spin" : ""}`} />
-                  Restart Container
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-
-        <div className="mx-6 border-t border-border" />
-
-        {/* External URLs */}
-        {deployment.external_urls && deployment.external_urls.length > 0 && (
-          <ExternalUrls urls={deployment.external_urls} />
-        )}
-
-        {/* Body */}
-        <div className="px-6 py-6">
-          {selectedPod ? (
-            <PodLogViewer deploymentId={deployment.id} pod={selectedPod} />
-          ) : (
-            <PodGrid pods={pods} basePath={basePath} agentName={deployment.name} />
-          )}
-        </div>
-      </div>
-    </div>
+    <ActiveDetailView
+      deployment={deployment}
+      account={account}
+      isPersonal={isPersonal}
+    />
   );
 }
 
