@@ -8,19 +8,29 @@ import (
 )
 
 func TestNewClient_EmptyURL(t *testing.T) {
-	c := NewClient("")
+	c := NewClient("", "")
 	if c != nil {
 		t.Error("expected nil client for empty URL")
 	}
 }
 
 func TestNewClient_NonEmpty(t *testing.T) {
-	c := NewClient("http://prometheus:9090")
+	c := NewClient("http://prometheus:9090", "")
 	if c == nil {
 		t.Fatal("expected non-nil client")
 	}
 	if c.baseURL != "http://prometheus:9090" {
 		t.Errorf("baseURL = %q, want %q", c.baseURL, "http://prometheus:9090")
+	}
+}
+
+func TestNewClient_WithCluster(t *testing.T) {
+	c := NewClient("http://prometheus:9090", "astro-prod")
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if c.Cluster() != "astro-prod" {
+		t.Errorf("Cluster() = %q, want %q", c.Cluster(), "astro-prod")
 	}
 }
 
@@ -52,7 +62,7 @@ func TestQuery_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	samples, err := c.Query(context.Background(), "up")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -81,7 +91,7 @@ func TestQuery_EmptyVector(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	samples, err := c.Query(context.Background(), "up")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -97,7 +107,7 @@ func TestQuery_PrometheusError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	_, err := c.Query(context.Background(), "bad{")
 	if err == nil {
 		t.Fatal("expected error")
@@ -111,7 +121,7 @@ func TestQuery_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	_, err := c.Query(context.Background(), "up")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
@@ -124,7 +134,7 @@ func TestQuery_MalformedJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	_, err := c.Query(context.Background(), "up")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
@@ -148,7 +158,7 @@ func TestQuery_SkipsMalformedValues(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	samples, err := c.Query(context.Background(), "up")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -169,7 +179,7 @@ func TestQuery_WrongResultType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
+	c := NewClient(srv.URL, "")
 	_, err := c.Query(context.Background(), "up")
 	if err == nil {
 		t.Fatal("expected error for non-vector result type")

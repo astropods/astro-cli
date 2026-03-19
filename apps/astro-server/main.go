@@ -380,7 +380,7 @@ func runWorker(
 	}
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
-	promClient := promquery.NewClient(cfg.PrometheusURL)
+	promClient := promquery.NewClient(cfg.PrometheusURL, cfg.Deployment.EKSClusterName)
 	if promClient != nil {
 		log.Info("Prometheus query client initialized", "url", cfg.PrometheusURL)
 	}

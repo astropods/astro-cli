@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 
 	"github.com/riverqueue/river"
@@ -33,7 +34,12 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 		return nil
 	}
 
-	samples, err := w.promClient.Query(ctx, `sum by (agent) (messaging_messages_forwarded_total)`)
+	query := `sum by (agent) (messaging_messages_forwarded_total)`
+	if cluster := w.promClient.Cluster(); cluster != "" {
+		query = fmt.Sprintf(`sum by (agent) (messaging_messages_forwarded_total{cluster=%q})`, cluster)
+	}
+
+	samples, err := w.promClient.Query(ctx, query)
 	if err != nil {
 		w.log.Error("Message count sync: failed to query Prometheus", "error", err)
 		return nil // Don't retry — transient Prometheus issues shouldn't wedge the queue

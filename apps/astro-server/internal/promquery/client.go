@@ -14,20 +14,29 @@ import (
 // Client queries a Prometheus-compatible HTTP API.
 type Client struct {
 	baseURL    string
+	cluster    string // Cluster label filter (e.g. EKS cluster name) — empty means no filtering
 	httpClient *http.Client
 }
 
 // NewClient creates a Prometheus query client. Returns nil if baseURL is empty.
-func NewClient(baseURL string) *Client {
+// The cluster parameter filters all queries to a specific cluster label value;
+// pass "" to disable filtering (not recommended when environments share a Prometheus instance).
+func NewClient(baseURL, cluster string) *Client {
 	if baseURL == "" {
 		return nil
 	}
 	return &Client{
 		baseURL: baseURL,
+		cluster: cluster,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+// Cluster returns the cluster label this client filters on (empty = no filter).
+func (c *Client) Cluster() string {
+	return c.cluster
 }
 
 // Sample is a single instant-query result vector element.
