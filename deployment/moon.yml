@@ -18,7 +18,25 @@ tasks:
       cache: false
       runInCI: false
 
+  "astro-client":
+    command: "cd .. && docker build -t astro-client:latest -f deployment/Dockerfile.astro-client ."
+    options:
+      cache: false
+      runInCI: false
+
+  "astro-server":
+    command: "cd .. && docker build -t astro-server:latest -f deployment/Dockerfile.astro-server ."
+    options:
+      cache: false
+      runInCI: false
+
+  "astro-registry":
+    command: "cd .. && docker build -t astro-registry:latest -f deployment/Dockerfile.astro-registry ."
+    options:
+      cache: false
+      runInCI: false
+
   "clean":
-    command: "docker rmi astro-server:latest astro-registry:latest prod-astro-collector:latest messaging:latest playground:latest astropods/astro-server:latest astropods/astro-registry:latest astropods/astro-collector:latest astropods/astro-messaging:latest astropods/astro-playground:latest 2>/dev/null || true"
+    command: "docker rmi astro-client:latest astro-server:latest astro-registry:latest prod-astro-collector:latest messaging:latest playground:latest astropods/astro-server:latest astropods/astro-registry:latest astropods/astro-collector:latest astropods/astro-messaging:latest astropods/astro-playground:latest 2>/dev/null || true"
     options:
       runInCI: false
