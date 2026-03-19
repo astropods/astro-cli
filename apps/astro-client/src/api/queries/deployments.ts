@@ -2,13 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import { deploymentKeys } from './keys';
 
-export function useDeployments(account: string, enabled = true, options?: { refetchInterval?: number | false }) {
+export function useDeployments(account: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.all(account),
     queryFn: () => api.listDeployments(account),
     enabled: !!account && enabled,
-    ...options,
   });
 }
 

@@ -18,8 +18,8 @@ import (
 
 func TestImagePullPolicyForMode_Local(t *testing.T) {
 	got := imagePullPolicyForMode("local")
-	if got != corev1.PullIfNotPresent {
-		t.Errorf("imagePullPolicyForMode(\"local\") = %v, want %v", got, corev1.PullIfNotPresent)
+	if got != corev1.PullNever {
+		t.Errorf("imagePullPolicyForMode(\"local\") = %v, want %v", got, corev1.PullNever)
 	}
 }
 

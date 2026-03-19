@@ -142,12 +142,6 @@ export const handlers = [
     });
   }),
 
-  // GET /api/v1/agents/:account (list account agents)
-  http.get('/api/v1/agents/:account', ({ params }) => {
-    const agents = mockAgents.filter((a) => a.account === params.account);
-    return HttpResponse.json<AgentsListResponse>({ agents, count: agents.length });
-  }),
-
   // GET /api/v1/agents/:account/:name/deployment-template/:deploymentId
   http.get('/api/v1/agents/:account/:name/deployment-template/:deploymentId', ({ params }) => {
     if (params.deploymentId === 'dep-cross-account' && params.name === 'data-analyst') {

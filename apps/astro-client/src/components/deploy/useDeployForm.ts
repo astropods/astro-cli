@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
-import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, DeployResponse, ApiError } from "@/lib/api";
+import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
@@ -450,7 +450,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   };
 
   // Submission
-  const deploy = async (): Promise<DeployResponse | undefined> => {
+  const deploy = async () => {
     if (!template || !account || !name) return;
 
     setDeployError(null);
@@ -465,7 +465,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     );
 
     try {
-      return await deployMutation.mutateAsync(spec);
+      await deployMutation.mutateAsync(spec);
     } catch (err) {
       const apiErr = err as ApiError;
       const messages: string[] = [];

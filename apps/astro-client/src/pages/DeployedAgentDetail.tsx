@@ -1,19 +1,26 @@
-import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useLocation } from "react-router";
+import { useState, useEffect } from "react";
+import { useParams, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
+import { Settings, RotateCcw, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { StatusIndicator } from "@/components/StatusIndicator";
+import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
+import { AgentIdentity } from "@/components/AgentIdentity";
+import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
+import { InlineBadge } from "@/components/InlineBadge";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { DeployingDetailView } from "@/components/deployed-agent/detail/DeployingDetailView";
-import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
-import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
-import { useDeployments } from "@/api/queries/deployments";
+import { ExternalUrls } from "@/components/deployed-agent/ExternalUrls";
+import { PodGrid } from "@/components/deployed-agent/PodGrid";
+import { PodLogViewer } from "@/components/deployed-agent/PodLogViewer";
+import { useDeployments, useRestartPod } from "@/api/queries/deployments";
+import { useAgent } from "@/api/queries/agents";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
-import { mapDeploymentStatus } from "@/lib/deployment-utils";
-import type { UILifecycleState } from "@/lib/deployment-utils";
-import { useQueryClient } from "@tanstack/react-query";
-import { deploymentKeys } from "@/api/queries/keys";
+import { mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
+import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
+import { getPodStableName, getPodDisplayName } from "@/lib/pod-utils";
 
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -22,7 +29,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const deploymentId = params.deploymentId ?? "";
 
   const deploymentsData = await api.listDeployments(account).catch(() => ({ deployments: [], count: 0 }));
-  const deployment = deploymentsData.deployments.find((d) => d.id === deploymentId || d.name === deploymentId) ?? null;
+  const deployment = deploymentsData.deployments.find((d) => d.id === deploymentId) ?? null;
 
   return { deploymentsData, deployment, account, deploymentId };
 }
@@ -59,82 +66,29 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
-  const location = useLocation();
-  const queryClient = useQueryClient();
-  const fromDeploy = (location.state as { fromDeploy?: boolean } | null)?.fromDeploy === true;
+  const [searchParams] = useSearchParams();
+  const podName = searchParams.get("pod");
 
-  // Derive initial lifecycle state from loader data
-  const loaderDeployment =
-    loaderData?.deploymentsData?.deployments.find((d) => d.id === deploymentId) ??
-    loaderData?.deployment ??
-    null;
-  const initialStatus = loaderDeployment ? mapDeploymentStatus(loaderDeployment) : null;
+  const { data: deploymentsData } = useDeployments(account, isAuthenticated);
+  const restartMutation = useRestartPod(account);
+  const [showRestarted, setShowRestarted] = useState(false);
 
-  // If navigated here from a deploy action, always start in pending state so the
-  // deploying view is shown even when K8s still reports the previous running state.
-  const [lifecycleState, setLifecycleState] = useState<UILifecycleState>(
-    fromDeploy || initialStatus === 'pending' ? 'pending' : (initialStatus ?? 'active'),
-  );
-
-  // Track whether we entered from pending — only show live-reveal if we transitioned from pending
-  const enteredFromPending = useRef(fromDeploy || initialStatus === 'pending');
-  // Guard to only trigger live-reveal once per mount
-  const liveRevealTriggered = useRef(false);
-
-  // When arriving from a deploy action, immediately invalidate the stale cache so
-  // the first poll returns fresh data rather than a cached pre-deploy snapshot.
   useEffect(() => {
-    if (fromDeploy) {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    if (restartMutation.isSuccess) {
+      setShowRestarted(true);
+      const timer = setTimeout(() => {
+        setShowRestarted(false);
+        restartMutation.reset();
+      }, 2000);
+      return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const { data: deploymentsData } = useDeployments(account, isAuthenticated, {
-    // Poll every 2s while deploying for responsive stage progression
-    refetchInterval: lifecycleState === 'pending' ? 2000 : false,
-  });
+  }, [restartMutation.isSuccess]);
 
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
-  const deployment = deployments.find((d) => d.id === deploymentId || d.name === deploymentId) ?? loaderData?.deployment ?? null;
+  const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
+  const { data: agentData } = useAgent(account, deployment?.name ?? "");
 
-  // Watch deployment status changes to transition lifecycle state
-  useEffect(() => {
-    if (!deployment) return;
-    const status = mapDeploymentStatus(deployment);
-
-    if (lifecycleState === 'pending') {
-      if (status === 'active') {
-        if (enteredFromPending.current && !liveRevealTriggered.current) {
-          liveRevealTriggered.current = true;
-          // Brief pause so the user sees all stages flip to checkmarks before the overlay
-          setTimeout(() => setLifecycleState('live-reveal'), 900);
-        } else {
-          setLifecycleState('active');
-        }
-      } else if (status === 'error') {
-        setLifecycleState('error');
-      }
-      // Never transition pending → inactive: replicas=0 is transient during K8s startup.
-    }
-  }, [deployment?.status, deployment?.ready, deployment?.replicas]);
-
-  // While in a fresh deploy flow and the deployment hasn't appeared yet, keep
-  // polling and show a loading state rather than a "not found" error page.
   if (!deployment) {
-    if (fromDeploy || lifecycleState === 'pending') {
-      return (
-        <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', background: '#ede7d9' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-            <svg style={{ animation: 'spin 1s linear infinite' }} width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#15827d" strokeWidth="2" strokeLinecap="round">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-            <p style={{ fontFamily: "'Geist Mono', monospace", fontSize: 12, color: '#6b7e7c', letterSpacing: '0.06em' }}>Starting deployment…</p>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Deployment not found</h1>
@@ -148,40 +102,109 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     );
   }
 
+  const status = mapDeploymentStatus(deployment);
+  const displayName = deployment.display_name || deployment.name;
+  const latestBuildId = agentData?.versions?.reduce((latest, current) =>
+    new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
+      ? current
+      : latest,
+  )?.build_id;
+  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
+  const pods = deployment.pods ?? [];
+  const selectedPod = podName ? pods.find((p) => getPodStableName(p.name) === podName) ?? null : null;
+  const basePath = deploymentPath(account, deployment.id);
+
   const isPersonal = personalAccount?.name === account;
+  const breadcrumbItems = [
+    isPersonal
+      ? { label: "My Agents", to: "/agents" }
+      : { label: account, to: `/${account}` },
+    ...(selectedPod
+      ? [
+          { label: displayName, to: basePath },
+          { label: getPodDisplayName(getPodStableName(selectedPod.name), deployment.name) },
+        ]
+      : [{ label: displayName }]),
+  ];
 
-  if (lifecycleState === 'live-reveal') {
-    return (
-      <LiveRevealOverlay
-        deployment={deployment}
-        account={account}
-        onComplete={() => setLifecycleState('active')}
-      />
-    );
-  }
-
-  if (lifecycleState === 'pending') {
-    return (
-      <DeployingDetailView
-        deployment={deployment}
-        account={account}
-        isPersonal={isPersonal}
-      />
-    );
-  }
-
-  // active | inactive | error
   return (
-    <ActiveDetailView
-      deployment={deployment}
-      account={account}
-      isPersonal={isPersonal}
-      onRedeploy={() => {
-        enteredFromPending.current = true;
-        liveRevealTriggered.current = false;
-        setLifecycleState('pending');
-      }}
-    />
+    <div className="flex flex-1 flex-col">
+      <PageBreadcrumb
+        items={breadcrumbItems}
+        actions={
+          <Button variant="outline" size="sm" asChild>
+            <Link to={deploymentConfigurePath(account, deployment.id)}>
+              <Settings className="size-3.5" />
+              Configure
+            </Link>
+          </Button>
+        }
+      />
+
+      <div className={`mx-auto w-full ${selectedPod ? "max-w-6xl" : "max-w-3xl"}`}>
+        {/* Header */}
+        <div className="flex items-center gap-4 px-6 py-6">
+          <AgentIdentity account={account} name={deployment.name} size={56} className="size-14 rounded-sm overflow-hidden" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-semibold truncate">{displayName}</h1>
+              <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
+                {deploymentStatusLabel[status]}
+              </StatusIndicator>
+              {hasNewBuildAvailable && (
+                <BuildUpdateBadge
+                  currentBuildId={deployment.build_id}
+                  latestBuildId={latestBuildId}
+                  className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30"
+                />
+              )}
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                Deployed {formatDate(deployment.created_at)}
+              </p>
+              {deployment.build_id && <InlineBadge>{deployment.build_id}</InlineBadge>}
+            </div>
+          </div>
+          {selectedPod && (
+            <Button
+              variant="outline"
+              className="ml-auto"
+              disabled={restartMutation.isPending || showRestarted}
+              onClick={() => restartMutation.mutate({ deploymentId: deployment.id, pod: selectedPod.name })}
+            >
+              {showRestarted ? (
+                <>
+                  <Check className="size-4 text-green-600" />
+                  Restarted
+                </>
+              ) : (
+                <>
+                  <RotateCcw className={`size-4 ${restartMutation.isPending ? "animate-spin" : ""}`} />
+                  Restart Container
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+
+        <div className="mx-6 border-t border-border" />
+
+        {/* External URLs */}
+        {deployment.external_urls && deployment.external_urls.length > 0 && (
+          <ExternalUrls urls={deployment.external_urls} />
+        )}
+
+        {/* Body */}
+        <div className="px-6 py-6">
+          {selectedPod ? (
+            <PodLogViewer deploymentId={deployment.id} pod={selectedPod} />
+          ) : (
+            <PodGrid pods={pods} basePath={basePath} agentName={deployment.name} />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -201,7 +201,7 @@ func langfuseBaseURLForCollector(cfg *config.Config) string {
 
 func imagePullPolicyForMode(mode string) corev1.PullPolicy {
 	if mode == "local" {
-		return corev1.PullIfNotPresent
+		return corev1.PullNever
 	}
 	return corev1.PullAlways
 }
