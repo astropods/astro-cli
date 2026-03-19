@@ -89,6 +89,29 @@ jobs:
         working-directory: ${{ matrix.app.path }}
         run: go build -v ./...
 
+  test-cli-integration:
+    runs-on: ubuntu-latest
+    name: CLI integration tests (ast create + docker build)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: apps/astro-cli/go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Run CLI integration tests
+        working-directory: apps/astro-cli
+        run: gotestsum --format pkgname -- -tags integration ./e2e/...
+
   test-go-integration:
     runs-on: ubuntu-latest
     name: Integration tests (astro-server + Postgres)

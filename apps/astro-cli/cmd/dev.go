@@ -107,8 +107,8 @@ Running '%[1]s dev' without a subcommand is equivalent to '%[1]s dev start'.`, b
 		cmd.Flags().StringVar(&envFile, "env", utils.DefaultEnvFile, "Environment file for integration credentials")
 		cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip pulling images (use only locally built images)")
-		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun); implies --no-pull")
-		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local package (use after %s dev --local); run 'bun install' to restore deps", binaryName))
+		cmd.Flags().BoolVar(&local, "local", false, "Use local images, no pull, run agent as local process (bun for ts, python3 for py); implies --no-pull")
+		cmd.Flags().BoolVar(&localReset, "local-reset", false, fmt.Sprintf("Remove local packages injected by --local (runs 'bun install' for ts, 'pip install -r requirements.txt' for py)", binaryName))
 		_ = cmd.Flags().MarkHidden("local")
 		_ = cmd.Flags().MarkHidden("local-reset")
 	}
@@ -467,7 +467,7 @@ func runLocalAgent(_ *cobra.Command, astroSpec *spec.AstroSpec, workingDir strin
 	// Resolve start command from spec. Default differs by language.
 	startCommand := "bun --watch run start"
 	if isPython {
-		startCommand = "python -m agent.main"
+		startCommand = "python3 -m agent.main"
 	}
 	if astroSpec.Dev != nil && astroSpec.Dev.Command != "" {
 		startCommand = astroSpec.Dev.Command

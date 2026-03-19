@@ -45,3 +45,15 @@ tasks:
 
   unlink:
     command: "rm -f $HOME/go/bin/ast-dev"
+
+  e2e:
+    command: "go test -tags integration -v ./e2e/..."
+    options:
+      persistent: false
+      runInCI: false
+      cache: false
+    inputs:
+      - "e2e/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"

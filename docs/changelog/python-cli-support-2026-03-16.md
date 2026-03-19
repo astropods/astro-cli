@@ -33,6 +33,18 @@ Three Python helpers parallel the TypeScript equivalents:
 
 No changes required for existing TypeScript agents or deployments. This is the first release of Python agent support in the CLI.
 
+## Testing
+
+Integration tests for the Python scaffold live in `apps/astro-cli/e2e/` behind the `integration` build tag. They generate a real project with `GenerateFiles` and run `docker build` to confirm the Dockerfiles are valid. Run locally with:
+
+```bash
+moon run astro-cli:e2e
+# or directly:
+go test -tags integration -v ./e2e/...
+```
+
+The `test-cli-integration` GitHub Actions job runs these automatically on every PR.
+
 ## Test plan
 
 ### Scaffold
