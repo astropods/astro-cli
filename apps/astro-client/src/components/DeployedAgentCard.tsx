@@ -136,7 +136,7 @@ export function DeployedAgentCard({
                 }}
               >
                 <Trash2 />
-                Delete <span className="max-w-[120px] truncate font-semibold">{displayName || name}</span>
+                <span className="flex min-w-0 gap-1">Delete <span className="max-w-[120px] truncate font-semibold">{displayName || name}</span></span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
