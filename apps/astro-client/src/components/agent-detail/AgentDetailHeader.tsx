@@ -24,7 +24,7 @@ export function AgentDetailHeader({
           account={account}
           name={name}
           size={56}
-          className="size-14 shrink-0 rounded-md overflow-hidden border border-stone-200 dark:border-border"
+          className="size-14 shrink-0 rounded-sm overflow-hidden border border-stone-200 dark:border-border"
         />
         <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-2 font-mono text-xl font-bold text-foreground">

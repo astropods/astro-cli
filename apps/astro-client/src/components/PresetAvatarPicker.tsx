@@ -29,7 +29,7 @@ export function PresetAvatarPicker({
             aria-label={avatar.label}
             onClick={() => onChange(avatar.id)}
             className={cn(
-              "relative rounded-lg overflow-hidden transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "relative rounded-full overflow-hidden transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               selected
                 ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
                 : "ring-1 ring-transparent hover:ring-border-strong",

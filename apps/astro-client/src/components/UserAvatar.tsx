@@ -23,7 +23,7 @@ export function UserAvatar({ accountId, name, profilePictureUrl, className }: Us
     <img
       src={getPresetAvatarUrl(accountId)}
       alt={name}
-      className={cn("size-8 shrink-0 rounded-lg object-cover", className)}
+      className={cn("size-8 shrink-0 rounded-full object-cover", className)}
     />
   );
 }
