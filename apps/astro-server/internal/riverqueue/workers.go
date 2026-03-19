@@ -47,9 +47,10 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 	}
 
 	river.AddWorker(workers, &MessageCountSyncWorker{
-		promClient: cfg.PromClient,
-		db:         cfg.DB,
-		log:        cfg.Logger,
+		promClient:   cfg.PromClient,
+		accountStore: cfg.AccountStore,
+		db:           cfg.DB,
+		log:          cfg.Logger,
 	})
 
 	rw := &ReconcileWorker{

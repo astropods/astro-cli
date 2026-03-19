@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
@@ -38,6 +40,9 @@ func promServer(t *testing.T, agents map[string]float64) *httptest.Server {
 	}))
 }
 
+// accountColumns are the columns returned by AccountStore.GetByName.
+var accountColumns = []string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}
+
 func TestWork_ParsesAgentLabel(t *testing.T) {
 	srv := promServer(t, map[string]float64{"acct-1.bot": 42})
 	defer srv.Close()
@@ -45,14 +50,20 @@ func TestWork_ParsesAgentLabel(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
+	mock.ExpectQuery("SELECT a.id").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows(accountColumns).
+			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now()))
+
 	mock.ExpectExec("INSERT INTO agent_message_counts").
-		WithArgs("acct-1", "bot", 42.0).
+		WithArgs("uuid-acct-1", "bot", 42.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := &MessageCountSyncWorker{
-		promClient: promquery.NewClient(srv.URL),
-		db:         db,
-		log:        logger.New("error", "text"),
+		promClient:   promquery.NewClient(srv.URL),
+		accountStore: account.NewAccountStore(db),
+		db:           db,
+		log:          logger.New("error", "text"),
 	}
 
 	err := w.Work(t.Context(), &river.Job[MessageCountSyncArgs]{})
@@ -77,14 +88,20 @@ func TestWork_SkipsMalformedAgentLabels(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
+	mock.ExpectQuery("SELECT a.id").
+		WithArgs("good-acct").
+		WillReturnRows(sqlmock.NewRows(accountColumns).
+			AddRow("uuid-good-acct", "good-acct", "personal", nil, nil, time.Now(), time.Now()))
+
 	mock.ExpectExec("INSERT INTO agent_message_counts").
-		WithArgs("good-acct", "agent", 30.0).
+		WithArgs("uuid-good-acct", "agent", 30.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := &MessageCountSyncWorker{
-		promClient: promquery.NewClient(srv.URL),
-		db:         db,
-		log:        logger.New("error", "text"),
+		promClient:   promquery.NewClient(srv.URL),
+		accountStore: account.NewAccountStore(db),
+		db:           db,
+		log:          logger.New("error", "text"),
 	}
 
 	err := w.Work(t.Context(), &river.Job[MessageCountSyncArgs]{})
@@ -109,9 +126,10 @@ func TestWork_SkipsEmptyAccountOrAgent(t *testing.T) {
 
 	// No SQL should be executed
 	w := &MessageCountSyncWorker{
-		promClient: promquery.NewClient(srv.URL),
-		db:         db,
-		log:        logger.New("error", "text"),
+		promClient:   promquery.NewClient(srv.URL),
+		accountStore: account.NewAccountStore(db),
+		db:           db,
+		log:          logger.New("error", "text"),
 	}
 
 	err := w.Work(t.Context(), &river.Job[MessageCountSyncArgs]{})
@@ -140,10 +158,10 @@ func TestUpsertMessageCount_Insert(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectExec("INSERT INTO agent_message_counts").
-		WithArgs("acct-1", "bot", 100.0).
+		WithArgs("uuid-1", "bot", 100.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := upsertMessageCount(t.Context(), db, "acct-1", "bot", 100.0)
+	err := upsertMessageCount(t.Context(), db, "uuid-1", "bot", 100.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -158,10 +176,10 @@ func TestUpsertMessageCount_Update(t *testing.T) {
 
 	// Simulates an update (ON CONFLICT path) — same SQL, different value
 	mock.ExpectExec("INSERT INTO agent_message_counts").
-		WithArgs("acct-1", "bot", 200.0).
+		WithArgs("uuid-1", "bot", 200.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := upsertMessageCount(t.Context(), db, "acct-1", "bot", 200.0)
+	err := upsertMessageCount(t.Context(), db, "uuid-1", "bot", 200.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -176,10 +194,10 @@ func TestUpsertMessageCount_CounterReset(t *testing.T) {
 
 	// A lower value than before simulates a counter reset (pod restart)
 	mock.ExpectExec("INSERT INTO agent_message_counts").
-		WithArgs("acct-1", "bot", 5.0).
+		WithArgs("uuid-1", "bot", 5.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := upsertMessageCount(t.Context(), db, "acct-1", "bot", 5.0)
+	err := upsertMessageCount(t.Context(), db, "uuid-1", "bot", 5.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

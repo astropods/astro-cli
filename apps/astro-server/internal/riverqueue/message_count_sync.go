@@ -7,6 +7,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 )
@@ -20,9 +21,10 @@ func (MessageCountSyncArgs) Kind() string { return "metrics.message_count_sync" 
 // and accumulates lifetime totals in Postgres, surviving counter resets.
 type MessageCountSyncWorker struct {
 	river.WorkerDefaults[MessageCountSyncArgs]
-	promClient *promquery.Client
-	db         *sql.DB
-	log        *logger.Logger
+	promClient   *promquery.Client
+	accountStore *account.AccountStore
+	db           *sql.DB
+	log          *logger.Logger
 }
 
 func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageCountSyncArgs]) error {
@@ -43,15 +45,23 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 
 	for _, s := range samples {
 		// The "agent" label is set by Alloy relabeling from the astro.dev/agent
-		// pod label, which uses "account.agent" format (see deployment/naming.go).
+		// pod label, which uses "account_name.agent_name" format (see deployment/naming.go).
 		agentLabel := s.Labels["agent"]
-		accountID, agentName, ok := strings.Cut(agentLabel, ".")
-		if !ok || accountID == "" || agentName == "" {
+		accountName, agentName, ok := strings.Cut(agentLabel, ".")
+		if !ok || accountName == "" || agentName == "" {
 			continue
 		}
-		if err := upsertMessageCount(ctx, w.db, accountID, agentName, s.Value); err != nil {
+		acct, err := w.accountStore.GetByName(accountName)
+		if err != nil {
+			w.log.Error("Message count sync: account lookup failed",
+				"account_name", accountName,
+				"error", err,
+			)
+			continue
+		}
+		if err := upsertMessageCount(ctx, w.db, acct.ID, agentName, s.Value); err != nil {
 			w.log.Error("Message count sync: upsert failed",
-				"account_id", accountID,
+				"account_id", acct.ID,
 				"agent_name", agentName,
 				"error", err,
 			)
@@ -68,14 +78,14 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 func upsertMessageCount(ctx context.Context, db *sql.DB, accountID, agentName string, currentValue float64) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO agent_message_counts (account_id, agent_name, lifetime_total, last_prom_value, updated_at)
-		VALUES ($1, $2, $3, $3, now())
+		VALUES ($1, $2, $3::bigint, $3::double precision, now())
 		ON CONFLICT (account_id, agent_name) DO UPDATE SET
 			lifetime_total = agent_message_counts.lifetime_total + CASE
-				WHEN $3 >= agent_message_counts.last_prom_value
-				THEN $3 - agent_message_counts.last_prom_value
-				ELSE $3
+				WHEN $3::double precision >= agent_message_counts.last_prom_value
+				THEN ($3::double precision - agent_message_counts.last_prom_value)::bigint
+				ELSE $3::bigint
 			END,
-			last_prom_value = $3,
+			last_prom_value = $3::double precision,
 			updated_at = now()
 	`, accountID, agentName, currentValue)
 	return err
