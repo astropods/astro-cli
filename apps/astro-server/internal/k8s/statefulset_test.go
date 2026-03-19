@@ -191,6 +191,39 @@ func TestBuildStatefulSet(t *testing.T) {
 		}
 	})
 
+	t.Run("qdrant snapshots emptyDir", func(t *testing.T) {
+		ss := mustBuildStatefulSet(t, tests[0].cfg)
+		container := ss.Spec.Template.Spec.Containers[0]
+
+		// Should have data mount + snapshots emptyDir
+		if len(container.VolumeMounts) < 2 {
+			t.Fatalf("expected at least 2 volume mounts, got %d", len(container.VolumeMounts))
+		}
+		found := false
+		for _, vm := range container.VolumeMounts {
+			if vm.MountPath == "/qdrant/snapshots" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("expected volume mount for /qdrant/snapshots")
+		}
+
+		// Verify matching emptyDir volume exists on pod spec
+		volumes := ss.Spec.Template.Spec.Volumes
+		foundVol := false
+		for _, v := range volumes {
+			if v.EmptyDir != nil && v.Name == "extra-0" {
+				foundVol = true
+				break
+			}
+		}
+		if !foundVol {
+			t.Error("expected emptyDir volume extra-0")
+		}
+	})
+
 	t.Run("redis port and mount", func(t *testing.T) {
 		ss := mustBuildStatefulSet(t, tests[1].cfg)
 		container := ss.Spec.Template.Spec.Containers[0]

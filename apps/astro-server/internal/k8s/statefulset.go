@@ -85,16 +85,24 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 		})
 	}
 
-	container := corev1.Container{
-		Name:  "app",
-		Image: cfg.Container.Image,
-		Ports: containerPorts,
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "data",
-				MountPath: mountPath,
-			},
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "data",
+			MountPath: mountPath,
 		},
+	}
+	for i, dir := range prov.ExtraEmptyDirs {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      fmt.Sprintf("extra-%d", i),
+			MountPath: dir,
+		})
+	}
+
+	container := corev1.Container{
+		Name:            "app",
+		Image:           cfg.Container.Image,
+		Ports:           containerPorts,
+		VolumeMounts:    volumeMounts,
 		ImagePullPolicy: ssPullPolicy,
 	}
 
@@ -209,10 +217,18 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 					Labels: labels,
 				},
 				Spec: func() corev1.PodSpec {
+					var extraVolumes []corev1.Volume
+					for i := range prov.ExtraEmptyDirs {
+						extraVolumes = append(extraVolumes, corev1.Volume{
+							Name:         fmt.Sprintf("extra-%d", i),
+							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+						})
+					}
 					ps := corev1.PodSpec{
 						Containers:   []corev1.Container{container},
 						NodeSelector: cfg.NodeSelector,
 						Tolerations:  cfg.Tolerations,
+						Volumes:      extraVolumes,
 					}
 					hardenPodSpec(&ps)
 					return ps

@@ -47,7 +47,8 @@ type BuiltinProvider struct {
 	GPU            bool
 	NodeSelector   map[string]string
 	Tolerations    []Toleration
-	WritableRootFS bool // true → skip readOnlyRootFilesystem (e.g. qdrant writes outside its data mount)
+	WritableRootFS bool     // true → skip readOnlyRootFilesystem (e.g. qdrant writes outside its data mount)
+	ExtraEmptyDirs []string // extra paths that need writable emptyDir mounts (e.g. "/qdrant/snapshots")
 }
 
 // builtinProviders is the single authoritative list of all platform-known providers.
@@ -95,6 +96,7 @@ var builtinProviders = []BuiltinProvider{
 		MountPath:  "/qdrant/storage", EnvPrefix: "QDRANT", URLScheme: "http",
 		HealthPath:     "/healthz",
 		WritableRootFS: true,
+		ExtraEmptyDirs: []string{"/qdrant/snapshots"},
 	},
 	{
 		Name: "redis", Section: "knowledge",
