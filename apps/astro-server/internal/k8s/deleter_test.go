@@ -152,7 +152,7 @@ func TestDeleter_DeleteAll(t *testing.T) {
 	ctx := context.Background()
 
 	deleter := NewDeleter(client, testNS)
-	result, err := deleter.Delete(ctx, "", testAgent, testBuild)
+	result, err := deleter.Delete(ctx, testAgent, testBuild)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestDeleter_DeleteIngresses(t *testing.T) {
 	}, metav1.CreateOptions{})
 
 	deleter := NewDeleter(client, testNS)
-	result, err := deleter.Delete(ctx, "", testAgent, testBuild)
+	result, err := deleter.Delete(ctx, testAgent, testBuild)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestDeleter_EmptyNamespace(t *testing.T) {
 	}, metav1.CreateOptions{})
 
 	deleter := NewDeleter(client, testNS)
-	result, err := deleter.Delete(ctx, "", testAgent, "")
+	result, err := deleter.Delete(ctx, testAgent, "")
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}

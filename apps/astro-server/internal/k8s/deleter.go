@@ -30,7 +30,7 @@ type DeleteResult struct {
 }
 
 // Delete deletes all resources for an agent deployment
-func (d *Deleter) Delete(ctx context.Context, accountName, agentName, buildID string) (*DeleteResult, error) {
+func (d *Deleter) Delete(ctx context.Context, agentName, buildID string) (*DeleteResult, error) {
 	result := &DeleteResult{
 		Resources: []deployment.ResourceStatus{},
 		Errors:    []deployment.DeploymentError{},
@@ -39,30 +39,27 @@ func (d *Deleter) Delete(ctx context.Context, accountName, agentName, buildID st
 	// Sanitize buildID for resource names (replace dots with hyphens)
 	buildIDSanitized := deployment.SanitizeName(buildID)
 
-	// Compute label selector once for all resource-type queries
-	labelSelector := fmt.Sprintf("%s=%s", deployment.LabelKeyAgent, deployment.AgentLabelValue(accountName, agentName))
-
 	// Delete resources in reverse order (opposite of creation)
 	// Jobs and CronJobs first
-	d.deleteJobs(ctx, labelSelector, result)
-	d.deleteCronJobs(ctx, labelSelector, result)
+	d.deleteJobs(ctx, result)
+	d.deleteCronJobs(ctx, result)
 
 	// Ingresses
-	d.deleteIngresses(ctx, labelSelector, result)
+	d.deleteIngresses(ctx, result)
 
 	// Deployments and StatefulSets
-	d.deleteDeployments(ctx, labelSelector, result)
-	d.deleteStatefulSets(ctx, labelSelector, result)
+	d.deleteDeployments(ctx, result)
+	d.deleteStatefulSets(ctx, result)
 
 	// Services
-	d.deleteServices(ctx, labelSelector, result)
+	d.deleteServices(ctx, result)
 
 	// ConfigMaps and Secrets
 	d.deleteConfigMap(ctx, agentName, buildIDSanitized, result)
 	d.deleteSecret(ctx, agentName, buildIDSanitized, result)
 
 	// PersistentVolumeClaims (created by StatefulSets)
-	d.deletePVCs(ctx, labelSelector, result)
+	d.deletePVCs(ctx, result)
 
 	// Finally, delete the namespace itself
 	d.deleteNamespace(ctx, result)
@@ -70,12 +67,9 @@ func (d *Deleter) Delete(ctx context.Context, accountName, agentName, buildID st
 	return result, nil
 }
 
-// deleteCronJobs deletes all CronJobs matching the agent
-func (d *Deleter) deleteCronJobs(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	cronJobs, err := d.clientset.BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deleteCronJobs deletes all CronJobs in the namespace
+func (d *Deleter) deleteCronJobs(ctx context.Context, result *DeleteResult) {
+	cronJobs, err := d.clientset.BatchV1().CronJobs(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "CronJobs",
@@ -104,12 +98,9 @@ func (d *Deleter) deleteCronJobs(ctx context.Context, labelSelector string, resu
 	}
 }
 
-// deleteJobs deletes all Jobs matching the agent
-func (d *Deleter) deleteJobs(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	jobs, err := d.clientset.BatchV1().Jobs(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deleteJobs deletes all Jobs in the namespace
+func (d *Deleter) deleteJobs(ctx context.Context, result *DeleteResult) {
+	jobs, err := d.clientset.BatchV1().Jobs(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "Jobs",
@@ -141,12 +132,9 @@ func (d *Deleter) deleteJobs(ctx context.Context, labelSelector string, result *
 	}
 }
 
-// deleteIngresses deletes all Ingresses matching the agent
-func (d *Deleter) deleteIngresses(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	ingresses, err := d.clientset.NetworkingV1().Ingresses(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deleteIngresses deletes all Ingresses in the namespace
+func (d *Deleter) deleteIngresses(ctx context.Context, result *DeleteResult) {
+	ingresses, err := d.clientset.NetworkingV1().Ingresses(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "Ingresses",
@@ -175,12 +163,9 @@ func (d *Deleter) deleteIngresses(ctx context.Context, labelSelector string, res
 	}
 }
 
-// deleteDeployments deletes all Deployments matching the agent
-func (d *Deleter) deleteDeployments(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	deployments, err := d.clientset.AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deleteDeployments deletes all Deployments in the namespace
+func (d *Deleter) deleteDeployments(ctx context.Context, result *DeleteResult) {
+	deployments, err := d.clientset.AppsV1().Deployments(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "Deployments",
@@ -209,12 +194,9 @@ func (d *Deleter) deleteDeployments(ctx context.Context, labelSelector string, r
 	}
 }
 
-// deleteStatefulSets deletes all StatefulSets matching the agent
-func (d *Deleter) deleteStatefulSets(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	statefulSets, err := d.clientset.AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deleteStatefulSets deletes all StatefulSets in the namespace
+func (d *Deleter) deleteStatefulSets(ctx context.Context, result *DeleteResult) {
+	statefulSets, err := d.clientset.AppsV1().StatefulSets(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "StatefulSets",
@@ -243,12 +225,9 @@ func (d *Deleter) deleteStatefulSets(ctx context.Context, labelSelector string, 
 	}
 }
 
-// deleteServices deletes all Services matching the agent
-func (d *Deleter) deleteServices(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	services, err := d.clientset.CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deleteServices deletes all Services in the namespace
+func (d *Deleter) deleteServices(ctx context.Context, result *DeleteResult) {
+	services, err := d.clientset.CoreV1().Services(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "Services",
@@ -319,12 +298,9 @@ func (d *Deleter) deleteSecret(ctx context.Context, agentName, buildIDSanitized 
 	}
 }
 
-// deletePVCs deletes all PersistentVolumeClaims matching the agent (created by StatefulSets)
-func (d *Deleter) deletePVCs(ctx context.Context, labelSelector string, result *DeleteResult) {
-
-	pvcs, err := d.clientset.CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-	})
+// deletePVCs deletes all PersistentVolumeClaims in the namespace (created by StatefulSets)
+func (d *Deleter) deletePVCs(ctx context.Context, result *DeleteResult) {
+	pvcs, err := d.clientset.CoreV1().PersistentVolumeClaims(d.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		result.Errors = append(result.Errors, deployment.DeploymentError{
 			Resource: "PersistentVolumeClaims",
