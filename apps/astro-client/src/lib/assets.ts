@@ -5,8 +5,8 @@
  * @param path - Asset path relative to the assets root, e.g. "integrations/light/github.svg"
  */
 export function getAssetUrl(path: string): string {
-  const base = import.meta.env.VITE_ASSETS_URL ?? "";
-  return `${base}/assets/${path}`;
+  const base = import.meta.env.VITE_ASSETS_URL;
+  return base ? `${base}/${path}` : `/assets/${path}`;
 }
 
 /**
