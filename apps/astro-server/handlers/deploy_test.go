@@ -220,7 +220,8 @@ func setupListDeploymentsTest(t *testing.T, k8sHandler http.Handler) (*gin.Engin
 // k8sListHandler returns an http.Handler that serves K8s API requests for
 // ListDeployments: namespace GET, deployments LIST, ingresses LIST, pods LIST, jobs LIST.
 // It uses the provided namespace/agent/build to populate the response objects.
-func k8sListHandler(namespace, agentName, buildID string) http.Handler {
+// The agentLabel parameter sets the astro.dev/agent label (account-qualified format).
+func k8sListHandler(namespace, agentLabel, buildID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		path := r.URL.Path
@@ -242,7 +243,7 @@ func k8sListHandler(namespace, agentName, buildID string) http.Handler {
 				"apiVersion":"apps/v1",
 				"items":[{
 					"metadata":{
-						"name":"%s-agent",
+						"name":"agent",
 						"namespace":%q,
 						"creationTimestamp":"2026-03-12T21:08:24Z",
 						"labels":{
@@ -255,7 +256,7 @@ func k8sListHandler(namespace, agentName, buildID string) http.Handler {
 					"spec":{"replicas":1},
 					"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}
 				}]
-			}`, agentName, namespace, agentName, buildID)
+			}`, namespace, agentLabel, buildID)
 			return
 		}
 
@@ -272,7 +273,7 @@ func k8sListHandler(namespace, agentName, buildID string) http.Handler {
 				"apiVersion":"v1",
 				"items":[{
 					"metadata":{
-						"name":"%s-agent-abc123",
+						"name":"agent-abc123",
 						"namespace":%q,
 						"creationTimestamp":"2026-03-12T21:08:24Z",
 						"labels":{
@@ -294,7 +295,7 @@ func k8sListHandler(namespace, agentName, buildID string) http.Handler {
 					},
 					"spec":{"containers":[{"name":"app"}]}
 				}]
-			}`, agentName, namespace, agentName, buildID)
+			}`, namespace, agentLabel, buildID)
 			return
 		}
 
@@ -370,6 +371,68 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 	}
 	if dep.Name != agentName {
 		t.Errorf("expected name %q, got %q", agentName, dep.Name)
+	}
+}
+
+func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
+	// The astro.dev/agent label is account-qualified ("myaccount.sasbot") but
+	// the Name returned to the frontend must be the plain agent name from the DB.
+	depID := deployid.New()
+	namespace := "astro-abc123def-0"
+	agentName := "sasbot"
+	agentLabel := "myaccount.sasbot" // account-qualified label on k8s resources
+	buildID := "build-1"
+
+	router, deployMock, accountMock := setupListDeploymentsTest(t,
+		k8sListHandler(namespace, agentLabel, buildID))
+
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
+		}).AddRow("acct-1", "myaccount", "organization", nil, nil, now, now))
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
+			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+			"status", "error_message", "error_details", "status_changed_at", "current_revision",
+			"deployed_at", "undeployed_at",
+		}).AddRow(
+			depID, "acct-1", agentName, buildID, namespace, "Sas Bot",
+			`{}`, nil, nil,
+			"active", nil, nil, now, 1,
+			now, nil,
+		))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myaccount", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Count       int               `json:"count"`
+		Deployments []AgentDeployment `json:"deployments"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Count != 1 {
+		t.Fatalf("expected count=1, got %d", resp.Count)
+	}
+	dep := resp.Deployments[0]
+	if dep.Name != agentName {
+		t.Errorf("expected plain agent name %q, got %q (account-qualified label leaked)", agentName, dep.Name)
+	}
+	if dep.Name == agentLabel {
+		t.Errorf("agent label value %q leaked to frontend as Name", agentLabel)
 	}
 }
 

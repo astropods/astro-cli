@@ -740,9 +740,12 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				continue
 			}
 
-			// Populate DB-owned fields on all K8s deployment entries for this namespace
+			// Populate DB-owned fields on all K8s deployment entries for this namespace.
+			// The DB is the source of truth for agent name — k8s labels must not
+			// leak into frontend responses.
 			for i := range deps {
 				deps[i].ID = dbDep.ID
+				deps[i].Name = dbDep.AgentName
 				deps[i].DisplayName = dbDep.DisplayName
 			}
 			allDeployments = append(allDeployments, deps...)
@@ -833,12 +836,12 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agentName:version" -> endpoints
 	if ingressList != nil {
 		for _, ing := range ingressList.Items {
-			agentName := ing.Labels[deployment.LabelKeyAgent]
+			agentKey := ing.Labels[deployment.LabelKeyAgent]
 			version := ing.Labels["app.kubernetes.io/version"]
 			component := ing.Labels["app.kubernetes.io/component"]
 
-			if agentName != "" && len(ing.Spec.Rules) > 0 {
-				key := agentName + ":" + version
+			if agentKey != "" && len(ing.Spec.Rules) > 0 {
+				key := agentKey + ":" + version
 				host := ing.Spec.Rules[0].Host
 				if host != "" {
 					agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
@@ -855,15 +858,15 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	agentDeployments := make(map[string]*AgentDeployment)
 
 	for _, dep := range deploymentList.Items {
-		agentName := dep.Labels[deployment.LabelKeyAgent]
+		agentKey := dep.Labels[deployment.LabelKeyAgent]
 		version := dep.Labels["app.kubernetes.io/version"]
 		component := dep.Labels["app.kubernetes.io/component"]
 
-		if agentName == "" {
+		if agentKey == "" {
 			continue
 		}
 
-		key := agentName + ":" + version
+		key := agentKey + ":" + version
 		info, exists := agentDeployments[key]
 		if !exists {
 			status := "Running"
@@ -875,7 +878,6 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			}
 
 			info = &AgentDeployment{
-				Name:             agentName,
 				BuildID:          version,
 				Namespace:        namespace,
 				Status:           status,
@@ -915,19 +917,18 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 	// Attach Jobs to their respective agent deployments (and create entries for job-only agents)
 	for _, job := range jobList.Items {
-		agentName := job.Labels[deployment.LabelKeyAgent]
+		agentKey := job.Labels[deployment.LabelKeyAgent]
 		version := job.Labels["app.kubernetes.io/version"]
 		component := job.Labels["app.kubernetes.io/component"]
-		if agentName == "" {
+		if agentKey == "" {
 			continue
 		}
 
-		key := agentName + ":" + version
+		key := agentKey + ":" + version
 		info, exists := agentDeployments[key]
 		if !exists {
 			// Job exists but no Deployment entry — create a stub so it's visible
 			info = &AgentDeployment{
-				Name:             agentName,
 				BuildID:          version,
 				Namespace:        namespace,
 				Status:           "Running",
@@ -963,13 +964,13 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 	// Attach pods to their respective agent deployments
 	for _, pod := range podList.Items {
-		agentName := pod.Labels[deployment.LabelKeyAgent]
+		agentKey := pod.Labels[deployment.LabelKeyAgent]
 		version := pod.Labels["app.kubernetes.io/version"]
-		if agentName == "" {
+		if agentKey == "" {
 			continue
 		}
 
-		key := agentName + ":" + version
+		key := agentKey + ":" + version
 		info, exists := agentDeployments[key]
 		if !exists {
 			continue
