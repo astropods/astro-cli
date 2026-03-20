@@ -31,9 +31,19 @@ const PRESETS: Preset[] = [
 ];
 
 const CUSTOM_VALUE = "__custom__";
+const NOON = 12;
+  
+const formatHour12 = (hour24: number): string => {
+  const period = hour24 >= NOON ? "PM" : "AM";
+  let hour12 = hour24 % NOON;
+  if (hour12 === 0) hour12 = NOON;
+  return `${hour12} ${period}`;
+};
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+import { isValidCron } from "./cron-validation";
 
 const parseCronField = (field: string, wildcard: string): string =>
   field === wildcard ? "*" : field;
@@ -56,9 +66,8 @@ const describeCron = (cron: string): string => {
     const h = parseInt(hour, 10);
     const m = parseInt(minute, 10);
     if (!isNaN(h) && !isNaN(m)) {
-      const ampm = h >= 12 ? "PM" : "AM";
-      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-      segments.push(`at ${h12}:${String(m).padStart(2, "0")} ${ampm}`);
+      const [hour12, period] = formatHour12(h).split(" ");
+      segments.push(`at ${hour12}:${String(m).padStart(2, "0")} ${period}`);
     }
   } else if (minute !== "*") {
     segments.push(`at minute ${minute}`);
@@ -112,10 +121,15 @@ export function SchedulePicker({ label, value, onChange, error }: SchedulePicker
     return ["*", "*", "*", "*", "*"];
   });
 
+  const [cronText, setCronText] = useState(() => customFields.join(" "));
+  const [cronError, setCronError] = useState("");
+
   const handlePresetChange = (selected: string) => {
     if (selected === CUSTOM_VALUE) {
       setMode("custom");
       const assembled = customFields.join(" ");
+      setCronText(assembled);
+      setCronError("");
       onChange(assembled === "* * * * *" ? "" : assembled);
       return;
     }
@@ -128,9 +142,24 @@ export function SchedulePicker({ label, value, onChange, error }: SchedulePicker
     setCustomFields((prev) => {
       const next = [...prev] as [string, string, string, string, string];
       next[index] = fieldValue;
-      onChange(next.join(" "));
+      const assembled = next.join(" ");
+      setCronText(assembled);
+      setCronError("");
+      onChange(assembled);
       return next;
     });
+  };
+
+  const applyCronText = () => {
+    const trimmed = cronText.trim();
+    if (!isValidCron(trimmed)) {
+      setCronError("Invalid cron expression — use 5 fields: minute hour day month weekday");
+      return;
+    }
+    setCronError("");
+    const parts = trimmed.split(/\s+/) as [string, string, string, string, string];
+    setCustomFields(parts);
+    onChange(trimmed);
   };
 
   const selectValue = mode === "custom" ? CUSTOM_VALUE : (matchedPreset?.cron ?? "");
@@ -187,14 +216,22 @@ export function SchedulePicker({ label, value, onChange, error }: SchedulePicker
               options={dowOptions}
             />
           </div>
-          <div className="flex items-center gap-3">
-            <Label className="shrink-0 text-muted-foreground text-xs">Cron expression</Label>
-            <Input
-              readOnly
-              value={customFields.join(" ")}
-              variant="code"
-              className="h-8 text-xs"
-            />
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <Label className="shrink-0 text-muted-foreground text-xs">Cron expression</Label>
+              <Input
+                value={cronText}
+                onChange={(e) => setCronText(e.target.value)}
+                onBlur={applyCronText}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                variant="code"
+                className="h-8 text-xs"
+                aria-invalid={!!cronError}
+              />
+            </div>
+            {cronError && (
+              <p className="text-xs text-destructive">{cronError}</p>
+            )}
           </div>
         </div>
       )}
@@ -237,6 +274,10 @@ const CronFieldSelect = ({ label, value, onChange, options }: CronFieldSelectPro
 
 const minuteOptions = [
   { value: "*", label: "Every minute" },
+  { value: "*/5", label: "Every 5 min" },
+  { value: "*/10", label: "Every 10 min" },
+  { value: "*/15", label: "Every 15 min" },
+  { value: "*/30", label: "Every 30 min" },
   ...Array.from({ length: 60 }, (_, i) => ({
     value: String(i),
     label: String(i).padStart(2, "0"),
@@ -245,9 +286,14 @@ const minuteOptions = [
 
 const hourOptions = [
   { value: "*", label: "Every hour" },
+  { value: "*/2", label: "Every 2 hrs" },
+  { value: "*/3", label: "Every 3 hrs" },
+  { value: "*/4", label: "Every 4 hrs" },
+  { value: "*/6", label: "Every 6 hrs" },
+  { value: "*/12", label: "Every 12 hrs" },
   ...Array.from({ length: 24 }, (_, i) => ({
     value: String(i),
-    label: `${i === 0 ? 12 : i > 12 ? i - 12 : i} ${i >= 12 ? "PM" : "AM"}`,
+    label: formatHour12(i),
   })),
 ];
 
