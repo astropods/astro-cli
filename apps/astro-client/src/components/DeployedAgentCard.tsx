@@ -16,7 +16,6 @@ import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useAgent } from "@/api/queries/agents";
 import { getAgentIntegrations } from "@/lib/agent-utils";
-import { useAuth } from "@/lib/use-auth";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
@@ -28,7 +27,7 @@ export interface DeployedAgentCardProps {
   displayName?: string;
   deploymentId: string;
   account: string;
-  href: string;
+  href?: string;
   status: DeployedAgentStatus;
   requests: number;
   lastActive: string;
@@ -63,7 +62,6 @@ export function DeployedAgentCard({
   hasNewBuildAvailable = false,
   className,
 }: DeployedAgentCardProps) {
-  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -84,104 +82,105 @@ export function DeployedAgentCard({
     account,
     avatar: cardAvatar,
     stats: [
-      {
-        label: "Deployed by",
-        account: {
-          fullName: [user?.first_name, user?.last_name].filter(Boolean).join(" ") || account,
-          handle: account,
-          avatarUrl: user?.profile_picture_url ?? null,
-        },
-      },
       { label: "Deployed", value: installedAt },
       { label: "From", value: `${account}/${name}` },
     ],
     barcodeId: deploymentId,
     qrUrl: `${window.location.origin}/${account}/${name}`,
-  }), [name, displayName, account, cardAvatar, user, installedAt, deploymentId]);
+  }), [name, displayName, account, cardAvatar, installedAt, deploymentId]);
+
+  const cardClassName = cn(
+    "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-background px-4 py-3 transition-all duration-150",
+    href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400" : "cursor-default opacity-70",
+    className,
+  );
+
+  const cardContent = (
+    <>
+      <div className="absolute top-3 right-3" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
+              aria-label="Agent options"
+            >
+              <EllipsisVertical className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() => {
+                setMenuOpen(false);
+                setShareOpen(true);
+              }}
+            >
+              <Share2 />
+              Share agent badge
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => {
+                setMenuOpen(false);
+                setDeleteOpen(true);
+              }}
+            >
+              <Trash2 />
+              Delete agent
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={name}
+            className="h-9 w-9 shrink-0 rounded-sm object-cover"
+          />
+        ) : (
+          <AgentIdentity
+            account={account}
+            name={name}
+            size={36}
+            className="h-9 w-9 shrink-0 rounded-sm overflow-hidden"
+          />
+        )}
+        <div className="min-w-0 flex-1 pr-6">
+          <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
+            {displayName || name}
+          </p>
+          <div className="mt-1 flex items-center gap-2">
+            <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
+              {deploymentStatusLabel[status]}
+            </StatusIndicator>
+            {hasNewBuildAvailable && (
+              <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
+                update
+              </InlineBadge>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
+        <MetricCell label="Requests" value={requests.toLocaleString()} />
+        <MetricCell label="Last active" value={lastActive} />
+        <MetricCell label="Installed" value={installedAt} />
+        <MetricCell label="Updated" value={updatedAt} />
+      </div>
+    </>
+  );
 
   return (
     <>
-      <Link
-        to={href}
-        className={cn(
-          "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-background px-4 py-3 transition-all duration-150 hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400",
-          className,
-        )}
-      >
-        <div className="absolute top-3 right-3" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
-                aria-label="Agent options"
-              >
-                <EllipsisVertical className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => {
-                  setMenuOpen(false);
-                  setShareOpen(true);
-                }}
-              >
-                <Share2 />
-                Share agent badge
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  setMenuOpen(false);
-                  setDeleteOpen(true);
-                }}
-              >
-                <Trash2 />
-                Delete agent
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      {href ? (
+        <Link to={href} className={cardClassName}>{cardContent}</Link>
+      ) : (
+        <div className={cardClassName}>{cardContent}</div>
+      )}
 
-        <div className="flex items-center gap-3">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={name}
-              className="h-9 w-9 shrink-0 rounded-sm object-cover"
-            />
-          ) : (
-            <AgentIdentity
-              account={account}
-              name={name}
-              size={36}
-              className="h-9 w-9 shrink-0 rounded-sm overflow-hidden"
-            />
-          )}
-          <div className="min-w-0 flex-1 pr-6">
-            <p className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary dark:group-hover:text-primary-200">
-              {displayName || name}
-            </p>
-            <div className="mt-1 flex items-center gap-2">
-              <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
-                {deploymentStatusLabel[status]}
-              </StatusIndicator>
-              {hasNewBuildAvailable && (
-                <InlineBadge className="text-teal-700 bg-teal-50 border-teal-200 dark:text-teal-200 dark:bg-teal-900/40 dark:border-teal-300/30">
-                  update
-                </InlineBadge>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
-          <MetricCell label="Requests" value={requests.toLocaleString()} />
-          <MetricCell label="Last active" value={lastActive} />
-          <MetricCell label="Installed" value={installedAt} />
-          <MetricCell label="Updated" value={updatedAt} />
-        </div>
-      </Link>
 
       <DeleteDeploymentDialog
         open={deleteOpen}

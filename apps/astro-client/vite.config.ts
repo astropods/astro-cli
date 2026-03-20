@@ -38,6 +38,14 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       !process.env.STORYBOOK && reactRouter(),
     ].filter(Boolean),
+    // Workspace package `astro-trading-card` imports `uqr`; SSR must bundle them so
+    // Node resolves from the Vite graph (avoids "Cannot find module 'uqr'" in dev).
+    optimizeDeps: {
+      include: ["uqr", "astro-trading-card"],
+    },
+    ssr: {
+      noExternal: ["astro-trading-card", "uqr"],
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

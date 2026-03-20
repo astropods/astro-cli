@@ -83,6 +83,7 @@ export function useDeployAgent(account: string, agentName: string) {
       queryClient.invalidateQueries({ queryKey: agentKeys.template(account, agentName) });
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, agentName) });
       queryClient.invalidateQueries({ queryKey: agentKeys.byAccount(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.history(account, agentName) });
     },
   });
 }

@@ -17,10 +17,11 @@ export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
 };
 
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
-  if (deployment.status === "error" || (deployment.ready === 0 && deployment.replicas > 0)) {
+  const s = deployment.status?.toLowerCase() ?? "";
+  if (s === "error" || s === "failed" || s === "crashloopbackoff" || (deployment.ready === 0 && deployment.replicas > 0)) {
     return "error";
   }
-  if (deployment.status === "pending" || deployment.ready < deployment.replicas) {
+  if (s === "pending" || s === "deploying" || deployment.ready < deployment.replicas) {
     return "pending";
   }
   if (deployment.replicas === 0) {

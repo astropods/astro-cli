@@ -331,7 +331,7 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// GetVisibleDeploymentsByAccount
-	deployMock.ExpectQuery(`SELECT`).
+		deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "agent_name", "build_id", "namespace", "display_name",
 			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",

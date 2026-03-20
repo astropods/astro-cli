@@ -24,8 +24,11 @@ export function useDeploymentLogs(
   pod: string,
   container: string,
   timeRange = '1h',
+  options?: { enabled?: boolean },
 ) {
   const api = useApiClient();
+  const baseEnabled = !!deploymentId && !!pod && !!container;
+  const enabled = (options?.enabled ?? true) && baseEnabled;
   return useQuery({
     queryKey: deploymentKeys.logs(deploymentId, pod, container, timeRange),
     queryFn: () => {
@@ -33,7 +36,7 @@ export function useDeploymentLogs(
       const since = ms ? new Date(Date.now() - ms).toISOString() : undefined;
       return api.getDeploymentLogs(deploymentId, pod, container, since);
     },
-    enabled: !!deploymentId && !!pod && !!container,
+    enabled,
     staleTime: 0,
     gcTime: 1000 * 30,
   });
@@ -43,9 +46,19 @@ export function useUndeployAgent(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<import('@/lib/api').UndeployResponse, Error, { deployment_id: string }>({
     mutationFn: api.undeployAgent.bind(api),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      // Optimistically remove from cache so it doesn't flash back to "deploying"
+      // while K8s is still tearing down
+      queryClient.setQueriesData(
+        { queryKey: deploymentKeys.all(account) },
+        (old: import('@/lib/api').DeploymentsListResponse | undefined) => {
+          if (!old) return old;
+          const filtered = old.deployments.filter((d) => d.id !== variables.deployment_id);
+          return { ...old, deployments: filtered, count: filtered.length };
+        },
+      );
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
     },
   });

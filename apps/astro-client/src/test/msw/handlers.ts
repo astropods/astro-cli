@@ -106,8 +106,20 @@ export const mockDeployments: DeploymentsListResponse = {
       created_at: '2025-04-02T00:00:00Z',
       components: ['deployment', 'service'],
     },
+    {
+      id: 'dep-error-agent',
+      name: 'code-reviewer',
+      display_name: 'Code Reviewer (broken)',
+      build_id: 'a1b2c3d4e5f6',
+      namespace: 'astro-err000',
+      status: 'Error',
+      replicas: 1,
+      ready: 0,
+      created_at: '2025-04-03T00:00:00Z',
+      components: ['deployment'],
+    },
   ],
-  count: 2,
+  count: 3,
 };
 
 export const mockTemplate: DeploymentTemplate = {

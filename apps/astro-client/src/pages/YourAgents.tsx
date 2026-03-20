@@ -69,6 +69,8 @@ function YourAgentsContent() {
           {filtered.map((deployment) => {
             const latestBuildId = latestBuildByName.get(deployment.name);
             const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
+            const status = mapDeploymentStatus(deployment);
+            const clickable = status === "active" || status === "error";
             return (
             <DeployedAgentCard
               key={deployment.id}
@@ -76,8 +78,8 @@ function YourAgentsContent() {
               displayName={deployment.display_name}
               deploymentId={deployment.id}
               account={userAccount}
-              href={deploymentPath(userAccount, deployment.id)}
-              status={mapDeploymentStatus(deployment)}
+              href={clickable ? deploymentPath(userAccount, deployment.id) : undefined}
+              status={status}
               requests={0}
               lastActive="—"
               installedAt={formatDate(deployment.created_at)}

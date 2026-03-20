@@ -639,20 +639,20 @@ type JobDetail struct {
 
 // AgentDeployment represents information about a deployed agent
 type AgentDeployment struct {
-	ID               string                `json:"id"`
-	Name             string                `json:"name"`
-	DisplayName      string                `json:"display_name,omitempty"`
-	BuildID          string                `json:"build_id"`
-	Namespace        string                `json:"namespace"`
-	Status           string                `json:"status"`
-	Replicas         int32                 `json:"replicas"`
-	Ready            int32                 `json:"ready"`
-	CreatedAt        string                `json:"created_at"`
-	Components       []string              `json:"components"`
-	ManualIngestions []string              `json:"manual_ingestions,omitempty"`
-	ExternalURLs     []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	Pods             []PodDetail           `json:"pods,omitempty"`
-	Jobs             []JobDetail           `json:"jobs,omitempty"`
+	ID                 string                `json:"id"`
+	Name               string                `json:"name"`
+	DisplayName        string                `json:"display_name,omitempty"`
+	BuildID            string                `json:"build_id"`
+	Namespace          string                `json:"namespace"`
+	Status             string                `json:"status"`
+	Replicas           int32                 `json:"replicas"`
+	Ready              int32                 `json:"ready"`
+	CreatedAt          string                `json:"created_at"`
+	Components         []string              `json:"components"`
+	ManualIngestions   []string              `json:"manual_ingestions,omitempty"`
+	ExternalURLs       []ServiceEndpointInfo `json:"external_urls,omitempty"`
+	Pods               []PodDetail           `json:"pods,omitempty"`
+	Jobs               []JobDetail           `json:"jobs,omitempty"`
 }
 
 // ListDeployments returns a handler for listing deployed agents
