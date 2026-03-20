@@ -39,6 +39,10 @@ tasks:
 
   dev:
     command: "bun run dev"
+    deps:
+      - "astro-theme:build"
+      - "astro-identity-gen:build"
+      - "astro-trading-card:build"
     inputs:
       - "src/**/*"
       - "tsconfig.json"
