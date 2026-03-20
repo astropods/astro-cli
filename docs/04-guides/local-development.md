@@ -148,11 +148,8 @@ This is equivalent to running `ast push --skip-push --platform <native>` — the
 The collector and messaging sidecars are not part of `ast dev` compose — they run as K8s sidecars. When deploying to a local K8s cluster, you need to build and tag them with the names the server expects (both use Docker Hub names):
 
 ```bash
-moon run deployment:collector
-docker tag collector:latest astropods/collector:latest
-
-moon run deployment:messaging
-docker tag messaging:latest astropods/messaging:latest
+moon run deployment:collector    # builds collector:latest + tags astropods/collector:latest
+moon run deployment:messaging    # builds messaging:latest + tags astropods/messaging:latest
 ```
 
 Without these, the sidecar pods will fail to pull their images.
@@ -178,11 +175,9 @@ ast-dev dev                            # restart with changes
 ### "I want to deploy my agent to a local K8s cluster"
 
 ```bash
-# 1. Build and tag infrastructure sidecar images
+# 1. Build infrastructure sidecar images (auto-tags astropods/* names)
 moon run deployment:collector
-docker tag collector:latest astropods/collector:latest
 moon run deployment:messaging
-docker tag messaging:latest astropods/messaging:latest
 
 # 2. Push agent to local server
 cd my-agent

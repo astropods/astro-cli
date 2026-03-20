@@ -20,7 +20,7 @@ processors:
     redact_prompts: ${env:ASTRO_REDACT_PROMPTS:-false}
 
 exporters:
-  otlp_http/galileo:
+  otlphttp/galileo:
     traces_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/traces}
     metrics_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/metrics}
     logs_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/logs}
@@ -33,10 +33,10 @@ exporters:
     # retry prevents a redundant second request that gets rejected as 422.
     retry_on_failure:
       enabled: false
-  otlp_http/langfuse:
-    traces_endpoint: ${env:LANGFUSE_OTLP_ENDPOINT:-https://langfuse.astropods.ai/api/public/otel/v1/traces}
-    metrics_endpoint: ${env:LANGFUSE_OTLP_ENDPOINT:-https://langfuse.astropods.ai/api/public/otel/v1/metrics}
-    logs_endpoint: ${env:LANGFUSE_OTLP_ENDPOINT:-https://langfuse.astropods.ai/api/public/otel/v1/logs}
+  otlphttp/langfuse:
+    traces_endpoint: ${env:LANGFUSE_BASE_URL}/api/public/otel/v1/traces
+    metrics_endpoint: ${env:LANGFUSE_BASE_URL}/api/public/otel/v1/metrics
+    logs_endpoint: ${env:LANGFUSE_BASE_URL}/api/public/otel/v1/logs
     headers:
       Authorization: Basic ${env:LANGFUSE_AUTH_TOKEN}
       x-langfuse-ingestion-version: "4"
@@ -54,12 +54,12 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, astro]
-      exporters: [debug, otlp_http/galileo, otlp_http/langfuse]
+      exporters: [debug, otlphttp/galileo, otlphttp/langfuse]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp_http/galileo, otlp_http/langfuse]
+      exporters: [otlphttp/galileo, otlphttp/langfuse]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp_http/galileo, otlp_http/langfuse]
+      exporters: [otlphttp/galileo, otlphttp/langfuse]

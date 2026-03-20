@@ -271,8 +271,9 @@ type CollectorDeploymentConfig struct {
 	GalileoAPIKey    string
 	GalileoProject   string
 	GalileoLogStream string
-	// Langfuse auth token (per-account, base64(pk:sk))
-	LangfuseAuthToken string
+	// Langfuse credentials (per-account)
+	LangfuseAuthToken string // base64(pk:sk)
+	LangfuseBaseURL   string // e.g. https://langfuse.adhoc.dev.astropod.ai
 }
 
 // buildCollectorContainer creates a container spec for the collector sidecar
@@ -333,6 +334,11 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 	if cfg.LangfuseAuthToken != "" {
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name: "LANGFUSE_AUTH_TOKEN", Value: cfg.LangfuseAuthToken,
+		})
+	}
+	if cfg.LangfuseBaseURL != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name: "LANGFUSE_BASE_URL", Value: cfg.LangfuseBaseURL,
 		})
 	}
 

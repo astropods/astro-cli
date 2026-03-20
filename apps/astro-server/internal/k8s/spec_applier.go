@@ -614,6 +614,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			GalileoProject:    a.galileoProject,
 			GalileoLogStream:  fmt.Sprintf("%s-%s", agentName, buildID),
 			LangfuseAuthToken: a.langfuseAuthToken,
+			LangfuseBaseURL:   a.langfuseBaseURL,
 			ImagePullPolicy:   a.imagePullPolicy,
 			Resources:         collectorResources,
 			Environment:       resolvedObsEnv,
@@ -684,14 +685,14 @@ func (a *Applier) ApplyDeploymentSpec(
 		switch ingestion.Trigger.Type {
 		case "schedule":
 			if ingestion.Trigger.Schedule != "" {
-			cronJob := BuildCronJob(CronJobConfig{
-				Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
-				BuildID: buildID, Component: component,
-				Schedule:        ingestion.Trigger.Schedule,
-				SecretName:      secretName, ConfigMapName: configMapName,
-				Ingestion:       ingestionSpec,
-				ImagePullPolicy: a.imagePullPolicy,
-			})
+				cronJob := BuildCronJob(CronJobConfig{
+					Name: resourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
+					BuildID: buildID, Component: component,
+					Schedule:   ingestion.Trigger.Schedule,
+					SecretName: secretName, ConfigMapName: configMapName,
+					Ingestion:       ingestionSpec,
+					ImagePullPolicy: a.imagePullPolicy,
+				})
 				status, err := a.applyCronJob(ctx, cronJob)
 				result.Resources = append(result.Resources, status)
 				if err != nil {

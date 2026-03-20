@@ -1,13 +1,13 @@
 # Docker image builds. Used by `ast dev --local` and CI.
 tasks:
   "collector":
-    command: "cd .. && docker build -t collector:latest -f deployment/Dockerfile.astro-collector packages/astro-collector"
+    command: "cd .. && docker build -t collector:latest -f deployment/Dockerfile.astro-collector packages/astro-collector && docker tag collector:latest astropods/collector:latest"
     options:
       cache: false
       runInCI: false
 
   "messaging":
-    command: "cd .. && docker build -t messaging:latest -f modules/messaging/Dockerfile modules/messaging"
+    command: "cd .. && docker build -t messaging:latest -f modules/messaging/Dockerfile modules/messaging && docker tag messaging:latest astropods/messaging:latest"
     options:
       cache: false
       runInCI: false
