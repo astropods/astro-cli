@@ -59,7 +59,7 @@ func (h *Heartbeat) Tick(ctx context.Context) {
 	h.emitActiveDeployments(ctx)
 	h.emitActiveAgents(ctx)
 	h.emitActiveMembers(ctx)
-	h.log.Debug("Heartbeat tick complete")
+	h.log.Debug("openmeter: tick complete")
 }
 
 // activeDeploymentRow represents a row from the active deployments query.
