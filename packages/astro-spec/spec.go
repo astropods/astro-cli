@@ -430,7 +430,6 @@ func (d *Dev) SlackConfig() *SlackAdapterConfig {
 type DevOverrides struct {
 	MessagingImage  string `json:"messagingImage,omitempty" yaml:"messagingImage,omitempty" jsonschema:"description=Custom image for the messaging sidecar"`
 	PlaygroundImage string `json:"playgroundImage,omitempty" yaml:"playgroundImage,omitempty" jsonschema:"description=Custom image for the playground UI"`
-	CollectorImage  string `json:"collectorImage,omitempty" yaml:"collectorImage,omitempty" jsonschema:"description=Custom image for the OTel collector sidecar"`
 }
 
 // Ingestion represents a data ingestion job — a container that runs on a trigger.
