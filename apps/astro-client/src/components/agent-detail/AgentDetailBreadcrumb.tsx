@@ -65,7 +65,7 @@ export function AgentDetailBreadcrumb({
             ) : (
               <HeartOutline className="h-3.5 w-3.5" />
             )}
-            Likes
+            Hearts
             <span className="border-l pl-2 ml-1 text-xs tabular-nums">{initialHeartCount}</span>
           </Button>
           <Button
