@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ func NewProvisioner(dbURL, salt, orgID string) (*Provisioner, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("langfuse provisioner: ping db: %w", err)
 	}
 
@@ -107,7 +108,7 @@ func (p *Provisioner) EnsureProject(
 	if err == nil {
 		// Project already exists in Langfuse, reuse it
 		projectID = existingProjectID
-	} else if err != sql.ErrNoRows {
+	} else if !errors.Is(err, sql.ErrNoRows) {
 		return "", "", fmt.Errorf("check existing project: %w", err)
 	} else {
 		// Create project
