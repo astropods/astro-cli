@@ -29,7 +29,6 @@ Example:
   ast playground http://localhost:3100
   ast playground https://my-agent.example.com
   ast playground http://localhost:3100 --port 4000
-  ast playground http://localhost:3100 --local
   ast playground http://localhost:3100 --no-pull`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPlayground,
@@ -39,16 +38,13 @@ var (
 	playgroundPort   string
 	playgroundNoPull bool
 	playgroundNoOpen bool
-	playgroundLocal  bool
 )
 
 func init() {
 	rootCmd.AddCommand(playgroundCmd)
 	playgroundCmd.Flags().StringVar(&playgroundPort, "port", "3737", "Local port for the playground UI")
 	playgroundCmd.Flags().BoolVar(&playgroundNoPull, "no-pull", false, "Skip pulling the playground image")
-	playgroundCmd.Flags().BoolVar(&playgroundLocal, "local", false, "Use locally built playground image; do not pull (implies --no-pull)")
 	playgroundCmd.Flags().BoolVar(&playgroundNoOpen, "no-open", false, "Don't open the browser automatically")
-	_ = playgroundCmd.Flags().MarkHidden("local")
 }
 
 func runPlayground(cmd *cobra.Command, args []string) error {
@@ -66,17 +62,10 @@ func runPlayground(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if playgroundLocal {
-		playgroundNoPull = true
-	}
-
-	imageToUse := utils.ImageNameForLocal(playgroundImage, playgroundLocal)
+	imageToUse := playgroundImage
 
 	log.Printf("🎮 Starting Astro Playground...")
 	log.Printf("   Backend: %s", apiURL)
-	if playgroundLocal {
-		log.Printf("   Using local image: %s", imageToUse)
-	}
 
 	// Pull latest image unless --no-pull or --local
 	if !playgroundNoPull {

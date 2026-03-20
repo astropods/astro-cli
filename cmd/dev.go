@@ -294,20 +294,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
 
-	// Strip astropods/ prefix from images so we use locally built images
-	if local {
-		for name, svc := range project.Services {
-			if svc.Image != "" && strings.HasPrefix(svc.Image, "astropods/") {
-				svc.Image = utils.ImageNameForLocal(svc.Image, true)
-				svc.PullPolicy = ""
-				project.Services[name] = svc
-			}
-		}
-		if verbose {
-			fmt.Println("   --local: using local image names (no pull)")
-		}
-	}
-
 	// --local: omit agent from compose and run it as a local process
 	if local {
 		delete(project.Services, "agent")
@@ -328,14 +314,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(serviceNames)
 	fmt.Printf("%s→%s Services: %s\n", colorCyan, colorReset, strings.Join(serviceNames, ", "))
-
-	// --local: build Docker images for services that don't have a compose build directive.
-	// These are pre-built images (messaging, playground) that compose can't build on its own.
-	if local {
-		if err := buildLocalImages(devLocalImages, rebuild); err != nil {
-			return err
-		}
-	}
 
 	svc, err := newComposeService(verbose)
 	if err != nil {
@@ -743,55 +721,6 @@ func checkComposeHealth(projectName string) {
 		}
 	}
 	fmt.Println()
-}
-
-// localDockerImage describes a Docker image to build in --local mode.
-type localDockerImage struct {
-	tag        string // e.g. "messaging:latest"
-	dockerfile string // relative to ASTRO_ROOT, e.g. "modules/messaging/Dockerfile"
-	context    string // relative to ASTRO_ROOT, e.g. "modules/messaging"
-}
-
-// devLocalImages are the infrastructure images built during `ast dev --local`.
-var devLocalImages = []localDockerImage{
-	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
-	{"playground:latest", "modules/playground/Dockerfile", "modules/playground"},
-	{"collector:latest", "deployment/Dockerfile.astro-collector", "packages/astro-collector"},
-}
-
-// pushLocalInfraImages are the infrastructure images built during `ast push --local`.
-// Collector is included because K8s deploys it as a sidecar; playground is omitted
-// because it only runs in compose/dev mode.
-var pushLocalInfraImages = []localDockerImage{
-	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
-	{"collector:latest", "deployment/Dockerfile.astro-collector", "packages/astro-collector"},
-}
-
-// buildLocalImages builds the given Docker images from ASTRO_ROOT source.
-// Docker layer caching keeps repeat builds fast.
-func buildLocalImages(images []localDockerImage, rebuild bool) error {
-	astroRoot := os.Getenv("ASTRO_ROOT")
-	if astroRoot == "" {
-		return fmt.Errorf("ASTRO_ROOT is not set")
-	}
-
-	for _, img := range images {
-		fmt.Printf("%s→%s Building %s...\n", colorCyan, colorReset, img.tag)
-		dockerfile := filepath.Join(astroRoot, img.dockerfile)
-		ctx := filepath.Join(astroRoot, img.context)
-		args := []string{"build", "-t", img.tag, "-f", dockerfile}
-		if rebuild {
-			args = append(args, "--no-cache")
-		}
-		args = append(args, ctx)
-		buildCmd := exec.Command("docker", args...) //nolint:gosec
-		buildCmd.Stdout = os.Stdout
-		buildCmd.Stderr = os.Stderr
-		if err := buildCmd.Run(); err != nil {
-			return fmt.Errorf("failed to build %s: %w", img.tag, err)
-		}
-	}
-	return nil
 }
 
 // resolveAstroSourceRoot returns the Astro monorepo root from ASTRO_ROOT.

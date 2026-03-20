@@ -3,7 +3,6 @@ package utils
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -24,17 +23,4 @@ func LoadEnvFile(workingDir, envFile string) (map[string]string, error) {
 		return nil, err
 	}
 	return m, nil
-}
-
-// ImageNameForLocal returns the image name to use for local runs. When isLocal is true,
-// strips the remote registry prefix (everything up to and including the last "/") so
-// locally built images are used; otherwise returns image unchanged.
-func ImageNameForLocal(image string, isLocal bool) string {
-	if !isLocal {
-		return image
-	}
-	if i := strings.LastIndex(image, "/"); i >= 0 {
-		return image[i+1:]
-	}
-	return image
 }

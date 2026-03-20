@@ -54,36 +54,6 @@ func TestLocalAstroPackagesPointToModules(t *testing.T) {
 	}
 }
 
-func TestLocalDockerImagesConsistency(t *testing.T) {
-	for _, img := range devLocalImages {
-		t.Run(img.tag, func(t *testing.T) {
-			if !strings.HasSuffix(img.tag, ":latest") {
-				t.Errorf("tag %q should end with :latest", img.tag)
-			}
-
-			if !strings.HasPrefix(img.dockerfile, "modules/") && !strings.HasPrefix(img.dockerfile, "deployment/") {
-				t.Errorf("dockerfile %q should start with modules/ or deployment/", img.dockerfile)
-			}
-
-			if img.context != "." && !strings.HasPrefix(img.context, "modules/") {
-				t.Errorf("context %q should be '.' or start with modules/", img.context)
-			}
-
-			if img.context != "." && !strings.HasPrefix(img.dockerfile, img.context) {
-				t.Errorf("dockerfile %q should be inside context %q", img.dockerfile, img.context)
-			}
-
-			if img.context != "." {
-				tagName := strings.TrimSuffix(img.tag, ":latest")
-				contextDir := img.context[strings.LastIndex(img.context, "/")+1:]
-				if tagName != contextDir {
-					t.Errorf("tag name %q doesn't match context dir %q", tagName, contextDir)
-				}
-			}
-		})
-	}
-}
-
 func TestRewriteDockerHostsToLocalhost(t *testing.T) {
 	tests := []struct {
 		name    string
