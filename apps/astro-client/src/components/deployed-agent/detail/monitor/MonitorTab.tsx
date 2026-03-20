@@ -90,6 +90,7 @@ function formatLatencyMs(ms: number): string {
 }
 
 const CHART_H = 130;
+const TRACES_PANEL_H = "clamp(320px, calc(100vh - 560px), 420px)";
 
 interface ChartTooltipProps {
   active?: boolean;
@@ -691,7 +692,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             </div>
           </div>
 
-          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column", height: 420 }}>
+          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column", height: TRACES_PANEL_H }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
               <MultiSelect

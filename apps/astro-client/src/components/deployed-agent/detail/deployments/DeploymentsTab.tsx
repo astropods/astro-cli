@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check } from "lucide-react";
+import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check, MoreVertical } from "lucide-react";
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
 import { formatDate, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { HistoryDeploymentsTable } from "./history/HistoryDeploymentsTable";
 import type { ContainerRow, DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
 
 const C = {
@@ -537,13 +535,8 @@ export function DeploymentsTab({
   account: string;
   onOpenConfigure?: () => void;
 }) {
-  const [section, setSection] = useState<"overview" | "history">("overview");
-  const [deploySearch, setDeploySearch] = useState("");
-  const [deployStatus, setDeployStatus] = useState<string[]>([]);
-  const [historyPreset, setHistoryPreset] = useState<"all" | "7d" | "30d">("all");
-  const [expandedDeploy, setExpandedDeploy] = useState<string | null>(deployment.id);
-  const [openDeployMenu, setOpenDeployMenu] = useState<string | null>(null);
   const [openContainers, setOpenContainers] = useState<Set<string>>(new Set());
+  const [openPastDeployMenu, setOpenPastDeployMenu] = useState<string | null>(null);
   const hasAutoOpenedOverview = useRef(false);
 
   const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(account, deployment.name);
@@ -591,9 +584,6 @@ export function DeploymentsTab({
     }
     merged.sort((a, b) => resolveDeployedAtMs(b, deployment) - resolveDeployedAtMs(a, deployment));
 
-    const cutoff =
-      historyPreset === "all" ? 0 : historyPreset === "7d" ? Date.now() - 7 * 86400000 : Date.now() - 30 * 86400000;
-
     let rows: DeploymentHistoryTableRow[] = merged.map((h, idx) => {
       const isCurrent = h.id === deployment.id;
       const status = deploymentHistoryUiStatus(h, deployment);
@@ -613,27 +603,8 @@ export function DeploymentsTab({
       };
     });
 
-    if (cutoff > 0) {
-      rows = rows.filter((r) => resolveDeployedAtMs(r.source, deployment) >= cutoff);
-    }
-
-    const q = deploySearch.trim().toLowerCase();
-    if (q) {
-      rows = rows.filter(
-        (r) =>
-          r.id.toLowerCase().includes(q) ||
-          r.build.toLowerCase().includes(q) ||
-          deployment.name.toLowerCase().includes(q) ||
-          (deployment.display_name?.toLowerCase().includes(q) ?? false),
-      );
-    }
-
-    if (deployStatus.length > 0) {
-      rows = rows.filter((r) => deployStatus.includes(r.status));
-    }
-
     return rows;
-  }, [historyData, deployment, historyPreset, deploySearch, deployStatus]);
+  }, [historyData, deployment]);
   const pastRows = useMemo(() => allRows.filter((row) => !row.isCurrent), [allRows]);
   const currentRow = useMemo(() => allRows.find((row) => row.isCurrent) ?? null, [allRows]);
 
@@ -643,35 +614,17 @@ export function DeploymentsTab({
   }, [deployment.id]);
 
   useEffect(() => {
-    if (section !== "overview") return;
     if (containers.length === 0) return;
     if (hasAutoOpenedOverview.current) return;
     hasAutoOpenedOverview.current = true;
     setOpenContainers(new Set([containers[0].id]));
-  }, [section, containers]);
+  }, [containers]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
-          <ToggleGroup
-            type="single"
-            variant="word"
-            value={section}
-            onValueChange={(v) => {
-              if (v) setSection(v as "overview" | "history");
-            }}
-          >
-            <ToggleGroupItem value="overview" aria-label="Overview">
-              Overview
-            </ToggleGroupItem>
-            <ToggleGroupItem value="history" aria-label="History">
-              History
-            </ToggleGroupItem>
-          </ToggleGroup>
         </div>
-
-        {section === "overview" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {[
@@ -691,9 +644,9 @@ export function DeploymentsTab({
               ))}
             </div>
 
-            <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
-                {["Deployment", "Status", "Duration", "Build No.", "Deployed on"].map((h, i) => (
+            <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
+                {["Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h, i) => (
                   <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left", whiteSpace: "nowrap" }}>
                     {h.toUpperCase()}
                   </span>
@@ -704,7 +657,7 @@ export function DeploymentsTab({
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px",
+                      gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px",
                       gap: 12,
                       padding: "12px 14px",
                       alignItems: "center",
@@ -723,6 +676,7 @@ export function DeploymentsTab({
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
                       {currentRow.time}
                     </span>
+                    <span />
                   </div>
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
@@ -755,37 +709,120 @@ export function DeploymentsTab({
               ) : (
                 <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>No active deployment found.</div>
               )}
+              <div style={{ borderTop: `1px solid ${C.border}`, background: C.bgAlt }}>
+                {historyError && (
+                  <div style={{ padding: "14px", fontFamily: S.mono, fontSize: T.monoSm, color: C.coral }}>
+                    Could not load deployment history from the server.
+                  </div>
+                )}
+                {historyLoading ? (
+                  <div style={{ padding: "14px", display: "flex", alignItems: "center", gap: 8, fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
+                    <Loader2 size={I.md} className="dp-spin" />
+                    Loading deployment history…
+                  </div>
+                ) : pastRows.length === 0 ? (
+                  <div style={{ padding: "14px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
+                    No prior deployments yet.
+                  </div>
+                ) : (
+                  <>
+                    {pastRows.map((row, idx) => (
+                      <div
+                        key={row.id}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px",
+                          gap: 12,
+                          padding: "11px 14px",
+                          alignItems: "center",
+                          borderBottom: idx < pastRows.length - 1 ? `1px solid ${C.border}` : "none",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontFamily: S.body, fontSize: T.body, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={row.rowLabel}>
+                            {row.rowLabel}
+                          </div>
+                        </div>
+                        <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: row.status === "failed" ? C.coral : row.status === "undeployed" ? C.stone : C.success, fontWeight: 500 }}>
+                          {row.status.toUpperCase()}
+                        </span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{row.duration}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.muted }}>{row.build}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                          {row.time}
+                        </span>
+                        <div style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            onClick={() => setOpenPastDeployMenu((prev) => (prev === row.id ? null : row.id))}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex", padding: 4, borderRadius: 4 }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = C.bgDeep;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "none";
+                            }}
+                            aria-label={`Actions for deployment ${row.id}`}
+                          >
+                            <MoreVertical size={I.md} />
+                          </button>
+                          {openPastDeployMenu === row.id && (
+                            <>
+                              <div onClick={() => setOpenPastDeployMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  right: 0,
+                                  top: "calc(100% + 4px)",
+                                  zIndex: 20,
+                                  minWidth: 150,
+                                  background: C.bgAlt,
+                                  border: `1px solid ${C.border}`,
+                                  borderRadius: 8,
+                                  overflow: "hidden",
+                                  boxShadow: "0 6px 20px rgba(0,0,0,0.1)",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenPastDeployMenu(null);
+                                    onOpenConfigure?.();
+                                  }}
+                                  style={{
+                                    width: "100%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "9px 14px",
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    fontFamily: S.body,
+                                    fontSize: T.body,
+                                    color: C.text,
+                                    textAlign: "left" as const,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = C.bgDeep;
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = "none";
+                                  }}
+                                >
+                                  Redeploy
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        ) : (
-          <HistoryDeploymentsTable
-            rows={pastRows}
-            historyLoading={historyLoading}
-            historyError={historyError}
-            deploySearch={deploySearch}
-            onDeploySearchChange={setDeploySearch}
-            deployStatus={deployStatus}
-            onDeployStatusChange={setDeployStatus}
-            historyPreset={historyPreset}
-            onHistoryPresetChange={setHistoryPreset}
-            expandedDeploy={expandedDeploy}
-            onExpandedDeployChange={setExpandedDeploy}
-            openDeployMenu={openDeployMenu}
-            onOpenDeployMenuChange={setOpenDeployMenu}
-            containers={containers}
-            onOpenConfigure={onOpenConfigure}
-            onViewPodLogs={(id) => {
-              if (id !== deployment.id || containers.length === 0) return;
-            }}
-            renderExpandedDeployment={(_id, _isCurrent) => (
-              <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-                <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0 }}>
-                  Pod logs are only available for the live deployment ({deployment.id.slice(0, 8)}…).
-                </p>
-              </div>
-            )}
-          />
-        )}
     </div>
   );
 }

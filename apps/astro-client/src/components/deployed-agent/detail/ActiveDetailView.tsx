@@ -208,7 +208,7 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
             style={{
               flex: 1,
               overflowY: 'auto',
-              padding: `20px ${DETAIL_RIGHT_PAD_PX}px 32px ${DETAIL_LEFT_ALIGN_PX}px`,
+              padding: `20px ${DETAIL_RIGHT_PAD_PX}px 20px ${DETAIL_LEFT_ALIGN_PX}px`,
             }}
           >
             {tab === 'monitor' ? (

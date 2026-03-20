@@ -10,6 +10,10 @@ import { useChangeTracking, type TrackedFormState } from "@/components/deploy/us
 import type { AgentDeployment } from "@/lib/api";
 
 const PANEL_FORM_ID = "configure-side-panel-form";
+const PANEL_SHELL_CLASS = "flex h-full w-[420px] flex-col border-l border-border bg-surface dark:bg-background";
+const PANEL_HEADER_CLASS = "flex h-[63px] shrink-0 items-center gap-2 border-b border-border px-5";
+const REDEPLOY_BUTTON_CLASS =
+  "bg-[var(--color-teal-600)] text-white hover:bg-[var(--color-teal-700)] active:bg-[var(--color-teal-800)] dark:bg-[var(--color-teal-600)] dark:hover:bg-[var(--color-teal-500)] dark:active:bg-[var(--color-teal-400)]";
 
 interface ConfigurePanelProps {
   deployment: AgentDeployment;
@@ -59,17 +63,17 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   const manualIngestions = deployment.manual_ingestions ?? [];
 
   return (
-    <div className="flex flex-col h-full w-[420px] bg-background border-l border-border">
-      <div className="flex items-center gap-2 h-[63px] shrink-0 px-4 border-b border-border">
+    <div className={PANEL_SHELL_CLASS}>
+      <div className={PANEL_HEADER_CLASS}>
         <Settings2 className="size-3.5 text-primary shrink-0" />
-        <span className="flex-1 text-sm font-semibold text-foreground">Configure</span>
+        <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
           <X className="size-4" />
         </Button>
       </div>
 
-      <form id={PANEL_FORM_ID} onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-        <div className="flex-1 overflow-y-auto px-5 py-6">
+      <form id={PANEL_FORM_ID} onSubmit={handleSubmit} className="dp-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+        <div className="px-6 py-5">
           <DeployFormFields
             form={form}
             hideAccountPicker
@@ -86,17 +90,19 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
           />
         </div>
 
-        {changes.isDirty && (
-          <div className="flex flex-col gap-2 p-4 border-t border-border bg-muted/40 shrink-0">
-            <Button type="submit" disabled={form.isDeploying} className="w-full">
+        <div className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+          <div className="flex flex-col gap-2">
+            <Button type="submit" disabled={form.isDeploying} className={`w-full ${REDEPLOY_BUTTON_CLASS}`}>
               {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
-              {form.isDeploying ? "Redeploying…" : changes.requiresRedeploy ? "Save & Redeploy" : "Save"}
+              {form.isDeploying ? "Redeploying…" : changes.requiresRedeploy ? "Save & Redeploy" : "Redeploy"}
             </Button>
-            <Button type="button" variant="ghost" className="w-full" onClick={() => form.reset(initialValues)}>
-              Cancel
-            </Button>
+            {changes.isDirty && (
+              <Button type="button" variant="ghost" className="w-full" onClick={() => form.reset(initialValues)}>
+                Reset changes
+              </Button>
+            )}
           </div>
-        )}
+        </div>
       </form>
     </div>
   );
@@ -124,7 +130,7 @@ function ManualTriggers({
 
   return (
     <div className={hasBorderTop ? "mt-6 pt-6 border-t border-border" : ""}>
-      <p className="text-sm font-medium text-foreground mb-3">Manual Triggers</p>
+      <p className="mb-3 text-body font-medium text-foreground">Manual Triggers</p>
       <div className="flex flex-wrap gap-2">
         {names.map((name) => {
           const isTriggering = triggerMutation.isPending && triggerMutation.variables?.ingestion === name;
@@ -144,7 +150,7 @@ function ManualTriggers({
               }
             >
               {justTriggered ? (
-                <Check className="size-3.5 text-green-600" />
+                <Check className="size-3.5 text-primary" />
               ) : isTriggering ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
@@ -166,20 +172,20 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeploy }: Con
   const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id);
 
   const shell = (children: React.ReactNode) => (
-    <div className="flex flex-col h-full w-[420px] bg-background border-l border-border">
-      <div className="flex items-center gap-2 h-[63px] shrink-0 px-4 border-b border-border">
+    <div className={PANEL_SHELL_CLASS}>
+      <div className={PANEL_HEADER_CLASS}>
         <Settings2 className="size-3.5 text-primary shrink-0" />
-        <span className="flex-1 text-sm font-semibold text-foreground">Configure</span>
+        <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
           <X className="size-4" />
         </Button>
       </div>
-      <div className="flex-1 flex items-center justify-center">{children}</div>
+      <div className="flex flex-1 items-center justify-center px-5">{children}</div>
     </div>
   );
 
   if (isLoading) return shell(<Loader2 className="size-5 animate-spin text-muted-foreground" />);
-  if (isError || !template) return shell(<p className="text-xs text-destructive">Failed to load configuration.</p>);
+  if (isError || !template) return shell(<p className="text-body-sm text-destructive">Failed to load configuration.</p>);
   return (
     <ConfigurePanelLoaded
       deployment={deployment}
