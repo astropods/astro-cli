@@ -722,13 +722,22 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		// Deployments without K8s resources (failed, pending) get a DB-only entry.
 		var allDeployments []AgentDeployment
 		for _, dbDep := range dbDeps {
+		firstSeenAt := dbDep.DeployedAt
+		if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
+			log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
+		} else if firstEventAt != nil {
+			firstSeenAt = *firstEventAt
+		}
+
 			// Read manual ingestions from namespace annotations
 			ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
 				c.Request.Context(), dbDep.Namespace, metav1.GetOptions{},
 			)
 			if nsErr != nil || ns.DeletionTimestamp != nil {
 				// No K8s namespace — build entry from DB record alone
-				allDeployments = append(allDeployments, agentDeploymentFromDB(dbDep))
+			entry := agentDeploymentFromDB(dbDep)
+			entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
+			allDeployments = append(allDeployments, entry)
 				continue
 			}
 
@@ -736,7 +745,9 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
 			if k8sErr != nil || len(deps) == 0 {
 				// K8s resources missing or error — build entry from DB record
-				allDeployments = append(allDeployments, agentDeploymentFromDB(dbDep))
+			entry := agentDeploymentFromDB(dbDep)
+			entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
+			allDeployments = append(allDeployments, entry)
 				continue
 			}
 
@@ -747,6 +758,14 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				deps[i].ID = dbDep.ID
 				deps[i].Name = dbDep.AgentName
 				deps[i].DisplayName = dbDep.DisplayName
+				// Use first event timestamp as canonical lifecycle start for this deployment ID.
+				deps[i].CreatedAt = firstSeenAt.Format(time.RFC3339)
+				// DB status is authoritative for transitional states.
+				// K8s can briefly report zero replicas ("Stopped") while a deploy is still pending/provisioning.
+				switch dbDep.Status {
+				case deploymentstore.StatusPending, deploymentstore.StatusProvisioning, deploymentstore.StatusUndeploying:
+					deps[i].Status = "pending"
+				}
 			}
 			allDeployments = append(allDeployments, deps...)
 		}
@@ -1525,6 +1544,16 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 			return
 		}
 
+		if deploymentID := c.Query("deployment_id"); deploymentID != "" {
+			filtered := make([]*deploymentstore.Deployment, 0, 1)
+			for _, d := range history {
+				if d.ID == deploymentID {
+					filtered = append(filtered, d)
+				}
+			}
+			history = filtered
+		}
+
 		type deploymentRecord struct {
 			ID           string          `json:"id"`
 			AgentName    string          `json:"agent_name"`
@@ -1696,6 +1725,71 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 	}
 }
 
+// PauseDeployment (stop alias) scales a deployment namespace to zero replicas and marks status scaled_down.
+// POST /api/v1/deployments/:id/pause
+// POST /api/v1/deployments/:id/stop
+func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := middleware.GetUser(c); !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		dep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+
+		status := strings.ToLower(dep.Status)
+		if status == deploymentstore.StatusUndeploying {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot pause while undeploying"})
+			return
+		}
+
+		k8sDeps, err := k8sClient.Clientset().AppsV1().Deployments(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
+			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+		})
+		if err != nil {
+			log.Error("Failed to list deployments for pause", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+			return
+		}
+
+		var zero int32 = 0
+		scaledCount := 0
+		for i := range k8sDeps.Items {
+			item := k8sDeps.Items[i].DeepCopy()
+			if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
+				continue
+			}
+			item.Spec.Replicas = &zero
+			if _, err := k8sClient.Clientset().AppsV1().Deployments(dep.Namespace).Update(c.Request.Context(), item, metav1.UpdateOptions{}); err != nil {
+				log.Error("Failed to scale deployment to zero", "error", err, "namespace", dep.Namespace, "name", item.Name)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+				return
+			}
+			scaledCount++
+		}
+
+		if err := deployStore.MarkScaledDown(dep.ID, dep.Namespace); err != nil {
+			log.Error("Failed to mark deployment scaled down", "error", err, "deployment_id", dep.ID, "namespace", dep.Namespace)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update deployment status"})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":        deploymentstore.StatusScaledDown,
+			"deployment_id": dep.ID,
+			"scaled_count":  scaledCount,
+		})
+	}
+}
+
 // WakeUpDeployment triggers re-provisioning of a KEDA-scaled-down deployment.
 func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1714,7 +1808,8 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 			return
 		}
-		if dep.Status != deploymentstore.StatusScaledDown {
+		status := strings.ToLower(dep.Status)
+		if dep.Status != deploymentstore.StatusScaledDown && status != "stopped" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not scaled down"})
 			return
 		}

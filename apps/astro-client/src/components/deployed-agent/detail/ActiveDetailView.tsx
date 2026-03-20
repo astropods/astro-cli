@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, Settings2 } from "lucide-react";
+import { ArrowLeft, Settings2, Pause, Play, Loader2 } from "lucide-react";
 import { AgentIdentity } from "@/components/AgentIdentity";
-import { mapDeploymentStatus } from "@/lib/deployment-utils";
+import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
+import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
@@ -58,15 +59,52 @@ interface ActiveDetailViewProps {
   account: string;
   isPersonal: boolean;
   initialTab?: 'monitor' | 'deployments';
+  monitorLocked?: boolean;
+  monitorLockReason?: string;
   onRedeploy?: () => void;
 }
 
-export function ActiveDetailView({ deployment, account, isPersonal, initialTab = 'monitor', onRedeploy }: ActiveDetailViewProps) {
+export function ActiveDetailView({
+  deployment,
+  account,
+  isPersonal,
+  initialTab = 'monitor',
+  monitorLocked = false,
+  monitorLockReason = "Available once deployment is live.",
+  onRedeploy,
+}: ActiveDetailViewProps) {
   const navigate = useNavigate()
   const [tab, setTab] = useState<'monitor' | 'deployments'>(initialTab)
   const [configOpen, setConfigOpen] = useState(false)
-  const displayName = deployment.display_name || deployment.name
+  const [optimisticDeploying, setOptimisticDeploying] = useState(false)
+  const pauseMutation = usePauseDeployment(account);
+  const wakeupMutation = useWakeUpDeployment(account);
+  const renderedDeployment = optimisticDeploying
+    ? { ...deployment, status: "pending", ready: 0 }
+    : deployment;
+  const displayName = renderedDeployment.display_name || renderedDeployment.name
   const backPath = isPersonal ? '/agents' : `/${account}`
+  const isDeploying = isDeployingState(renderedDeployment);
+  const isPaused = isPausedState(renderedDeployment);
+  const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
+
+  useEffect(() => {
+    if (monitorLocked && tab === "monitor") {
+      setTab("deployments");
+    }
+  }, [monitorLocked, tab]);
+
+  useEffect(() => {
+    if (!optimisticDeploying) return;
+    // Stop forcing UI once the live query reflects a deploying status.
+    if (isDeployingState(deployment)) {
+      setOptimisticDeploying(false);
+      return;
+    }
+    // Safety fallback to avoid sticky optimistic state.
+    const timer = setTimeout(() => setOptimisticDeploying(false), 10000);
+    return () => clearTimeout(timer);
+  }, [optimisticDeploying, deployment]);
 
   return (
     <div style={{ display: 'flex', flex: 1, flexDirection: 'column', background: C.bg, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
@@ -90,15 +128,15 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
           </div>
           <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text }}>{displayName}</span>
           {(() => {
-            const ds = mapDeploymentStatus(deployment)
+            const ds = mapDeploymentStatus(renderedDeployment)
             const badge =
               ds === 'error'
-                ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Error' }
+                ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Error', spinning: false }
                 : ds === 'pending'
-                  ? { bg: C.amberBg, bdr: C.amberBdr, dot: C.amber, label: 'Deploying' }
+                  ? { bg: C.amberBg, bdr: C.amberBdr, dot: C.amber, label: 'Deploying', spinning: true }
                   : ds === 'inactive'
-                    ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive' }
-                    : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Live' }
+                  ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive', spinning: false }
+                    : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Live', spinning: false }
             return (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -106,7 +144,11 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
                 background: badge.bg, border: `1px solid ${badge.bdr}`,
                 fontFamily: S.mono, fontSize: T.label, letterSpacing: '0.06em', color: badge.dot,
               }}>
-                <span style={{ width: 5, height: 5, borderRadius: '50%', background: badge.dot, display: 'inline-block' }} />
+                {badge.spinning ? (
+                  <Loader2 size={I.sm} style={{ color: badge.dot, animation: "dp-spin 1.2s linear infinite" }} />
+                ) : (
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: badge.dot, display: 'inline-block' }} />
+                )}
                 {badge.label}
               </span>
             )
@@ -128,6 +170,44 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
             transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
+          {isDeploying && !isPaused && (
+            <button
+              onClick={() => pauseMutation.mutate({ deploymentId: renderedDeployment.id })}
+              disabled={controlsBusy}
+              title="Pause deployment (scale instances to zero)"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', borderRadius: 6, cursor: controlsBusy ? 'wait' : 'pointer',
+                background: 'transparent',
+                border: `1px solid ${C.border}`,
+                fontFamily: S.body, fontSize: T.heading4, color: C.muted,
+                opacity: controlsBusy ? 0.7 : 1,
+                transition: 'all 0.12s',
+              }}
+            >
+              {pauseMutation.isPending ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : <Pause size={I.md} />}
+              Pause
+            </button>
+          )}
+          {isPaused && (
+            <button
+              onClick={() => wakeupMutation.mutate({ deploymentId: renderedDeployment.id })}
+              disabled={controlsBusy}
+              title="Resume deployment"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', borderRadius: 6, cursor: controlsBusy ? 'wait' : 'pointer',
+                background: 'transparent',
+                border: `1px solid ${C.border}`,
+                fontFamily: S.body, fontSize: T.heading4, color: C.muted,
+                opacity: controlsBusy ? 0.7 : 1,
+                transition: 'all 0.12s',
+              }}
+            >
+              {wakeupMutation.isPending ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : <Play size={I.md} />}
+              Resume
+            </button>
+          )}
           <button
             onClick={() => setConfigOpen(o => !o)}
             style={{
@@ -184,15 +264,20 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
             ]).map(({ id, label, icon }) => (
               <button
                 key={id}
-                onClick={() => setTab(id)}
+                onClick={() => {
+                  if (id === "monitor" && monitorLocked) return;
+                  setTab(id);
+                }}
+                title={id === "monitor" && monitorLocked ? monitorLockReason : undefined}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
-                  background: 'none', border: 'none', cursor: 'pointer',
+                  background: 'none', border: 'none', cursor: id === "monitor" && monitorLocked ? 'not-allowed' : 'pointer',
                   fontFamily: S.body, fontSize: T.heading4,
                   fontWeight: tab === id ? 600 : 400,
-                  color: tab === id ? C.text : C.faint,
+                  color: id === "monitor" && monitorLocked ? C.faint : (tab === id ? C.text : C.faint),
                   padding: '11px 16px',
-                  borderBottom: tab === id ? `2px solid ${C.tealMid}` : '2px solid transparent',
+                  borderBottom: tab === id && !(id === "monitor" && monitorLocked) ? `2px solid ${C.tealMid}` : '2px solid transparent',
+                  opacity: id === "monitor" && monitorLocked ? 0.65 : 1,
                   transition: 'color 0.15s',
                 }}
               >
@@ -212,10 +297,10 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
             }}
           >
             {tab === 'monitor' ? (
-              <MonitorTab deployment={deployment} account={account} />
+              <MonitorTab deployment={renderedDeployment} account={account} />
             ) : (
               <DeploymentsTab
-                deployment={deployment}
+                deployment={renderedDeployment}
                 account={account}
                 onOpenConfigure={() => setConfigOpen(true)}
               />
@@ -238,7 +323,20 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
           zIndex: 45,
         }}
       >
-        {configOpen && <ConfigurePanel deployment={deployment} account={account} onClose={() => setConfigOpen(false)} onRedeploy={onRedeploy} />}
+        {configOpen && (
+          <ConfigurePanel
+            deployment={renderedDeployment}
+            account={account}
+            onClose={() => setConfigOpen(false)}
+            onRedeployStart={() => {
+              setOptimisticDeploying(true);
+            }}
+            onRedeploy={() => {
+              setOptimisticDeploying(true);
+              onRedeploy?.();
+            }}
+          />
+        )}
       </div>
     </div>
   )

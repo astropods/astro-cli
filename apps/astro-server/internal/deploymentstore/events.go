@@ -50,3 +50,22 @@ func (s *Store) GetDeploymentEvents(deploymentID string, limit int) ([]Deploymen
 	}
 	return events, nil
 }
+
+// GetDeploymentFirstEventAt returns the earliest event timestamp for a deployment.
+// This acts as a stable lifecycle start across redeploys of the same deployment ID.
+func (s *Store) GetDeploymentFirstEventAt(deploymentID string) (*time.Time, error) {
+	var first sql.NullTime
+	err := s.db.QueryRow(`
+		SELECT MIN(created_at)
+		FROM deployment_events
+		WHERE deployment_id = $1
+	`, deploymentID).Scan(&first)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query first deployment event: %w", err)
+	}
+	if !first.Valid {
+		return nil, nil
+	}
+	t := first.Time
+	return &t, nil
+}

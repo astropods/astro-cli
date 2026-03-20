@@ -5,7 +5,7 @@ import type { StatusIndicatorVariant } from "../components/StatusIndicator";
 export const deploymentStatusVariant: Record<DeployedAgentStatus, StatusIndicatorVariant> = {
   active: "success",
   inactive: "muted",
-  pending: "pending",
+  pending: "warning",
   error: "error",
 };
 
@@ -21,13 +21,28 @@ export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentS
   if (s === "error" || s === "failed" || s === "crashloopbackoff" || (deployment.ready === 0 && deployment.replicas > 0)) {
     return "error";
   }
-  if (s === "pending" || s === "deploying" || deployment.ready < deployment.replicas) {
+  if (s === "pending" || s === "provisioning" || s === "deploying" || s === "undeploying" || deployment.ready < deployment.replicas) {
     return "pending";
   }
   if (deployment.replicas === 0) {
     return "inactive";
   }
   return "active";
+}
+
+export function isDeployingState(deployment: AgentDeployment): boolean {
+  const s = deployment.status?.toLowerCase() ?? "";
+  if (s === "pending" || s === "provisioning" || s === "deploying" || s === "undeploying") return true;
+  return mapDeploymentStatus(deployment) === "pending";
+}
+
+export function isLiveState(deployment: AgentDeployment): boolean {
+  return mapDeploymentStatus(deployment) === "active";
+}
+
+export function isPausedState(deployment: AgentDeployment): boolean {
+  const s = deployment.status?.toLowerCase() ?? "";
+  return s === "scaled_down" || s === "stopped";
 }
 
 export function formatDate(dateStr: string): string {

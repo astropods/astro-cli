@@ -1,10 +1,12 @@
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
 export type StatusIndicatorVariant = "success" | "pending" | "muted" | "warning" | "error";
 
 export interface StatusIndicatorProps {
   variant?: StatusIndicatorVariant;
   pulse?: boolean;
+  spinner?: boolean;
   children: React.ReactNode;
   className?: string;
 }
@@ -35,6 +37,7 @@ const variantStyles: Record<StatusIndicatorVariant, { dot: string; text: string 
 export function StatusIndicator({
   variant = "muted",
   pulse = false,
+  spinner = false,
   children,
   className,
 }: StatusIndicatorProps) {
@@ -42,13 +45,17 @@ export function StatusIndicator({
 
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
-      <span
-        className={cn(
-          "size-2 shrink-0 rounded-full",
-          styles.dot,
-          pulse && "animate-pulse",
-        )}
-      />
+      {spinner ? (
+        <Loader2 className={cn("size-3 shrink-0 animate-spin", styles.text)} />
+      ) : (
+        <span
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            styles.dot,
+            pulse && "animate-pulse",
+          )}
+        />
+      )}
       <span
         className={cn(
           "text-mono-md font-mono uppercase",

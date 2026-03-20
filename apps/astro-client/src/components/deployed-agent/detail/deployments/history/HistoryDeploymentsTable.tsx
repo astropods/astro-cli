@@ -14,6 +14,7 @@ const C = {
   muted: "var(--muted-foreground)",
   faint: "var(--faint-foreground)",
   stone: "var(--color-stone-500)",
+  amber: "var(--color-amber-700)",
   coral: "var(--color-coral-600)",
   success: "var(--color-green-700)",
 } as const;
@@ -37,6 +38,7 @@ const I = {
 
 const DEPLOY_STATUS_STYLE: Record<DeployHistoryStatus, { color: string; label: string }> = {
   active: { color: C.success, label: "Active" },
+  deploying: { color: C.amber, label: "Deploying" },
   ready: { color: C.success, label: "Ready" },
   failed: { color: C.coral, label: "Failed" },
   undeployed: { color: C.stone, label: "Undeployed" },

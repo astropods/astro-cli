@@ -152,7 +152,11 @@ export function DeployedAgentCard({
             {displayName || name}
           </p>
           <div className="mt-1 flex items-center gap-2">
-            <StatusIndicator variant={deploymentStatusVariant[status]} pulse={status === "pending"}>
+            <StatusIndicator
+              variant={deploymentStatusVariant[status]}
+              pulse={status === "pending"}
+              spinner={status === "pending"}
+            >
               {deploymentStatusLabel[status]}
             </StatusIndicator>
             {hasNewBuildAvailable && (

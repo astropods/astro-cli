@@ -39,6 +39,6 @@ export const deploymentKeys = {
     ['deployments', deploymentId, 'logs', pod, container, timeRange] as const,
   spec: (account: string, name: string) =>
     ['deployments', account, name, 'spec'] as const,
-  history: (account: string, name: string) =>
-    ['deployments', account, name, 'history'] as const,
+  history: (account: string, name: string, deploymentId?: string) =>
+    ['deployments', account, name, 'history', deploymentId ?? 'all'] as const,
 };

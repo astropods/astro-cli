@@ -57,6 +57,27 @@ export function useDeployAgent(account: string, agentName: string) {
 
   return useMutation({
     mutationFn: api.deployAgent.bind(api),
+    onMutate: async () => {
+      // Immediate UX feedback: flip existing deployment rows to deploying.
+      queryClient.setQueryData<DeploymentsListResponse>(
+        deploymentKeys.all(account),
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            deployments: old.deployments.map((d) =>
+              d.name === agentName
+                ? {
+                    ...d,
+                    status: "pending",
+                    ready: 0,
+                  }
+                : d,
+            ),
+          };
+        },
+      );
+    },
     onSuccess: (data: DeployResponse) => {
       // Optimistically patch build_id so the "new build" badge clears before the server catches up
       const prev = queryClient.getQueryData<DeploymentsListResponse>(deploymentKeys.all(account));
@@ -70,15 +91,22 @@ export function useDeployAgent(account: string, agentName: string) {
             return {
               ...old,
               deployments: old.deployments.map((d) =>
-                d.name === data.name ? { ...d, build_id: data.build_id } : d,
+                d.name === data.name
+                  ? {
+                      ...d,
+                      build_id: data.build_id,
+                      status: "pending",
+                      ready: 0,
+                    }
+                  : d,
               ),
             };
           },
         );
-      } else {
-        // Fresh install — no existing entry to patch, so invalidate to pick up the new deployment
-        queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
       }
+
+      // Always refresh after optimistic patch so server truth wins quickly.
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
 
       queryClient.invalidateQueries({ queryKey: agentKeys.template(account, agentName) });
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, agentName) });

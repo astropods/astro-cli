@@ -70,7 +70,7 @@ function YourAgentsContent() {
             const latestBuildId = latestBuildByName.get(deployment.name);
             const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
             const status = mapDeploymentStatus(deployment);
-            const clickable = status === "active" || status === "error";
+            const clickable = status === "active" || status === "error" || status === "pending";
             return (
             <DeployedAgentCard
               key={deployment.id}

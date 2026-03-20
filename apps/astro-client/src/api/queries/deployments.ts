@@ -24,7 +24,7 @@ export function useDeploymentLogs(
   pod: string,
   container: string,
   timeRange = '1h',
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
   const api = useApiClient();
   const baseEnabled = !!deploymentId && !!pod && !!container;
@@ -37,6 +37,7 @@ export function useDeploymentLogs(
       return api.getDeploymentLogs(deploymentId, pod, container, since);
     },
     enabled,
+    refetchInterval: options?.refetchInterval,
     staleTime: 0,
     gcTime: 1000 * 30,
   });
@@ -64,6 +65,30 @@ export function useUndeployAgent(account: string) {
   });
 }
 
+export function usePauseDeployment(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: api.pauseDeployment.bind(api),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
+export function useWakeUpDeployment(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: api.wakeupDeployment.bind(api),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
 export function useActiveDeploymentSpec(account: string, name: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
@@ -73,11 +98,11 @@ export function useActiveDeploymentSpec(account: string, name: string, enabled =
   });
 }
 
-export function useDeploymentHistory(account: string, name: string, enabled = true) {
+export function useDeploymentHistory(account: string, name: string, deploymentId?: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
-    queryKey: deploymentKeys.history(account, name),
-    queryFn: () => api.getDeploymentHistory(account, name),
+    queryKey: deploymentKeys.history(account, name, deploymentId),
+    queryFn: () => api.getDeploymentHistory(account, name, deploymentId),
     enabled: !!account && !!name && enabled,
   });
 }

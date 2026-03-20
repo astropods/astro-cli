@@ -60,9 +60,33 @@ func resolveObservabilityContext(
 
 	// Resolve log stream name: {agent}-{buildID}
 	logStreamName := agentName
-	dep, err := deploymentStore.GetActiveDeployment(acct.ID, agentName)
-	if err == nil && dep != nil && dep.BuildID != "" {
-		logStreamName = fmt.Sprintf("%s-%s", agentName, dep.BuildID)
+	deploymentID := c.Query("deployment_id")
+	if deploymentID != "" {
+		dep, err := deploymentStore.GetDeploymentByID(deploymentID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
+			return nil, "", false
+		}
+		if dep == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return nil, "", false
+		}
+		if dep.AccountID != acct.ID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return nil, "", false
+		}
+		if dep.AgentName != agentName {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment does not match requested agent"})
+			return nil, "", false
+		}
+		if dep.BuildID != "" {
+			logStreamName = fmt.Sprintf("%s-%s", dep.AgentName, dep.BuildID)
+		}
+	} else {
+		dep, err := deploymentStore.GetActiveDeployment(acct.ID, agentName)
+		if err == nil && dep != nil && dep.BuildID != "" {
+			logStreamName = fmt.Sprintf("%s-%s", agentName, dep.BuildID)
+		}
 	}
 
 	log.Debug("Resolving observability context",

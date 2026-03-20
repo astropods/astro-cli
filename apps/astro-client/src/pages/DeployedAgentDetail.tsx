@@ -7,7 +7,7 @@ import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetai
 import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
-import { mapDeploymentStatus } from "@/lib/deployment-utils";
+import { isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
 
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -74,13 +74,15 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 
   const isPersonal = personalAccount?.name === account;
   const status = mapDeploymentStatus(deployment);
+  const monitorLocked = isDeployingState(deployment);
 
   return (
     <ActiveDetailView
       deployment={deployment}
       account={account}
       isPersonal={isPersonal}
-      initialTab={status === "error" ? "deployments" : "monitor"}
+      initialTab={status === "error" || monitorLocked ? "deployments" : "monitor"}
+      monitorLocked={monitorLocked}
     />
   );
 }

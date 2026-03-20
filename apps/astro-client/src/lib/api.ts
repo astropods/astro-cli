@@ -316,6 +316,18 @@ class ApiClient {
     });
   }
 
+  async pauseDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/stop`, {
+      method: "POST",
+    });
+  }
+
+  async wakeupDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/wakeup`, {
+      method: "POST",
+    });
+  }
+
   // Get deployment template for an agent (resolves latest build server-side)
   async getDeploymentTemplate(account: string, name: string): Promise<DeploymentTemplate> {
     return this.request<DeploymentTemplate>(
@@ -345,9 +357,12 @@ class ApiClient {
   }
 
   // Get deployment history for an agent
-  async getDeploymentHistory(account: string, name: string): Promise<DeploymentHistoryResponse> {
+  async getDeploymentHistory(account: string, name: string, deploymentId?: string): Promise<DeploymentHistoryResponse> {
+    const params = new URLSearchParams();
+    if (deploymentId) params.set("deployment_id", deploymentId);
+    const qs = params.toString();
     return this.request<DeploymentHistoryResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment/history`
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment/history${qs ? `?${qs}` : ""}`
     );
   }
 

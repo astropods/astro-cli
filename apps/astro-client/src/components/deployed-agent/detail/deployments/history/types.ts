@@ -1,6 +1,6 @@
 import type { DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 
-export type DeployHistoryStatus = "active" | "ready" | "failed" | "undeployed";
+export type DeployHistoryStatus = "active" | "deploying" | "ready" | "failed" | "undeployed";
 
 export interface DeploymentHistoryTableRow {
   id: string;

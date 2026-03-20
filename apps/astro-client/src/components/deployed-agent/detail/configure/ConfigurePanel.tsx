@@ -19,14 +19,16 @@ interface ConfigurePanelProps {
   deployment: AgentDeployment;
   account: string;
   onClose: () => void;
+  onRedeployStart?: () => void;
   onRedeploy?: () => void;
 }
 
-function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeploy }: {
+function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy }: {
   deployment: AgentDeployment;
   account: string;
   template: import("@/lib/api").DeploymentTemplate;
   onClose: () => void;
+  onRedeployStart?: () => void;
   onRedeploy?: () => void;
 }) {
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
@@ -51,6 +53,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!form.trySubmit()) return;
+    onRedeployStart?.();
     try {
       await form.deploy();
       onClose();
@@ -168,7 +171,7 @@ function ManualTriggers({
   );
 }
 
-export function ConfigurePanel({ deployment, account, onClose, onRedeploy }: ConfigurePanelProps) {
+export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy }: ConfigurePanelProps) {
   const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id);
 
   const shell = (children: React.ReactNode) => (
@@ -192,6 +195,7 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeploy }: Con
       account={account}
       template={template}
       onClose={onClose}
+      onRedeployStart={onRedeployStart}
       onRedeploy={onRedeploy}
     />
   );

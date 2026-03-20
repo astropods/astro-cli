@@ -274,6 +274,24 @@ function buildTimeParams(win: string) {
   return { start_time: start.toISOString(), end_time: end.toISOString() };
 }
 
+function clampWindowParams(
+  params: { start_time: string; end_time: string },
+  minStartTime?: string,
+): { start_time: string; end_time: string } {
+  if (!minStartTime) return params;
+  const minMs = new Date(minStartTime).getTime();
+  const startMs = new Date(params.start_time).getTime();
+  const endMs = new Date(params.end_time).getTime();
+  if (!Number.isFinite(minMs) || Number.isNaN(minMs)) return params;
+  const clampedStart = Math.max(startMs, minMs);
+  const clampedEnd = Math.max(endMs, minMs);
+  return {
+    start_time: new Date(clampedStart).toISOString(),
+    end_time: new Date(clampedEnd).toISOString(),
+  };
+}
+
+
 function buildRequestVolumeSeries(
   traces: Array<{ timestamp: string; latency_ms: number }>,
   win: "1h" | "24h" | "7d",
@@ -328,14 +346,33 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
     "24h": buildTimeParams("24h"),
     "7d": buildTimeParams("7d"),
   }));
-  const timeParams = windowParams[win];
-  const previousWindowParams = useMemo(() => buildPreviousWindowParams(windowParams), [windowParams]);
+  const deploymentStartIso = useMemo(() => {
+    const ms = new Date(deployment.created_at).getTime();
+    return Number.isFinite(ms) && !Number.isNaN(ms) ? new Date(ms).toISOString() : undefined;
+  }, [deployment.created_at]);
+  const scopedWindowParams = useMemo<Record<Win, { start_time: string; end_time: string }>>(
+    () => ({
+      "1h": clampWindowParams(windowParams["1h"], deploymentStartIso),
+      "24h": clampWindowParams(windowParams["24h"], deploymentStartIso),
+      "7d": clampWindowParams(windowParams["7d"], deploymentStartIso),
+    }),
+    [windowParams, deploymentStartIso],
+  );
+  const previousWindowParams = useMemo(() => {
+    const prev = buildPreviousWindowParams(scopedWindowParams);
+    return {
+      "1h": clampWindowParams(prev["1h"], deploymentStartIso),
+      "24h": clampWindowParams(prev["24h"], deploymentStartIso),
+      "7d": clampWindowParams(prev["7d"], deploymentStartIso),
+    } as Record<Win, { start_time: string; end_time: string }>;
+  }, [scopedWindowParams, deploymentStartIso]);
+  const timeParams = scopedWindowParams[win];
 
   useEffect(() => {
     if (!account || !deployment.name) return;
 
     for (const window of OBS_WINDOWS) {
-      const params = windowParams[window];
+      const params = scopedWindowParams[window];
       const prevParams = previousWindowParams[window];
       void queryClient.prefetchQuery({
         queryKey: observabilityKeys.metrics(account, deployment.name, params),
@@ -354,13 +391,13 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
         queryFn: () => api.getObservabilitySummary(account, deployment.name, prevParams),
       });
     }
-  }, [account, deployment.name, queryClient, windowParams, previousWindowParams]);
+  }, [account, deployment.name, queryClient, scopedWindowParams, previousWindowParams]);
 
   const metricsQuery = useObservabilityMetrics(account, deployment.name, timeParams);
   const tracesQuery = useObservabilityTraces(account, deployment.name, { ...timeParams, limit: "100" });
-  const summary1hQuery = useObservabilitySummary(account, deployment.name, windowParams["1h"]);
-  const summary24hQuery = useObservabilitySummary(account, deployment.name, windowParams["24h"]);
-  const summary7dQuery = useObservabilitySummary(account, deployment.name, windowParams["7d"]);
+  const summary1hQuery = useObservabilitySummary(account, deployment.name, scopedWindowParams["1h"]);
+  const summary24hQuery = useObservabilitySummary(account, deployment.name, scopedWindowParams["24h"]);
+  const summary7dQuery = useObservabilitySummary(account, deployment.name, scopedWindowParams["7d"]);
   const prevSummary1hQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["1h"]);
   const prevSummary24hQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["24h"]);
   const prevSummary7dQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["7d"]);

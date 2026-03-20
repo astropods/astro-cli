@@ -820,6 +820,18 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
+			api.POST(protected, "/deployments/:id/pause", "Pause a deployment by scaling replicas to zero", handlers.PauseDeployment(log, accountStore, k8sClient, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, nil),
+			)
+			api.POST(protected, "/deployments/:id/stop", "Stop (pause) a deployment by scaling replicas to zero", handlers.PauseDeployment(log, accountStore, k8sClient, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, nil),
+			)
 			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),

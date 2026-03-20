@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check, MoreVertical } from "lucide-react";
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
-import { formatDate, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { formatDate, isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
+import { deploymentKeys } from "@/api/queries/keys";
 import type { ContainerRow, DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
 
 const C = {
@@ -66,6 +68,7 @@ export interface ActiveContainerAccordionProps {
   uptime: string;
   liveLogs: { deploymentId: string; podName: string; containerName: string };
   vars: { key: string; value: string; secret: boolean; source: string }[];
+  deploymentStatus: DeployHistoryStatus;
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -100,7 +103,7 @@ function isSensitiveEnvVar(key: string, value: string): boolean {
   return keyLooksSensitive || valueLooksSensitive;
 }
 
-export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, vars, isOpen, onToggle }: ActiveContainerAccordionProps) {
+export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, vars, deploymentStatus, isOpen, onToggle }: ActiveContainerAccordionProps) {
   const [view, setView] = useState<"logs" | "vars">("logs");
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [logSearch, setLogSearch] = useState("");
@@ -113,7 +116,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
     liveLogs.podName,
     liveLogs.containerName,
     logTimeRange,
-    { enabled: isOpen },
+    { enabled: isOpen, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
   );
 
   const logs = useMemo(() => (logsRaw ?? "").split("\n"), [logsRaw]);
@@ -190,10 +193,14 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
         }}
       >
         <ChevronRight size={I.md} color={C.faint} style={{ flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }} />
-        <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-          <circle cx="12" cy="12" r="10" fill="rgba(21,130,125,0.12)" />
-          <path d="M7.5 12l3 3 6-6" stroke={C.tealMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
+        {deploymentStatus === "deploying" ? (
+          <Loader2 size={16} style={{ color: C.amber, animation: "dp-spin 1.2s linear infinite", flexShrink: 0 }} />
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10" fill="rgba(21,130,125,0.12)" />
+            <path d="M7.5 12l3 3 6-6" stroke={C.tealMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </svg>
+        )}
         <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 500, color: C.text }}>{name}</span>
         <span style={{ flex: 1 }} />
         {url && (
@@ -518,12 +525,20 @@ function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDep
   if (h.id === live.id) {
     const ds = mapDeploymentStatus(live);
     if (ds === "error") return "failed";
-    if (ds === "pending") return "ready";
+    if (ds === "pending") return "deploying";
     return "active";
   }
   const st = (h.status ?? "").toLowerCase();
+  if (st === "pending" || st === "provisioning" || st === "deploying") return "deploying";
   if (st === "error" || st === "failed") return "failed";
   return "ready";
+}
+
+function statusColor(status: DeployHistoryStatus): string {
+  if (status === "failed") return C.coral;
+  if (status === "undeployed") return C.stone;
+  if (status === "deploying") return C.amber;
+  return C.success;
 }
 
 export function DeploymentsTab({
@@ -535,11 +550,20 @@ export function DeploymentsTab({
   account: string;
   onOpenConfigure?: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [openContainers, setOpenContainers] = useState<Set<string>>(new Set());
   const [openPastDeployMenu, setOpenPastDeployMenu] = useState<string | null>(null);
   const hasAutoOpenedOverview = useRef(false);
 
   const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(account, deployment.name);
+
+  useEffect(() => {
+    if (!isDeployingState(deployment)) return;
+    const interval = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [account, deployment, queryClient]);
 
   const containers: ContainerRow[] = (deployment.pods ?? []).flatMap((pod) =>
     (pod.containers ?? []).map((c) => ({
@@ -584,7 +608,7 @@ export function DeploymentsTab({
     }
     merged.sort((a, b) => resolveDeployedAtMs(b, deployment) - resolveDeployedAtMs(a, deployment));
 
-    let rows: DeploymentHistoryTableRow[] = merged.map((h, idx) => {
+    const rows: DeploymentHistoryTableRow[] = merged.map((h, idx) => {
       const isCurrent = h.id === deployment.id;
       const status = deploymentHistoryUiStatus(h, deployment);
       const build = h.build_id?.slice(0, 8) || "—";
@@ -670,7 +694,21 @@ export function DeploymentsTab({
                         {currentRow.rowLabel}
                       </div>
                     </div>
-                    <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: C.success, fontWeight: 500 }}>ACTIVE</span>
+                    <span
+                      style={{
+                        fontFamily: S.mono,
+                        fontSize: T.label,
+                        letterSpacing: "0.06em",
+                        color: statusColor(currentRow.status),
+                        fontWeight: 500,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {currentRow.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
+                      {currentRow.status.toUpperCase()}
+                    </span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{currentRow.duration}</span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.muted }}>{currentRow.build}</span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
@@ -681,7 +719,10 @@ export function DeploymentsTab({
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
                     {containers.length === 0 ? (
-                      <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0 }}>No container data available</p>
+                      <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                        {currentRow.status === "deploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
+                        {currentRow.status === "deploying" ? "Waiting for containers to start and logs to stream…" : "No container data available"}
+                      </p>
                     ) : (
                       containers.map((c) => (
                         <ActiveContainerAccordion
@@ -692,6 +733,7 @@ export function DeploymentsTab({
                           uptime={c.uptime}
                           liveLogs={{ deploymentId: deployment.id, podName: c.podName, containerName: c.name }}
                           vars={c.vars}
+                          deploymentStatus={currentRow.status}
                           isOpen={openContainers.has(c.id)}
                           onToggle={() =>
                             setOpenContainers((prev: Set<string>) => {
@@ -743,7 +785,19 @@ export function DeploymentsTab({
                             {row.rowLabel}
                           </div>
                         </div>
-                        <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: row.status === "failed" ? C.coral : row.status === "undeployed" ? C.stone : C.success, fontWeight: 500 }}>
+                        <span
+                          style={{
+                            fontFamily: S.mono,
+                            fontSize: T.label,
+                            letterSpacing: "0.06em",
+                            color: statusColor(row.status),
+                            fontWeight: 500,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          {row.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                           {row.status.toUpperCase()}
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{row.duration}</span>
