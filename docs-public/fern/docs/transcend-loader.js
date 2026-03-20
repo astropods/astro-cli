@@ -32,7 +32,8 @@
     script.setAttribute('data-cfasync', 'false');
     script.setAttribute('data-local-sync', 'allow-network-observable');
     script.setAttribute('data-more-choices-view', 'CompleteOptionsToggles');
-    script.setAttribute('data-css', 'https://astropods.com/transcend.css');
+    // TODO: Enable once deployed -- blocked Transcend load in local dev
+    // script.setAttribute('data-css', 'https://astropods.com/transcend.css');
 
     script.onload = function() {
       log('Airgap loaded successfully');
