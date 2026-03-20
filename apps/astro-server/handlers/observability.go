@@ -73,6 +73,27 @@ func resolveObservabilityContext(
 	return client, logStreamName, true
 }
 
+func searchLogStreamsWithFallback(
+	client *galileo.Client,
+	projectID string,
+	logStreamName string,
+	agentName string,
+) ([]galileo.LogStream, error) {
+	streams, err := client.SearchLogStreams(projectID, logStreamName)
+	if err != nil {
+		return nil, err
+	}
+	if len(streams) == 0 {
+		// Fallback for stream names that include build suffixes,
+		// e.g. "<agent>-<build>", while reads may only know "<agent>".
+		streams, err = client.SearchLogStreamsContains(projectID, agentName)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return streams, nil
+}
+
 // GetObservabilityMetrics returns bucketed metrics for an agent's traces.
 // GET /api/v1/agents/:account/:name/observability/metrics
 func GetObservabilityMetrics(
@@ -88,7 +109,7 @@ func GetObservabilityMetrics(
 		}
 
 		// Resolve log stream ID
-		streams, err := client.SearchLogStreams(cfg.Deployment.GalileoProjectID, logStreamName)
+		streams, err := searchLogStreamsWithFallback(client, cfg.Deployment.GalileoProjectID, logStreamName, c.Param("name"))
 		if err != nil {
 			log.Error("Failed to search log streams", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query observability backend"})
@@ -147,7 +168,7 @@ func GetObservabilitySummary(
 			return
 		}
 
-		streams, err := client.SearchLogStreams(cfg.Deployment.GalileoProjectID, logStreamName)
+		streams, err := searchLogStreamsWithFallback(client, cfg.Deployment.GalileoProjectID, logStreamName, c.Param("name"))
 		if err != nil {
 			log.Error("Failed to search log streams", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query observability backend"})
@@ -201,7 +222,7 @@ func GetObservabilityTraces(
 			return
 		}
 
-		streams, err := client.SearchLogStreams(cfg.Deployment.GalileoProjectID, logStreamName)
+		streams, err := searchLogStreamsWithFallback(client, cfg.Deployment.GalileoProjectID, logStreamName, c.Param("name"))
 		if err != nil {
 			log.Error("Failed to search log streams", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query observability backend"})
@@ -260,16 +281,17 @@ func transformMetricsBuckets(metrics *galileo.MetricsResponse) []gin.H {
 	// Filter out empty buckets and convert
 	var result []gin.H
 	for _, b := range buckets {
-		if b.RequestsCount == 0 {
+		traceCount := int(math.Round(b.RequestsCount))
+		if traceCount == 0 {
 			continue
 		}
 		result = append(result, gin.H{
 			"timestamp":      b.StartBucketTime,
-			"trace_count":    b.RequestsCount,
+			"trace_count":    traceCount,
 			"avg_latency_ms": b.AvgDurationNs / 1e6,
-			"input_tokens":   b.InputTokens,
-			"output_tokens":  b.OutputTokens,
-			"error_count":    b.FailuresCount,
+			"input_tokens":   int(math.Round(b.InputTokens)),
+			"output_tokens":  int(math.Round(b.OutputTokens)),
+			"error_count":    int(math.Round(b.FailuresCount)),
 		})
 	}
 	if result == nil {
@@ -286,14 +308,19 @@ func transformTraces(records []galileo.TraceEntry) []gin.H {
 		if r.StatusCode != 0 {
 			status = "error"
 		}
+		totalTokens := r.Metrics.TotalTokens
+		if totalTokens == 0 {
+			totalTokens = r.Metrics.CostTotalTokens
+		}
 		result = append(result, gin.H{
-			"trace_id":   r.TraceID,
-			"name":       r.Name,
-			"status":     status,
-			"latency_ms": r.Metrics.DurationNs / 1e6,
-			"input":      r.Input,
-			"output":     r.Output,
-			"timestamp":  r.CreatedAt,
+			"trace_id":     r.TraceID,
+			"name":         r.Name,
+			"status":       status,
+			"latency_ms":   r.Metrics.DurationNs / 1e6,
+			"total_tokens": int(math.Round(totalTokens)),
+			"input":        r.Input,
+			"output":       r.Output,
+			"timestamp":    r.CreatedAt,
 		})
 	}
 	return result
@@ -320,11 +347,17 @@ func computeSummary(traces *galileo.TracesResponse, startTime, endTime string) g
 
 	var sumLatency float64
 	var errorCount int
+	var totalTokens float64
 	latencies := make([]float64, 0, len(records))
 	for _, r := range records {
 		ms := r.Metrics.DurationNs / 1e6
 		sumLatency += ms
 		latencies = append(latencies, ms)
+		tok := r.Metrics.TotalTokens
+		if tok == 0 {
+			tok = r.Metrics.CostTotalTokens
+		}
+		totalTokens += tok
 		if r.StatusCode != 0 {
 			errorCount++
 		}
@@ -359,7 +392,7 @@ func computeSummary(traces *galileo.TracesResponse, startTime, endTime string) g
 		"metrics": gin.H{
 			"avg_latency_ms":  math.Round(avgLatency*100) / 100,
 			"p95_latency_ms":  math.Round(p95Latency*100) / 100,
-			"total_tokens":    0, // Galileo doesn't provide per-trace token counts in trace records
+			"total_tokens":    int(math.Round(totalTokens)),
 			"error_rate":      math.Round(errorRate*10000) / 10000,
 			"traces_per_hour": math.Round(tracesPerHour*100) / 100,
 		},

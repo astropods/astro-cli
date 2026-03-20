@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
-import { ChevronRight, MoreVertical, Search, Calendar, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check } from "lucide-react";
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
 import { formatDate, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
-import { MultiSelect } from "../shared/MultiSelect";
 import { C, S } from "../theme";
+import { HistoryDeploymentsTable } from "./history/HistoryDeploymentsTable";
+import type { ContainerRow, DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
 
 type LogTimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
 
@@ -16,7 +17,7 @@ const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
   { value: "7d", label: "Last 7 days" },
 ];
 
-interface ActiveContainerAccordionProps {
+export interface ActiveContainerAccordionProps {
   name: string;
   url?: string;
   ready: string;
@@ -35,7 +36,29 @@ function logLineColor(line: string): string {
   return C.muted;
 }
 
-function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, vars, isOpen, onToggle }: ActiveContainerAccordionProps) {
+function isSensitiveEnvVar(key: string, value: string): boolean {
+  const upperKey = key.toUpperCase();
+  const keyLooksSensitive =
+    upperKey.includes("KEY") ||
+    upperKey.includes("TOKEN") ||
+    upperKey.includes("SECRET") ||
+    upperKey.includes("PASSWORD") ||
+    upperKey.includes("PASSWD") ||
+    upperKey.includes("PRIVATE") ||
+    upperKey.includes("CREDENTIAL") ||
+    upperKey.includes("AUTH") ||
+    upperKey.includes("DSN") ||
+    upperKey.includes("WEBHOOK");
+
+  const valueLooksSensitive =
+    value.startsWith("sk-") ||
+    value.startsWith("secret:") ||
+    value.includes("••");
+
+  return keyLooksSensitive || valueLooksSensitive;
+}
+
+export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, vars, isOpen, onToggle }: ActiveContainerAccordionProps) {
   const [view, setView] = useState<"logs" | "vars">("logs");
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [logSearch, setLogSearch] = useState("");
@@ -448,8 +471,6 @@ function deploymentHistoryDurationMs(
   return null;
 }
 
-type DeployHistoryStatus = "active" | "ready" | "failed" | "undeployed";
-
 function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDeployment): DeployHistoryStatus {
   if (h.undeployed_at) return "undeployed";
   if (h.id === live.id) {
@@ -463,24 +484,6 @@ function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDep
   return "ready";
 }
 
-interface DeploymentHistoryTableRow {
-  id: string;
-  status: DeployHistoryStatus;
-  build: string;
-  duration: string;
-  time: string;
-  isCurrent: boolean;
-  rowLabel: string;
-  source: ApiDeploymentHistoryRecord;
-}
-
-const DEPLOY_STATUS_STYLE: Record<DeployHistoryStatus, { color: string; label: string }> = {
-  active: { color: C.success, label: "Active" },
-  ready: { color: C.success, label: "Ready" },
-  failed: { color: C.coral, label: "Failed" },
-  undeployed: { color: C.stone, label: "Undeployed" },
-};
-
 export function DeploymentsTab({
   deployment,
   account,
@@ -490,24 +493,18 @@ export function DeploymentsTab({
   account: string;
   onOpenConfigure?: () => void;
 }) {
+  const [section, setSection] = useState<"overview" | "history">("overview");
   const [deploySearch, setDeploySearch] = useState("");
   const [deployStatus, setDeployStatus] = useState<string[]>([]);
   const [historyPreset, setHistoryPreset] = useState<"all" | "7d" | "30d">("all");
   const [expandedDeploy, setExpandedDeploy] = useState<string | null>(deployment.id);
   const [openDeployMenu, setOpenDeployMenu] = useState<string | null>(null);
   const [openContainers, setOpenContainers] = useState<Set<string>>(new Set());
+  const hasAutoOpenedOverview = useRef(false);
 
   const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(account, deployment.name);
 
-  const toggleContainer = (id: string) =>
-    setOpenContainers((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-
-  const containers = (deployment.pods ?? []).flatMap((pod) =>
+  const containers: ContainerRow[] = (deployment.pods ?? []).flatMap((pod) =>
     (pod.containers ?? []).map((c) => ({
       id: `${pod.name}:${c.name}`,
       podName: pod.name,
@@ -519,7 +516,7 @@ export function DeploymentsTab({
         return {
           key: e.name,
           value: val,
-          secret: val.startsWith("sk-") || val.startsWith("secret:") || val.includes("••"),
+          secret: isSensitiveEnvVar(e.name, val),
           source: e.from ?? "static",
         };
       }),
@@ -593,6 +590,21 @@ export function DeploymentsTab({
 
     return rows;
   }, [historyData, deployment, historyPreset, deploySearch, deployStatus]);
+  const pastRows = useMemo(() => allRows.filter((row) => !row.isCurrent), [allRows]);
+  const currentRow = useMemo(() => allRows.find((row) => row.isCurrent) ?? null, [allRows]);
+
+  useEffect(() => {
+    hasAutoOpenedOverview.current = false;
+    setOpenContainers(new Set());
+  }, [deployment.id]);
+
+  useEffect(() => {
+    if (section !== "overview") return;
+    if (containers.length === 0) return;
+    if (hasAutoOpenedOverview.current) return;
+    hasAutoOpenedOverview.current = true;
+    setOpenContainers(new Set([containers[0].id]));
+  }, [section, containers]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(0, 900px) 1fr", gap: 12, alignItems: "start" }}>
@@ -600,228 +612,148 @@ export function DeploymentsTab({
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
           <span style={{ fontFamily: S.body, fontSize: 17, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.bg }}>
-            <Search size={12} color={C.faint} />
-            <input
-              type="text"
-              placeholder="Search by name, build, id"
-              value={deploySearch}
-              onChange={(e) => setDeploySearch(e.target.value)}
-              style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: 12, color: C.muted, width: 200, caretColor: C.tealMid }}
-            />
-          </div>
-          <MultiSelect
-            options={[
-              { value: "active", label: "Active", color: C.tealMid },
-              { value: "ready", label: "Ready", color: C.success },
-              { value: "failed", label: "Failed", color: C.coral },
-              { value: "undeployed", label: "Undeployed", color: C.stone },
-            ]}
-            selected={deployStatus}
-            onChange={setDeployStatus}
-            placeholder="All statuses"
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Calendar size={12} color={C.faint} />
-            <select
-              value={historyPreset}
-              onChange={(e) => setHistoryPreset(e.target.value as typeof historyPreset)}
-              style={{
-                padding: "5px 22px 5px 8px",
-                borderRadius: 7,
-                border: `1px solid ${C.border}`,
-                background: C.bg,
-                fontFamily: S.body,
-                fontSize: 12,
-                color: C.muted,
-                cursor: "pointer",
-                outline: "none",
-                appearance: "none" as const,
-                backgroundImage:
-                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7e7c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 6px center",
-              }}
-            >
-              <option value="all">All time</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-            </select>
-          </div>
-        </div>
-
-        {historyError && (
-          <p style={{ fontFamily: S.mono, fontSize: 11, color: C.coral, margin: "0 0 10px" }}>
-            Could not load deployment history from the server.
-          </p>
-        )}
-
-        <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "16px minmax(160px, 1fr) 80px 72px 110px 72px 32px", gap: 12, padding: "8px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
-            {["", "Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h) => (
-              <span key={h} style={{ fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint }}>
-                {h.toUpperCase()}
-              </span>
+          <div style={{ display: "flex", alignItems: "center", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bgAlt, padding: 2 }}>
+            {([
+              { id: "overview" as const, label: "Overview" },
+              { id: "history" as const, label: "History" },
+            ]).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSection(item.id)}
+                style={{
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  background: section === item.id ? C.panel : "transparent",
+                  color: section === item.id ? C.text : C.faint,
+                  fontFamily: S.body,
+                  fontSize: 12,
+                  fontWeight: section === item.id ? 600 : 400,
+                }}
+              >
+                {item.label}
+              </button>
             ))}
           </div>
+        </div>
 
-          {historyLoading ? (
-            <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 10, fontFamily: S.mono, fontSize: 11, color: C.faint }}>
-              <Loader2 size={14} className="dp-spin" />
-              Loading deployment history…
+        {section === "overview" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              {[
+                { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
+                { label: "STATUS", value: String(deployment.status || "unknown").toUpperCase() },
+                { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
+                { label: "CONTAINERS", value: String(containers.length) },
+              ].map((item) => (
+                <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                  <span style={{ display: "block", fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
+                    {item.label}
+                  </span>
+                  <span style={{ display: "block", fontFamily: S.body, fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.value}
+                  </span>
+                </div>
+              ))}
             </div>
-          ) : allRows.length === 0 ? (
-            <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: 11, color: C.faint }}>
-              No deployments match your filters.
-            </div>
-          ) : (
-            allRows.map((d, i) => {
-              const ds = DEPLOY_STATUS_STYLE[d.status];
-              const isCurrent = d.isCurrent;
-              const isExpanded = expandedDeploy === d.id;
-              return (
-                <div key={d.id} style={{ borderBottom: i < allRows.length - 1 ? `1px solid ${C.border}` : "none" }}>
+
+            <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 80px 72px 110px 72px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
+                {["Deployment", "Status", "Duration", "Build No.", "Deployed on"].map((h, i) => (
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left" }}>
+                    {h.toUpperCase()}
+                  </span>
+                ))}
+              </div>
+              {currentRow ? (
+                <>
                   <div
-                    onClick={() => setExpandedDeploy(isExpanded ? null : d.id)}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "16px minmax(160px, 1fr) 80px 72px 110px 72px 32px",
+                      gridTemplateColumns: "minmax(200px, 1fr) 80px 72px 110px 72px",
                       gap: 12,
-                      padding: "12px 16px",
+                      padding: "12px 14px",
                       alignItems: "center",
-                      cursor: "pointer",
-                      borderLeft: isCurrent ? `3px solid ${C.tealMid}` : "3px solid transparent",
-                      background: isExpanded ? C.bgDeep : isCurrent ? "rgba(21,130,125,0.02)" : "transparent",
-                      transition: "background 0.12s",
+                      borderLeft: `3px solid ${C.tealMid}`,
+                      background: "rgba(21,130,125,0.02)",
                     }}
                   >
-                    <ChevronRight size={12} color={C.faint} style={{ transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "none" }} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontFamily: S.body, fontSize: 12, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={d.rowLabel}>
-                        {d.rowLabel}
+                      <div style={{ fontFamily: S.body, fontSize: 12, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={currentRow.rowLabel}>
+                        {currentRow.rowLabel}
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: ds.color, display: "inline-block", flexShrink: 0 }} />
-                      <span style={{ fontFamily: S.mono, fontSize: 10, letterSpacing: "0.06em", color: ds.color, fontWeight: 500 }}>
-                        {ds.label.toUpperCase()}
-                      </span>
-                    </div>
-                    <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint }}>{d.duration}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: 11, fontWeight: 600, color: C.muted }}>{d.build}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, whiteSpace: "nowrap" as const }}>{d.time}</span>
-                    <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => setOpenDeployMenu(openDeployMenu === d.id ? null : d.id)}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex", padding: 4, borderRadius: 4 }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = C.bgDeep;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "none";
-                        }}
-                      >
-                        <MoreVertical size={13} />
-                      </button>
-                      {openDeployMenu === d.id && (
-                        <>
-                          <div onClick={() => setOpenDeployMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
-                          <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 20, minWidth: 160, background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,0.1)" }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpenDeployMenu(null);
-                                onOpenConfigure?.();
-                              }}
-                              style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontFamily: S.body, fontSize: 12, color: C.text, textAlign: "left" as const }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = C.bgDeep;
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = "none";
-                              }}
-                            >
-                              Redeploy…
-                            </button>
-                            <div style={{ height: 1, background: C.border }} />
-                            <button
-                              type="button"
-                              disabled={!isCurrent || containers.length === 0}
-                              title={!isCurrent ? "Only the live deployment has pod logs here" : undefined}
-                              onClick={() => {
-                                setOpenDeployMenu(null);
-                                if (isCurrent && containers.length > 0) {
-                                  setExpandedDeploy(d.id);
-                                  setOpenContainers(new Set([containers[0].id]));
-                                }
-                              }}
-                              style={{
-                                width: "100%",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                padding: "9px 14px",
-                                background: "none",
-                                border: "none",
-                                cursor: isCurrent && containers.length > 0 ? "pointer" : "not-allowed",
-                                fontFamily: S.body,
-                                fontSize: 12,
-                                color: C.text,
-                                textAlign: "left" as const,
-                                opacity: isCurrent && containers.length > 0 ? 1 : 0.45,
-                              }}
-                              onMouseEnter={(e) => {
-                                if (isCurrent && containers.length > 0) e.currentTarget.style.background = C.bgDeep;
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = "none";
-                              }}
-                            >
-                              View pod logs
-                            </button>
-                            <div style={{ height: 1, background: C.border }} />
-                            <button type="button" disabled title="Rollback is not available yet" style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "not-allowed", fontFamily: S.body, fontSize: 12, color: C.coral, textAlign: "left" as const, opacity: 0.45 }}>
-                              Rollback
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <span style={{ fontFamily: S.mono, fontSize: 10, letterSpacing: "0.06em", color: C.success, fontWeight: 500 }}>ACTIVE</span>
+                    <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint }}>{currentRow.duration}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: 11, fontWeight: 600, color: C.muted }}>{currentRow.build}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                      {currentRow.time}
+                    </span>
                   </div>
 
-                  {isExpanded && (
-                    <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-                      {isCurrent ? (
-                        containers.length === 0 ? (
-                          <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0 }}>No container data available</p>
-                        ) : (
-                          containers.map((c) => (
-                            <ActiveContainerAccordion
-                              key={c.id}
-                              name={c.name}
-                              url={c.url}
-                              ready={c.ready}
-                              uptime={c.uptime}
-                              liveLogs={{ deploymentId: deployment.id, podName: c.podName, containerName: c.name }}
-                              vars={c.vars}
-                              isOpen={openContainers.has(c.id)}
-                              onToggle={() => toggleContainer(c.id)}
-                            />
-                          ))
-                        )
-                      ) : (
-                        <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0 }}>
-                          Pod logs are only available for the live deployment ({deployment.id.slice(0, 8)}…).
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+                  <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
+                    {containers.length === 0 ? (
+                      <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0 }}>No container data available</p>
+                    ) : (
+                      containers.map((c) => (
+                        <ActiveContainerAccordion
+                          key={c.id}
+                          name={c.name}
+                          url={c.url}
+                          ready={c.ready}
+                          uptime={c.uptime}
+                          liveLogs={{ deploymentId: deployment.id, podName: c.podName, containerName: c.name }}
+                          vars={c.vars}
+                          isOpen={openContainers.has(c.id)}
+                          onToggle={() =>
+                            setOpenContainers((prev: Set<string>) => {
+                              const n = new Set(prev);
+                              if (n.has(c.id)) n.delete(c.id);
+                              else n.add(c.id);
+                              return n;
+                            })
+                          }
+                        />
+                      ))
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: 11, color: C.faint }}>No active deployment found.</div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <HistoryDeploymentsTable
+            rows={pastRows}
+            historyLoading={historyLoading}
+            historyError={historyError}
+            deploySearch={deploySearch}
+            onDeploySearchChange={setDeploySearch}
+            deployStatus={deployStatus}
+            onDeployStatusChange={setDeployStatus}
+            historyPreset={historyPreset}
+            onHistoryPresetChange={setHistoryPreset}
+            expandedDeploy={expandedDeploy}
+            onExpandedDeployChange={setExpandedDeploy}
+            openDeployMenu={openDeployMenu}
+            onOpenDeployMenuChange={setOpenDeployMenu}
+            containers={containers}
+            onOpenConfigure={onOpenConfigure}
+            onViewPodLogs={(id) => {
+              if (id !== deployment.id || containers.length === 0) return;
+            }}
+            renderExpandedDeployment={(_id, _isCurrent) => (
+              <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
+                <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0 }}>
+                  Pod logs are only available for the live deployment ({deployment.id.slice(0, 8)}…).
+                </p>
+              </div>
+            )}
+          />
+        )}
       </div>
       <div />
     </div>

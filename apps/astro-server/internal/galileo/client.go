@@ -38,25 +38,25 @@ type LogStream struct {
 type MetricsBucket struct {
 	StartBucketTime string  `json:"start_bucket_time"`
 	EndBucketTime   string  `json:"end_bucket_time"`
-	RequestsCount   int     `json:"requests_count"`
-	FailuresCount   int     `json:"failures_count"`
+	RequestsCount   float64 `json:"requests_count"`
+	FailuresCount   float64 `json:"failures_count"`
 	AvgDurationNs   float64 `json:"average_duration_ns"`
 	SumDurationNs   float64 `json:"sum_duration_ns"`
-	InputTokens     int     `json:"sum_num_input_tokens"`
-	OutputTokens    int     `json:"sum_num_output_tokens"`
-	TotalTokens     int     `json:"sum_num_total_tokens"`
+	InputTokens     float64 `json:"sum_num_input_tokens"`
+	OutputTokens    float64 `json:"sum_num_output_tokens"`
+	TotalTokens     float64 `json:"sum_num_total_tokens"`
 	GroupBy         string  `json:"group_by,omitempty"`
 }
 
 // AggregateMetrics holds top-level aggregate metrics from Galileo.
 type AggregateMetrics struct {
-	RequestsCount int     `json:"requests_count"`
-	FailuresCount int     `json:"failures_count"`
+	RequestsCount float64 `json:"requests_count"`
+	FailuresCount float64 `json:"failures_count"`
 	AvgDurationNs float64 `json:"average_duration_ns"`
 	SumDurationNs float64 `json:"sum_duration_ns"`
-	InputTokens   int     `json:"sum_num_input_tokens"`
-	OutputTokens  int     `json:"sum_num_output_tokens"`
-	TotalTokens   int     `json:"sum_num_total_tokens"`
+	InputTokens   float64 `json:"sum_num_input_tokens"`
+	OutputTokens  float64 `json:"sum_num_output_tokens"`
+	TotalTokens   float64 `json:"sum_num_total_tokens"`
 }
 
 // MetricsResponse is the response from Galileo's metrics/search endpoint.
@@ -67,7 +67,9 @@ type MetricsResponse struct {
 
 // TraceMetrics holds per-trace metric values.
 type TraceMetrics struct {
-	DurationNs float64 `json:"duration_ns"`
+	DurationNs      float64 `json:"duration_ns"`
+	TotalTokens     float64 `json:"num_total_tokens"`
+	CostTotalTokens float64 `json:"cost_total_tokens"`
 }
 
 // TraceEntry represents a single trace record from Galileo.
@@ -95,17 +97,27 @@ type TracesResponse struct {
 	NextStartingToken *int         `json:"next_starting_token"`
 }
 
-// SearchLogStreams searches for log streams matching the given agent name.
+// SearchLogStreams searches for log streams with exact name match.
 // POST /v2/projects/{project_id}/log_streams/search
 func (c *Client) SearchLogStreams(projectID, agentName string) ([]LogStream, error) {
+	return c.searchLogStreams(projectID, "eq", agentName)
+}
+
+// SearchLogStreamsContains searches for log streams whose names contain the query.
+// POST /v2/projects/{project_id}/log_streams/search
+func (c *Client) SearchLogStreamsContains(projectID, query string) ([]LogStream, error) {
+	return c.searchLogStreams(projectID, "contains", query)
+}
+
+func (c *Client) searchLogStreams(projectID, operator, value string) ([]LogStream, error) {
 	endpoint := fmt.Sprintf("%s/v2/projects/%s/log_streams/search", c.endpoint, url.PathEscape(projectID))
 
 	body := map[string]any{
 		"filters": []map[string]any{
 			{
 				"name":     "name",
-				"operator": "eq",
-				"value":    agentName,
+				"operator": operator,
+				"value":    value,
 			},
 		},
 		"limit": 100,

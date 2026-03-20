@@ -129,7 +129,7 @@ func TestSearchMetrics(t *testing.T) {
 			t.Fatalf("expected 1 bucket, got %d", len(buckets))
 		}
 		if buckets[0].RequestsCount != 10 {
-			t.Errorf("expected requests_count=10, got %d", buckets[0].RequestsCount)
+			t.Errorf("expected requests_count=10, got %f", buckets[0].RequestsCount)
 		}
 		if resp.AggregateMetrics.AvgDurationNs != 50500000 {
 			t.Errorf("expected avg_duration_ns=50500000, got %f", resp.AggregateMetrics.AvgDurationNs)

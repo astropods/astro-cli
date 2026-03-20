@@ -777,6 +777,7 @@ export interface TraceEntry {
   name: string;
   status: string;
   latency_ms: number;
+  total_tokens?: number;
   input: string;
   output: string;
   timestamp: string;

@@ -1,11 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { Activity, Search, ChevronRight } from "lucide-react";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
+import { observabilityKeys } from "@/api/queries/keys";
+import { api } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
 import { MultiSelect } from "../shared/MultiSelect";
 import { C, S } from "../theme";
+import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
+import { buildPreviousWindowParams, percentChange } from "./trend-utils";
 
 type TraceStatus = "success" | "error" | "timeout";
 
@@ -27,9 +32,7 @@ const TRACE_STATUS_STYLE: Record<TraceStatus, { bg: string; color: string; label
 };
 
 function fmtTokens(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-  return String(n);
+  return Math.round(n).toLocaleString();
 }
 
 const CHART_H = 130;
@@ -40,6 +43,21 @@ interface ChartTooltipProps {
   label?: string;
   reqVisible: boolean;
   avgLatVisible: boolean;
+}
+
+function Ghost({ width = "100%", height = 12, radius = 6 }: { width?: string | number; height?: number; radius?: number }) {
+  return (
+    <span
+      className="dp-pulse"
+      style={{
+        display: "inline-block",
+        width,
+        height,
+        borderRadius: radius,
+        background: `linear-gradient(90deg, ${C.bgDeep} 0%, ${C.border} 45%, ${C.bgDeep} 100%)`,
+      }}
+    />
+  );
 }
 
 function ChartTooltip({ active, payload, label, reqVisible, avgLatVisible }: ChartTooltipProps) {
@@ -82,13 +100,17 @@ function InlineChart({
   data,
   reqVisible,
   avgLatVisible,
+  win,
 }: {
   data: { t: string; req: number; avgLatencyMs: number }[];
   reqVisible: boolean;
   avgLatVisible: boolean;
+  win: "1h" | "24h" | "7d";
 }) {
-  if (data.length < 2) return null;
+  if (data.length === 0) return null;
+  const hasSinglePoint = data.length === 1;
   const reqMax = Math.max(...data.map((d) => d.req));
+  const reqUpper = Math.max(1, Math.ceil(reqMax * 1.15));
   const latMin = Math.min(...data.map((d) => d.avgLatencyMs));
   const latMax = Math.max(...data.map((d) => d.avgLatencyMs));
   const latPad = (latMax - latMin) * 0.15 || 50;
@@ -102,11 +124,25 @@ function InlineChart({
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={C.border} strokeOpacity={0.6} vertical={false} />
-        <XAxis dataKey="t" tick={{ fontFamily: S.mono, fontSize: 8, fill: C.faint }} tickLine={false} axisLine={false} />
+        <XAxis
+          dataKey="t"
+          tick={{ fontFamily: S.mono, fontSize: 8, fill: C.faint }}
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+          minTickGap={0}
+          tickMargin={6}
+          tickFormatter={(value, index) => {
+            if (win === "24h") {
+              return index % 4 === 0 ? String(value) : "";
+            }
+            return String(value);
+          }}
+        />
         <YAxis
           yAxisId="req"
           orientation="left"
-          domain={[0, Math.ceil(reqMax * 1.15)]}
+          domain={[0, reqUpper]}
           tick={{ fontFamily: S.mono, fontSize: 8, fill: C.faint }}
           tickLine={false}
           axisLine={false}
@@ -137,7 +173,7 @@ function InlineChart({
             stroke={C.tealMid}
             strokeWidth={1.5}
             fill="url(#req-grad-obs)"
-            dot={false}
+            dot={hasSinglePoint ? { r: 3.5, fill: C.tealMid, stroke: C.panel, strokeWidth: 1.5 } : false}
             activeDot={{ r: 4, fill: C.tealMid, stroke: C.panel, strokeWidth: 1.5 }}
             animationDuration={1000}
             animationEasing="ease-out"
@@ -152,7 +188,7 @@ function InlineChart({
             strokeWidth={1.5}
             strokeDasharray="4 3"
             strokeOpacity={0.85}
-            dot={false}
+            dot={hasSinglePoint ? { r: 3.5, fill: C.amber, stroke: C.panel, strokeWidth: 1.5 } : false}
             activeDot={{ r: 4, fill: C.amber, stroke: C.panel, strokeWidth: 1.5 }}
             animationDuration={1000}
             animationEasing="ease-out"
@@ -164,6 +200,14 @@ function InlineChart({
 }
 
 const WIN_HOURS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
+type Win = "1h" | "24h" | "7d";
+const OBS_WINDOWS: Win[] = ["1h", "24h", "7d"];
+const WIN_BUCKETS: Record<"1h" | "24h" | "7d", number> = { "1h": 6, "24h": 24, "7d": 7 };
+const WIN_BUCKET_MS: Record<"1h" | "24h" | "7d", number> = {
+  "1h": 10 * 60 * 1000,
+  "24h": 60 * 60 * 1000,
+  "7d": 24 * 60 * 60 * 1000,
+};
 
 function buildTimeParams(win: string) {
   const hours = WIN_HOURS[win] ?? 24;
@@ -172,29 +216,113 @@ function buildTimeParams(win: string) {
   return { start_time: start.toISOString(), end_time: end.toISOString() };
 }
 
+function buildRequestVolumeSeries(
+  traces: Array<{ timestamp: string; latency_ms: number }>,
+  win: "1h" | "24h" | "7d",
+  endTimeISO: string
+): { t: string; req: number; avgLatencyMs: number }[] {
+  const bucketCount = WIN_BUCKETS[win];
+  const bucketMs = WIN_BUCKET_MS[win];
+  const endMs = new Date(endTimeISO).getTime();
+  const startMs = endMs - bucketCount * bucketMs;
+
+  const buckets = Array.from({ length: bucketCount }, (_, idx) => ({
+    startMs: startMs + idx * bucketMs,
+    req: 0,
+    totalLatencyMs: 0,
+  }));
+
+  for (const trace of traces) {
+    const ts = new Date(trace.timestamp).getTime();
+    if (Number.isNaN(ts) || ts < startMs || ts > endMs) continue;
+    const idx = Math.min(bucketCount - 1, Math.floor((ts - startMs) / bucketMs));
+    const bucket = buckets[idx];
+    bucket.req += 1;
+    bucket.totalLatencyMs += trace.latency_ms;
+  }
+
+  return buckets.map((b) => {
+    const d = new Date(b.startMs);
+    const label =
+      win === "7d"
+        ? d.toLocaleDateString([], { month: "short", day: "numeric" })
+        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    return {
+      t: label,
+      req: b.req,
+      avgLatencyMs: b.req > 0 ? b.totalLatencyMs / b.req : 0,
+    };
+  });
+}
+
 export function MonitorTab({ deployment, account }: { deployment: AgentDeployment; account: string }) {
-  const [win, setWin] = useState<"1h" | "24h" | "7d">("24h");
+  const queryClient = useQueryClient();
+  const [win, setWin] = useState<Win>("24h");
   const [traceSearch, setTraceSearch] = useState("");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [series, setSeries] = useState({ req: true, avgLat: true });
   const [tokenView, setTokenView] = useState<"input" | "output">("input");
+  const [windowParams] = useState<Record<Win, { start_time: string; end_time: string }>>(() => ({
+    "1h": buildTimeParams("1h"),
+    "24h": buildTimeParams("24h"),
+    "7d": buildTimeParams("7d"),
+  }));
+  const timeParams = windowParams[win];
+  const previousWindowParams = useMemo(() => buildPreviousWindowParams(windowParams), [windowParams]);
 
-  const timeParams = buildTimeParams(win);
+  useEffect(() => {
+    if (!account || !deployment.name) return;
+
+    for (const window of OBS_WINDOWS) {
+      const params = windowParams[window];
+      const prevParams = previousWindowParams[window];
+      void queryClient.prefetchQuery({
+        queryKey: observabilityKeys.metrics(account, deployment.name, params),
+        queryFn: () => api.getObservabilityMetrics(account, deployment.name, params),
+      });
+      void queryClient.prefetchQuery({
+        queryKey: observabilityKeys.summary(account, deployment.name, params),
+        queryFn: () => api.getObservabilitySummary(account, deployment.name, params),
+      });
+      void queryClient.prefetchQuery({
+        queryKey: observabilityKeys.traces(account, deployment.name, { ...params, limit: "100" }),
+        queryFn: () => api.getObservabilityTraces(account, deployment.name, { ...params, limit: "100" }),
+      });
+      void queryClient.prefetchQuery({
+        queryKey: observabilityKeys.summary(account, deployment.name, prevParams),
+        queryFn: () => api.getObservabilitySummary(account, deployment.name, prevParams),
+      });
+    }
+  }, [account, deployment.name, queryClient, windowParams, previousWindowParams]);
 
   const metricsQuery = useObservabilityMetrics(account, deployment.name, timeParams);
-  const summaryQuery = useObservabilitySummary(account, deployment.name, timeParams);
   const tracesQuery = useObservabilityTraces(account, deployment.name, { ...timeParams, limit: "100" });
-  const { data: metricsData } = metricsQuery;
-  const { data: summaryData } = summaryQuery;
-  const { data: tracesData } = tracesQuery;
-  const observabilityBackendError = metricsQuery.isError || summaryQuery.isError || tracesQuery.isError;
+  const summary1hQuery = useObservabilitySummary(account, deployment.name, windowParams["1h"]);
+  const summary24hQuery = useObservabilitySummary(account, deployment.name, windowParams["24h"]);
+  const summary7dQuery = useObservabilitySummary(account, deployment.name, windowParams["7d"]);
+  const prevSummary1hQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["1h"]);
+  const prevSummary24hQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["24h"]);
+  const prevSummary7dQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["7d"]);
 
-  const tsData: { t: string; req: number; avgLatencyMs: number }[] = (metricsData?.buckets ?? []).map((b) => ({
-    t: new Date(b.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    req: b.trace_count,
-    avgLatencyMs: b.avg_latency_ms,
-  }));
+  const summaryByWin: Record<Win, typeof summary1hQuery> = {
+    "1h": summary1hQuery,
+    "24h": summary24hQuery,
+    "7d": summary7dQuery,
+  };
+  const prevSummaryByWin: Record<Win, typeof prevSummary1hQuery> = {
+    "1h": prevSummary1hQuery,
+    "24h": prevSummary24hQuery,
+    "7d": prevSummary7dQuery,
+  };
+  const selectedSummaryQuery = summaryByWin[win];
+  const selectedPrevSummaryQuery = prevSummaryByWin[win];
+  const { data: metricsData } = metricsQuery;
+  const { data: summaryData } = selectedSummaryQuery;
+  const { data: tracesData } = tracesQuery;
+  const observabilityBackendError = metricsQuery.isError || selectedSummaryQuery.isError || tracesQuery.isError;
+  const tracesLoading = tracesQuery.isLoading && !tracesData;
 
   const bucketTokenTotals = useMemo(() => {
     let input = 0;
@@ -212,10 +340,20 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
     status: t.status === "error" || t.status === "failed" ? "error" : t.status === "timeout" ? "timeout" : "success",
     latency: t.latency_ms,
     time: new Date(t.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    tokens: 0,
+    tokens: t.total_tokens ?? 0,
     input: t.input,
     output: t.output,
   }));
+
+  const tsData = useMemo(
+    () =>
+      buildRequestVolumeSeries(
+        (tracesData?.traces ?? []).map((t) => ({ timestamp: t.timestamp, latency_ms: t.latency_ms })),
+        win,
+        timeParams.end_time
+      ),
+    [tracesData, win, timeParams.end_time]
+  );
 
   const visibleTraces = traces.filter((t) => {
     if (traceStatuses.length > 0 && !traceStatuses.includes(t.status)) return false;
@@ -231,12 +369,41 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
       return n;
     });
 
-  const summary = summaryData?.metrics;
+  const summaryLoading = selectedSummaryQuery.isLoading && !summaryData;
+  const trendLoading =
+    (selectedSummaryQuery.isLoading && !selectedSummaryQuery.data) ||
+    (selectedPrevSummaryQuery.isLoading && !selectedPrevSummaryQuery.data);
+
+  const trends: Record<"1h" | "24h" | "7d", WindowTrend> = useMemo(
+    () => ({
+      "1h": {
+        total_traces: percentChange(summary1hQuery.data?.total_traces, prevSummary1hQuery.data?.total_traces),
+        error_rate: percentChange(summary1hQuery.data?.metrics.error_rate, prevSummary1hQuery.data?.metrics.error_rate),
+        avg_latency_ms: percentChange(summary1hQuery.data?.metrics.avg_latency_ms, prevSummary1hQuery.data?.metrics.avg_latency_ms),
+        p95_latency_ms: percentChange(summary1hQuery.data?.metrics.p95_latency_ms, prevSummary1hQuery.data?.metrics.p95_latency_ms),
+      },
+      "24h": {
+        total_traces: percentChange(summary24hQuery.data?.total_traces, prevSummary24hQuery.data?.total_traces),
+        error_rate: percentChange(summary24hQuery.data?.metrics.error_rate, prevSummary24hQuery.data?.metrics.error_rate),
+        avg_latency_ms: percentChange(summary24hQuery.data?.metrics.avg_latency_ms, prevSummary24hQuery.data?.metrics.avg_latency_ms),
+        p95_latency_ms: percentChange(summary24hQuery.data?.metrics.p95_latency_ms, prevSummary24hQuery.data?.metrics.p95_latency_ms),
+      },
+      "7d": {
+        total_traces: percentChange(summary7dQuery.data?.total_traces, prevSummary7dQuery.data?.total_traces),
+        error_rate: percentChange(summary7dQuery.data?.metrics.error_rate, prevSummary7dQuery.data?.metrics.error_rate),
+        avg_latency_ms: percentChange(summary7dQuery.data?.metrics.avg_latency_ms, prevSummary7dQuery.data?.metrics.avg_latency_ms),
+        p95_latency_ms: percentChange(summary7dQuery.data?.metrics.p95_latency_ms, prevSummary7dQuery.data?.metrics.p95_latency_ms),
+      },
+    }),
+    [summary1hQuery.data, summary24hQuery.data, summary7dQuery.data, prevSummary1hQuery.data, prevSummary24hQuery.data, prevSummary7dQuery.data]
+  );
+
+  const tokenLoading = metricsQuery.isLoading && !metricsData;
   const tokenSplitFromBuckets = bucketTokenTotals.sum > 0;
   const tokens = {
     input: tokenSplitFromBuckets ? bucketTokenTotals.input : 0,
     output: tokenSplitFromBuckets ? bucketTokenTotals.output : 0,
-    total: summary?.total_tokens ?? bucketTokenTotals.sum,
+    total: bucketTokenTotals.sum,
     hasSplit: tokenSplitFromBuckets,
   };
   const activeToken =
@@ -326,23 +493,13 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             </select>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-            {[
-              { label: "TOTAL REQUESTS", value: summaryData ? String(summaryData.total_traces) : "—" },
-              { label: "ERROR RATE", value: summary ? `${(summary.error_rate * 100).toFixed(1)}%` : "—" },
-              { label: "AVG LATENCY", value: summary ? `${summary.avg_latency_ms.toFixed(0)}ms` : "—" },
-              { label: "P95 LATENCY", value: summary ? `${summary.p95_latency_ms.toFixed(0)}ms` : "—" },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
-                <span style={{ display: "block", fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
-                  {label}
-                </span>
-                <span style={{ display: "block", fontFamily: S.body, fontSize: 20, fontWeight: 700, color: C.teal }}>
-                  {value}
-                </span>
-              </div>
-            ))}
-          </div>
+          <HeadlineMetrics
+            summary={summaryData ? { total_traces: summaryData.total_traces, metrics: summaryData.metrics } : null}
+            summaryLoading={summaryLoading}
+            trendLoading={trendLoading}
+            selectedWindow={win}
+            trends={trends}
+          />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
@@ -399,44 +556,42 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                   </div>
                 </div>
               ) : (
-                <InlineChart key={win} data={tsData} reqVisible={series.req} avgLatVisible={series.avgLat} />
+                <InlineChart key={win} data={tsData} reqVisible={series.req} avgLatVisible={series.avgLat} win={win} />
               )}
             </div>
 
-            <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
                 <span style={{ fontFamily: S.body, fontSize: 13, fontWeight: 700, color: C.teal }}>Token usage</span>
-                {tokens.hasSplit ? (
-                  <div style={{ display: "flex", background: C.bgDeep, borderRadius: 6, padding: 2 }}>
-                    {(["input", "output"] as const).map((v) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setTokenView(v)}
-                        style={{
-                          padding: "3px 10px",
-                          borderRadius: 4,
-                          border: "none",
-                          cursor: "pointer",
-                          background: tokenView === v ? C.panel : "transparent",
-                          fontFamily: S.body,
-                          fontSize: 12,
-                          color: tokenView === v ? C.text : C.faint,
-                          fontWeight: tokenView === v ? 600 : 400,
-                          boxShadow: tokenView === v ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                          textTransform: "capitalize" as const,
-                          transition: "all 0.12s",
-                        }}
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span style={{ fontFamily: S.mono, fontSize: 10, color: C.faint }}>from summary</span>
-                )}
+                <div style={{ display: "flex", background: C.bgDeep, borderRadius: 10, padding: 3 }}>
+                  {(["input", "output"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      disabled={!tokens.hasSplit}
+                      onClick={() => setTokenView(v)}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 8,
+                        border: "none",
+                        cursor: tokens.hasSplit ? "pointer" : "default",
+                        background: tokenView === v ? C.panel : "transparent",
+                        fontFamily: S.body,
+                        fontSize: 12,
+                        color: tokenView === v ? C.text : C.faint,
+                        fontWeight: tokenView === v ? 600 : 400,
+                        boxShadow: tokenView === v ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                        textTransform: "capitalize" as const,
+                        transition: "all 0.12s",
+                        opacity: tokens.hasSplit ? 1 : 0.55,
+                      }}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div style={{ padding: "14px 16px 12px" }}>
+              <div style={{ padding: "16px 18px 14px" }}>
                 <div style={{ overflow: "hidden", lineHeight: 1.2 }}>
                   <span
                     key={`${win}-${tokenView}-${tokens.hasSplit}`}
@@ -444,7 +599,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                     style={{
                       display: "block",
                       fontFamily: S.body,
-                      fontSize: 26,
+                      fontSize: 34,
                       fontWeight: 700,
                       color: activeToken.color,
                       letterSpacing: "-0.02em",
@@ -453,37 +608,35 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                     {fmtTokens(activeToken.value)}
                   </span>
                 </div>
-                {tokens.hasSplit ? (
+                {tokenLoading ? (
+                  <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: "10px 0 0", lineHeight: 1.5 }}>Loading token usage...</p>
+                ) : (
                   <>
-                    <div style={{ display: "flex", height: 5, borderRadius: 3, overflow: "hidden", margin: "12px 0 8px", background: C.bgDeep }}>
-                      <div style={{ flex: tokens.input || 1, background: C.tealMid, opacity: tokenView === "input" ? (tokens.total === 0 ? 0.15 : 1) : 0.25, transition: "opacity 0.2s" }} />
-                      <div style={{ flex: tokens.output || 1, background: C.amber, opacity: tokenView === "output" ? (tokens.total === 0 ? 0.15 : 1) : 0.25, transition: "opacity 0.2s" }} />
+                    <div style={{ display: "flex", height: 12, borderRadius: 999, overflow: "hidden", margin: "14px 0 10px", background: "rgba(196,184,158,0.8)" }}>
+                      <div style={{ flex: tokens.input || 1, background: C.tealMid, opacity: tokenView === "input" ? (tokens.total === 0 ? 0.2 : 1) : 0.35, transition: "opacity 0.2s" }} />
+                      <div style={{ flex: tokens.output || 1, background: C.amber, opacity: tokenView === "output" ? (tokens.total === 0 ? 0.2 : 1) : 0.35, transition: "opacity 0.2s" }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <div style={{ overflow: "hidden", lineHeight: 1.3 }}>
                         <span key={win} className="dp-slot-in" style={{ display: "block", fontFamily: S.body, fontSize: 11, color: C.faint }}>
-                          of {fmtTokens(tokens.total)} total
+                          {tokens.total > 0 ? `of ${fmtTokens(tokens.total)} total` : "No token usage yet"}
                         </span>
                       </div>
                       {tokens.total > 0 && (
                         <div style={{ overflow: "hidden", lineHeight: 1.3 }}>
-                          <span key={`${win}-pct`} className="dp-slot-in" style={{ display: "block", fontFamily: S.mono, fontSize: 10, color: C.faint }}>
+                          <span key={`${win}-pct`} className="dp-slot-in" style={{ display: "block", fontFamily: S.mono, fontSize: 11, color: C.faint }}>
                             {Math.round((activeToken.value / tokens.total) * 100)}%
                           </span>
                         </div>
                       )}
                     </div>
                   </>
-                ) : (
-                  <p style={{ fontFamily: S.mono, fontSize: 10, color: C.faint, margin: "10px 0 0", lineHeight: 1.5 }}>
-                    Input/output split comes from metrics buckets when available.
-                  </p>
                 )}
               </div>
             </div>
           </div>
 
-          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column", height: 360 }}>
+          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column", height: 420 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <span style={{ fontFamily: S.body, fontSize: 13, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
               <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
@@ -514,8 +667,27 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                 </span>
               ))}
             </div>
-            <div className="dp-scroll" style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-              {traces.length === 0 && (
+            <div className="dp-scroll" style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingBottom: 12 }}>
+              {tracesLoading && (
+                <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  {Array.from({ length: 7 }).map((_, idx) => (
+                    <div key={idx} style={{ borderBottom: idx < 6 ? `1px solid ${C.border}` : "none" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "16px 1fr 80px 72px 60px 72px", gap: 10, alignItems: "center", padding: "10px 16px" }}>
+                        <Ghost width={12} height={12} radius={4} />
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <Ghost width="78%" height={12} />
+                          <Ghost width="42%" height={9} />
+                        </div>
+                        <Ghost width="80%" height={16} radius={12} />
+                        <Ghost width="90%" height={12} />
+                        <Ghost width="80%" height={12} />
+                        <Ghost width="85%" height={12} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!tracesLoading && traces.length === 0 && (
                 <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                     <Activity size={18} color={C.stone} />
@@ -534,7 +706,6 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
               {visibleTraces.map((trace) => {
                 const st = TRACE_STATUS_STYLE[trace.status];
                 const isOpen = expanded.has(trace.id);
-                const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n));
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
@@ -559,7 +730,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                         {trace.latency >= 1000 ? `${(trace.latency / 1000).toFixed(1)}s` : `${trace.latency}ms`}
                       </span>
                       <span style={{ fontFamily: S.mono, fontSize: 11, color: trace.tokens > 0 ? C.muted : C.faint }}>
-                        {trace.tokens > 0 ? fmtK(trace.tokens) : "—"}
+                        {trace.tokens > 0 ? trace.tokens.toLocaleString() : "—"}
                       </span>
                       <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint }}>{trace.time}</span>
                     </div>
