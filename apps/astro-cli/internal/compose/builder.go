@@ -496,6 +496,10 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	// Add local observability collector so agent OTLP traffic has a sink in dev.
 	collectorImage := "astropods/collector:latest"
 	collectorPull := types.PullPolicyAlways
+	if s.Dev.Overrides != nil && s.Dev.Overrides.CollectorImage != "" {
+		collectorImage = s.Dev.Overrides.CollectorImage
+		collectorPull = ""
+	}
 	collectorService := types.ServiceConfig{
 		Name:       "astro-collector",
 		Image:      collectorImage,
