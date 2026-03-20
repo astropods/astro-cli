@@ -79,10 +79,11 @@ func TestEnrichResourceAttributes(t *testing.T) {
 		}
 	}
 
-	// Verify langfuse.tags are set for filtering
-	tagsVal, ok := attrs.Get("langfuse.tags")
+	// Verify langfuse.trace.tags are set on span attributes for Langfuse filtering
+	spanAttrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	tagsVal, ok := spanAttrs.Get("langfuse.trace.tags")
 	if !ok {
-		t.Fatal("expected langfuse.tags to be set")
+		t.Fatal("expected langfuse.trace.tags to be set on span")
 	}
 	tagsSlice := tagsVal.Slice()
 	wantTags := []string{"deployment:deploy-abc"}

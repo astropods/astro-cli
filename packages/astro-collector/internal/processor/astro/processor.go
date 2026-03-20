@@ -82,6 +82,13 @@ func (p *astroProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 		rs := td.ResourceSpans().At(i)
 		p.enrichResourceAttributes(rs.Resource().Attributes())
 
+		for j := 0; j < rs.ScopeSpans().Len(); j++ {
+			ss := rs.ScopeSpans().At(j)
+			for k := 0; k < ss.Spans().Len(); k++ {
+				p.setLangfuseTags(ss.Spans().At(k).Attributes())
+			}
+		}
+
 		if p.cfg.RedactPrompts {
 			p.redactTraceSpans(rs)
 		}
@@ -118,9 +125,11 @@ func (p *astroProcessor) enrichResourceAttributes(attrs pcommon.Map) {
 	attrs.PutStr(attrAgentName, p.cfg.AgentName)
 	attrs.PutStr(attrAgentVersion, p.cfg.AgentVersion)
 	attrs.PutStr(attrDeploymentID, p.cfg.DeploymentID)
+}
 
-	// Set langfuse.tags so Langfuse indexes them as filterable tags.
-	tags := attrs.PutEmptySlice("langfuse.tags")
+// setLangfuseTags sets langfuse.tags on span attributes so Langfuse indexes them as filterable tags.
+func (p *astroProcessor) setLangfuseTags(attrs pcommon.Map) {
+	tags := attrs.PutEmptySlice("langfuse.trace.tags")
 	tags.AppendEmpty().SetStr("deployment:" + p.cfg.DeploymentID)
 }
 
