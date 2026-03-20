@@ -12,18 +12,23 @@ import (
 // addWorkers registers all River workers into the registry.
 // Returns the ReconcileWorker so the caller can set its queue reference after client creation.
 func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
-	river.AddWorker(workers, &HeartbeatWorker{
+	log := cfg.Logger
+
+	river.AddWorker(workers, &OpenmeterWorker{
 		omClient: cfg.OMClient,
 		db:       cfg.DB,
-		log:      cfg.Logger,
+		log:      log,
 	})
+	log.Info("river: registered worker", "worker", "OpenmeterWorker")
+
 	river.AddWorker(workers, &WorkOSEventsWorker{
 		workOSAPIKey: cfg.WorkOSAPIKey,
 		orgClient:    cfg.OrgClient,
 		accountStore: cfg.AccountStore,
 		db:           cfg.DB,
-		log:          cfg.Logger,
+		log:          log,
 	})
+	log.Info("river: registered worker", "worker", "WorkOSEventsWorker")
 
 	store := deploymentstore.NewStore(cfg.DB)
 
@@ -53,9 +58,12 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		}
 	}
 
-	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: cfg.Logger})
-	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, log: cfg.Logger})
-	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: cfg.Logger})
+	river.AddWorker(workers, &DeployWorker{deployer: dep, store: store, log: log})
+	log.Info("river: registered worker", "worker", "DeployWorker")
+	river.AddWorker(workers, &UndeployWorker{deployer: dep, store: store, log: log})
+	log.Info("river: registered worker", "worker", "UndeployWorker")
+	river.AddWorker(workers, &WakeUpWorker{deployer: dep, store: store, log: log})
+	log.Info("river: registered worker", "worker", "WakeUpWorker")
 
 	var dynClient dynamic.Interface
 	if cfg.K8sClient != nil {
@@ -66,8 +74,9 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		promClient:   cfg.PromClient,
 		accountStore: cfg.AccountStore,
 		db:           cfg.DB,
-		log:          cfg.Logger,
+		log:          log,
 	})
+	log.Info("river: registered worker", "worker", "MessageCountSyncWorker")
 
 	rw := &ReconcileWorker{
 		deployer:  dep,
@@ -79,6 +88,7 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		// queue is set after client creation in New()
 	}
 	river.AddWorker(workers, rw)
+	log.Info("river: registered worker", "worker", "ReconcileWorker")
 
 	return rw
 }

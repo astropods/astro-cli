@@ -10,20 +10,20 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
 )
 
-// HeartbeatArgs are the job arguments for the OpenMeter heartbeat worker.
-type HeartbeatArgs struct{}
+// OpenmeterArgs are the job arguments for the OpenMeter heartbeat worker.
+type OpenmeterArgs struct{}
 
-func (HeartbeatArgs) Kind() string { return "openmeter.heartbeat" }
+func (OpenmeterArgs) Kind() string { return "openmeter.heartbeat" }
 
-// HeartbeatWorker emits periodic metering events via OpenMeter.
-type HeartbeatWorker struct {
-	river.WorkerDefaults[HeartbeatArgs]
+// OpenmeterWorker emits periodic metering events via OpenMeter.
+type OpenmeterWorker struct {
+	river.WorkerDefaults[OpenmeterArgs]
 	omClient *openmeter.Client
 	db       *sql.DB
 	log      *logger.Logger
 }
 
-func (w *HeartbeatWorker) Work(ctx context.Context, _ *river.Job[HeartbeatArgs]) error {
+func (w *OpenmeterWorker) Work(ctx context.Context, _ *river.Job[OpenmeterArgs]) error {
 	hb := openmeter.NewHeartbeat(w.omClient, w.db, w.log)
 	hb.Tick(ctx)
 	return nil

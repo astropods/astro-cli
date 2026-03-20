@@ -95,7 +95,7 @@ func (q *Queue) Start(ctx context.Context) error {
 	if err := q.client.Start(ctx); err != nil {
 		return fmt.Errorf("riverqueue: start: %w", err)
 	}
-	q.log.Info("River queue started")
+	q.log.Info("river: queue started", "queues", []string{river.QueueDefault, queueDeploy, queueWorkOS})
 	return nil
 }
 

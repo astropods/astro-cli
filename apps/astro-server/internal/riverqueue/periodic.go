@@ -12,7 +12,7 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		river.NewPeriodicJob(
 			river.PeriodicInterval(5*time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) {
-				return HeartbeatArgs{}, &river.InsertOpts{
+				return OpenmeterArgs{}, &river.InsertOpts{
 					UniqueOpts: river.UniqueOpts{
 						ByPeriod: 5 * time.Minute,
 					},
