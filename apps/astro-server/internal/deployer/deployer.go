@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +32,9 @@ type Deployer struct {
 	// KMSClient is an optional KMS client for decrypting secrets. If nil,
 	// a client is created from the default AWS config at decrypt time.
 	KMSClient envelope.KMSClient
+	// Langfuse per-account project provisioning (optional)
+	LangfuseStore       *langfuse.Store
+	LangfuseProvisioner *langfuse.Provisioner
 }
 
 // Apply provisions K8s resources for a deployment using the current revision's spec.
@@ -62,6 +66,21 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		return nil, fmt.Errorf("get account %s: %w", dep.AccountID, err)
 	}
 
+	// Langfuse: ensure per-account project exists and compute auth token
+	var langfuseAuthToken string
+	if d.LangfuseProvisioner != nil && d.LangfuseStore != nil {
+		pk, sk, lfErr := d.LangfuseProvisioner.EnsureProject(
+			ctx, d.LangfuseStore,
+			d.Cfg.Deployment.KMSKeyARN, d.KMSClient,
+			acct.ID, acct.Name,
+		)
+		if lfErr != nil {
+			d.Log.Warn("Langfuse provisioning failed, continuing without", "error", lfErr, "account", acct.Name)
+		} else {
+			langfuseAuthToken = base64.StdEncoding.EncodeToString([]byte(pk + ":" + sk))
+		}
+	}
+
 	applier := k8s.NewApplier(d.K8sClient, k8s.ApplierConfig{
 		Namespace:              dep.Namespace,
 		RegistryURL:            d.Cfg.Deployment.RegistryURL,
@@ -76,6 +95,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		IngestionALBGroupName:  d.Cfg.Deployment.IngestionALBGroupName,
 		GalileoAPIKey:          d.Cfg.Deployment.GalileoAPIKey,
 		GalileoProject:         d.Cfg.Deployment.GalileoProject,
+		LangfuseAuthToken:      langfuseAuthToken,
 		PodSubnetCIDRs:         d.Cfg.Deployment.PodSubnetCIDRs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		NamespaceLabels: map[string]string{

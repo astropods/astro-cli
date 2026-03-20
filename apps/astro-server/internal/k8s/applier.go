@@ -35,6 +35,8 @@ type ApplierConfig struct {
 	// Observability (Galileo) — injected into collector sidecar
 	GalileoAPIKey  string
 	GalileoProject string
+	// Observability (Langfuse) — per-account auth token for collector sidecar
+	LangfuseAuthToken string
 	// NamespaceLabels are merged into the namespace metadata on create/update
 	NamespaceLabels map[string]string
 	// NamespaceAnnotations are merged into the namespace metadata on create/update
@@ -64,8 +66,9 @@ type Applier struct {
 	ingestionACMCertARN    string
 	ingestionALBGroupName  string
 	// Observability
-	galileoAPIKey  string
-	galileoProject string
+	galileoAPIKey     string
+	galileoProject    string
+	langfuseAuthToken string
 	// Per-namespace labels
 	namespaceLabels map[string]string
 	// Per-namespace annotations
@@ -95,6 +98,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		ingestionALBGroupName:  cfg.IngestionALBGroupName,
 		galileoAPIKey:          cfg.GalileoAPIKey,
 		galileoProject:         cfg.GalileoProject,
+		langfuseAuthToken:      cfg.LangfuseAuthToken,
 		namespaceLabels:        cfg.NamespaceLabels,
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,

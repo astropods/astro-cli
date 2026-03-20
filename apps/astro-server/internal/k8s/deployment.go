@@ -271,6 +271,8 @@ type CollectorDeploymentConfig struct {
 	GalileoAPIKey    string
 	GalileoProject   string
 	GalileoLogStream string
+	// Langfuse auth token (per-account, base64(pk:sk))
+	LangfuseAuthToken string
 }
 
 // buildCollectorContainer creates a container spec for the collector sidecar
@@ -326,6 +328,11 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 	if cfg.GalileoLogStream != "" {
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name: "GALILEO_LOG_STREAM", Value: cfg.GalileoLogStream,
+		})
+	}
+	if cfg.LangfuseAuthToken != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name: "LANGFUSE_AUTH_TOKEN", Value: cfg.LangfuseAuthToken,
 		})
 	}
 

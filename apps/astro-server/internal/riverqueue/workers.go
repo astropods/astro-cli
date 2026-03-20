@@ -6,6 +6,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 )
 
 // addWorkers registers all River workers into the registry.
@@ -34,6 +35,21 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 			Cfg:          cfg.ServerConfig,
 			Store:        store,
 			Log:          cfg.Logger,
+		}
+
+		// Initialize Langfuse per-account provisioning if configured
+		if cfg.ServerConfig.Deployment.LangfuseDBURL != "" {
+			dep.LangfuseStore = langfuse.NewStore(cfg.DB)
+			prov, provErr := langfuse.NewProvisioner(
+				cfg.ServerConfig.Deployment.LangfuseDBURL,
+				cfg.ServerConfig.Deployment.LangfuseSalt,
+				cfg.ServerConfig.Deployment.LangfuseOrgID,
+			)
+			if provErr != nil {
+				cfg.Logger.Warn("Failed to initialize Langfuse provisioner", "error", provErr)
+			} else {
+				dep.LangfuseProvisioner = prov
+			}
 		}
 	}
 

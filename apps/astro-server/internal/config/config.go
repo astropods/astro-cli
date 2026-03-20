@@ -126,6 +126,11 @@ type DeploymentConfig struct {
 	GalileoProject     string // GALILEO_PROJECT — name, injected into collector sidecars
 	GalileoProjectID   string // GALILEO_PROJECT_ID — UUID, used for REST API queries
 	GalileoAPIEndpoint string // GALILEO_API_ENDPOINT
+	// Observability (Langfuse) — direct DB provisioning for per-account projects
+	LangfuseDBURL   string // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
+	LangfuseSalt    string // LANGFUSE_SALT — must match Langfuse's SALT env var
+	LangfuseOrgID   string // LANGFUSE_ORG_ID — the single org ID in our Langfuse instance
+	LangfuseBaseURL string // LANGFUSE_BASE_URL — Langfuse instance URL
 }
 
 // Load loads configuration from environment variables with defaults
@@ -172,6 +177,10 @@ func Load() (*Config, error) {
 			GalileoProject:         getEnv("GALILEO_PROJECT", ""),
 			GalileoProjectID:       getEnv("GALILEO_PROJECT_ID", ""),
 			GalileoAPIEndpoint:     getEnv("GALILEO_API_ENDPOINT", "https://api.galileo.ai"),
+			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
+			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
+			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", ""),
+			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", "https://langfuse.astropods.ai"),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

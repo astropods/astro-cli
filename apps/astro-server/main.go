@@ -31,6 +31,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/devicestore"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
@@ -868,6 +869,38 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("limit", "Page size (default 50)", false),
 				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.QueryParam("status", "Filter by status", false),
+				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
+			)
+
+			// Langfuse observability endpoints (per-account project isolation)
+			langfuseStore := langfuse.NewStore(db)
+			api.GET(protected, "/agents/:account/:name/observability/langfuse/metrics", "Get Langfuse metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.Response(200, &handlers.ObservabilityMetricsResponse{}),
+			)
+			api.GET(protected, "/agents/:account/:name/observability/langfuse/summary", "Get Langfuse summary", handlers.GetLangfuseSummary(log, cfg, accountStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.Response(200, &handlers.ObservabilitySummaryResponse{}),
+			)
+			api.GET(protected, "/agents/:account/:name/observability/langfuse/traces", "Get Langfuse traces", handlers.GetLangfuseTraces(log, cfg, accountStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.QueryParam("limit", "Page size (default 50)", false),
+				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
 			)
 		}

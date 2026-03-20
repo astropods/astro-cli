@@ -360,3 +360,15 @@ CREATE TABLE public.waitlist (
     CONSTRAINT waitlist_pkey PRIMARY KEY (id),
     CONSTRAINT waitlist_email_key UNIQUE (email)
 );
+
+CREATE TABLE public.account_langfuse (
+    account_id uuid NOT NULL,
+    langfuse_project_id text NOT NULL,
+    langfuse_public_key text NOT NULL,
+    langfuse_secret_key text NOT NULL,
+    encrypted_data_key bytea,
+    nonce bytea,
+    created_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT account_langfuse_pkey PRIMARY KEY (account_id),
+    CONSTRAINT account_langfuse_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
