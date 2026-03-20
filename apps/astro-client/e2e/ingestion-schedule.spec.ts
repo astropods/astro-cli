@@ -73,7 +73,7 @@ test.describe("deploy page", () => {
 
     const minuteSelect = page.locator('[data-slot="select-trigger"]').filter({ hasText: "Every minute" });
     await minuteSelect.click();
-    await page.getByRole("option", { name: "30" }).click();
+    await page.getByRole("option", { name: "30", exact: true }).click();
 
     const hourSelect = page.locator('[data-slot="select-trigger"]').filter({ hasText: "Every hour" });
     await hourSelect.click();
