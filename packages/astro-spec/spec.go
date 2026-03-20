@@ -440,6 +440,5 @@ type Ingestion struct {
 }
 
 type IngestionTrigger struct {
-	Type     string `json:"type" yaml:"type" jsonschema:"description=When the ingestion runs,enum=schedule,enum=manual,enum=startup,enum=webhook"`
-	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty" jsonschema:"description=Cron expression for schedule triggers (e.g. 0 0 * * *)"`
+	Type string `json:"type" yaml:"type" jsonschema:"description=When the ingestion runs,enum=schedule,enum=manual,enum=startup,enum=webhook"`
 }
