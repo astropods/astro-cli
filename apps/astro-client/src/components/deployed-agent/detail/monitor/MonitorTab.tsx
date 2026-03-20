@@ -7,10 +7,55 @@ import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTrace
 import { observabilityKeys } from "@/api/queries/keys";
 import { api } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MultiSelect } from "../shared/MultiSelect";
-import { C, S } from "../theme";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
+
+const C = {
+  bg: "var(--muted)",
+  bgAlt: "var(--surface)",
+  bgDeep: "var(--muted)",
+  panel: "var(--surface)",
+  border: "var(--border)",
+  teal: "var(--primary)",
+  tealMid: "var(--color-teal-600)",
+  tealLt: "var(--color-teal-400)",
+  text: "var(--foreground)",
+  muted: "var(--muted-foreground)",
+  faint: "var(--faint-foreground)",
+  stone: "var(--color-stone-500)",
+  amber: "var(--color-amber-700)",
+  amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
+  amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
+  coral: "var(--color-coral-600)",
+  coralBg: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
+  coralBdr: "color-mix(in oklch, var(--color-coral-600) 28%, transparent)",
+  success: "var(--color-green-700)",
+} as const;
+
+const S = {
+  body: "var(--font-sans), sans-serif",
+  mono: "var(--font-mono), monospace",
+} as const;
+
+const T = {
+  heading2: "var(--text-heading-2)",
+  heading1: "var(--text-heading-1)",
+  heading4: "var(--text-heading-4)",
+  body: "var(--text-body)",
+  bodySm: "var(--text-body-sm)",
+  label: "var(--text-label)",
+  monoSm: "var(--text-mono-sm)",
+  monoMd: "var(--text-mono-md)",
+} as const;
+
+const I = {
+  xs: 10,
+  sm: 12,
+  md: 14,
+  lg: 16,
+} as const;
 
 type TraceStatus = "success" | "error" | "timeout";
 
@@ -75,18 +120,18 @@ function ChartTooltip({ active, payload, label, reqVisible, avgLatVisible }: Cha
         pointerEvents: "none",
       }}
     >
-      <div style={{ fontFamily: S.mono, fontSize: 9, color: C.faint, marginBottom: 4, letterSpacing: "0.06em" }}>
+      <div style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint, marginBottom: 4, letterSpacing: "0.06em" }}>
         {label}
       </div>
       {reqVisible && req && (
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: S.mono, fontSize: 11 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: S.mono, fontSize: T.monoSm }}>
           <span style={{ width: 6, height: 6, borderRadius: 1, background: C.tealMid, display: "inline-block", flexShrink: 0 }} />
           <span style={{ color: C.tealMid, fontWeight: 600 }}>{req.value}</span>
           <span style={{ color: C.faint }}>req</span>
         </div>
       )}
       {avgLatVisible && avgLat && (
-        <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: S.mono, fontSize: 11, marginTop: 2 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: S.mono, fontSize: T.monoSm, marginTop: 2 }}>
           <span style={{ width: 8, height: 1.5, background: C.amber, display: "inline-block", flexShrink: 0 }} />
           <span style={{ color: C.amber, fontWeight: 600 }}>{avgLat.value}ms</span>
           <span style={{ color: C.faint }}>avg</span>
@@ -429,10 +474,10 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             border: `1px solid ${C.coralBdr}`,
           }}
         >
-          <span style={{ fontFamily: S.mono, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.coral }}>
+          <span style={{ fontFamily: S.mono, fontSize: T.label, fontWeight: 700, letterSpacing: "0.08em", color: C.coral }}>
             ERROR
           </span>
-          <span style={{ fontFamily: S.body, fontSize: 12, color: C.coral, flex: 1 }}>
+          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.coral, flex: 1 }}>
             This deployment is in an error state — no replicas are ready.
           </span>
         </div>
@@ -450,12 +495,12 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             border: `1px solid ${C.amberBdr}`,
           }}
         >
-          <span style={{ fontFamily: S.mono, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: C.amber }}>
+          <span style={{ fontFamily: S.mono, fontSize: T.label, fontWeight: 700, letterSpacing: "0.08em", color: C.amber }}>
             OBSERVABILITY
           </span>
-          <span style={{ fontFamily: S.body, fontSize: 12, color: C.muted, flex: 1, lineHeight: 1.5 }}>
+          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.5 }}>
             Trace metrics couldn&apos;t be loaded (backend returned an error). Local dev often needs valid Galileo
-            credentials in <span style={{ fontFamily: S.mono, fontSize: 11 }}>astro-server</span> env. Pod logs on
+            credentials in <span style={{ fontFamily: S.mono, fontSize: T.monoSm }}>astro-server</span> env. Pod logs on
             the <strong style={{ color: C.text }}>Deployments</strong> tab use Kubernetes/Loki and work independently
             when the cluster is reachable.
           </span>
@@ -466,7 +511,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
         <div />
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: S.body, fontSize: 17, fontWeight: 600, color: C.teal }}>Monitor</span>
+            <span style={{ fontFamily: S.body, fontSize: T.heading2, fontWeight: 600, color: C.teal }}>Monitor</span>
             <select
               value={win}
               onChange={(e) => setWin(e.target.value as typeof win)}
@@ -476,7 +521,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                 border: `1px solid ${C.border}`,
                 background: C.bg,
                 fontFamily: S.body,
-                fontSize: 12,
+                fontSize: T.body,
                 color: C.muted,
                 cursor: "pointer",
                 outline: "none",
@@ -504,7 +549,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ marginBottom: 8 }}>
-                <span style={{ fontFamily: S.body, fontSize: 13, fontWeight: 700, color: C.teal }}>Request volume</span>
+                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal }}>Request volume</span>
               </div>
               <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
                 {[
@@ -539,18 +584,18 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                         flexShrink: 0,
                       }}
                     />
-                    <span style={{ fontFamily: S.mono, fontSize: 9, color: C.faint }}>{s.label}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint }}>{s.label}</span>
                   </button>
                 ))}
               </div>
               {tsData.length === 0 ? (
                 <div style={{ height: 130, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, textAlign: "center" }}>
                   <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Activity size={15} color={C.stone} />
+                    <Activity size={I.md} color={C.stone} />
                   </div>
                   <div>
-                    <p style={{ fontFamily: S.body, fontSize: 12, fontWeight: 600, color: C.text, margin: "0 0 3px" }}>No requests yet</p>
-                    <p style={{ fontFamily: S.mono, fontSize: 10, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
+                    <p style={{ fontFamily: S.body, fontSize: T.body, fontWeight: 600, color: C.text, margin: "0 0 3px" }}>No requests yet</p>
+                    <p style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
                       Volume will appear once traffic starts
                     </p>
                   </div>
@@ -562,33 +607,24 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
 
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ fontFamily: S.body, fontSize: 13, fontWeight: 700, color: C.teal }}>Token usage</span>
-                <div style={{ display: "flex", background: C.bgDeep, borderRadius: 10, padding: 3 }}>
-                  {(["input", "output"] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      disabled={!tokens.hasSplit}
-                      onClick={() => setTokenView(v)}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 8,
-                        border: "none",
-                        cursor: tokens.hasSplit ? "pointer" : "default",
-                        background: tokenView === v ? C.panel : "transparent",
-                        fontFamily: S.body,
-                        fontSize: 12,
-                        color: tokenView === v ? C.text : C.faint,
-                        fontWeight: tokenView === v ? 600 : 400,
-                        boxShadow: tokenView === v ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
-                        textTransform: "capitalize" as const,
-                        transition: "all 0.12s",
-                        opacity: tokens.hasSplit ? 1 : 0.55,
-                      }}
-                    >
-                      {v}
-                    </button>
-                  ))}
+                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal }}>Token usage</span>
+                <div style={{ transform: "scale(0.9)", transformOrigin: "right center" }}>
+                  <ToggleGroup
+                    type="single"
+                    variant="word"
+                    className="w-auto"
+                    value={tokenView}
+                    onValueChange={(v) => {
+                      if (v) setTokenView(v as "input" | "output");
+                    }}
+                  >
+                    <ToggleGroupItem value="input" disabled={!tokens.hasSplit} aria-label="Input tokens">
+                      Input
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="output" disabled={!tokens.hasSplit} aria-label="Output tokens">
+                      Output
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
               </div>
               <div style={{ padding: "16px 18px 14px" }}>
@@ -599,7 +635,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                     style={{
                       display: "block",
                       fontFamily: S.body,
-                      fontSize: 34,
+                      fontSize: T.heading1,
                       fontWeight: 700,
                       color: activeToken.color,
                       letterSpacing: "-0.02em",
@@ -609,7 +645,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                   </span>
                 </div>
                 {tokenLoading ? (
-                  <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: "10px 0 0", lineHeight: 1.5 }}>Loading token usage...</p>
+                  <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: "10px 0 0", lineHeight: 1.5 }}>Loading token usage...</p>
                 ) : (
                   <>
                     <div style={{ display: "flex", height: 12, borderRadius: 999, overflow: "hidden", margin: "14px 0 10px", background: "rgba(196,184,158,0.8)" }}>
@@ -618,13 +654,13 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <div style={{ overflow: "hidden", lineHeight: 1.3 }}>
-                        <span key={win} className="dp-slot-in" style={{ display: "block", fontFamily: S.body, fontSize: 11, color: C.faint }}>
+                        <span key={win} className="dp-slot-in" style={{ display: "block", fontFamily: S.body, fontSize: T.bodySm, color: C.faint }}>
                           {tokens.total > 0 ? `of ${fmtTokens(tokens.total)} total` : "No token usage yet"}
                         </span>
                       </div>
                       {tokens.total > 0 && (
                         <div style={{ overflow: "hidden", lineHeight: 1.3 }}>
-                          <span key={`${win}-pct`} className="dp-slot-in" style={{ display: "block", fontFamily: S.mono, fontSize: 11, color: C.faint }}>
+                          <span key={`${win}-pct`} className="dp-slot-in" style={{ display: "block", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
                             {Math.round((activeToken.value / tokens.total) * 100)}%
                           </span>
                         </div>
@@ -638,15 +674,15 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
 
           <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column", height: 420 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <span style={{ fontFamily: S.body, fontSize: 13, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
+              <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
               <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
-                <Search size={11} color={C.faint} />
+                <Search size={I.sm} color={C.faint} />
                 <input
                   type="text"
                   placeholder="Search traces"
                   value={traceSearch}
                   onChange={(e) => setTraceSearch(e.target.value)}
-                  style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: 11, color: C.muted, width: 160, caretColor: C.tealMid }}
+                  style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: 160, caretColor: C.tealMid }}
                 />
               </div>
               <MultiSelect
@@ -662,7 +698,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "16px 1fr 80px 72px 60px 72px", gap: 10, padding: "7px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
               {["", "TRACE", "STATUS", "LATENCY", "TOKENS", "TIME"].map((h) => (
-                <span key={h} style={{ fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint }}>
+                <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint }}>
                   {h}
                 </span>
               ))}
@@ -690,17 +726,17 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
               {!tracesLoading && traces.length === 0 && (
                 <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
-                    <Activity size={18} color={C.stone} />
+                    <Activity size={I.lg} color={C.stone} />
                   </div>
-                  <p style={{ fontFamily: S.body, fontSize: 13, fontWeight: 600, color: C.text, margin: "0 0 6px" }}>Monitoring just started</p>
-                  <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
+                  <p style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text, margin: "0 0 6px" }}>Monitoring just started</p>
+                  <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
                     Traces will appear here on first request
                   </p>
                 </div>
               )}
               {traces.length > 0 && visibleTraces.length === 0 && (
                 <div style={{ padding: "24px 16px", textAlign: "center" }}>
-                  <p style={{ fontFamily: S.body, fontSize: 12, color: C.success, margin: 0 }}>✓ All clear — no errors in this window</p>
+                  <p style={{ fontFamily: S.body, fontSize: T.body, color: C.success, margin: 0 }}>✓ All clear — no errors in this window</p>
                 </div>
               )}
               {visibleTraces.map((trace) => {
@@ -718,34 +754,34 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                         (e.currentTarget as HTMLElement).style.background = "transparent";
                       }}
                     >
-                      <ChevronRight size={12} color={C.faint} style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : "none" }} />
+                      <ChevronRight size={I.sm} color={C.faint} style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : "none" }} />
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontFamily: S.body, fontSize: 12, color: C.text, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{trace.name}</div>
-                        <span style={{ fontFamily: S.mono, fontSize: 9, color: C.faint }}>{trace.id}</span>
+                        <div style={{ fontFamily: S.body, fontSize: T.body, color: C.text, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{trace.name}</div>
+                        <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint }}>{trace.id}</span>
                       </div>
-                      <span style={{ fontFamily: S.mono, fontSize: 9, padding: "3px 7px", borderRadius: 20, background: st.bg, color: st.color, letterSpacing: "0.05em", justifySelf: "start" as const }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.label, padding: "3px 7px", borderRadius: 20, background: st.bg, color: st.color, letterSpacing: "0.05em", justifySelf: "start" as const }}>
                         {st.label}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: 12, color: trace.latency > 2000 ? C.coral : C.muted }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: trace.latency > 2000 ? C.coral : C.muted }}>
                         {trace.latency >= 1000 ? `${(trace.latency / 1000).toFixed(1)}s` : `${trace.latency}ms`}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: 11, color: trace.tokens > 0 ? C.muted : C.faint }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: trace.tokens > 0 ? C.muted : C.faint }}>
                         {trace.tokens > 0 ? trace.tokens.toLocaleString() : "—"}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint }}>{trace.time}</span>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{trace.time}</span>
                     </div>
                     {isOpen && (
                       <div style={{ background: C.panel, borderTop: `1px solid ${C.border}` }}>
                         <div style={{ padding: "10px 16px 11px", borderBottom: `1px solid ${C.border}` }}>
-                          <span style={{ display: "block", fontFamily: S.mono, fontSize: 9, letterSpacing: "0.09em", color: C.faint, marginBottom: 5 }}>INPUT</span>
-                          <span style={{ fontFamily: S.mono, fontSize: 11, color: C.muted, lineHeight: 1.6 }}>{trace.input ?? "—"}</span>
+                          <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint, marginBottom: 5 }}>INPUT</span>
+                          <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6 }}>{trace.input ?? "—"}</span>
                         </div>
                         <div style={{ padding: "10px 16px 12px" }}>
-                          <span style={{ display: "block", fontFamily: S.mono, fontSize: 9, letterSpacing: "0.09em", color: C.faint, marginBottom: 5 }}>OUTPUT</span>
+                          <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint, marginBottom: 5 }}>OUTPUT</span>
                           {trace.output ? (
-                            <span style={{ fontFamily: S.mono, fontSize: 11, color: C.muted, lineHeight: 1.6 }}>{trace.output}</span>
+                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6 }}>{trace.output}</span>
                           ) : (
-                            <span style={{ fontFamily: S.mono, fontSize: 11, color: C.coral }}>
+                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.coral }}>
                               Trace did not complete — no output recorded
                             </span>
                           )}

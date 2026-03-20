@@ -82,3 +82,28 @@ export const Interactive: Story = {
     );
   },
 };
+
+export const WordToggle: Story = {
+  name: "Word Toggle",
+  args: { type: "single" },
+  render: () => {
+    const [value, setValue] = useState("input");
+    return (
+      <ToggleGroup
+        type="single"
+        variant="word"
+        value={value}
+        onValueChange={(v) => {
+          if (v) setValue(v);
+        }}
+      >
+        <ToggleGroupItem value="input" aria-label="Input tokens">
+          Input
+        </ToggleGroupItem>
+        <ToggleGroupItem value="output" aria-label="Output tokens">
+          Output
+        </ToggleGroupItem>
+      </ToggleGroup>
+    );
+  },
+};

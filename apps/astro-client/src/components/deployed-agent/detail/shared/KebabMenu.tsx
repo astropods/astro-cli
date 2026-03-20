@@ -1,6 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { MoreVertical, Copy, Check, Pencil, Trash2 } from "lucide-react";
-import { C, S } from "../theme";
+
+const C = {
+  bgAlt: "var(--surface)",
+  bgDeep: "var(--muted)",
+  panel: "var(--surface)",
+  border: "var(--border)",
+  text: "var(--foreground)",
+  muted: "var(--muted-foreground)",
+  faint: "var(--faint-foreground)",
+  coral: "var(--color-coral-600)",
+} as const;
+
+const S = {
+  body: "var(--font-sans), sans-serif",
+  mono: "var(--font-mono), monospace",
+} as const;
+
+const T = {
+  heading4: "var(--text-heading-4)",
+} as const;
+
+const I = {
+  md: 14,
+} as const;
 
 export function KebabMenu({ deploymentId }: { deploymentId: string }) {
   const [open, setOpen] = useState(false);
@@ -44,7 +67,7 @@ export function KebabMenu({ deploymentId }: { deploymentId: string }) {
         onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
         onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
       >
-        <MoreVertical size={15} />
+        <MoreVertical size={I.md} />
       </button>
       {open && (
         <div
@@ -85,7 +108,7 @@ export function KebabMenu({ deploymentId }: { deploymentId: string }) {
                   border: "none",
                   cursor: "pointer",
                   fontFamily: S.body,
-                  fontSize: 13,
+                  fontSize: T.heading4,
                   color,
                   textAlign: "left" as const,
                 }}
@@ -93,7 +116,7 @@ export function KebabMenu({ deploymentId }: { deploymentId: string }) {
                 onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
                 onClick={onClick}
               >
-                <Icon size={13} />
+                <Icon size={I.md} />
                 {label}
               </button>
             </div>

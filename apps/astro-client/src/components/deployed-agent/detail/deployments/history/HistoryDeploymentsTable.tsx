@@ -1,7 +1,39 @@
 import { Calendar, ChevronRight, Loader2, MoreVertical, Search } from "lucide-react";
 import { MultiSelect } from "../../shared/MultiSelect";
-import { C, S } from "../../theme";
 import type { ContainerRow, DeploymentHistoryTableRow, DeployHistoryStatus } from "./types";
+
+const C = {
+  bg: "var(--muted)",
+  bgAlt: "var(--surface)",
+  bgDeep: "var(--muted)",
+  panel: "var(--surface)",
+  border: "var(--border)",
+  teal: "var(--primary)",
+  tealMid: "var(--color-teal-600)",
+  text: "var(--foreground)",
+  muted: "var(--muted-foreground)",
+  faint: "var(--faint-foreground)",
+  stone: "var(--color-stone-500)",
+  coral: "var(--color-coral-600)",
+  success: "var(--color-green-700)",
+} as const;
+
+const S = {
+  body: "var(--font-sans), sans-serif",
+  mono: "var(--font-mono), monospace",
+} as const;
+
+const T = {
+  body: "var(--text-body)",
+  heading4: "var(--text-heading-4)",
+  label: "var(--text-label)",
+  monoSm: "var(--text-mono-sm)",
+} as const;
+
+const I = {
+  sm: 12,
+  md: 14,
+} as const;
 
 const DEPLOY_STATUS_STYLE: Record<DeployHistoryStatus, { color: string; label: string }> = {
   active: { color: C.success, label: "Active" },
@@ -53,13 +85,13 @@ export function HistoryDeploymentsTable({
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.bg }}>
-          <Search size={12} color={C.faint} />
+          <Search size={I.sm} color={C.faint} />
           <input
             type="text"
             placeholder="Search by name, build, id"
             value={deploySearch}
             onChange={(e) => onDeploySearchChange(e.target.value)}
-            style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: 12, color: C.muted, width: 200, caretColor: C.tealMid }}
+            style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.body, color: C.muted, width: 200, caretColor: C.tealMid }}
           />
         </div>
         <MultiSelect
@@ -74,7 +106,7 @@ export function HistoryDeploymentsTable({
           placeholder="All statuses"
         />
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Calendar size={12} color={C.faint} />
+          <Calendar size={I.sm} color={C.faint} />
           <select
             value={historyPreset}
             onChange={(e) => onHistoryPresetChange(e.target.value as "all" | "7d" | "30d")}
@@ -84,7 +116,7 @@ export function HistoryDeploymentsTable({
               border: `1px solid ${C.border}`,
               background: C.bg,
               fontFamily: S.body,
-              fontSize: 12,
+              fontSize: T.body,
               color: C.muted,
               cursor: "pointer",
               outline: "none",
@@ -103,7 +135,7 @@ export function HistoryDeploymentsTable({
       </div>
 
       {historyError && (
-        <p style={{ fontFamily: S.mono, fontSize: 11, color: C.coral, margin: "0 0 10px" }}>
+        <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.coral, margin: "0 0 10px" }}>
           Could not load deployment history from the server.
         </p>
       )}
@@ -111,19 +143,19 @@ export function HistoryDeploymentsTable({
       <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
         <div style={{ display: "grid", gridTemplateColumns: "16px minmax(160px, 1fr) 80px 72px 110px 72px 32px", gap: 12, padding: "8px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
           {["", "Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h) => (
-            <span key={h} style={{ fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint }}>
+            <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint }}>
               {h.toUpperCase()}
             </span>
           ))}
         </div>
 
         {historyLoading ? (
-          <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 10, fontFamily: S.mono, fontSize: 11, color: C.faint }}>
-            <Loader2 size={14} className="dp-spin" />
+          <div style={{ padding: "20px 16px", display: "flex", alignItems: "center", gap: 10, fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
+            <Loader2 size={I.md} className="dp-spin" />
             Loading deployment history…
           </div>
         ) : rows.length === 0 ? (
-          <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: 11, color: C.faint }}>
+          <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
             No deployments match your filters.
           </div>
         ) : (
@@ -147,21 +179,21 @@ export function HistoryDeploymentsTable({
                     transition: "background 0.12s",
                   }}
                 >
-                  <ChevronRight size={12} color={C.faint} style={{ transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "none" }} />
+                  <ChevronRight size={I.sm} color={C.faint} style={{ transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "none" }} />
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontFamily: S.body, fontSize: 12, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={d.rowLabel}>
+                    <div style={{ fontFamily: S.body, fontSize: T.body, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={d.rowLabel}>
                       {d.rowLabel}
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: ds.color, display: "inline-block", flexShrink: 0 }} />
-                    <span style={{ fontFamily: S.mono, fontSize: 10, letterSpacing: "0.06em", color: ds.color, fontWeight: 500 }}>
+                    <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: ds.color, fontWeight: 500 }}>
                       {ds.label.toUpperCase()}
                     </span>
                   </div>
-                  <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint }}>{d.duration}</span>
-                  <span style={{ fontFamily: S.mono, fontSize: 11, fontWeight: 600, color: C.muted }}>{d.build}</span>
-                  <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, whiteSpace: "nowrap" as const }}>{d.time}</span>
+                  <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{d.duration}</span>
+                  <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.muted }}>{d.build}</span>
+                  <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const }}>{d.time}</span>
                   <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
@@ -174,7 +206,7 @@ export function HistoryDeploymentsTable({
                         e.currentTarget.style.background = "none";
                       }}
                     >
-                      <MoreVertical size={13} />
+                      <MoreVertical size={I.md} />
                     </button>
                     {openDeployMenu === d.id && (
                       <>
@@ -186,7 +218,7 @@ export function HistoryDeploymentsTable({
                               onOpenDeployMenuChange(null);
                               onOpenConfigure?.();
                             }}
-                            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontFamily: S.body, fontSize: 12, color: C.text, textAlign: "left" as const }}
+                            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontFamily: S.body, fontSize: T.body, color: C.text, textAlign: "left" as const }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.background = C.bgDeep;
                             }}
@@ -218,7 +250,7 @@ export function HistoryDeploymentsTable({
                               border: "none",
                               cursor: isCurrent && containers.length > 0 ? "pointer" : "not-allowed",
                               fontFamily: S.body,
-                              fontSize: 12,
+                              fontSize: T.body,
                               color: C.text,
                               textAlign: "left" as const,
                               opacity: isCurrent && containers.length > 0 ? 1 : 0.45,
@@ -233,7 +265,7 @@ export function HistoryDeploymentsTable({
                             View pod logs
                           </button>
                           <div style={{ height: 1, background: C.border }} />
-                          <button type="button" disabled title="Rollback is not available yet" style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "not-allowed", fontFamily: S.body, fontSize: 12, color: C.coral, textAlign: "left" as const, opacity: 0.45 }}>
+                          <button type="button" disabled title="Rollback is not available yet" style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "not-allowed", fontFamily: S.body, fontSize: T.body, color: C.coral, textAlign: "left" as const, opacity: 0.45 }}>
                             Rollback
                           </button>
                         </div>

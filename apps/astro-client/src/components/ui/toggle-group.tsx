@@ -10,8 +10,8 @@ import {
 
 const ToggleGroupContext = React.createContext<{
   value: string | undefined;
-  items: string[];
-}>({ value: undefined, items: [] });
+  variant: "icon" | "word";
+}>({ value: undefined, variant: "icon" });
 
 type ToggleGroupSingleProps = Extract<
   React.ComponentProps<typeof ToggleGroupPrimitive.Root>,
@@ -25,32 +25,34 @@ function ToggleGroup({
   defaultValue,
   onValueChange,
   type,
+  variant = "icon",
   ...props
-}: ToggleGroupSingleProps) {
+}: ToggleGroupSingleProps & { variant?: "icon" | "word" }) {
   const [internalValue, setInternalValue] = React.useState(defaultValue);
   const activeValue = value ?? internalValue;
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = React.useState({ left: 0, width: 0, ready: false });
 
-  const items = React.useMemo(() => {
-    const values: string[] = [];
-    React.Children.forEach(children, (child) => {
-      if (React.isValidElement<{ value: string }>(child) && child.props.value) {
-        values.push(child.props.value);
-      }
-    });
-    return values;
-  }, [children]);
-
-  const activeIndex = activeValue ? items.indexOf(activeValue) : -1;
-
-  // item size (24px) + gap (4px) = 32px total with p-1, matching default button h-8
-  const itemSize = 24;
-  const gap = 4;
+  React.useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const activeEl = root.querySelector<HTMLElement>('[data-state="on"]');
+    if (!activeEl) {
+      setIndicator((prev) => ({ ...prev, ready: false }));
+      return;
+    }
+    setIndicator({ left: activeEl.offsetLeft, width: activeEl.offsetWidth, ready: true });
+  }, [activeValue, children, variant]);
 
   return (
-    <ToggleGroupContext.Provider value={{ value: activeValue, items }}>
+    <ToggleGroupContext.Provider value={{ value: activeValue, variant }}>
       <ToggleGroupPrimitive.Root
+        ref={rootRef}
         className={cn(
-          "relative inline-flex items-center gap-1 rounded-sm bg-secondary dark:bg-secondary p-1",
+          "relative inline-flex items-center gap-1",
+          variant === "icon"
+            ? "rounded-sm bg-secondary dark:bg-secondary p-1"
+            : "rounded-[7px] border border-border bg-muted p-[2px] gap-0.5",
           className
         )}
         type={type}
@@ -63,13 +65,19 @@ function ToggleGroup({
         }}
         {...props}
       >
-        {activeIndex >= 0 && (
+        {indicator.ready && (
           <div
-            className="absolute rounded-sm bg-background dark:bg-background transition-transform duration-200 ease-in-out shadow-sm"
+            className={cn(
+              "absolute transition-all duration-200 ease-out",
+              variant === "icon"
+                ? "rounded-sm bg-background dark:bg-background shadow-sm"
+                : "rounded-[6px] bg-surface border border-border/70"
+            )}
             style={{
-              width: itemSize,
-              height: itemSize,
-              transform: `translateX(${activeIndex * (itemSize + gap)}px)`,
+              top: variant === "icon" ? 4 : 2,
+              left: indicator.left,
+              width: indicator.width,
+              height: variant === "icon" ? 24 : "calc(100% - 4px)",
             }}
           />
         )}
@@ -87,17 +95,23 @@ function ToggleGroupItem({
 }: React.ComponentProps<typeof ToggleGroupPrimitive.Item> & {
   tooltip?: string;
 }) {
-  const { value } = React.useContext(ToggleGroupContext);
+  const { value, variant } = React.useContext(ToggleGroupContext);
   const isActive = value === props.value;
 
   const item = (
     <ToggleGroupPrimitive.Item
       className={cn(
-        "relative z-10 inline-flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-colors",
-        "hover:text-primary",
+        "relative z-10 inline-flex items-center justify-center transition-colors",
+        variant === "icon"
+          ? "size-6 rounded-[4px] text-muted-foreground hover:text-primary"
+          : "rounded-[6px] px-3.5 py-1.5 text-body leading-none",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
-        isActive && "text-primary",
+        variant === "icon"
+          ? isActive && "text-primary"
+          : isActive
+            ? "text-foreground font-medium"
+            : "text-faint-foreground hover:text-foreground",
         className
       )}
       {...props}

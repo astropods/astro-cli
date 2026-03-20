@@ -1,6 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { C, S } from "../theme";
+
+const C = {
+  bg: "var(--muted)",
+  bgAlt: "var(--surface)",
+  bgDeep: "var(--muted)",
+  border: "var(--border)",
+  teal: "var(--primary)",
+  tealMid: "var(--color-teal-600)",
+  muted: "var(--muted-foreground)",
+  text: "var(--foreground)",
+  faint: "var(--faint-foreground)",
+} as const;
+
+const S = {
+  body: "var(--font-sans), sans-serif",
+  mono: "var(--font-mono), monospace",
+} as const;
+
+const T = {
+  body: "var(--text-body)",
+  bodySm: "var(--text-body-sm)",
+} as const;
+
+const I = {
+  xs: 10,
+  sm: 12,
+} as const;
 
 interface MultiSelectOption {
   value: string;
@@ -50,7 +76,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
           background: open ? C.bgDeep : C.bg,
           cursor: "pointer",
           fontFamily: S.body,
-          fontSize: 12,
+          fontSize: T.body,
           color: allSelected ? C.muted : C.teal,
           transition: "all 0.12s",
           whiteSpace: "nowrap" as const,
@@ -58,7 +84,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
       >
         <span>{labelText}</span>
         <ChevronDown
-          size={11}
+          size={I.sm}
           color={C.faint}
           style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
         />
@@ -91,7 +117,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
               borderBottom: `1px solid ${C.border}`,
               cursor: "pointer",
               fontFamily: S.body,
-              fontSize: 12,
+              fontSize: T.body,
               color: C.faint,
               textAlign: "left" as const,
             }}
@@ -147,7 +173,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
                   border: "none",
                   cursor: "pointer",
                   fontFamily: S.body,
-                  fontSize: 12,
+                  fontSize: T.body,
                   color: C.text,
                   textAlign: "left" as const,
                 }}

@@ -1,4 +1,23 @@
-import { C, S } from "../theme";
+const C = {
+  bgDeep: "var(--muted)",
+  border: "var(--border)",
+  faint: "var(--faint-foreground)",
+  success: "var(--color-green-700)",
+  coral: "var(--color-coral-600)",
+  bgAlt: "var(--surface)",
+  teal: "var(--primary)",
+} as const;
+
+const S = {
+  body: "var(--font-sans), sans-serif",
+  mono: "var(--font-mono), monospace",
+} as const;
+
+const T = {
+  heading2: "var(--text-heading-2)",
+  bodySm: "var(--text-body-sm)",
+  label: "var(--text-label)",
+} as const;
 
 export type WindowKey = "1h" | "24h" | "7d";
 
@@ -58,8 +77,8 @@ function TrendIndicator({
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
-      <span style={{ fontFamily: S.body, fontSize: 11, fontWeight: 700, color }}>{formatTrend(value)}</span>
-      <span style={{ fontFamily: S.body, fontSize: 11, fontWeight: 700, color }}>{arrow}</span>
+      <span style={{ fontFamily: S.body, fontSize: T.bodySm, fontWeight: 700, color }}>{formatTrend(value)}</span>
+      <span style={{ fontFamily: S.body, fontSize: T.bodySm, fontWeight: 700, color }}>{arrow}</span>
     </div>
   );
 }
@@ -96,13 +115,13 @@ export function HeadlineMetrics({ summary, summaryLoading, trendLoading, selecte
     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
       {cards.map((card) => (
         <div key={card.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
-          <span style={{ display: "block", fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
+          <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
             {card.label}
           </span>
           {summaryLoading ? (
             <SkeletonBar width="70%" />
           ) : (
-            <span style={{ display: "block", fontFamily: S.body, fontSize: 20, fontWeight: 700, color: C.teal }}>{card.value}</span>
+            <span style={{ display: "block", fontFamily: S.body, fontSize: T.heading2, fontWeight: 700, color: C.teal }}>{card.value}</span>
           )}
           {trendLoading ? (
             <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center" }}>

@@ -3,9 +3,51 @@ import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check }
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
 import { formatDate, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
-import { C, S } from "../theme";
 import { HistoryDeploymentsTable } from "./history/HistoryDeploymentsTable";
 import type { ContainerRow, DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
+
+const C = {
+  bg: "var(--muted)",
+  bgAlt: "var(--surface)",
+  bgDeep: "var(--muted)",
+  panel: "var(--surface)",
+  border: "var(--border)",
+  teal: "var(--primary)",
+  tealMid: "var(--color-teal-600)",
+  tealLt: "var(--color-teal-400)",
+  text: "var(--foreground)",
+  muted: "var(--muted-foreground)",
+  faint: "var(--faint-foreground)",
+  stone: "var(--color-stone-500)",
+  amber: "var(--color-amber-700)",
+  amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
+  amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
+  coral: "var(--color-coral-600)",
+  coralBg: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
+  coralBdr: "color-mix(in oklch, var(--color-coral-600) 28%, transparent)",
+  success: "var(--color-green-700)",
+} as const;
+
+const S = {
+  body: "var(--font-sans), sans-serif",
+  mono: "var(--font-mono), monospace",
+} as const;
+
+const T = {
+  heading2: "var(--text-heading-2)",
+  heading4: "var(--text-heading-4)",
+  body: "var(--text-body)",
+  bodySm: "var(--text-body-sm)",
+  label: "var(--text-label)",
+  monoSm: "var(--text-mono-sm)",
+  monoMd: "var(--text-mono-md)",
+} as const;
+
+const I = {
+  xs: 10,
+  sm: 12,
+  md: 14,
+} as const;
 
 type LogTimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
 
@@ -147,12 +189,12 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
           if (!isOpen) e.currentTarget.style.background = C.bg;
         }}
       >
-        <ChevronRight size={13} color={C.faint} style={{ flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }} />
+        <ChevronRight size={I.md} color={C.faint} style={{ flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }} />
         <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
           <circle cx="12" cy="12" r="10" fill="rgba(21,130,125,0.12)" />
           <path d="M7.5 12l3 3 6-6" stroke={C.tealMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
         </svg>
-        <span style={{ fontFamily: S.body, fontSize: 13, fontWeight: 500, color: C.text }}>{name}</span>
+        <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 500, color: C.text }}>{name}</span>
         <span style={{ flex: 1 }} />
         {url && (
           <button
@@ -166,7 +208,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
               cursor: "pointer",
               flexShrink: 0,
               fontFamily: S.mono,
-              fontSize: 10,
+              fontSize: T.label,
               color: C.stone,
               transition: "background 0.15s",
               maxWidth: 280,
@@ -194,19 +236,19 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                   alignItems: "center",
                   gap: 4,
                   fontFamily: S.body,
-                  fontSize: 11,
+                  fontSize: T.monoSm,
                   whiteSpace: "nowrap" as const,
                   background: "inherit",
                   paddingLeft: 4,
                 }}
               >
-                <Check size={10} />
+                <Check size={I.xs} />
                 Copied
               </span>
             )}
           </button>
         )}
-        <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, flexShrink: 0, marginLeft: 8 }}>
+        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, flexShrink: 0, marginLeft: 8 }}>
           {ready} ready · {uptime}
         </span>
       </button>
@@ -224,7 +266,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                   border: "none",
                   cursor: "pointer",
                   fontFamily: S.body,
-                  fontSize: 12,
+                  fontSize: T.body,
                   fontWeight: view === v ? 600 : 400,
                   color: view === v ? C.text : C.faint,
                   borderBottom: view === v ? `2px solid ${C.tealMid}` : "2px solid transparent",
@@ -240,7 +282,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
           {view === "vars" && (
             <div style={{ background: C.bg }}>
               {vars.length === 0 ? (
-                <div style={{ padding: "16px", fontFamily: S.mono, fontSize: 11, color: C.faint }}>No variables</div>
+                <div style={{ padding: "16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>No variables</div>
               ) : (
                 vars.map((v, vi) => {
                   const isRevealed = revealed.has(v.key);
@@ -263,23 +305,23 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                         borderBottom: vi < vars.length - 1 ? `1px solid ${C.border}` : "none",
                       }}
                     >
-                      <span style={{ fontFamily: S.mono, fontSize: 10, color: C.stone, flexShrink: 0, userSelect: "none" as const }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.stone, flexShrink: 0, userSelect: "none" as const }}>
                         {"{}"}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: 12, color: C.text, minWidth: 160, flexShrink: 0 }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text, minWidth: 160, flexShrink: 0 }}>
                         {v.key}
                       </span>
                       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <span style={{ fontFamily: S.mono, fontSize: 12, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
                           {isSecret && !isRevealed ? "•••••••••" : v.value}
                         </span>
                         {isSecret && (
                           <button onClick={() => toggleReveal(v.key)} style={{ background: "none", border: "none", cursor: "pointer", color: C.stone, display: "flex", padding: 2, flexShrink: 0 }}>
-                            {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                            {isRevealed ? <EyeOff size={I.md} /> : <Eye size={I.md} />}
                           </button>
                         )}
                       </div>
-                      <span style={{ fontFamily: S.mono, fontSize: 9, letterSpacing: "0.08em", padding: "2px 6px", borderRadius: 4, background: srcStyle.bg, color: srcStyle.color, flexShrink: 0 }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.08em", padding: "2px 6px", borderRadius: 4, background: srcStyle.bg, color: srcStyle.color, flexShrink: 0 }}>
                         {srcStyle.label}
                       </span>
                     </div>
@@ -310,7 +352,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                         border: `1px solid ${active ? f.activeBdr : C.border}`,
                         cursor: "pointer",
                         fontFamily: S.body,
-                        fontSize: 11,
+                        fontSize: T.bodySm,
                         transition: "all 0.12s",
                         background: active ? f.activeBg : "transparent",
                         color: active ? f.accent : C.muted,
@@ -319,7 +361,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                       }}
                     >
                       {f.label}
-                      {active && <X size={9} style={{ marginLeft: 2, flexShrink: 0 }} />}
+                      {active && <X size={I.xs} style={{ marginLeft: 2, flexShrink: 0 }} />}
                     </button>
                   );
                 })}
@@ -333,7 +375,7 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                     border: `1px solid ${C.border}`,
                     background: C.bg,
                     fontFamily: S.body,
-                    fontSize: 11,
+                    fontSize: T.bodySm,
                     color: C.muted,
                     cursor: "pointer",
                     outline: "none",
@@ -351,13 +393,13 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                   ))}
                 </select>
                 <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg }}>
-                  <Search size={11} color={C.faint} />
+                  <Search size={I.sm} color={C.faint} />
                   <input
                     type="text"
                     placeholder="Find in logs"
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
-                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: 12, color: C.muted, width: 120, caretColor: C.tealMid }}
+                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.body, color: C.muted, width: 120, caretColor: C.tealMid }}
                   />
                 </div>
                 <button
@@ -376,44 +418,44 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                     opacity: isFetching ? 0.7 : 1,
                   }}
                 >
-                  <RefreshCw size={11} className={isFetching ? "dp-spin" : undefined} />
+                  <RefreshCw size={I.sm} className={isFetching ? "dp-spin" : undefined} />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigator.clipboard.writeText(logs.join("\n"))}
                   style={{ background: "none", border: `1px solid ${C.border}`, cursor: "pointer", padding: "4px 6px", borderRadius: 5, color: C.faint, display: "flex" }}
                 >
-                  <Copy size={11} />
+                  <Copy size={I.sm} />
                 </button>
               </div>
               <div style={{ background: C.panel, padding: "10px 0 14px" }}>
                 {isLoading ? (
-                  <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: S.mono, fontSize: 11, color: C.faint }}>
-                    <Loader2 size={14} className="dp-spin" />
+                  <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
+                    <Loader2 size={I.md} className="dp-spin" />
                     Loading logs…
                   </div>
                 ) : logErrorMessage ? (
-                  <div style={{ padding: "12px 18px", fontFamily: S.mono, fontSize: 11, color: C.coral, lineHeight: 1.5 }}>
+                  <div style={{ padding: "12px 18px", fontFamily: S.mono, fontSize: T.monoSm, color: C.coral, lineHeight: 1.5 }}>
                     {logErrorMessage}
                   </div>
                 ) : filtered.length === 0 ? (
-                  <div style={{ padding: "12px 18px", fontFamily: S.mono, fontSize: 11, color: C.faint }}>
+                  <div style={{ padding: "12px 18px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
                     {logs.length === 0 ? "No log lines in this time window" : "No matching lines"}
                   </div>
                 ) : (
                   filtered.map((line, li) => (
                     <div key={li} className="dp-log" style={{ display: "flex", alignItems: "baseline", padding: "1px 0" }}>
-                      <span style={{ fontFamily: S.mono, fontSize: 11, color: C.stone, minWidth: 56, textAlign: "right" as const, paddingRight: 18, flexShrink: 0, userSelect: "none" as const }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.stone, minWidth: 56, textAlign: "right" as const, paddingRight: 18, flexShrink: 0, userSelect: "none" as const }}>
                         {li + 1}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: 12, color: logLineColor(line), lineHeight: 1.75 }}>{line}</span>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: logLineColor(line), lineHeight: 1.75 }}>{line}</span>
                     </div>
                   ))
                 )}
                 {!isLoading && !logErrorMessage && filtered.length > 0 && (
                   <div style={{ display: "flex", alignItems: "baseline", padding: "1px 0", marginTop: 2 }}>
                     <span style={{ minWidth: 56, paddingRight: 18, flexShrink: 0 }} />
-                    <span className="dp-blink" style={{ fontFamily: S.mono, fontSize: 12, color: C.tealMid }}>
+                    <span className="dp-blink" style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.tealMid }}>
                       ▊
                     </span>
                   </div>
@@ -611,7 +653,7 @@ export function DeploymentsTab({
       <div />
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-          <span style={{ fontFamily: S.body, fontSize: 17, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
+          <span style={{ fontFamily: S.body, fontSize: T.heading2, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
           <div style={{ display: "flex", alignItems: "center", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bgAlt, padding: 2 }}>
             {([
               { id: "overview" as const, label: "Overview" },
@@ -629,7 +671,7 @@ export function DeploymentsTab({
                   background: section === item.id ? C.panel : "transparent",
                   color: section === item.id ? C.text : C.faint,
                   fontFamily: S.body,
-                  fontSize: 12,
+                  fontSize: T.body,
                   fontWeight: section === item.id ? 600 : 400,
                 }}
               >
@@ -649,10 +691,10 @@ export function DeploymentsTab({
                 { label: "CONTAINERS", value: String(containers.length) },
               ].map((item) => (
                 <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
-                  <span style={{ display: "block", fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
+                  <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
                     {item.label}
                   </span>
-                  <span style={{ display: "block", fontFamily: S.body, fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span style={{ display: "block", fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {item.value}
                   </span>
                 </div>
@@ -662,7 +704,7 @@ export function DeploymentsTab({
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
               <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 80px 72px 110px 72px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
                 {["Deployment", "Status", "Duration", "Build No.", "Deployed on"].map((h, i) => (
-                  <span key={h} style={{ fontFamily: S.mono, fontSize: 9, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left" }}>
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left" }}>
                     {h.toUpperCase()}
                   </span>
                 ))}
@@ -681,21 +723,21 @@ export function DeploymentsTab({
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontFamily: S.body, fontSize: 12, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={currentRow.rowLabel}>
+                      <div style={{ fontFamily: S.body, fontSize: T.body, fontWeight: 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={currentRow.rowLabel}>
                         {currentRow.rowLabel}
                       </div>
                     </div>
-                    <span style={{ fontFamily: S.mono, fontSize: 10, letterSpacing: "0.06em", color: C.success, fontWeight: 500 }}>ACTIVE</span>
-                    <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint }}>{currentRow.duration}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: 11, fontWeight: 600, color: C.muted }}>{currentRow.build}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                    <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: C.success, fontWeight: 500 }}>ACTIVE</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{currentRow.duration}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.muted }}>{currentRow.build}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
                       {currentRow.time}
                     </span>
                   </div>
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
                     {containers.length === 0 ? (
-                      <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0 }}>No container data available</p>
+                      <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0 }}>No container data available</p>
                     ) : (
                       containers.map((c) => (
                         <ActiveContainerAccordion
@@ -721,7 +763,7 @@ export function DeploymentsTab({
                   </div>
                 </>
               ) : (
-                <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: 11, color: C.faint }}>No active deployment found.</div>
+                <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>No active deployment found.</div>
               )}
             </div>
           </div>
@@ -747,7 +789,7 @@ export function DeploymentsTab({
             }}
             renderExpandedDeployment={(_id, _isCurrent) => (
               <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-                <p style={{ fontFamily: S.mono, fontSize: 11, color: C.faint, margin: 0 }}>
+                <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0 }}>
                   Pod logs are only available for the live deployment ({deployment.id.slice(0, 8)}…).
                 </p>
               </div>
