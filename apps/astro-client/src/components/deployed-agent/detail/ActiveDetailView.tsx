@@ -47,6 +47,11 @@ const I = {
   lg: 16,
 } as const;
 
+const DETAIL_LEFT_ALIGN_PX = 108;
+const DETAIL_RIGHT_PAD_PX = 108;
+const TOP_BAR_HEIGHT_PX = 63;
+const CONFIG_PANEL_WIDTH_PX = 420;
+
 // ─── main component ───────────────────────────────────────────────────────────
 interface ActiveDetailViewProps {
   deployment: AgentDeployment;
@@ -64,14 +69,14 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
   const backPath = isPersonal ? '/agents' : `/${account}`
 
   return (
-    <div style={{ display: 'flex', flex: 1, flexDirection: 'column', background: C.bg, minHeight: 0 }}>
+    <div style={{ display: 'flex', flex: 1, flexDirection: 'column', background: C.bg, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
       {/* ── TOP BAR ── */}
       <header style={{
         background: C.panel,
         borderBottom: `1px solid ${C.border}`,
         position: 'sticky', top: 0, zIndex: 40,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 40px', height: 63, flexShrink: 0,
+        padding: '0 40px', height: TOP_BAR_HEIGHT_PX, flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
@@ -106,9 +111,23 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
               </span>
             )
           })()}
-          <KebabMenu deploymentId={deployment.id} />
+          <KebabMenu
+            deploymentId={deployment.id}
+            deploymentName={deployment.name}
+            displayName={deployment.display_name}
+            account={account}
+            onDeleted={() => navigate("/agents")}
+          />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginRight: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+            transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
           <button
             onClick={() => setConfigOpen(o => !o)}
             style={{
@@ -127,14 +146,30 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
         </div>
       </header>
 
-      {/* ── MAIN AREA (tab bar + content + side panel) ── */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+      {/* ── MAIN AREA (tab bar + content) ── */}
+      <div
+        style={{
+          display: 'flex',
+          flex: 1,
+          minHeight: 0,
+          marginRight: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+          transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
 
         {/* left: tabs + content */}
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
 
           {/* tab bar */}
-          <div style={{ display: 'flex', padding: '0 28px', background: C.bg, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              padding: `0 ${DETAIL_RIGHT_PAD_PX}px 0 ${DETAIL_LEFT_ALIGN_PX}px`,
+              background: C.bg,
+              borderBottom: `1px solid ${C.border}`,
+              flexShrink: 0,
+            }}
+          >
             {([
               { id: 'monitor' as const, label: 'Monitor', icon: (
                 <svg style={{ width: I.md, height: I.md, flexShrink: 0 }} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -168,7 +203,14 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
           </div>
 
           {/* tab content */}
-          <div className="dp-scroll" style={{ flex: 1, overflowY: 'auto', padding: '20px 28px 32px' }}>
+          <div
+            className="dp-scroll"
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: `20px ${DETAIL_RIGHT_PAD_PX}px 32px ${DETAIL_LEFT_ALIGN_PX}px`,
+            }}
+          >
             {tab === 'monitor' ? (
               <MonitorTab deployment={deployment} account={account} />
             ) : (
@@ -180,20 +222,23 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
             )}
           </div>
         </div>
+      </div>
 
-        {/* right: configure side panel (slides in, pushes content) */}
-        <div style={{
-          flexShrink: 0,
-          width: configOpen ? 420 : 0,
-          overflowX: 'hidden',
-          transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-          position: 'sticky',
+      {/* right: configure pop-out panel (anchored to top lane) */}
+      <div
+        style={{
+          position: 'absolute',
           top: 0,
-          height: 'calc(100vh - 63px)',
-        }}>
-          {configOpen && <ConfigurePanel deployment={deployment} account={account} onClose={() => setConfigOpen(false)} onRedeploy={onRedeploy} />}
-        </div>
-
+          right: 0,
+          bottom: 0,
+          width: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+          overflow: 'hidden',
+          transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          pointerEvents: configOpen ? 'auto' : 'none',
+          zIndex: 45,
+        }}
+      >
+        {configOpen && <ConfigurePanel deployment={deployment} account={account} onClose={() => setConfigOpen(false)} onRedeploy={onRedeploy} />}
       </div>
     </div>
   )

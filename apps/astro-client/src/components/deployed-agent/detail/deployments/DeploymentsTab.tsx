@@ -3,6 +3,7 @@ import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check }
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
 import { formatDate, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { HistoryDeploymentsTable } from "./history/HistoryDeploymentsTable";
 import type { ContainerRow, DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
 
@@ -34,6 +35,7 @@ const S = {
 } as const;
 
 const T = {
+  heading1: "var(--text-heading-1)",
   heading2: "var(--text-heading-2)",
   heading4: "var(--text-heading-4)",
   body: "var(--text-body)",
@@ -649,36 +651,24 @@ export function DeploymentsTab({
   }, [section, containers]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(0, 900px) 1fr", gap: 12, alignItems: "start" }}>
-      <div />
-      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-          <span style={{ fontFamily: S.body, fontSize: T.heading2, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
-          <div style={{ display: "flex", alignItems: "center", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bgAlt, padding: 2 }}>
-            {([
-              { id: "overview" as const, label: "Overview" },
-              { id: "history" as const, label: "History" },
-            ]).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSection(item.id)}
-                style={{
-                  border: "none",
-                  cursor: "pointer",
-                  borderRadius: 6,
-                  padding: "5px 10px",
-                  background: section === item.id ? C.panel : "transparent",
-                  color: section === item.id ? C.text : C.faint,
-                  fontFamily: S.body,
-                  fontSize: T.body,
-                  fontWeight: section === item.id ? 600 : 400,
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
+          <ToggleGroup
+            type="single"
+            variant="word"
+            value={section}
+            onValueChange={(v) => {
+              if (v) setSection(v as "overview" | "history");
+            }}
+          >
+            <ToggleGroupItem value="overview" aria-label="Overview">
+              Overview
+            </ToggleGroupItem>
+            <ToggleGroupItem value="history" aria-label="History">
+              History
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
         {section === "overview" ? (
@@ -702,9 +692,9 @@ export function DeploymentsTab({
             </div>
 
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 80px 72px 110px 72px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
                 {["Deployment", "Status", "Duration", "Build No.", "Deployed on"].map((h, i) => (
-                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left" }}>
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left", whiteSpace: "nowrap" }}>
                     {h.toUpperCase()}
                   </span>
                 ))}
@@ -714,7 +704,7 @@ export function DeploymentsTab({
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(200px, 1fr) 80px 72px 110px 72px",
+                      gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px",
                       gap: 12,
                       padding: "12px 14px",
                       alignItems: "center",
@@ -796,8 +786,6 @@ export function DeploymentsTab({
             )}
           />
         )}
-      </div>
-      <div />
     </div>
   );
 }

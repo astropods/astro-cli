@@ -141,9 +141,9 @@ export function HistoryDeploymentsTable({
       )}
 
       <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "16px minmax(160px, 1fr) 80px 72px 110px 72px 32px", gap: 12, padding: "8px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
+        <div style={{ display: "grid", gridTemplateColumns: "16px minmax(160px, 1fr) 88px 84px 116px 116px 32px", gap: 12, padding: "8px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
           {["", "Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h) => (
-            <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint }}>
+            <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, whiteSpace: "nowrap" }}>
               {h.toUpperCase()}
             </span>
           ))}
@@ -169,7 +169,7 @@ export function HistoryDeploymentsTable({
                   onClick={() => onExpandedDeployChange(isExpanded ? null : d.id)}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "16px minmax(160px, 1fr) 80px 72px 110px 72px 32px",
+                    gridTemplateColumns: "16px minmax(160px, 1fr) 88px 84px 116px 116px 32px",
                     gap: 12,
                     padding: "12px 16px",
                     alignItems: "center",

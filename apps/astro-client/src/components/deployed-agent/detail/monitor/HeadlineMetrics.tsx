@@ -63,6 +63,11 @@ function formatTrend(v: number | null): string {
   return `${Math.abs(v).toFixed(1)}%`;
 }
 
+function formatLatencyHeadlineMs(ms: number | null): string {
+  if (ms === null || Number.isNaN(ms) || !Number.isFinite(ms)) return "—";
+  return `${Math.round(ms)}ms`;
+}
+
 function TrendIndicator({
   value,
   higherIsBetter,
@@ -71,7 +76,7 @@ function TrendIndicator({
   higherIsBetter: boolean;
 }) {
   const dir = value === null ? "flat" : value > 0 ? "up" : value < 0 ? "down" : "flat";
-  const arrow = dir === "up" ? "\u2191" : dir === "down" ? "\u2193" : "\u2192";
+  const arrow = dir === "up" ? "\u2191" : dir === "down" ? "\u2193" : "\u2014";
   const isGood = dir === "flat" ? null : higherIsBetter ? dir === "up" : dir === "down";
   const color = isGood === null ? C.faint : isGood ? C.success : C.coral;
 
@@ -99,13 +104,13 @@ export function HeadlineMetrics({ summary, summaryLoading, trendLoading, selecte
     },
     {
       label: "AVG LATENCY",
-      value: summary ? `${summary.metrics.avg_latency_ms.toFixed(0)}ms` : "—",
+      value: summary ? formatLatencyHeadlineMs(summary.metrics.avg_latency_ms) : "—",
       trend: (w: WindowKey) => trends[w].avg_latency_ms,
       higherIsBetter: false,
     },
     {
       label: "P95 LATENCY",
-      value: summary ? `${summary.metrics.p95_latency_ms.toFixed(0)}ms` : "—",
+      value: summary ? formatLatencyHeadlineMs(summary.metrics.p95_latency_ms) : "—",
       trend: (w: WindowKey) => trends[w].p95_latency_ms,
       higherIsBetter: false,
     },

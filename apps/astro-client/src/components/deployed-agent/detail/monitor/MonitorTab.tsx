@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { Activity, Search, ChevronRight } from "lucide-react";
+import { Activity, Copy, Check, ChevronDown } from "lucide-react";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { observabilityKeys } from "@/api/queries/keys";
 import { api } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { InlineBadge } from "@/components/InlineBadge";
 import { MultiSelect } from "../shared/MultiSelect";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
@@ -26,6 +28,7 @@ const C = {
   faint: "var(--faint-foreground)",
   stone: "var(--color-stone-500)",
   amber: "var(--color-amber-700)",
+  issue: "var(--color-yellow-500)",
   amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
   amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
   coral: "var(--color-coral-600)",
@@ -70,14 +73,20 @@ interface TraceRow {
   output?: string;
 }
 
-const TRACE_STATUS_STYLE: Record<TraceStatus, { bg: string; color: string; label: string }> = {
-  success: { bg: "rgba(45,122,79,0.1)", color: C.success, label: "success" },
-  error: { bg: C.coralBg, color: C.coral, label: "error" },
-  timeout: { bg: C.amberBg, color: C.amber, label: "timeout" },
+const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeClass: string }> = {
+  success: { label: "SUCCESS", badgeClass: "text-green-700 bg-green-100 border-green-300 dark:text-green-300 dark:bg-green-900/35 dark:border-green-600/35" },
+  error: { label: "ERROR", badgeClass: "text-red-700 bg-red-100 border-red-300 dark:text-red-300 dark:bg-red-900/35 dark:border-red-600/35" },
+  timeout: { label: "TIMEOUT", badgeClass: "text-yellow-700 bg-yellow-100 border-yellow-300 dark:text-yellow-300 dark:bg-yellow-900/35 dark:border-yellow-600/35" },
 };
 
 function fmtTokens(n: number) {
   return Math.round(n).toLocaleString();
+}
+
+function formatLatencyMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 const CHART_H = 130;
@@ -120,7 +129,7 @@ function ChartTooltip({ active, payload, label, reqVisible, avgLatVisible }: Cha
         pointerEvents: "none",
       }}
     >
-      <div style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint, marginBottom: 4, letterSpacing: "0.06em" }}>
+      <div style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, marginBottom: 4, letterSpacing: "0.06em" }}>
         {label}
       </div>
       {reqVisible && req && (
@@ -132,8 +141,8 @@ function ChartTooltip({ active, payload, label, reqVisible, avgLatVisible }: Cha
       )}
       {avgLatVisible && avgLat && (
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: S.mono, fontSize: T.monoSm, marginTop: 2 }}>
-          <span style={{ width: 8, height: 1.5, background: C.amber, display: "inline-block", flexShrink: 0 }} />
-          <span style={{ color: C.amber, fontWeight: 600 }}>{avgLat.value}ms</span>
+          <span style={{ width: 8, height: 1.5, background: C.issue, display: "inline-block", flexShrink: 0 }} />
+          <span style={{ color: C.issue, fontWeight: 600 }}>{formatLatencyMs(avgLat.value)}</span>
           <span style={{ color: C.faint }}>avg</span>
         </div>
       )}
@@ -159,9 +168,11 @@ function InlineChart({
   const latMin = Math.min(...data.map((d) => d.avgLatencyMs));
   const latMax = Math.max(...data.map((d) => d.avgLatencyMs));
   const latPad = (latMax - latMin) * 0.15 || 50;
+  const latLower = Math.max(0, Math.floor(latMin - latPad));
+  const latUpper = Math.ceil(latMax + latPad);
   return (
     <ResponsiveContainer width="100%" height={CHART_H}>
-      <ComposedChart data={data} margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
+      <ComposedChart data={data} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id="req-grad-obs" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor={C.tealMid} stopOpacity="0.18" />
@@ -171,13 +182,14 @@ function InlineChart({
         <CartesianGrid strokeDasharray="3 3" stroke={C.border} strokeOpacity={0.6} vertical={false} />
         <XAxis
           dataKey="t"
-          tick={{ fontFamily: S.mono, fontSize: 8, fill: C.faint }}
+          tick={{ fontFamily: S.mono, fontSize: T.monoSm, fill: C.faint }}
           tickLine={false}
           axisLine={false}
           interval={0}
           minTickGap={0}
           tickMargin={6}
           tickFormatter={(value, index) => {
+            if (index === 0) return "";
             if (win === "24h") {
               return index % 4 === 0 ? String(value) : "";
             }
@@ -188,7 +200,7 @@ function InlineChart({
           yAxisId="req"
           orientation="left"
           domain={[0, reqUpper]}
-          tick={{ fontFamily: S.mono, fontSize: 8, fill: C.faint }}
+          tick={{ fontFamily: S.mono, fontSize: T.monoSm, fill: C.faint }}
           tickLine={false}
           axisLine={false}
           width={32}
@@ -198,12 +210,12 @@ function InlineChart({
         <YAxis
           yAxisId="ms"
           orientation="right"
-          domain={[Math.floor(latMin - latPad), Math.ceil(latMax + latPad)]}
-          tick={{ fontFamily: S.mono, fontSize: 8, fill: C.faint }}
+          domain={[latLower, latUpper]}
+          tick={{ fontFamily: S.mono, fontSize: T.monoSm, fill: C.faint }}
           tickLine={false}
           axisLine={false}
-          width={38}
-          tickFormatter={(v: number) => `${v}ms`}
+          width={46}
+          tickFormatter={(v: number) => formatLatencyMs(v)}
           tickCount={4}
         />
         <Tooltip
@@ -229,12 +241,12 @@ function InlineChart({
             yAxisId="ms"
             dataKey="avgLatencyMs"
             name="avgLat"
-            stroke={C.amber}
+            stroke={C.issue}
             strokeWidth={1.5}
             strokeDasharray="4 3"
             strokeOpacity={0.85}
-            dot={hasSinglePoint ? { r: 3.5, fill: C.amber, stroke: C.panel, strokeWidth: 1.5 } : false}
-            activeDot={{ r: 4, fill: C.amber, stroke: C.panel, strokeWidth: 1.5 }}
+            dot={hasSinglePoint ? { r: 3.5, fill: C.issue, stroke: C.panel, strokeWidth: 1.5 } : false}
+            activeDot={{ r: 4, fill: C.issue, stroke: C.panel, strokeWidth: 1.5 }}
             animationDuration={1000}
             animationEasing="ease-out"
           />
@@ -304,9 +316,10 @@ function buildRequestVolumeSeries(
 export function MonitorTab({ deployment, account }: { deployment: AgentDeployment; account: string }) {
   const queryClient = useQueryClient();
   const [win, setWin] = useState<Win>("24h");
-  const [traceSearch, setTraceSearch] = useState("");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [copiedTraceId, setCopiedTraceId] = useState<string | null>(null);
+  const [copiedTraceField, setCopiedTraceField] = useState<string | null>(null);
   const [series, setSeries] = useState({ req: true, avgLat: true });
   const [tokenView, setTokenView] = useState<"input" | "output">("input");
   const [windowParams] = useState<Record<Win, { start_time: string; end_time: string }>>(() => ({
@@ -384,7 +397,14 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
     name: t.name,
     status: t.status === "error" || t.status === "failed" ? "error" : t.status === "timeout" ? "timeout" : "success",
     latency: t.latency_ms,
-    time: new Date(t.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    time: new Date(t.timestamp).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
     tokens: t.total_tokens ?? 0,
     input: t.input,
     output: t.output,
@@ -402,7 +422,6 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
 
   const visibleTraces = traces.filter((t) => {
     if (traceStatuses.length > 0 && !traceStatuses.includes(t.status)) return false;
-    if (traceSearch && !t.name.toLowerCase().includes(traceSearch.toLowerCase())) return false;
     return true;
   });
 
@@ -413,6 +432,19 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
       else n.add(id);
       return n;
     });
+
+  const copyTraceId = (id: string) => {
+    void navigator.clipboard.writeText(id);
+    setCopiedTraceId(id);
+    setTimeout(() => setCopiedTraceId((prev) => (prev === id ? null : prev)), 1200);
+  };
+
+  const copyTraceFieldText = (traceId: string, field: "input" | "output", text: string) => {
+    const key = `${traceId}:${field}`;
+    void navigator.clipboard.writeText(text);
+    setCopiedTraceField(key);
+    setTimeout(() => setCopiedTraceField((prev) => (prev === key ? null : prev)), 1200);
+  };
 
   const summaryLoading = selectedSummaryQuery.isLoading && !summaryData;
   const trendLoading =
@@ -456,7 +488,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
       ? { value: tokens.total, color: C.tealMid }
       : tokenView === "input"
         ? { value: tokens.input, color: C.tealMid }
-        : { value: tokens.output, color: C.amber };
+        : { value: tokens.output, color: C.issue };
 
   const isError = mapDeploymentStatus(deployment) === "error";
 
@@ -507,35 +539,22 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(0, 900px) 1fr", gap: 12, alignItems: "start" }}>
-        <div />
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: S.body, fontSize: T.heading2, fontWeight: 600, color: C.teal }}>Monitor</span>
-            <select
-              value={win}
-              onChange={(e) => setWin(e.target.value as typeof win)}
-              style={{
-                padding: "6px 28px 6px 12px",
-                borderRadius: 7,
-                border: `1px solid ${C.border}`,
-                background: C.bg,
-                fontFamily: S.body,
-                fontSize: T.body,
-                color: C.muted,
-                cursor: "pointer",
-                outline: "none",
-                appearance: "none" as const,
-                backgroundImage:
-                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7e7c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 10px center",
-              }}
-            >
-              <option value="1h">Last 1 hour</option>
-              <option value="24h">Last 24 hours</option>
-              <option value="7d">Last 7 days</option>
-            </select>
+            <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.teal }}>Monitor</span>
+            <Select value={win} onValueChange={(value) => setWin(value as Win)}>
+              <SelectTrigger
+                className="h-9 w-auto min-w-[160px] px-3"
+                style={{ fontFamily: S.body, fontSize: T.body, color: C.muted }}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1h">Last 1 hour</SelectItem>
+                <SelectItem value="24h">Last 24 hours</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <HeadlineMetrics
@@ -554,7 +573,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
               <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
                 {[
                   { key: "req" as const, color: C.tealMid, label: "Requests", dashed: false },
-                  { key: "avgLat" as const, color: C.amber, label: "Avg latency", dashed: true },
+                  { key: "avgLat" as const, color: C.issue, label: "Avg latency", dashed: true },
                 ].map((s) => (
                   <button
                     key={s.key}
@@ -584,7 +603,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                         flexShrink: 0,
                       }}
                     />
-                    <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint }}>{s.label}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{s.label}</span>
                   </button>
                 ))}
               </div>
@@ -595,7 +614,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                   </div>
                   <div>
                     <p style={{ fontFamily: S.body, fontSize: T.body, fontWeight: 600, color: C.text, margin: "0 0 3px" }}>No requests yet</p>
-                    <p style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
+                    <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
                       Volume will appear once traffic starts
                     </p>
                   </div>
@@ -650,7 +669,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                   <>
                     <div style={{ display: "flex", height: 12, borderRadius: 999, overflow: "hidden", margin: "14px 0 10px", background: "rgba(196,184,158,0.8)" }}>
                       <div style={{ flex: tokens.input || 1, background: C.tealMid, opacity: tokenView === "input" ? (tokens.total === 0 ? 0.2 : 1) : 0.35, transition: "opacity 0.2s" }} />
-                      <div style={{ flex: tokens.output || 1, background: C.amber, opacity: tokenView === "output" ? (tokens.total === 0 ? 0.2 : 1) : 0.35, transition: "opacity 0.2s" }} />
+                      <div style={{ flex: tokens.output || 1, background: C.issue, opacity: tokenView === "output" ? (tokens.total === 0 ? 0.2 : 1) : 0.35, transition: "opacity 0.2s" }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <div style={{ overflow: "hidden", lineHeight: 1.3 }}>
@@ -672,33 +691,34 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             </div>
           </div>
 
-          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column", height: 420 }}>
+          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column", height: 420 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
-                <Search size={I.sm} color={C.faint} />
-                <input
-                  type="text"
-                  placeholder="Search traces"
-                  value={traceSearch}
-                  onChange={(e) => setTraceSearch(e.target.value)}
-                  style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: 160, caretColor: C.tealMid }}
-                />
-              </div>
               <MultiSelect
                 options={[
                   { value: "success", label: "Success", color: C.success },
                   { value: "error", label: "Error", color: C.coral },
-                  { value: "timeout", label: "Timeout", color: C.amber },
+                  { value: "timeout", label: "Timeout", color: C.issue },
                 ]}
                 selected={traceStatuses}
                 onChange={setTraceStatuses}
                 placeholder="All statuses"
               />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "16px 1fr 80px 72px 60px 72px", gap: 10, padding: "7px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
-              {["", "TRACE", "STATUS", "LATENCY", "TOKENS", "TIME"].map((h) => (
-                <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint }}>
+            <div style={{ display: "grid", gridTemplateColumns: "250px 1fr 80px 80px 80px 132px", gap: 10, padding: "7px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
+              <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: "left" }}>CREATED AT</span>
+              <span />
+              {["STATUS", "LATENCY", "TOKENS", "EXTERNAL ID"].map((h) => (
+                <span
+                  key={h}
+                  style={{
+                    fontFamily: S.mono,
+                    fontSize: T.label,
+                    letterSpacing: "0.07em",
+                    color: C.faint,
+                    textAlign: "center",
+                  }}
+                >
                   {h}
                 </span>
               ))}
@@ -708,16 +728,13 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                 <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   {Array.from({ length: 7 }).map((_, idx) => (
                     <div key={idx} style={{ borderBottom: idx < 6 ? `1px solid ${C.border}` : "none" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "16px 1fr 80px 72px 60px 72px", gap: 10, alignItems: "center", padding: "10px 16px" }}>
-                        <Ghost width={12} height={12} radius={4} />
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <Ghost width="78%" height={12} />
-                          <Ghost width="42%" height={9} />
-                        </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "250px 1fr 80px 80px 80px 132px", gap: 10, alignItems: "center", padding: "10px 16px" }}>
+                        <Ghost width="64%" height={12} />
+                        <span />
                         <Ghost width="80%" height={16} radius={12} />
-                        <Ghost width="90%" height={12} />
-                        <Ghost width="80%" height={12} />
-                        <Ghost width="85%" height={12} />
+                        <Ghost width="70%" height={12} />
+                        <Ghost width="66%" height={12} />
+                        <Ghost width="74%" height={12} />
                       </div>
                     </div>
                   ))}
@@ -742,11 +759,15 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
               {visibleTraces.map((trace) => {
                 const st = TRACE_STATUS_STYLE[trace.status];
                 const isOpen = expanded.has(trace.id);
+                const externalId = `...${trace.id.slice(-4)}`;
+                const copied = copiedTraceId === trace.id;
+                const latencyColor = trace.latency > 2000 ? C.coral : C.muted;
+                const outputText = trace.output ?? "";
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
                       onClick={() => toggleTrace(trace.id)}
-                      style={{ display: "grid", gridTemplateColumns: "16px 1fr 80px 72px 60px 72px", gap: 10, padding: "10px 16px", cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
+                      style={{ display: "grid", gridTemplateColumns: "250px 1fr 80px 80px 80px 132px", gap: 10, padding: "10px 16px", cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = C.bgDeep;
                       }}
@@ -754,30 +775,69 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
                         (e.currentTarget as HTMLElement).style.background = "transparent";
                       }}
                     >
-                      <ChevronRight size={I.sm} color={C.faint} style={{ transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : "none" }} />
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontFamily: S.body, fontSize: T.body, color: C.text, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{trace.name}</div>
-                        <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.faint }}>{trace.id}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <ChevronDown size={I.xs} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.muted, whiteSpace: "nowrap" }}>{trace.time}</span>
                       </div>
-                      <span style={{ fontFamily: S.mono, fontSize: T.label, padding: "3px 7px", borderRadius: 20, background: st.bg, color: st.color, letterSpacing: "0.05em", justifySelf: "start" as const }}>
-                        {st.label}
-                      </span>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: trace.latency > 2000 ? C.coral : C.muted }}>
-                        {trace.latency >= 1000 ? `${(trace.latency / 1000).toFixed(1)}s` : `${trace.latency}ms`}
-                      </span>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: trace.tokens > 0 ? C.muted : C.faint }}>
-                        {trace.tokens > 0 ? trace.tokens.toLocaleString() : "—"}
-                      </span>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{trace.time}</span>
+                      <span />
+                      <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                        <InlineBadge className={st.badgeClass}>{st.label}</InlineBadge>
+                      </div>
+                      <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: latencyColor }}>
+                          {formatLatencyMs(trace.latency)}
+                        </span>
+                      </div>
+                      <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.muted }}>
+                          {trace.tokens > 0 ? trace.tokens.toLocaleString() : "—"}
+                        </span>
+                      </div>
+                      <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.muted }}>{externalId}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyTraceId(trace.id);
+                          }}
+                          style={{ background: "none", border: "none", padding: 0, display: "flex", color: C.muted, cursor: "pointer" }}
+                          aria-label={`Copy external id ${externalId}`}
+                        >
+                          {copied ? <Check size={I.xs} /> : <Copy size={I.xs} />}
+                        </button>
+                      </div>
                     </div>
                     {isOpen && (
                       <div style={{ background: C.panel, borderTop: `1px solid ${C.border}` }}>
                         <div style={{ padding: "10px 16px 11px", borderBottom: `1px solid ${C.border}` }}>
-                          <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint, marginBottom: 5 }}>INPUT</span>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+                            <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint }}>INPUT</span>
+                            <button
+                              type="button"
+                              onClick={() => copyTraceFieldText(trace.id, "input", trace.input ?? "")}
+                              style={{ background: "none", border: "none", padding: 2, display: "flex", color: C.muted, cursor: "pointer" }}
+                              aria-label="Copy input"
+                            >
+                              {copiedTraceField === `${trace.id}:input` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
+                            </button>
+                          </div>
                           <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6 }}>{trace.input ?? "—"}</span>
                         </div>
                         <div style={{ padding: "10px 16px 12px" }}>
-                          <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint, marginBottom: 5 }}>OUTPUT</span>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+                            <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint }}>OUTPUT</span>
+                            {trace.output ? (
+                              <button
+                                type="button"
+                                onClick={() => copyTraceFieldText(trace.id, "output", outputText)}
+                                style={{ background: "none", border: "none", padding: 2, display: "flex", color: C.muted, cursor: "pointer" }}
+                                aria-label="Copy output"
+                              >
+                                {copiedTraceField === `${trace.id}:output` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
+                              </button>
+                            ) : null}
+                          </div>
                           {trace.output ? (
                             <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6 }}>{trace.output}</span>
                           ) : (
@@ -793,8 +853,6 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
               })}
             </div>
           </div>
-        </div>
-        <div />
       </div>
     </div>
   );

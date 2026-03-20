@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreVertical, Copy, Check, Pencil, Trash2 } from "lucide-react";
+import { MoreVertical, Copy, Check, Trash2 } from "lucide-react";
+import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 
 const C = {
   bgAlt: "var(--surface)",
@@ -25,8 +26,17 @@ const I = {
   md: 14,
 } as const;
 
-export function KebabMenu({ deploymentId }: { deploymentId: string }) {
+interface KebabMenuProps {
+  deploymentId: string;
+  deploymentName: string;
+  displayName?: string;
+  account: string;
+  onDeleted?: () => void;
+}
+
+export function KebabMenu({ deploymentId, deploymentName, displayName, account, onDeleted }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -92,8 +102,16 @@ export function KebabMenu({ deploymentId }: { deploymentId: string }) {
               onClick: copyId,
               sep: false,
             },
-            { icon: Pencil, label: "Rename", color: C.text, onClick: () => setOpen(false), sep: false },
-            { icon: Trash2, label: "Delete agent", color: C.coral, onClick: () => setOpen(false), sep: true },
+            {
+              icon: Trash2,
+              label: "Delete agent",
+              color: C.coral,
+              onClick: () => {
+                setOpen(false);
+                setDeleteOpen(true);
+              },
+              sep: true,
+            },
           ].map(({ icon: Icon, label, color, onClick, sep }) => (
             <div key={label}>
               {sep && <div style={{ height: 1, background: C.border }} />}
@@ -123,6 +141,15 @@ export function KebabMenu({ deploymentId }: { deploymentId: string }) {
           ))}
         </div>
       )}
+      <DeleteDeploymentDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        deploymentId={deploymentId}
+        deploymentName={deploymentName}
+        displayName={displayName}
+        account={account}
+        onDeleted={onDeleted}
+      />
     </div>
   );
 }
