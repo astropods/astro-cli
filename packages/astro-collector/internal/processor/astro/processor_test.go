@@ -78,6 +78,22 @@ func TestEnrichResourceAttributes(t *testing.T) {
 			t.Errorf("%s: expected %q, got %q", tt.key, tt.want, v.Str())
 		}
 	}
+
+	// Verify langfuse.tags are set for filtering
+	tagsVal, ok := attrs.Get("langfuse.tags")
+	if !ok {
+		t.Fatal("expected langfuse.tags to be set")
+	}
+	tagsSlice := tagsVal.Slice()
+	wantTags := []string{"deployment:deploy-abc"}
+	if tagsSlice.Len() != len(wantTags) {
+		t.Fatalf("expected %d tags, got %d", len(wantTags), tagsSlice.Len())
+	}
+	for i, want := range wantTags {
+		if tagsSlice.At(i).Str() != want {
+			t.Errorf("tag[%d]: expected %q, got %q", i, want, tagsSlice.At(i).Str())
+		}
+	}
 }
 
 func TestEnrichResourceAttributes_SpansUntouched(t *testing.T) {

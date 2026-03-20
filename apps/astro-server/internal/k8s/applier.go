@@ -38,6 +38,8 @@ type ApplierConfig struct {
 	// Observability (Langfuse) — per-account auth token for collector sidecar
 	LangfuseAuthToken string
 	LangfuseBaseURL   string
+	// DeploymentID is the database deployment ID (passed to collector as ASTRO_DEPLOYMENT_ID)
+	DeploymentID string
 	// NamespaceLabels are merged into the namespace metadata on create/update
 	NamespaceLabels map[string]string
 	// NamespaceAnnotations are merged into the namespace metadata on create/update
@@ -71,6 +73,7 @@ type Applier struct {
 	galileoProject    string
 	langfuseAuthToken string
 	langfuseBaseURL   string
+	deploymentID      string
 	// Per-namespace labels
 	namespaceLabels map[string]string
 	// Per-namespace annotations
@@ -102,6 +105,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		galileoProject:         cfg.GalileoProject,
 		langfuseAuthToken:      cfg.LangfuseAuthToken,
 		langfuseBaseURL:        cfg.LangfuseBaseURL,
+		deploymentID:           cfg.DeploymentID,
 		namespaceLabels:        cfg.NamespaceLabels,
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,

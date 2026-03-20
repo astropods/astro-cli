@@ -15,10 +15,10 @@ import (
 
 // Attribute keys added by the astro processor.
 const (
-	attrAgentName     = "astro.agent.name"
-	attrAgentVersion  = "astro.agent.version"
-	attrDeploymentID  = "astro.deployment.id"
-	attrRedacted      = "astro.redacted"
+	attrAgentName    = "astro.agent.name"
+	attrAgentVersion = "astro.agent.version"
+	attrDeploymentID = "astro.deployment.id"
+	attrRedacted     = "astro.redacted"
 )
 
 // Span attribute prefixes that may contain sensitive prompt content.
@@ -30,11 +30,11 @@ var promptAttributePrefixes = []string{
 }
 
 type astroProcessor struct {
-	logger       *zap.Logger
-	cfg          *Config
-	nextTraces   consumer.Traces
-	nextMetrics  consumer.Metrics
-	nextLogs     consumer.Logs
+	logger      *zap.Logger
+	cfg         *Config
+	nextTraces  consumer.Traces
+	nextMetrics consumer.Metrics
+	nextLogs    consumer.Logs
 }
 
 func newProcessor(
@@ -118,6 +118,10 @@ func (p *astroProcessor) enrichResourceAttributes(attrs pcommon.Map) {
 	attrs.PutStr(attrAgentName, p.cfg.AgentName)
 	attrs.PutStr(attrAgentVersion, p.cfg.AgentVersion)
 	attrs.PutStr(attrDeploymentID, p.cfg.DeploymentID)
+
+	// Set langfuse.tags so Langfuse indexes them as filterable tags.
+	tags := attrs.PutEmptySlice("langfuse.tags")
+	tags.AppendEmpty().SetStr("deployment:" + p.cfg.DeploymentID)
 }
 
 // redactTraceSpans redacts sensitive prompt/completion content from span attributes.

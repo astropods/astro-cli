@@ -97,6 +97,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		GalileoProject:         d.Cfg.Deployment.GalileoProject,
 		LangfuseAuthToken:      langfuseAuthToken,
 		LangfuseBaseURL:        d.Cfg.Deployment.LangfuseBaseURL,
+		DeploymentID:           dep.ID,
 		PodSubnetCIDRs:         d.Cfg.Deployment.PodSubnetCIDRs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		NamespaceLabels: map[string]string{

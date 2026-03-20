@@ -605,7 +605,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
 			AgentVersion: ds.Source.Build,
 			BuildID:      buildID, Component: "collector",
-			DeploymentID:      buildID,
+			DeploymentID:      a.deploymentID,
 			Image:             collectorImage,
 			Port:              otlpHTTPPort,
 			ConfigMapName:     "",
