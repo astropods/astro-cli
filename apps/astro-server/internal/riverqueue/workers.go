@@ -19,7 +19,7 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		db:       cfg.DB,
 		log:      log,
 	})
-	log.Info("river: registered worker", "worker", "OpenmeterWorker")
+	log.Info("river: registered worker", "worker", "OpenmeterWorker", "period", "5m")
 
 	river.AddWorker(workers, &WorkOSEventsWorker{
 		workOSAPIKey: cfg.WorkOSAPIKey,
@@ -28,7 +28,7 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		db:           cfg.DB,
 		log:          log,
 	})
-	log.Info("river: registered worker", "worker", "WorkOSEventsWorker")
+	log.Info("river: registered worker", "worker", "WorkOSEventsWorker", "period", "30s")
 
 	store := deploymentstore.NewStore(cfg.DB)
 
@@ -76,7 +76,7 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		db:           cfg.DB,
 		log:          log,
 	})
-	log.Info("river: registered worker", "worker", "MessageCountSyncWorker")
+	log.Info("river: registered worker", "worker", "MessageCountSyncWorker", "period", "5m")
 
 	rw := &ReconcileWorker{
 		deployer:  dep,
@@ -88,7 +88,7 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 		// queue is set after client creation in New()
 	}
 	river.AddWorker(workers, rw)
-	log.Info("river: registered worker", "worker", "ReconcileWorker")
+	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
 	return rw
 }
