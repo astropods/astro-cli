@@ -10,6 +10,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       bun: ${{ steps.filter.outputs.bun }}
