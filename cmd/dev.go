@@ -756,7 +756,7 @@ type localDockerImage struct {
 var devLocalImages = []localDockerImage{
 	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
 	{"playground:latest", "modules/playground/Dockerfile", "modules/playground"},
-	{"collector:latest", "deployment/Dockerfile.astro-collector", "."},
+	{"collector:latest", "deployment/Dockerfile.astro-collector", "packages/astro-collector"},
 }
 
 // pushLocalInfraImages are the infrastructure images built during `ast push --local`.
@@ -764,7 +764,7 @@ var devLocalImages = []localDockerImage{
 // because it only runs in compose/dev mode.
 var pushLocalInfraImages = []localDockerImage{
 	{"messaging:latest", "modules/messaging/Dockerfile", "modules/messaging"},
-	{"collector:latest", "deployment/Dockerfile.astro-collector", "."},
+	{"collector:latest", "deployment/Dockerfile.astro-collector", "packages/astro-collector"},
 }
 
 // buildLocalImages builds the given Docker images from ASTRO_ROOT source.
