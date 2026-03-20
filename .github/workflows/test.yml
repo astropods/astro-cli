@@ -17,6 +17,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       go-cli: ${{ steps.filter.outputs.go-cli }}
       go-server: ${{ steps.filter.outputs.go-server }}
+      docker-client: ${{ steps.filter.outputs.docker-client }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -47,6 +48,15 @@ jobs:
               - 'apps/astro-server/**'
               - 'packages/astro-spec/**'
               - 'sql/**'
+              - '.github/workflows/test.yml'
+            docker-client:
+              - 'deployment/Dockerfile.astro-client'
+              - 'apps/astro-client/package.json'
+              - 'packages/astro-identity-gen/package.json'
+              - 'packages/astro-theme/package.json'
+              - 'packages/astro-trading-card/package.json'
+              - 'bun.lock'
+              - 'package.json'
               - '.github/workflows/test.yml'
 
   test-bun:
@@ -347,6 +357,19 @@ jobs:
             apps/astro-client/test-results
           if-no-files-found: ignore
 
+  test-client-docker:
+    needs: changes
+    if: needs.changes.outputs.docker-client == 'true'
+    runs-on: ubuntu-latest
+    name: Docker smoke test (astro-client)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build and smoke-test astro-client image
+        run: sh deployment/smoke-test-astro-client.sh
+
   ci-gate:
     runs-on: ubuntu-latest
     if: always()
@@ -357,6 +380,7 @@ jobs:
       - test-go-integration
       - test-go-k8s
       - test-client-e2e
+      - test-client-docker
     steps:
       - name: Check results
         run: |

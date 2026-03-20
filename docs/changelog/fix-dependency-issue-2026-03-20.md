@@ -12,6 +12,14 @@ In the production container, only `astro-client` is present — the monorepo wor
 
 The fix is to declare `uqr` as a direct dependency of `astro-client` so it is included in the container's install.
 
+## Docker smoke test
+
+To prevent regressions of this class, a smoke test was added that runs the production image end-to-end:
+
+- **`deployment/smoke-test-astro-client.sh`** — builds the image, starts a container, and polls `http://localhost:13000/` until any HTTP response arrives. A response proves `server.ts` completed its top-level `await import('./build/server/index.js')` without crashing. Missing deps would exit the process before the port is bound, failing the poll.
+- **`test-client-docker` CI job** — runs the smoke test on PRs touching the Dockerfile, any `package.json`, or `bun.lock`. Scoped to dependency-related paths to avoid a full Docker build on every source change.
+- **`deployment:smoke-test-astro-client` Moon task** — for local verification via `moon run deployment:smoke-test-astro-client`.
+
 ## Migration
 
 No action required.

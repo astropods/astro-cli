@@ -24,6 +24,12 @@ tasks:
       cache: false
       runInCI: false
 
+  "smoke-test-astro-client":
+    command: "cd .. && sh deployment/smoke-test-astro-client.sh"
+    options:
+      cache: false
+      runInCI: false
+
   "astro-server":
     command: "cd .. && docker build -t astro-server:latest -f deployment/Dockerfile.astro-server ."
     options:
