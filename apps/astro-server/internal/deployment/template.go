@@ -58,7 +58,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Observability: spec.DeploymentObservability{
 			Enabled:   true,
 			Provider:  "galileo",
-			Image:     fmt.Sprintf("%s/prod-astro-collector:latest", input.RegistryURL),
+			Image:     "astropods/collector:latest",
 			Port:      4318,
 			Resources: spec.CollectorResources,
 		},

@@ -564,7 +564,7 @@ func TestBuildDriftReport_Sasbot_OldBugReproduction(t *testing.T) {
 		{Name: "sasbot-knowledge-docs", WorkloadType: "statefulset", Image: "qdrant:latest", Replicas: 1},
 		// BUG: these were "deployment" — drift checker looks for standalone K8s Deployments
 		{Name: "sasbot-messaging", WorkloadType: "deployment", Image: "messaging:latest", Replicas: 1},
-		{Name: "sasbot-collector", WorkloadType: "deployment", Image: "prod-astro-collector:latest", Replicas: 1},
+		{Name: "sasbot-collector", WorkloadType: "deployment", Image: "astropods/collector:latest", Replicas: 1},
 	}
 
 	oldServices := []*deploymentstore.Service{

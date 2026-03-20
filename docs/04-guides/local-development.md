@@ -141,7 +141,21 @@ With `ast-dev`, `push` automatically skips the remote registry and retags images
 ast-dev push                   # build + retag + register with localhost:8080
 ```
 
-This is equivalent to running `ast push --skip-push --platform <native>` — the images are tagged with registry-qualified names (`registry.localhost/<namespace>/<agent>:<tag>`) so K8s with `imagePullPolicy: Never` can resolve them.
+This is equivalent to running `ast push --skip-push --platform <native>` — the images are tagged with registry-qualified names (`registry.localhost/<namespace>/<agent>:<tag>`) so K8s with `imagePullPolicy: IfNotPresent` can resolve them.
+
+### Infrastructure images for local K8s
+
+The collector and messaging sidecars are not part of `ast dev` compose — they run as K8s sidecars. When deploying to a local K8s cluster, you need to build and tag them with the names the server expects (both use Docker Hub names):
+
+```bash
+moon run deployment:collector
+docker tag collector:latest astropods/collector:latest
+
+moon run deployment:messaging
+docker tag messaging:latest astropods/messaging:latest
+```
+
+Without these, the sidecar pods will fail to pull their images.
 
 ---
 
@@ -164,6 +178,13 @@ ast-dev dev                            # restart with changes
 ### "I want to deploy my agent to a local K8s cluster"
 
 ```bash
+# 1. Build and tag infrastructure sidecar images
+moon run deployment:collector
+docker tag collector:latest astropods/collector:latest
+moon run deployment:messaging
+docker tag messaging:latest astropods/messaging:latest
+
+# 2. Push agent to local server
 cd my-agent
 ast-dev login                          # authenticate with local server
 ast-dev push                           # build + retag + register

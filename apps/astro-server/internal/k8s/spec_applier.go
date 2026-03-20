@@ -595,10 +595,10 @@ func (a *Applier) ApplyDeploymentSpec(
 			}
 		}
 
-		// Collector image from deployment spec, fallback to registry default
+		// Collector image from deployment spec, fallback to Docker Hub default
 		collectorImage := ds.Observability.Image
 		if collectorImage == "" {
-			collectorImage = fmt.Sprintf("%s/prod-astro-collector:latest", a.registryURL)
+			collectorImage = "astropods/collector:latest"
 		}
 
 		collectorSidecar = &CollectorDeploymentConfig{
