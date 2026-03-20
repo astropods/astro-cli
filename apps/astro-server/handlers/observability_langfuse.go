@@ -9,72 +9,81 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
-// resolveObservabilityLangfuseContext validates auth and returns a Langfuse client
-// using per-account credentials from the database.
-func resolveObservabilityLangfuseContext(
+// langfuseContext holds the resolved Langfuse client and deployment metadata.
+type langfuseContext struct {
+	Client       *langfuse.Client
+	DeploymentID string
+}
+
+// resolveLangfuseContext validates auth, looks up the deployment, and returns
+// a Langfuse client using per-account credentials.
+// Routes: /api/v1/deployments/:id/observability/...
+func resolveLangfuseContext(
 	c *gin.Context,
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
-) (*langfuse.Client, string, bool) {
+) (*langfuseContext, bool) {
 	user, exists := middleware.GetUser(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-		return nil, "", false
+		return nil, false
 	}
 
-	accountName := c.Param("account")
-	agentName := c.Param("name")
+	deploymentID := c.Param("id")
 
-	acct, err := accountStore.GetByName(accountName)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-		return nil, "", false
+	dep, err := deploymentStore.GetDeploymentByID(deploymentID)
+	if err != nil || dep == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+		return nil, false
 	}
 
-	isMember, err := accountStore.IsMember(acct.ID, user.ID)
+	isMember, err := accountStore.IsMember(dep.AccountID, user.ID)
 	if err != nil || !isMember {
 		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-		return nil, "", false
+		return nil, false
 	}
 
-	creds, err := langfuseStore.Get(acct.ID)
+	creds, err := langfuseStore.Get(dep.AccountID)
 	if err != nil || creds == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "langfuse not configured for this account"})
-		return nil, "", false
+		return nil, false
 	}
 
 	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
 	log.Debug("Resolving Langfuse observability context",
-		"account", accountName, "agent", agentName, "user_id", user.ID,
+		"deployment_id", dep.ID, "user_id", user.ID,
 	)
 
-	return client, agentName, true
+	return &langfuseContext{Client: client, DeploymentID: dep.ID}, true
 }
 
-// GetLangfuseMetrics returns daily metrics for an agent from Langfuse.
-// GET /api/v1/agents/:account/:name/observability/langfuse/metrics
+// GetLangfuseMetrics returns daily metrics for a deployment from Langfuse.
+// GET /api/v1/deployments/:id/observability/metrics
 func GetLangfuseMetrics(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		client, _, ok := resolveObservabilityLangfuseContext(c, log, cfg, accountStore, langfuseStore)
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
 		if !ok {
 			return
 		}
 
-		metrics, err := client.GetDailyMetrics(c.Query("start_time"), c.Query("end_time"))
+		metrics, err := lctx.Client.GetDailyMetrics(c.Query("start_time"), c.Query("end_time"))
 		if err != nil {
 			log.Error("Failed to get Langfuse metrics", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
@@ -101,20 +110,21 @@ func GetLangfuseMetrics(
 }
 
 // GetLangfuseSummary returns summary statistics from Langfuse traces.
-// GET /api/v1/agents/:account/:name/observability/langfuse/summary
+// GET /api/v1/deployments/:id/observability/summary
 func GetLangfuseSummary(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		client, agentName, ok := resolveObservabilityLangfuseContext(c, log, cfg, accountStore, langfuseStore)
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
 		if !ok {
 			return
 		}
 
-		traces, err := client.GetTraces(agentName, c.Query("start_time"), c.Query("end_time"), 0, 0)
+		traces, err := lctx.Client.GetTraces(lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), 0, 0)
 		if err != nil {
 			log.Error("Failed to get Langfuse traces for summary", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
@@ -154,9 +164,7 @@ func GetLangfuseSummary(
 
 		sort.Float64s(latencies)
 		p95Idx := int(math.Ceil(0.95*float64(len(latencies)))) - 1
-		if p95Idx < 0 {
-			p95Idx = 0
-		}
+		p95Idx = max(p95Idx, 0)
 		p95Latency := latencies[p95Idx]
 
 		var tracesPerHour float64
@@ -184,15 +192,16 @@ func GetLangfuseSummary(
 }
 
 // GetLangfuseTraces returns a paginated list of traces from Langfuse.
-// GET /api/v1/agents/:account/:name/observability/langfuse/traces
+// GET /api/v1/deployments/:id/observability/traces
 func GetLangfuseTraces(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		client, agentName, ok := resolveObservabilityLangfuseContext(c, log, cfg, accountStore, langfuseStore)
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
 		if !ok {
 			return
 		}
@@ -206,7 +215,7 @@ func GetLangfuseTraces(
 		offsetStr := c.DefaultQuery("offset", "0")
 		offset, _ := strconv.Atoi(offsetStr)
 
-		traces, err := client.GetTraces(agentName, c.Query("start_time"), c.Query("end_time"), limit, offset)
+		traces, err := lctx.Client.GetTraces(lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), limit, offset)
 		if err != nil {
 			log.Error("Failed to get Langfuse traces", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})

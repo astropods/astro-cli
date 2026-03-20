@@ -872,31 +872,28 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
 			)
 
-			// Langfuse observability endpoints (per-account project isolation)
+			// Langfuse observability endpoints (deployment-scoped)
 			langfuseStore := langfuse.NewStore(db)
-			api.GET(protected, "/agents/:account/:name/observability/langfuse/metrics", "Get Langfuse metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, langfuseStore),
+			api.GET(protected, "/deployments/:id/observability/metrics", "Get deployment metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
+				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.Response(200, &handlers.ObservabilityMetricsResponse{}),
 			)
-			api.GET(protected, "/agents/:account/:name/observability/langfuse/summary", "Get Langfuse summary", handlers.GetLangfuseSummary(log, cfg, accountStore, langfuseStore),
+			api.GET(protected, "/deployments/:id/observability/summary", "Get deployment summary", handlers.GetLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
+				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.Response(200, &handlers.ObservabilitySummaryResponse{}),
 			)
-			api.GET(protected, "/agents/:account/:name/observability/langfuse/traces", "Get Langfuse traces", handlers.GetLangfuseTraces(log, cfg, accountStore, langfuseStore),
+			api.GET(protected, "/deployments/:id/observability/traces", "Get deployment traces", handlers.GetLangfuseTraces(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
+				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
 				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
 				oapispec.QueryParam("limit", "Page size (default 50)", false),

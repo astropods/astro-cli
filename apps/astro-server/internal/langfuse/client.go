@@ -73,10 +73,10 @@ type DailyMetricsResponse struct {
 	} `json:"meta"`
 }
 
-// GetTraces returns traces filtered by agent name tag.
-func (c *Client) GetTraces(agentName, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
+// GetTraces returns traces filtered by deployment ID tag.
+func (c *Client) GetTraces(deploymentID, startTime, endTime string, limit, offset int) (*TracesResponse, error) {
 	params := url.Values{}
-	params.Set("tags", "agent:"+agentName)
+	params.Set("tags", "deployment:"+deploymentID)
 	if startTime != "" {
 		params.Set("fromTimestamp", startTime)
 	}
