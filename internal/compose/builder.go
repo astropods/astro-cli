@@ -493,33 +493,8 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		}
 	}
 
-	// Add local observability collector so agent OTLP traffic has a sink in dev.
-	collectorImage := "astropods/collector:latest"
-	collectorPull := types.PullPolicyAlways
-	if s.Dev.Overrides != nil && s.Dev.Overrides.CollectorImage != "" {
-		collectorImage = s.Dev.Overrides.CollectorImage
-		collectorPull = ""
-	}
-	collectorService := types.ServiceConfig{
-		Name:       "astro-collector",
-		Image:      collectorImage,
-		PullPolicy: collectorPull,
-		Networks: map[string]*types.ServiceNetworkConfig{
-			"astro-dev": nil,
-		},
-		Environment: buildCollectorEnvironment(s, envVars),
-		Ports: []types.ServicePortConfig{
-			{
-				Target:    4317,
-				Published: "4317",
-			},
-			{
-				Target:    4318,
-				Published: "4318",
-			},
-		},
-	}
-	project.Services["astro-collector"] = collectorService
+	// Collector is not included in dev mode — it runs as a K8s sidecar in
+	// local-k8 and production deployments, not in Docker Compose.
 
 	// Add ingestion services if defined
 	// Each ingestion is a container that runs on a trigger (schedule, manual, startup, webhook)
@@ -843,10 +818,6 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string, opts ...Buil
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
 
-	// Route OTLP exports to the local collector service in compose mode.
-	otlpEndpoint := "http://astro-collector:4318"
-	env["OTEL_EXPORTER_OTLP_ENDPOINT"] = &otlpEndpoint
-
 	return env
 }
 
@@ -923,39 +894,6 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			listenAddr := ":8080"
 			env["WEB_LISTEN_ADDR"] = &listenAddr
 		}
-	}
-
-	return env
-}
-
-// buildCollectorEnvironment creates env vars for the local collector service.
-func buildCollectorEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
-	env := make(types.MappingWithEquals)
-
-	agentName := s.Name
-	agentVersion := "dev"
-	deploymentID := "local"
-
-	env["ASTRO_AGENT_NAME"] = &agentName
-	env["ASTRO_AGENT_VERSION"] = &agentVersion
-	env["ASTRO_DEPLOYMENT_ID"] = &deploymentID
-
-	// Forward Galileo settings if configured locally.
-	if v, ok := envVars["GALILEO_API_KEY"]; ok {
-		val := v
-		env["GALILEO_API_KEY"] = &val
-	}
-	if v, ok := envVars["GALILEO_PROJECT"]; ok {
-		val := v
-		env["GALILEO_PROJECT"] = &val
-	}
-	if v, ok := envVars["GALILEO_OTLP_ENDPOINT"]; ok {
-		val := v
-		env["GALILEO_OTLP_ENDPOINT"] = &val
-	}
-	if v, ok := envVars["GALILEO_LOG_STREAM"]; ok {
-		val := v
-		env["GALILEO_LOG_STREAM"] = &val
 	}
 
 	return env

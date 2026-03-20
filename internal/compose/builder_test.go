@@ -178,21 +178,9 @@ func TestBuildProject_WebInterface(t *testing.T) {
 		t.Errorf("messaging should publish web as 3100->8080, got %#v", messaging.Ports)
 	}
 
-	collector, ok := project.Services["astro-collector"]
-	if !ok {
-		t.Fatal("missing astro-collector service")
-	}
-	if len(collector.Ports) != 2 {
-		t.Fatalf("collector ports = %d, want 2 (4317 + 4318)", len(collector.Ports))
-	}
-	if collector.Ports[0].Target != 4317 || collector.Ports[1].Target != 4318 {
-		t.Errorf("unexpected collector ports: %#v", collector.Ports)
-	}
-
-	agent := project.Services["agent"]
-	if envVal(agent.Environment, "OTEL_EXPORTER_OTLP_ENDPOINT") != "http://astro-collector:4318" {
-		t.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT = %q, want %q",
-			envVal(agent.Environment, "OTEL_EXPORTER_OTLP_ENDPOINT"), "http://astro-collector:4318")
+	// Collector should not be present in dev mode (runs as K8s sidecar only).
+	if _, ok := project.Services["astro-collector"]; ok {
+		t.Error("astro-collector should not be present in dev compose")
 	}
 }
 

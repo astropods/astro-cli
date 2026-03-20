@@ -867,7 +867,6 @@ func buildLocalAgentEnv(s *spec.AstroSpec, envVars map[string]string) []string {
 		// Keep this in sync with buildMessagingPorts host-published gRPC port.
 		envMap["GRPC_SERVER_ADDR"] = "localhost:19090"
 	}
-	envMap["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
 	out := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		out = append(out, k+"="+v)
