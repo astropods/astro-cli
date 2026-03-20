@@ -17,12 +17,6 @@ import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
-import {
-  selectPlaygroundBackendUrl,
-  buildPlaygroundLaunchUrl,
-  buildPortForwardCommand,
-  isLocalEnv,
-} from "@/lib/playground-url";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 
 // ─── color + font tokens (mirroring sketchbook exactly) ──────────────────────
@@ -1516,37 +1510,6 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
   const displayName = deployment.display_name || deployment.name
   const backPath = isPersonal ? '/agents' : `/${account}`
 
-  // playground logic
-  const PLAYGROUND_LAUNCH_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env
-    ? (import.meta.env["VITE_PLAYGROUND_LAUNCH_URL"] as string | undefined)
-    : undefined
-  const urls = deployment.external_urls ?? []
-  const backendUrl = selectPlaygroundBackendUrl(urls)
-  const local = isLocalEnv()
-  const [pfCopied, setPfCopied] = useState(false)
-  const [pfOpen, setPfOpen] = useState(false)
-  const pfRef = useRef<HTMLDivElement>(null)
-  const portForwardCmd = buildPortForwardCommand(deployment.namespace, deployment.name)
-
-  useEffect(() => {
-    if (!pfOpen) return
-    const handler = (e: MouseEvent) => {
-      if (pfRef.current && !pfRef.current.contains(e.target as Node)) setPfOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [pfOpen])
-
-  const handlePlaygroundClick = () => {
-    if (local) {
-      window.open('http://localhost:3737', '_blank', 'noopener,noreferrer')
-    } else if (backendUrl) {
-      window.open(buildPlaygroundLaunchUrl(backendUrl, PLAYGROUND_LAUNCH_BASE_URL), '_blank', 'noopener,noreferrer')
-    }
-  }
-
-  const playgroundAvailable = !!backendUrl || local
-
   return (
     <div style={{ display: 'flex', flex: 1, flexDirection: 'column', background: C.bg, minHeight: 0 }}>
       <Styles />
@@ -1595,82 +1558,6 @@ export function ActiveDetailView({ deployment, account, isPersonal, initialTab =
           <KebabMenu deploymentId={deployment.id} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div ref={pfRef} style={{ position: 'relative' }}>
-            <div style={{ display: 'flex' }}>
-              <button
-                onClick={playgroundAvailable ? handlePlaygroundClick : undefined}
-                disabled={!playgroundAvailable}
-                title={!playgroundAvailable ? 'No external URL available' : undefined}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', borderRadius: local ? '6px 0 0 6px' : 6,
-                  cursor: playgroundAvailable ? 'pointer' : 'default',
-                  background: 'transparent', border: `1px solid ${C.border}`,
-                  borderRight: local ? 'none' : undefined,
-                  fontFamily: S.body, fontSize: 13, color: playgroundAvailable ? C.muted : C.faint,
-                  transition: 'background 0.12s', opacity: playgroundAvailable ? 1 : 0.5,
-                }}
-                onMouseEnter={e => { if (playgroundAvailable) e.currentTarget.style.background = C.bgDeep }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-              >
-                <Play size={13} /> Playground
-              </button>
-              {local && (
-                <button
-                  onClick={() => setPfOpen(o => !o)}
-                  title="Port-forward setup"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: 28, borderRadius: '0 6px 6px 0',
-                    cursor: 'pointer', background: pfOpen ? C.bgDeep : 'transparent',
-                    border: `1px solid ${C.border}`, borderLeft: `1px solid ${C.border}`,
-                    color: C.muted, transition: 'background 0.12s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = C.bgDeep }}
-                  onMouseLeave={e => { if (!pfOpen) e.currentTarget.style.background = 'transparent' }}
-                >
-                  <ChevronDown size={11} />
-                </button>
-              )}
-            </div>
-            {pfOpen && (
-              <div style={{
-                position: 'absolute', top: 'calc(100% + 6px)', right: 0,
-                background: C.panel, border: `1px solid ${C.border}`,
-                borderRadius: 8, padding: '12px 14px', zIndex: 100,
-                boxShadow: '0 4px 16px rgba(7,61,60,0.10)', minWidth: 340,
-              }}>
-                <div style={{ fontFamily: S.mono, fontSize: 10, letterSpacing: '0.08em', color: C.faint, marginBottom: 8 }}>
-                  PORT-FORWARD SETUP
-                </div>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  background: C.bg, border: `1px solid ${C.border}`,
-                  borderRadius: 6, padding: '6px 10px',
-                }}>
-                  <code style={{ flex: 1, fontFamily: S.mono, fontSize: 11, color: C.text, wordBreak: 'break-all' }}>
-                    {portForwardCmd}
-                  </code>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(portForwardCmd)
-                      setPfCopied(true)
-                      setTimeout(() => setPfCopied(false), 2000)
-                    }}
-                    style={{
-                      flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer',
-                      color: pfCopied ? C.tealMid : C.faint, padding: 2,
-                    }}
-                  >
-                    {pfCopied ? <Check size={13} /> : <Copy size={13} />}
-                  </button>
-                </div>
-                <p style={{ fontFamily: S.mono, fontSize: 10, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>
-                  Run this in your terminal, then click Playground.
-                </p>
-              </div>
-            )}
-          </div>
           <button
             onClick={() => setConfigOpen(o => !o)}
             style={{

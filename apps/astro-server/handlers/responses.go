@@ -167,14 +167,14 @@ type ActiveDeploymentResponse struct {
 
 // DeploymentHistoryRecord represents a single entry in deployment history.
 type DeploymentHistoryRecord struct {
-	ID                 string          `json:"id"`
-	AgentName          string          `json:"agent_name"`
-	BuildID            string          `json:"build_id"`
-	Namespace          string          `json:"namespace"`
-	Status             string          `json:"status"`
-	DeployedAt         time.Time       `json:"deployed_at"`
-	UndeployedAt       *time.Time      `json:"undeployed_at,omitempty"`
-	Spec               json.RawMessage `json:"spec"`
+	ID           string          `json:"id"`
+	AgentName    string          `json:"agent_name"`
+	BuildID      string          `json:"build_id"`
+	Namespace    string          `json:"namespace"`
+	Status       string          `json:"status"`
+	DeployedAt   time.Time       `json:"deployed_at"`
+	UndeployedAt *time.Time      `json:"undeployed_at,omitempty"`
+	Spec         json.RawMessage `json:"spec"`
 }
 
 // DeploymentHistoryResponse wraps deployment history records.
