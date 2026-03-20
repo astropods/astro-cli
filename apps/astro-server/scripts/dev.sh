@@ -9,6 +9,13 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# Load DATABASE_URL from .env
+DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-)
+if [ -z "$DATABASE_URL" ]; then
+  echo "ERROR: DATABASE_URL not set in .env"
+  exit 1
+fi
+
 # Default ENVIRONMENT to "local" for dev
 export ENVIRONMENT="${ENVIRONMENT:-local}"
 
@@ -16,6 +23,12 @@ export ENVIRONMENT="${ENVIRONMENT:-local}"
 if ! command -v air &>/dev/null; then
   echo "==> Installing air (hot reload)..."
   go install github.com/air-verse/air@latest
+fi
+
+# Ensure atlas is installed
+if ! command -v atlas &>/dev/null; then
+  echo "==> Installing atlas..."
+  curl -sSf https://atlasgo.sh | sh
 fi
 
 cleanup() {
@@ -29,22 +42,27 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  docker compose down
   echo "==> Done."
 }
 trap cleanup EXIT INT TERM
 
-# Start Postgres (reuses existing volume if present)
-echo "==> Starting Postgres..."
-docker compose up -d --wait postgres
-
 # Apply schema via Atlas (idempotent — safe to re-run)
 echo "==> Applying schema..."
-docker compose run --rm migrate
+atlas schema apply \
+  --url "$DATABASE_URL&search_path=public" \
+  --to "file://../../sql/astro-server/schema.sql" \
+  --dev-url "docker://postgres/16/dev?search_path=public" \
+  --exclude atlas_schema_revisions \
+  --exclude river \
+  --auto-approve
 
 # Apply River queue migrations (idempotent — CREATE IF NOT EXISTS)
 echo "==> Applying River migrations..."
-docker compose run --rm migrate-river
+atlas migrate apply \
+  --url "$DATABASE_URL" \
+  --dir "file://../../sql/river" \
+  --revisions-schema atlas_schema_revisions \
+  --allow-dirty
 
 # Start fake OpenMeter if OPENMETER_URL points to localhost
 if grep -q 'OPENMETER_URL=http://localhost:8888' .env 2>/dev/null; then

@@ -115,7 +115,7 @@ func main() {
 	// Track components for graceful shutdown
 	var httpSrv *http.Server
 	var grpcServer *grpc.Server
-	var connectGRPCServer *grpc.Server
+	var fleetGRPCServer *grpc.Server
 	var eventsCancel context.CancelFunc
 	var probeHandler *handlers.ProbeHandler
 	var adminSrv *admingrpc.Server
@@ -123,7 +123,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, connectGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -174,8 +174,8 @@ func main() {
 	}
 
 	// Graceful shutdown of gRPC servers
-	if connectGRPCServer != nil {
-		connectGRPCServer.GracefulStop()
+	if fleetGRPCServer != nil {
+		fleetGRPCServer.GracefulStop()
 	}
 	if grpcServer != nil {
 		grpcServer.GracefulStop()
@@ -204,7 +204,7 @@ func main() {
 	log.Info("Server stopped gracefully")
 }
 
-// runAPI initializes and starts the HTTP API server, gRPC admin server, and connect gRPC server.
+// runAPI initializes and starts the HTTP API server, gRPC admin server, and Fleet gRPC server.
 func runAPI(
 	log *logger.Logger,
 	cfg *config.Config,
@@ -307,14 +307,14 @@ func runAPI(
 		os.Exit(1)
 	}
 
-	// Start connect gRPC server (QUIC, JWT auth)
+	// Start Fleet gRPC server (QUIC, JWT auth)
 	devStore := devicestore.New(db)
 	workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
 	jwksURL, _ := workosClient.GetJWKSURL()
-	connectJWTValidator := auth.NewJWTValidator(jwksURL, cfg.Auth.JWTIssuer, "")
-	connectServer, connectSrv, connectErr := startConnectGRPCServer(log, cfg, devStore, accountStore, connectJWTValidator)
-	if connectErr != nil {
-		log.Error("Failed to start connect gRPC server", "error", connectErr)
+	fleetJWTValidator := auth.NewJWTValidator(jwksURL, cfg.Auth.JWTIssuer, "")
+	fleetServer, fleetSrv, fleetErr := startFleetGRPCServer(log, cfg, devStore, accountStore, fleetJWTValidator)
+	if fleetErr != nil {
+		log.Error("Failed to start Fleet gRPC server", "error", fleetErr)
 		os.Exit(1)
 	}
 
@@ -324,9 +324,9 @@ func runAPI(
 	// Wire WorkOS client ID for admin GetAuthConfig
 	adminSrv.SetWorkOSClientID(cfg.Auth.WorkOSClientID)
 
-	// Wire connect server as command dispatcher for admin
-	if connectSrv != nil {
-		adminSrv.SetCommandDispatcher(connectSrv)
+	// Wire Fleet gRPC server as command dispatcher for admin
+	if fleetSrv != nil {
+		adminSrv.SetCommandDispatcher(fleetSrv)
 	}
 
 	// Create HTTP server
@@ -347,7 +347,7 @@ func runAPI(
 		}
 	}()
 
-	return srv, grpcServer, connectServer, probeHandler, adminSrv, rq
+	return srv, grpcServer, fleetServer, probeHandler, adminSrv, rq
 }
 
 // runWorker starts the River queue for all background job processing and returns a cancel func.
@@ -955,32 +955,32 @@ func startAdminGRPCServer(
 	return grpcSrv, nil
 }
 
-// startConnectGRPCServer starts the connect gRPC server over QUIC for CLI device connections.
+// startFleetGRPCServer starts the Fleet gRPC server over QUIC for CLI device connections.
 // Returns nil, nil if the port is empty (disabled) or TLS certs are not configured.
-func startConnectGRPCServer(
+func startFleetGRPCServer(
 	log *logger.Logger,
 	cfg *config.Config,
 	devStore *devicestore.Store,
 	accountStore *account.AccountStore,
 	jwtValidator *auth.JWTValidator,
 ) (*grpc.Server, *connectgrpc.Server, error) {
-	port := cfg.ConnectGRPC.Port
+	port := cfg.FleetGRPC.Port
 	if port == "" {
 		return nil, nil, nil
 	}
 
 	// TLS certs provided by platform via fleet-tls K8s secret
-	certFile := cfg.ConnectGRPC.CertFile
-	keyFile := cfg.ConnectGRPC.KeyFile
+	certFile := cfg.FleetGRPC.CertFile
+	keyFile := cfg.FleetGRPC.KeyFile
 	if certFile == "" || keyFile == "" {
-		log.Warn("Connect gRPC disabled — TLS not configured (set FLEET_TLS_CERT_PATH, FLEET_TLS_KEY_PATH)")
+		log.Warn("Fleet gRPC disabled — TLS not configured (set FLEET_TLS_CERT_PATH, FLEET_TLS_KEY_PATH)")
 		return nil, nil, nil
 	}
 
 	// Load TLS config for QUIC (QUIC mandates TLS 1.3)
 	tlsCert, err := connectgrpc.LoadTLSCert(certFile, keyFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect gRPC TLS: %w", err)
+		return nil, nil, fmt.Errorf("Fleet gRPC TLS: %w", err)
 	}
 
 	tlsConf := connectgrpc.NewTLSConfig(tlsCert)
@@ -988,7 +988,7 @@ func startConnectGRPCServer(
 	// Create QUIC listener
 	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect gRPC QUIC listen: %w", err)
+		return nil, nil, fmt.Errorf("Fleet gRPC QUIC listen: %w", err)
 	}
 
 	// Create gRPC server with JWT stream interceptor
@@ -1004,9 +1004,9 @@ func startConnectGRPCServer(
 	srv.StartReaper(context.Background())
 
 	go func() {
-		log.Info("Connect gRPC server listening (QUIC/UDP)", "port", port)
+		log.Info("Fleet gRPC server listening (QUIC/UDP)", "port", port)
 		if err := grpcSrv.Serve(lis); err != nil {
-			log.Error("Connect gRPC server error", "error", err)
+			log.Error("Fleet gRPC server error", "error", err)
 		}
 	}()
 

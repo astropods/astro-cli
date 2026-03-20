@@ -16,7 +16,7 @@ type Config struct {
 	Auth                 AuthConfig
 	Database             DatabaseConfig
 	AdminGRPC            AdminGRPCConfig
-	ConnectGRPC          ConnectGRPCConfig
+	FleetGRPC            FleetGRPCConfig
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
@@ -44,9 +44,9 @@ type AdminGRPCConfig struct {
 	OpenMeterURL string // OPENMETER_URL — base URL for OpenMeter API proxying
 }
 
-// ConnectGRPCConfig holds connect gRPC server configuration (QUIC transport, JWT auth).
+// FleetGRPCConfig holds Fleet gRPC server configuration (QUIC transport, JWT auth).
 // TLS certs are provided by the platform via the fleet-tls K8s secret mounted at /etc/fleet-tls/.
-type ConnectGRPCConfig struct {
+type FleetGRPCConfig struct {
 	Port     string // FLEET_GRPC_PORT, default "9092" (UDP/QUIC — disabled if empty)
 	CertFile string // FLEET_TLS_CERT_PATH — TLS cert path (default /etc/fleet-tls/tls.crt)
 	KeyFile  string // FLEET_TLS_KEY_PATH  — TLS key path (default /etc/fleet-tls/tls.key)
@@ -180,7 +180,7 @@ func Load() (*Config, error) {
 			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
 			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", ""),
-			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", "https://langfuse.astropods.ai"),
+			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),
@@ -206,7 +206,7 @@ func Load() (*Config, error) {
 			CAFile:       getEnv("ADMIN_GRPC_CA_FILE", ""),
 			OpenMeterURL: getEnv("OPENMETER_URL", ""),
 		},
-		ConnectGRPC: ConnectGRPCConfig{
+		FleetGRPC: FleetGRPCConfig{
 			Port:     getEnv("FLEET_GRPC_PORT", "9092"),
 			CertFile: getEnv("FLEET_TLS_CERT_PATH", ""),
 			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
