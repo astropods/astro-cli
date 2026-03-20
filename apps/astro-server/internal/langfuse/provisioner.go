@@ -88,7 +88,7 @@ func (p *Provisioner) EnsureProject(
 	fastHashedSK := computeFastHash(sk, p.salt)
 	displaySK := sk[:6] + "..." + sk[len(sk)-4:]
 
-	projectName := "astro-" + accountName
+	projectName := accountName + "-" + accountID
 	now := time.Now().UTC()
 
 	// Write to Langfuse's database in a transaction

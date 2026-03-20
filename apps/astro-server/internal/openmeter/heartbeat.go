@@ -54,7 +54,7 @@ func (h *Heartbeat) Start(ctx context.Context) {
 
 // Tick runs a single heartbeat iteration: emits compute usage, active deployments, active agents, and active members.
 func (h *Heartbeat) Tick(ctx context.Context) {
-	h.log.Debug("Heartbeat tick starting")
+	h.log.Debug("openmeter: tick starting")
 	h.emitComputeUsage(ctx)
 	h.emitActiveDeployments(ctx)
 	h.emitActiveAgents(ctx)
@@ -110,7 +110,7 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 	// Try normalized workloads table first
 	workloads, err := h.getActiveWorkloads(ctx)
 	if err != nil {
-		h.log.Warn("Heartbeat: normalized workloads query failed, falling back to JSON", "error", err)
+		h.log.Warn("openmeter: normalized workloads query failed, falling back to JSON", "error", err)
 		workloads = nil
 	}
 
@@ -142,13 +142,13 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 		// Fallback: parse JSON for deployments without normalized data
 		deployments, err := h.getActiveDeployments(ctx)
 		if err != nil {
-			h.log.Error("Heartbeat: failed to query active deployments", "error", err)
+			h.log.Error("openmeter: failed to query active deployments", "error", err)
 			return
 		}
 		for _, d := range deployments {
 			var depSpec spec.AstroDeploymentSpec
 			if err := json.Unmarshal([]byte(d.SpecJSON), &depSpec); err != nil {
-				h.log.Error("Heartbeat: failed to parse deployment spec", "error", err, "account_id", d.AccountID, "agent", d.AgentName)
+				h.log.Error("openmeter: failed to parse deployment spec", "error", err, "account_id", d.AccountID, "agent", d.AgentName)
 				continue
 			}
 			containers := containerBreakdown(&depSpec)
@@ -171,9 +171,9 @@ func (h *Heartbeat) emitComputeUsage(ctx context.Context) {
 
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("Heartbeat: failed to emit compute_usage events", "error", err)
+			h.log.Error("openmeter: failed to emit compute_usage events", "error", err)
 		} else {
-			h.log.Info("Heartbeat: emitted compute_usage", "events", len(events), "sample_subject", events[0].Subject, "sample_type", events[0].Type)
+			h.log.Info("openmeter: emitted compute_usage", "events", len(events), "sample_subject", events[0].Subject, "sample_type", events[0].Type)
 		}
 	}
 }
@@ -224,7 +224,7 @@ func (h *Heartbeat) emitActiveDeployments(ctx context.Context) {
 		GROUP BY account_id
 	`)
 	if err != nil {
-		h.log.Error("Heartbeat: failed to query deployment counts", "error", err)
+		h.log.Error("openmeter: failed to query deployment counts", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -234,7 +234,7 @@ func (h *Heartbeat) emitActiveDeployments(ctx context.Context) {
 		var accountID string
 		var count int
 		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("Heartbeat: failed to scan deployment count", "error", err)
+			h.log.Error("openmeter: failed to scan deployment count", "error", err)
 			continue
 		}
 		events = append(events, NewCloudEvent("active_deployments", accountID, map[string]any{
@@ -244,9 +244,9 @@ func (h *Heartbeat) emitActiveDeployments(ctx context.Context) {
 
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("Heartbeat: failed to emit active_deployments events", "error", err)
+			h.log.Error("openmeter: failed to emit active_deployments events", "error", err)
 		} else {
-			h.log.Info("Heartbeat: emitted active_deployments", "accounts", len(events))
+			h.log.Info("openmeter: emitted active_deployments", "accounts", len(events))
 		}
 	}
 }
@@ -259,7 +259,7 @@ func (h *Heartbeat) emitActiveAgents(ctx context.Context) {
 		GROUP BY account_id
 	`)
 	if err != nil {
-		h.log.Error("Heartbeat: failed to query agent counts", "error", err)
+		h.log.Error("openmeter: failed to query agent counts", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -269,7 +269,7 @@ func (h *Heartbeat) emitActiveAgents(ctx context.Context) {
 		var accountID string
 		var count int
 		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("Heartbeat: failed to scan agent count", "error", err)
+			h.log.Error("openmeter: failed to scan agent count", "error", err)
 			continue
 		}
 		events = append(events, NewCloudEvent("active_agents", accountID, map[string]any{
@@ -279,9 +279,9 @@ func (h *Heartbeat) emitActiveAgents(ctx context.Context) {
 
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("Heartbeat: failed to emit active_agents events", "error", err)
+			h.log.Error("openmeter: failed to emit active_agents events", "error", err)
 		} else {
-			h.log.Info("Heartbeat: emitted active_agents", "accounts", len(events))
+			h.log.Info("openmeter: emitted active_agents", "accounts", len(events))
 		}
 	}
 }
@@ -294,7 +294,7 @@ func (h *Heartbeat) emitActiveMembers(ctx context.Context) {
 		GROUP BY account_id
 	`)
 	if err != nil {
-		h.log.Error("Heartbeat: failed to query member counts", "error", err)
+		h.log.Error("openmeter: failed to query member counts", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -304,7 +304,7 @@ func (h *Heartbeat) emitActiveMembers(ctx context.Context) {
 		var accountID string
 		var count int
 		if err := rows.Scan(&accountID, &count); err != nil {
-			h.log.Error("Heartbeat: failed to scan member count", "error", err)
+			h.log.Error("openmeter: failed to scan member count", "error", err)
 			continue
 		}
 		events = append(events, NewCloudEvent("active_members", accountID, map[string]any{
@@ -314,9 +314,9 @@ func (h *Heartbeat) emitActiveMembers(ctx context.Context) {
 
 	if len(events) > 0 {
 		if err := h.client.IngestEvents(ctx, events); err != nil {
-			h.log.Error("Heartbeat: failed to emit active_members events", "error", err)
+			h.log.Error("openmeter: failed to emit active_members events", "error", err)
 		} else {
-			h.log.Info("Heartbeat: emitted active_members", "accounts", len(events))
+			h.log.Info("openmeter: emitted active_members", "accounts", len(events))
 		}
 	}
 }
@@ -376,8 +376,8 @@ func parseCPU(s string) float64 {
 	if s == "" {
 		return 0
 	}
-	if strings.HasSuffix(s, "m") {
-		v, err := strconv.ParseFloat(strings.TrimSuffix(s, "m"), 64)
+	if rest, ok := strings.CutSuffix(s, "m"); ok {
+		v, err := strconv.ParseFloat(rest, 64)
 		if err != nil {
 			return 0
 		}
@@ -412,8 +412,8 @@ func parseMemory(s string) float64 {
 	}
 
 	for _, sf := range suffixes {
-		if strings.HasSuffix(s, sf.suffix) {
-			v, err := strconv.ParseFloat(strings.TrimSuffix(s, sf.suffix), 64)
+		if rest, ok := strings.CutSuffix(s, sf.suffix); ok {
+			v, err := strconv.ParseFloat(rest, 64)
 			if err != nil {
 				return 0
 			}
