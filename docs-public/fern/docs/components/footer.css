@@ -1,0 +1,45 @@
+/* Astro Fern Footer - matches astropods.com footer styling */
+.astro-footer {
+  border-top: 1px solid hsl(233 40% 18%);
+  padding: 24px 32px;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.astro-footer a,
+.astro-footer button {
+  color: hsl(225 15% 65%) !important;
+  text-decoration: none !important;
+  transition: color 0.15s;
+  background: none !important;
+  border: none !important;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px !important;
+}
+
+.astro-footer a:hover,
+.astro-footer button:hover {
+  color: hsl(220 20% 92%) !important;
+}
+
+.astro-footer-copyright {
+  color: hsl(225 15% 65%);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* DNSS visibility controlled by dnss-regime.js based on user regime */
+
+@media (max-width: 640px) {
+  .astro-footer {
+    flex-direction: column;
+    gap: 12px;
+  }
+}

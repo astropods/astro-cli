@@ -11,6 +11,7 @@ ai-search:
     - docs
 
 title: Astro AI | Documentation
+footer: ./docs/components/AstroFooter.tsx
 layout:
   searchbar-placement: header
   page-width: full
@@ -108,7 +109,17 @@ logo:
 
 favicon: docs/assets/favicon.svg
 
-css: docs/assets/styles.css
+css:
+  - docs/assets/styles.css
+  - docs/components/footer.css
+
+js:
+  - path: docs/transcend-loader.js
+    strategy: beforeInteractive
+  - path: docs/gpc-banner.js
+    strategy: beforeInteractive
+  - path: docs/dnss-regime.js
+    strategy: beforeInteractive
 
 navbar-links:
   - type: minimal
