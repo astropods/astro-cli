@@ -25,7 +25,7 @@ tasks:
       runInCI: false
 
   "smoke-test-astro-client":
-    command: "cd .. && sh deployment/smoke-test-astro-client.sh"
+    command: "cd .. && bash deployment/smoke-test-astro-client.sh"
     options:
       cache: false
       runInCI: false
