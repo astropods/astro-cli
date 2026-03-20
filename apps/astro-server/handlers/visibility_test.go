@@ -150,6 +150,96 @@ func TestSetAgentVisibility_NoAccount(t *testing.T) {
 	}
 }
 
+// --- DeleteAgent tests ---
+
+func TestDeleteAgent_Success(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.DELETE("/agents/:account/:name", injectTestAccount(), DeleteAgent(log, index))
+
+	mock.ExpectExec("DELETE FROM agents").
+		WithArgs("test-account-id", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/my-agent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestDeleteAgent_NotFound(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.DELETE("/agents/:account/:name", injectTestAccount(), DeleteAgent(log, index))
+
+	mock.ExpectExec("DELETE FROM agents").
+		WithArgs("test-account-id", "nonexistent").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/nonexistent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for nonexistent agent, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteAgent_DBError(t *testing.T) {
+	router, index, mock := setupAgentTestRouter()
+	log := logger.New("error", "json")
+
+	router.DELETE("/agents/:account/:name", injectTestAccount(), DeleteAgent(log, index))
+
+	mock.ExpectExec("DELETE FROM agents").
+		WithArgs("test-account-id", "my-agent").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/my-agent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 on DB error, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp["error"] != "failed to delete agent" {
+		t.Errorf("expected 'failed to delete agent' error, got %v", resp["error"])
+	}
+}
+
+func TestDeleteAgent_NoAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, _, _ := sqlmock.New()
+	index := agentindex.NewIndexWithDB(db)
+	log := logger.New("error", "json")
+
+	router := gin.New()
+	// No account injected
+	router.DELETE("/agents/:account/:name", DeleteAgent(log, index))
+
+	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/my-agent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for no account in context, got %d", rec.Code)
+	}
+}
+
 // --- GetAgent visibility tests ---
 
 func setupAgentGetRouter(withUser bool, userID string) (*gin.Engine, *agentindex.Index, *account.AccountStore, sqlmock.Sqlmock, sqlmock.Sqlmock) {

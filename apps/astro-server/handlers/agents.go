@@ -555,6 +555,34 @@ type SetAgentVisibilityRequest struct {
 	Visibility string `json:"visibility" binding:"required"`
 }
 
+// DeleteAgent handles DELETE /api/v1/agents/:account/:name
+// Permanently removes an agent and all its versions from the index.
+// Requires agents:write permission (enforced by middleware).
+func DeleteAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+		agentName := c.Param("name")
+
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		if err := index.Delete(acct.ID, agentName); err != nil {
+			log.Error("Failed to delete agent", "error", err, "account", accountName, "name", agentName)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "failed to delete agent",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		log.Info("Agent deleted", "account", accountName, "name", agentName)
+		c.Status(http.StatusNoContent)
+	}
+}
+
 // SetAgentVisibility handles PUT /api/v1/agents/:account/:name/visibility
 // Toggles an agent between public and private visibility.
 // Requires agents:write permission (enforced by middleware).

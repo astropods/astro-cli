@@ -104,12 +104,12 @@ function AccountProfileContent() {
       )}
 
       <div className="mt-8">
-        <h3 className="text-xl font-semibold">Agent templates</h3>
+        <h3 className="text-xl font-semibold">Agent blueprints</h3>
         <p className="text-sm text-muted-foreground mt-0.5">
           Agents published by this account
         </p>
         {accountAgents.length === 0 ? (
-          <p className="text-muted-foreground mt-3">No agent templates published</p>
+          <p className="text-muted-foreground mt-3">No agent blueprints published</p>
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             {accountAgents.map((agent) => (
@@ -121,6 +121,7 @@ function AccountProfileContent() {
                 description={getAgentDescription(agent)}
                 visibility={agent.visibility}
                 lifetimeMessages={agent.metrics?.lifetime_messages}
+                onDelete={isMember ? () => {} : undefined}
               />
             ))}
           </div>

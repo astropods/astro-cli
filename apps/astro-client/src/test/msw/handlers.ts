@@ -200,6 +200,11 @@ export const handlers = [
     });
   }),
 
+  // DELETE /api/v1/agents/:account/:name
+  http.delete('/api/v1/agents/:account/:name', () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
     const body = (await request.json()) as { deployment_id: string };

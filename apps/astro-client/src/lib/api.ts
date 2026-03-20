@@ -455,6 +455,13 @@ class ApiClient {
     );
   }
 
+  async deleteAgent(account: string, name: string): Promise<void> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  }
+
   async toggleHeart(account: string, name: string): Promise<{ hearted: boolean; heart_count: number }> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/heart`,

@@ -127,3 +127,15 @@ export function useValidateDeployment() {
   });
 }
 
+export function useDeleteAgent(account: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ name }: { name: string }) => api.deleteAgent(account, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.byAccount(account) });
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+    },
+  });
+}
+

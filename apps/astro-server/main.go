@@ -783,6 +783,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(426, &handlers.ErrorResponse{}),
 				)
+				api.DELETE(agentWriteRoutes, "", "Delete an agent template", handlers.DeleteAgent(log, agentIndex),
+					oapispec.Tags("Agents"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Agent name"),
+					oapispec.Response(204, nil),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
+				)
 				api.PUT(agentWriteRoutes, "/visibility", "Set agent visibility", handlers.SetAgentVisibility(log, agentIndex),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),

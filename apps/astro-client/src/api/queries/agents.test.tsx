@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useAgents, useAgent, useDeployAgent, usePrefilledDeploymentTemplate } from './agents';
+import { useAgents, useAgent, useDeployAgent, usePrefilledDeploymentTemplate, useDeleteAgent } from './agents';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockAgents } from '@/test/msw/handlers';
-import { deploymentKeys } from './keys';
+import { agentKeys, deploymentKeys } from './keys';
 
 const testAccount = 'testuser';
 
@@ -199,5 +199,44 @@ describe('useDeployAgent', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.isError).toBe(false);
+  });
+});
+
+describe('useDeleteAgent', () => {
+  // Successful deletion invalidates the account agent list and the global list
+  // so the profile page card disappears without a manual refresh.
+  it('invalidates account and global agent caches on success', async () => {
+    const { wrapper, queryClient } = createHookWrapper();
+
+    queryClient.setQueryData(agentKeys.byAccount(testAccount), {
+      agents: [{ name: 'code-reviewer' }],
+      count: 1,
+    });
+    queryClient.setQueryData(agentKeys.all, {
+      agents: [{ name: 'code-reviewer' }],
+      count: 1,
+    });
+
+    const { result } = renderHook(() => useDeleteAgent(testAccount), { wrapper });
+    result.current.mutate({ name: 'code-reviewer' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(queryClient.getQueryState(agentKeys.byAccount(testAccount))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(agentKeys.all)?.isInvalidated).toBe(true);
+  });
+
+  it('surfaces error when server returns non-2xx', async () => {
+    server.use(
+      http.delete('/api/v1/agents/:account/:name', () =>
+        HttpResponse.json({ error: 'internal_error' }, { status: 500 }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeleteAgent(testAccount), { wrapper });
+    result.current.mutate({ name: 'code-reviewer' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
