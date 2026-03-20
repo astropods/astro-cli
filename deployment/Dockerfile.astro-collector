@@ -15,7 +15,7 @@ WORKDIR /build
 ENV GOTOOLCHAIN=auto
 
 # Copy collector package
-COPY packages/astro-collector/ .
+COPY . .
 
 # Build arguments for target platform
 ARG TARGETOS
@@ -42,8 +42,8 @@ WORKDIR /app
 COPY --from=builder /build/bin/astro-collector .
 
 # Copy configs for both modes
-COPY packages/astro-collector/config/collector-config.yaml /etc/astro-collector/config.yaml
-COPY packages/astro-collector/config/collector-config-dev.yaml /etc/astro-collector/config-dev.yaml
+COPY config/collector-config.yaml /etc/astro-collector/config.yaml
+COPY config/collector-config-dev.yaml /etc/astro-collector/config-dev.yaml
 
 # Set ownership and switch to non-root user
 RUN chown -R astro:astro /app

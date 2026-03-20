@@ -33,8 +33,8 @@ jobs:
 
           if [ "${{ inputs.astro-collector }}" == "true" ]; then
             build_items=$(echo "$build_items" | jq -c '. + [
-              {"service":"astro-collector","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_dockerhub":true},
-              {"service":"astro-collector","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_dockerhub":true}
+              {"service":"astro-collector","context":"packages/astro-collector","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_dockerhub":true},
+              {"service":"astro-collector","context":"packages/astro-collector","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_dockerhub":true}
             ]')
             merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-collector","push_ecr":true,"push_dockerhub":true}]')
           fi
@@ -124,7 +124,7 @@ jobs:
         id: build-ecr
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context }}
           file: deployment/Dockerfile.${{ matrix.service }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
@@ -139,7 +139,7 @@ jobs:
         id: build-dockerhub
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context }}
           file: deployment/Dockerfile.${{ matrix.service }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=astropods/collector,push-by-digest=true,name-canonical=true,push=true
