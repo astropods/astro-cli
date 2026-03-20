@@ -577,9 +577,9 @@ func buildDeploymentIngestion(ingestion spec.Ingestion, input TemplateInput) spe
 	if ingestion.Container.Port > 0 {
 		di.Endpoints = spec.SingleEndpoint("http", ingestion.Container.Port, "http")
 	}
-	// Schedule triggers get an empty placeholder
+	// Schedule triggers use the spec's schedule as the default
 	if ingestion.Trigger.Type == "schedule" {
-		di.Trigger.Schedule = ""
+		di.Trigger.Schedule = ingestion.Trigger.Schedule
 	}
 	return di
 }
