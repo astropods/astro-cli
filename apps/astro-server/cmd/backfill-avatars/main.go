@@ -67,18 +67,18 @@ func main() {
 	var backend avatar.Backend
 	if localDir != "" {
 		backend = avatar.NewLocalBackend(localDir)
-		log.Printf("Using local filesystem backend: %q", localDir)
+		log.Printf("Using local filesystem backend: %q", localDir) //nolint:gosec // env var, not user input
 	} else {
 		awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
 		if err != nil {
 			log.Fatalf("Failed to load AWS config: %v", err)
 		}
 		backend = avatar.NewS3Backend(s3.NewFromConfig(awsCfg), bucket)
-		log.Printf("Using S3 backend: %q", bucket)
+		log.Printf("Using S3 backend: %q", bucket) //nolint:gosec // env var, not user input
 	}
 	avatarStore := avatar.NewStore(backend, "")
 
-	log.Printf("Starting avatar backfill (dry_run=%t, batch_size=%d)", dryRun, batchSize)
+	log.Printf("Starting avatar backfill (dry_run=%t, batch_size=%d)", dryRun, batchSize) //nolint:gosec // env-derived values, not user input
 
 	var totalProcessed, totalSkipped, totalFailed int
 	var lastID string

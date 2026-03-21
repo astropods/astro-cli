@@ -21,7 +21,7 @@ func NewLocalBackend(root string) *LocalBackend {
 }
 
 func (b *LocalBackend) path(key string) string {
-	return filepath.Join(b.root, key)
+	return filepath.Join(b.root, filepath.Clean("/"+key))
 }
 
 func (b *LocalBackend) Read(_ context.Context, key string) ([]byte, error) {
