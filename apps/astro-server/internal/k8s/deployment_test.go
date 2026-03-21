@@ -808,6 +808,73 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("Langfuse env vars injected when set", func(t *testing.T) {
+		cfg := DeploymentConfig{
+			Name:      "test-agent-agent",
+			Namespace: "default",
+			AgentName: "agent",
+			BuildID:   "1.0",
+			Component: "agent",
+			Container: spec.ContainerConfig{Image: "agent:latest"},
+			Collector: &CollectorDeploymentConfig{
+				Image:             "collector:latest",
+				LangfuseAuthToken: "cGstdGVzdDpzay10ZXN0",
+				LangfuseBaseURL:   "https://langfuse.example.com",
+			},
+		}
+
+		d := BuildDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[1]
+
+		var foundToken, foundURL bool
+		for _, e := range container.Env {
+			if e.Name == "LANGFUSE_AUTH_TOKEN" {
+				foundToken = true
+				if e.Value != "cGstdGVzdDpzay10ZXN0" {
+					t.Errorf("LANGFUSE_AUTH_TOKEN = %q, want %q", e.Value, "cGstdGVzdDpzay10ZXN0")
+				}
+			}
+			if e.Name == "LANGFUSE_BASE_URL" {
+				foundURL = true
+				if e.Value != "https://langfuse.example.com" {
+					t.Errorf("LANGFUSE_BASE_URL = %q, want %q", e.Value, "https://langfuse.example.com")
+				}
+			}
+		}
+		if !foundToken {
+			t.Error("LANGFUSE_AUTH_TOKEN not found in collector env")
+		}
+		if !foundURL {
+			t.Error("LANGFUSE_BASE_URL not found in collector env")
+		}
+	})
+
+	t.Run("Langfuse env vars omitted when empty", func(t *testing.T) {
+		cfg := DeploymentConfig{
+			Name:      "test-agent-agent",
+			Namespace: "default",
+			AgentName: "agent",
+			BuildID:   "1.0",
+			Component: "agent",
+			Container: spec.ContainerConfig{Image: "agent:latest"},
+			Collector: &CollectorDeploymentConfig{
+				Image: "collector:latest",
+			},
+		}
+
+		d := BuildDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[1]
+
+		for _, e := range container.Env {
+			if e.Name == "LANGFUSE_AUTH_TOKEN" {
+				t.Errorf("LANGFUSE_AUTH_TOKEN should not be set when empty, got %q", e.Value)
+			}
+			if e.Name == "LANGFUSE_BASE_URL" {
+				t.Errorf("LANGFUSE_BASE_URL should not be set when empty, got %q", e.Value)
+			}
+		}
+	})
 }
 
 // TestBuildDeploymentWithBothSidecars verifies that BuildDeployment with both

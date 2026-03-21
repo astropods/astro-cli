@@ -135,61 +135,10 @@ func GetLangfuseSummary(
 			return
 		}
 
-		startTime := c.Query("start_time")
-		endTime := c.Query("end_time")
-
-		total := traces.Meta.TotalItems
-		if total == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"total_traces": 0,
-				"time_range":   gin.H{"start": startTime, "end": endTime},
-				"metrics": gin.H{
-					"avg_latency_ms":  0,
-					"p95_latency_ms":  0,
-					"total_tokens":    0,
-					"error_rate":      0,
-					"traces_per_hour": 0,
-				},
-			})
-			return
-		}
-
-		var sumLatency float64
-		latencies := make([]float64, 0, len(traces.Data))
-		for _, t := range traces.Data {
-			ms := t.Latency * 1000 // Langfuse returns seconds
-			sumLatency += ms
-			latencies = append(latencies, ms)
-		}
-
-		avgLatency := sumLatency / float64(len(traces.Data))
-
-		sort.Float64s(latencies)
-		p95Idx := int(math.Ceil(0.95*float64(len(latencies)))) - 1
-		p95Idx = max(p95Idx, 0)
-		p95Latency := latencies[p95Idx]
-
-		var tracesPerHour float64
-		start, err1 := time.Parse(time.RFC3339, startTime)
-		end, err2 := time.Parse(time.RFC3339, endTime)
-		if err1 == nil && err2 == nil {
-			hours := end.Sub(start).Hours()
-			if hours > 0 {
-				tracesPerHour = float64(total) / hours
-			}
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"total_traces": total,
-			"time_range":   gin.H{"start": startTime, "end": endTime},
-			"metrics": gin.H{
-				"avg_latency_ms":  math.Round(avgLatency*100) / 100,
-				"p95_latency_ms":  math.Round(p95Latency*100) / 100,
-				"total_tokens":    0, // Langfuse doesn't provide per-trace token counts
-				"error_rate":      0, // Langfuse doesn't expose error status in trace list
-				"traces_per_hour": math.Round(tracesPerHour*100) / 100,
-			},
-		})
+		c.JSON(http.StatusOK, computeLangfuseSummary(
+			traces.Data, traces.Meta.TotalItems,
+			c.Query("start_time"), c.Query("end_time"),
+		))
 	}
 }
 
@@ -243,5 +192,60 @@ func GetLangfuseTraces(
 			"limit":  traces.Meta.Limit,
 			"offset": (traces.Meta.Page - 1) * traces.Meta.Limit,
 		})
+	}
+}
+
+// computeLangfuseSummary aggregates Langfuse traces into summary statistics
+// matching the standardized observability response contract.
+func computeLangfuseSummary(traces []langfuse.Trace, totalItems int, startTime, endTime string) gin.H {
+	if totalItems == 0 {
+		return gin.H{
+			"total_traces": 0,
+			"time_range":   gin.H{"start": startTime, "end": endTime},
+			"metrics": gin.H{
+				"avg_latency_ms":  0,
+				"p95_latency_ms":  0,
+				"total_tokens":    0,
+				"error_rate":      0,
+				"traces_per_hour": 0,
+			},
+		}
+	}
+
+	var sumLatency float64
+	latencies := make([]float64, 0, len(traces))
+	for _, t := range traces {
+		ms := t.Latency * 1000 // Langfuse returns seconds
+		sumLatency += ms
+		latencies = append(latencies, ms)
+	}
+
+	avgLatency := sumLatency / float64(len(traces))
+
+	sort.Float64s(latencies)
+	p95Idx := int(math.Ceil(0.95*float64(len(latencies)))) - 1
+	p95Idx = max(p95Idx, 0)
+	p95Latency := latencies[p95Idx]
+
+	var tracesPerHour float64
+	start, err1 := time.Parse(time.RFC3339, startTime)
+	end, err2 := time.Parse(time.RFC3339, endTime)
+	if err1 == nil && err2 == nil {
+		hours := end.Sub(start).Hours()
+		if hours > 0 {
+			tracesPerHour = float64(totalItems) / hours
+		}
+	}
+
+	return gin.H{
+		"total_traces": totalItems,
+		"time_range":   gin.H{"start": startTime, "end": endTime},
+		"metrics": gin.H{
+			"avg_latency_ms":  math.Round(avgLatency*100) / 100,
+			"p95_latency_ms":  math.Round(p95Latency*100) / 100,
+			"total_tokens":    0, // Langfuse doesn't provide per-trace token counts
+			"error_rate":      0, // Langfuse doesn't expose error status in trace list
+			"traces_per_hour": math.Round(tracesPerHour*100) / 100,
+		},
 	}
 }
