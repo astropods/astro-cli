@@ -245,6 +245,177 @@ func TestRedactPrompts_AllPrefixes(t *testing.T) {
 	}
 }
 
+func TestMapMastraAttributes(t *testing.T) {
+	// Test that all Mastra span types get mapped to langfuse.observation.*
+	for _, spanType := range []string{"agent_run", "workflow_run", "workflow_step", "generic"} {
+		t.Run(spanType, func(t *testing.T) {
+			cfg := &Config{
+				AgentName:    "agent",
+				AgentVersion: "v1",
+				DeploymentID: "dep-1",
+			}
+			capture := &captureTraces{}
+			p := newTestProcessor(cfg, capture)
+
+			td := ptrace.NewTraces()
+			rs := td.ResourceSpans().AppendEmpty()
+			ss := rs.ScopeSpans().AppendEmpty()
+			span := ss.Spans().AppendEmpty()
+			span.SetName(spanType)
+			span.SetTraceID(pcommon.TraceID([16]byte{1}))
+			span.SetSpanID(pcommon.SpanID([8]byte{1}))
+			span.Attributes().PutStr("mastra."+spanType+".input", "the input")
+			span.Attributes().PutStr("mastra."+spanType+".output", `{"text":"hello"}`)
+
+			if err := p.ConsumeTraces(context.Background(), td); err != nil {
+				t.Fatalf("ConsumeTraces failed: %v", err)
+			}
+
+			attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+			// Original attributes preserved
+			v, ok := attrs.Get("mastra." + spanType + ".input")
+			if !ok || v.Str() != "the input" {
+				t.Errorf("expected original mastra.%s.input preserved", spanType)
+			}
+
+			// Mapped to langfuse attributes
+			v, ok = attrs.Get("langfuse.observation.input")
+			if !ok {
+				t.Fatal("expected langfuse.observation.input to be set")
+			}
+			if v.Str() != "the input" {
+				t.Errorf("langfuse.observation.input: expected %q, got %q", "the input", v.Str())
+			}
+
+			v, ok = attrs.Get("langfuse.observation.output")
+			if !ok {
+				t.Fatal("expected langfuse.observation.output to be set")
+			}
+			if v.Str() != `{"text":"hello"}` {
+				t.Errorf("langfuse.observation.output: expected %q, got %q", `{"text":"hello"}`, v.Str())
+			}
+		})
+	}
+}
+
+func TestMapMastraAttributes_NoOverwrite(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent_run")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.agent_run.input", "mastra input")
+	span.Attributes().PutStr("langfuse.observation.input", "already set")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	v, _ := attrs.Get("langfuse.observation.input")
+	if v.Str() != "already set" {
+		t.Errorf("should not overwrite existing langfuse attribute, got %q", v.Str())
+	}
+}
+
+func TestMapMastraAttributes_NoMastraAttrs(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := buildSingleSpanTrace("non-mastra-span", "")
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	if _, ok := attrs.Get("langfuse.observation.input"); ok {
+		t.Error("should not set langfuse.observation.input when no mastra attributes present")
+	}
+	if _, ok := attrs.Get("langfuse.observation.output"); ok {
+		t.Error("should not set langfuse.observation.output when no mastra attributes present")
+	}
+}
+
+func TestRedactPrompts_MastraAttributes(t *testing.T) {
+	cfg := &Config{
+		AgentName:     "agent",
+		AgentVersion:  "v1",
+		DeploymentID:  "dep-1",
+		RedactPrompts: true,
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.agent_run.input", "secret input")
+	span.Attributes().PutStr("mastra.agent_run.output", "secret output")
+	span.Attributes().PutStr("mastra.workflow_run.input", "wf input")
+	span.Attributes().PutStr("mastra.span.type", "agent_run") // not input/output, should NOT be redacted
+	span.Attributes().PutStr("safe_attr", "visible")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+	for _, key := range []string{"mastra.agent_run.input", "mastra.agent_run.output", "mastra.workflow_run.input"} {
+		v, ok := attrs.Get(key)
+		if !ok {
+			t.Errorf("expected attribute %q", key)
+			continue
+		}
+		if v.Str() != "[REDACTED]" {
+			t.Errorf("%s should be redacted, got %q", key, v.Str())
+		}
+	}
+
+	// langfuse.observation.input/output should also be redacted (set by mapMastraAttributes, then redacted)
+	for _, key := range []string{"langfuse.observation.input", "langfuse.observation.output"} {
+		v, ok := attrs.Get(key)
+		if !ok {
+			t.Errorf("expected attribute %q", key)
+			continue
+		}
+		if v.Str() != "[REDACTED]" {
+			t.Errorf("%s should be redacted, got %q", key, v.Str())
+		}
+	}
+
+	// Non-input/output mastra attributes should NOT be redacted
+	v, _ := attrs.Get("mastra.span.type")
+	if v.Str() != "agent_run" {
+		t.Errorf("mastra.span.type should not be redacted, got %q", v.Str())
+	}
+
+	v, _ = attrs.Get("safe_attr")
+	if v.Str() != "visible" {
+		t.Errorf("safe_attr should not be redacted, got %q", v.Str())
+	}
+}
+
 func TestConsumeTraces_NilNext(t *testing.T) {
 	cfg := &Config{AgentName: "agent", AgentVersion: "v1", DeploymentID: "dep-1"}
 	p := newTestProcessor(cfg, nil) // nil nextTraces

@@ -21,12 +21,24 @@ const (
 	attrRedacted     = "astro.redacted"
 )
 
-// Span attribute prefixes that may contain sensitive prompt content.
+// promptAttributePrefixes lists attribute name prefixes that may contain
+// sensitive prompt/completion content and should be redacted when enabled.
 var promptAttributePrefixes = []string{
 	"gen_ai.prompt",
 	"gen_ai.completion",
+	"gen_ai.input",
+	"gen_ai.output",
 	"llm.prompts",
 	"llm.completions",
+	"langfuse.observation.input",
+	"langfuse.observation.output",
+}
+
+// promptAttributeSuffixes lists attribute name suffixes that, when combined
+// with the mastra.* prefix, indicate sensitive content (e.g. mastra.agent_run.input).
+var promptAttributeSuffixes = []string{
+	".input",
+	".output",
 }
 
 type astroProcessor struct {
@@ -85,7 +97,9 @@ func (p *astroProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 		for j := 0; j < rs.ScopeSpans().Len(); j++ {
 			ss := rs.ScopeSpans().At(j)
 			for k := 0; k < ss.Spans().Len(); k++ {
-				p.setLangfuseTags(ss.Spans().At(k).Attributes())
+				attrs := ss.Spans().At(k).Attributes()
+				p.setLangfuseTags(attrs)
+				mapMastraAttributes(attrs)
 			}
 		}
 
@@ -133,6 +147,69 @@ func (p *astroProcessor) setLangfuseTags(attrs pcommon.Map) {
 	tags.AppendEmpty().SetStr("deployment:" + p.cfg.DeploymentID)
 }
 
+// Mastra's OTel exporter (@mastra/otel-exporter) stores input/output in
+// "mastra.{span_type}.input" / "mastra.{span_type}.output" for non-generation
+// span types (agent_run, workflow_run, workflow_step, generic, etc.).
+// Langfuse's OTEL ingestion only recognises langfuse.observation.input/output,
+// gen_ai.*, input.value/output.value, or mlflow.* — so the Mastra attributes
+// are silently dropped into metadata.attributes.
+//
+// MODEL_GENERATION spans already use gen_ai.input.messages / gen_ai.output.messages
+// which Langfuse recognises, so they don't need mapping.
+var mastraInputOutputSuffixes = []struct {
+	suffix string
+	dst    string
+}{
+	{".input", "langfuse.observation.input"},
+	{".output", "langfuse.observation.output"},
+}
+
+const mastraAttrPrefix = "mastra."
+
+// mapMastraAttributes copies Mastra-specific input/output attributes to
+// Langfuse-recognized attribute names when the destination is not already set.
+// It matches any "mastra.*.input" / "mastra.*.output" attribute, covering all
+// Mastra span types (agent_run, workflow_run, workflow_step, generic, etc.).
+func mapMastraAttributes(attrs pcommon.Map) {
+	// Check if langfuse destinations are already set — skip early if so.
+	inputSet := false
+	outputSet := false
+	for _, m := range mastraInputOutputSuffixes {
+		if _, exists := attrs.Get(m.dst); exists {
+			if m.dst == "langfuse.observation.input" {
+				inputSet = true
+			} else {
+				outputSet = true
+			}
+		}
+	}
+	if inputSet && outputSet {
+		return
+	}
+
+	attrs.Range(func(k string, v pcommon.Value) bool {
+		if !strings.HasPrefix(k, mastraAttrPrefix) {
+			return true
+		}
+		for _, m := range mastraInputOutputSuffixes {
+			if strings.HasSuffix(k, m.suffix) {
+				alreadySet := (m.dst == "langfuse.observation.input" && inputSet) ||
+					(m.dst == "langfuse.observation.output" && outputSet)
+				if !alreadySet {
+					v.CopyTo(attrs.PutEmpty(m.dst))
+					if m.dst == "langfuse.observation.input" {
+						inputSet = true
+					} else {
+						outputSet = true
+					}
+				}
+				break
+			}
+		}
+		return true
+	})
+}
+
 // redactTraceSpans redacts sensitive prompt/completion content from span attributes.
 func (p *astroProcessor) redactTraceSpans(rs ptrace.ResourceSpans) {
 	for i := 0; i < rs.ScopeSpans().Len(); i++ {
@@ -147,13 +224,28 @@ func (p *astroProcessor) redactTraceSpans(rs ptrace.ResourceSpans) {
 // redactSpanAttributes replaces sensitive attribute values with a redaction marker.
 func (p *astroProcessor) redactSpanAttributes(attrs pcommon.Map) {
 	attrs.Range(func(k string, _ pcommon.Value) bool {
-		for _, prefix := range promptAttributePrefixes {
-			if strings.HasPrefix(k, prefix) {
-				attrs.PutStr(k, "[REDACTED]")
-				attrs.PutBool(attrRedacted, true)
-				break
-			}
+		if isSensitiveAttribute(k) {
+			attrs.PutStr(k, "[REDACTED]")
+			attrs.PutBool(attrRedacted, true)
 		}
 		return true
 	})
+}
+
+// isSensitiveAttribute returns true if the attribute key matches known
+// prompt/completion patterns (by prefix or by mastra.*.input/output suffix).
+func isSensitiveAttribute(k string) bool {
+	for _, prefix := range promptAttributePrefixes {
+		if strings.HasPrefix(k, prefix) {
+			return true
+		}
+	}
+	if strings.HasPrefix(k, mastraAttrPrefix) {
+		for _, s := range promptAttributeSuffixes {
+			if strings.HasSuffix(k, s) {
+				return true
+			}
+		}
+	}
+	return false
 }
