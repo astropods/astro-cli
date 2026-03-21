@@ -44,11 +44,15 @@ func hardenPodSpec(podSpec *corev1.PodSpec) {
 	noMount := false
 	podSpec.AutomountServiceAccountToken = &noMount
 
-	// Ensure tolerations is an empty slice (not nil) so admission policies
-	// using JSON Patch append (/spec/tolerations/-) don't fail on a missing path.
-	if podSpec.Tolerations == nil {
-		podSpec.Tolerations = []corev1.Toleration{}
-	}
+	// Seed tolerations with a no-op entry so the array is never empty.
+	// K8s normalizes empty slices to nil during protobuf roundtrip (etcd storage),
+	// which breaks admission policies that use JSON Patch append (/spec/tolerations/-).
+	// A non-empty slice survives the roundtrip.
+	podSpec.Tolerations = append(podSpec.Tolerations, corev1.Toleration{
+		Key:      "astro.dev/tenant",
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoSchedule,
+	})
 }
 
 // hardenContainer applies restricted security defaults to a Container:

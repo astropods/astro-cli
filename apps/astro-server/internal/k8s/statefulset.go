@@ -227,9 +227,11 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 						})
 					}
-					tolerations := []corev1.Toleration{}
+					tolerations := []corev1.Toleration{{
+						Key: "astro.dev/tenant", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule,
+					}}
 					if len(cfg.Tolerations) > 0 {
-						tolerations = cfg.Tolerations
+						tolerations = append(tolerations, cfg.Tolerations...)
 					}
 					ps := corev1.PodSpec{
 						Containers:   []corev1.Container{container},

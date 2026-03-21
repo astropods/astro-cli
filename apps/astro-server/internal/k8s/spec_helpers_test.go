@@ -209,11 +209,15 @@ func TestBuildDeployment_WithTolerations(t *testing.T) {
 	}
 	depl := BuildDeployment(cfg)
 	podTols := depl.Spec.Template.Spec.Tolerations
-	if len(podTols) != 1 {
-		t.Fatalf("expected 1 toleration, got %d", len(podTols))
+	// Seed toleration (astro.dev/tenant) + GPU toleration
+	found := false
+	for _, tol := range podTols {
+		if tol.Key == "nvidia.com/gpu" {
+			found = true
+		}
 	}
-	if podTols[0].Key != "nvidia.com/gpu" {
-		t.Errorf("expected toleration key nvidia.com/gpu, got %s", podTols[0].Key)
+	if !found {
+		t.Errorf("expected nvidia.com/gpu toleration in %v", podTols)
 	}
 }
 

@@ -99,11 +99,12 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		podSpec.NodeSelector = map[string]string{"workload-type": "gpu"}
 	}
 
-	// Initialize tolerations to an empty slice so admission policies using
-	// JSON Patch append (/spec/tolerations/-) don't fail on a missing path.
-	podSpec.Tolerations = []corev1.Toleration{}
+	// Seed tolerations so the array is never nil after K8s protobuf roundtrip.
+	podSpec.Tolerations = []corev1.Toleration{{
+		Key: "astro.dev/tenant", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule,
+	}}
 	if len(cfg.Tolerations) > 0 {
-		podSpec.Tolerations = cfg.Tolerations
+		podSpec.Tolerations = append(podSpec.Tolerations, cfg.Tolerations...)
 	}
 
 	isProvider := cfg.Provider != ""
