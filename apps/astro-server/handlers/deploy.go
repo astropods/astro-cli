@@ -821,6 +821,17 @@ func parseManualIngestions(annotations map[string]string) []string {
 	return strings.Split(val, ",")
 }
 
+func deploymentReadinessStatus(replicas, readyReplicas int32) string {
+	status := "Running"
+	if readyReplicas < replicas {
+		status = "Pending"
+	}
+	if replicas == 0 {
+		status = "Stopped"
+	}
+	return status
+}
+
 // listAstroDeployments lists all deployments managed by astro in a namespace
 func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error) {
 	clientset := k8sClient.Clientset()
@@ -875,6 +886,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 
 	// Group deployments by agent name
 	agentDeployments := make(map[string]*AgentDeployment)
+	agentStatusFromPrimary := make(map[string]bool)
 
 	for _, dep := range deploymentList.Items {
 		agentKey := dep.Labels[deployment.LabelKeyAgent]
@@ -888,18 +900,10 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		key := agentKey + ":" + version
 		info, exists := agentDeployments[key]
 		if !exists {
-			status := "Running"
-			if dep.Status.ReadyReplicas < dep.Status.Replicas {
-				status = "Pending"
-			}
-			if dep.Status.Replicas == 0 {
-				status = "Stopped"
-			}
-
 			info = &AgentDeployment{
 				BuildID:          version,
 				Namespace:        namespace,
-				Status:           status,
+				Status:           deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas),
 				Replicas:         dep.Status.Replicas,
 				Ready:            dep.Status.ReadyReplicas,
 				CreatedAt:        dep.CreationTimestamp.Format(time.RFC3339),
@@ -915,14 +919,23 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			agentDeployments[key] = info
 		}
 
+		// "agent" is the source of truth for deployment readiness. Other components
+		// (collector, ingestion, etc.) can have independent readiness without blocking
+		// the top-level deployment status shown in UI.
+		isPrimary := component == "agent" || component == ""
+		if isPrimary || !agentStatusFromPrimary[key] {
+			info.Status = deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas)
+			info.Replicas = dep.Status.Replicas
+			info.Ready = dep.Status.ReadyReplicas
+			info.CreatedAt = dep.CreationTimestamp.Format(time.RFC3339)
+			if isPrimary {
+				agentStatusFromPrimary[key] = true
+			}
+		}
+
 		// Add component
 		if component != "" {
 			info.Components = append(info.Components, component)
-		}
-
-		// Update status if any deployment is not ready
-		if dep.Status.ReadyReplicas < dep.Status.Replicas {
-			info.Status = "Pending"
 		}
 	}
 
@@ -1003,7 +1016,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			Containers: []ContainerStatus{},
 		}
 
-		// Build a map of spec containers for env var lookup
+		// Build a map of spec containers (regular + init) for env var lookup
 		specContainers := map[string][]EnvVar{}
 		for _, sc := range pod.Spec.Containers {
 			var envVars []EnvVar
@@ -1045,8 +1058,69 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			}
 			specContainers[sc.Name] = envVars
 		}
+		for _, sc := range pod.Spec.InitContainers {
+			var envVars []EnvVar
+
+			for _, ef := range sc.EnvFrom {
+				if ef.ConfigMapRef != nil {
+					envVars = append(envVars, EnvVar{
+						Name: ef.Prefix + "*",
+						From: "configmap:" + ef.ConfigMapRef.Name,
+					})
+				}
+				if ef.SecretRef != nil {
+					envVars = append(envVars, EnvVar{
+						Name: ef.Prefix + "*",
+						From: "secret:" + ef.SecretRef.Name,
+					})
+				}
+			}
+
+			for _, e := range sc.Env {
+				ev := EnvVar{Name: e.Name}
+				if e.ValueFrom != nil {
+					switch {
+					case e.ValueFrom.SecretKeyRef != nil:
+						ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
+					case e.ValueFrom.ConfigMapKeyRef != nil:
+						ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key
+					case e.ValueFrom.FieldRef != nil:
+						ev.From = "field:" + e.ValueFrom.FieldRef.FieldPath
+					default:
+						ev.From = "ref"
+					}
+				} else {
+					ev.Value = e.Value
+				}
+				envVars = append(envVars, ev)
+			}
+			specContainers[sc.Name] = envVars
+		}
 
 		for _, cs := range pod.Status.ContainerStatuses {
+			container := ContainerStatus{
+				Name:         cs.Name,
+				Ready:        cs.Ready,
+				RestartCount: cs.RestartCount,
+				Env:          specContainers[cs.Name],
+			}
+			switch {
+			case cs.State.Running != nil:
+				container.State = "Running"
+			case cs.State.Waiting != nil:
+				container.State = "Waiting"
+				container.Reason = cs.State.Waiting.Reason
+				container.Message = cs.State.Waiting.Message
+			case cs.State.Terminated != nil:
+				container.State = "Terminated"
+				container.Reason = cs.State.Terminated.Reason
+				container.Message = cs.State.Terminated.Message
+			default:
+				container.State = "Unknown"
+			}
+			podDetail.Containers = append(podDetail.Containers, container)
+		}
+		for _, cs := range pod.Status.InitContainerStatuses {
 			container := ContainerStatus{
 				Name:         cs.Name,
 				Ready:        cs.Ready,
