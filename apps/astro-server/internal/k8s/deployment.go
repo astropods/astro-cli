@@ -99,7 +99,9 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 		podSpec.NodeSelector = map[string]string{"workload-type": "gpu"}
 	}
 
-	// Add tolerations
+	// Initialize tolerations to an empty slice so admission policies using
+	// JSON Patch append (/spec/tolerations/-) don't fail on a missing path.
+	podSpec.Tolerations = []corev1.Toleration{}
 	if len(cfg.Tolerations) > 0 {
 		podSpec.Tolerations = cfg.Tolerations
 	}

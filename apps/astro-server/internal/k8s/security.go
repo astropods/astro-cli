@@ -43,6 +43,12 @@ func hardenPodSpec(podSpec *corev1.PodSpec) {
 
 	noMount := false
 	podSpec.AutomountServiceAccountToken = &noMount
+
+	// Ensure tolerations is an empty slice (not nil) so admission policies
+	// using JSON Patch append (/spec/tolerations/-) don't fail on a missing path.
+	if podSpec.Tolerations == nil {
+		podSpec.Tolerations = []corev1.Toleration{}
+	}
 }
 
 // hardenContainer applies restricted security defaults to a Container:

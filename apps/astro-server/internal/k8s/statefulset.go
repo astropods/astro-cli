@@ -220,24 +220,28 @@ func BuildStatefulSet(cfg StatefulSetConfig) (*appsv1.StatefulSet, error) {
 					Labels: labels,
 				},
 				Spec: func() corev1.PodSpec {
-				var extraVolumes []corev1.Volume
+					var extraVolumes []corev1.Volume
 					for i := range prov.ExtraEmptyDirs {
 						extraVolumes = append(extraVolumes, corev1.Volume{
 							Name:         fmt.Sprintf("extra-%d", i),
 							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 						})
 					}
+					tolerations := []corev1.Toleration{}
+					if len(cfg.Tolerations) > 0 {
+						tolerations = cfg.Tolerations
+					}
 					ps := corev1.PodSpec{
 						Containers:   []corev1.Container{container},
 						NodeSelector: cfg.NodeSelector,
-						Tolerations:  cfg.Tolerations,
+						Tolerations:  tolerations,
 						Volumes:      extraVolumes,
 					}
 					if !cfg.LocalMode {
 						hardenPodSpec(&ps)
 					}
 					return ps
-			}(),
+				}(),
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{volumeClaimTemplate},
 		},
