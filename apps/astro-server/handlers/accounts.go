@@ -35,21 +35,23 @@ type AccountOwner struct {
 
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Type        string             `json:"type"`
-	Owner       *AccountOwner      `json:"owner,omitempty"`
-	Invitations []org.InviteResult `json:"invitations,omitempty"`
-	CreatedAt   string             `json:"created_at"`
-	UpdatedAt   string             `json:"updated_at"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Type          string             `json:"type"`
+	Owner         *AccountOwner      `json:"owner,omitempty"`
+	Invitations   []org.InviteResult `json:"invitations,omitempty"`
+	AvatarVersion int                `json:"avatar_version"`
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
 }
 
 // AccountWithRoleResponse represents an account in the profile response
 type AccountWithRoleResponse struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	Type   string         `json:"type"`
-	Agents []AgentSummary `json:"agents,omitempty"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Type          string         `json:"type"`
+	AvatarVersion int            `json:"avatar_version"`
+	Agents        []AgentSummary `json:"agents,omitempty"`
 }
 
 // AgentSummary represents a brief summary of an agent for the profile response
@@ -190,11 +192,12 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		log.Info("Account created", "id", acct.ID, "name", acct.Name, "type", acct.Type, "user_id", user.ID)
 
 		resp := AccountResponse{
-			ID:        acct.ID,
-			Name:      acct.Name,
-			Type:      acct.Type,
-			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ID:            acct.ID,
+			Name:          acct.Name,
+			Type:          acct.Type,
+			AvatarVersion: acct.AvatarVersion,
+			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
 		// Send invitations if provided (non-fatal — log failures, still return success)
@@ -236,11 +239,12 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 		}
 
 		resp := AccountResponse{
-			ID:        acct.ID,
-			Name:      acct.Name,
-			Type:      acct.Type,
-			CreatedAt: acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			ID:            acct.ID,
+			Name:          acct.Name,
+			Type:          acct.Type,
+			AvatarVersion: acct.AvatarVersion,
+			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 
 		// Best-effort: look up owner profile for personal accounts

@@ -53,8 +53,8 @@ func TestGetByName_Found(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, now, now, 0))
 
 	acct, err := store.GetByName("myorg")
 	if err != nil {
@@ -74,7 +74,7 @@ func TestGetByName_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}))
 
 	_, err := store.GetByName("unknown")
 	if err == nil {
@@ -89,8 +89,8 @@ func TestGetByName_PersonalAccount_NullWorkOSOrgID(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("personal").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "personal", "personal", nil, nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}).
+			AddRow("acct-1", "personal", "personal", nil, nil, now, now, 0))
 
 	acct, err := store.GetByName("personal")
 	if err != nil {
@@ -108,8 +108,8 @@ func TestGetByID_Found(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, now, now, 0))
 
 	acct, err := store.GetByID("acct-1")
 	if err != nil {
@@ -129,7 +129,7 @@ func TestGetByID_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("unknown-id").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}))
 
 	_, err := store.GetByID("unknown-id")
 	if err == nil {
@@ -144,8 +144,8 @@ func TestGetByWorkOSOrganizationID_Found(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_123").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}).
-			AddRow("acct-1", "myorg", "organization", "org_123", nil, now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}).
+			AddRow("acct-1", "myorg", "organization", "org_123", nil, now, now, 0))
 
 	acct, err := store.GetByWorkOSOrganizationID("org_123")
 	if err != nil {
@@ -165,7 +165,7 @@ func TestGetByWorkOSOrganizationID_NotFound(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
 		WithArgs("org_unknown").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}))
 
 	_, err := store.GetByWorkOSOrganizationID("org_unknown")
 	if err == nil {
@@ -574,9 +574,9 @@ func TestGetAccountsForUser_IncludesWorkOSOrgID(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_members am .+ LEFT JOIN account_organizations ao").
 		WithArgs("user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at"}).
-			AddRow("acct-1", "personal", "personal", "", now, now).
-			AddRow("acct-2", "myorg", "organization", "org_123", now, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at", "avatar_version"}).
+			AddRow("acct-1", "personal", "personal", "", now, now, 0).
+			AddRow("acct-2", "myorg", "organization", "org_123", now, now, 0))
 
 	accounts, err := store.GetAccountsForUser("user-1")
 	if err != nil {

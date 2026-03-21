@@ -29,6 +29,7 @@ export interface AccountPublic {
   name: string;
   type: string;
   owner?: AccountOwner;
+  avatar_version?: number;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +39,7 @@ export interface Account {
   name: string;
   type: string;
   role?: string;
+  avatar_version?: number;
   agents?: AgentSummary[];
 }
 

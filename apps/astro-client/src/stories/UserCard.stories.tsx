@@ -25,7 +25,7 @@ const meta = {
   ],
   args: {
     user: baseUser,
-    accountId: "acct-1",
+    handle: "acct-1",
     onSignOut: () => console.log("Sign out clicked"),
   },
 } satisfies Meta<typeof UserCard>;

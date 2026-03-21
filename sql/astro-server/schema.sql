@@ -10,6 +10,7 @@ CREATE TABLE public.accounts (
     deleted_at timestamp,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
+    avatar_version integer NOT NULL DEFAULT 0,
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
 );

@@ -34,7 +34,11 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Sync assets to S3
-        run: aws s3 sync assets/ s3://preview-astro-assets/ --delete
+        run: |
+          aws s3 sync assets/ s3://preview-astro-assets/ --delete \
+            --exclude "*" \
+            --include "integrations/*" \
+            --include "placeholders/*"
 
   sync-prod:
     name: Sync to Prod
@@ -54,4 +58,8 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Sync assets to S3
-        run: aws s3 sync assets/ s3://prod-astro-assets/ --delete
+        run: |
+          aws s3 sync assets/ s3://prod-astro-assets/ --delete \
+            --exclude "*" \
+            --include "integrations/*" \
+            --include "placeholders/*"

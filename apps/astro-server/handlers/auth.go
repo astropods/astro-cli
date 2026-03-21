@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	avatarpkg "github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
@@ -26,6 +28,7 @@ type AuthHandler struct {
 	allowedOrigins map[string]bool
 	accountStore   *account.AccountStore
 	orgSync        *org.Sync
+	avatarStore    *avatarpkg.Store
 }
 
 // SetOrgSync sets the org sync service on the auth handler.
@@ -33,6 +36,11 @@ type AuthHandler struct {
 // which is also a dependency of the auth handler.
 func (h *AuthHandler) SetOrgSync(sync *org.Sync) {
 	h.orgSync = sync
+}
+
+// SetAvatarStore sets the avatar store on the auth handler for profile picture ingestion at signup.
+func (h *AuthHandler) SetAvatarStore(store *avatarpkg.Store) {
+	h.avatarStore = store
 }
 
 // NewAuthHandler creates a new auth handler
@@ -208,6 +216,32 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		if h.orgSync != nil {
 			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), result.User.ID); err != nil {
 				h.log.Warn("Failed to sync memberships on login", "error", err, "user_id", result.User.ID)
+			}
+		}
+
+		// Best-effort: ingest OAuth profile picture into our CDN
+		if h.avatarStore != nil && result.User.ProfilePictureURL != "" && h.accountStore != nil {
+			userAccounts, acctErr := h.accountStore.GetAccountsForUser(result.User.ID)
+			if acctErr == nil {
+				for _, a := range userAccounts {
+					if a.Type == "personal" && a.AvatarVersion == 0 {
+						acctName := a.Name
+						acctID := a.ID
+						profileURL := result.User.ProfilePictureURL
+						go func() {
+							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+							defer cancel()
+							if err := h.avatarStore.Ingest(ctx, acctName, profileURL); err != nil {
+								h.log.Warn("Failed to ingest profile picture", "error", err, "account", acctName)
+							} else {
+								if _, err := h.accountStore.IncrementAvatarVersion(acctID); err != nil {
+									h.log.Warn("Failed to increment avatar version after ingestion", "error", err, "account", acctName)
+								}
+							}
+						}()
+						break
+					}
+				}
 			}
 		}
 
@@ -571,6 +605,7 @@ func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
 					Name:                 a.Name,
 					Type:                 a.Type,
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
+					AvatarVersion:        a.AvatarVersion,
 				})
 			}
 		}

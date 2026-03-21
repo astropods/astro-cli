@@ -19,8 +19,12 @@ import (
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/astropods/astro/apps/astro-server/handlers"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/admingrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -81,6 +85,25 @@ func main() {
 	// Initialize account store (needed by both API and worker)
 	accountStore := account.NewAccountStore(db)
 
+	// Initialize avatar store (S3 or local filesystem)
+	var avatarStore *avatar.Store
+	if cfg.Avatar.Enabled() {
+		if cfg.Avatar.IsLocal() {
+			backend := avatar.NewLocalBackend(cfg.Avatar.LocalDir)
+			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
+			log.Info("Avatar store initialized (local)", "dir", cfg.Avatar.LocalDir)
+		} else {
+			avatarAwsCfg, avatarAwsErr := awsconfig.LoadDefaultConfig(context.Background())
+			if avatarAwsErr != nil {
+				log.Error("Failed to load AWS config for avatar store", "error", avatarAwsErr)
+			} else {
+				s3Client := s3.NewFromConfig(avatarAwsCfg)
+				backend := avatar.NewS3Backend(s3Client, cfg.Avatar.S3Bucket)
+				avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
+				log.Info("Avatar store initialized (S3)", "bucket", cfg.Avatar.S3Bucket)
+			}
+		}
+	}
 	// Initialize WorkOS organization client
 	var orgClient *org.Client
 	var orgSync *org.Sync
@@ -123,7 +146,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent, avatarStore)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -214,6 +237,7 @@ func runAPI(
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
 	ent *middleware.Entitlements,
+	avatarStore *avatar.Store,
 ) (*http.Server, *grpc.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -297,7 +321,7 @@ func runAPI(
 	}
 
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore)
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain)
@@ -418,7 +442,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -447,6 +471,9 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 	authHandler := handlers.NewAuthHandler(log, cfg, accountStore)
 	if orgSync != nil {
 		authHandler.SetOrgSync(orgSync)
+	}
+	if avatarStore != nil {
+		authHandler.SetAvatarStore(avatarStore)
 	}
 
 	// Auth routes (no auth required)
@@ -582,7 +609,30 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(501, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountAdmin, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
+				if avatarStore != nil {
+				api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore),
+					oapispec.Tags("Avatars"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.AvatarResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+				api.PUT(accountAdmin, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore),
+					oapispec.Tags("Avatars"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("index", "Preset index (1-25)"),
+					oapispec.Response(200, &handlers.AvatarResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
+				api.DELETE(accountAdmin, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore),
+					oapispec.Tags("Avatars"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.AvatarResponse{}),
+				)
+			}
+			api.GET(accountAdmin, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

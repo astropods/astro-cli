@@ -11,6 +11,7 @@ type Account struct {
 	DeletedAt            *time.Time `json:"deleted_at,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
+	AvatarVersion        int        `json:"avatar_version"`
 }
 
 // AccountMember represents a user's membership in an account
@@ -29,4 +30,5 @@ type AccountWithRole struct {
 	WorkOSOrganizationID string    `json:"workos_org_id,omitempty"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+	AvatarVersion        int       `json:"avatar_version"`
 }

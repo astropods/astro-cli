@@ -53,7 +53,7 @@ function AccountProfileContent() {
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
       <div className="flex items-center gap-4">
-        <UserAvatar accountId={data.id} name={data.name} profilePictureUrl={data.owner?.profile_picture_url} className="size-16" />
+        <UserAvatar handle={data.name} name={data.name} avatarVersion={data.avatar_version} className="size-16" />
         <div>
           {data.owner?.first_name && (
             <h1 className="text-2xl font-bold">

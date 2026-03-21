@@ -1,0 +1,125 @@
+package handlers
+
+import (
+	"io"
+	"net/http"
+	"strconv"
+
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/gin-gonic/gin"
+)
+
+// AvatarResponse is returned after avatar mutations.
+type AvatarResponse struct {
+	AvatarURL     string `json:"avatar_url"`
+	AvatarVersion int    `json:"avatar_version"`
+}
+
+// UploadAvatar handles POST /api/v1/accounts/:account/avatar
+func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		file, _, err := c.Request.FormFile("avatar")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing avatar file"})
+			return
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(io.LimitReader(file, avatar.MaxUploadSize+1))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read upload"})
+			return
+		}
+
+		if err := avatarStore.Upload(c.Request.Context(), acct.Name, data); err != nil {
+			log.Error("Failed to upload avatar", "error", err, "account", acct.Name)
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		version, err := accountStore.IncrementAvatarVersion(acct.ID)
+		if err != nil {
+			log.Error("Failed to increment avatar version", "error", err, "account", acct.Name)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
+			return
+		}
+
+		c.JSON(http.StatusOK, AvatarResponse{
+			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
+			AvatarVersion: version,
+		})
+	}
+}
+
+// SetAvatarPreset handles PUT /api/v1/accounts/:account/avatar/preset/:index
+func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		index, err := strconv.Atoi(c.Param("index"))
+		if err != nil || index < 1 || index > avatar.PresetCount {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "preset index must be 1-25"})
+			return
+		}
+
+		if err := avatarStore.SetPreset(c.Request.Context(), acct.Name, index); err != nil {
+			log.Error("Failed to set avatar preset", "error", err, "account", acct.Name)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set preset"})
+			return
+		}
+
+		version, err := accountStore.IncrementAvatarVersion(acct.ID)
+		if err != nil {
+			log.Error("Failed to increment avatar version", "error", err, "account", acct.Name)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
+			return
+		}
+
+		c.JSON(http.StatusOK, AvatarResponse{
+			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
+			AvatarVersion: version,
+		})
+	}
+}
+
+// ResetAvatar handles DELETE /api/v1/accounts/:account/avatar
+func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		if err := avatarStore.AssignPreset(c.Request.Context(), acct.Name); err != nil {
+			log.Error("Failed to reset avatar", "error", err, "account", acct.Name)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
+			return
+		}
+
+		version, err := accountStore.IncrementAvatarVersion(acct.ID)
+		if err != nil {
+			log.Error("Failed to increment avatar version", "error", err, "account", acct.Name)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
+			return
+		}
+
+		c.JSON(http.StatusOK, AvatarResponse{
+			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
+			AvatarVersion: version,
+		})
+	}
+}

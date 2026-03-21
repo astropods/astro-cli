@@ -17,6 +17,7 @@ type Config struct {
 	Database             DatabaseConfig
 	AdminGRPC            AdminGRPCConfig
 	FleetGRPC            FleetGRPCConfig
+	Avatar               AvatarConfig
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
@@ -95,6 +96,23 @@ type LogConfig struct {
 type SecurityConfig struct {
 	AllowedOrigins []string
 	TrustedProxies []string
+}
+
+// AvatarConfig holds avatar/profile-picture configuration.
+type AvatarConfig struct {
+	S3Bucket string // AVATAR_S3_BUCKET — S3 bucket for avatar storage (empty = check LocalDir)
+	LocalDir string // ASSETS_LOCAL_DIR — local assets directory path (e.g. "../../assets", for local dev)
+	AssetsURL string // ASSETS_URL — CDN base URL for avatar URLs in API responses
+}
+
+// Enabled returns true when avatar storage is configured (either S3 or local).
+func (a AvatarConfig) Enabled() bool {
+	return a.S3Bucket != "" || a.LocalDir != ""
+}
+
+// IsLocal returns true when using filesystem storage instead of S3.
+func (a AvatarConfig) IsLocal() bool {
+	return a.S3Bucket == "" && a.LocalDir != ""
 }
 
 // DeploymentConfig holds deployment-related configuration
@@ -210,6 +228,11 @@ func Load() (*Config, error) {
 			Port:     getEnv("FLEET_GRPC_PORT", "9092"),
 			CertFile: getEnv("FLEET_TLS_CERT_PATH", ""),
 			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
+		},
+		Avatar: AvatarConfig{
+			S3Bucket:  getEnv("AVATAR_S3_BUCKET", ""),
+			LocalDir:  getEnv("ASSETS_LOCAL_DIR", ""),
+			AssetsURL: getEnv("ASSETS_URL", ""),
 		},
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),

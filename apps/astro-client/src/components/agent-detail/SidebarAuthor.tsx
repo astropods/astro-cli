@@ -18,16 +18,12 @@ export interface SidebarAuthorProps {
   ownerName: string;
   /** Account handle (fallback when no agent card authors). */
   ownerHandle: string;
-  /** Account ID (used to seed the preset avatar). */
-  ownerId?: string;
-  /** Account owner profile picture URL. */
-  ownerProfilePictureUrl?: string;
 }
 
 function AuthorFullCard({ author }: { author: AgentCardAuthor }) {
   const inner = (
     <div className="flex items-center gap-3">
-      <UserAvatar accountId={author.account ?? author.name} name={author.name} className="h-9 w-9" />
+      <UserAvatar handle={author.account ?? author.name} name={author.name} className="h-9 w-9" />
       <div className="flex flex-col min-w-0">
         <span className="text-[13px] font-medium text-foreground truncate">
           {author.name}
@@ -55,8 +51,6 @@ export function SidebarAuthor({
   authors,
   ownerName,
   ownerHandle,
-  ownerId,
-  ownerProfilePictureUrl,
 }: SidebarAuthorProps) {
   // Fall back to account owner when no agent card authors
   const hasCardAuthors = authors.length > 0;
@@ -74,11 +68,11 @@ export function SidebarAuthor({
                   <TooltipTrigger asChild>
                     {author.account ? (
                       <Link to={`/${author.account}`} className="hover:opacity-80 transition-opacity">
-                        <UserAvatar accountId={author.account ?? author.name} name={author.name} className="h-8 w-8" />
+                        <UserAvatar handle={author.account ?? author.name} name={author.name} className="h-8 w-8" />
                       </Link>
                     ) : (
                       <div>
-                        <UserAvatar accountId={author.account ?? author.name} name={author.name} className="h-8 w-8" />
+                        <UserAvatar handle={author.account ?? author.name} name={author.name} className="h-8 w-8" />
                       </div>
                     )}
                   </TooltipTrigger>
@@ -100,7 +94,7 @@ export function SidebarAuthor({
       ) : (
         // Fallback: account owner
         <div className="flex items-center gap-3">
-          {ownerId && <UserAvatar accountId={ownerId} name={ownerName} profilePictureUrl={ownerProfilePictureUrl} className="h-9 w-9" />}
+          <UserAvatar handle={ownerHandle} name={ownerName} className="h-9 w-9" />
           <div className="flex flex-col">
             <span className="text-[13px] font-medium text-foreground">{ownerName}</span>
             <span className="text-[11px] text-[var(--faint-foreground)] font-mono">

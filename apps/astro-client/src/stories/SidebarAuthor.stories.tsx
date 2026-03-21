@@ -21,8 +21,6 @@ export const WithAvatar: Story = {
     authors: [{ name: "Jane Smith", account: "janesmith" }],
     ownerName: "Jane Smith",
     ownerHandle: "janesmith",
-    ownerId: "acct-jane",
-    ownerProfilePictureUrl: "https://i.pravatar.cc/150?u=janesmith",
   },
 };
 
@@ -31,6 +29,5 @@ export const WithInitials: Story = {
     authors: [],
     ownerName: "Acme Corp",
     ownerHandle: "acme",
-    ownerId: "acct-acme",
   },
 };
