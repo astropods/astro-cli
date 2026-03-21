@@ -541,6 +541,13 @@ function statusColor(status: DeployHistoryStatus): string {
   return C.success;
 }
 
+function statusLabel(status: DeployHistoryStatus): string {
+  if (status === "active" || status === "ready") return "Live";
+  if (status === "deploying") return "Deploying";
+  if (status === "failed") return "Failed";
+  return "Undeployed";
+}
+
 export function DeploymentsTab({
   deployment,
   account,
@@ -653,7 +660,7 @@ export function DeploymentsTab({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {[
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
-                { label: "STATUS", value: String(deployment.status || "unknown").toUpperCase() },
+                { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown") },
                 { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
                 { label: "CONTAINERS", value: String(containers.length) },
               ].map((item) => (
@@ -707,7 +714,7 @@ export function DeploymentsTab({
                       }}
                     >
                       {currentRow.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
-                      {currentRow.status.toUpperCase()}
+                      {statusLabel(currentRow.status).toUpperCase()}
                     </span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{currentRow.duration}</span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{currentRow.build}</span>
@@ -797,7 +804,7 @@ export function DeploymentsTab({
                           }}
                         >
                           {row.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
-                          {row.status.toUpperCase()}
+                          {statusLabel(row.status).toUpperCase()}
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{row.duration}</span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{row.build}</span>
