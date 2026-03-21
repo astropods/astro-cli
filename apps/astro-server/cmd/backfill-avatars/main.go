@@ -58,7 +58,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
@@ -67,18 +67,18 @@ func main() {
 	var backend avatar.Backend
 	if localDir != "" {
 		backend = avatar.NewLocalBackend(localDir)
-		log.Printf("Using local filesystem backend: %s", localDir)
+		log.Printf("Using local filesystem backend: %q", localDir)
 	} else {
 		awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
 		if err != nil {
 			log.Fatalf("Failed to load AWS config: %v", err)
 		}
 		backend = avatar.NewS3Backend(s3.NewFromConfig(awsCfg), bucket)
-		log.Printf("Using S3 backend: %s", bucket)
+		log.Printf("Using S3 backend: %q", bucket)
 	}
 	avatarStore := avatar.NewStore(backend, "")
 
-	log.Printf("Starting avatar backfill (dry_run=%v, batch_size=%d)", dryRun, batchSize)
+	log.Printf("Starting avatar backfill (dry_run=%t, batch_size=%d)", dryRun, batchSize)
 
 	var totalProcessed, totalSkipped, totalFailed int
 	var lastID string
@@ -130,7 +130,7 @@ func main() {
 			}
 			totalProcessed++
 		}
-		rows.Close()
+		_ = rows.Close()
 
 		if batchCount == 0 {
 			break

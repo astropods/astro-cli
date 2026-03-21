@@ -32,7 +32,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing avatar file"})
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		data, err := io.ReadAll(io.LimitReader(file, avatar.MaxUploadSize+1))
 		if err != nil {

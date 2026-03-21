@@ -34,10 +34,10 @@ func (b *LocalBackend) Read(_ context.Context, key string) ([]byte, error) {
 
 func (b *LocalBackend) Write(_ context.Context, key string, data []byte, _ string) error {
 	p := b.path(key)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return fmt.Errorf("local mkdir %s: %w", filepath.Dir(p), err)
 	}
-	if err := os.WriteFile(p, data, 0o644); err != nil {
+	if err := os.WriteFile(p, data, 0o600); err != nil {
 		return fmt.Errorf("local write %s: %w", key, err)
 	}
 	return nil
@@ -49,10 +49,10 @@ func (b *LocalBackend) Copy(_ context.Context, src, dst string) error {
 		return fmt.Errorf("local copy read %s: %w", src, err)
 	}
 	dstPath := b.path(dst)
-	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o750); err != nil {
 		return fmt.Errorf("local copy mkdir %s: %w", filepath.Dir(dstPath), err)
 	}
-	if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+	if err := os.WriteFile(dstPath, data, 0o600); err != nil {
 		return fmt.Errorf("local copy write %s: %w", dst, err)
 	}
 	return nil

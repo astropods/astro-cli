@@ -63,7 +63,7 @@ func (s *Store) AvatarURL(handle string, version int) string {
 func PresetIndex(handle string) int {
 	hash := uint32(0)
 	for _, c := range handle {
-		hash = hash*31 + uint32(c)
+		hash = hash*31 + uint32(c) //nolint:gosec // intentional truncation for hash
 	}
 	return int(hash%PresetCount) + 1
 }
@@ -134,7 +134,7 @@ func (s *Store) Ingest(ctx context.Context, handle string, externalURL string) e
 	if err != nil {
 		return fmt.Errorf("fetch external image: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("fetch external image: status %d", resp.StatusCode)
