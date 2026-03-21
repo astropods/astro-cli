@@ -82,7 +82,7 @@ export function useWakeUpDeployment(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<unknown, Error, { deploymentId: string }>({
     mutationFn: api.wakeupDeployment.bind(api),
     onSuccess: (_data, variables) => {
       queryClient.setQueriesData(
