@@ -3,7 +3,7 @@ import { useParams } from "react-router";
 import {
   useCustomer, useUpdateCustomer, useCustomerEntitlements, useCustomerAccess, useEntitlementValue, useEntitlementGrants,
   useCreateEntitlement, useDeleteEntitlement, useCreateGrant,
-  useSubscription, useCreateSubscription, useCancelSubscription, usePlans, useEvents,
+  useSubscription, useCreateSubscription, useCancelSubscription, useEditSubscription, usePlans, useFeatures, useEvents,
 } from "@/api/openmeter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Field, FieldLabel, FieldGroup } from "@/components/ui/field";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon, RefreshCw } from "lucide-react";
+import { Trash2, ChevronDown, XCircle, Plus, Pencil, Check, X as XIcon, RefreshCw, Info } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
@@ -19,7 +20,7 @@ import {
 import { formatDateTime } from "@/lib/utils";
 import { EventTable } from "@/components/event-table";
 import { SchemaFormPanel } from "@/components/schema-form-panel";
-import type { Entitlement, Customer } from "@/types/openmeter";
+import type { Entitlement, Customer, SubscriptionExpanded, SubscriptionPhase } from "@/types/openmeter";
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -59,22 +60,24 @@ export function CustomerDetailPage() {
 
       <CustomerEventsSection customerKey={customer.key} />
 
-      <div>
-        <h3 className="mb-2 text-sm font-medium text-muted-foreground">Entitlements</h3>
-        <div className="flex gap-4 items-start">
-          <div className="min-w-0 flex-1">
-            {entitlements?.map((ent) => <EntitlementRow key={ent.id} customerId={id!} entitlement={ent} />)}
-            {entitlements?.length === 0 && <p className="text-sm text-muted-foreground">No entitlements</p>}
+      {!customer.currentSubscriptionId && (
+        <div>
+          <h3 className="mb-2 text-sm font-medium text-muted-foreground">Entitlements</h3>
+          <div className="flex gap-4 items-start">
+            <div className="min-w-0 flex-1">
+              {entitlements?.map((ent) => <EntitlementRow key={ent.id} customerId={id!} entitlement={ent} />)}
+              {entitlements?.length === 0 && <p className="text-sm text-muted-foreground">No entitlements</p>}
+            </div>
+            <SchemaFormPanel
+              title="Create Entitlement"
+              description="Grant a feature entitlement to this customer."
+              schemaRef="EntitlementCreate"
+              onSubmit={(body) => createEnt.mutate({ customerId: id!, body })}
+              isPending={createEnt.isPending}
+            />
           </div>
-          <SchemaFormPanel
-            title="Create Entitlement"
-            description="Grant a feature entitlement to this customer."
-            schemaRef="EntitlementCreate"
-            onSubmit={(body) => createEnt.mutate({ customerId: id!, body })}
-            isPending={createEnt.isPending}
-          />
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -116,7 +119,7 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
       <h3 className="mb-2 text-sm font-medium text-muted-foreground">Subscription</h3>
       {isLoading && subId && <Skeleton className="h-16 w-full" />}
       {sub && (
-        <div className="rounded-lg glass px-3 py-2 space-y-1.5">
+        <div className="rounded-lg glass px-3 py-2 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">{sub.name}</span>
@@ -201,6 +204,15 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
             <div><span className="text-muted-foreground">Active from:</span> {formatDateTime(sub.activeFrom)}</div>
             {sub.activeTo && <div><span className="text-muted-foreground">Active to:</span> {formatDateTime(sub.activeTo)}</div>}
           </div>
+
+          {/* Phases & Items */}
+          {sub.phases && sub.phases.length > 0 && (
+            <div className="space-y-2">
+              {sub.phases.map((phase) => (
+                <SubscriptionPhaseCard key={phase.id} phase={phase} subscription={sub} />
+              ))}
+            </div>
+          )}
         </div>
       )}
       {!subId && !showSubscribe && (
@@ -214,6 +226,369 @@ function SubscriptionSection({ customer }: { customer: Customer }) {
       {showSubscribe && (
         <SubscribeForm customerId={customer.id} onDone={() => setShowSubscribe(false)} />
       )}
+    </div>
+  );
+}
+
+function SubscriptionPhaseCard({ phase, subscription }: { phase: SubscriptionPhase; subscription: SubscriptionExpanded }) {
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
+  const editSub = useEditSubscription();
+
+  const handleRemoveItem = (itemKey: string) => {
+    editSub.mutate({
+      id: subscription.id,
+      body: {
+        timing: "immediate",
+        customizations: [{ op: "remove_item", phaseKey: phase.key, itemKey }],
+      },
+    });
+  };
+
+  return (
+    <Collapsible defaultOpen>
+      <CollapsibleTrigger className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground">
+        <ChevronDown className="size-3" />
+        Phase: <span className="text-amber">{phase.key}</span>
+        <span className="ml-1 text-[10px] text-muted-foreground font-normal">
+          ({phase.items?.length ?? 0} items)
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1.5 space-y-1.5">
+        {phase.items?.map((item) => (
+          <div key={item.id}>
+            {editingItemKey === item.key ? (
+              <EditSubscriptionItemForm
+                subscriptionId={subscription.id}
+                phaseKey={phase.key}
+                item={item}
+                onDone={() => setEditingItemKey(null)}
+              />
+            ) : (
+              <div className="rounded border border-glass-border-honey px-2 py-1.5 text-[10px] space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-amber">{item.key}</span>
+                    <span className="text-muted-foreground">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {item.featureKey && (
+                      <span className="text-muted-foreground mr-2">feature: {item.featureKey}</span>
+                    )}
+                    {subscription.status === "active" && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title="Edit item"
+                          onClick={() => setEditingItemKey(item.key)}
+                        >
+                          <Pencil className="size-2.5 text-muted-foreground" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon-xs" title="Remove item">
+                              <Trash2 className="size-2.5 text-red-500" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remove item?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will immediately remove &ldquo;{item.key}&rdquo; from the subscription.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Keep</AlertDialogCancel>
+                              <AlertDialogAction variant="destructive" onClick={() => handleRemoveItem(item.key)}>
+                                Remove
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-4 text-muted-foreground">
+                  <span>billing: {item.billingCadence}</span>
+                  {item.entitlementTemplate && (
+                    <span>
+                      entitlement: {(item.entitlementTemplate as Record<string, unknown>).type as string}
+                      {(item.entitlementTemplate as Record<string, unknown>).issueAfterReset != null && (
+                        <span className="text-amber ml-1">
+                          (grant: {String((item.entitlementTemplate as Record<string, unknown>).issueAfterReset)})
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {item.price && (
+                    <span>price: {(item.price as Record<string, unknown>).type as string}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {(!phase.items || phase.items.length === 0) && (
+          <p className="text-[10px] text-muted-foreground">No items in this phase</p>
+        )}
+
+        {subscription.status === "active" && (
+          <div className="pt-1">
+            {showAddItem ? (
+              <AddSubscriptionItemForm
+                subscriptionId={subscription.id}
+                phaseKey={phase.key}
+                onDone={() => setShowAddItem(false)}
+              />
+            ) : (
+              <Button variant="outline" size="xs" onClick={() => setShowAddItem(true)}>
+                <Plus className="size-3 mr-1" /> Add Item
+              </Button>
+            )}
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function EditSubscriptionItemForm({
+  subscriptionId,
+  phaseKey,
+  item,
+  onDone,
+}: {
+  subscriptionId: string;
+  phaseKey: string;
+  item: SubscriptionExpanded["phases"][0]["items"][0];
+  onDone: () => void;
+}) {
+  const editSub = useEditSubscription();
+  const ent = item.entitlementTemplate as Record<string, unknown> | undefined;
+
+  const [itemName, setItemName] = useState(item.name);
+  const [grantAmount, setGrantAmount] = useState(
+    ent?.issueAfterReset != null ? String(ent.issueAfterReset) : ""
+  );
+  const [isSoftLimit, setIsSoftLimit] = useState(
+    ent?.isSoftLimit === true
+  );
+
+  const handleSubmit = () => {
+    const rateCard: Record<string, unknown> = {
+      type: (item.price as Record<string, unknown>)?.type === "flat" ? "flat_fee" : "usage_based",
+      key: item.key,
+      name: itemName || item.key,
+      billingCadence: item.billingCadence,
+      price: item.price ?? { type: "flat", amount: "0" },
+    };
+
+    if (item.featureKey) {
+      rateCard.featureKey = item.featureKey;
+      rateCard.entitlementTemplate = {
+        type: ent?.type ?? "metered",
+        issueAfterReset: Number(grantAmount) || 0,
+        isSoftLimit,
+      };
+    }
+
+    editSub.mutate(
+      {
+        id: subscriptionId,
+        body: {
+          timing: "immediate",
+          customizations: [
+            { op: "remove_item", phaseKey, itemKey: item.key },
+            { op: "add_item", phaseKey, rateCard },
+          ],
+        },
+      },
+      { onSuccess: () => onDone() }
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 space-y-2">
+      <h4 className="text-[11px] font-semibold">
+        Edit Item: <span className="font-mono text-amber">{item.key}</span>
+      </h4>
+      <FieldGroup className="gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          <Field className="gap-1">
+            <FieldLabel className="text-[10px]">Name</FieldLabel>
+            <Input
+              value={itemName}
+              onChange={(e) => setItemName(e.target.value)}
+            />
+          </Field>
+          {item.featureKey && (
+            <>
+              <Field className="gap-1">
+                <FieldLabel className="text-[10px]">Grant Amount</FieldLabel>
+                <Input
+                  type="number"
+                  value={grantAmount}
+                  onChange={(e) => setGrantAmount(e.target.value)}
+                />
+              </Field>
+              <Field className="gap-1 justify-end">
+                <label className="flex items-center gap-1.5 text-[10px] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSoftLimit}
+                    onChange={(e) => setIsSoftLimit(e.target.checked)}
+                    className="rounded"
+                  />
+                  Soft Limit
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="size-3 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px]">
+                      When enabled, the customer can continue using the feature even after the entitlement balance is exhausted. Access is never revoked.
+                    </TooltipContent>
+                  </Tooltip>
+                </label>
+              </Field>
+            </>
+          )}
+        </div>
+      </FieldGroup>
+      {editSub.error && <p className="text-[10px] text-destructive">{editSub.error.message}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="xs" onClick={onDone}>Cancel</Button>
+        <Button size="xs" onClick={handleSubmit} disabled={editSub.isPending}>
+          {editSub.isPending ? "Saving..." : "Save (remove + re-add)"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AddSubscriptionItemForm({
+  subscriptionId,
+  phaseKey,
+  onDone,
+}: {
+  subscriptionId: string;
+  phaseKey: string;
+  onDone: () => void;
+}) {
+  const editSub = useEditSubscription();
+  const { data: features } = useFeatures();
+
+  const [itemKey, setItemKey] = useState("");
+  const [itemName, setItemName] = useState("");
+  const [featureKey, setFeatureKey] = useState("");
+  const [grantAmount, setGrantAmount] = useState("");
+  const [isSoftLimit, setIsSoftLimit] = useState(true);
+
+  const handleSubmit = () => {
+    const rateCard: Record<string, unknown> = {
+      type: "usage_based",
+      key: itemKey,
+      name: itemName || itemKey,
+      billingCadence: "P1M",
+      price: { type: "flat", amount: "0" },
+    };
+
+    if (featureKey) {
+      rateCard.key = featureKey;
+      rateCard.featureKey = featureKey;
+      rateCard.entitlementTemplate = {
+        type: "metered",
+        issueAfterReset: Number(grantAmount) || 0,
+        isSoftLimit,
+      };
+    }
+
+    editSub.mutate(
+      {
+        id: subscriptionId,
+        body: {
+          timing: "immediate",
+          customizations: [{ op: "add_item", phaseKey, rateCard }],
+        },
+      },
+      { onSuccess: () => onDone() }
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-glass-border-honey p-2 space-y-2">
+      <h4 className="text-[11px] font-semibold">Add Item (immediate edit)</h4>
+      <FieldGroup className="gap-2">
+        <div className="grid grid-cols-2 gap-2">
+          <Field className="gap-1">
+            <FieldLabel className="text-[10px]">Item Key *</FieldLabel>
+            <Input
+              value={itemKey}
+              onChange={(e) => setItemKey(e.target.value)}
+              placeholder="e.g. compute_extra"
+            />
+          </Field>
+          <Field className="gap-1">
+            <FieldLabel className="text-[10px]">Name</FieldLabel>
+            <Input
+              value={itemName}
+              onChange={(e) => setItemName(e.target.value)}
+              placeholder="e.g. Extra Compute Credits"
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Field className="gap-1">
+            <FieldLabel className="text-[10px]">Feature Key</FieldLabel>
+            {features && features.length > 0 ? (
+              <Select value={featureKey} onValueChange={setFeatureKey}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select feature" />
+                </SelectTrigger>
+                <SelectContent>
+                  {features.map((f) => (
+                    <SelectItem key={f.key} value={f.key}>{f.key}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={featureKey}
+                onChange={(e) => setFeatureKey(e.target.value)}
+                placeholder="feature_key"
+              />
+            )}
+          </Field>
+          <Field className="gap-1">
+            <FieldLabel className="text-[10px]">Grant Amount</FieldLabel>
+            <Input
+              type="number"
+              value={grantAmount}
+              onChange={(e) => setGrantAmount(e.target.value)}
+              placeholder="e.g. 1000"
+            />
+          </Field>
+          <Field className="gap-1 justify-end">
+            <label className="flex items-center gap-1.5 text-[10px] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isSoftLimit}
+                onChange={(e) => setIsSoftLimit(e.target.checked)}
+                className="rounded"
+              />
+              Soft Limit
+            </label>
+          </Field>
+        </div>
+      </FieldGroup>
+      {editSub.error && <p className="text-[10px] text-destructive">{editSub.error.message}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="xs" onClick={onDone}>Cancel</Button>
+        <Button size="xs" onClick={handleSubmit} disabled={!itemKey || editSub.isPending}>
+          {editSub.isPending ? "Adding..." : "Add Item"}
+        </Button>
+      </div>
     </div>
   );
 }

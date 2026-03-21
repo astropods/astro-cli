@@ -4,7 +4,7 @@ import {
   useApproveQuotaRequest,
   useDenyQuotaRequest,
 } from "@/api/admin";
-import { useCreateGrant } from "@/api/openmeter";
+import { useCustomer, useSubscription, useEditSubscription } from "@/api/openmeter";
 import type { QuotaRequest } from "@/api/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,7 +93,9 @@ export function QuotaRequestsPage() {
 function RequestRow({ request: req }: { request: QuotaRequest }) {
   const approveMut = useApproveQuotaRequest();
   const denyMut = useDenyQuotaRequest();
-  const createGrant = useCreateGrant();
+  const { data: customer } = useCustomer(req.account_id);
+  const { data: sub } = useSubscription(customer?.currentSubscriptionId ?? "");
+  const editSub = useEditSubscription();
   const [editing, setEditing] = useState(false);
   const [grantAmount, setGrantAmount] = useState(
     req.requested_amount > 0 ? String(req.requested_amount) : ""
@@ -107,16 +109,36 @@ function RequestRow({ request: req }: { request: QuotaRequest }) {
     setApproveErr("");
 
     try {
-      // 1. Create recurring grant in OpenMeter
-      const now = new Date().toISOString();
-      await createGrant.mutateAsync({
-        customerId: req.account_id,
-        entitlementId: req.feature_key,
+      if (!sub || !sub.phases?.length) {
+        throw new Error("Customer has no active subscription with phases");
+      }
+
+      // 1. Add item to subscription with metered entitlement grant
+      const phaseKey = sub.phases[0].key;
+      const itemKey = req.feature_key;
+      await editSub.mutateAsync({
+        id: sub.id,
         body: {
-          amount,
-          effectiveAt: now,
-          priority: 1,
-          recurrence: { interval: "MONTH", anchor: now },
+          timing: "immediate",
+          customizations: [
+            {
+              op: "add_item",
+              phaseKey,
+              rateCard: {
+                type: "usage_based",
+                key: itemKey,
+                name: `Quota increase: ${FEATURE_LABELS[req.feature_key] ?? req.feature_key}`,
+                featureKey: req.feature_key,
+                billingCadence: "P1M",
+                price: { type: "flat", amount: "0" },
+                entitlementTemplate: {
+                  type: "metered",
+                  issueAfterReset: amount,
+                  isSoftLimit: true,
+                },
+              },
+            },
+          ],
         },
       });
 

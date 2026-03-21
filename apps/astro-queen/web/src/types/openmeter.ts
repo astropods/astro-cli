@@ -144,6 +144,37 @@ export interface Subscription {
   deletedAt?: string;
 }
 
+export interface SubscriptionItem {
+  id: string;
+  key: string;
+  name: string;
+  description?: string;
+  featureKey?: string;
+  billingCadence: string;
+  activeFrom: string;
+  activeTo?: string;
+  price?: Record<string, unknown>;
+  entitlementTemplate?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionPhase {
+  id: string;
+  key: string;
+  name: string;
+  description?: string;
+  activeFrom: string;
+  activeTo?: string;
+  items: SubscriptionItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubscriptionExpanded extends Subscription {
+  phases: SubscriptionPhase[];
+}
+
 export interface CloudEvent {
   id: string;
   type: string;

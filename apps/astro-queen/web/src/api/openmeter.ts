@@ -10,6 +10,7 @@ import type {
   Grant,
   Plan,
   Subscription,
+  SubscriptionExpanded,
   CloudEvent,
 } from "@/types/openmeter";
 
@@ -414,7 +415,7 @@ export function useSubscription(id: string) {
   return useQuery({
     queryKey: openmeterKeys.subscription(id),
     queryFn: () =>
-      api.get<Subscription>(
+      api.get<SubscriptionExpanded>(
         `/api/openmeter/api/v1/subscriptions/${encodeURIComponent(id)}`
       ),
     enabled: !!id,
@@ -431,6 +432,21 @@ export function useCancelSubscription() {
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: openmeterKeys.all });
+    },
+  });
+}
+
+export function useEditSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: unknown }) =>
+      api.patch<SubscriptionExpanded>(
+        `/api/openmeter/api/v1/subscriptions/${encodeURIComponent(id)}`,
+        body
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: openmeterKeys.all });
+      qc.invalidateQueries({ queryKey: ["admin"] });
     },
   });
 }
