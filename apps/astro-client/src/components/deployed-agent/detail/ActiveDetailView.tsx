@@ -347,7 +347,7 @@ export function ActiveDetailView({
             }}
           >
             {tab === 'monitor' ? (
-              <MonitorTab deployment={renderedDeployment} account={account} />
+              <MonitorTab deployment={renderedDeployment} />
             ) : (
               <DeploymentsTab
                 deployment={renderedDeployment}

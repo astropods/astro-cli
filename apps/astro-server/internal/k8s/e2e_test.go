@@ -23,9 +23,6 @@ type e2eOpts struct {
 	Schedules   map[string]string // ingestion name → cron expression
 	Interfaces  []string          // adapters to enable (e.g. "slack", "web")
 
-	// Applier overrides
-	GalileoAPIKey  string
-	GalileoProject string
 }
 
 // e2eResult holds all outputs from the pipeline for assertions.
@@ -116,8 +113,6 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 		registryURL:     opts.RegistryURL,
 		imageResolver:   NewImageResolver("", opts.RegistryURL, "test"),
 		imagePullPolicy: corev1.PullNever,
-		galileoAPIKey:   opts.GalileoAPIKey,
-		galileoProject:  opts.GalileoProject,
 	}
 
 	result, err := applier.ApplyDeploymentSpec(context.Background(), ds)
@@ -552,8 +547,6 @@ ingestion:
 		Schedules: map[string]string{
 			"daily": "0 2 * * *",
 		},
-		GalileoAPIKey:  "gal-key",
-		GalileoProject: "test-project",
 	})
 
 	requireNoErrors(t, r)

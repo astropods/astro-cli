@@ -1512,7 +1512,7 @@ func deployableSpec(deploymentID string) string {
 			"SLACK_APP_TOKEN": {"secret": true, "optional": true, "targets": ["interface.slack"]},
 			"SLACK_CONFIG": {"secret": false, "optional": true, "targets": ["interface.slack"]}
 		},
-		"observability": {"enabled": true, "provider": "galileo"}
+		"observability": {"enabled": true, "provider": "langfuse"}
 	}`, targetExtra)
 }
 
@@ -2103,7 +2103,7 @@ func deployableSpecWithLegacySlackVars() string {
 			"SLACK_ALLOWED_CHANNEL_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": "C123"},
 			"SLACK_ALLOWED_USER_IDS": {"secret": false, "optional": true, "targets": ["interface.slack"], "value": ""}
 		},
-		"observability": {"enabled": true, "provider": "galileo"}
+		"observability": {"enabled": true, "provider": "langfuse"}
 	}`
 }
 
@@ -2400,7 +2400,7 @@ func deployableSpecWithScheduleIngestion(schedule string) string {
 				"resources": {"cpu": "100m", "memory": "256Mi", "cpu_limit": "1", "memory_limit": "1Gi"}
 			}
 		},
-		"observability": {"enabled": true, "provider": "galileo"}
+		"observability": {"enabled": true, "provider": "langfuse"}
 	}`, schedule)
 }
 

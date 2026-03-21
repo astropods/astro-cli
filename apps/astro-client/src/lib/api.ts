@@ -421,26 +421,24 @@ class ApiClient {
     });
   }
 
-  // Observability endpoints
+  // Observability endpoints (deployment-scoped, backed by Langfuse)
   async getObservabilityMetrics(
-    account: string,
-    name: string,
+    deploymentId: string,
     params?: Record<string, string>,
   ): Promise<ObservabilityMetricsResponse> {
     const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilityMetricsResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/metrics${qs}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/metrics${qs}`
     );
   }
 
   async getObservabilitySummary(
-    account: string,
-    name: string,
+    deploymentId: string,
     params?: Record<string, string>,
   ): Promise<ObservabilitySummaryResponse> {
     const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilitySummaryResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/summary${qs}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/summary${qs}`
     );
   }
 
@@ -455,13 +453,12 @@ class ApiClient {
   }
 
   async getObservabilityTraces(
-    account: string,
-    name: string,
+    deploymentId: string,
     params?: Record<string, string>,
   ): Promise<ObservabilityTracesResponse> {
     const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilityTracesResponse>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/observability/traces${qs}`
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/traces${qs}`
     );
   }
 

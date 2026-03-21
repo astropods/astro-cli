@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Stage 2: Runtime
 FROM alpine:3.21
 
-# Install CA certificates for HTTPS (needed for Galileo API calls)
+# Install CA certificates for HTTPS (needed for Langfuse API calls)
 RUN apk add --no-cache ca-certificates
 
 # Create non-root user

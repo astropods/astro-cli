@@ -654,16 +654,14 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 func TestBuildCollectorDeployment(t *testing.T) {
 	t.Run("full config", func(t *testing.T) {
 		cfg := CollectorDeploymentConfig{
-			Name:           "my-agent-collector",
-			Namespace:      "default",
-			AccountID:      "test-account",
-			AgentName:      "my-agent",
-			BuildID:        "1.0",
-			Component:      "collector",
-			Image:          "collector:latest",
-			ConfigMapName:  "my-agent-1-0-config",
-			GalileoAPIKey:  "gal-key-123",
-			GalileoProject: "my-project",
+			Name:          "my-agent-collector",
+			Namespace:     "default",
+			AccountID:     "test-account",
+			AgentName:     "my-agent",
+			BuildID:       "1.0",
+			Component:     "collector",
+			Image:         "collector:latest",
+			ConfigMapName: "my-agent-1-0-config",
 		}
 
 		d := BuildCollectorDeployment(cfg)
@@ -706,18 +704,6 @@ func TestBuildCollectorDeployment(t *testing.T) {
 			t.Errorf("configmap ref: expected my-agent-1-0-config, got %s", container.EnvFrom[0].ConfigMapRef.Name)
 		}
 
-		// Galileo env vars
-		envMap := make(map[string]string)
-		for _, e := range container.Env {
-			envMap[e.Name] = e.Value
-		}
-		if envMap["GALILEO_API_KEY"] != "gal-key-123" {
-			t.Errorf("expected GALILEO_API_KEY=gal-key-123, got %s", envMap["GALILEO_API_KEY"])
-		}
-		if envMap["GALILEO_PROJECT"] != "my-project" {
-			t.Errorf("expected GALILEO_PROJECT=my-project, got %s", envMap["GALILEO_PROJECT"])
-		}
-
 		// Resources
 		cpuReq := container.Resources.Requests[corev1.ResourceCPU]
 		if cpuReq.Cmp(resource.MustParse("25m")) != 0 {
@@ -758,50 +744,6 @@ func TestBuildCollectorDeployment(t *testing.T) {
 		}
 		if envMap["ASTRO_DEPLOYMENT_ID"] != "dep-xyz" {
 			t.Errorf("ASTRO_DEPLOYMENT_ID: expected dep-xyz, got %s", envMap["ASTRO_DEPLOYMENT_ID"])
-		}
-	})
-
-	t.Run("GALILEO_LOG_STREAM injected when set", func(t *testing.T) {
-		cfg := CollectorDeploymentConfig{
-			Name:             "test-agent-collector",
-			Namespace:        "default",
-			AgentName:        "agent",
-			BuildID:          "1.0",
-			Component:        "collector",
-			Image:            "collector:latest",
-			GalileoLogStream: "agent-build-1",
-		}
-
-		d := BuildCollectorDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[0]
-
-		envMap := make(map[string]string)
-		for _, e := range container.Env {
-			envMap[e.Name] = e.Value
-		}
-
-		if envMap["GALILEO_LOG_STREAM"] != "agent-build-1" {
-			t.Errorf("GALILEO_LOG_STREAM: expected agent-build-1, got %q", envMap["GALILEO_LOG_STREAM"])
-		}
-	})
-
-	t.Run("GALILEO_LOG_STREAM omitted when empty", func(t *testing.T) {
-		cfg := CollectorDeploymentConfig{
-			Name:      "test-agent-collector",
-			Namespace: "default",
-			AgentName: "agent",
-			BuildID:   "1.0",
-			Component: "collector",
-			Image:     "collector:latest",
-		}
-
-		d := BuildCollectorDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[0]
-
-		for _, e := range container.Env {
-			if e.Name == "GALILEO_LOG_STREAM" {
-				t.Errorf("GALILEO_LOG_STREAM should not be set when empty, got %q", e.Value)
-			}
 		}
 	})
 

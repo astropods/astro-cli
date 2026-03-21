@@ -93,8 +93,6 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		IngestionIngressDomain: d.Cfg.Deployment.IngestionIngressDomain,
 		IngestionACMCertARN:    d.Cfg.Deployment.IngestionACMCertARN,
 		IngestionALBGroupName:  d.Cfg.Deployment.IngestionALBGroupName,
-		GalileoAPIKey:          d.Cfg.Deployment.GalileoAPIKey,
-		GalileoProject:         d.Cfg.Deployment.GalileoProject,
 		LangfuseAuthToken:      langfuseAuthToken,
 		LangfuseBaseURL:        langfuseBaseURLForCollector(d.Cfg),
 		DeploymentID:           dep.ID,

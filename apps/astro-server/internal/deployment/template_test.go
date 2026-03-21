@@ -94,8 +94,8 @@ func TestTemplate_ObservabilityDefaults(t *testing.T) {
 	if !ds.Observability.Enabled {
 		t.Error("observability.enabled: expected true")
 	}
-	if ds.Observability.Provider != "galileo" {
-		t.Errorf("observability.provider: expected galileo, got %s", ds.Observability.Provider)
+	if ds.Observability.Provider != "langfuse" {
+		t.Errorf("observability.provider: expected langfuse, got %s", ds.Observability.Provider)
 	}
 }
 

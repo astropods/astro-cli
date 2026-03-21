@@ -32,9 +32,6 @@ type ApplierConfig struct {
 	IngestionIngressDomain string
 	IngestionACMCertARN    string
 	IngestionALBGroupName  string
-	// Observability (Galileo) — injected into collector sidecar
-	GalileoAPIKey  string
-	GalileoProject string
 	// Observability (Langfuse) — per-account auth token for collector sidecar
 	LangfuseAuthToken string
 	LangfuseBaseURL   string
@@ -72,8 +69,6 @@ type Applier struct {
 	ingestionACMCertARN    string
 	ingestionALBGroupName  string
 	// Observability
-	galileoAPIKey     string
-	galileoProject    string
 	langfuseAuthToken string
 	langfuseBaseURL   string
 	deploymentID      string
@@ -105,8 +100,6 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		ingestionIngressDomain: cfg.IngestionIngressDomain,
 		ingestionACMCertARN:    cfg.IngestionACMCertARN,
 		ingestionALBGroupName:  cfg.IngestionALBGroupName,
-		galileoAPIKey:          cfg.GalileoAPIKey,
-		galileoProject:         cfg.GalileoProject,
 		langfuseAuthToken:      cfg.LangfuseAuthToken,
 		langfuseBaseURL:        cfg.LangfuseBaseURL,
 		deploymentID:           cfg.DeploymentID,

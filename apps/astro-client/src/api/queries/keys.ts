@@ -20,12 +20,12 @@ export const agentKeys = {
 };
 
 export const observabilityKeys = {
-  metrics: (account: string, name: string, params?: Record<string, string>) =>
-    ['observability', 'metrics', account, name, params] as const,
-  summary: (account: string, name: string, params?: Record<string, string>) =>
-    ['observability', 'summary', account, name, params] as const,
-  traces: (account: string, name: string, params?: Record<string, string>) =>
-    ['observability', 'traces', account, name, params] as const,
+  metrics: (deploymentId: string, params?: Record<string, string>) =>
+    ['observability', 'metrics', deploymentId, params] as const,
+  summary: (deploymentId: string, params?: Record<string, string>) =>
+    ['observability', 'summary', deploymentId, params] as const,
+  traces: (deploymentId: string, params?: Record<string, string>) =>
+    ['observability', 'traces', deploymentId, params] as const,
 };
 
 export const usageKeys = {

@@ -332,7 +332,7 @@ function buildRequestVolumeSeries(
   });
 }
 
-export function MonitorTab({ deployment, account }: { deployment: AgentDeployment; account: string }) {
+export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   const queryClient = useQueryClient();
   const [win, setWin] = useState<Win>("24h");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
@@ -369,38 +369,38 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
   const timeParams = scopedWindowParams[win];
 
   useEffect(() => {
-    if (!account || !deployment.name) return;
+    if (!deployment.id) return;
 
     for (const window of OBS_WINDOWS) {
       const params = scopedWindowParams[window];
       const prevParams = previousWindowParams[window];
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.metrics(account, deployment.name, params),
-        queryFn: () => api.getObservabilityMetrics(account, deployment.name, params),
+        queryKey: observabilityKeys.metrics(deployment.id, params),
+        queryFn: () => api.getObservabilityMetrics(deployment.id, params),
       });
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.summary(account, deployment.name, params),
-        queryFn: () => api.getObservabilitySummary(account, deployment.name, params),
+        queryKey: observabilityKeys.summary(deployment.id, params),
+        queryFn: () => api.getObservabilitySummary(deployment.id, params),
       });
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.traces(account, deployment.name, { ...params, limit: "100" }),
-        queryFn: () => api.getObservabilityTraces(account, deployment.name, { ...params, limit: "100" }),
+        queryKey: observabilityKeys.traces(deployment.id, { ...params, limit: "100" }),
+        queryFn: () => api.getObservabilityTraces(deployment.id, { ...params, limit: "100" }),
       });
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.summary(account, deployment.name, prevParams),
-        queryFn: () => api.getObservabilitySummary(account, deployment.name, prevParams),
+        queryKey: observabilityKeys.summary(deployment.id, prevParams),
+        queryFn: () => api.getObservabilitySummary(deployment.id, prevParams),
       });
     }
-  }, [account, deployment.name, queryClient, scopedWindowParams, previousWindowParams]);
+  }, [deployment.id, queryClient, scopedWindowParams, previousWindowParams]);
 
-  const metricsQuery = useObservabilityMetrics(account, deployment.name, timeParams);
-  const tracesQuery = useObservabilityTraces(account, deployment.name, { ...timeParams, limit: "100" });
-  const summary1hQuery = useObservabilitySummary(account, deployment.name, scopedWindowParams["1h"]);
-  const summary24hQuery = useObservabilitySummary(account, deployment.name, scopedWindowParams["24h"]);
-  const summary7dQuery = useObservabilitySummary(account, deployment.name, scopedWindowParams["7d"]);
-  const prevSummary1hQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["1h"]);
-  const prevSummary24hQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["24h"]);
-  const prevSummary7dQuery = useObservabilitySummary(account, deployment.name, previousWindowParams["7d"]);
+  const metricsQuery = useObservabilityMetrics(deployment.id, timeParams);
+  const tracesQuery = useObservabilityTraces(deployment.id, { ...timeParams, limit: "100" });
+  const summary1hQuery = useObservabilitySummary(deployment.id, scopedWindowParams["1h"]);
+  const summary24hQuery = useObservabilitySummary(deployment.id, scopedWindowParams["24h"]);
+  const summary7dQuery = useObservabilitySummary(deployment.id, scopedWindowParams["7d"]);
+  const prevSummary1hQuery = useObservabilitySummary(deployment.id, previousWindowParams["1h"]);
+  const prevSummary24hQuery = useObservabilitySummary(deployment.id, previousWindowParams["24h"]);
+  const prevSummary7dQuery = useObservabilitySummary(deployment.id, previousWindowParams["7d"]);
 
   const summaryByWin: Record<Win, typeof summary1hQuery> = {
     "1h": summary1hQuery,
@@ -569,7 +569,7 @@ export function MonitorTab({ deployment, account }: { deployment: AgentDeploymen
             OBSERVABILITY
           </span>
           <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.5 }}>
-            Trace metrics couldn&apos;t be loaded (backend returned an error). Local dev often needs valid Galileo
+            Trace metrics couldn&apos;t be loaded (backend returned an error). Local dev often needs valid Langfuse
             credentials in <span style={{ fontFamily: S.mono, fontSize: T.monoSm }}>astro-server</span> env. Pod logs on
             the <strong style={{ color: C.text }}>Deployments</strong> tab use Kubernetes/Loki and work independently
             when the cluster is reachable.

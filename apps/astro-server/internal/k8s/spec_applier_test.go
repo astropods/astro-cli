@@ -274,8 +274,6 @@ func TestApplyDeploymentSpec_WithSecretVariables(t *testing.T) {
 
 func TestApplyDeploymentSpec_WithObservability(t *testing.T) {
 	a := newTestApplier()
-	a.galileoAPIKey = "gal-key"
-	a.galileoProject = "test-project"
 	ds := minimalDeploymentSpec()
 	ds.Observability = spec.DeploymentObservability{Enabled: true}
 
@@ -308,11 +306,10 @@ func TestApplyDeploymentSpec_WithObservability(t *testing.T) {
 
 func TestApplyDeploymentSpec_ObservabilityCustomImage(t *testing.T) {
 	a := newTestApplier()
-	a.galileoAPIKey = "gal-key"
 	ds := minimalDeploymentSpec()
 	ds.Observability = spec.DeploymentObservability{
 		Enabled:  true,
-		Provider: "galileo",
+		Provider: "langfuse",
 		Image:    "custom-registry.example.com/collector:v2",
 		Port:     4318,
 		Resources: spec.DeploymentResources{
@@ -490,8 +487,6 @@ func TestApplyDeploymentSpec_WithIngestionWebhook(t *testing.T) {
 
 func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	a := newTestApplier()
-	a.galileoAPIKey = "gal-key"
-	a.galileoProject = "project"
 	ds := minimalDeploymentSpec()
 	ds.Agent.Environment = map[string]string{
 		"LLM_URL":  "${models.llm.http.url}",

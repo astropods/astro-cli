@@ -27,7 +27,7 @@ agent:
     strategy: rolling
 observability:
   enabled: true
-  provider: galileo
+  provider: langfuse
 `
 	ds, err := ParseDeploymentSpec([]byte(yaml))
 	if err != nil {
@@ -322,7 +322,7 @@ variables:
       - interface.slack
 observability:
   enabled: true
-  provider: galileo
+  provider: langfuse
 editable:
   - variables.*.value
 `
@@ -395,7 +395,7 @@ func TestSerializeDeploymentSpec_RoundTrip(t *testing.T) {
 		Variables: map[string]Variable{
 			"API_KEY": {Value: "sk-test", Secret: true, Targets: []string{"agent"}},
 		},
-		Observability: DeploymentObservability{Enabled: true, Provider: "galileo"},
+		Observability: DeploymentObservability{Enabled: true, Provider: "langfuse"},
 	}
 
 	data, err := SerializeDeploymentSpec(original)

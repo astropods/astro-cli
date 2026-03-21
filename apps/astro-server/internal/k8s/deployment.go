@@ -267,10 +267,6 @@ type CollectorDeploymentConfig struct {
 	ImagePullPolicy corev1.PullPolicy
 	Resources       *corev1.ResourceRequirements // From observability.resources; nil means hardcoded defaults
 	Environment     map[string]string            // Resolved env from observability.environment
-	// Galileo credentials (server-level config, injected directly)
-	GalileoAPIKey    string
-	GalileoProject   string
-	GalileoLogStream string
 	// Langfuse credentials (per-account)
 	LangfuseAuthToken string // base64(pk:sk)
 	LangfuseBaseURL   string // e.g. https://langfuse.adhoc.dev.astropod.ai
@@ -308,29 +304,12 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 		ImagePullPolicy: pullPolicy,
 	}
 
-	// Galileo credentials are server-level config, injected directly as env vars
-	if cfg.GalileoAPIKey != "" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name: "GALILEO_API_KEY", Value: cfg.GalileoAPIKey,
-		})
-	}
-	if cfg.GalileoProject != "" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name: "GALILEO_PROJECT", Value: cfg.GalileoProject,
-		})
-	}
-
 	// Astro identity env vars — required by the astro processor
 	container.Env = append(container.Env,
 		corev1.EnvVar{Name: "ASTRO_AGENT_NAME", Value: cfg.AgentName},
 		corev1.EnvVar{Name: "ASTRO_AGENT_VERSION", Value: cfg.AgentVersion},
 		corev1.EnvVar{Name: "ASTRO_DEPLOYMENT_ID", Value: cfg.DeploymentID},
 	)
-	if cfg.GalileoLogStream != "" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name: "GALILEO_LOG_STREAM", Value: cfg.GalileoLogStream,
-		})
-	}
 	if cfg.LangfuseAuthToken != "" {
 		container.Env = append(container.Env, corev1.EnvVar{
 			Name: "LANGFUSE_AUTH_TOKEN", Value: cfg.LangfuseAuthToken,

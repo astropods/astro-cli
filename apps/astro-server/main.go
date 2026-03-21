@@ -24,10 +24,10 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/handlers"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/admingrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectgrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -612,29 +612,29 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(501, &handlers.ErrorResponse{}),
 				)
 				if avatarStore != nil {
-				api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore),
-					oapispec.Tags("Avatars"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.AvatarResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
-				)
-				api.PUT(accountAdmin, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore),
-					oapispec.Tags("Avatars"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.PathParam("index", "Preset index (1-25)"),
-					oapispec.Response(200, &handlers.AvatarResponse{}),
-					oapispec.Response(400, &handlers.ErrorResponse{}),
-				)
-				api.DELETE(accountAdmin, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore),
-					oapispec.Tags("Avatars"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.AvatarResponse{}),
-				)
-			}
-			api.GET(accountAdmin, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
+					api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore),
+						oapispec.Tags("Avatars"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.Response(200, &handlers.AvatarResponse{}),
+						oapispec.Response(400, &handlers.ErrorResponse{}),
+					)
+					api.PUT(accountAdmin, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore),
+						oapispec.Tags("Avatars"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.PathParam("index", "Preset index (1-25)"),
+						oapispec.Response(200, &handlers.AvatarResponse{}),
+						oapispec.Response(400, &handlers.ErrorResponse{}),
+					)
+					api.DELETE(accountAdmin, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore),
+						oapispec.Tags("Avatars"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.Response(200, &handlers.AvatarResponse{}),
+					)
+				}
+				api.GET(accountAdmin, "/usage", "Get account usage", handlers.GetAccountUsage(log, omClient),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -898,39 +898,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.SecretKeysResponse{}),
 			)
-			api.GET(protected, "/agents/:account/:name/observability/metrics", "Get agent metrics", handlers.GetObservabilityMetrics(log, cfg, deploymentStore, accountStore),
-				oapispec.Tags("Observability"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
-				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
-				oapispec.QueryParam("interval", "Bucket interval in minutes (default 60)", false),
-				oapispec.Response(200, &handlers.ObservabilityMetricsResponse{}),
-			)
-			api.GET(protected, "/agents/:account/:name/observability/summary", "Get observability summary", handlers.GetObservabilitySummary(log, cfg, deploymentStore, accountStore),
-				oapispec.Tags("Observability"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
-				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
-				oapispec.Response(200, &handlers.ObservabilitySummaryResponse{}),
-			)
-			api.GET(protected, "/agents/:account/:name/observability/traces", "Get agent traces", handlers.GetObservabilityTraces(log, cfg, deploymentStore, accountStore),
-				oapispec.Tags("Observability"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("account", "Account name"),
-				oapispec.PathParam("name", "Agent name"),
-				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
-				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
-				oapispec.QueryParam("limit", "Page size (default 50)", false),
-				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
-				oapispec.QueryParam("status", "Filter by status", false),
-				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
-			)
-
-			// Langfuse observability endpoints (deployment-scoped)
+			// Observability endpoints (deployment-scoped, backed by Langfuse)
 			langfuseStore := langfuse.NewStore(db)
 			api.GET(protected, "/deployments/:id/observability/metrics", "Get deployment metrics", handlers.GetLangfuseMetrics(log, cfg, accountStore, deploymentStore, langfuseStore),
 				oapispec.Tags("Observability"),

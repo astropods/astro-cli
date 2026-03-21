@@ -3,15 +3,14 @@ import { api } from '@/lib/api';
 import { observabilityKeys } from './keys';
 
 export function useObservabilityMetrics(
-  account: string,
-  name: string,
+  deploymentId: string,
   params?: Record<string, string>,
   opts?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.metrics(account, name, params),
-    queryFn: () => api.getObservabilityMetrics(account, name, params),
-    enabled: (opts?.enabled ?? true) && !!account && !!name,
+    queryKey: observabilityKeys.metrics(deploymentId, params),
+    queryFn: () => api.getObservabilityMetrics(deploymentId, params),
+    enabled: (opts?.enabled ?? true) && !!deploymentId,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
     placeholderData: keepPreviousData,
@@ -21,15 +20,14 @@ export function useObservabilityMetrics(
 }
 
 export function useObservabilitySummary(
-  account: string,
-  name: string,
+  deploymentId: string,
   params?: Record<string, string>,
   opts?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.summary(account, name, params),
-    queryFn: () => api.getObservabilitySummary(account, name, params),
-    enabled: (opts?.enabled ?? true) && !!account && !!name,
+    queryKey: observabilityKeys.summary(deploymentId, params),
+    queryFn: () => api.getObservabilitySummary(deploymentId, params),
+    enabled: (opts?.enabled ?? true) && !!deploymentId,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
     placeholderData: keepPreviousData,
@@ -39,15 +37,14 @@ export function useObservabilitySummary(
 }
 
 export function useObservabilityTraces(
-  account: string,
-  name: string,
+  deploymentId: string,
   params?: Record<string, string>,
   opts?: { enabled?: boolean },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.traces(account, name, params),
-    queryFn: () => api.getObservabilityTraces(account, name, params),
-    enabled: (opts?.enabled ?? true) && !!account && !!name,
+    queryKey: observabilityKeys.traces(deploymentId, params),
+    queryFn: () => api.getObservabilityTraces(deploymentId, params),
+    enabled: (opts?.enabled ?? true) && !!deploymentId,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
     placeholderData: keepPreviousData,

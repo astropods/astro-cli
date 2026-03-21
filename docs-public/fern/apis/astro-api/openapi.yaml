@@ -263,7 +263,7 @@ paths:
     get:
       tags: [observability]
       summary: Get metrics
-      description: Returns bucketed trace metrics for the agent over a time range. Requires Galileo observability to be configured.
+      description: Returns bucketed trace metrics for the agent over a time range. Requires Langfuse observability to be configured.
       operationId: getObservabilityMetrics
       parameters:
         - $ref: "#/components/parameters/Account"

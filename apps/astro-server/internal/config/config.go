@@ -139,11 +139,6 @@ type DeploymentConfig struct {
 	PodSubnetCIDRs []string // POD_SUBNET_CIDRS
 	// KMS envelope encryption for deployment secrets
 	KMSKeyARN string // KMS_KEY_ARN — ARN of the KMS key for secret encryption (optional — secrets stripped if unset)
-	// Observability (Galileo) — injected into every collector sidecar
-	GalileoAPIKey      string // GALILEO_API_KEY
-	GalileoProject     string // GALILEO_PROJECT — name, injected into collector sidecars
-	GalileoProjectID   string // GALILEO_PROJECT_ID — UUID, used for REST API queries
-	GalileoAPIEndpoint string // GALILEO_API_ENDPOINT
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
 	LangfuseDBURL      string   // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
 	LangfuseSalt       string   // LANGFUSE_SALT — must match Langfuse's SALT env var
@@ -193,10 +188,6 @@ func Load() (*Config, error) {
 			IngestionALBGroupName:  getEnv("INGESTION_ALB_GROUP_NAME", ""),
 			PodSubnetCIDRs:         getEnvSlice("POD_SUBNET_CIDRS", nil),
 			KMSKeyARN:              getEnv("KMS_KEY_ARN", ""),
-			GalileoAPIKey:          getEnv("GALILEO_API_KEY", ""),
-			GalileoProject:         getEnv("GALILEO_PROJECT", ""),
-			GalileoProjectID:       getEnv("GALILEO_PROJECT_ID", ""),
-			GalileoAPIEndpoint:     getEnv("GALILEO_API_ENDPOINT", "https://api.galileo.ai"),
 			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
 			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
