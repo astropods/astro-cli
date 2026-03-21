@@ -151,7 +151,7 @@ func main() {
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, db, omClient, orgClient)
+		eventsCancel = runWorker(log, cfg, accountStore, db, omClient, orgClient, avatarStore)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -382,6 +382,7 @@ func runWorker(
 	db *sql.DB,
 	omClient *openmeter.Client,
 	orgClient *org.Client,
+	avatarStore *avatar.Store,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
@@ -415,6 +416,7 @@ func runWorker(
 		DB:           db,
 		OMClient:     omClient,
 		AccountStore: accountStore,
+		AvatarStore:  avatarStore,
 		K8sClient:    k8sClient,
 		ServerConfig: cfg,
 		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,

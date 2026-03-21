@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -28,6 +29,7 @@ type Config struct {
 	DB           *sql.DB
 	OMClient     *openmeter.Client
 	AccountStore *account.AccountStore
+	AvatarStore  *avatar.Store
 	K8sClient    k8s.ClusterClient
 	ServerConfig *config.Config
 	WorkOSAPIKey string

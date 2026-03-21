@@ -78,6 +78,13 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 	})
 	log.Info("river: registered worker", "worker", "MessageCountSyncWorker", "period", "5m")
 
+	river.AddWorker(workers, &AvatarBackfillWorker{
+		avatarStore: cfg.AvatarStore,
+		db:          cfg.DB,
+		log:         log,
+	})
+	log.Info("river: registered worker", "worker", "AvatarBackfillWorker", "period", "24h")
+
 	rw := &ReconcileWorker{
 		deployer:  dep,
 		store:     store,

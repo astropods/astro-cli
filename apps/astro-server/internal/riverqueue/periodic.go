@@ -48,6 +48,20 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
+	if cfg.AvatarStore != nil {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return AvatarBackfillArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 24 * time.Hour,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
 	if cfg.WorkOSAPIKey != "" {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(30*time.Second),
