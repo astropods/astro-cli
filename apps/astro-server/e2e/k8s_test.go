@@ -478,9 +478,9 @@ func TestK8s_SlackReactionsEnvOnMessagingSidecar(t *testing.T) {
 	}
 
 	var messaging *corev1.Container
-	for i := range agentDepl.Spec.Template.Spec.Containers {
-		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
-			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+	for i := range agentDepl.Spec.Template.Spec.InitContainers {
+		if agentDepl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.InitContainers[i]
 			break
 		}
 	}
@@ -515,9 +515,9 @@ func TestK8s_SlackAllowlistEmptyDefaultsOnMessagingSidecar(t *testing.T) {
 	}
 
 	var messaging *corev1.Container
-	for i := range agentDepl.Spec.Template.Spec.Containers {
-		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
-			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+	for i := range agentDepl.Spec.Template.Spec.InitContainers {
+		if agentDepl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.InitContainers[i]
 			break
 		}
 	}
@@ -553,9 +553,9 @@ func TestK8s_SlackSecretsStayInSecretRef(t *testing.T) {
 	}
 
 	var messaging *corev1.Container
-	for i := range agentDepl.Spec.Template.Spec.Containers {
-		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
-			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+	for i := range agentDepl.Spec.Template.Spec.InitContainers {
+		if agentDepl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.InitContainers[i]
 			break
 		}
 	}
@@ -795,9 +795,9 @@ func TestK8s_DeployWithStaleVarsStrippedByEnforceEditable(t *testing.T) {
 	}
 
 	var messaging *corev1.Container
-	for i := range agentDepl.Spec.Template.Spec.Containers {
-		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
-			messaging = &agentDepl.Spec.Template.Spec.Containers[i]
+	for i := range agentDepl.Spec.Template.Spec.InitContainers {
+		if agentDepl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+			messaging = &agentDepl.Spec.Template.Spec.InitContainers[i]
 			break
 		}
 	}
