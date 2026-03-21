@@ -513,18 +513,26 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 
 		d := BuildDeployment(cfg)
 
-		if len(d.Spec.Template.Spec.Containers) != 2 {
-			t.Fatalf("expected 2 containers, got %d", len(d.Spec.Template.Spec.Containers))
+		if len(d.Spec.Template.Spec.Containers) != 1 {
+			t.Fatalf("expected 1 container, got %d", len(d.Spec.Template.Spec.Containers))
+		}
+		if len(d.Spec.Template.Spec.InitContainers) != 1 {
+			t.Fatalf("expected 1 init container, got %d", len(d.Spec.Template.Spec.InitContainers))
 		}
 
 		app := d.Spec.Template.Spec.Containers[0]
-		msg := d.Spec.Template.Spec.Containers[1]
+		msg := d.Spec.Template.Spec.InitContainers[0]
 
 		if app.Name != "app" {
 			t.Errorf("first container: expected app, got %s", app.Name)
 		}
 		if msg.Name != "messaging" {
-			t.Errorf("second container: expected messaging, got %s", msg.Name)
+			t.Errorf("init container: expected messaging, got %s", msg.Name)
+		}
+
+		// Native sidecar: restartPolicy must be Always
+		if msg.RestartPolicy == nil || *msg.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+			t.Error("messaging init container must have restartPolicy=Always (native sidecar)")
 		}
 
 		// Default port 9090
@@ -568,7 +576,7 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		}
 
 		d := BuildDeployment(cfg)
-		msg := d.Spec.Template.Spec.Containers[1]
+		msg := d.Spec.Template.Spec.InitContainers[0]
 
 		if len(msg.Ports) != 3 {
 			t.Fatalf("expected 3 ports (grpc + metrics + http), got %d", len(msg.Ports))
@@ -607,7 +615,7 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		}
 
 		d := BuildDeployment(cfg)
-		msg := d.Spec.Template.Spec.Containers[1]
+		msg := d.Spec.Template.Spec.InitContainers[0]
 
 		portMap := make(map[string]int32)
 		for _, p := range msg.Ports {
@@ -633,7 +641,7 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 		}
 
 		d := BuildDeployment(cfg)
-		msg := d.Spec.Template.Spec.Containers[1]
+		msg := d.Spec.Template.Spec.InitContainers[0]
 
 		if len(msg.EnvFrom) != 0 {
 			t.Errorf("expected no envFrom without secret, got %d", len(msg.EnvFrom))
@@ -860,8 +868,8 @@ func TestBuildCollectorDeployment(t *testing.T) {
 }
 
 // TestBuildDeploymentMessagingOnly verifies that BuildDeployment with
-// messaging sidecar produces a pod with two containers (app + messaging).
-// Collector is now a separate deployment.
+// messaging sidecar produces a pod with the agent container and messaging
+// as a native sidecar init container. Collector is a separate deployment.
 func TestBuildDeploymentMessagingOnly(t *testing.T) {
 	cfg := DeploymentConfig{
 		Name:      "full-agent-agent",
@@ -879,16 +887,18 @@ func TestBuildDeploymentMessagingOnly(t *testing.T) {
 
 	d := BuildDeployment(cfg)
 
-	if len(d.Spec.Template.Spec.Containers) != 2 {
-		t.Fatalf("expected 2 containers, got %d", len(d.Spec.Template.Spec.Containers))
+	if len(d.Spec.Template.Spec.Containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(d.Spec.Template.Spec.Containers))
+	}
+	if len(d.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(d.Spec.Template.Spec.InitContainers))
 	}
 
-	names := make([]string, 2)
-	for i, c := range d.Spec.Template.Spec.Containers {
-		names[i] = c.Name
+	if d.Spec.Template.Spec.Containers[0].Name != "app" {
+		t.Errorf("expected container name app, got %s", d.Spec.Template.Spec.Containers[0].Name)
 	}
-	if names[0] != "app" || names[1] != "messaging" {
-		t.Errorf("expected [app messaging], got %v", names)
+	if d.Spec.Template.Spec.InitContainers[0].Name != "messaging" {
+		t.Errorf("expected init container name messaging, got %s", d.Spec.Template.Spec.InitContainers[0].Name)
 	}
 }
 

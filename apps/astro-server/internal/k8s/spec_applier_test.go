@@ -665,9 +665,9 @@ func TestApplyDeploymentSpec_InterfaceEnvInMessagingContainer(t *testing.T) {
 	}
 
 	var msgContainer *corev1.Container
-	for i, c := range agentDepl.Spec.Template.Spec.Containers {
+	for i, c := range agentDepl.Spec.Template.Spec.InitContainers {
 		if c.Name == "messaging" {
-			msgContainer = &agentDepl.Spec.Template.Spec.Containers[i]
+			msgContainer = &agentDepl.Spec.Template.Spec.InitContainers[i]
 			break
 		}
 	}
@@ -742,9 +742,9 @@ func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
 	}
 
 	var msgContainer *corev1.Container
-	for i := range agentDepl.Spec.Template.Spec.Containers {
-		if agentDepl.Spec.Template.Spec.Containers[i].Name == "messaging" {
-			msgContainer = &agentDepl.Spec.Template.Spec.Containers[i]
+	for i := range agentDepl.Spec.Template.Spec.InitContainers {
+		if agentDepl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+			msgContainer = &agentDepl.Spec.Template.Spec.InitContainers[i]
 			break
 		}
 	}
@@ -1225,9 +1225,9 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		}
 
 		var msgContainer *corev1.Container
-		for i := range depl.Spec.Template.Spec.Containers {
-			if depl.Spec.Template.Spec.Containers[i].Name == "messaging" {
-				msgContainer = &depl.Spec.Template.Spec.Containers[i]
+		for i := range depl.Spec.Template.Spec.InitContainers {
+			if depl.Spec.Template.Spec.InitContainers[i].Name == "messaging" {
+				msgContainer = &depl.Spec.Template.Spec.InitContainers[i]
 				break
 			}
 		}

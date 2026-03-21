@@ -122,6 +122,9 @@ func TestDeploymentSecurityHardening_AllSidecars(t *testing.T) {
 	for _, c := range ps.Containers {
 		assertHardenedContainer(t, c)
 	}
+	for _, c := range ps.InitContainers {
+		assertHardenedContainer(t, c)
+	}
 }
 
 func TestCollectorDeploymentSecurityHardening(t *testing.T) {
@@ -422,6 +425,9 @@ func TestLocalMode_SidecarsAlwaysHardened(t *testing.T) {
 
 	assertHardenedPodSpec(t, ps)
 	for _, c := range ps.Containers {
+		assertHardenedContainer(t, c)
+	}
+	for _, c := range ps.InitContainers {
 		assertHardenedContainer(t, c)
 	}
 }

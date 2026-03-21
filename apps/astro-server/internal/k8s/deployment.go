@@ -78,16 +78,18 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	// Build container spec
 	container := buildContainer(cfg)
 
-	containers := []corev1.Container{container}
-
-	// Colocate messaging sidecar in the same pod
-	if cfg.Messaging != nil {
-		containers = append(containers, buildMessagingContainer(*cfg.Messaging))
-	}
-
 	// Build pod spec
 	podSpec := corev1.PodSpec{
-		Containers: containers,
+		Containers: []corev1.Container{container},
+	}
+
+	// Messaging runs as a native sidecar (init container with restartPolicy Always)
+	// so it is guaranteed to be running before the agent container starts.
+	if cfg.Messaging != nil {
+		msgContainer := buildMessagingContainer(*cfg.Messaging)
+		restartAlways := corev1.ContainerRestartPolicyAlways
+		msgContainer.RestartPolicy = &restartAlways
+		podSpec.InitContainers = append(podSpec.InitContainers, msgContainer)
 	}
 
 	// Add node selector: explicit config takes precedence over GPU auto-detection
