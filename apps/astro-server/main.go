@@ -977,7 +977,7 @@ func startFleetGRPCServer(
 	// Load TLS config for QUIC (QUIC mandates TLS 1.3)
 	tlsCert, err := connectgrpc.LoadTLSCert(certFile, keyFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Fleet gRPC TLS: %w", err)
+		return nil, nil, fmt.Errorf("fleet gRPC TLS: %w", err)
 	}
 
 	tlsConf := connectgrpc.NewTLSConfig(tlsCert)
@@ -985,7 +985,7 @@ func startFleetGRPCServer(
 	// Create QUIC listener
 	lis, err := connectgrpc.ListenQUIC(":"+port, tlsConf, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Fleet gRPC QUIC listen: %w", err)
+		return nil, nil, fmt.Errorf("fleet gRPC QUIC listen: %w", err)
 	}
 
 	// Create gRPC server with JWT stream interceptor
