@@ -6,6 +6,7 @@ export const deploymentStatusVariant: Record<DeployedAgentStatus, StatusIndicato
   active: "success",
   inactive: "muted",
   pending: "warning",
+  undeploying: "muted",
   error: "error",
 };
 
@@ -13,15 +14,19 @@ export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
   active: "Live",
   inactive: "Inactive",
   pending: "Deploying",
+  undeploying: "Undeploying",
   error: "Error",
 };
 
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
   const s = deployment.status?.toLowerCase() ?? "";
-  if (s === "error" || s === "failed" || s === "crashloopbackoff") {
+  if (s === "undeploying") {
+    return "undeploying";
+  }
+  if (s === "error" || s === "failed" || s === "crashloopbackoff" || (deployment.ready === 0 && deployment.replicas > 0)) {
     return "error";
   }
-  if (s === "pending" || s === "provisioning" || s === "deploying" || s === "undeploying" || deployment.ready < deployment.replicas) {
+  if (s === "pending" || s === "provisioning" || s === "deploying" || deployment.ready < deployment.replicas) {
     return "pending";
   }
   if (deployment.ready === 0 && deployment.replicas > 0) {

@@ -20,7 +20,7 @@ import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
 
-export type DeployedAgentStatus = "active" | "inactive" | "pending" | "error";
+export type DeployedAgentStatus = "active" | "inactive" | "pending" | "undeploying" | "error";
 
 export interface DeployedAgentCardProps {
   name: string;
@@ -154,8 +154,8 @@ export function DeployedAgentCard({
           <div className="mt-1 flex items-center gap-2">
             <StatusIndicator
               variant={deploymentStatusVariant[status]}
-              pulse={status === "pending"}
-              spinner={status === "pending"}
+              pulse={status === "pending" || status === "undeploying"}
+              spinner={status === "pending" || status === "undeploying"}
             >
               {deploymentStatusLabel[status]}
             </StatusIndicator>

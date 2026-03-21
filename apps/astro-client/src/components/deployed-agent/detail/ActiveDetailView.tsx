@@ -185,6 +185,8 @@ export function ActiveDetailView({
             const badge =
               ds === 'error'
                 ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Error', spinning: false }
+                : ds === 'undeploying'
+                  ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Undeploying', spinning: true }
                 : ds === 'pending'
                   ? { bg: C.amberBg, bdr: C.amberBdr, dot: C.amber, label: 'Deploying', spinning: true }
                   : ds === 'inactive'
@@ -211,7 +213,6 @@ export function ActiveDetailView({
             deploymentName={deployment.name}
             displayName={deployment.display_name}
             account={account}
-            onDeleted={() => navigate("/agents")}
           />
         </div>
         <div

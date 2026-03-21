@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check, MoreVertical } from "lucide-react";
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
-import { formatDate, isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import {
+  formatDate,
+  isDeployingState,
+  mapDeploymentStatus,
+} from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 import { deploymentKeys } from "@/api/queries/keys";
 import type { DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
@@ -161,6 +165,16 @@ export function ActiveContainerAccordion({
     [containers, selectedContainer],
   );
   const vars = activeContainer?.vars ?? [];
+  const canShowVars = selectedContainer !== "collector";
+  const totalContainers = containers.length;
+  const readyContainers = containers.filter((container) => container.ready).length;
+  const allReady = totalContainers > 0 && readyContainers === totalContainers;
+
+  useEffect(() => {
+    if (!canShowVars && view === "vars") {
+      setView("logs");
+    }
+  }, [canShowVars, view]);
 
   const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
     deploymentId,
@@ -244,12 +258,17 @@ export function ActiveContainerAccordion({
         }}
       >
         <ChevronRight size={I.md} color={C.faint} style={{ flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }} />
-        {deploymentStatus === "deploying" ? (
+        {deploymentStatus === "deploying" || deploymentStatus === "undeploying" ? (
           <Loader2 size={16} style={{ color: C.amber, animation: "dp-spin 1.2s linear infinite", flexShrink: 0 }} />
-        ) : (
+        ) : allReady ? (
           <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
             <circle cx="12" cy="12" r="10" fill="rgba(21,130,125,0.12)" />
             <path d="M7.5 12l3 3 6-6" stroke={C.tealMid} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10" fill={C.amberBg} />
+            <circle cx="12" cy="12" r="4" fill={C.amber} />
           </svg>
         )}
         <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 500, color: C.text }} title={podName}>
@@ -317,6 +336,7 @@ export function ActiveContainerAccordion({
         <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
           <div style={{ display: "flex", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
             {(["logs", "vars"] as const).map((v) => (
+              v === "vars" && !canShowVars ? null : (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -336,6 +356,7 @@ export function ActiveContainerAccordion({
               >
                 {v === "vars" ? "Variables" : "Logs"}
               </button>
+              )
             ))}
           </div>
 
@@ -493,17 +514,18 @@ export function ActiveContainerAccordion({
                 <button
                   type="button"
                   title="Refresh logs"
-                  onClick={() => void refetch()}
-                  disabled={isFetching}
+                  onClick={() => {
+                    void refetch({ cancelRefetch: false });
+                  }}
                   style={{
                     background: "none",
                     border: `1px solid ${C.border}`,
-                    cursor: isFetching ? "wait" : "pointer",
+                    cursor: "pointer",
                     padding: "4px 6px",
                     borderRadius: 5,
                     color: C.faint,
                     display: "flex",
-                    opacity: isFetching ? 0.7 : 1,
+                    opacity: 1,
                   }}
                 >
                   <RefreshCw size={I.sm} className={isFetching ? "dp-spin" : undefined} />
@@ -606,10 +628,12 @@ function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDep
   if (h.id === live.id) {
     const ds = mapDeploymentStatus(live);
     if (ds === "error") return "failed";
+    if (ds === "undeploying") return "undeploying";
     if (ds === "pending") return "deploying";
     return "active";
   }
   const st = (h.status ?? "").toLowerCase();
+  if (st === "undeploying") return "undeploying";
   if (st === "pending" || st === "provisioning" || st === "deploying") return "deploying";
   if (st === "error" || st === "failed") return "failed";
   return "ready";
@@ -619,12 +643,14 @@ function statusColor(status: DeployHistoryStatus): string {
   if (status === "failed") return C.coral;
   if (status === "undeployed") return C.stone;
   if (status === "deploying") return C.amber;
+  if (status === "undeploying") return C.faint;
   return C.success;
 }
 
 function statusLabel(status: DeployHistoryStatus): string {
   if (status === "active" || status === "ready") return "Live";
   if (status === "deploying") return "Deploying";
+  if (status === "undeploying") return "Undeploying";
   if (status === "failed") return "Failed";
   return "Undeployed";
 }
@@ -805,7 +831,7 @@ export function DeploymentsTab({
                         gap: 6,
                       }}
                     >
-                      {currentRow.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
+                      {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                       {statusLabel(currentRow.status).toUpperCase()}
                     </span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{currentRow.duration}</span>
@@ -822,8 +848,12 @@ export function DeploymentsTab({
                     </div>
                     {podRows.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                        {currentRow.status === "deploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
-                        {currentRow.status === "deploying" ? "Waiting for pods to start and logs to stream…" : "No pod data available"}
+                        {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
+                        {currentRow.status === "deploying"
+                          ? "Waiting for pods to start and logs to stream…"
+                          : currentRow.status === "undeploying"
+                            ? "Tearing down pods and streaming final logs…"
+                            : "No pod data available"}
                       </p>
                     ) : (
                       podRows.map((pod) => (
@@ -896,7 +926,7 @@ export function DeploymentsTab({
                             gap: 6,
                           }}
                         >
-                          {row.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
+                          {row.status === "deploying" || row.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                           {statusLabel(row.status).toUpperCase()}
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{row.duration}</span>

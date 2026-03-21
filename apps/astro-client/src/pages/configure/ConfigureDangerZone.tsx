@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { useNavigate, useOutletContext } from "react-router";
+import { useOutletContext } from "react-router";
 import { Button } from "@/components/ui/button";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import type { ConfigureContext } from "./types";
 
 export default function ConfigureDangerZone() {
   const { account, deployment } = useOutletContext<ConfigureContext>();
-  const navigate = useNavigate();
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const displayName = deployment.display_name || deployment.name;
@@ -39,7 +38,6 @@ export default function ConfigureDangerZone() {
         deploymentName={deployment.name}
         displayName={displayName}
         account={account}
-        onDeleted={() => navigate("/agents")}
       />
     </>
   );

@@ -9,6 +9,19 @@ export function useDeployments(account: string, enabled = true) {
     queryKey: deploymentKeys.all(account),
     queryFn: () => api.listDeployments(account),
     enabled: !!account && enabled,
+    refetchInterval: (query) => {
+      const deployments = query.state.data?.deployments ?? [];
+      const hasTransitional = deployments.some((deployment) => {
+        const status = deployment.status?.toLowerCase?.() ?? "";
+        return (
+          status === "pending" ||
+          status === "provisioning" ||
+          status === "deploying" ||
+          status === "undeploying"
+        );
+      });
+      return hasTransitional ? 3000 : false;
+    },
   });
 }
 
@@ -50,15 +63,21 @@ export function useUndeployAgent(account: string) {
 
   return useMutation<UndeployResponse, Error, { deployment_id: string }>({
     mutationFn: api.undeployAgent.bind(api),
-    onSuccess: (_data, variables) => {
-      // Optimistically remove from cache so it doesn't flash back to "deploying"
-      // while K8s is still tearing down
+    onSuccess: (data, variables) => {
+      // Keep the deployment visible and mark it undeploying so users can track teardown.
       queryClient.setQueriesData(
         { queryKey: deploymentKeys.all(account) },
         (old: DeploymentsListResponse | undefined) => {
           if (!old) return old;
-          const filtered = old.deployments.filter((d) => d.id !== variables.deployment_id);
-          return { ...old, deployments: filtered, count: filtered.length };
+          const updated = old.deployments.map((d) =>
+            d.id === variables.deployment_id
+              ? {
+                  ...d,
+                  status: data?.status || "undeploying",
+                }
+              : d,
+          );
+          return { ...old, deployments: updated };
         },
       );
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });

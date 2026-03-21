@@ -763,8 +763,10 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				// DB status is authoritative for transitional states.
 				// K8s can briefly report zero replicas ("Stopped") while a deploy is still pending/provisioning.
 				switch dbDep.Status {
-				case deploymentstore.StatusPending, deploymentstore.StatusProvisioning, deploymentstore.StatusUndeploying:
+				case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
 					deps[i].Status = "pending"
+				case deploymentstore.StatusUndeploying:
+					deps[i].Status = "undeploying"
 				}
 			}
 			allDeployments = append(allDeployments, deps...)
@@ -789,7 +791,7 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 	case deploymentstore.StatusScaledDown:
 		status = "Stopped"
 	case deploymentstore.StatusUndeploying:
-		status = "pending"
+		status = "undeploying"
 	}
 
 	ad := AgentDeployment{
