@@ -653,7 +653,7 @@ export function DeploymentsTab({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {[
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
-                { label: "STATUS", value: isDeployingState(deployment) ? "DEPLOYING" : String(deployment.status || "unknown").toUpperCase() },
+                { label: "STATUS", value: String(deployment.status || "unknown").toUpperCase() },
                 { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
                 { label: "CONTAINERS", value: String(containers.length) },
               ].map((item) => (
