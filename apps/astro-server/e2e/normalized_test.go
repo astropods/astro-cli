@@ -95,13 +95,13 @@ func TestSasbot_Workloads(t *testing.T) {
 		t.Fatalf("GetWorkloads: %v", err)
 	}
 
-	// agent + ollama + cache + docs + graph + webhook = 6 (sidecars in separate table)
-	if len(workloads) != 6 {
+	// agent + ollama + cache + docs + graph + webhook + collector = 7 (sidecars in separate table)
+	if len(workloads) != 7 {
 		names := make([]string, len(workloads))
 		for i, w := range workloads {
 			names[i] = w.Name + " (" + w.ComponentKind + ")"
 		}
-		t.Fatalf("expected 6 workloads, got %d: %v", len(workloads), names)
+		t.Fatalf("expected 7 workloads, got %d: %v", len(workloads), names)
 	}
 
 	byName := map[string]*ds.Workload{}
@@ -116,6 +116,7 @@ func TestSasbot_Workloads(t *testing.T) {
 		"sasbot-knowledge-docs":    {"knowledge", "statefulset"},
 		"sasbot-knowledge-graph":   {"knowledge", "deployment"},
 		"sasbot-ingestion-webhook": {"ingestion", "deployment"},
+		"sasbot-collector":         {"collector", "deployment"},
 	}
 	for name, e := range expect {
 		w := byName[name]
@@ -153,32 +154,20 @@ func TestSasbot_Sidecars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSidecars: %v", err)
 	}
-	if len(sidecars) != 2 {
-		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
+	// Only messaging is a sidecar; the collector is a standalone workload.
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
 	}
 
-	byName := map[string]*ds.Sidecar{}
-	for _, sc := range sidecars {
-		byName[sc.Name] = sc
-	}
-
-	msg := byName["sasbot-messaging"]
-	if msg == nil {
-		t.Fatal("sidecar 'sasbot-messaging' not found")
+	msg := sidecars[0]
+	if msg.Name != "sasbot-messaging" {
+		t.Errorf("sidecar name: got %q, want sasbot-messaging", msg.Name)
 	}
 	if msg.ComponentKind != "messaging" {
 		t.Errorf("messaging kind: got %q", msg.ComponentKind)
 	}
 	if msg.CPULimit != "500m" || msg.MemoryLimit != "512Mi" {
 		t.Errorf("messaging limits: cpu=%q mem=%q", msg.CPULimit, msg.MemoryLimit)
-	}
-
-	col := byName["sasbot-collector"]
-	if col == nil {
-		t.Fatal("sidecar 'sasbot-collector' not found")
-	}
-	if col.ComponentKind != "collector" {
-		t.Errorf("collector kind: got %q", col.ComponentKind)
 	}
 }
 
