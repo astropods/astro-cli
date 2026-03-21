@@ -83,7 +83,7 @@ func GetLangfuseMetrics(
 			return
 		}
 
-		metrics, err := lctx.Client.GetDailyMetrics(c.Query("start_time"), c.Query("end_time"))
+		metrics, err := lctx.Client.GetDailyMetrics(lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"))
 		if err != nil {
 			log.Error("Failed to get Langfuse metrics", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
@@ -96,15 +96,19 @@ func GetLangfuseMetrics(
 				continue
 			}
 			buckets = append(buckets, gin.H{
-				"timestamp":   m.Date,
-				"trace_count": m.CountTraces,
-				"total_cost":  m.TotalCost,
+				"timestamp":      m.Date,
+				"trace_count":    m.CountTraces,
+				"avg_latency_ms": 0, // Langfuse daily metrics don't include latency
+				"input_tokens":   m.InputTokens(),
+				"output_tokens":  m.OutputTokens(),
+				"error_count":    0,
 			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"buckets":    buckets,
-			"time_range": gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
+			"buckets":          buckets,
+			"time_range":       gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
+			"interval_minutes": 1440, // Langfuse returns daily buckets
 		})
 	}
 }
@@ -142,7 +146,7 @@ func GetLangfuseSummary(
 				"metrics": gin.H{
 					"avg_latency_ms":  0,
 					"p95_latency_ms":  0,
-					"total_cost":      0,
+					"total_tokens":    0,
 					"error_rate":      0,
 					"traces_per_hour": 0,
 				},
@@ -151,13 +155,11 @@ func GetLangfuseSummary(
 		}
 
 		var sumLatency float64
-		var totalCost float64
 		latencies := make([]float64, 0, len(traces.Data))
 		for _, t := range traces.Data {
 			ms := t.Latency * 1000 // Langfuse returns seconds
 			sumLatency += ms
 			latencies = append(latencies, ms)
-			totalCost += t.TotalCost
 		}
 
 		avgLatency := sumLatency / float64(len(traces.Data))
@@ -183,7 +185,7 @@ func GetLangfuseSummary(
 			"metrics": gin.H{
 				"avg_latency_ms":  math.Round(avgLatency*100) / 100,
 				"p95_latency_ms":  math.Round(p95Latency*100) / 100,
-				"total_cost":      math.Round(totalCost*10000) / 10000,
+				"total_tokens":    0, // Langfuse doesn't provide per-trace token counts
 				"error_rate":      0, // Langfuse doesn't expose error status in trace list
 				"traces_per_hour": math.Round(tracesPerHour*100) / 100,
 			},
@@ -232,7 +234,6 @@ func GetLangfuseTraces(
 				"input":      t.Input,
 				"output":     t.Output,
 				"timestamp":  t.CreatedAt,
-				"total_cost": t.TotalCost,
 			})
 		}
 
@@ -240,7 +241,7 @@ func GetLangfuseTraces(
 			"traces": result,
 			"total":  traces.Meta.TotalItems,
 			"limit":  traces.Meta.Limit,
-			"offset": offset,
+			"offset": (traces.Meta.Page - 1) * traces.Meta.Limit,
 		})
 	}
 }

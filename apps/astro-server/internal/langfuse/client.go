@@ -54,12 +54,39 @@ type TracesResponse struct {
 	} `json:"meta"`
 }
 
+// DailyMetricUsage holds per-model token usage within a daily metric.
+type DailyMetricUsage struct {
+	Model       string  `json:"model"`
+	InputUsage  int     `json:"inputUsage"`
+	OutputUsage int     `json:"outputUsage"`
+	TotalUsage  int     `json:"totalUsage"`
+	TotalCost   float64 `json:"totalCost"`
+}
+
 // DailyMetric holds daily aggregated metrics from Langfuse.
 type DailyMetric struct {
-	Date        string  `json:"date"`
-	CountTraces int     `json:"countTraces"`
-	TotalCost   float64 `json:"totalCost"`
-	Usage       []any   `json:"usage"`
+	Date        string             `json:"date"`
+	CountTraces int                `json:"countTraces"`
+	TotalCost   float64            `json:"totalCost"`
+	Usage       []DailyMetricUsage `json:"usage"`
+}
+
+// InputTokens returns the sum of input tokens across all models.
+func (m DailyMetric) InputTokens() int {
+	var total int
+	for _, u := range m.Usage {
+		total += u.InputUsage
+	}
+	return total
+}
+
+// OutputTokens returns the sum of output tokens across all models.
+func (m DailyMetric) OutputTokens() int {
+	var total int
+	for _, u := range m.Usage {
+		total += u.OutputUsage
+	}
+	return total
 }
 
 // DailyMetricsResponse is the response from GET /api/public/metrics/daily.
@@ -97,9 +124,12 @@ func (c *Client) GetTraces(deploymentID, startTime, endTime string, limit, offse
 	return &result, nil
 }
 
-// GetDailyMetrics returns daily aggregated metrics.
-func (c *Client) GetDailyMetrics(startTime, endTime string) (*DailyMetricsResponse, error) {
+// GetDailyMetrics returns daily aggregated metrics filtered by deployment tag.
+func (c *Client) GetDailyMetrics(deploymentID, startTime, endTime string) (*DailyMetricsResponse, error) {
 	params := url.Values{}
+	if deploymentID != "" {
+		params.Set("tags", "deployment:"+deploymentID)
+	}
 	if startTime != "" {
 		params.Set("fromTimestamp", startTime)
 	}

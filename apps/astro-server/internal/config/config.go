@@ -179,7 +179,7 @@ func Load() (*Config, error) {
 			GalileoAPIEndpoint:     getEnv("GALILEO_API_ENDPOINT", "https://api.galileo.ai"),
 			LangfuseDBURL:          getEnv("LANGFUSE_DB_URL", ""),
 			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
-			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", ""),
+			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
 			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
 		},
 		Auth: AuthConfig{
