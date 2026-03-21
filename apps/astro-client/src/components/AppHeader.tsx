@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
-import { useAuth, getUserDisplayName, getUserAvatarProps } from "@/lib/auth";
+import { useAuth, getUserDisplayName } from "@/lib/auth";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { UserAvatar } from "@/components/UserAvatar";
