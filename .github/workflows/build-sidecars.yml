@@ -1,12 +1,7 @@
-name: Build Sidecars
+name: Publish collector
 
 on:
   workflow_dispatch:
-    inputs:
-      astro-collector:
-        description: "Build astro-collector"
-        type: boolean
-        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,46 +12,9 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Prepare: build matrix from selected sidecars
-  # ---------------------------------------------------------------------------
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      build_matrix: ${{ steps.set-matrix.outputs.build_matrix }}
-      merge_matrix: ${{ steps.set-matrix.outputs.merge_matrix }}
-    steps:
-      - name: Set matrix
-        id: set-matrix
-        run: |
-          build_items='[]'
-          merge_items='[]'
-
-          if [ "${{ inputs.astro-collector }}" == "true" ]; then
-            build_items=$(echo "$build_items" | jq -c '. + [
-              {"service":"astro-collector","context":"packages/astro-collector","platform":"linux/amd64","runner":"ubuntu-latest","push_ecr":true,"push_dockerhub":true},
-              {"service":"astro-collector","context":"packages/astro-collector","platform":"linux/arm64","runner":"ubuntu-24.04-arm","push_ecr":true,"push_dockerhub":true}
-            ]')
-            merge_items=$(echo "$merge_items" | jq -c '. + [{"service":"astro-collector","push_ecr":true,"push_dockerhub":true}]')
-          fi
-
-          count=$(echo "$build_items" | jq length)
-          if [ "$count" -eq 0 ]; then
-            echo "::error::No sidecars selected. Please select at least one."
-            exit 1
-          fi
-
-          build_matrix=$(echo "$build_items" | jq -c '{"include":.}')
-          merge_matrix=$(echo "$merge_items" | jq -c '{"include":.}')
-
-          echo "build_matrix=$build_matrix" >> "$GITHUB_OUTPUT"
-          echo "merge_matrix=$merge_matrix" >> "$GITHUB_OUTPUT"
-          echo "::notice::Build matrix: $build_matrix"
-
-  # ---------------------------------------------------------------------------
   # Validate: ensure required vars and secrets are set
   # ---------------------------------------------------------------------------
   validate:
-    needs: [prepare]
     runs-on: ubuntu-latest
     steps:
       - name: Check required variables
@@ -78,12 +36,17 @@ jobs:
   # Build: multi-arch images, push by digest to ECR + Docker Hub
   # ---------------------------------------------------------------------------
   build:
-    needs: [prepare, validate]
+    needs: [validate]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     permissions:
       id-token: write
       contents: read
@@ -98,7 +61,6 @@ jobs:
           echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
 
       - name: Configure AWS credentials
-        if: matrix.push_ecr
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
@@ -106,11 +68,9 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        if: matrix.push_ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Login to Docker Hub
-        if: matrix.push_dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -120,53 +80,49 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push to ECR by digest
-        if: matrix.push_ecr
         id: build-ecr
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: deployment/Dockerfile.${{ matrix.service }}
+          context: packages/astro-collector
+          file: deployment/Dockerfile.astro-collector
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ steps.login-ecr.outputs.registry }}/prod-${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.service }}-ecr-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-ecr-${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name=${{ steps.login-ecr.outputs.registry }}/prod-astro-collector,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=astro-collector-ecr-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=astro-collector-ecr-${{ env.PLATFORM_PAIR }}
           build-args: |
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
 
       - name: Build and push to Docker Hub by digest
-        if: matrix.push_dockerhub
         id: build-dockerhub
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: deployment/Dockerfile.${{ matrix.service }}
+          context: packages/astro-collector
+          file: deployment/Dockerfile.astro-collector
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=astropods/collector,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.service }}-dockerhub-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-dockerhub-${{ env.PLATFORM_PAIR }}
+          cache-from: type=gha,scope=astro-collector-dockerhub-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=astro-collector-dockerhub-${{ env.PLATFORM_PAIR }}
           build-args: |
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.updated_at }}
 
       - name: Export ECR digest
-        if: matrix.push_ecr
         run: |
-          mkdir -p ${{ runner.temp }}/digests/ecr/${{ matrix.service }}
+          mkdir -p ${{ runner.temp }}/digests/ecr
           digest="${{ steps.build-ecr.outputs.digest }}"
-          touch "${{ runner.temp }}/digests/ecr/${{ matrix.service }}/${digest#sha256:}"
+          touch "${{ runner.temp }}/digests/ecr/${digest#sha256:}"
 
       - name: Export Docker Hub digest
-        if: matrix.push_dockerhub
         run: |
-          mkdir -p ${{ runner.temp }}/digests/dockerhub/${{ matrix.service }}
+          mkdir -p ${{ runner.temp }}/digests/dockerhub
           digest="${{ steps.build-dockerhub.outputs.digest }}"
-          touch "${{ runner.temp }}/digests/dockerhub/${{ matrix.service }}/${digest#sha256:}"
+          touch "${{ runner.temp }}/digests/dockerhub/${digest#sha256:}"
 
       - name: Upload digests
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.service }}-${{ env.PLATFORM_PAIR }}
+          name: digests-${{ env.PLATFORM_PAIR }}
           path: ${{ runner.temp }}/digests
           if-no-files-found: error
           retention-days: 1
@@ -175,12 +131,9 @@ jobs:
   # Merge: create multi-arch manifests and tag
   # ---------------------------------------------------------------------------
   merge:
-    needs: [prepare, validate, build]
+    needs: [validate, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.merge_matrix) }}
     permissions:
       id-token: write
       contents: read
@@ -190,11 +143,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-${{ matrix.service }}-*
+          pattern: digests-*
           merge-multiple: true
 
       - name: Configure AWS credentials
-        if: matrix.push_ecr
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/prod-github-actions-ecr-push
@@ -202,11 +154,9 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        if: matrix.push_ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Login to Docker Hub
-        if: matrix.push_dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -216,11 +166,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Create ECR manifest and push
-        if: matrix.push_ecr
-        working-directory: ${{ runner.temp }}/digests/ecr/${{ matrix.service }}
+        working-directory: ${{ runner.temp }}/digests/ecr
         run: |
           REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-          PROD_IMAGE="$REGISTRY/prod-${{ matrix.service }}"
+          PROD_IMAGE="$REGISTRY/prod-astro-collector"
           docker buildx imagetools create \
             -t "$PROD_IMAGE:${{ github.sha }}" \
             -t "$PROD_IMAGE:latest" \
@@ -228,10 +177,9 @@ jobs:
           echo "::notice::ECR: $PROD_IMAGE:${{ github.sha }}"
 
       - name: Copy to preview ECR
-        if: matrix.push_ecr
         run: |
-          PROD_REPO="prod-${{ matrix.service }}"
-          PREVIEW_REPO="preview-${{ matrix.service }}"
+          PROD_REPO="prod-astro-collector"
+          PREVIEW_REPO="preview-astro-collector"
           TAG="${{ github.sha }}"
           MANIFEST=$(aws ecr batch-get-image \
             --repository-name "$PROD_REPO" \
@@ -240,11 +188,10 @@ jobs:
             --output text)
           aws ecr put-image --repository-name "$PREVIEW_REPO" --image-tag "$TAG" --image-manifest "$MANIFEST" || true
           aws ecr put-image --repository-name "$PREVIEW_REPO" --image-tag "latest" --image-manifest "$MANIFEST" || true
-          echo "::notice::ECR: preview-${{ matrix.service }}:$TAG"
+          echo "::notice::ECR: preview-astro-collector:$TAG"
 
       - name: Create Docker Hub manifest and push
-        if: matrix.push_dockerhub
-        working-directory: ${{ runner.temp }}/digests/dockerhub/${{ matrix.service }}
+        working-directory: ${{ runner.temp }}/digests/dockerhub
         run: |
           IMAGE="astropods/collector"
           docker buildx imagetools create \

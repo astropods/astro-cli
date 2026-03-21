@@ -20,7 +20,7 @@ processors:
     redact_prompts: ${env:ASTRO_REDACT_PROMPTS:-false}
 
 exporters:
-  otlphttp/galileo:
+  otlp_http/galileo:
     traces_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/traces}
     metrics_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/metrics}
     logs_endpoint: ${env:GALILEO_OTLP_ENDPOINT:-https://api.galileo.ai/otel/v1/logs}
@@ -33,7 +33,7 @@ exporters:
     # retry prevents a redundant second request that gets rejected as 422.
     retry_on_failure:
       enabled: false
-  otlphttp/langfuse:
+  otlp_http/langfuse:
     traces_endpoint: ${env:LANGFUSE_BASE_URL}/api/public/otel/v1/traces
     metrics_endpoint: ${env:LANGFUSE_BASE_URL}/api/public/otel/v1/metrics
     logs_endpoint: ${env:LANGFUSE_BASE_URL}/api/public/otel/v1/logs
@@ -54,12 +54,12 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, astro]
-      exporters: [debug, otlphttp/galileo, otlphttp/langfuse]
+      exporters: [debug, otlp_http/galileo, otlp_http/langfuse]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/galileo, otlphttp/langfuse]
+      exporters: [otlp_http/galileo, otlp_http/langfuse]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/galileo, otlphttp/langfuse]
+      exporters: [otlp_http/galileo, otlp_http/langfuse]
