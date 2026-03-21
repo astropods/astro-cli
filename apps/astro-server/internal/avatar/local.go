@@ -48,7 +48,7 @@ func (b *LocalBackend) Copy(_ context.Context, src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("local copy read %s: %w", src, err)
 	}
-	dstPath := b.path(dst)
+	dstPath := filepath.Clean(b.path(dst))
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o750); err != nil {
 		return fmt.Errorf("local copy mkdir %s: %w", filepath.Dir(dstPath), err)
 	}
