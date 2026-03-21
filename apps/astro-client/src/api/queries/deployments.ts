@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
+import type { DeploymentsListResponse, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
 
 export function useDeployments(account: string, enabled = true) {
@@ -47,14 +48,14 @@ export function useUndeployAgent(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation<import('@/lib/api').UndeployResponse, Error, { deployment_id: string }>({
+  return useMutation<UndeployResponse, Error, { deployment_id: string }>({
     mutationFn: api.undeployAgent.bind(api),
     onSuccess: (_data, variables) => {
       // Optimistically remove from cache so it doesn't flash back to "deploying"
       // while K8s is still tearing down
       queryClient.setQueriesData(
         { queryKey: deploymentKeys.all(account) },
-        (old: import('@/lib/api').DeploymentsListResponse | undefined) => {
+        (old: DeploymentsListResponse | undefined) => {
           if (!old) return old;
           const filtered = old.deployments.filter((d) => d.id !== variables.deployment_id);
           return { ...old, deployments: filtered, count: filtered.length };
@@ -83,8 +84,19 @@ export function useWakeUpDeployment(account: string) {
 
   return useMutation({
     mutationFn: api.wakeupDeployment.bind(api),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    onSuccess: (_data, variables) => {
+      queryClient.setQueriesData(
+        { queryKey: deploymentKeys.all(account) },
+        (old: DeploymentsListResponse | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            deployments: old.deployments.map((d) =>
+              d.id === variables.deploymentId ? { ...d, status: 'pending', ready: 0 } : d
+            ),
+          };
+        },
+      );
     },
   });
 }

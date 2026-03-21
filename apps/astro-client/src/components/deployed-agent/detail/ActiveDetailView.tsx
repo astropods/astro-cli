@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Settings2, Pause, Play, Loader2 } from "lucide-react";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
@@ -78,9 +80,12 @@ export function ActiveDetailView({
   onRedeploy,
 }: ActiveDetailViewProps) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [tab, setTab] = useState<'monitor' | 'deployments'>(initialTab)
   const [configOpen, setConfigOpen] = useState(false)
   const [optimisticDeploying, setOptimisticDeploying] = useState(false)
+  const [pausing, setPausing] = useState(false)
+  const pausePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { data: accountAgents } = useAccountAgents(account, true);
   const pauseMutation = usePauseDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
@@ -106,6 +111,21 @@ export function ActiveDetailView({
       setTab("deployments");
     }
   }, [monitorLocked, tab]);
+
+  useEffect(() => {
+    if (!pausing) return;
+    if (isPaused || !isDeploying) {
+      setPausing(false);
+      if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
+      return;
+    }
+    pausePollRef.current = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    }, 3000);
+    return () => {
+      if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
+    };
+  }, [pausing, isPaused, isDeploying, account, queryClient]);
 
   useEffect(() => {
     if (!optimisticDeploying) return;
@@ -205,20 +225,22 @@ export function ActiveDetailView({
         >
           {isDeploying && !isPaused && (
             <button
-              onClick={() => pauseMutation.mutate({ deploymentId: renderedDeployment.id })}
-              disabled={controlsBusy}
+              onClick={() => { setPausing(true); pauseMutation.mutate({ deploymentId: renderedDeployment.id }); }}
+              disabled={pausing || controlsBusy}
               title="Pause deployment (scale instances to zero)"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 14px', borderRadius: 6, cursor: controlsBusy ? 'wait' : 'pointer',
+                padding: '6px 14px', borderRadius: 6,
+                cursor: pausing || controlsBusy ? 'not-allowed' : 'pointer',
                 background: 'transparent',
-                border: `1px solid ${C.coralBdr}`,
-                fontFamily: S.body, fontSize: T.heading4, color: C.coral,
-                opacity: controlsBusy ? 0.7 : 1,
+                border: `1px solid ${pausing ? C.border : C.coralBdr}`,
+                fontFamily: S.body, fontSize: T.heading4,
+                color: pausing ? C.faint : C.coral,
+                opacity: pausing || controlsBusy ? 0.5 : 1,
                 transition: 'all 0.12s',
               }}
             >
-              {pauseMutation.isPending ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : <Pause size={I.md} />}
+              {pausing || pauseMutation.isPending ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : <Pause size={I.md} />}
               Pause
             </button>
           )}
