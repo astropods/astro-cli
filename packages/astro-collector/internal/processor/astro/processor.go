@@ -233,17 +233,23 @@ func mapMastraAttributes(attrs pcommon.Map) {
 
 // mastraUserSessionMappings maps Mastra metadata attributes to Langfuse
 // trace-level user/session fields so Langfuse's filtering UI works.
+// Mastra's OTel exporter sends resourceId for the user identity and threadId
+// for the conversation session. It may also send userId/sessionId if explicitly
+// set in agent metadata. We check both, preferring the explicit names.
 var mastraUserSessionMappings = []struct {
 	src string
 	dst string
 }{
 	{"mastra.metadata.userId", "langfuse.user.id"},
+	{"mastra.metadata.resourceId", "langfuse.user.id"},
 	{"mastra.metadata.sessionId", "langfuse.session.id"},
+	{"mastra.metadata.threadId", "langfuse.session.id"},
+	{"gen_ai.conversation.id", "langfuse.session.id"},
 }
 
-// mapMastraUserSession copies mastra.metadata.userId → langfuse.user.id and
-// mastra.metadata.sessionId → langfuse.session.id so Langfuse populates its
-// top-level user and session fields for filtering.
+// mapMastraUserSession maps Mastra user/session metadata to Langfuse attributes.
+// Checks userId before resourceId and sessionId before threadId so explicit
+// values take priority. Won't overwrite if the destination is already set.
 func mapMastraUserSession(attrs pcommon.Map) {
 	for _, m := range mastraUserSessionMappings {
 		if src, ok := attrs.Get(m.src); ok {

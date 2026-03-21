@@ -352,7 +352,8 @@ func TestMapMastraAttributes_NoMastraAttrs(t *testing.T) {
 	}
 }
 
-func TestMapMastraUserSession(t *testing.T) {
+func TestMapMastraUserSession_ResourceIdThreadId(t *testing.T) {
+	// Real Mastra spans use resourceId/threadId, not userId/sessionId
 	cfg := &Config{
 		AgentName:    "agent",
 		AgentVersion: "v1",
@@ -368,8 +369,8 @@ func TestMapMastraUserSession(t *testing.T) {
 	span.SetName("agent_run")
 	span.SetTraceID(pcommon.TraceID([16]byte{1}))
 	span.SetSpanID(pcommon.SpanID([8]byte{1}))
-	span.Attributes().PutStr("mastra.metadata.userId", "user-123")
-	span.Attributes().PutStr("mastra.metadata.sessionId", "sess-456")
+	span.Attributes().PutStr("mastra.metadata.resourceId", "anonymous")
+	span.Attributes().PutStr("mastra.metadata.threadId", "f70283ee-2932-4015-afa4-6d43715eeb17")
 
 	if err := p.ConsumeTraces(context.Background(), td); err != nil {
 		t.Fatalf("ConsumeTraces failed: %v", err)
@@ -379,24 +380,57 @@ func TestMapMastraUserSession(t *testing.T) {
 
 	v, ok := attrs.Get("langfuse.user.id")
 	if !ok {
-		t.Fatal("expected langfuse.user.id to be set")
+		t.Fatal("expected langfuse.user.id to be set from resourceId")
 	}
-	if v.Str() != "user-123" {
-		t.Errorf("langfuse.user.id: expected %q, got %q", "user-123", v.Str())
+	if v.Str() != "anonymous" {
+		t.Errorf("langfuse.user.id: expected %q, got %q", "anonymous", v.Str())
 	}
 
 	v, ok = attrs.Get("langfuse.session.id")
 	if !ok {
-		t.Fatal("expected langfuse.session.id to be set")
+		t.Fatal("expected langfuse.session.id to be set from threadId")
 	}
-	if v.Str() != "sess-456" {
-		t.Errorf("langfuse.session.id: expected %q, got %q", "sess-456", v.Str())
+	if v.Str() != "f70283ee-2932-4015-afa4-6d43715eeb17" {
+		t.Errorf("langfuse.session.id: expected %q, got %q", "f70283ee-2932-4015-afa4-6d43715eeb17", v.Str())
+	}
+}
+
+func TestMapMastraUserSession_ExplicitUserIdTakesPriority(t *testing.T) {
+	// When both userId and resourceId are present, userId wins (checked first)
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent_run")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.metadata.userId", "explicit-user")
+	span.Attributes().PutStr("mastra.metadata.resourceId", "anonymous")
+	span.Attributes().PutStr("mastra.metadata.sessionId", "explicit-session")
+	span.Attributes().PutStr("mastra.metadata.threadId", "thread-123")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
 	}
 
-	// Originals preserved
-	v, _ = attrs.Get("mastra.metadata.userId")
-	if v.Str() != "user-123" {
-		t.Error("original mastra.metadata.userId should be preserved")
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+	v, _ := attrs.Get("langfuse.user.id")
+	if v.Str() != "explicit-user" {
+		t.Errorf("userId should take priority over resourceId, got %q", v.Str())
+	}
+
+	v, _ = attrs.Get("langfuse.session.id")
+	if v.Str() != "explicit-session" {
+		t.Errorf("sessionId should take priority over threadId, got %q", v.Str())
 	}
 }
 
@@ -416,7 +450,7 @@ func TestMapMastraUserSession_NoOverwrite(t *testing.T) {
 	span.SetName("agent_run")
 	span.SetTraceID(pcommon.TraceID([16]byte{1}))
 	span.SetSpanID(pcommon.SpanID([8]byte{1}))
-	span.Attributes().PutStr("mastra.metadata.userId", "mastra-user")
+	span.Attributes().PutStr("mastra.metadata.resourceId", "mastra-user")
 	span.Attributes().PutStr("langfuse.user.id", "existing-user")
 
 	if err := p.ConsumeTraces(context.Background(), td); err != nil {
