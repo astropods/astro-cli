@@ -109,6 +109,9 @@ func TestComputeExpectedResourceNames_WithObservability(t *testing.T) {
 	if !expected["Service"][collectorName] {
 		t.Errorf("expected collector service %s", collectorName)
 	}
+	if !expected["Deployment"][collectorName] {
+		t.Errorf("expected collector deployment %s", collectorName)
+	}
 }
 
 func TestComputeExpectedResourceNames_WithMessagingAndIngress(t *testing.T) {

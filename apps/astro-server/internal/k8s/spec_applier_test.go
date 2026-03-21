@@ -649,6 +649,33 @@ func TestApplyDeploymentSpec_WorkloadNamesMatchNormalized(t *testing.T) {
 			t.Errorf("applier created workload %q not in expected normalized set", name)
 		}
 	}
+
+	// Cross-check orphan cleanup: computeExpectedResourceNames must list
+	// every Deployment/StatefulSet the applier creates, otherwise the
+	// cleanup will delete resources immediately after they're created.
+	orphanExpected := computeExpectedResourceNames(ds, "", "")
+	for name := range applierWorkloads {
+		kind := "Deployment"
+		if !orphanExpected[kind][name] {
+			kind = "StatefulSet"
+		}
+		if !orphanExpected[kind][name] {
+			t.Errorf("applier workload %q not in orphan cleanup expected set — cleanup would delete it", name)
+		}
+	}
+
+	// Also check Services: every Service the applier creates must be expected
+	applierServices := make(map[string]bool)
+	for _, r := range result.Resources {
+		if r.Kind == "Service" {
+			applierServices[r.Name] = true
+		}
+	}
+	for name := range applierServices {
+		if !orphanExpected["Service"][name] {
+			t.Errorf("applier service %q not in orphan cleanup expected set — cleanup would delete it", name)
+		}
+	}
 }
 
 func TestApplyDeploymentSpec_ResourceStatusNames(t *testing.T) {

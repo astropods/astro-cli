@@ -106,10 +106,11 @@ func computeExpectedResourceNames(
 		}
 	}
 
-	// Observability (collector)
+	// Observability (collector) — standalone deployment
 	if ds.Observability.Enabled {
 		collectorResourceName := deployment.GenerateAgentResourceName(agentName, "collector")
 		expected["Service"][collectorResourceName] = true
+		expected["Deployment"][collectorResourceName] = true
 	}
 
 	// Ingestion
