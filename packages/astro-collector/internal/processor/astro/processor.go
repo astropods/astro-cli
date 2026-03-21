@@ -2,6 +2,7 @@ package astro
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"go.opentelemetry.io/collector/component"
@@ -32,6 +33,8 @@ var promptAttributePrefixes = []string{
 	"llm.completions",
 	"langfuse.observation.input",
 	"langfuse.observation.output",
+	"langfuse.trace.input",
+	"langfuse.trace.output",
 }
 
 // promptAttributeSuffixes lists attribute name suffixes that, when combined
@@ -97,9 +100,15 @@ func (p *astroProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 		for j := 0; j < rs.ScopeSpans().Len(); j++ {
 			ss := rs.ScopeSpans().At(j)
 			for k := 0; k < ss.Spans().Len(); k++ {
-				attrs := ss.Spans().At(k).Attributes()
+				span := ss.Spans().At(k)
+				attrs := span.Attributes()
 				p.setLangfuseTags(attrs)
 				mapMastraAttributes(attrs)
+				mapMastraUserSession(attrs)
+				isRoot := span.ParentSpanID().IsEmpty()
+				if isRoot {
+					mapMastraTraceIO(attrs)
+				}
 			}
 		}
 
@@ -141,10 +150,22 @@ func (p *astroProcessor) enrichResourceAttributes(attrs pcommon.Map) {
 	attrs.PutStr(attrDeploymentID, p.cfg.DeploymentID)
 }
 
-// setLangfuseTags sets langfuse.tags on span attributes so Langfuse indexes them as filterable tags.
+// setLangfuseTags sets langfuse.trace.tags on span attributes so Langfuse
+// indexes them as filterable tags. Includes the deployment tag and merges in
+// any agent-defined tags from mastra.tags (a JSON-stringified string array
+// set by @mastra/otel-exporter on root spans).
 func (p *astroProcessor) setLangfuseTags(attrs pcommon.Map) {
 	tags := attrs.PutEmptySlice("langfuse.trace.tags")
 	tags.AppendEmpty().SetStr("deployment:" + p.cfg.DeploymentID)
+
+	if mastraTags, ok := attrs.Get("mastra.tags"); ok {
+		var parsed []string
+		if err := json.Unmarshal([]byte(mastraTags.Str()), &parsed); err == nil {
+			for _, t := range parsed {
+				tags.AppendEmpty().SetStr(t)
+			}
+		}
+	}
 }
 
 // Mastra's OTel exporter (@mastra/otel-exporter) stores input/output in
@@ -208,6 +229,46 @@ func mapMastraAttributes(attrs pcommon.Map) {
 		}
 		return true
 	})
+}
+
+// mastraUserSessionMappings maps Mastra metadata attributes to Langfuse
+// trace-level user/session fields so Langfuse's filtering UI works.
+var mastraUserSessionMappings = []struct {
+	src string
+	dst string
+}{
+	{"mastra.metadata.userId", "langfuse.user.id"},
+	{"mastra.metadata.sessionId", "langfuse.session.id"},
+}
+
+// mapMastraUserSession copies mastra.metadata.userId → langfuse.user.id and
+// mastra.metadata.sessionId → langfuse.session.id so Langfuse populates its
+// top-level user and session fields for filtering.
+func mapMastraUserSession(attrs pcommon.Map) {
+	for _, m := range mastraUserSessionMappings {
+		if src, ok := attrs.Get(m.src); ok {
+			if _, exists := attrs.Get(m.dst); !exists {
+				src.CopyTo(attrs.PutEmpty(m.dst))
+			}
+		}
+	}
+}
+
+// mapMastraTraceIO sets langfuse.trace.input/output from the observation-level
+// input/output on root spans. This ensures the Langfuse trace record shows
+// the agent's top-level input/output, not just the observation.
+// Must be called after mapMastraAttributes so langfuse.observation.* is set.
+func mapMastraTraceIO(attrs pcommon.Map) {
+	if src, ok := attrs.Get("langfuse.observation.input"); ok {
+		if _, exists := attrs.Get("langfuse.trace.input"); !exists {
+			src.CopyTo(attrs.PutEmpty("langfuse.trace.input"))
+		}
+	}
+	if src, ok := attrs.Get("langfuse.observation.output"); ok {
+		if _, exists := attrs.Get("langfuse.trace.output"); !exists {
+			src.CopyTo(attrs.PutEmpty("langfuse.trace.output"))
+		}
+	}
 }
 
 // redactTraceSpans redacts sensitive prompt/completion content from span attributes.

@@ -352,6 +352,208 @@ func TestMapMastraAttributes_NoMastraAttrs(t *testing.T) {
 	}
 }
 
+func TestMapMastraUserSession(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent_run")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.metadata.userId", "user-123")
+	span.Attributes().PutStr("mastra.metadata.sessionId", "sess-456")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+	v, ok := attrs.Get("langfuse.user.id")
+	if !ok {
+		t.Fatal("expected langfuse.user.id to be set")
+	}
+	if v.Str() != "user-123" {
+		t.Errorf("langfuse.user.id: expected %q, got %q", "user-123", v.Str())
+	}
+
+	v, ok = attrs.Get("langfuse.session.id")
+	if !ok {
+		t.Fatal("expected langfuse.session.id to be set")
+	}
+	if v.Str() != "sess-456" {
+		t.Errorf("langfuse.session.id: expected %q, got %q", "sess-456", v.Str())
+	}
+
+	// Originals preserved
+	v, _ = attrs.Get("mastra.metadata.userId")
+	if v.Str() != "user-123" {
+		t.Error("original mastra.metadata.userId should be preserved")
+	}
+}
+
+func TestMapMastraUserSession_NoOverwrite(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent_run")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.metadata.userId", "mastra-user")
+	span.Attributes().PutStr("langfuse.user.id", "existing-user")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	v, _ := attrs.Get("langfuse.user.id")
+	if v.Str() != "existing-user" {
+		t.Errorf("should not overwrite existing langfuse.user.id, got %q", v.Str())
+	}
+}
+
+func TestSetLangfuseTags_MergesMastraTags(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent_run")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.tags", `["astro","agent:sasbot"]`)
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	tagsVal, ok := attrs.Get("langfuse.trace.tags")
+	if !ok {
+		t.Fatal("expected langfuse.trace.tags to be set")
+	}
+	tagsSlice := tagsVal.Slice()
+	wantTags := []string{"deployment:dep-1", "astro", "agent:sasbot"}
+	if tagsSlice.Len() != len(wantTags) {
+		t.Fatalf("expected %d tags, got %d", len(wantTags), tagsSlice.Len())
+	}
+	for i, want := range wantTags {
+		if tagsSlice.At(i).Str() != want {
+			t.Errorf("tag[%d]: expected %q, got %q", i, want, tagsSlice.At(i).Str())
+		}
+	}
+}
+
+func TestMapMastraTraceIO_RootSpan(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	// Root span (no parent)
+	span := ss.Spans().AppendEmpty()
+	span.SetName("agent_run")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.agent_run.input", "hello")
+	span.Attributes().PutStr("mastra.agent_run.output", "world")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+	// Trace-level IO should be set on root spans
+	v, ok := attrs.Get("langfuse.trace.input")
+	if !ok {
+		t.Fatal("expected langfuse.trace.input on root span")
+	}
+	if v.Str() != "hello" {
+		t.Errorf("langfuse.trace.input: expected %q, got %q", "hello", v.Str())
+	}
+
+	v, ok = attrs.Get("langfuse.trace.output")
+	if !ok {
+		t.Fatal("expected langfuse.trace.output on root span")
+	}
+	if v.Str() != "world" {
+		t.Errorf("langfuse.trace.output: expected %q, got %q", "world", v.Str())
+	}
+}
+
+func TestMapMastraTraceIO_ChildSpan(t *testing.T) {
+	cfg := &Config{
+		AgentName:    "agent",
+		AgentVersion: "v1",
+		DeploymentID: "dep-1",
+	}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	// Child span (has parent)
+	span := ss.Spans().AppendEmpty()
+	span.SetName("tool_call")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{2}))
+	span.SetParentSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("mastra.tool_call.input", "tool input")
+	span.Attributes().PutStr("mastra.tool_call.output", "tool output")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+	// Trace-level IO should NOT be set on child spans
+	if _, ok := attrs.Get("langfuse.trace.input"); ok {
+		t.Error("langfuse.trace.input should not be set on child spans")
+	}
+	if _, ok := attrs.Get("langfuse.trace.output"); ok {
+		t.Error("langfuse.trace.output should not be set on child spans")
+	}
+
+	// Observation-level IO should still be set
+	if _, ok := attrs.Get("langfuse.observation.input"); !ok {
+		t.Error("expected langfuse.observation.input on child span")
+	}
+}
+
 func TestRedactPrompts_MastraAttributes(t *testing.T) {
 	cfg := &Config{
 		AgentName:     "agent",
@@ -392,8 +594,8 @@ func TestRedactPrompts_MastraAttributes(t *testing.T) {
 		}
 	}
 
-	// langfuse.observation.input/output should also be redacted (set by mapMastraAttributes, then redacted)
-	for _, key := range []string{"langfuse.observation.input", "langfuse.observation.output"} {
+	// langfuse observation and trace level attributes should also be redacted
+	for _, key := range []string{"langfuse.observation.input", "langfuse.observation.output", "langfuse.trace.input", "langfuse.trace.output"} {
 		v, ok := attrs.Get(key)
 		if !ok {
 			t.Errorf("expected attribute %q", key)
