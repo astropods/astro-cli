@@ -63,9 +63,10 @@ export function useDeployAgent(account: string, agentName: string) {
         deploymentKeys.all(account),
         (old) => {
           if (!old) return old;
+          const deployments = Array.isArray(old.deployments) ? old.deployments : [];
           return {
             ...old,
-            deployments: old.deployments.map((d) =>
+            deployments: deployments.map((d) =>
               d.name === agentName
                 ? {
                     ...d,
@@ -88,9 +89,10 @@ export function useDeployAgent(account: string, agentName: string) {
           deploymentKeys.all(account),
           (old) => {
             if (!old) return old;
+            const deployments = Array.isArray(old.deployments) ? old.deployments : [];
             return {
               ...old,
-              deployments: old.deployments.map((d) =>
+              deployments: deployments.map((d) =>
                 d.name === data.name
                   ? {
                       ...d,

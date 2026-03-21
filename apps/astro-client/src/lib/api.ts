@@ -317,7 +317,7 @@ class ApiClient {
   }
 
   async pauseDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/stop`, {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/pause`, {
       method: "POST",
     });
   }

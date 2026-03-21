@@ -722,12 +722,12 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		// Deployments without K8s resources (failed, pending) get a DB-only entry.
 		var allDeployments []AgentDeployment
 		for _, dbDep := range dbDeps {
-		firstSeenAt := dbDep.DeployedAt
-		if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
-			log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
-		} else if firstEventAt != nil {
-			firstSeenAt = *firstEventAt
-		}
+			firstSeenAt := dbDep.DeployedAt
+			if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
+				log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
+			} else if firstEventAt != nil {
+				firstSeenAt = *firstEventAt
+			}
 
 			// Read manual ingestions from namespace annotations
 			ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
@@ -735,9 +735,9 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			)
 			if nsErr != nil || ns.DeletionTimestamp != nil {
 				// No K8s namespace — build entry from DB record alone
-			entry := agentDeploymentFromDB(dbDep)
-			entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
-			allDeployments = append(allDeployments, entry)
+				entry := agentDeploymentFromDB(dbDep)
+				entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
+				allDeployments = append(allDeployments, entry)
 				continue
 			}
 
@@ -745,9 +745,9 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
 			if k8sErr != nil || len(deps) == 0 {
 				// K8s resources missing or error — build entry from DB record
-			entry := agentDeploymentFromDB(dbDep)
-			entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
-			allDeployments = append(allDeployments, entry)
+				entry := agentDeploymentFromDB(dbDep)
+				entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
+				allDeployments = append(allDeployments, entry)
 				continue
 			}
 
@@ -1725,9 +1725,8 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 	}
 }
 
-// PauseDeployment (stop alias) scales a deployment namespace to zero replicas and marks status scaled_down.
+// PauseDeployment scales a deployment namespace to zero replicas and marks status scaled_down.
 // POST /api/v1/deployments/:id/pause
-// POST /api/v1/deployments/:id/stop
 func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {

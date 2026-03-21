@@ -185,9 +185,9 @@ test.describe("configure page", () => {
       { waitUntil: "domcontentloaded" },
     );
 
-    await expect(page.getByText("Containers")).toBeVisible({ timeout: 20_000 });
-    const ingestionPod = page.getByText(/ingestion.*manual/i);
-    await expect(ingestionPod).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Running")).toBeVisible();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /^Deployments$/i }).click();
+    const manualContainer = page.getByRole("button", { name: /manual/i });
+    await expect(manualContainer).toBeVisible({ timeout: 20_000 });
   });
 });

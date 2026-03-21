@@ -718,6 +718,9 @@ export function DeploymentsTab({
                   </div>
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
+                    <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, margin: "6px 0 10px" }}>
+                      Containers
+                    </div>
                     {containers.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
                         {currentRow.status === "deploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}

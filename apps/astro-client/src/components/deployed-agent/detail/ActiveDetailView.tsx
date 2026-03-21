@@ -5,6 +5,10 @@ import { AgentIdentity } from "@/components/AgentIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
+import { useAccountAgents } from "@/api/queries/agents";
+import { InlineBadge } from "@/components/InlineBadge";
+import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
@@ -77,6 +81,7 @@ export function ActiveDetailView({
   const [tab, setTab] = useState<'monitor' | 'deployments'>(initialTab)
   const [configOpen, setConfigOpen] = useState(false)
   const [optimisticDeploying, setOptimisticDeploying] = useState(false)
+  const { data: accountAgents } = useAccountAgents(account, true);
   const pauseMutation = usePauseDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
   const renderedDeployment = optimisticDeploying
@@ -87,6 +92,14 @@ export function ActiveDetailView({
   const isDeploying = isDeployingState(renderedDeployment);
   const isPaused = isPausedState(renderedDeployment);
   const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
+  const latestBuildId = accountAgents?.agents
+    ?.find((a) => a.name === renderedDeployment.name)
+    ?.versions?.reduce((latest, current) =>
+      new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
+        ? current
+        : latest,
+    )?.build_id;
+  const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
 
   useEffect(() => {
     if (monitorLocked && tab === "monitor") {
@@ -126,7 +139,27 @@ export function ActiveDetailView({
           <div style={{ borderRadius: 8, overflow: 'hidden', flexShrink: 0, lineHeight: 0 }}>
             <AgentIdentity account={account} name={deployment.name} size={26} className="rounded-sm" />
           </div>
-          <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text }}>{displayName}</span>
+          <h1
+            style={{
+              fontFamily: S.body,
+              fontSize: T.heading4,
+              fontWeight: 600,
+              color: C.text,
+              margin: 0,
+              lineHeight: 1.2,
+            }}
+          >
+            {displayName}
+          </h1>
+          <InlineBadge className="normal-case">
+            {renderedDeployment.build_id}
+          </InlineBadge>
+          {hasNewBuildAvailable ? (
+            <BuildUpdateBadge
+              currentBuildId={renderedDeployment.build_id}
+              latestBuildId={latestBuildId}
+            />
+          ) : null}
           {(() => {
             const ds = mapDeploymentStatus(renderedDeployment)
             const badge =
@@ -261,30 +294,47 @@ export function ActiveDetailView({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
                 </svg>
               )},
-            ]).map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => {
-                  if (id === "monitor" && monitorLocked) return;
-                  setTab(id);
-                }}
-                title={id === "monitor" && monitorLocked ? monitorLockReason : undefined}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  background: 'none', border: 'none', cursor: id === "monitor" && monitorLocked ? 'not-allowed' : 'pointer',
-                  fontFamily: S.body, fontSize: T.heading4,
-                  fontWeight: tab === id ? 600 : 400,
-                  color: id === "monitor" && monitorLocked ? C.faint : (tab === id ? C.text : C.faint),
-                  padding: '11px 16px',
-                  borderBottom: tab === id && !(id === "monitor" && monitorLocked) ? `2px solid ${C.tealMid}` : '2px solid transparent',
-                  opacity: id === "monitor" && monitorLocked ? 0.65 : 1,
-                  transition: 'color 0.15s',
-                }}
-              >
-                {icon}
-                {label}
-              </button>
-            ))}
+            ]).map(({ id, label, icon }) => {
+              const isLockedMonitor = id === "monitor" && monitorLocked;
+              const tabButton = (
+                <button
+                  key={id}
+                  onClick={() => {
+                    if (isLockedMonitor) return;
+                    setTab(id);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'none', border: 'none', cursor: isLockedMonitor ? 'not-allowed' : 'pointer',
+                    fontFamily: S.body, fontSize: T.heading4,
+                    fontWeight: tab === id ? 600 : 400,
+                    color: isLockedMonitor ? C.faint : (tab === id ? C.text : C.faint),
+                    padding: '11px 16px',
+                    borderBottom: tab === id && !isLockedMonitor ? `2px solid ${C.tealMid}` : '2px solid transparent',
+                    opacity: isLockedMonitor ? 0.65 : 1,
+                    transition: 'color 0.15s',
+                  }}
+                >
+                  {icon}
+                  {label}
+                </button>
+              );
+
+              if (!isLockedMonitor) return tabButton;
+
+              return (
+                <TooltipProvider key={id} delayDuration={100}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {tabButton}
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" sideOffset={6}>
+                      {monitorLockReason}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              );
+            })}
           </div>
 
           {/* tab content */}
