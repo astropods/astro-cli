@@ -212,8 +212,8 @@ export function ActiveDetailView({
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '6px 14px', borderRadius: 6, cursor: controlsBusy ? 'wait' : 'pointer',
                 background: 'transparent',
-                border: `1px solid ${C.border}`,
-                fontFamily: S.body, fontSize: T.heading4, color: C.muted,
+                border: `1px solid ${C.coralBdr}`,
+                fontFamily: S.body, fontSize: T.heading4, color: C.coral,
                 opacity: controlsBusy ? 0.7 : 1,
                 transition: 'all 0.12s',
               }}

@@ -579,7 +579,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.teal }}>Monitor</span>
+            <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.text }}>Monitor</span>
             <Select value={win} onValueChange={(value) => setWin(value as Win)}>
               <SelectTrigger
                 className="h-9 w-auto min-w-[160px] px-3"
@@ -799,7 +799,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                 const isOpen = expanded.has(trace.id);
                 const externalId = `...${trace.id.slice(-4)}`;
                 const copied = copiedTraceId === trace.id;
-                const latencyColor = trace.latency > 2000 ? C.coral : C.muted;
+                const latencyColor = trace.latency > 2000 ? C.coral : C.text;
                 const outputText = trace.output ?? "";
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -815,7 +815,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <ChevronDown size={I.xs} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.muted, whiteSpace: "nowrap" }}>{trace.time}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text, whiteSpace: "nowrap" }}>{trace.time}</span>
                       </div>
                       <span />
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
@@ -827,12 +827,12 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                         </span>
                       </div>
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.muted }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text }}>
                           {trace.tokens > 0 ? trace.tokens.toLocaleString() : "—"}
                         </span>
                       </div>
                       <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.muted }}>{externalId}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text }}>{externalId}</span>
                         <button
                           type="button"
                           onClick={(e) => {

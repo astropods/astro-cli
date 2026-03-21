@@ -18,11 +18,14 @@ export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
 
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
   const s = deployment.status?.toLowerCase() ?? "";
-  if (s === "error" || s === "failed" || s === "crashloopbackoff" || (deployment.ready === 0 && deployment.replicas > 0)) {
+  if (s === "error" || s === "failed" || s === "crashloopbackoff") {
     return "error";
   }
   if (s === "pending" || s === "provisioning" || s === "deploying" || s === "undeploying" || deployment.ready < deployment.replicas) {
     return "pending";
+  }
+  if (deployment.ready === 0 && deployment.replicas > 0) {
+    return "error";
   }
   if (deployment.replicas === 0) {
     return "inactive";

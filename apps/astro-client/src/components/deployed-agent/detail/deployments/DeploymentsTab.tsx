@@ -399,14 +399,14 @@ export function ActiveContainerAccordion({ name, url, ready, uptime, liveLogs, v
                     </option>
                   ))}
                 </select>
-                <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 5, border: `1px solid ${C.border}`, background: C.bg }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
                   <Search size={I.sm} color={C.faint} />
                   <input
                     type="text"
                     placeholder="Find in logs"
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
-                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.body, color: C.muted, width: 120, caretColor: C.tealMid }}
+                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: 120, caretColor: C.tealMid }}
                   />
                 </div>
                 <button
@@ -647,13 +647,13 @@ export function DeploymentsTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.teal, flex: 1 }}>Deployments</span>
+          <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.text, flex: 1 }}>Deployments</span>
         </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {[
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
-                { label: "STATUS", value: String(deployment.status || "unknown").toUpperCase() },
+                { label: "STATUS", value: isDeployingState(deployment) ? "DEPLOYING" : String(deployment.status || "unknown").toUpperCase() },
                 { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
                 { label: "CONTAINERS", value: String(containers.length) },
               ].map((item) => (
@@ -671,7 +671,7 @@ export function DeploymentsTab({
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible" }}>
               <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
                 {["Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h, i) => (
-                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i === 4 ? "right" : "left", whiteSpace: "nowrap" }}>
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", whiteSpace: "nowrap" }}>
                     {h.toUpperCase()}
                   </span>
                 ))}
@@ -709,9 +709,9 @@ export function DeploymentsTab({
                       {currentRow.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                       {currentRow.status.toUpperCase()}
                     </span>
-                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{currentRow.duration}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.muted }}>{currentRow.build}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{currentRow.duration}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{currentRow.build}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
                       {currentRow.time}
                     </span>
                     <span />
@@ -765,11 +765,7 @@ export function DeploymentsTab({
                     <Loader2 size={I.md} className="dp-spin" />
                     Loading deployment history…
                   </div>
-                ) : pastRows.length === 0 ? (
-                  <div style={{ padding: "14px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
-                    No prior deployments yet.
-                  </div>
-                ) : (
+                ) : pastRows.length === 0 ? null : (
                   <>
                     {pastRows.map((row, idx) => (
                       <div
@@ -803,9 +799,9 @@ export function DeploymentsTab({
                           {row.status === "deploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                           {row.status.toUpperCase()}
                         </span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>{row.duration}</span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.muted }}>{row.build}</span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{row.duration}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{row.build}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
                           {row.time}
                         </span>
                         <div style={{ position: "relative" }}>
