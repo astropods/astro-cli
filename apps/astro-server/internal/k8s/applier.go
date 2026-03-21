@@ -47,6 +47,9 @@ type ApplierConfig struct {
 	// PodSubnetCIDRs are the private subnet CIDRs where cluster pods run.
 	// When non-empty, NetworkPolicies enforcing namespace isolation are applied.
 	PodSubnetCIDRs []string
+	// LangfuseVPCEIPs are the VPC endpoint ENI IPs for Langfuse PrivateLink.
+	// When non-empty, an egress rule allowing port 3000 to these IPs is added.
+	LangfuseVPCEIPs []string
 	// LocalMode relaxes pod security hardening for third-party provider
 	// containers (qdrant, neo4j, etc.) that expect to run as their image's
 	// default user. Only set true for local K8s (Docker Desktop / kind).
@@ -79,8 +82,9 @@ type Applier struct {
 	// Per-namespace annotations
 	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
-	podSubnetCIDRs []string
-	localMode      bool
+	podSubnetCIDRs  []string
+	langfuseVPCEIPs []string
+	localMode       bool
 }
 
 // NewApplier creates a new applier
@@ -109,6 +113,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		namespaceLabels:        cfg.NamespaceLabels,
 		namespaceAnnotations:   cfg.NamespaceAnnotations,
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
+		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
 		localMode:              cfg.LocalMode,
 	}
 }

@@ -40,7 +40,6 @@ type DeploymentConfig struct {
 	PostStartCommand []string                     // Lifecycle postStart exec command (e.g., model pull)
 	// Sidecar containers colocated in the same pod
 	Messaging *MessagingDeploymentConfig // nil means no messaging sidecar
-	Collector *CollectorDeploymentConfig // nil means no collector sidecar
 	LocalMode bool                       // Skip security hardening for provider containers (local K8s only)
 }
 
@@ -84,11 +83,6 @@ func BuildDeployment(cfg DeploymentConfig) *appsv1.Deployment {
 	// Colocate messaging sidecar in the same pod
 	if cfg.Messaging != nil {
 		containers = append(containers, buildMessagingContainer(*cfg.Messaging))
-	}
-
-	// Colocate collector sidecar in the same pod
-	if cfg.Collector != nil {
-		containers = append(containers, buildCollectorContainer(*cfg.Collector))
 	}
 
 	// Build pod spec
@@ -251,10 +245,11 @@ func buildMessagingContainer(cfg MessagingDeploymentConfig) corev1.Container {
 	return container
 }
 
-// CollectorDeploymentConfig holds configuration for building a collector sidecar Deployment
+// CollectorDeploymentConfig holds configuration for building a collector Deployment
 type CollectorDeploymentConfig struct {
 	Name            string
 	Namespace       string
+	AccountID       string
 	AgentName       string
 	AgentVersion    string
 	BuildID         string
@@ -383,6 +378,45 @@ func buildCollectorContainer(cfg CollectorDeploymentConfig) corev1.Container {
 
 	hardenContainer(&container)
 	return container
+}
+
+// BuildCollectorDeployment creates a standalone Kubernetes Deployment for the
+// collector. Unlike the previous sidecar approach, this runs the collector in
+// its own pod so it can be targeted by NetworkPolicy independently.
+func BuildCollectorDeployment(cfg CollectorDeploymentConfig) *appsv1.Deployment {
+	labels := deployment.GenerateLabels(cfg.AccountID, cfg.AgentName, cfg.BuildID, cfg.Component)
+	selector := deployment.GenerateSelector(cfg.AccountID, cfg.AgentName, cfg.Component)
+
+	var replicas int32 = 1
+	container := buildCollectorContainer(cfg)
+	podSpec := corev1.PodSpec{
+		Containers: []corev1.Container{container},
+	}
+	hardenPodSpec(&podSpec)
+
+	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfg.Name,
+			Namespace: cfg.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: selector,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: podSpec,
+			},
+		},
+	}
 }
 
 // buildContainer creates a container spec

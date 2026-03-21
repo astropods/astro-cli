@@ -96,9 +96,10 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		GalileoAPIKey:          d.Cfg.Deployment.GalileoAPIKey,
 		GalileoProject:         d.Cfg.Deployment.GalileoProject,
 		LangfuseAuthToken:      langfuseAuthToken,
-		LangfuseBaseURL:        d.Cfg.Deployment.LangfuseBaseURL,
+		LangfuseBaseURL:        langfuseBaseURLForCollector(d.Cfg),
 		DeploymentID:           dep.ID,
 		PodSubnetCIDRs:         d.Cfg.Deployment.PodSubnetCIDRs,
+		LangfuseVPCEIPs:        d.Cfg.Deployment.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
@@ -186,6 +187,16 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 	}
 
 	return nil
+}
+
+// langfuseBaseURLForCollector returns the Langfuse URL that the collector
+// sidecar should use. In production the collector may need an external URL
+// (LANGFUSE_BASE_URL_EXT) different from the internal one the server uses.
+func langfuseBaseURLForCollector(cfg *config.Config) string {
+	if cfg.Deployment.LangfuseBaseURLExt != "" {
+		return cfg.Deployment.LangfuseBaseURLExt
+	}
+	return cfg.Deployment.LangfuseBaseURL
 }
 
 func imagePullPolicyForMode(mode string) corev1.PullPolicy {

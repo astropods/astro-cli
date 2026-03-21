@@ -641,33 +641,30 @@ func TestBuildDeploymentWithMessagingSidecar(t *testing.T) {
 	})
 }
 
-// TestBuildDeploymentWithCollectorSidecar verifies that BuildDeployment with a
-// collector sidecar config produces a pod with both the app and collector containers,
-// with correct OTLP ports, env vars, and resources.
-func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
+// TestBuildCollectorDeployment verifies that BuildCollectorDeployment produces
+// a standalone deployment with correct OTLP ports, env vars, and resources.
+func TestBuildCollectorDeployment(t *testing.T) {
 	t.Run("full config", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "my-agent-agent",
-			Namespace: "default",
-			AgentName: "my-agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Collector: &CollectorDeploymentConfig{
-				Image:          "collector:latest",
-				ConfigMapName:  "my-agent-1-0-config",
-				GalileoAPIKey:  "gal-key-123",
-				GalileoProject: "my-project",
-			},
+		cfg := CollectorDeploymentConfig{
+			Name:           "my-agent-collector",
+			Namespace:      "default",
+			AccountID:      "test-account",
+			AgentName:      "my-agent",
+			BuildID:        "1.0",
+			Component:      "collector",
+			Image:          "collector:latest",
+			ConfigMapName:  "my-agent-1-0-config",
+			GalileoAPIKey:  "gal-key-123",
+			GalileoProject: "my-project",
 		}
 
-		d := BuildDeployment(cfg)
+		d := BuildCollectorDeployment(cfg)
 
-		if len(d.Spec.Template.Spec.Containers) != 2 {
-			t.Fatalf("expected 2 containers, got %d", len(d.Spec.Template.Spec.Containers))
+		if len(d.Spec.Template.Spec.Containers) != 1 {
+			t.Fatalf("expected 1 container, got %d", len(d.Spec.Template.Spec.Containers))
 		}
 
-		container := d.Spec.Template.Spec.Containers[1]
+		container := d.Spec.Template.Spec.Containers[0]
 		if container.Name != "collector" {
 			t.Errorf("container name: expected collector, got %s", container.Name)
 		}
@@ -725,23 +722,20 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 	})
 
 	t.Run("ASTRO identity env vars", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "test-agent",
-			BuildID:   "build-42",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Collector: &CollectorDeploymentConfig{
-				AgentName:    "test-agent",
-				AgentVersion: "v2.1.0",
-				DeploymentID: "dep-xyz",
-				Image:        "collector:latest",
-			},
+		cfg := CollectorDeploymentConfig{
+			Name:         "test-agent-collector",
+			Namespace:    "default",
+			AccountID:    "test-account",
+			AgentName:    "test-agent",
+			BuildID:      "build-42",
+			Component:    "collector",
+			AgentVersion: "v2.1.0",
+			DeploymentID: "dep-xyz",
+			Image:        "collector:latest",
 		}
 
-		d := BuildDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[1]
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
 
 		envMap := make(map[string]string)
 		for _, e := range container.Env {
@@ -760,21 +754,18 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 	})
 
 	t.Run("GALILEO_LOG_STREAM injected when set", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Collector: &CollectorDeploymentConfig{
-				Image:            "collector:latest",
-				GalileoLogStream: "agent-build-1",
-			},
+		cfg := CollectorDeploymentConfig{
+			Name:             "test-agent-collector",
+			Namespace:        "default",
+			AgentName:        "agent",
+			BuildID:          "1.0",
+			Component:        "collector",
+			Image:            "collector:latest",
+			GalileoLogStream: "agent-build-1",
 		}
 
-		d := BuildDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[1]
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
 
 		envMap := make(map[string]string)
 		for _, e := range container.Env {
@@ -787,20 +778,17 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 	})
 
 	t.Run("GALILEO_LOG_STREAM omitted when empty", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
+		cfg := CollectorDeploymentConfig{
+			Name:      "test-agent-collector",
 			Namespace: "default",
 			AgentName: "agent",
 			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Collector: &CollectorDeploymentConfig{
-				Image: "collector:latest",
-			},
+			Component: "collector",
+			Image:     "collector:latest",
 		}
 
-		d := BuildDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[1]
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
 
 		for _, e := range container.Env {
 			if e.Name == "GALILEO_LOG_STREAM" {
@@ -810,22 +798,19 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 	})
 
 	t.Run("Langfuse env vars injected when set", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
-			Namespace: "default",
-			AgentName: "agent",
-			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Collector: &CollectorDeploymentConfig{
-				Image:             "collector:latest",
-				LangfuseAuthToken: "cGstdGVzdDpzay10ZXN0",
-				LangfuseBaseURL:   "https://langfuse.example.com",
-			},
+		cfg := CollectorDeploymentConfig{
+			Name:              "test-agent-collector",
+			Namespace:         "default",
+			AgentName:         "agent",
+			BuildID:           "1.0",
+			Component:         "collector",
+			Image:             "collector:latest",
+			LangfuseAuthToken: "cGstdGVzdDpzay10ZXN0",
+			LangfuseBaseURL:   "https://langfuse.example.com",
 		}
 
-		d := BuildDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[1]
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
 
 		var foundToken, foundURL bool
 		for _, e := range container.Env {
@@ -851,20 +836,17 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 	})
 
 	t.Run("Langfuse env vars omitted when empty", func(t *testing.T) {
-		cfg := DeploymentConfig{
-			Name:      "test-agent-agent",
+		cfg := CollectorDeploymentConfig{
+			Name:      "test-agent-collector",
 			Namespace: "default",
 			AgentName: "agent",
 			BuildID:   "1.0",
-			Component: "agent",
-			Container: spec.ContainerConfig{Image: "agent:latest"},
-			Collector: &CollectorDeploymentConfig{
-				Image: "collector:latest",
-			},
+			Component: "collector",
+			Image:     "collector:latest",
 		}
 
-		d := BuildDeployment(cfg)
-		container := d.Spec.Template.Spec.Containers[1]
+		d := BuildCollectorDeployment(cfg)
+		container := d.Spec.Template.Spec.Containers[0]
 
 		for _, e := range container.Env {
 			if e.Name == "LANGFUSE_AUTH_TOKEN" {
@@ -877,9 +859,10 @@ func TestBuildDeploymentWithCollectorSidecar(t *testing.T) {
 	})
 }
 
-// TestBuildDeploymentWithBothSidecars verifies that BuildDeployment with both
-// messaging and collector sidecars produces a pod with all three containers.
-func TestBuildDeploymentWithBothSidecars(t *testing.T) {
+// TestBuildDeploymentMessagingOnly verifies that BuildDeployment with
+// messaging sidecar produces a pod with two containers (app + messaging).
+// Collector is now a separate deployment.
+func TestBuildDeploymentMessagingOnly(t *testing.T) {
 	cfg := DeploymentConfig{
 		Name:      "full-agent-agent",
 		Namespace: "astro-ns",
@@ -892,49 +875,20 @@ func TestBuildDeploymentWithBothSidecars(t *testing.T) {
 			SlackEnabled: true,
 			WebEnabled:   true,
 		},
-		Collector: &CollectorDeploymentConfig{
-			AgentName:        "full-agent",
-			AgentVersion:     "v3.0",
-			DeploymentID:     "dep-99",
-			Image:            "collector:v3",
-			GalileoAPIKey:    "gal-key",
-			GalileoProject:   "gal-project",
-			GalileoLogStream: "full-agent-build-99",
-		},
 	}
 
 	d := BuildDeployment(cfg)
 
-	if len(d.Spec.Template.Spec.Containers) != 3 {
-		t.Fatalf("expected 3 containers, got %d", len(d.Spec.Template.Spec.Containers))
+	if len(d.Spec.Template.Spec.Containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(d.Spec.Template.Spec.Containers))
 	}
 
-	names := make([]string, 3)
+	names := make([]string, 2)
 	for i, c := range d.Spec.Template.Spec.Containers {
 		names[i] = c.Name
 	}
-	if names[0] != "app" || names[1] != "messaging" || names[2] != "collector" {
-		t.Errorf("expected [app messaging collector], got %v", names)
-	}
-
-	// Verify collector env vars
-	collector := d.Spec.Template.Spec.Containers[2]
-	envMap := make(map[string]string)
-	for _, e := range collector.Env {
-		envMap[e.Name] = e.Value
-	}
-	expected := map[string]string{
-		"GALILEO_API_KEY":     "gal-key",
-		"GALILEO_PROJECT":     "gal-project",
-		"ASTRO_AGENT_NAME":    "full-agent",
-		"ASTRO_AGENT_VERSION": "v3.0",
-		"ASTRO_DEPLOYMENT_ID": "dep-99",
-		"GALILEO_LOG_STREAM":  "full-agent-build-99",
-	}
-	for key, want := range expected {
-		if envMap[key] != want {
-			t.Errorf("%s: expected %q, got %q", key, want, envMap[key])
-		}
+	if names[0] != "app" || names[1] != "messaging" {
+		t.Errorf("expected [app messaging], got %v", names)
 	}
 }
 

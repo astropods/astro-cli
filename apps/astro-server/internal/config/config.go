@@ -100,8 +100,8 @@ type SecurityConfig struct {
 
 // AvatarConfig holds avatar/profile-picture configuration.
 type AvatarConfig struct {
-	S3Bucket string // AVATAR_S3_BUCKET — S3 bucket for avatar storage (empty = check LocalDir)
-	LocalDir string // ASSETS_LOCAL_DIR — local assets directory path (e.g. "../../assets", for local dev)
+	S3Bucket  string // AVATAR_S3_BUCKET — S3 bucket for avatar storage (empty = check LocalDir)
+	LocalDir  string // ASSETS_LOCAL_DIR — local assets directory path (e.g. "../../assets", for local dev)
 	AssetsURL string // ASSETS_URL — CDN base URL for avatar URLs in API responses
 }
 
@@ -145,10 +145,12 @@ type DeploymentConfig struct {
 	GalileoProjectID   string // GALILEO_PROJECT_ID — UUID, used for REST API queries
 	GalileoAPIEndpoint string // GALILEO_API_ENDPOINT
 	// Observability (Langfuse) — direct DB provisioning for per-account projects
-	LangfuseDBURL   string // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
-	LangfuseSalt    string // LANGFUSE_SALT — must match Langfuse's SALT env var
-	LangfuseOrgID   string // LANGFUSE_ORG_ID — the single org ID in our Langfuse instance
-	LangfuseBaseURL string // LANGFUSE_BASE_URL — Langfuse instance URL
+	LangfuseDBURL      string   // LANGFUSE_DB_URL — Postgres connection string for Langfuse's database
+	LangfuseSalt       string   // LANGFUSE_SALT — must match Langfuse's SALT env var
+	LangfuseOrgID      string   // LANGFUSE_ORG_ID — the single org ID in our Langfuse instance
+	LangfuseBaseURL    string   // LANGFUSE_BASE_URL — Langfuse instance URL
+	LangfuseBaseURLExt string   // LANGFUSE_BASE_URL_EXT — external Langfuse URL for collector (overrides LANGFUSE_BASE_URL)
+	LangfuseVPCEIPs    []string // LANGFUSE_VPCE_IPS — VPC endpoint IPs for NetworkPolicy egress rules
 }
 
 // Load loads configuration from environment variables with defaults
@@ -199,6 +201,8 @@ func Load() (*Config, error) {
 			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
 			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
 			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
+			LangfuseBaseURLExt:     getEnv("LANGFUSE_BASE_URL_EXT", ""),
+			LangfuseVPCEIPs:        getEnvSlice("LANGFUSE_VPCE_IPS", nil),
 		},
 		Auth: AuthConfig{
 			WorkOSAPIKey:   getEnv("WORKOS_API_KEY", ""),

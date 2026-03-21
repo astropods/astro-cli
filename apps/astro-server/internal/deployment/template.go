@@ -58,7 +58,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Observability: spec.DeploymentObservability{
 			Enabled:   true,
 			Provider:  "galileo",
-			Image:     "astropods/collector:latest",
+			Image:     resolveImage("astropods/collector:latest", input),
 			Port:      4318,
 			Resources: spec.CollectorResources,
 		},
@@ -375,7 +375,6 @@ func primaryEndpointName(endpoints map[string]spec.Endpoint) string {
 	}
 	return "http"
 }
-
 
 func buildDeploymentModel(model spec.Model, input TemplateInput) spec.DeploymentModel {
 	container := model.ResolvedContainer()

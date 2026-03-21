@@ -570,7 +570,6 @@ func (a *Applier) ApplyDeploymentSpec(
 		}
 	}
 
-	var collectorSidecar *CollectorDeploymentConfig
 	if ds.Observability.Enabled {
 		collectorResourceName := deployment.GenerateAgentResourceName(agentName, "collector")
 
@@ -601,7 +600,7 @@ func (a *Applier) ApplyDeploymentSpec(
 			collectorImage = "astropods/collector:latest"
 		}
 
-		collectorSidecar = &CollectorDeploymentConfig{
+		collectorCfg := CollectorDeploymentConfig{
 			Name: collectorResourceName, Namespace: a.namespace, AgentName: agentName,
 			AgentVersion: ds.Source.Build,
 			BuildID:      buildID, Component: "collector",
@@ -618,12 +617,23 @@ func (a *Applier) ApplyDeploymentSpec(
 			ImagePullPolicy:   a.imagePullPolicy,
 			Resources:         collectorResources,
 			Environment:       resolvedObsEnv,
+			AccountID:         accountName,
 		}
 
-		// Collector service — selects the agent pod (collector is a sidecar container)
+		// Collector as a standalone Deployment
+		collectorDepl := BuildCollectorDeployment(collectorCfg)
+		status, err := a.applyDeployment(ctx, collectorDepl)
+		result.Resources = append(result.Resources, status)
+		if err != nil {
+			result.Errors = append(result.Errors, deployment.DeploymentError{
+				Resource: collectorDepl.Name, Kind: "Deployment", Error: err.Error(),
+			})
+		}
+
+		// Collector service — selects the collector pod
 		collectorSvc := BuildService(ServiceConfig{
 			Name: collectorResourceName, Namespace: a.namespace, AccountID: accountName, AgentName: agentName,
-			BuildID: buildID, Component: "agent",
+			BuildID: buildID, Component: "collector",
 			Port: otlpGRPCPort, ServiceType: corev1.ServiceTypeClusterIP,
 		})
 		collectorSvc.Spec.Ports[0].Name = "otlp-grpc"
@@ -634,7 +644,7 @@ func (a *Applier) ApplyDeploymentSpec(
 		a.applyServiceAndRecord(ctx, collectorSvc, result)
 	}
 
-	// Main agent deployment — messaging and collector are colocated as sidecar containers
+	// Main agent deployment — messaging is colocated as a sidecar container
 	agentContainer := spec.ContainerConfig{Image: ds.Agent.Image}
 	resolvedAgentContainer, err := a.resolveContainerImage(agentContainer)
 	if err != nil {
@@ -653,7 +663,6 @@ func (a *Applier) ApplyDeploymentSpec(
 			Resources: BuildResourceRequirements(ds.Agent.Resources),
 			Strategy:  BuildDeploymentStrategy(ds.Agent.Update),
 			Messaging: msgSidecar,
-			Collector: collectorSidecar,
 		}
 		agentDepl := BuildDeployment(cfg)
 		status, err := a.applyDeployment(ctx, agentDepl)
@@ -979,6 +988,22 @@ func (a *Applier) applyNetworkPolicies(ctx context.Context) error {
 			},
 		},
 	}
+	// Add egress rule for Langfuse PrivateLink VPCE IPs (inside pod subnets,
+	// so not covered by the external ipBlock rule above).
+	for _, ip := range a.langfuseVPCEIPs {
+		allowNamespace.Spec.Egress = append(allowNamespace.Spec.Egress, networkingv1.NetworkPolicyEgressRule{
+			To: []networkingv1.NetworkPolicyPeer{
+				{IPBlock: &networkingv1.IPBlock{CIDR: ip + "/32"}},
+			},
+			Ports: []networkingv1.NetworkPolicyPort{
+				{
+					Protocol: protocolPtr(corev1.ProtocolTCP),
+					Port:     portPtr(intstr.FromInt32(3000)),
+				},
+			},
+		})
+	}
+
 	if err := a.applyNetworkPolicy(ctx, allowNamespace); err != nil {
 		return fmt.Errorf("allow-namespace-traffic: %w", err)
 	}

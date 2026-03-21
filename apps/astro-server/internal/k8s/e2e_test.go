@@ -610,9 +610,9 @@ ingestion:
 		t.Error("expected config ConfigMap")
 	}
 
-	// Observability → collector colocated as sidecar in agent pod, service still exists
-	if r.hasResource("Deployment", "my-agent-collector") {
-		t.Error("collector should be a sidecar, not a separate Deployment")
+	// Observability → collector is a standalone deployment with its own service
+	if !r.hasResource("Deployment", "my-agent-collector") {
+		t.Error("expected collector Deployment")
 	}
 	if !r.hasResource("Service", "my-agent-collector") {
 		t.Error("expected collector Service")

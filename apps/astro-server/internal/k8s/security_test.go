@@ -113,12 +113,28 @@ func TestDeploymentSecurityHardening_AllSidecars(t *testing.T) {
 			Image:        "messaging:latest",
 			SlackEnabled: true,
 		},
-		Collector: &CollectorDeploymentConfig{
-			Image: "collector:latest",
-		},
 	}
 
 	d := BuildDeployment(cfg)
+	ps := d.Spec.Template.Spec
+
+	assertHardenedPodSpec(t, ps)
+	for _, c := range ps.Containers {
+		assertHardenedContainer(t, c)
+	}
+}
+
+func TestCollectorDeploymentSecurityHardening(t *testing.T) {
+	cfg := CollectorDeploymentConfig{
+		Name:      "my-agent-collector",
+		Namespace: "default",
+		AgentName: "my-agent",
+		BuildID:   "1.0",
+		Component: "collector",
+		Image:     "collector:latest",
+	}
+
+	d := BuildCollectorDeployment(cfg)
 	ps := d.Spec.Template.Spec
 
 	assertHardenedPodSpec(t, ps)
@@ -398,9 +414,6 @@ func TestLocalMode_SidecarsAlwaysHardened(t *testing.T) {
 		Messaging: &MessagingDeploymentConfig{
 			Image:        "messaging:latest",
 			SlackEnabled: true,
-		},
-		Collector: &CollectorDeploymentConfig{
-			Image: "collector:latest",
 		},
 	}
 
