@@ -20,6 +20,9 @@ export default function AstroFooter() {
   return (
     <footer>
       <div className="astro-footer">
+        <a href="https://www.postman.com/legal/astro-ai-terms-of-service/" target="_blank" rel="noopener noreferrer">
+          Terms of Service
+        </a>
         <a href="https://privacy.postman.com/policies/" target="_blank" rel="noopener noreferrer">
           Privacy Policy
         </a>
