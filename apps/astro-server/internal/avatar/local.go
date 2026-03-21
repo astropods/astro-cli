@@ -52,7 +52,7 @@ func (b *LocalBackend) Copy(_ context.Context, src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o750); err != nil {
 		return fmt.Errorf("local copy mkdir %s: %w", filepath.Dir(dstPath), err)
 	}
-	if err := os.WriteFile(dstPath, data, 0o600); err != nil {
+	if err := os.WriteFile(dstPath, data, 0o600); err != nil { //nolint:gosec // G703: keys are constructed internally, not from user input
 		return fmt.Errorf("local copy write %s: %w", dst, err)
 	}
 	return nil
