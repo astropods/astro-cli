@@ -616,33 +616,34 @@ func SaveNormalizedSpec(
 		}
 	}
 
-	// --- Collector (Observability) — sidecar in agent pod ---
+	// --- Collector (Observability) — standalone deployment ---
 	if ds.Observability.Enabled {
-		resourceName := deployment.GenerateAgentResourceName(agentName, "collector")
-		sc := &Sidecar{
-			Name:          resourceName,
-			ComponentKind: "collector",
-			Image:         ds.Observability.Image,
-			CPURequest:    ds.Observability.Resources.CPU,
-			MemoryRequest: ds.Observability.Resources.Memory,
-			CPULimit:      ds.Observability.Resources.CPULimit,
-			MemoryLimit:   ds.Observability.Resources.MemoryLimit,
-		}
-		scID, err := insertSidecar(sc)
-		if err != nil {
-			return fmt.Errorf("insert collector sidecar: %w", err)
-		}
 		otlpHTTPPort := ds.Observability.Port
 		if otlpHTTPPort == 0 {
 			otlpHTTPPort = 4318
 		}
 		otlpGRPCPort := otlpHTTPPort - 1
-		if _, err := insertSidecarService(scID, &Service{
+		collectorW := &Workload{
+			Name:          deployment.GenerateAgentResourceName(agentName, "collector"),
+			ComponentKind: "collector",
+			WorkloadType:  "deployment",
+			Image:         ds.Observability.Image,
+			Replicas:      1,
+			CPURequest:    ds.Observability.Resources.CPU,
+			MemoryRequest: ds.Observability.Resources.Memory,
+			CPULimit:      ds.Observability.Resources.CPULimit,
+			MemoryLimit:   ds.Observability.Resources.MemoryLimit,
+		}
+		collectorWID, err := insertWorkload(collectorW)
+		if err != nil {
+			return fmt.Errorf("insert collector workload: %w", err)
+		}
+		if _, err := insertService(collectorWID, &Service{
 			Name: "otlp-grpc", Port: otlpGRPCPort, TargetPort: otlpGRPCPort, Protocol: "grpc",
 		}); err != nil {
 			return fmt.Errorf("collector grpc service: %w", err)
 		}
-		if _, err := insertSidecarService(scID, &Service{
+		if _, err := insertService(collectorWID, &Service{
 			Name: "otlp-http", Port: otlpHTTPPort, TargetPort: otlpHTTPPort, Protocol: "http",
 		}); err != nil {
 			return fmt.Errorf("collector http service: %w", err)

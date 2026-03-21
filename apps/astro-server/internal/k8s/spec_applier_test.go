@@ -568,6 +568,89 @@ func TestApplyDeploymentSpec_FullStack(t *testing.T) {
 	}
 }
 
+// TestApplyDeploymentSpec_WorkloadNamesMatchNormalized verifies that every
+// Deployment/StatefulSet the applier creates has a name matching what
+// SaveNormalizedSpec would insert as a workload row. This catches divergence
+// between the K8s applier and the normalized DB representation (e.g., the
+// collector being inserted as a sidecar instead of a workload).
+func TestApplyDeploymentSpec_WorkloadNamesMatchNormalized(t *testing.T) {
+	a := newTestApplier()
+	agentName := "my-agent"
+	ds := &spec.AstroDeploymentSpec{
+		Spec:   "deployment/v1",
+		Source: spec.DeploymentSource{Name: agentName, Build: "build-1", Account: "acme"},
+		Target: spec.DeploymentTarget{Runtime: "kubernetes"},
+		Agent: spec.DeploymentAgent{
+			Image: "test-registry.example.com/agent:latest", Endpoints: httpEp(8080),
+			Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+		},
+		Models: map[string]spec.DeploymentModel{
+			"llm": {
+				Image: "test-registry.example.com/ollama:latest", Endpoints: httpEp(11434),
+				Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+			},
+		},
+		Knowledge: map[string]spec.DeploymentKnowledge{
+			"vectors": {
+				Image: "test-registry.example.com/qdrant:latest", Endpoints: httpEp(6333),
+				Replicas: 1, Persistent: true, Update: spec.DefaultUpdateStrategy(),
+				Storage:  &spec.StorageConfig{Size: "10Gi", AccessMode: "ReadWriteOnce"},
+				Provider: "qdrant",
+			},
+		},
+		Tools: map[string]spec.DeploymentTool{
+			"search": {
+				Image: "test-registry.example.com/search:latest", Endpoints: httpEp(3000),
+				Replicas: 1, Update: spec.DefaultUpdateStrategy(),
+			},
+		},
+		Observability: spec.DeploymentObservability{
+			Enabled: true, Image: "collector:latest", Port: 4318,
+		},
+	}
+
+	result, err := a.ApplyDeploymentSpec(context.Background(), ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	// Collect Deployment/StatefulSet names from the applier result.
+	applierWorkloads := make(map[string]bool)
+	for _, r := range result.Resources {
+		if r.Kind == "Deployment" || r.Kind == "StatefulSet" {
+			applierWorkloads[r.Name] = true
+		}
+	}
+
+	// Build the expected workload names using the same helpers that
+	// SaveNormalizedSpec uses. If these two sets diverge, the normalized
+	// tables will be missing workloads (or have extra ones).
+	expectedWorkloads := map[string]bool{
+		deployment.GenerateAgentResourceName(agentName, "agent"):           true,
+		deployment.GenerateResourceName(agentName, "model", "llm"):         true,
+		deployment.GenerateResourceName(agentName, "knowledge", "vectors"): true,
+		deployment.GenerateResourceName(agentName, "tool", "search"):       true,
+		deployment.GenerateAgentResourceName(agentName, "collector"):       true,
+	}
+
+	// Every expected workload must exist in the applier output
+	for name := range expectedWorkloads {
+		if !applierWorkloads[name] {
+			t.Errorf("expected workload %q not found in applier output (have: %v)", name, applierWorkloads)
+		}
+	}
+
+	// Every applier workload must be in the expected set
+	for name := range applierWorkloads {
+		if !expectedWorkloads[name] {
+			t.Errorf("applier created workload %q not in expected normalized set", name)
+		}
+	}
+}
+
 func TestApplyDeploymentSpec_ResourceStatusNames(t *testing.T) {
 	a := newTestApplier()
 	ds := minimalDeploymentSpec()

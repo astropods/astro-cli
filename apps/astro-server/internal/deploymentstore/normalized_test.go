@@ -213,10 +213,9 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		t.Fatalf("GetWorkloads failed: %v", err)
 	}
 
-	// Expected: agent + gpt4 model + redis knowledge + search tool = 4
-	// (collector is now in deployment_sidecars)
-	if len(workloads) != 4 {
-		t.Fatalf("expected 4 workloads, got %d", len(workloads))
+	// Expected: agent + gpt4 model + redis knowledge + search tool + collector = 5
+	if len(workloads) != 5 {
+		t.Fatalf("expected 5 workloads, got %d", len(workloads))
 	}
 
 	// Check agent workload
@@ -284,7 +283,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetServices: %v", err)
 	}
-	// agent(1 http) + model(1 http) + knowledge(1 http) + tool(1 http) + collector(2: grpc+http via sidecar) = 6
+	// agent(1 http) + model(1 http) + knowledge(1 http) + tool(1 http) + collector(2: grpc+http) = 6
 	if len(allServices) != 6 {
 		t.Errorf("expected 6 services, got %d", len(allServices))
 	}
@@ -648,9 +647,9 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		t.Fatalf("GetWorkloadSummaries: %v", err)
 	}
 
-	// agent + llm model = 2 (collector is now in sidecars table)
-	if len(summaries) != 2 {
-		t.Fatalf("expected 2 summaries, got %d", len(summaries))
+	// agent + llm model + collector = 3
+	if len(summaries) != 3 {
+		t.Fatalf("expected 3 summaries, got %d", len(summaries))
 	}
 
 	// Build a lookup by component_kind
@@ -689,16 +688,16 @@ func TestGetWorkloadSummaries(t *testing.T) {
 		t.Errorf("model name: got %q, want 'summary-agent-model-llm'", modelSummary.Name)
 	}
 
-	// Verify collector is in sidecars, not workloads
-	sidecars, err := store.GetSidecars(d.ID)
-	if err != nil {
-		t.Fatalf("GetSidecars: %v", err)
+	// Verify collector is a workload, not a sidecar
+	collectorSummary := byKind["collector"]
+	if collectorSummary == nil {
+		t.Fatal("collector workload not found in summaries")
 	}
-	if len(sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar (collector), got %d", len(sidecars))
+	if collectorSummary.WorkloadType != "deployment" {
+		t.Errorf("collector type: got %q, want 'deployment'", collectorSummary.WorkloadType)
 	}
-	if sidecars[0].ComponentKind != "collector" {
-		t.Errorf("sidecar kind: got %q, want 'collector'", sidecars[0].ComponentKind)
+	if collectorSummary.Image != "collector:latest" {
+		t.Errorf("collector image: got %q, want 'collector:latest'", collectorSummary.Image)
 	}
 }
 
@@ -1035,5 +1034,116 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 	// Only agent's http endpoint should remain
 	if len(services2) != 1 {
 		t.Errorf("expected 1 service after update (agent http), got %d", len(services2))
+	}
+}
+
+// TestRepairNormalizedSpec_CollectorAsWorkload verifies that RepairNormalizedSpec
+// creates the collector as a standalone workload (not a sidecar) with its services.
+func TestRepairNormalizedSpec_CollectorAsWorkload(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	specJSON := `{
+		"spec": "deployment/v1",
+		"source": {"account": "repair-test", "name": "repair-agent", "build": "b1", "registry": "r.io"},
+		"agent": {
+			"image": "r.io/agent:latest",
+			"endpoints": {"http": {"port": 8080, "protocol": "http"}},
+			"replicas": 1,
+			"resources": {"cpu": "100m", "memory": "256Mi"}
+		},
+		"observability": {
+			"enabled": true,
+			"image": "collector:latest",
+			"port": 4318,
+			"resources": {"cpu": "50m", "memory": "128Mi", "cpu_limit": "200m", "memory_limit": "256Mi"}
+		}
+	}`
+
+	deploymentID := newID()
+	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: deploymentID, AccountID: accountID, AgentName: "repair-agent",
+		DisplayName: "Repair", BuildID: "b1", Namespace: "ns-repair",
+		SpecJSON: specJSON,
+	}, nil) // no txFn — no initial normalized data
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Repair should create normalized workloads from the spec JSON
+	workloads, services, _, err := store.RepairNormalizedSpec(d.ID, &NormalizedSpecConfig{
+		Namespace: "ns-repair",
+	}, nil)
+	if err != nil {
+		t.Fatalf("RepairNormalizedSpec: %v", err)
+	}
+
+	// agent + collector = 2 workloads
+	if workloads != 2 {
+		t.Errorf("expected 2 workloads, got %d", workloads)
+	}
+	// agent(1 http) + collector(2: grpc+http) = 3 services
+	if services != 3 {
+		t.Errorf("expected 3 services, got %d", services)
+	}
+
+	// Verify collector is in workloads table with correct attributes
+	wls, err := store.GetWorkloads(d.ID)
+	if err != nil {
+		t.Fatalf("GetWorkloads: %v", err)
+	}
+	var collectorWL *Workload
+	for _, w := range wls {
+		if w.ComponentKind == "collector" {
+			collectorWL = w
+		}
+	}
+	if collectorWL == nil {
+		t.Fatal("collector workload not found")
+	}
+	if collectorWL.WorkloadType != "deployment" {
+		t.Errorf("collector workload_type: got %q, want 'deployment'", collectorWL.WorkloadType)
+	}
+	if collectorWL.Image != "collector:latest" {
+		t.Errorf("collector image: got %q, want 'collector:latest'", collectorWL.Image)
+	}
+	if collectorWL.Replicas != 1 {
+		t.Errorf("collector replicas: got %d, want 1", collectorWL.Replicas)
+	}
+	if collectorWL.CPURequest != "50m" {
+		t.Errorf("collector cpu_request: got %q, want '50m'", collectorWL.CPURequest)
+	}
+	if collectorWL.MemoryRequest != "128Mi" {
+		t.Errorf("collector memory_request: got %q, want '128Mi'", collectorWL.MemoryRequest)
+	}
+
+	// Verify collector services (otlp-grpc on 4317, otlp-http on 4318)
+	allSvcs, err := store.GetServices(d.ID)
+	if err != nil {
+		t.Fatalf("GetServices: %v", err)
+	}
+	collectorSvcs := make(map[string]int)
+	for _, svc := range allSvcs {
+		if svc.WorkloadName == collectorWL.Name {
+			collectorSvcs[svc.Name] = svc.Port
+		}
+	}
+	if collectorSvcs["otlp-grpc"] != 4317 {
+		t.Errorf("otlp-grpc port: got %d, want 4317", collectorSvcs["otlp-grpc"])
+	}
+	if collectorSvcs["otlp-http"] != 4318 {
+		t.Errorf("otlp-http port: got %d, want 4318", collectorSvcs["otlp-http"])
+	}
+
+	// Verify collector is NOT in the sidecars table
+	sidecars, err := store.GetSidecars(d.ID)
+	if err != nil {
+		t.Fatalf("GetSidecars: %v", err)
+	}
+	for _, sc := range sidecars {
+		if sc.ComponentKind == "collector" {
+			t.Error("collector should not be in sidecars table")
+		}
 	}
 }
