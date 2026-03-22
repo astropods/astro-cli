@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { Activity, Copy, Check, ChevronDown } from "lucide-react";
+import { Activity, Copy, Check, ChevronDown, X } from "lucide-react";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { observabilityKeys } from "@/api/queries/keys";
@@ -72,33 +72,6 @@ interface TraceRow {
   input?: string;
   output?: string;
 }
-
-const MOCK_TRACE_ROWS: TraceRow[] = Array.from({ length: 50 }, (_, idx) => {
-  const statuses: TraceStatus[] = ["success", "success", "timeout", "error", "success"];
-  const status = statuses[idx % statuses.length];
-  const timestamp = new Date(Date.now() - idx * 97_000).toLocaleString([], {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const latency = status === "timeout" ? 2400 + (idx % 5) * 120 : status === "error" ? 900 + (idx % 4) * 90 : 140 + (idx % 7) * 35;
-  const tokens = status === "timeout" ? 0 : 96 + (idx % 11) * 23;
-  const suffix = String(idx + 1).padStart(3, "0");
-
-  return {
-    id: `trc_${suffix}ab12cd34ef56gh78ij90kl87we7xy`,
-    name: "chat.request",
-    status,
-    latency,
-    time: timestamp,
-    tokens,
-    input: `Mock trace ${idx + 1}: summarize recent deployment logs and identify anomalies.`,
-    output: status === "timeout" ? "" : status === "error" ? "Upstream provider returned a 5xx response." : "Deployment is healthy with no recent errors.",
-  };
-});
 
 const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeClass: string }> = {
   success: { label: "SUCCESS", badgeClass: "text-[var(--color-teal-600)] bg-[rgba(21,130,125,0.08)] border-[rgba(21,130,125,0.22)] dark:text-teal-300 dark:bg-teal-900/35 dark:border-teal-300/35" },
@@ -377,6 +350,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return window.innerWidth < 1180;
   });
   const [showAllTraces, setShowAllTraces] = useState(false);
+  const [isObservabilityNoticeDismissed, setIsObservabilityNoticeDismissed] = useState(false);
   const [win, setWin] = useState<Win>("24h");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -581,10 +555,9 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   const traceHeaderFontSize = isCompact ? "11px" : T.label;
   const traceCellFontSize = isCompact ? T.monoSm : T.monoMd;
   const traceMetaFontSize = isCompact ? T.monoSm : T.label;
-  const showMockTraces = import.meta.env.DEV && !tracesLoading && traces.length === 0;
-  const renderedTraces = showMockTraces ? MOCK_TRACE_ROWS : visibleTraces;
-  const hasCollapsedTraces = renderedTraces.length > 4;
-  const visibleTraceRows = showAllTraces ? renderedTraces : renderedTraces.slice(0, 4);
+  const tracesEmptyMinHeight = 172;
+  const hasCollapsedTraces = visibleTraces.length > 4;
+  const visibleTraceRows = showAllTraces ? visibleTraces : visibleTraces.slice(0, 4);
 
   useEffect(() => {
     const onResize = () => setIsCompact(window.innerWidth < 1180);
@@ -616,7 +589,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
         </div>
       )}
 
-      {observabilityBackendError && !isError && (
+      {observabilityBackendError && !isError && !isObservabilityNoticeDismissed && (
         <div
           style={{
             display: "flex",
@@ -647,6 +620,26 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the{" "}
             <strong style={{ color: C.text }}>Deployments</strong> tab.
           </span>
+          <button
+            type="button"
+            onClick={() => setIsObservabilityNoticeDismissed(true)}
+            aria-label="Dismiss observability notice"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              border: `1px solid ${C.coral}`,
+              background: "transparent",
+              color: C.coral,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -848,7 +841,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                 </div>
             <div style={{ paddingBottom: 12 }}>
               {tracesLoading && (
-                <div style={{ minHeight: 280, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ minHeight: tracesEmptyMinHeight, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   {Array.from({ length: 6 }).map((_, idx) => (
                     <div key={idx} style={{ borderBottom: idx < 5 ? `1px solid ${C.border}` : "none" }}>
                       <div style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, alignItems: "center", padding: traceRowPadding }}>
@@ -862,8 +855,8 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   ))}
                 </div>
               )}
-              {!tracesLoading && traces.length === 0 && !showMockTraces && (
-                <div style={{ minHeight: 280, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+              {!tracesLoading && traces.length === 0 && (
+                <div style={{ minHeight: tracesEmptyMinHeight, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                     <Activity size={I.lg} color={C.stone} />
                   </div>
@@ -990,7 +983,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                       textDecoration: "underline",
                     }}
                   >
-                    {showAllTraces ? "See less" : `See more (${renderedTraces.length - 4} more)`}
+                    {showAllTraces ? "See less" : `See more (${visibleTraces.length - 4} more)`}
                   </button>
                 </div>
               )}
