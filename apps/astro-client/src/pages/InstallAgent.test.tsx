@@ -72,7 +72,7 @@ describe('InstallAgent page', () => {
       await waitFor(() => {
         expect(screen.getByText('Agent not found')).toBeInTheDocument();
       });
-      expect(screen.getByRole('link', { name: /browse agents/i })).toHaveAttribute('href', '/browse');
+      expect(screen.getByRole('link', { name: /blueprints/i })).toHaveAttribute('href', '/blueprints');
     });
 
     it('renders back link to agent detail page', async () => {

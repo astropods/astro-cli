@@ -16,7 +16,7 @@ describe("AgentDetailBreadcrumb", () => {
   it("renders account and agent path in breadcrumb", () => {
     renderWithProviders(<AgentDetailBreadcrumb account="acme" agentName="signal-watcher" />);
 
-    expect(screen.getByText("Browse Agents")).toBeInTheDocument();
+    expect(screen.getByText("Blueprints")).toBeInTheDocument();
     expect(
       screen.getAllByText((_, element) => {
         const text = element?.textContent ?? "";

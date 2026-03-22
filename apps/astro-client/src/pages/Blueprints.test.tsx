@@ -5,18 +5,18 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockAgents } from '@/test/msw/handlers';
 import { renderRoute } from '@/test/test-utils';
-import Hire from './Hire';
+import Discover from './blueprints/Discover';
 
 // RTL auto-cleanup requires vitest globals — run it explicitly.
 afterEach(cleanup);
 
-function renderHire({ initialEntries = ['/browse'] } = {}) {
+function renderDiscover({ initialEntries = ['/blueprints/discover'] } = {}) {
   return renderRoute(
     [
       {
-        path: '/browse',
+        path: '/blueprints/discover',
         // @ts-expect-error: `matches` won't align between test code and app code
-        Component: Hire,
+        Component: Discover,
       },
     ],
     { initialEntries },
@@ -32,17 +32,17 @@ async function waitForAgents() {
 
 // ── Rendering & Data Loading ────────────────────────────────────────
 
-describe('Hire page', () => {
+describe('Blueprints – Discover page', () => {
   describe('rendering & data loading', () => {
     it('renders agent cards after data loads', async () => {
-      renderHire();
+      renderDiscover();
       await waitForAgents();
 
       expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
     });
 
     it('shows a loading spinner while fetching', () => {
-      renderHire();
+      renderDiscover();
 
       expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument();
     });
@@ -54,10 +54,10 @@ describe('Hire page', () => {
         ),
       );
 
-      renderHire();
+      renderDiscover();
 
       await waitFor(() => {
-        expect(screen.getByText('Failed to load agents')).toBeInTheDocument();
+        expect(screen.getByText('Failed to load blueprints')).toBeInTheDocument();
       });
       expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
     });
@@ -69,10 +69,10 @@ describe('Hire page', () => {
         ),
       );
 
-      renderHire();
+      renderDiscover();
 
       await waitFor(() => {
-        expect(screen.getByText('No agents available')).toBeInTheDocument();
+        expect(screen.getByText('No blueprints available')).toBeInTheDocument();
       });
     });
 
@@ -89,10 +89,10 @@ describe('Hire page', () => {
       );
 
       const user = userEvent.setup();
-      renderHire();
+      renderDiscover();
 
       await waitFor(() => {
-        expect(screen.getByText('Failed to load agents')).toBeInTheDocument();
+        expect(screen.getByText('Failed to load blueprints')).toBeInTheDocument();
       });
 
       await user.click(screen.getByRole('button', { name: /retry/i }));
@@ -101,51 +101,14 @@ describe('Hire page', () => {
     });
   });
 
-  // ── Category Filter ─────────────────────────────────────────────────
+  // ── Page Content ──────────────────────────────────────────────
 
-  describe('category filter', () => {
-    it('renders category sidebar with static categories', async () => {
-      renderHire();
+  describe('page content', () => {
+    it('shows Discover heading', async () => {
+      renderDiscover();
       await waitForAgents();
 
-      // SidebarNav renders children in both mobile and desktop containers,
-      // so multiple matching buttons are expected.
-      expect(screen.getAllByRole('button', { name: 'All' }).length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByRole('button', { name: 'Development' }).length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByRole('button', { name: 'Data' }).length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByRole('button', { name: 'Support' }).length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('filters agents by selected category', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      await user.click(screen.getAllByRole('button', { name: 'Data' })[0]);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
-      });
-      expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
-    });
-
-    it('"All" resets the category filter', async () => {
-      const user = userEvent.setup();
-      renderHire();
-      await waitForAgents();
-
-      // Filter by Data first
-      await user.click(screen.getAllByRole('button', { name: 'Data' })[0]);
-      await waitFor(() => {
-        expect(screen.queryByRole('heading', { name: /code-reviewer/ })).not.toBeInTheDocument();
-      });
-
-      // Reset with All
-      await user.click(screen.getAllByRole('button', { name: 'All' })[0]);
-      await waitFor(() => {
-        expect(screen.getByRole('heading', { name: /code-reviewer/ })).toBeInTheDocument();
-      });
-      expect(screen.getByRole('heading', { name: /data-analyst/ })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Discover' })).toBeInTheDocument();
     });
   });
 
@@ -153,7 +116,7 @@ describe('Hire page', () => {
 
   describe('agent card links', () => {
     it('agent cards link to /{account}/{name}', async () => {
-      renderHire();
+      renderDiscover();
       await waitForAgents();
 
       const links = screen.getAllByRole('link');

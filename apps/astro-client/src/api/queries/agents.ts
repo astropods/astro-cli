@@ -16,11 +16,14 @@ export function useAgents(opts?: { initialData?: AgentsListResponse }) {
   });
 }
 
-export function useAccountAgents(account: string, enabled = true) {
+export function useAccountAgents(account: string, opts?: { enabled?: boolean; initialData?: AgentsListResponse }) {
+  const enabled = opts?.enabled ?? true;
   return useQuery({
     queryKey: agentKeys.byAccount(account),
     queryFn: () => api.listAccountAgents(account),
     enabled: !!account && enabled,
+    initialData: opts?.initialData,
+    initialDataUpdatedAt: opts?.initialData ? 0 : undefined,
   });
 }
 

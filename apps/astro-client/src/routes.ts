@@ -3,7 +3,14 @@ import { type RouteConfig, route, layout, index, prefix } from "@react-router/de
 export default [
   layout("components/Layout.tsx", [
     index("pages/Index.tsx"),
-    route("browse", "pages/Hire.tsx"),
+    ...prefix("blueprints", [
+      layout("pages/blueprints/BlueprintsLayout.tsx", [
+        index("pages/blueprints/BlueprintsRedirect.tsx"),
+        route("discover", "pages/blueprints/Discover.tsx"),
+        route("personal", "pages/blueprints/Personal.tsx"),
+        route(":account", "pages/blueprints/AccountBlueprints.tsx"),
+      ]),
+    ]),
     route("request-agent", "pages/RequestAgent.tsx"),
     route("agents", "pages/YourAgents.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),

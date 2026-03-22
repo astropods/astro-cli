@@ -19,7 +19,7 @@ function YourAgentsContent() {
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data } = useDeployments(userAccount, isAuthenticated);
-  const { data: accountAgents } = useAccountAgents(userAccount, isAuthenticated);
+  const { data: accountAgents } = useAccountAgents(userAccount, { enabled: isAuthenticated });
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
@@ -62,7 +62,7 @@ function YourAgentsContent() {
           title="No agents yet"
           description="Browse available agents and add one to get started."
           actionLabel="Browse agents"
-          actionTo="/browse"
+          actionTo="/blueprints"
         />
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">

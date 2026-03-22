@@ -43,7 +43,7 @@ export function AgentDetailBreadcrumb({
   return (
     <PageBreadcrumb
       items={[
-        { label: "Browse Agents", to: "/browse" },
+        { label: "Blueprints", to: "/blueprints" },
         {
           label: (
             <>

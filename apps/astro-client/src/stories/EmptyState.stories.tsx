@@ -23,7 +23,7 @@ export const Default: Story = {
   args: {
     title: "No agents yet",
     description: "Browse available agents and add one to get started.",
-    actionLabel: "Browse agents",
-    actionTo: "/browse",
+    actionLabel: "Browse blueprints",
+    actionTo: "/blueprints",
   },
 };

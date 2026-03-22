@@ -13,7 +13,7 @@ export default function RequestAgent() {
   return (
     <div className="max-w-[600px] p-6 md:p-8">
       <Link
-        to="/browse"
+        to="/blueprints"
         className="inline-flex items-center gap-1 text-sm text-stone-700 mb-6"
       >
         <ArrowLeft size={16} />

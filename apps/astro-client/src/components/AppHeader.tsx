@@ -44,7 +44,7 @@ interface NavItem {
 }
 
 const publicNav: NavItem[] = [
-  { label: "Browse", to: "/browse" },
+  { label: "Blueprints", to: "/blueprints" },
   { label: "Docs", to: "https://docs.astropods.ai", external: true },
   { label: "Blog", to: "https://blog.astropods.ai", external: true },
 ];

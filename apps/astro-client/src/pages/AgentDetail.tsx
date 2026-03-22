@@ -87,7 +87,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           {error instanceof Error ? error.message : "Failed to load agent details."}
         </p>
         <Button asChild>
-          <Link to="/browse">Browse Agents</Link>
+          <Link to="/blueprints">Blueprints</Link>
         </Button>
       </div>
     );
@@ -101,7 +101,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           The agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>
-          <Link to="/browse">Browse Agents</Link>
+          <Link to="/blueprints">Blueprints</Link>
         </Button>
       </div>
     );

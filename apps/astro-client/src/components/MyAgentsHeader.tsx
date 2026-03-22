@@ -49,9 +49,9 @@ export function MyAgentsHeader({
         </ToggleGroup>
 
         <Button variant="outline" asChild>
-          <Link to="/browse">
+          <Link to="/blueprints">
             <PlusIcon className="size-4" />
-            Browse agents
+            Browse blueprints
           </Link>
         </Button>
       </div>

@@ -61,7 +61,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
             The agent you're looking for doesn't exist or has been removed.
           </p>
           <Button asChild>
-            <Link to="/browse">Browse Agents</Link>
+            <Link to="/blueprints">Blueprints</Link>
           </Button>
         </div>
       </div>

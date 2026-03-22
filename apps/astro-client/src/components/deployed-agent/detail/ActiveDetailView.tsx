@@ -86,7 +86,7 @@ export function ActiveDetailView({
   const [optimisticDeploying, setOptimisticDeploying] = useState(false)
   const [pausing, setPausing] = useState(false)
   const pausePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const { data: accountAgents } = useAccountAgents(account, true);
+  const { data: accountAgents } = useAccountAgents(account);
   const pauseMutation = usePauseDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
   const renderedDeployment = optimisticDeploying

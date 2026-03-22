@@ -29,7 +29,7 @@ function AccountProfileContent() {
     isMember,
   );
 
-  const { data: agentsData } = useAccountAgents(data?.name ?? "", !!data);
+  const { data: agentsData } = useAccountAgents(data?.name ?? "", { enabled: !!data });
   const accountAgents = agentsData?.agents ?? [];
 
   if (isLoading) {

@@ -23,7 +23,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     items: [
-      { label: "Browse Agents", to: "/browse" },
+      { label: "Blueprints", to: "/blueprints" },
       { label: "acme / support-bot", to: "/acme/support-bot" },
       { label: "Install" },
     ],
@@ -66,7 +66,7 @@ export const WithShareLikeBadges: Story = {
   name: "With Share/Like Badges",
   args: {
     items: [
-      { label: "Browse Agents", to: "/browse" },
+      { label: "Blueprints", to: "/blueprints" },
       { label: "monitoring / signal-watcher" },
     ],
     actions: (
