@@ -99,6 +99,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 		PodSubnetCIDRs:         d.Cfg.Deployment.PodSubnetCIDRs,
 		LangfuseVPCEIPs:        d.Cfg.Deployment.LangfuseVPCEIPs,
 		LocalMode:              d.Cfg.Deployment.K8sClientMode == "local",
+		ManagedAnthropicAPIKey: d.Cfg.Deployment.ManagedAnthropicAPIKey,
 		NamespaceLabels: map[string]string{
 			"astro.dev/account-id": dep.AccountID,
 			"astro.dev/account":    acct.Name,

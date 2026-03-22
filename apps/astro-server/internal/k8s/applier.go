@@ -51,6 +51,9 @@ type ApplierConfig struct {
 	// containers (qdrant, neo4j, etc.) that expect to run as their image's
 	// default user. Only set true for local K8s (Docker Desktop / kind).
 	LocalMode bool
+	// ManagedAnthropicAPIKey is the platform-provided Anthropic API key
+	// injected into pods for the anthropic-managed provider.
+	ManagedAnthropicAPIKey string
 }
 
 // Applier applies Kubernetes manifests to a cluster
@@ -77,9 +80,10 @@ type Applier struct {
 	// Per-namespace annotations
 	namespaceAnnotations map[string]string
 	// Pod subnet CIDRs for NetworkPolicy isolation
-	podSubnetCIDRs  []string
-	langfuseVPCEIPs []string
-	localMode       bool
+	podSubnetCIDRs         []string
+	langfuseVPCEIPs        []string
+	localMode              bool
+	managedAnthropicAPIKey string
 }
 
 // NewApplier creates a new applier
@@ -108,6 +112,7 @@ func NewApplier(client ClusterClient, cfg ApplierConfig) *Applier {
 		podSubnetCIDRs:         cfg.PodSubnetCIDRs,
 		langfuseVPCEIPs:        cfg.LangfuseVPCEIPs,
 		localMode:              cfg.LocalMode,
+		managedAnthropicAPIKey: cfg.ManagedAnthropicAPIKey,
 	}
 }
 

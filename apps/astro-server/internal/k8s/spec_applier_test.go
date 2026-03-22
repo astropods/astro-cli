@@ -1386,3 +1386,33 @@ func TestApplyDeploymentSpec_SlackSecretsOnMessagingContainer(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyDeploymentSpec_ManagedAnthropicKey(t *testing.T) {
+	fakeClient := fake.NewClientset()
+	a := &Applier{
+		clientset:              fakeClient,
+		namespace:              "test-ns",
+		registryURL:            "test-registry.example.com",
+		imageResolver:          NewImageResolver("", "test-registry.example.com", "test"),
+		imagePullPolicy:        corev1.PullNever,
+		managedAnthropicAPIKey: "sk-ant-managed-test",
+	}
+	ds := minimalDeploymentSpec()
+	ctx := context.Background()
+
+	_, err := a.ApplyDeploymentSpec(ctx, ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The managed key should appear in the K8s Secret
+	secretName := deployment.GenerateSecretName(ds.Source.Name, ds.Source.Build)
+	secret, err := fakeClient.CoreV1().Secrets("test-ns").Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get secret %q: %v", secretName, err)
+	}
+	got := string(secret.Data["ANTHROPIC_API_KEY"])
+	if got != "sk-ant-managed-test" {
+		t.Errorf("ANTHROPIC_API_KEY in secret = %q, want %q", got, "sk-ant-managed-test")
+	}
+}

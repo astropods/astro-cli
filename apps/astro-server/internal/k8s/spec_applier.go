@@ -42,6 +42,12 @@ func (a *Applier) ApplyDeploymentSpec(
 	}
 	resolved := deployment.ResolveDeploymentSpecEnv(ds, rctx)
 
+	// Inject managed provider credentials (e.g. anthropic-managed).
+	// These are platform-provided and bypass user variables entirely.
+	if a.managedAnthropicAPIKey != "" {
+		resolved.SecretData["ANTHROPIC_API_KEY"] = a.managedAnthropicAPIKey
+	}
+
 	// Only generate resource names when there is data to back them;
 	// referencing a non-existent Secret/ConfigMap causes K8s errors.
 	secretName := ""
