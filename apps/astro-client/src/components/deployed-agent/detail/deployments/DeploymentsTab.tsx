@@ -539,7 +539,7 @@ export function ActiveContainerAccordion({
                   type="button"
                   title="Refresh logs"
                   onClick={() => {
-                    void refetch({ cancelRefetch: false });
+                    void refetch({ cancelRefetch: true });
                   }}
                   style={{
                     background: "none",
