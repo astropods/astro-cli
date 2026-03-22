@@ -35,7 +35,6 @@ func DeleteAccount(
     deployStore *deploymentstore.Store,
     queue DeployQueue,
     orgClient *org.Client,
-    db *sql.DB,
 ) gin.HandlerFunc
 ```
 
@@ -44,14 +43,15 @@ Handler body (in order):
 2. `accountStore.MarkDeleted(acct.ID)` — point of no return. Return 500 on error. If already deleted, return 404.
 3. `deployStore.GetVisibleDeploymentsByAccount(acct.ID)` — for each deployment, call `EnqueueUndeploy(ctx, deployStore, queue, dep.ID)`. Log failures but continue.
 4. If `acct.WorkOSOrganizationID != ""` and `orgClient != nil`, call `orgClient.DeleteOrganization(ctx, acct.WorkOSOrganizationID)`. Log-and-continue on failure.
-5. `db.ExecContext(ctx, "DELETE FROM agent_message_counts WHERE account_id = $1", acct.ID)`. Log-and-continue.
-6. Return 200 `{"message": "account deleted"}`.
+5. Return 200 `{"message": "account deleted"}`.
+
+No manual `agent_message_counts` cleanup needed — FK now cascades from `accounts`.
 
 ### 3. `apps/astro-server/main.go:619` — Update route wiring
 
 Change `handlers.DeleteAccount(log, accountStore)` to:
 ```go
-handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, db)
+handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient)
 ```
 
 All variables already in scope in `setupRoutes`. Also remove the `501` response spec, keep `200` and add `500`.
@@ -67,17 +67,53 @@ Add `AND a.deleted_at IS NULL` to three queries:
 
 The frontend already handles success (logout + navigate to "/") and error (shows message in dialog). Switching from 501 to 200 on success requires zero code changes.
 
+### 6. `apps/astro-server/internal/riverqueue/` — Add `AccountPurge` periodic job + worker
+
+A periodic River job that finds accounts past the retention period and hard-deletes all associated data.
+
+**`purge_accounts.go`** — Job args + worker:
+
+```go
+type AccountPurgeArgs struct{}
+func (AccountPurgeArgs) Kind() string { return "account_purge" }
+```
+
+Worker runs on the default queue. On each tick:
+1. Query `SELECT id FROM accounts WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '7 days'` (configurable retention via `Config.AccountRetentionDays`, default 7).
+2. For each account, in a single transaction:
+   - **Retry failed teardowns:** Query deployments still in `undeploying` or `active`/`failed` status for this account. Re-enqueue undeploy jobs for any that haven't reached `undeployed`. Skip hard-delete for this account if any deployments are still not `undeployed` — the next tick will retry.
+   - **Hard-delete:** `DELETE FROM accounts WHERE id = $1` — all child tables now cascade (`deployments`, `namespace_ownership`, `connected_devices`, `agent_message_counts`, `agents`, `account_members`, `account_langfuse`, etc.).
+   - **Clean up external resources** (before hard-delete, outside tx — if any fail, skip this account and retry next tick):
+     - **OpenMeter:** Add `DeleteCustomer(ctx, customerID)` to the openmeter client (`DELETE /api/v1/customers/{customerId}`). If the account had `openmeter_customer_id`, call it. Treat 404 as success (already gone).
+     - **Langfuse:** Read `account_langfuse` row before deleting it. Use the Langfuse project ID to call the Langfuse API `DELETE /api/public/projects/{projectId}` (using the stored public/secret key for auth). Treat 404 as success. Add a `DeleteProject` method to the langfuse package.
+3. Log summary: accounts purged, accounts skipped (pending teardown or external cleanup failure), errors.
+
+**`periodic.go`** — Register the job:
+```go
+river.NewPeriodicJob(
+    river.PeriodicInterval(1*time.Hour),
+    func() (river.JobArgs, *river.InsertOpts) {
+        return AccountPurgeArgs{}, &river.InsertOpts{
+            UniqueOpts: river.UniqueOpts{ByPeriod: 1 * time.Hour},
+        }
+    },
+    &river.PeriodicJobOpts{RunOnStart: true},
+)
+```
+
+**`workers.go`** — Register `AccountPurgeWorker`.
+
+**`client.go`** — Add `AccountRetentionDays int` to `Config` (default 30).
+
 ## What we skip (and why)
 
-- **OpenMeter customer deletion** — no `DeleteCustomer` API method exists. Orphaned customer is harmless once no events flow. Add a TODO.
-- **Langfuse external project** — DB credentials cascade, external project is independent. Leave alone.
-- **Hard delete** — defer to a future retention/purge job. Soft delete is sufficient.
+- **Hard delete at request time** — deferred to the purge job after the retention period. Soft delete is sufficient for immediate UX.
 
 ## Edge cases
 
 - **Already deleted account:** `MarkDeleted` checks `deleted_at IS NULL`, returns error → handler returns 404.
 - **No deployments:** Loop does nothing. Common case.
-- **Partial undeploy failure:** Existing reconciler catches orphaned namespaces.
+- **Partial undeploy failure:** Purge job retries unfinished teardowns on each tick; existing reconciler also catches orphaned namespaces.
 - **orgClient nil:** Normal when WorkOS not configured. Skip that step.
 - **Race with concurrent requests:** After `MarkDeleted`, the `GetByName` filter ensures the middleware rejects subsequent requests with 404.
 
@@ -88,6 +124,8 @@ The frontend already handles success (logout + navigate to "/") and error (shows
 3. Write a unit test for the handler: mock stores/queue, verify MarkDeleted called, undeploy jobs enqueued, WorkOS org deleted, 200 returned
 4. Test partial failure: mock one undeploy failing, verify 200 still returned
 5. Test already-deleted: verify 404
+6. Test purge worker: mock an account with `deleted_at` older than retention, verify all tables cleaned up
+7. Test purge skips accounts with pending teardowns: mock a deployment still in `undeploying`, verify purge re-enqueues undeploy and skips hard-delete
 
 ## Files to modify
 
@@ -95,3 +133,9 @@ The frontend already handles success (logout + navigate to "/") and error (shows
 - `apps/astro-server/handlers/accounts.go` (rewrite `DeleteAccount` to use `EnqueueUndeploy`)
 - `apps/astro-server/main.go` (update route wiring at line 619)
 - `apps/astro-server/internal/account/store.go` (add deleted_at filters to GetByName, GetByID, GetAccountsForUser)
+- `apps/astro-server/internal/openmeter/client.go` (add `DeleteCustomer` method)
+- `apps/astro-server/internal/langfuse/` (add `DeleteProject` method or standalone client func)
+- `apps/astro-server/internal/riverqueue/purge_accounts.go` (new — `AccountPurgeArgs` + `AccountPurgeWorker`)
+- `apps/astro-server/internal/riverqueue/periodic.go` (register purge periodic job)
+- `apps/astro-server/internal/riverqueue/workers.go` (register `AccountPurgeWorker`)
+- `apps/astro-server/internal/riverqueue/client.go` (add `AccountRetentionDays` to `Config`)

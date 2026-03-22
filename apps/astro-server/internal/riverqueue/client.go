@@ -26,16 +26,17 @@ const queueDeploy = "deploy"
 
 // Config holds dependencies that River workers need.
 type Config struct {
-	DB           *sql.DB
-	OMClient     *openmeter.Client
-	AccountStore *account.AccountStore
-	AvatarStore  *avatar.Store
-	K8sClient    k8s.ClusterClient
-	ServerConfig *config.Config
-	WorkOSAPIKey string
-	OrgClient    *org.Client
-	PromClient   *promquery.Client
-	Logger       *logger.Logger
+	DB                   *sql.DB
+	OMClient             *openmeter.Client
+	AccountStore         *account.AccountStore
+	AvatarStore          *avatar.Store
+	K8sClient            k8s.ClusterClient
+	ServerConfig         *config.Config
+	WorkOSAPIKey         string
+	OrgClient            *org.Client
+	PromClient           *promquery.Client
+	Logger               *logger.Logger
+	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
 }
 
 // Queue wraps a River client and its pgxpool connection.
@@ -54,7 +55,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 
 	workers := river.NewWorkers()
-	reconcileWorker := addWorkers(workers, cfg)
+	reconcileWorker, purgeWorker := addWorkers(workers, cfg)
 
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
@@ -78,10 +79,19 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		log:    cfg.Logger,
 	}
 
-	// Set queue reference on reconcile worker (needs Insert for drift re-apply).
+	// Set queue references on workers that need Insert capability.
 	// This is safe because workers don't run until Start() is called.
 	if reconcileWorker != nil {
 		reconcileWorker.queue = q
+	}
+	if purgeWorker != nil {
+		purgeWorker.enqueueUndeploy = func(ctx context.Context, deploymentID string) error {
+			store := purgeWorker.deployStore
+			if err := store.UpdateStatus(deploymentID, "undeploying", "", nil); err != nil {
+				return fmt.Errorf("update status: %w", err)
+			}
+			return q.InsertUndeployJob(ctx, deploymentID)
+		}
 	}
 
 	return q, nil

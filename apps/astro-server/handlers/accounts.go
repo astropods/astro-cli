@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
@@ -268,8 +267,8 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
 // Soft-deletes the account, enqueues undeploy jobs for active deployments,
-// cleans up WorkOS org and agent message counts best-effort.
-func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client, db *sql.DB) gin.HandlerFunc {
+// and cleans up WorkOS org best-effort.
+func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -307,11 +306,6 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 			if err := orgClient.DeleteOrganization(ctx, acct.WorkOSOrganizationID); err != nil {
 				log.Error("Failed to delete WorkOS organization", "error", err, "workos_org_id", acct.WorkOSOrganizationID, "account_id", acct.ID)
 			}
-		}
-
-		// Clean up agent message counts (best-effort)
-		if _, err := db.ExecContext(ctx, "DELETE FROM agent_message_counts WHERE account_id = $1", acct.ID); err != nil {
-			log.Error("Failed to delete agent message counts", "error", err, "account_id", acct.ID)
 		}
 
 		log.Info("Account deleted", "account_id", acct.ID, "account_name", acct.Name)

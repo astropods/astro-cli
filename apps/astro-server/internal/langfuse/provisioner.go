@@ -171,6 +171,35 @@ func (p *Provisioner) EnsureProject(
 	return pk, sk, nil
 }
 
+// DeleteProject soft-deletes a Langfuse project and its API keys by setting deleted_at.
+// Treats already-deleted projects as success (idempotent).
+func (p *Provisioner) DeleteProject(ctx context.Context, projectID string) error {
+	now := time.Now().UTC()
+	tx, err := p.langfuseDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Soft-delete API keys for this project
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE api_keys SET deleted_at = $1 WHERE project_id = $2 AND deleted_at IS NULL`,
+		now, projectID,
+	); err != nil {
+		return fmt.Errorf("delete api keys: %w", err)
+	}
+
+	// Soft-delete the project
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE projects SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL`,
+		now, projectID,
+	); err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // decryptSecretKey decrypts the stored secret key using KMS envelope decryption.
 func decryptSecretKey(ctx context.Context, kmsClient envelope.KMSClient, al *AccountLangfuse) (string, error) {
 	if len(al.EncryptedDataKey) == 0 || len(al.Nonce) == 0 {

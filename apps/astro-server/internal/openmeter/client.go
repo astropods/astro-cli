@@ -95,6 +95,30 @@ func (c *Client) CreateCustomer(ctx context.Context, accountID, accountName, acc
 	return result.ID, nil
 }
 
+// DeleteCustomer deletes a customer in OpenMeter. Treats 404 as success (already gone).
+func (c *Client) DeleteCustomer(ctx context.Context, customerID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/api/v1/customers/"+customerID, nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec // base URL is from trusted server config
+	if err != nil {
+		return fmt.Errorf("delete customer request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil // already gone
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete customer: status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 // CloudEvent is a CloudEvents v1.0 envelope for OpenMeter event ingestion.
 type CloudEvent struct {
 	ID          string `json:"id"`

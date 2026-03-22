@@ -10,8 +10,9 @@ import (
 )
 
 // addWorkers registers all River workers into the registry.
-// Returns the ReconcileWorker so the caller can set its queue reference after client creation.
-func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
+// Returns the ReconcileWorker and AccountPurgeWorker so the caller can set
+// their queue references after client creation.
+func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountPurgeWorker) {
 	log := cfg.Logger
 
 	river.AddWorker(workers, &OpenmeterWorker{
@@ -85,6 +86,22 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 	})
 	log.Info("river: registered worker", "worker", "AvatarBackfillWorker", "period", "24h")
 
+	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
+	pw := &AccountPurgeWorker{
+		db:            cfg.DB,
+		deployStore:   store,
+		omClient:      cfg.OMClient,
+		retentionDays: cfg.AccountRetentionDays,
+		log:           log,
+	}
+	if dep != nil {
+		pw.lfProvisioner = dep.LangfuseProvisioner
+		pw.lfStore = dep.LangfuseStore
+	}
+	// enqueueUndeploy is set after client creation in New() via SetPurgeQueue
+	river.AddWorker(workers, pw)
+	log.Info("river: registered worker", "worker", "AccountPurgeWorker", "period", "1h")
+
 	rw := &ReconcileWorker{
 		deployer:  dep,
 		store:     store,
@@ -97,5 +114,5 @@ func addWorkers(workers *river.Workers, cfg Config) *ReconcileWorker {
 	river.AddWorker(workers, rw)
 	log.Info("river: registered worker", "worker", "ReconcileWorker", "period", "10m")
 
-	return rw
+	return rw, pw
 }

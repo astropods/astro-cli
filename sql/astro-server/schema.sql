@@ -115,7 +115,7 @@ CREATE TABLE public.deployments (
     drift_report jsonb,
     drift_checked_at timestamptz,
     CONSTRAINT deployments_pkey PRIMARY KEY (id),
-    CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id)
+    CONSTRAINT deployments_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
@@ -284,8 +284,8 @@ CREATE TABLE public.namespace_ownership (
     source_account text NOT NULL DEFAULT '',
     scanned_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT namespace_ownership_pkey PRIMARY KEY (namespace),
-    CONSTRAINT namespace_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id),
-    CONSTRAINT namespace_ownership_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id)
+    CONSTRAINT namespace_ownership_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT namespace_ownership_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_namespace_ownership_account ON public.namespace_ownership(account_id);
@@ -304,7 +304,7 @@ CREATE TABLE public.connected_devices (
     connected_at timestamptz NOT NULL DEFAULT now(),
     disconnected_at timestamptz,
     CONSTRAINT connected_devices_pkey PRIMARY KEY (id),
-    CONSTRAINT connected_devices_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id),
+    CONSTRAINT connected_devices_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
     CONSTRAINT connected_devices_account_device_key UNIQUE (account_id, device_id)
 );
 
@@ -349,7 +349,8 @@ CREATE TABLE public.agent_message_counts (
     lifetime_total bigint NOT NULL DEFAULT 0,
     last_prom_value double precision NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT agent_message_counts_pkey PRIMARY KEY (account_id, agent_name)
+    CONSTRAINT agent_message_counts_pkey PRIMARY KEY (account_id, agent_name),
+    CONSTRAINT agent_message_counts_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
 CREATE TABLE public.waitlist (
