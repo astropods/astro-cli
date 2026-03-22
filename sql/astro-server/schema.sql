@@ -57,7 +57,7 @@ CREATE TABLE public.agents (
     CONSTRAINT agents_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_agents_public ON public.agents(visibility) WHERE visibility = 'public';
+CREATE INDEX idx_agents_public ON public.agents(visibility) WHERE visibility = 'public' AND archived_at IS NULL;
 
 CREATE TABLE public.agent_versions (
     account_id uuid NOT NULL,
