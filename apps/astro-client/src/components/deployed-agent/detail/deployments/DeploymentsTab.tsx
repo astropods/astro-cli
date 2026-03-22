@@ -9,6 +9,7 @@ import {
 } from "@/lib/deployment-utils";
 import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 import { deploymentKeys } from "@/api/queries/keys";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
 
 const C = {
@@ -90,6 +91,32 @@ function logLineColor(line: string): string {
   return C.muted;
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to legacy copy below
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function isSensitiveEnvVar(key: string, value: string): boolean {
   const upperKey = key.toUpperCase();
   const keyLooksSensitive =
@@ -150,6 +177,7 @@ export function ActiveContainerAccordion({
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
   const [activeFilters, setActiveFilters] = useState<Set<"errors" | "warnings">>(new Set());
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedLogs, setCopiedLogs] = useState(false);
   const [selectedContainer, setSelectedContainer] = useState<string>(containers[0]?.name ?? "");
 
   useEffect(() => {
@@ -223,12 +251,22 @@ export function ActiveContainerAccordion({
     return true;
   });
 
-  const handleCopyUrl = (e: React.MouseEvent) => {
+  const handleCopyUrl = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!url) return;
-    navigator.clipboard.writeText(url);
+    const ok = await copyTextToClipboard(url);
+    if (!ok) return;
     setCopiedUrl(true);
     setTimeout(() => setCopiedUrl(false), 900);
+  };
+
+  const handleCopyLogs = async () => {
+    const payload = logs.join("\n");
+    if (!payload.trim()) return;
+    const ok = await copyTextToClipboard(payload);
+    if (!ok) return;
+    setCopiedLogs(true);
+    setTimeout(() => setCopiedLogs(false), 900);
   };
 
   return (
@@ -448,59 +486,37 @@ export function ActiveContainerAccordion({
                 })}
                 <div style={{ flex: 1 }} />
                 {containers.length > 1 && (
-                  <select
-                    value={selectedContainer}
-                    onChange={(e) => setSelectedContainer(e.target.value)}
-                    style={{
-                      padding: "4px 24px 4px 10px",
-                      borderRadius: 6,
-                      border: `1px solid ${C.border}`,
-                      background: C.bg,
-                      fontFamily: S.body,
-                      fontSize: T.bodySm,
-                      color: C.muted,
-                      cursor: "pointer",
-                      outline: "none",
-                      appearance: "none" as const,
-                      backgroundImage:
-                        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7e7c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\")",
-                      backgroundRepeat: "no-repeat",
-                      backgroundPosition: "right 8px center",
-                    }}
-                  >
-                    {containers.map((container) => (
-                      <option key={container.name} value={container.name}>
-                        {container.name}
-                      </option>
-                    ))}
-                  </select>
+                  <Select value={selectedContainer} onValueChange={setSelectedContainer}>
+                    <SelectTrigger
+                      className="h-8 w-auto min-w-[130px] px-3"
+                      style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted }}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {containers.map((container) => (
+                        <SelectItem key={container.name} value={container.name}>
+                          {container.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
-                <select
-                  value={logTimeRange}
-                  onChange={(e) => setLogTimeRange(e.target.value as LogTimeRange)}
-                  style={{
-                    padding: "4px 24px 4px 10px",
-                    borderRadius: 6,
-                    border: `1px solid ${C.border}`,
-                    background: C.bg,
-                    fontFamily: S.body,
-                    fontSize: T.bodySm,
-                    color: C.muted,
-                    cursor: "pointer",
-                    outline: "none",
-                    appearance: "none" as const,
-                    backgroundImage:
-                      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7e7c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E\")",
-                    backgroundRepeat: "no-repeat",
-                    backgroundPosition: "right 8px center",
-                  }}
-                >
-                  {LOG_TIME_RANGE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                <Select value={logTimeRange} onValueChange={(value) => setLogTimeRange(value as LogTimeRange)}>
+                  <SelectTrigger
+                    className="h-8 w-auto min-w-[130px] px-3"
+                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted }}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOG_TIME_RANGE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
                   <Search size={I.sm} color={C.faint} />
                   <input
@@ -532,10 +548,13 @@ export function ActiveContainerAccordion({
                 </button>
                 <button
                   type="button"
-                  onClick={() => navigator.clipboard.writeText(logs.join("\n"))}
+                  title="Copy logs"
+                  onClick={() => {
+                    void handleCopyLogs();
+                  }}
                   style={{ background: "none", border: `1px solid ${C.border}`, cursor: "pointer", padding: "4px 6px", borderRadius: 5, color: C.faint, display: "flex" }}
                 >
-                  <Copy size={I.sm} />
+                  {copiedLogs ? <Check size={I.sm} color={C.tealMid} /> : <Copy size={I.sm} />}
                 </button>
               </div>
               <div style={{ background: C.panel, padding: "10px 0 14px" }}>
@@ -632,10 +651,7 @@ function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDep
     if (ds === "pending") return "deploying";
     return "active";
   }
-  const st = (h.status ?? "").toLowerCase();
-  if (st === "undeploying") return "undeploying";
-  if (st === "pending" || st === "provisioning" || st === "deploying") return "deploying";
-  if (st === "error" || st === "failed") return "failed";
+  // Historical (non-current) rows should appear as READY unless explicitly undeployed.
   return "ready";
 }
 
@@ -648,7 +664,8 @@ function statusColor(status: DeployHistoryStatus): string {
 }
 
 function statusLabel(status: DeployHistoryStatus): string {
-  if (status === "active" || status === "ready") return "Live";
+  if (status === "active") return "Live";
+  if (status === "ready") return "Ready";
   if (status === "deploying") return "Deploying";
   if (status === "undeploying") return "Undeploying";
   if (status === "failed") return "Failed";
@@ -686,15 +703,20 @@ export function DeploymentsTab({
       const mappedContainers = (pod.containers ?? []).map((c) => ({
         name: c.name,
         ready: c.ready,
-        vars: (c.env ?? []).map((e) => {
-          const val = e.value ?? "";
-          return {
-            key: e.name,
-            value: val,
-            secret: isSensitiveEnvVar(e.name, val),
-            source: e.from ?? "static",
-          };
-        }),
+        vars: (c.env ?? [])
+          .filter((e) => {
+            const key = (e.name ?? "").trim();
+            return key !== "*" && !key.endsWith("*");
+          })
+          .map((e) => {
+            const val = e.value ?? "";
+            return {
+              key: e.name,
+              value: val,
+              secret: isSensitiveEnvVar(e.name, val),
+              source: e.from ?? "static",
+            };
+          }),
       }));
       const readyCount = mappedContainers.filter((c) => c.ready).length;
       const title = displayPodTitle(pod.name, deployment.name);
@@ -711,10 +733,7 @@ export function DeploymentsTab({
     });
   }, [deployment]);
 
-  const totalContainerCount = useMemo(
-    () => podRows.reduce((sum, p) => sum + p.containers.length, 0),
-    [podRows],
-  );
+  const totalPodCount = useMemo(() => podRows.length, [podRows]);
 
   const allRows = useMemo((): DeploymentHistoryTableRow[] => {
     const fromApi = historyData?.deployments ?? [];
@@ -780,7 +799,7 @@ export function DeploymentsTab({
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
                 { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase() },
                 { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
-                { label: "CONTAINERS", value: String(totalContainerCount) },
+                { label: "PODS", value: String(totalPodCount) },
               ].map((item) => (
                 <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
                   <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
@@ -844,7 +863,7 @@ export function DeploymentsTab({
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
                     <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, margin: "6px 0 10px" }}>
-                      Containers
+                      Pods
                     </div>
                     {podRows.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>

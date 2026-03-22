@@ -23,7 +23,7 @@ export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentS
   if (s === "undeploying") {
     return "undeploying";
   }
-  if (s === "error" || s === "failed" || s === "crashloopbackoff" || (deployment.ready === 0 && deployment.replicas > 0)) {
+  if (s === "error" || s === "failed" || s === "crashloopbackoff") {
     return "error";
   }
   if (s === "pending" || s === "provisioning" || s === "deploying" || deployment.ready < deployment.replicas) {
