@@ -78,6 +78,7 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 		"user.deleted",
 	}
 
+	totalProcessed := 0
 	for {
 		resp, err := ec.eventsClient.ListEvents(ctx, events.ListEventsOpts{
 			Events: eventTypes,
@@ -90,7 +91,7 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 		}
 
 		if len(resp.Data) == 0 {
-			return
+			break
 		}
 
 		ec.log.Debug("Processing WorkOS events batch", "count", len(resp.Data))
@@ -111,10 +112,11 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 						ec.log.Error("Failed to persist events cursor", "error", err)
 					}
 				}
-				return
+				break
 			}
 			ec.clearEventError(ctx, event.ID)
 			cursor = event.ID
+			totalProcessed++
 		}
 
 		ec.clearStuck(ctx)
@@ -130,9 +132,11 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 
 		// If fewer events than limit, we've caught up
 		if len(resp.Data) < eventsBatchSize {
-			return
+			break
 		}
 	}
+
+	ec.log.Info("WorkOS events poll complete", "processed", totalProcessed, "cursor", cursor)
 }
 
 // membershipEventData represents the data payload for organization_membership events.
