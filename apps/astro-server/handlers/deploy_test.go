@@ -1152,8 +1152,8 @@ func TestDeploy_PrivateSourceAgent_NonMember_Rejected(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
-			AddRow("src-acct", "secret-agent", "r.io", "private", now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
+			AddRow("src-acct", "secret-agent", "r.io", "private", nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1216,8 +1216,8 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
-			AddRow("src-acct", "secret-agent", "r.io", "private", now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
+			AddRow("src-acct", "secret-agent", "r.io", "private", nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("src-acct", "secret-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1261,7 +1261,7 @@ func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "nonexistent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}))
 
 	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1312,8 +1312,8 @@ func expectAgentLookup(mock sqlmock.Sqlmock, visibility string) {
 	mock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", visibility, now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "registry.io", visibility, nil, now, now))
 	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1442,7 +1442,7 @@ func TestGetDeploymentTemplate_AgentNotFound(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}))
 
 	req := httptest.NewRequest(http.MethodGet, "/agents/myorg/my-agent/deployment-template?format=json", nil)
 	rec := httptest.NewRecorder()
@@ -1615,8 +1615,8 @@ func TestGetPrefilledTemplate_DifferentBuild(t *testing.T) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "registry.io", "public", now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "registry.io", "public", nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -1735,8 +1735,8 @@ func expectDeployPrep(accountMock, indexMock sqlmock.Sqlmock) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
@@ -2641,8 +2641,8 @@ func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"account_id", "name", "registry", "visibility", "created_at", "updated_at"}).
-			AddRow("acct-1", "my-agent", "r.io", "public", now, now))
+			[]string{"account_id", "name", "registry", "visibility", "archived_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", nil, now, now))
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(sqlmock.NewRows(
