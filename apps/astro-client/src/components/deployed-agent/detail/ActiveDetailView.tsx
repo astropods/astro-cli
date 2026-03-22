@@ -224,7 +224,7 @@ export function ActiveDetailView({
             transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
-          {isDeploying && !isPaused && (
+          {!isPaused && !isDeploying && (
             <button
               onClick={() => { setPausing(true); pauseMutation.mutate({ deploymentId: renderedDeployment.id }); }}
               disabled={pausing || controlsBusy}
