@@ -1,8 +1,6 @@
 import { Link } from "react-router";
-import { Grid2x2, List } from "lucide-react";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { FilterInput } from "@/components/FilterInput";
 
 export type ViewMode = "list" | "grid";
@@ -20,6 +18,9 @@ export function MyAgentsHeader({
   viewMode,
   onViewModeChange,
 }: MyAgentsHeaderProps) {
+  void viewMode;
+  void onViewModeChange;
+
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-4">
@@ -33,7 +34,7 @@ export function MyAgentsHeader({
       </div>
 
       <div className="flex items-center gap-3">
-        <ToggleGroup
+        {/* <ToggleGroup
           type="single"
           value={viewMode}
           onValueChange={(value) => {
@@ -46,7 +47,7 @@ export function MyAgentsHeader({
           <ToggleGroupItem value="list" aria-label="List view" tooltip="List view">
             <List className="h-4 w-4" />
           </ToggleGroupItem>
-        </ToggleGroup>
+        </ToggleGroup> */}
 
         <Button variant="outline" asChild>
           <Link to="/blueprints">
