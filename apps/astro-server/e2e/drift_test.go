@@ -29,6 +29,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 )
 
 // driftSpecJSON is a minimal spec with an agent + one non-persistent knowledge store.
@@ -341,13 +342,17 @@ func TestDrift_ScaledReplicas(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	agentDepl, err := env.client.Clientset().AppsV1().Deployments(env.ns).Get(ctx, agentName, metav1.GetOptions{})
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		agentDepl, getErr := env.client.Clientset().AppsV1().Deployments(env.ns).Get(ctx, agentName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		two := int32(2)
+		agentDepl.Spec.Replicas = &two
+		_, updateErr := env.client.Clientset().AppsV1().Deployments(env.ns).Update(ctx, agentDepl, metav1.UpdateOptions{})
+		return updateErr
+	})
 	if err != nil {
-		t.Fatalf("get agent deployment: %v", err)
-	}
-	two := int32(2)
-	agentDepl.Spec.Replicas = &two
-	if _, err = env.client.Clientset().AppsV1().Deployments(env.ns).Update(ctx, agentDepl, metav1.UpdateOptions{}); err != nil {
 		t.Fatalf("scale agent deployment: %v", err)
 	}
 
