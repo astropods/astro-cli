@@ -69,6 +69,7 @@ const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
 export interface ActiveContainerAccordionProps {
   workloadName: string;
   title: string;
+  isAgentService?: boolean;
   url?: string;
   urls?: { name: string; url: string; type?: string }[];
   readyText: string;
@@ -166,6 +167,7 @@ function isSensitiveEnvVar(key: string, value: string, source: string): boolean 
 export function ActiveContainerAccordion({
   workloadName,
   title,
+  isAgentService = false,
   url,
   urls,
   readyText,
@@ -181,6 +183,7 @@ export function ActiveContainerAccordion({
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
   const [activeFilters, setActiveFilters] = useState<Set<"errors" | "warnings">>(new Set());
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedPlaygroundCommand, setCopiedPlaygroundCommand] = useState(false);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [selectedContainer, setSelectedContainer] = useState<string>(containers[0]?.name ?? "");
 
@@ -260,6 +263,18 @@ export function ActiveContainerAccordion({
     setTimeout(() => setCopiedUrl(false), 900);
   };
 
+  const hasPublicUrl = !!url;
+  const playgroundCommand = hasPublicUrl ? `ast playground ${url}` : "ast playground <deployment-url>";
+
+  const handleCopyPlaygroundCommand = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!hasPublicUrl) return;
+    const ok = await copyTextToClipboard(playgroundCommand);
+    if (!ok) return;
+    setCopiedPlaygroundCommand(true);
+    setTimeout(() => setCopiedPlaygroundCommand(false), 1200);
+  };
+
   const handleCopyLogs = async () => {
     const payload = logs.join("\n");
     if (!payload.trim()) return;
@@ -313,57 +328,98 @@ export function ActiveContainerAccordion({
           {title}
         </span>
         <span style={{ flex: 1 }} />
-        {url && (
-          <button
-            onClick={handleCopyUrl}
-            style={{
-              position: "relative",
-              padding: "3px 10px",
-              borderRadius: 5,
-              border: `1px solid ${C.border}`,
-              background: "transparent",
-              cursor: "pointer",
-              flexShrink: 0,
-              fontFamily: S.mono,
-              fontSize: T.label,
-              color: C.stone,
-              transition: "background 0.15s",
-              maxWidth: 280,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap" as const,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = C.bgDeep;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            {url}
-            {copiedUrl && (
-              <span
+        {isAgentService && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 0 }}>
+            {url ? (
+              <button
+                onClick={handleCopyUrl}
                 style={{
-                  position: "absolute",
-                  right: 6,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  color: C.tealMid,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontFamily: S.body,
-                  fontSize: T.monoSm,
+                  position: "relative",
+                  padding: "3px 10px",
+                  borderRadius: 5,
+                  border: `1px solid ${C.border}`,
+                  background: "transparent",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  fontFamily: S.mono,
+                  fontSize: T.label,
+                  color: C.stone,
+                  transition: "background 0.15s",
+                  maxWidth: 280,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                   whiteSpace: "nowrap" as const,
-                  background: "inherit",
-                  paddingLeft: 4,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = C.bgDeep;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
                 }}
               >
-                <Check size={I.xs} />
-                Copied
+                {url}
+                {copiedUrl && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      right: 6,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: C.tealMid,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontFamily: S.body,
+                      fontSize: T.monoSm,
+                      whiteSpace: "nowrap" as const,
+                      background: "inherit",
+                      paddingLeft: 4,
+                    }}
+                  >
+                    <Check size={I.xs} />
+                    Copied
+                  </span>
+                )}
+              </button>
+            ) : null}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: C.faint }}>
+              <span style={{ fontFamily: S.body, fontSize: T.bodySm, whiteSpace: "nowrap" as const }}>
+                To chat, run:
               </span>
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={handleCopyPlaygroundCommand}
+                title={hasPublicUrl ? playgroundCommand : "Public URL not available yet"}
+                disabled={!hasPublicUrl}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  maxWidth: 430,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 5,
+                  padding: "2px 8px",
+                  background: C.bgAlt,
+                  cursor: hasPublicUrl ? "pointer" : "not-allowed",
+                  color: !hasPublicUrl ? C.faint : copiedPlaygroundCommand ? C.tealMid : C.text,
+                  opacity: hasPublicUrl ? 1 : 0.7,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: S.mono,
+                    fontSize: T.monoSm,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap" as const,
+                  }}
+                >
+                  {playgroundCommand}
+                </span>
+                {hasPublicUrl ? (copiedPlaygroundCommand ? <Check size={I.xs} /> : <Copy size={I.xs} />) : null}
+              </button>
+            </div>
+          </div>
         )}
         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, flexShrink: 0, marginLeft: 8 }}>
           {readyText} ready · {uptime}
@@ -744,6 +800,7 @@ export function DeploymentsTab({
         id: wl.name,
         workloadName: wl.name,
         title: wl.component || wl.name,
+        isAgentService: wl.component === "agent",
         readyText: `${readyCount}/${mappedContainers.length || 0}`,
         uptime: wl.age ?? "—",
         containers: mappedContainers,
@@ -900,6 +957,7 @@ export function DeploymentsTab({
                           key={svc.id}
                           workloadName={svc.workloadName}
                           title={svc.title}
+                          isAgentService={svc.isAgentService}
                           url={svc.url}
                           urls={svc.urls}
                           readyText={svc.readyText}
