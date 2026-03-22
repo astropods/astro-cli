@@ -32,7 +32,12 @@ type WorkOSEventsWorker struct {
 }
 
 func (w *WorkOSEventsWorker) Work(ctx context.Context, _ *river.Job[WorkOSEventsArgs]) error {
-	consumer := org.NewEventsConsumer(w.workOSAPIKey, w.orgClient, w.accountStore, w.db, w.log, 0)
-	consumer.Poll(ctx)
+	consumer := org.NewEventsConsumer(w.workOSAPIKey, w.orgClient, w.accountStore, w.db, w.log)
+	processed, err := consumer.Poll(ctx)
+	if err != nil {
+		w.log.Error("WorkOS events poll failed", "processed", processed, "error", err)
+	} else {
+		w.log.Info("WorkOS events poll complete", "processed", processed)
+	}
 	return nil
 }

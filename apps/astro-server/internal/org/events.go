@@ -24,47 +24,23 @@ type EventsConsumer struct {
 	accountStore *account.AccountStore
 	db           *sql.DB
 	log          *logger.Logger
-	interval     time.Duration
 }
 
 // NewEventsConsumer creates a new events consumer.
-func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, db *sql.DB, log *logger.Logger, interval time.Duration) *EventsConsumer {
+func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, db *sql.DB, log *logger.Logger) *EventsConsumer {
 	return &EventsConsumer{
 		eventsClient: &events.Client{APIKey: apiKey},
 		orgClient:    orgClient,
 		accountStore: accountStore,
 		db:           db,
 		log:          log,
-		interval:     interval,
 	}
 }
 
-// Start polls the WorkOS Events API in a loop until the context is cancelled.
-func (ec *EventsConsumer) Start(ctx context.Context) {
-	ec.log.Info("WorkOS events consumer started", "interval", ec.interval.String())
-
-	// Run immediately on start, then on interval
-	ec.Poll(ctx)
-
-	ticker := time.NewTicker(ec.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			ec.log.Info("WorkOS events consumer stopping")
-			return
-		case <-ticker.C:
-			ec.Poll(ctx)
-		}
-	}
-}
-
-func (ec *EventsConsumer) Poll(ctx context.Context) {
+func (ec *EventsConsumer) Poll(ctx context.Context) (int, error) {
 	cursor, err := ec.getCursor(ctx)
 	if err != nil {
-		ec.log.Error("Failed to get events cursor", "error", err)
-		return
+		return 0, fmt.Errorf("get events cursor: %w", err)
 	}
 
 	eventTypes := []string{
@@ -87,33 +63,25 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 			Limit:  eventsBatchSize,
 		})
 		if err != nil {
-			ec.log.Error("Failed to list WorkOS events", "error", err)
-			return
+			return totalProcessed, fmt.Errorf("list WorkOS events: %w", err)
 		}
 
 		if len(resp.Data) == 0 {
 			break
 		}
 
-		ec.log.Debug("Processing WorkOS events batch", "count", len(resp.Data))
-
 		for _, event := range resp.Data {
 			if err := ec.processEvent(ctx, event); err != nil {
-				ec.log.Error("Failed to process event, stopping consumer until next poll",
-					"event_id", event.ID,
-					"event_type", event.Event,
-					"error", err,
-				)
 				ec.recordEventError(ctx, event, err)
 				ec.setStuck(ctx, event.ID)
 				// Persist cursor up to the last successfully processed event.
 				// The failed event will be retried on the next poll cycle.
 				if cursor != "" {
-					if err := ec.setCursor(ctx, cursor); err != nil {
-						ec.log.Error("Failed to persist events cursor", "error", err)
+					if cursorErr := ec.setCursor(ctx, cursor); cursorErr != nil {
+						ec.log.Error("Failed to persist events cursor", "error", cursorErr)
 					}
 				}
-				break
+				return totalProcessed, fmt.Errorf("process event %s (%s): %w", event.ID, event.Event, err)
 			}
 			ec.clearEventError(ctx, event.ID)
 			cursor = event.ID
@@ -124,12 +92,8 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 
 		// Persist cursor after processing batch
 		if err := ec.setCursor(ctx, cursor); err != nil {
-			ec.log.Error("Failed to persist events cursor", "error", err)
-			return
+			return totalProcessed, fmt.Errorf("persist events cursor: %w", err)
 		}
-
-		ec.log.Info("Processed WorkOS events batch",
-			"count", len(resp.Data), "cursor", cursor)
 
 		// If fewer events than limit, we've caught up
 		if len(resp.Data) < eventsBatchSize {
@@ -137,7 +101,7 @@ func (ec *EventsConsumer) Poll(ctx context.Context) {
 		}
 	}
 
-	ec.log.Info("WorkOS events poll complete", "processed", totalProcessed, "cursor", cursor)
+	return totalProcessed, nil
 }
 
 // membershipEventData represents the data payload for organization_membership events.
