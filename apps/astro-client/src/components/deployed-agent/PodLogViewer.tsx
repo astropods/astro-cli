@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDeploymentLogs } from "@/api/queries/deployments";
 import { RefreshCw, Loader2, ArrowDown } from "lucide-react";
-import type { PodDetail, ApiError } from "@/lib/api";
+import type { WorkloadDetail, ApiError } from "@/lib/api";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 
 const TIME_RANGES = [
@@ -15,15 +15,15 @@ const TIME_RANGES = [
   { value: '7d',  label: 'Last 7 days' },
 ];
 
-export function PodLogViewer({ deploymentId, pod }: { deploymentId: string; pod: PodDetail }) {
+export function PodLogViewer({ deploymentId, workload }: { deploymentId: string; workload: WorkloadDetail }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const containerParam = searchParams.get("container");
-  const selectedContainer = containerParam && pod.containers.some((c) => c.name === containerParam)
+  const selectedContainer = containerParam && workload.containers.some((c) => c.name === containerParam)
     ? containerParam
-    : pod.containers[0]?.name ?? "";
+    : workload.containers[0]?.name ?? "";
   const [timeRange, setTimeRange] = useState("1h");
   const { data: logs, isLoading, error: logsError, refetch } = useDeploymentLogs(
-    deploymentId, pod.name, selectedContainer, timeRange,
+    deploymentId, workload.name, selectedContainer, timeRange,
   );
   const lines = useMemo(() => (logs ?? "").split("\n"), [logs]);
   const listRef = useRef<HTMLDivElement>(null);
@@ -53,7 +53,7 @@ export function PodLogViewer({ deploymentId, pod }: { deploymentId: string; pod:
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        {pod.containers.length > 1 && (
+        {workload.containers.length > 1 && (
           <div className="flex items-center gap-1.5 text-sm">
             <span className="text-muted-foreground">Container:</span>
             <Select
@@ -68,7 +68,7 @@ export function PodLogViewer({ deploymentId, pod }: { deploymentId: string; pod:
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {pod.containers.map((c) => (
+                {workload.containers.map((c) => (
                   <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
                 ))}
               </SelectContent>

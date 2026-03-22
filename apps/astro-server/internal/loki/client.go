@@ -30,12 +30,13 @@ func New(baseURL string) *Client {
 // QueryParams defines parameters for a log query.
 type QueryParams struct {
 	Namespace string
-	Pod       string    // optional — omit to query all pods in the namespace
-	Container string    // optional
-	Limit     int64     // default 200
-	Start     time.Time // zero → End - 1h
-	End       time.Time // zero → now
-	Direction string    // "forward" (oldest first) or "backward"; default "forward"
+	Pod       string // optional — exact pod name (used by K8s fallback)
+	Workload  string // optional — k8s workload name (Deployment, StatefulSet, etc.); matches all pods with this prefix
+	Container string // optional
+	Limit     int64  // default 200
+	Start     time.Time
+	End       time.Time
+	Direction string // "forward" (oldest first) or "backward"; default "forward"
 }
 
 // LogLine is a single log entry returned from Loki.
@@ -65,7 +66,7 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 	}
 
 	params := url.Values{}
-	params.Set("query", buildSelector(p.Namespace, p.Pod, p.Container))
+	params.Set("query", buildSelector(p.Namespace, p.Pod, p.Workload, p.Container))
 	params.Set("limit", strconv.FormatInt(p.Limit, 10))
 	params.Set("start", strconv.FormatInt(start.UnixNano(), 10))
 	params.Set("end", strconv.FormatInt(end.UnixNano(), 10))
@@ -122,10 +123,14 @@ func (c *Client) QueryLogs(ctx context.Context, p QueryParams) ([]LogLine, error
 }
 
 // buildSelector constructs a LogQL stream selector from the given labels.
-func buildSelector(namespace, pod, container string) string {
+// When workload is set (and pod is empty), it uses a regex match to capture
+// all pods belonging to that k8s workload (pod=~"<workload>-.+").
+func buildSelector(namespace, pod, workload, container string) string {
 	parts := []string{`namespace="` + namespace + `"`}
 	if pod != "" {
 		parts = append(parts, `pod="`+pod+`"`)
+	} else if workload != "" {
+		parts = append(parts, `pod=~"`+workload+`-.+"`)
 	}
 	if container != "" {
 		parts = append(parts, `container="`+container+`"`)

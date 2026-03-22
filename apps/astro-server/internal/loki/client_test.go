@@ -10,11 +10,12 @@ import (
 
 func TestBuildSelector(t *testing.T) {
 	tests := []struct {
-		name      string
-		namespace string
-		pod       string
-		container string
-		want      string
+		name       string
+		namespace  string
+		pod        string
+		deployment string
+		container  string
+		want       string
 	}{
 		{
 			name:      "namespace only",
@@ -40,11 +41,25 @@ func TestBuildSelector(t *testing.T) {
 			container: "agent",
 			want:      `{namespace="astro-abc123-0", container="agent"}`,
 		},
+		{
+			name:       "deployment regex match",
+			namespace:  "astro-abc123-0",
+			deployment: "sasbot-collector",
+			container:  "collector",
+			want:       `{namespace="astro-abc123-0", pod=~"sasbot-collector-.+", container="collector"}`,
+		},
+		{
+			name:       "pod takes precedence over deployment",
+			namespace:  "astro-abc123-0",
+			pod:        "my-agent-xyz",
+			deployment: "my-agent",
+			want:       `{namespace="astro-abc123-0", pod="my-agent-xyz"}`,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildSelector(tt.namespace, tt.pod, tt.container)
+			got := buildSelector(tt.namespace, tt.pod, tt.deployment, tt.container)
 			if got != tt.want {
 				t.Errorf("buildSelector() = %q, want %q", got, tt.want)
 			}

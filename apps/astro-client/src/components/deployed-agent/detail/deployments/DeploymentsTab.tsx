@@ -67,7 +67,7 @@ const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
 ];
 
 export interface ActiveContainerAccordionProps {
-  podName: string;
+  workloadName: string;
   title: string;
   url?: string;
   readyText: string;
@@ -159,28 +159,9 @@ function isSensitiveEnvVar(key: string, value: string): boolean {
   return keyLooksSensitive || valueLooksSensitive;
 }
 
-function isReplicaSetHash(segment: string): boolean {
-  return /^[a-z0-9]{8,10}$/.test(segment);
-}
-
-function isPodSuffix(segment: string): boolean {
-  return /^[a-z0-9]{5}$/.test(segment);
-}
-
-function displayPodTitle(podName: string, deploymentName: string): string {
-  const raw = podName.startsWith(`${deploymentName}-`) ? podName.slice(deploymentName.length + 1) : podName;
-  const parts = raw.split("-");
-  if (parts.length >= 3 && isReplicaSetHash(parts[parts.length - 2]) && isPodSuffix(parts[parts.length - 1])) {
-    return parts.slice(0, -2).join("-");
-  }
-  if (parts.length >= 2 && isPodSuffix(parts[parts.length - 1])) {
-    return parts.slice(0, -1).join("-");
-  }
-  return raw;
-}
 
 export function ActiveContainerAccordion({
-  podName,
+  workloadName,
   title,
   url,
   readyText,
@@ -225,7 +206,7 @@ export function ActiveContainerAccordion({
 
   const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
     deploymentId,
-    podName,
+    workloadName,
     selectedContainer,
     logTimeRange,
     { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
@@ -320,7 +301,7 @@ export function ActiveContainerAccordion({
             <circle cx="12" cy="12" r="4" fill={C.amber} />
           </svg>
         )}
-        <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 500, color: C.text }} title={podName}>
+        <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 500, color: C.text }} title={workloadName}>
           {title}
         </span>
         <span style={{ flex: 1 }} />
@@ -702,11 +683,11 @@ export function DeploymentsTab({
     return () => clearInterval(interval);
   }, [account, deployment, queryClient]);
 
-  const podRows = useMemo(() => {
+  const serviceRows = useMemo(() => {
     const externalUrls = deployment.external_urls ?? [];
     const primaryUrl = externalUrls[0]?.url;
-    return (deployment.pods ?? []).map((pod) => {
-      const mappedContainers = (pod.containers ?? []).map((c) => ({
+    return (deployment.workloads ?? []).map((wl) => {
+      const mappedContainers = (wl.containers ?? []).map((c) => ({
         name: c.name,
         ready: c.ready,
         vars: (c.env ?? [])
@@ -725,21 +706,20 @@ export function DeploymentsTab({
           }),
       }));
       const readyCount = mappedContainers.filter((c) => c.ready).length;
-      const title = displayPodTitle(pod.name, deployment.name);
-      const url = primaryUrl && pod.name.includes("-agent-") ? primaryUrl : undefined;
+      const url = primaryUrl && wl.component === "agent" ? primaryUrl : undefined;
       return {
-        id: pod.name,
-        podName: pod.name,
-        title,
+        id: wl.name,
+        workloadName: wl.name,
+        title: wl.component || wl.name,
         readyText: `${readyCount}/${mappedContainers.length || 0}`,
-        uptime: pod.age ?? "—",
+        uptime: wl.age ?? "—",
         containers: mappedContainers,
         url,
       };
     });
   }, [deployment]);
 
-  const totalPodCount = useMemo(() => podRows.length, [podRows]);
+  const totalServiceCount = useMemo(() => serviceRows.length, [serviceRows]);
 
   const allRows = useMemo((): DeploymentHistoryTableRow[] => {
     const fromApi = historyData?.deployments ?? [];
@@ -788,11 +768,11 @@ export function DeploymentsTab({
   }, [deployment.id]);
 
   useEffect(() => {
-    if (podRows.length === 0) return;
+    if (serviceRows.length === 0) return;
     if (hasAutoOpenedOverview.current) return;
     hasAutoOpenedOverview.current = true;
-    setOpenContainers(new Set([podRows[0].id]));
-  }, [podRows]);
+    setOpenContainers(new Set([serviceRows[0].id]));
+  }, [serviceRows]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -805,7 +785,7 @@ export function DeploymentsTab({
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
                 { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase() },
                 { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
-                { label: "SERVICES", value: String(totalPodCount) },
+                { label: "SERVICES", value: String(totalServiceCount) },
               ].map((item) => (
                 <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
                   <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
@@ -871,7 +851,7 @@ export function DeploymentsTab({
                     <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, margin: "6px 0 10px" }}>
                       Services
                     </div>
-                    {podRows.length === 0 ? (
+                    {serviceRows.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
                         {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                         {currentRow.status === "deploying"
@@ -881,23 +861,23 @@ export function DeploymentsTab({
                             : "No service data available"}
                       </p>
                     ) : (
-                      podRows.map((pod) => (
+                      serviceRows.map((svc) => (
                         <ActiveContainerAccordion
-                          key={pod.id}
-                          podName={pod.podName}
-                          title={pod.title}
-                          url={pod.url}
-                          readyText={pod.readyText}
-                          uptime={pod.uptime}
+                          key={svc.id}
+                          workloadName={svc.workloadName}
+                          title={svc.title}
+                          url={svc.url}
+                          readyText={svc.readyText}
+                          uptime={svc.uptime}
                           deploymentId={deployment.id}
-                          containers={pod.containers}
+                          containers={svc.containers}
                           deploymentStatus={currentRow.status}
-                          isOpen={openContainers.has(pod.id)}
+                          isOpen={openContainers.has(svc.id)}
                           onToggle={() =>
                             setOpenContainers((prev: Set<string>) => {
                               const n = new Set(prev);
-                              if (n.has(pod.id)) n.delete(pod.id);
-                              else n.add(pod.id);
+                              if (n.has(svc.id)) n.delete(svc.id);
+                              else n.add(svc.id);
                               return n;
                             })
                           }

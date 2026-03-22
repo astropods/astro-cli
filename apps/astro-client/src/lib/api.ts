@@ -366,14 +366,14 @@ class ApiClient {
     );
   }
 
-  // Fetch logs for a specific pod in a deployment
+  // Fetch logs for a workload's containers
   async getDeploymentLogs(
     deploymentId: string,
-    pod: string,
+    workloadName: string,
     container: string,
     since?: string,
   ): Promise<string> {
-    const params = new URLSearchParams({ pod, container });
+    const params = new URLSearchParams({ workload: workloadName, container });
     if (since) params.set('since', since);
     const url = `${this.baseUrl}/api/v1/deployments/${encodeURIComponent(deploymentId)}/logs?${params}`;
     const response = await fetch(url, {
@@ -409,16 +409,6 @@ class ApiClient {
     return this.request<SecretKeysResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/secret/${encodeURIComponent(secretName)}/keys`
     );
-  }
-
-  // Restart (delete) a pod so Kubernetes recreates it
-  async restartPod(data: {
-    deploymentId: string;
-    pod: string;
-  }): Promise<{ status: string; pod: string }> {
-    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/pods/${encodeURIComponent(data.pod)}/restart`, {
-      method: 'POST',
-    });
   }
 
   // Observability endpoints (deployment-scoped, backed by Langfuse)
@@ -690,10 +680,10 @@ export interface ContainerStatus {
   env?: EnvVar[];
 }
 
-export interface PodDetail {
+export interface WorkloadDetail {
   name: string;
-  phase: string;
-  pod_ip?: string;
+  kind: string;
+  component: string;
   age: string;
   containers: ContainerStatus[];
 }
@@ -720,7 +710,7 @@ export interface AgentDeployment {
   components: string[];
   manual_ingestions?: string[];
   external_urls?: ServiceEndpointInfo[];
-  pods?: PodDetail[];
+  workloads?: WorkloadDetail[];
   jobs?: JobDetail[];
 }
 

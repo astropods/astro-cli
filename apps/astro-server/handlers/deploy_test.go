@@ -261,6 +261,12 @@ func k8sListHandler(namespace, agentLabel, buildID string) http.Handler {
 			return
 		}
 
+		// LIST statefulsets
+		if strings.Contains(path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
+			return
+		}
+
 		// LIST ingresses
 		if strings.Contains(path, "/ingresses") {
 			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
@@ -470,6 +476,10 @@ func TestListDeployments_IncludesInitContainerStatuses(t *testing.T) {
 			}`, namespace, agentName, buildID)
 			return
 		}
+		if strings.Contains(path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
+			return
+		}
 		if strings.Contains(path, "/ingresses") {
 			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
 			return
@@ -561,16 +571,16 @@ func TestListDeployments_IncludesInitContainerStatuses(t *testing.T) {
 	if resp.Count != 1 {
 		t.Fatalf("expected count=1, got %d", resp.Count)
 	}
-	if len(resp.Deployments[0].Pods) == 0 {
-		t.Fatalf("expected at least one pod in response")
+	if len(resp.Deployments[0].Workloads) == 0 {
+		t.Fatalf("expected at least one workload in response")
 	}
 
 	var names []string
-	for _, c := range resp.Deployments[0].Pods[0].Containers {
+	for _, c := range resp.Deployments[0].Workloads[0].Containers {
 		names = append(names, c.Name)
 	}
 	if !slices.Contains(names, "app") || !slices.Contains(names, "messaging") {
-		t.Fatalf("expected app and messaging in pod containers, got %v", names)
+		t.Fatalf("expected app and messaging in workload containers, got %v", names)
 	}
 }
 
@@ -696,6 +706,11 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 					"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}
 				}]
 			}`, agent, ns, agent)
+			return
+		}
+
+		if strings.Contains(path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
 			return
 		}
 
@@ -831,6 +846,11 @@ func TestListDeployments_AgentReadinessOverridesNonPrimaryComponents(t *testing.
 					}
 				]
 			}`, namespace, agentName, buildID, namespace, agentName, buildID)
+			return
+		}
+
+		if strings.Contains(path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
 			return
 		}
 

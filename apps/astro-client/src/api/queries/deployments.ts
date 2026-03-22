@@ -35,20 +35,20 @@ const TIME_RANGE_MS: Record<string, number> = {
 
 export function useDeploymentLogs(
   deploymentId: string,
-  pod: string,
+  workloadName: string,
   container: string,
   timeRange = '1h',
   options?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
   const api = useApiClient();
-  const baseEnabled = !!deploymentId && !!pod && !!container;
+  const baseEnabled = !!deploymentId && !!workloadName && !!container;
   const enabled = (options?.enabled ?? true) && baseEnabled;
   return useQuery({
-    queryKey: deploymentKeys.logs(deploymentId, pod, container, timeRange),
+    queryKey: deploymentKeys.logs(deploymentId, workloadName, container, timeRange),
     queryFn: () => {
       const ms = TIME_RANGE_MS[timeRange];
       const since = ms ? new Date(Date.now() - ms).toISOString() : undefined;
-      return api.getDeploymentLogs(deploymentId, pod, container, since);
+      return api.getDeploymentLogs(deploymentId, workloadName, container, since);
     },
     enabled,
     refetchInterval: options?.refetchInterval,
@@ -150,14 +150,3 @@ export function useTriggerIngestion(account: string) {
   });
 }
 
-export function useRestartPod(account: string) {
-  const api = useApiClient();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.restartPod.bind(api),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
-    },
-  });
-}

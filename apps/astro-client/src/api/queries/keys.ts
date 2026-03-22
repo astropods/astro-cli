@@ -35,8 +35,8 @@ export const usageKeys = {
 
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
-  logs: (deploymentId: string, pod: string, container: string, timeRange?: string) =>
-    ['deployments', deploymentId, 'logs', pod, container, timeRange] as const,
+  logs: (deploymentId: string, workloadName: string, container: string, timeRange?: string) =>
+    ['deployments', deploymentId, 'logs', workloadName, container, timeRange] as const,
   spec: (account: string, name: string) =>
     ['deployments', account, name, 'spec'] as const,
   history: (account: string, name: string, deploymentId?: string) =>

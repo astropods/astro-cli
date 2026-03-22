@@ -618,11 +618,11 @@ type ContainerStatus struct {
 	Env          []EnvVar `json:"env,omitempty"`
 }
 
-// PodDetail represents details about a single pod
-type PodDetail struct {
-	Name       string            `json:"name"`
-	Phase      string            `json:"phase"`
-	PodIP      string            `json:"pod_ip,omitempty"`
+// WorkloadDetail represents a k8s workload (Deployment, StatefulSet, etc.)
+type WorkloadDetail struct {
+	Name       string            `json:"name"`      // k8s resource name
+	Kind       string            `json:"kind"`      // "Deployment" or "StatefulSet"
+	Component  string            `json:"component"` // from app.kubernetes.io/component label
 	Age        string            `json:"age"`
 	Containers []ContainerStatus `json:"containers"`
 }
@@ -651,7 +651,7 @@ type AgentDeployment struct {
 	Components       []string              `json:"components"`
 	ManualIngestions []string              `json:"manual_ingestions,omitempty"`
 	ExternalURLs     []ServiceEndpointInfo `json:"external_urls,omitempty"`
-	Pods             []PodDetail           `json:"pods,omitempty"`
+	Workloads        []WorkloadDetail      `json:"workloads,omitempty"`
 	Jobs             []JobDetail           `json:"jobs,omitempty"`
 }
 
@@ -847,6 +847,14 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		return nil, fmt.Errorf("failed to list deployments: %w", err)
 	}
 
+	// List StatefulSets
+	statefulSetList, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
+	}
+
 	// List ingresses for the namespace to get external URLs
 	ingressList, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
@@ -856,7 +864,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		ingressList = nil
 	}
 
-	// List pods for the namespace
+	// List pods for the namespace (needed for container runtime status)
 	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
@@ -939,6 +947,57 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		if component != "" {
 			info.Components = append(info.Components, component)
 		}
+
+		// Build workload entry
+		info.Workloads = append(info.Workloads, WorkloadDetail{
+			Name:      dep.Name,
+			Kind:      "Deployment",
+			Component: component,
+			Age:       formatAge(dep.CreationTimestamp.Time),
+		})
+	}
+
+	// Group StatefulSets by agent and build workload entries
+	for _, sts := range statefulSetList.Items {
+		agentKey := sts.Labels[deployment.LabelKeyAgent]
+		version := sts.Labels["app.kubernetes.io/version"]
+		component := sts.Labels["app.kubernetes.io/component"]
+
+		if agentKey == "" {
+			continue
+		}
+
+		key := agentKey + ":" + version
+		info, exists := agentDeployments[key]
+		if !exists {
+			info = &AgentDeployment{
+				BuildID:          version,
+				Namespace:        namespace,
+				Status:           deploymentReadinessStatus(sts.Status.Replicas, sts.Status.ReadyReplicas),
+				Replicas:         sts.Status.Replicas,
+				Ready:            sts.Status.ReadyReplicas,
+				CreatedAt:        sts.CreationTimestamp.Format(time.RFC3339),
+				Components:       []string{},
+				ManualIngestions: manualIngestions,
+			}
+
+			if urls, ok := agentExternalURLs[key]; ok {
+				info.ExternalURLs = urls
+			}
+
+			agentDeployments[key] = info
+		}
+
+		if component != "" {
+			info.Components = append(info.Components, component)
+		}
+
+		info.Workloads = append(info.Workloads, WorkloadDetail{
+			Name:      sts.Name,
+			Kind:      "StatefulSet",
+			Component: component,
+			Age:       formatAge(sts.CreationTimestamp.Time),
+		})
 	}
 
 	// List Jobs (e.g. ingestion runs) for the namespace
@@ -996,157 +1055,48 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		info.Jobs = append(info.Jobs, jobDetail)
 	}
 
-	// Attach pods to their respective agent deployments
+	// Index pods by agent key + component for matching to workloads.
+	// Key: "agentKey:version:component" → best pod (prefer Running phase, then newest).
+	type podKey struct{ agent, version, component string }
+	bestPod := make(map[podKey]corev1.Pod)
 	for _, pod := range podList.Items {
 		agentKey := pod.Labels[deployment.LabelKeyAgent]
 		version := pod.Labels["app.kubernetes.io/version"]
+		component := pod.Labels["app.kubernetes.io/component"]
 		if agentKey == "" {
 			continue
 		}
-
-		key := agentKey + ":" + version
-		info, exists := agentDeployments[key]
-		if !exists {
+		pk := podKey{agentKey, version, component}
+		existing, ok := bestPod[pk]
+		if !ok {
+			bestPod[pk] = pod
 			continue
 		}
-
-		podDetail := PodDetail{
-			Name:       pod.Name,
-			Phase:      string(pod.Status.Phase),
-			PodIP:      pod.Status.PodIP,
-			Age:        formatAge(pod.CreationTimestamp.Time),
-			Containers: []ContainerStatus{},
+		// Prefer Running pods; among same phase prefer newest
+		if pod.Status.Phase == corev1.PodRunning && existing.Status.Phase != corev1.PodRunning {
+			bestPod[pk] = pod
+		} else if pod.Status.Phase == existing.Status.Phase && pod.CreationTimestamp.After(existing.CreationTimestamp.Time) {
+			bestPod[pk] = pod
 		}
+	}
 
-		// Build a map of spec containers (regular + init) for env var lookup
-		specContainers := map[string][]EnvVar{}
-		for _, sc := range pod.Spec.Containers {
-			var envVars []EnvVar
-
-			// Collect envFrom sources (ConfigMap/Secret whole-mounts)
-			for _, ef := range sc.EnvFrom {
-				if ef.ConfigMapRef != nil {
-					envVars = append(envVars, EnvVar{
-						Name: ef.Prefix + "*",
-						From: "configmap:" + ef.ConfigMapRef.Name,
-					})
-				}
-				if ef.SecretRef != nil {
-					envVars = append(envVars, EnvVar{
-						Name: ef.Prefix + "*",
-						From: "secret:" + ef.SecretRef.Name,
-					})
-				}
-			}
-
-			// Collect individual env entries
-			for _, e := range sc.Env {
-				ev := EnvVar{Name: e.Name}
-				if e.ValueFrom != nil {
-					switch {
-					case e.ValueFrom.SecretKeyRef != nil:
-						ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
-					case e.ValueFrom.ConfigMapKeyRef != nil:
-						ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key
-					case e.ValueFrom.FieldRef != nil:
-						ev.From = "field:" + e.ValueFrom.FieldRef.FieldPath
-					default:
-						ev.From = "ref"
-					}
-				} else {
-					ev.Value = e.Value
-				}
-				envVars = append(envVars, ev)
-			}
-			specContainers[sc.Name] = envVars
+	// Attach container statuses from best pod to each workload
+	for key, info := range agentDeployments {
+		parts := strings.SplitN(key, ":", 2)
+		agentKey := parts[0]
+		version := ""
+		if len(parts) > 1 {
+			version = parts[1]
 		}
-		for _, sc := range pod.Spec.InitContainers {
-			var envVars []EnvVar
-
-			for _, ef := range sc.EnvFrom {
-				if ef.ConfigMapRef != nil {
-					envVars = append(envVars, EnvVar{
-						Name: ef.Prefix + "*",
-						From: "configmap:" + ef.ConfigMapRef.Name,
-					})
-				}
-				if ef.SecretRef != nil {
-					envVars = append(envVars, EnvVar{
-						Name: ef.Prefix + "*",
-						From: "secret:" + ef.SecretRef.Name,
-					})
-				}
+		for i := range info.Workloads {
+			wl := &info.Workloads[i]
+			pk := podKey{agentKey, version, wl.Component}
+			pod, ok := bestPod[pk]
+			if !ok {
+				continue
 			}
-
-			for _, e := range sc.Env {
-				ev := EnvVar{Name: e.Name}
-				if e.ValueFrom != nil {
-					switch {
-					case e.ValueFrom.SecretKeyRef != nil:
-						ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
-					case e.ValueFrom.ConfigMapKeyRef != nil:
-						ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key
-					case e.ValueFrom.FieldRef != nil:
-						ev.From = "field:" + e.ValueFrom.FieldRef.FieldPath
-					default:
-						ev.From = "ref"
-					}
-				} else {
-					ev.Value = e.Value
-				}
-				envVars = append(envVars, ev)
-			}
-			specContainers[sc.Name] = envVars
+			wl.Containers = buildContainerStatuses(pod)
 		}
-
-		for _, cs := range pod.Status.ContainerStatuses {
-			container := ContainerStatus{
-				Name:         cs.Name,
-				Ready:        cs.Ready,
-				RestartCount: cs.RestartCount,
-				Env:          specContainers[cs.Name],
-			}
-			switch {
-			case cs.State.Running != nil:
-				container.State = "Running"
-			case cs.State.Waiting != nil:
-				container.State = "Waiting"
-				container.Reason = cs.State.Waiting.Reason
-				container.Message = cs.State.Waiting.Message
-			case cs.State.Terminated != nil:
-				container.State = "Terminated"
-				container.Reason = cs.State.Terminated.Reason
-				container.Message = cs.State.Terminated.Message
-			default:
-				container.State = "Unknown"
-			}
-			podDetail.Containers = append(podDetail.Containers, container)
-		}
-		for _, cs := range pod.Status.InitContainerStatuses {
-			container := ContainerStatus{
-				Name:         cs.Name,
-				Ready:        cs.Ready,
-				RestartCount: cs.RestartCount,
-				Env:          specContainers[cs.Name],
-			}
-			switch {
-			case cs.State.Running != nil:
-				container.State = "Running"
-			case cs.State.Waiting != nil:
-				container.State = "Waiting"
-				container.Reason = cs.State.Waiting.Reason
-				container.Message = cs.State.Waiting.Message
-			case cs.State.Terminated != nil:
-				container.State = "Terminated"
-				container.Reason = cs.State.Terminated.Reason
-				container.Message = cs.State.Terminated.Message
-			default:
-				container.State = "Unknown"
-			}
-			podDetail.Containers = append(podDetail.Containers, container)
-		}
-
-		info.Pods = append(info.Pods, podDetail)
 	}
 
 	// Convert map to slice
@@ -1156,6 +1106,76 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 	}
 
 	return result, nil
+}
+
+// buildContainerStatuses extracts container statuses and env vars from a k8s pod.
+func buildContainerStatuses(pod corev1.Pod) []ContainerStatus {
+	// Build a map of spec containers (regular + init) for env var lookup
+	specContainers := map[string][]EnvVar{}
+	for _, sc := range append(pod.Spec.Containers, pod.Spec.InitContainers...) {
+		var envVars []EnvVar
+
+		for _, ef := range sc.EnvFrom {
+			if ef.ConfigMapRef != nil {
+				envVars = append(envVars, EnvVar{
+					Name: ef.Prefix + "*",
+					From: "configmap:" + ef.ConfigMapRef.Name,
+				})
+			}
+			if ef.SecretRef != nil {
+				envVars = append(envVars, EnvVar{
+					Name: ef.Prefix + "*",
+					From: "secret:" + ef.SecretRef.Name,
+				})
+			}
+		}
+
+		for _, e := range sc.Env {
+			ev := EnvVar{Name: e.Name}
+			if e.ValueFrom != nil {
+				switch {
+				case e.ValueFrom.SecretKeyRef != nil:
+					ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
+				case e.ValueFrom.ConfigMapKeyRef != nil:
+					ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key
+				case e.ValueFrom.FieldRef != nil:
+					ev.From = "field:" + e.ValueFrom.FieldRef.FieldPath
+				default:
+					ev.From = "ref"
+				}
+			} else {
+				ev.Value = e.Value
+			}
+			envVars = append(envVars, ev)
+		}
+		specContainers[sc.Name] = envVars
+	}
+
+	var containers []ContainerStatus
+	for _, cs := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
+		container := ContainerStatus{
+			Name:         cs.Name,
+			Ready:        cs.Ready,
+			RestartCount: cs.RestartCount,
+			Env:          specContainers[cs.Name],
+		}
+		switch {
+		case cs.State.Running != nil:
+			container.State = "Running"
+		case cs.State.Waiting != nil:
+			container.State = "Waiting"
+			container.Reason = cs.State.Waiting.Reason
+			container.Message = cs.State.Waiting.Message
+		case cs.State.Terminated != nil:
+			container.State = "Terminated"
+			container.Reason = cs.State.Terminated.Reason
+			container.Message = cs.State.Terminated.Message
+		default:
+			container.State = "Unknown"
+		}
+		containers = append(containers, container)
+	}
+	return containers
 }
 
 // formatAge returns a human-readable age string
@@ -1236,6 +1256,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 		}
 
 		podName := c.Query("pod")
+		workloadName := c.Query("workload")
 		containerName := c.Query("container")
 
 		tailLines := int64(200)
@@ -1250,6 +1271,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			p := loki.QueryParams{
 				Namespace: dep.Namespace,
 				Pod:       podName,
+				Workload:  workloadName,
 				Container: containerName,
 				Limit:     tailLines,
 			}

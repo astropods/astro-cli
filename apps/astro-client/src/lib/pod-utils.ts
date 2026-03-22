@@ -1,8 +1,6 @@
 /**
- * Derives a stable base name from a Kubernetes pod name by stripping
- * the trailing ReplicaSet hash and pod hash segments.
- *
- * e.g. "myagent-agent-7f8b9c4d5-x2k9p" → "myagent-agent"
+ * @deprecated Use WorkloadDetail.name directly — the server now provides workload names.
+ * Kept for backward compatibility.
  */
 export function getPodStableName(podName: string): string {
   const parts = podName.split("-");
@@ -11,11 +9,8 @@ export function getPodStableName(podName: string): string {
 }
 
 /**
- * Converts a pod stable name into a display name. Dashes within the
- * agent template name are preserved; dashes after it become spaces.
- *
- * e.g. ("clawbot-ai-agent", "clawbot-ai") → "clawbot-ai agent"
- *      ("clawbot-ai-otel-collector", "clawbot-ai") → "clawbot-ai otel collector"
+ * @deprecated Use WorkloadDetail.component directly — the server now provides component names.
+ * Kept for backward compatibility.
  */
 export function getPodDisplayName(stableName: string, agentName?: string): string {
   if (agentName && stableName.startsWith(agentName + "-")) {

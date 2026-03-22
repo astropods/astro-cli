@@ -12,13 +12,3 @@ export interface DeploymentHistoryTableRow {
   rowLabel: string;
   source: ApiDeploymentHistoryRecord;
 }
-
-export interface ContainerRow {
-  id: string;
-  podName: string;
-  name: string;
-  ready: string;
-  uptime: string;
-  vars: { key: string; value: string; secret: boolean; source: string }[];
-  url?: string;
-}

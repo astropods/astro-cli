@@ -20,11 +20,11 @@ const mockDeployment: AgentDeployment = {
       url: "https://nexus-4d03eca25bd87d16.agents.astropods.ai",
     },
   ],
-  pods: [
+  workloads: [
     {
-      name: "customer-insights-engine-6d8f9b-xkp2t",
-      phase: "Running",
-      pod_ip: "10.0.0.42",
+      name: "customer-insights-engine-agent",
+      kind: "Deployment",
+      component: "agent",
       age: "2m",
       containers: [
         {
@@ -103,7 +103,7 @@ export const PersonalAccount: Story = {
 
 export const NoPods: Story = {
   args: {
-    deployment: { ...mockDeployment, pods: [] },
+    deployment: { ...mockDeployment, workloads: [] },
     account: "postman-labs",
     isPersonal: false,
   },
