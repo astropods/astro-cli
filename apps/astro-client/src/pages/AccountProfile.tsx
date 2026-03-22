@@ -53,11 +53,11 @@ function AccountProfileContent() {
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
       <div className="flex items-center gap-4">
-        <UserAvatar handle={data.name} name={data.name} avatarVersion={data.avatar_version} className="size-16" />
+        <UserAvatar handle={data.name} name={data.display_name || data.name} avatarVersion={data.avatar_version} className="size-16" />
         <div>
-          {data.owner?.first_name && (
+          {data.display_name && (
             <h1 className="text-2xl font-bold">
-              {[data.owner.first_name, data.owner.last_name].filter(Boolean).join(" ")}
+              {data.display_name}
             </h1>
           )}
           <p className="text-muted-foreground">@{data.name}</p>

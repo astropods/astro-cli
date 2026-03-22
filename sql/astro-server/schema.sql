@@ -11,6 +11,7 @@ CREATE TABLE public.accounts (
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
     avatar_version integer NOT NULL DEFAULT 0,
+    display_name varchar(64) NOT NULL DEFAULT '',
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
 );

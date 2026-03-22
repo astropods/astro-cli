@@ -3,7 +3,7 @@ import { BuildingOffice2Icon } from "@heroicons/react/24/outline";
 import { SidebarNav, SidebarNavItem } from "@/components/ui/sidebar-layout";
 import { Separator } from "@/components/ui/separator";
 import { UserAvatar } from "@/components/UserAvatar";
-import { useAuth, getUserDisplayName } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { blueprintsPaths } from "@/lib/routes";
 
 export function BlueprintsSidebar() {
@@ -26,7 +26,7 @@ export function BlueprintsSidebar() {
             <span className="flex items-center gap-2">
               <UserAvatar
                 handle={personalAccount.name}
-                name={getUserDisplayName(user)}
+                name={personalAccount.display_name || personalAccount.name}
                 avatarVersion={personalAccount.avatar_version}
                 className="!size-4"
               />

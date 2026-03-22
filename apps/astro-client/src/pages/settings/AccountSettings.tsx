@@ -6,10 +6,11 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth, getUserDisplayName, splitDisplayName } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
+import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
 
 const headingClass = {
   h1: "text-heading-1",
@@ -61,7 +62,7 @@ function useSavedFlash() {
 function ProfileSection() {
   const { user, personalAccount, refresh } = useAuth();
   const updateProfile = useUpdateProfile();
-  const initialName = user ? getUserDisplayName(user) : "";
+  const initialName = personalAccount?.display_name ?? "";
   const [displayName, setDisplayName] = useState(initialName);
   const [savedName, setSavedName] = useState(initialName);
   const { showSaved, flash } = useSavedFlash();
@@ -89,7 +90,7 @@ function ProfileSection() {
   }, [isDirty]);
 
   const handleSave = () => {
-    updateProfile.mutate(splitDisplayName(displayName), {
+    updateProfile.mutate({ display_name: displayName }, {
       onSuccess: () => {
         setSavedName(displayName);
         refresh();
@@ -98,15 +99,17 @@ function ProfileSection() {
     });
   };
 
+  const accountDisplayName = personalAccount?.display_name || personalAccount?.name || "";
+
   return (
     <div className="flex flex-col gap-5">
       {user && (
         <>
           <div className="flex items-center gap-4">
-            <UserAvatar handle={personalAccount?.name ?? user.id} name={getUserDisplayName(user)} avatarVersion={personalAccount?.avatar_version} className="size-[72px] text-2xl" />
+            <UserAvatar handle={personalAccount?.name ?? user.id} name={accountDisplayName} avatarVersion={personalAccount?.avatar_version} className="size-[72px] text-2xl" />
             <div>
               <div className="text-sm font-semibold text-foreground">
-                {getUserDisplayName(user)}
+                {accountDisplayName}
               </div>
               {personalAccount && (
                 <div className="font-mono text-xs text-faint-foreground">
@@ -121,6 +124,7 @@ function ProfileSection() {
             <Input
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
+              maxLength={DISPLAY_NAME_MAX_LENGTH}
             />
           </div>
 

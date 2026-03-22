@@ -604,6 +604,7 @@ func (h *AuthHandler) fetchAccounts(userID string) []auth.AuthAccountResponse {
 					ID:                   a.ID,
 					Name:                 a.Name,
 					Type:                 a.Type,
+					DisplayName:          a.DisplayName,
 					WorkOSOrganizationID: a.WorkOSOrganizationID,
 					AvatarVersion:        a.AvatarVersion,
 				})

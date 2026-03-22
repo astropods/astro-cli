@@ -20,6 +20,7 @@ import (
 type CreateAccountRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Type        string `json:"type" binding:"required"`
+	DisplayName string `json:"display_name"`
 	Invitations []struct {
 		Value string `json:"value"`
 		Kind  string `json:"kind"`
@@ -39,6 +40,7 @@ type AccountResponse struct {
 	ID            string             `json:"id"`
 	Name          string             `json:"name"`
 	Type          string             `json:"type"`
+	DisplayName   string             `json:"display_name"`
 	Owner         *AccountOwner      `json:"owner,omitempty"`
 	Invitations   []org.InviteResult `json:"invitations,omitempty"`
 	AvatarVersion int                `json:"avatar_version"`
@@ -51,6 +53,7 @@ type AccountWithRoleResponse struct {
 	ID            string         `json:"id"`
 	Name          string         `json:"name"`
 	Type          string         `json:"type"`
+	DisplayName   string         `json:"display_name"`
 	AvatarVersion int            `json:"avatar_version"`
 	Agents        []AgentSummary `json:"agents,omitempty"`
 }
@@ -71,10 +74,8 @@ type ProfileResponse struct {
 
 // ProfileUser is a subset of user info for the profile endpoint
 type ProfileUser struct {
-	ID        string `json:"id"`
-	Email     string `json:"email,omitempty"`
-	FirstName string `json:"first_name,omitempty"`
-	LastName  string `json:"last_name,omitempty"`
+	ID    string `json:"id"`
+	Email string `json:"email,omitempty"`
 }
 
 // CreateAccount handles POST /api/v1/accounts
@@ -121,7 +122,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		}
 
 		// Step 1: Create local account (Astro is source of truth)
-		acct, err := accountStore.Create(req.Name, req.Type, user.ID)
+		acct, err := accountStore.Create(req.Name, req.Type, user.ID, req.DisplayName)
 		if err != nil {
 			log.Error("Failed to create account", "error", err, "name", req.Name)
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -196,6 +197,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			ID:            acct.ID,
 			Name:          acct.Name,
 			Type:          acct.Type,
+			DisplayName:   acct.DisplayName,
 			AvatarVersion: acct.AvatarVersion,
 			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -243,6 +245,7 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 			ID:            acct.ID,
 			Name:          acct.Name,
 			Type:          acct.Type,
+			DisplayName:   acct.DisplayName,
 			AvatarVersion: acct.AvatarVersion,
 			CreatedAt:     acct.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAt:     acct.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -357,12 +360,12 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 
 // UpdateProfileRequest represents the request body for updating user profile
 type UpdateProfileRequest struct {
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
+	DisplayName string `json:"display_name"`
 }
 
 // UpdateProfile handles PATCH /api/v1/me (protected)
-func UpdateProfile(log *logger.Logger, workos *auth.WorkOSClient) gin.HandlerFunc {
+// Updates the display name on the user's personal account.
+func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -379,20 +382,42 @@ func UpdateProfile(log *logger.Logger, workos *auth.WorkOSClient) gin.HandlerFun
 			return
 		}
 
-		updated, err := workos.UpdateUser(c.Request.Context(), user.ID, req.FirstName, req.LastName)
-		if err != nil {
-			log.Error("Failed to update user profile", "error", err, "user_id", user.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
+		if len(req.DisplayName) > 64 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "display name must be 64 characters or fewer"})
 			return
 		}
 
-		log.Info("User profile updated", "user_id", user.ID)
+		// Find the user's personal account
+		accounts, err := accountStore.GetAccountsForUser(user.ID)
+		if err != nil {
+			log.Error("Failed to fetch accounts", "error", err, "user_id", user.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch accounts"})
+			return
+		}
+
+		var personalAccountID string
+		for _, a := range accounts {
+			if a.Type == "personal" {
+				personalAccountID = a.ID
+				break
+			}
+		}
+		if personalAccountID == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "personal account not found"})
+			return
+		}
+
+		if err := accountStore.UpdateDisplayName(personalAccountID, req.DisplayName); err != nil {
+			log.Error("Failed to update display name", "error", err, "user_id", user.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
+			return
+		}
+
+		log.Info("Display name updated", "user_id", user.ID, "account_id", personalAccountID)
 		c.JSON(http.StatusOK, UpdateProfileResponse{
 			User: &ProfileUser{
-				ID:        updated.ID,
-				Email:     updated.Email,
-				FirstName: updated.FirstName,
-				LastName:  updated.LastName,
+				ID:    user.ID,
+				Email: user.Email,
 			},
 		})
 	}
@@ -417,9 +442,10 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 		accountResponses := make([]AccountWithRoleResponse, 0, len(accounts))
 		for _, a := range accounts {
 			resp := AccountWithRoleResponse{
-				ID:   a.ID,
-				Name: a.Name,
-				Type: a.Type,
+				ID:          a.ID,
+				Name:        a.Name,
+				Type:        a.Type,
+				DisplayName: a.DisplayName,
 			}
 
 			// Include agent summaries for each account
@@ -442,10 +468,8 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 
 		c.JSON(http.StatusOK, ProfileResponse{
 			User: &ProfileUser{
-				ID:        user.ID,
-				Email:     user.Email,
-				FirstName: user.FirstName,
-				LastName:  user.LastName,
+				ID:    user.ID,
+				Email: user.Email,
 			},
 			Accounts: accountResponses,
 		})

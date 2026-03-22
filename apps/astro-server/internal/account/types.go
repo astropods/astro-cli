@@ -12,6 +12,7 @@ type Account struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 	AvatarVersion        int        `json:"avatar_version"`
+	DisplayName          string     `json:"display_name"`
 }
 
 // AccountMember represents a user's membership in an account
@@ -31,4 +32,5 @@ type AccountWithRole struct {
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 	AvatarVersion        int       `json:"avatar_version"`
+	DisplayName          string    `json:"display_name"`
 }

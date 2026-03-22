@@ -28,6 +28,7 @@ export interface AccountPublic {
   id: string;
   name: string;
   type: string;
+  display_name?: string;
   owner?: AccountOwner;
   avatar_version?: number;
   created_at: string;
@@ -38,6 +39,7 @@ export interface Account {
   id: string;
   name: string;
   type: string;
+  display_name?: string;
   role?: string;
   avatar_version?: number;
   agents?: AgentSummary[];
@@ -111,6 +113,7 @@ export interface InviteResultResponse {
 export interface CreateAccountData {
   name: string;
   type: string;
+  display_name?: string;
   invitations?: InviteEntry[];
 }
 
@@ -220,7 +223,7 @@ class ApiClient {
     return this.request<ProfileResponse>('/api/v1/me');
   }
 
-  async updateProfile(data: { first_name: string; last_name: string }): Promise<{ user: User }> {
+  async updateProfile(data: { display_name: string }): Promise<{ user: User }> {
     return this.request<{ user: User }>('/api/v1/me', {
       method: 'PATCH',
       body: JSON.stringify(data),

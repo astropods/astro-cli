@@ -4,14 +4,17 @@ import { ProtectedRoute } from "../components/ProtectedRoute";
 import { useCreateAccount } from "../api/queries/accounts";
 import { useAuth } from "../lib/auth";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { InviteInput, type InviteEntry } from "@/components/InviteInput";
 import { AccountNameInput } from "@/components/AccountNameInput";
 import { useAccountNameValidation } from "@/hooks/use-account-name";
 import type { ApiError } from "@/lib/api";
+import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
 
 function OrganizationNewContent() {
   const [name, setName] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [invites, setInvites] = useState<InviteEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -37,6 +40,7 @@ function OrganizationNewContent() {
         await createAccount.mutateAsync({
           name,
           type: "organization",
+          display_name: displayName.trim(),
           ...(invitations.length > 0 && { invitations }),
         });
       } catch (err: unknown) {
@@ -56,7 +60,7 @@ function OrganizationNewContent() {
       }
       navigate(`/${name}`);
     },
-    [name, invites, isAvailable, createAccount, checkAuth, navigate]
+    [name, displayName, invites, isAvailable, createAccount, checkAuth, navigate]
   );
 
   const handleChange = useCallback(
@@ -68,54 +72,58 @@ function OrganizationNewContent() {
   );
 
   return (
-    <div className="flex flex-1 items-start justify-center p-6 md:p-8">
-      <div className="w-full max-w-md pt-12">
-        <h1 className="text-2xl font-bold">Create an organization</h1>
-        <p className="text-muted-foreground mt-1 text-pretty text-sm">
-          Organizations let you collaborate with others and manage agents as a
-          team.
-        </p>
+    <div className="mx-auto max-w-[480px] px-6 pt-20">
+      <h1 className="text-heading-1 mb-2">Create an organization</h1>
+      <p className="text-muted-foreground mb-8 leading-relaxed">
+        Organizations let you collaborate with others and manage agents as a
+        team.
+      </p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-3">
-          <div>
-            <Label htmlFor="org-name" className="mb-1.5 block">
-              Organization username
-            </Label>
-            <AccountNameInput
-              value={name}
-              onChange={handleChange}
-              placeholder="my-org"
-              autoFocus
-              isChecking={isChecking}
-              isAvailable={isAvailable}
-              displayError={displayError}
-            />
-          </div>
+      <form onSubmit={handleSubmit}>
+        <div className="mb-4">
+          <Label size="md">Organization name</Label>
+          <Input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="My Organization"
+            autoFocus
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+          />
+        </div>
 
-          <div>
-            <Label className="mb-1.5 block">
-              Invite members
-            </Label>
-            <InviteInput entries={invites} onChange={setInvites} exclude={excludeFromInvite} />
-            <p className="text-muted-foreground mt-1 text-xs">
-              Invitations will be sent after the organization is created.
-            </p>
-          </div>
+        <div className="mb-4">
+          <Label size="md">Organization username</Label>
+          <AccountNameInput
+            value={name}
+            onChange={handleChange}
+            placeholder="my-org"
+            isChecking={isChecking}
+            isAvailable={isAvailable}
+            displayError={displayError}
+          />
+        </div>
 
-          {error && <p className="text-destructive text-pretty text-sm">{error}</p>}
+        <div className="mb-6">
+          <Label size="md">Invite members</Label>
+          <InviteInput entries={invites} onChange={setInvites} exclude={excludeFromInvite} />
+          <p className="text-muted-foreground mt-1 text-xs">
+            Invitations will be sent after the organization is created.
+          </p>
+        </div>
 
-          <Button
-            type="submit"
-            size="lg"
-            disabled={createAccount.isPending || !isAvailable || invites.some((e) => !e.valid)}
-            className="mt-6 w-full"
-          >
-            {createAccount.isPending
-              ? "Creating..."
-              : "Create organization"}
-          </Button>
-        </form>
-      </div>
+        {error && <p className="text-destructive mb-4 text-sm">{error}</p>}
+
+        <Button
+          type="submit"
+          size="lg"
+          disabled={createAccount.isPending || !isAvailable || invites.some((e) => !e.valid)}
+          className="w-full"
+        >
+          {createAccount.isPending
+            ? "Creating..."
+            : "Create organization"}
+        </Button>
+      </form>
     </div>
   );
 }

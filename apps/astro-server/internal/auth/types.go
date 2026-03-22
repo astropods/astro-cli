@@ -43,6 +43,7 @@ type AuthAccountResponse struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
 	Type                 string `json:"type"`
+	DisplayName          string `json:"display_name"`
 	WorkOSOrganizationID string `json:"organization_id,omitempty"`
 	AvatarVersion        int    `json:"avatar_version"`
 }

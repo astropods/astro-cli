@@ -20,7 +20,7 @@ func NewAccountStore(db *sql.DB) *AccountStore {
 
 // Create creates a new account and adds the owner as a member.
 // Returns an error if the name is taken or invalid.
-func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, error) {
+func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string) (*Account, error) {
 	if err := ValidateAccountName(name); err != nil {
 		return nil, err
 	}
@@ -34,11 +34,11 @@ func (s *AccountStore) Create(name, accountType, ownerUserID string) (*Account, 
 	now := time.Now()
 	var acct Account
 	err = tx.QueryRow(`
-		INSERT INTO accounts (name, type, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, type, created_at, updated_at
-	`, name, accountType, now, now).Scan(
-		&acct.ID, &acct.Name, &acct.Type, &acct.CreatedAt, &acct.UpdatedAt,
+		INSERT INTO accounts (name, type, display_name, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, name, type, display_name, created_at, updated_at
+	`, name, accountType, displayName, now, now).Scan(
+		&acct.ID, &acct.Name, &acct.Type, &acct.DisplayName, &acct.CreatedAt, &acct.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create account: %w", err)
@@ -87,7 +87,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
 	var deletedAt sql.NullTime
-	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.AvatarVersion)
+	err := row.Scan(&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt, &acct.CreatedAt, &acct.UpdatedAt, &acct.AvatarVersion, &acct.DisplayName)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version, a.display_name
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.name = $1 AND a.deleted_at IS NULL
@@ -120,7 +120,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version, a.display_name
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE a.id = $1 AND a.deleted_at IS NULL
@@ -137,7 +137,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version, a.display_name
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
 		WHERE ao.workos_org_id = $1
@@ -167,7 +167,7 @@ func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 // GetAccountsForUser returns all accounts a user is a member of
 func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at, a.avatar_version
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at, a.avatar_version, a.display_name
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -182,7 +182,7 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 	var accounts []AccountWithRole
 	for rows.Next() {
 		var a AccountWithRole
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.CreatedAt, &a.UpdatedAt, &a.AvatarVersion); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.CreatedAt, &a.UpdatedAt, &a.AvatarVersion, &a.DisplayName); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
 		accounts = append(accounts, a)
@@ -217,6 +217,28 @@ func (s *AccountStore) Rename(accountID, newName string) error {
 	`, newName, time.Now(), accountID)
 	if err != nil {
 		return fmt.Errorf("failed to rename account: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("account not found: %s", accountID)
+	}
+
+	return nil
+}
+
+// UpdateDisplayName sets the display name for an account.
+func (s *AccountStore) UpdateDisplayName(accountID, displayName string) error {
+	result, err := s.db.Exec(`
+		UPDATE accounts SET display_name = $1, updated_at = $2
+		WHERE id = $3
+	`, displayName, time.Now(), accountID)
+	if err != nil {
+		return fmt.Errorf("failed to update display name: %w", err)
 	}
 
 	rows, err := result.RowsAffected()

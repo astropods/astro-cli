@@ -579,7 +579,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.Response(200, &handlers.ProfileResponse{}),
 			)
-			api.PATCH(protected, "/me", "Update current user profile", handlers.UpdateProfile(log, authHandler.GetWorkOSClient()),
+			api.PATCH(protected, "/me", "Update current user profile", handlers.UpdateProfile(log, accountStore),
 				oapispec.Tags("Profile"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.UpdateProfileRequest{}),

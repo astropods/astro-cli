@@ -68,7 +68,7 @@ export function useRenameAccount() {
 // which updates the session cookie with fresh user data from WorkOS.
 export function useUpdateProfile() {
   return useMutation({
-    mutationFn: (data: { first_name: string; last_name: string }) =>
+    mutationFn: (data: { display_name: string }) =>
       api.updateProfile(data),
   });
 }

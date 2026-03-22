@@ -476,8 +476,8 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	// ResolveAccount: return org-b
 	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("org-b").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version"}).
-			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), 0))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
+			AddRow("acct-b", "org-b", "organization", "org_b_wos", nil, time.Now(), time.Now(), 0, ""))
 
 	// RequireAccountPermission: IsMember returns 0 (user-a is not a member of org-b)
 	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").

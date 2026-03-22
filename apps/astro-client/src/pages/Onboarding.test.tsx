@@ -51,7 +51,7 @@ describe('Onboarding', () => {
   it('redirects org-only users to /onboarding', async () => {
     renderGuarded(orgOnlyAuth, ['/']);
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /choose your username/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /set up your account/i })).toBeInTheDocument();
     });
   });
 
@@ -80,8 +80,40 @@ describe('Onboarding', () => {
     renderGuarded({ ...mockAuthContext, accounts: [], needsOnboarding: true }, ['/onboarding']);
 
     await user.type(screen.getByPlaceholderText('username'), 'mynewname');
+    await user.type(screen.getByPlaceholderText('Your name'), 'Test User');
+    await user.click(screen.getByRole('checkbox'));
     await waitFor(() => expect(screen.getByText('Available')).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /claim username/i }));
-    await waitFor(() => expect(capturedBody).toEqual({ name: 'mynewname', type: 'personal' }));
+    await user.click(screen.getByRole('button', { name: /get started/i }));
+    await waitFor(() => expect(capturedBody).toEqual({ name: 'mynewname', type: 'personal', display_name: 'Test User' }));
+  });
+
+  it('disables submit when terms are not accepted', async () => {
+    server.use(
+      http.get('/api/v1/accounts/check/:name', () => HttpResponse.json({ available: true })),
+    );
+
+    const user = userEvent.setup();
+    renderGuarded({ ...mockAuthContext, accounts: [], needsOnboarding: true }, ['/onboarding']);
+
+    await user.type(screen.getByPlaceholderText('username'), 'mynewname');
+    await user.type(screen.getByPlaceholderText('Your name'), 'Test User');
+    await waitFor(() => expect(screen.getByText('Available')).toBeInTheDocument());
+
+    expect(screen.getByRole('button', { name: /get started/i })).toBeDisabled();
+  });
+
+  it('disables submit when display name is empty', async () => {
+    server.use(
+      http.get('/api/v1/accounts/check/:name', () => HttpResponse.json({ available: true })),
+    );
+
+    const user = userEvent.setup();
+    renderGuarded({ ...mockAuthContext, accounts: [], needsOnboarding: true }, ['/onboarding']);
+
+    await user.type(screen.getByPlaceholderText('username'), 'mynewname');
+    await user.click(screen.getByRole('checkbox'));
+    await waitFor(() => expect(screen.getByText('Available')).toBeInTheDocument());
+
+    expect(screen.getByRole('button', { name: /get started/i })).toBeDisabled();
   });
 });

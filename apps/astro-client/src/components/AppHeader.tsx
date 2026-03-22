@@ -12,7 +12,7 @@ import {
 } from "@heroicons/react/24/outline";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
-import { useAuth, getUserDisplayName } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -72,6 +72,8 @@ export function AppHeader() {
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
+
   // Close sheet on navigation
   useEffect(() => {
     setSheetOpen(false);
@@ -114,7 +116,7 @@ export function AppHeader() {
               {isLoading ? (
                 <Skeleton className="h-12 w-full" />
               ) : isAuthenticated && user ? (
-                <UserCard user={user} handle={personalAccount?.name} avatarVersion={personalAccount?.avatar_version} onSignOut={logout} />
+                <UserCard user={user} displayName={displayName} handle={personalAccount?.name} avatarVersion={personalAccount?.avatar_version} onSignOut={logout} />
               ) : (
                 <>
                   <Button
@@ -205,15 +207,15 @@ export function AppHeader() {
                 size="icon"
                 className="rounded-full"
               >
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={getUserDisplayName(user)} avatarVersion={personalAccount?.avatar_version} />
+                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarVersion={personalAccount?.avatar_version} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 p-3">
               <div className="flex items-center gap-3 pb-3">
-                <UserAvatar handle={personalAccount?.name ?? user.id} name={getUserDisplayName(user)} avatarVersion={personalAccount?.avatar_version} />
+                <UserAvatar handle={personalAccount?.name ?? user.id} name={displayName} avatarVersion={personalAccount?.avatar_version} />
                 <div className="flex min-w-0 flex-col leading-tight">
                   <span className="truncate text-sm font-semibold">
-                    {getUserDisplayName(user)}
+                    {displayName}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
                     {user.email}

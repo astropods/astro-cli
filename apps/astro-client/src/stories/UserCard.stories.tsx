@@ -25,6 +25,7 @@ const meta = {
   ],
   args: {
     user: baseUser,
+    displayName: "Jane Doe",
     handle: "acct-1",
     onSignOut: () => console.log("Sign out clicked"),
   },
@@ -38,6 +39,7 @@ export const WithPhoto: Story = {};
 export const WithPresetAvatar: Story = {
   args: {
     user: { ...baseUser, profile_picture_url: undefined },
+    displayName: "Jane Doe",
   },
 };
 
@@ -45,11 +47,10 @@ export const LongName: Story = {
   args: {
     user: {
       ...baseUser,
-      first_name: "Alexandria",
-      last_name: "Constantinopolous",
       email: "alexandria.constantinopolous@longdomainname.example.com",
       profile_picture_url: undefined,
     },
+    displayName: "Alexandria Constantinopolous",
   },
 };
 
@@ -57,9 +58,8 @@ export const EmailOnly: Story = {
   args: {
     user: {
       ...baseUser,
-      first_name: undefined,
-      last_name: undefined,
       profile_picture_url: undefined,
     },
+    displayName: "jane.doe@example.com",
   },
 };

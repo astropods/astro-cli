@@ -4,9 +4,15 @@ import { useCreateAccount } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
 import { AccountNameInput } from '@/components/AccountNameInput';
 import { useAccountNameValidation } from '@/hooks/use-account-name';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { DISPLAY_NAME_MAX_LENGTH } from '@/lib/constants';
 
 export default function Onboarding() {
   const [name, setName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { checkAuth, isAuthenticated, isLoading, login } = useAuth();
@@ -23,15 +29,27 @@ export default function Onboarding() {
 
   const { isChecking, isAvailable, displayError } = useAccountNameValidation(name);
 
+  const displayNameTrimmed = displayName.trim();
+  const isDisplayNameValid =
+    displayNameTrimmed.length >= 1 &&
+    displayNameTrimmed.length <= DISPLAY_NAME_MAX_LENGTH;
+
+  const canSubmit =
+    isAvailable && isDisplayNameValid && agreedToTerms && !createAccount.isPending;
+
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setError(null);
 
-      if (!isAvailable) return;
+      if (!canSubmit) return;
 
       try {
-        await createAccount.mutateAsync({ name, type: 'personal' });
+        await createAccount.mutateAsync({
+          name,
+          type: 'personal',
+          display_name: displayNameTrimmed,
+        });
       } catch (err: unknown) {
         const apiErr = err as { error?: string; error_description?: string };
         setError(
@@ -49,7 +67,7 @@ export default function Onboarding() {
       }
       navigate('/');
     },
-    [name, isAvailable, createAccount, checkAuth, navigate]
+    [name, displayNameTrimmed, canSubmit, createAccount, checkAuth, navigate]
   );
 
   const handleChange = useCallback(
@@ -62,36 +80,69 @@ export default function Onboarding() {
 
   return (
     <div className="mx-auto max-w-[480px] px-6 pt-20">
-      <h1 className="text-heading-1 mb-2">Choose your username</h1>
+      <h1 className="text-heading-1 mb-2">Set up your account</h1>
       <p className="text-muted-foreground mb-8 leading-relaxed">
-        Your username is how others will find your agents. It must be unique and
-        can contain lowercase letters, numbers, and hyphens.
+        Choose a username and display name to get started. Your username is how
+        others will find your agents.
       </p>
 
       <form onSubmit={handleSubmit}>
         <div className="mb-4">
+          <Label size="md">Display name</Label>
+          <Input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Your name"
+            autoFocus
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+          />
+        </div>
+
+        <div className="mb-4">
+          <Label size="md">Username</Label>
           <AccountNameInput
             value={name}
             onChange={handleChange}
             placeholder="username"
-            autoFocus
             isChecking={isChecking}
             isAvailable={isAvailable}
             displayError={displayError}
           />
         </div>
 
+        <div className="mb-6">
+          <label className="flex items-start gap-2.5 text-sm text-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span>
+              I agree to the Astro AI{' '}
+              <a href="https://www.postman.com/legal/astro-ai-terms-of-service/" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+                terms of service
+              </a>{' '}
+              and{' '}
+              <a href="https://privacy.postman.com/policies/" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+                privacy policy
+              </a>
+            </span>
+          </label>
+        </div>
+
         {error && (
           <p className="text-destructive mb-4 text-sm">{error}</p>
         )}
 
-        <button
+        <Button
           type="submit"
-          disabled={createAccount.isPending || !isAvailable}
-          className="w-full rounded-sm px-6 py-3 font-medium text-white transition-colors bg-primary hover:bg-primary/90 disabled:bg-muted-foreground disabled:cursor-not-allowed"
+          size="lg"
+          disabled={!canSubmit}
+          className="w-full"
         >
-          {createAccount.isPending ? 'Creating...' : 'Claim username'}
-        </button>
+          {createAccount.isPending ? 'Creating...' : 'Get started'}
+        </Button>
       </form>
     </div>
   );
