@@ -182,7 +182,6 @@ export function ActiveContainerAccordion({
   const [logSearch, setLogSearch] = useState("");
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
   const [activeFilters, setActiveFilters] = useState<Set<"errors" | "warnings">>(new Set());
-  const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedPlaygroundCommand, setCopiedPlaygroundCommand] = useState(false);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [selectedContainer, setSelectedContainer] = useState<string>(containers[0]?.name ?? "");
@@ -254,15 +253,6 @@ export function ActiveContainerAccordion({
     return true;
   });
 
-  const handleCopyUrl = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!url) return;
-    const ok = await copyTextToClipboard(url);
-    if (!ok) return;
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 900);
-  };
-
   const hasPublicUrl = !!url;
   const playgroundCommand = hasPublicUrl ? `ast playground ${url}` : "ast playground <deployment-url>";
 
@@ -330,58 +320,6 @@ export function ActiveContainerAccordion({
         <span style={{ flex: 1 }} />
         {isAgentService && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 0 }}>
-            {url ? (
-              <button
-                onClick={handleCopyUrl}
-                style={{
-                  position: "relative",
-                  padding: "3px 10px",
-                  borderRadius: 5,
-                  border: `1px solid ${C.border}`,
-                  background: "transparent",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                  fontFamily: S.mono,
-                  fontSize: T.label,
-                  color: C.stone,
-                  transition: "background 0.15s",
-                  maxWidth: 280,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap" as const,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = C.bgDeep;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                {url}
-                {copiedUrl && (
-                  <span
-                    style={{
-                      position: "absolute",
-                      right: 6,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: C.tealMid,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      fontFamily: S.body,
-                      fontSize: T.monoSm,
-                      whiteSpace: "nowrap" as const,
-                      background: "inherit",
-                      paddingLeft: 4,
-                    }}
-                  >
-                    <Check size={I.xs} />
-                    Copied
-                  </span>
-                )}
-              </button>
-            ) : null}
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: C.faint }}>
               <span style={{ fontFamily: S.body, fontSize: T.bodySm, whiteSpace: "nowrap" as const }}>
                 To chat, run:
@@ -401,7 +339,7 @@ export function ActiveContainerAccordion({
                   padding: "2px 8px",
                   background: C.bgAlt,
                   cursor: hasPublicUrl ? "pointer" : "not-allowed",
-                  color: !hasPublicUrl ? C.faint : copiedPlaygroundCommand ? C.tealMid : C.text,
+                  color: !hasPublicUrl ? C.faint : copiedPlaygroundCommand ? C.tealMid : C.faint,
                   opacity: hasPublicUrl ? 1 : 0.7,
                 }}
               >
