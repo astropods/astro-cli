@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Search, Loader2, X, RefreshCw, Copy, Check, MoreVertical } from "lucide-react";
+import { ChevronRight, Search, Loader2, X, RefreshCw, Copy, Check, MoreVertical, Globe } from "lucide-react";
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
 import {
   formatDate,
@@ -70,6 +70,7 @@ export interface ActiveContainerAccordionProps {
   workloadName: string;
   title: string;
   url?: string;
+  urls?: { name: string; url: string; type?: string }[];
   readyText: string;
   uptime: string;
   containers: {
@@ -137,7 +138,9 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-function isSensitiveEnvVar(key: string, value: string): boolean {
+function isSensitiveEnvVar(key: string, value: string, source: string): boolean {
+  if (source.startsWith("secret:")) return true;
+
   const upperKey = key.toUpperCase();
   const keyLooksSensitive =
     upperKey.includes("KEY") ||
@@ -164,6 +167,7 @@ export function ActiveContainerAccordion({
   workloadName,
   title,
   url,
+  urls,
   readyText,
   uptime,
   containers,
@@ -172,7 +176,7 @@ export function ActiveContainerAccordion({
   isOpen,
   onToggle,
 }: ActiveContainerAccordionProps) {
-  const [view, setView] = useState<"logs" | "vars">("logs");
+  const [view, setView] = useState<"logs" | "vars" | "domains">("logs");
   const [logSearch, setLogSearch] = useState("");
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
   const [activeFilters, setActiveFilters] = useState<Set<"errors" | "warnings">>(new Set());
@@ -194,6 +198,7 @@ export function ActiveContainerAccordion({
   );
   const vars = activeContainer?.vars ?? [];
   const canShowVars = selectedContainer !== "collector";
+  const canShowDomains = (urls ?? []).length > 0;
   const totalContainers = containers.length;
   const readyContainers = containers.filter((container) => container.ready).length;
   const allReady = totalContainers > 0 && readyContainers === totalContainers;
@@ -202,7 +207,10 @@ export function ActiveContainerAccordion({
     if (!canShowVars && view === "vars") {
       setView("logs");
     }
-  }, [canShowVars, view]);
+    if (!canShowDomains && view === "domains") {
+      setView("logs");
+    }
+  }, [canShowVars, canShowDomains, view]);
 
   const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
     deploymentId,
@@ -364,9 +372,9 @@ export function ActiveContainerAccordion({
 
       {isOpen && (
         <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-          <div style={{ display: "flex", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
-            {(["logs", "vars"] as const).map((v) => (
-              v === "vars" && !canShowVars ? null : (
+          <div style={{ display: "flex", alignItems: "center", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
+            {(["logs", "vars", "domains"] as const).map((v) => (
+              (v === "vars" && !canShowVars) || (v === "domains" && !canShowDomains) ? null : (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -384,10 +392,29 @@ export function ActiveContainerAccordion({
                   textTransform: "capitalize" as const,
                 }}
               >
-                {v === "vars" ? "Variables" : "Logs"}
+                {v === "vars" ? "Variables" : v === "domains" ? "Domains" : "Logs"}
               </button>
               )
             ))}
+            {containers.length > 1 && (
+              <div style={{ marginLeft: "auto", paddingRight: 8 }}>
+                <Select value={selectedContainer} onValueChange={setSelectedContainer}>
+                  <SelectTrigger
+                    className="h-7 w-auto min-w-[130px] px-3"
+                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted }}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {containers.map((container) => (
+                      <SelectItem key={container.name} value={container.name}>
+                        {container.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           {view === "vars" && (
@@ -418,12 +445,12 @@ export function ActiveContainerAccordion({
                       <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.stone, flexShrink: 0, userSelect: "none" as const }}>
                         {"{}"}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text, minWidth: 160, flexShrink: 0 }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: !v.value ? C.stone : C.text, minWidth: 160, flexShrink: 0, textDecoration: !v.value ? "line-through" : undefined }}>
                         {v.key}
                       </span>
                       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
-                          {isSecret ? "•••••••••" : v.value}
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: !v.value ? C.stone : C.faint, fontStyle: !v.value ? "italic" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                          {!v.value ? "empty" : isSecret ? "•••••••••" : v.value}
                         </span>
                       </div>
                       <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.08em", padding: "2px 6px", borderRadius: 4, background: srcStyle.bg, color: srcStyle.color, flexShrink: 0 }}>
@@ -433,6 +460,33 @@ export function ActiveContainerAccordion({
                   );
                 })
               )}
+            </div>
+          )}
+
+          {view === "domains" && (
+            <div style={{ background: C.bg }}>
+              {(urls ?? []).map((u, i) => (
+                <div
+                  key={u.url}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "9px 16px",
+                    borderBottom: i < (urls ?? []).length - 1 ? `1px solid ${C.border}` : "none",
+                  }}
+                >
+                  <Globe size={14} style={{ flexShrink: 0, color: C.stone }} />
+                  <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.tealMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, flex: 1 }}>
+                    {u.url}
+                  </span>
+                  {u.type && (
+                    <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.08em", padding: "2px 6px", borderRadius: 4, background: C.bgDeep, color: C.stone, flexShrink: 0 }}>
+                      {u.type}
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -471,23 +525,6 @@ export function ActiveContainerAccordion({
                   );
                 })}
                 <div style={{ flex: 1 }} />
-                {containers.length > 1 && (
-                  <Select value={selectedContainer} onValueChange={setSelectedContainer}>
-                    <SelectTrigger
-                      className="h-8 w-auto min-w-[130px] px-3"
-                      style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted }}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {containers.map((container) => (
-                        <SelectItem key={container.name} value={container.name}>
-                          {container.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
                 <Select value={logTimeRange} onValueChange={(value) => setLogTimeRange(value as LogTimeRange)}>
                   <SelectTrigger
                     className="h-8 w-auto min-w-[130px] px-3"
@@ -691,17 +728,13 @@ export function DeploymentsTab({
         name: c.name,
         ready: c.ready,
         vars: (c.env ?? [])
-          .filter((e) => {
-            const key = (e.name ?? "").trim();
-            return key !== "*" && !key.endsWith("*");
-          })
           .map((e) => {
             const val = e.value ?? "";
             return {
               key: e.name,
               value: val,
-              secret: isSensitiveEnvVar(e.name, val),
               source: e.from ?? "static",
+              secret: isSensitiveEnvVar(e.name, val, e.from ?? "static"),
             };
           }),
       }));
@@ -715,6 +748,7 @@ export function DeploymentsTab({
         uptime: wl.age ?? "—",
         containers: mappedContainers,
         url,
+        urls: wl.urls,
       };
     });
   }, [deployment]);
@@ -867,6 +901,7 @@ export function DeploymentsTab({
                           workloadName={svc.workloadName}
                           title={svc.title}
                           url={svc.url}
+                          urls={svc.urls}
                           readyText={svc.readyText}
                           uptime={svc.uptime}
                           deploymentId={deployment.id}

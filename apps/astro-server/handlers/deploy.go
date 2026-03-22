@@ -31,6 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 // isAccountMember checks whether the user is a member of the account.
@@ -620,11 +621,12 @@ type ContainerStatus struct {
 
 // WorkloadDetail represents a k8s workload (Deployment, StatefulSet, etc.)
 type WorkloadDetail struct {
-	Name       string            `json:"name"`      // k8s resource name
-	Kind       string            `json:"kind"`      // "Deployment" or "StatefulSet"
-	Component  string            `json:"component"` // from app.kubernetes.io/component label
-	Age        string            `json:"age"`
-	Containers []ContainerStatus `json:"containers"`
+	Name       string                `json:"name"`      // k8s resource name
+	Kind       string                `json:"kind"`      // "Deployment" or "StatefulSet"
+	Component  string                `json:"component"` // from app.kubernetes.io/component label
+	Age        string                `json:"age"`
+	Containers []ContainerStatus     `json:"containers"`
+	URLs       []ServiceEndpointInfo `json:"urls,omitempty"`
 }
 
 // JobDetail represents details about a single K8s Job (e.g. ingestion run)
@@ -872,24 +874,31 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	// Build a map of external URLs from ingresses
-	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agentName:version" -> endpoints
+	// Build maps of URLs from ingresses — both per-agent and per-workload (component).
+	agentExternalURLs := make(map[string][]ServiceEndpointInfo) // key: "agent:version"
+	workloadURLs := make(map[string][]ServiceEndpointInfo)      // key: "agent:version:component"
 	if ingressList != nil {
 		for _, ing := range ingressList.Items {
 			agentKey := ing.Labels[deployment.LabelKeyAgent]
 			version := ing.Labels["app.kubernetes.io/version"]
 			component := ing.Labels["app.kubernetes.io/component"]
 
-			if agentKey != "" && len(ing.Spec.Rules) > 0 {
-				key := agentKey + ":" + version
-				host := ing.Spec.Rules[0].Host
-				if host != "" {
-					agentExternalURLs[key] = append(agentExternalURLs[key], ServiceEndpointInfo{
-						Name: component,
-						URL:  fmt.Sprintf("https://%s", host),
-						Type: component,
-					})
+			if agentKey == "" || len(ing.Spec.Rules) == 0 {
+				continue
+			}
+			for _, rule := range ing.Spec.Rules {
+				if rule.Host == "" {
+					continue
 				}
+				ep := ServiceEndpointInfo{
+					Name: component,
+					URL:  fmt.Sprintf("https://%s", rule.Host),
+					Type: component,
+				}
+				agentKey := agentKey + ":" + version
+				agentExternalURLs[agentKey] = append(agentExternalURLs[agentKey], ep)
+				wlKey := agentKey + ":" + component
+				workloadURLs[wlKey] = append(workloadURLs[wlKey], ep)
 			}
 		}
 	}
@@ -949,12 +958,16 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		}
 
 		// Build workload entry
-		info.Workloads = append(info.Workloads, WorkloadDetail{
+		wl := WorkloadDetail{
 			Name:      dep.Name,
 			Kind:      "Deployment",
 			Component: component,
 			Age:       formatAge(dep.CreationTimestamp.Time),
-		})
+		}
+		if urls, ok := workloadURLs[key+":"+component]; ok {
+			wl.URLs = urls
+		}
+		info.Workloads = append(info.Workloads, wl)
 	}
 
 	// Group StatefulSets by agent and build workload entries
@@ -992,12 +1005,16 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			info.Components = append(info.Components, component)
 		}
 
-		info.Workloads = append(info.Workloads, WorkloadDetail{
+		wl := WorkloadDetail{
 			Name:      sts.Name,
 			Kind:      "StatefulSet",
 			Component: component,
 			Age:       formatAge(sts.CreationTimestamp.Time),
-		})
+		}
+		if urls, ok := workloadURLs[key+":"+component]; ok {
+			wl.URLs = urls
+		}
+		info.Workloads = append(info.Workloads, wl)
 	}
 
 	// List Jobs (e.g. ingestion runs) for the namespace
@@ -1095,7 +1112,7 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			if !ok {
 				continue
 			}
-			wl.Containers = buildContainerStatuses(pod)
+			wl.Containers = buildContainerStatuses(ctx, clientset, pod)
 		}
 	}
 
@@ -1109,24 +1126,82 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 }
 
 // buildContainerStatuses extracts container statuses and env vars from a k8s pod.
-func buildContainerStatuses(pod corev1.Pod) []ContainerStatus {
+// It resolves envFrom references (ConfigMaps and Secrets) into individual key-value pairs.
+func buildContainerStatuses(ctx context.Context, clientset kubernetes.Interface, pod corev1.Pod) []ContainerStatus {
+	ns := pod.Namespace
+
+	// Cache resolved ConfigMaps and Secrets to avoid duplicate fetches.
+	cmCache := map[string]map[string]string{}
+	secCache := map[string]map[string]string{}
+
+	resolveConfigMap := func(name string) map[string]string {
+		if data, ok := cmCache[name]; ok {
+			return data
+		}
+		cm, err := clientset.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			cmCache[name] = nil
+			return nil
+		}
+		cmCache[name] = cm.Data
+		return cm.Data
+	}
+
+	// Only resolve secret keys — never store or return secret values.
+	resolveSecretKeys := func(name string) []string {
+		if keys, ok := secCache[name]; ok {
+			if keys == nil {
+				return nil
+			}
+			result := make([]string, 0, len(keys))
+			for k := range keys {
+				result = append(result, k)
+			}
+			return result
+		}
+		sec, err := clientset.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			secCache[name] = nil
+			return nil
+		}
+		redacted := make(map[string]string, len(sec.Data))
+		for k := range sec.Data {
+			redacted[k] = ""
+		}
+		secCache[name] = redacted
+		result := make([]string, 0, len(redacted))
+		for k := range redacted {
+			result = append(result, k)
+		}
+		return result
+	}
+
 	// Build a map of spec containers (regular + init) for env var lookup
 	specContainers := map[string][]EnvVar{}
 	for _, sc := range append(pod.Spec.Containers, pod.Spec.InitContainers...) {
 		var envVars []EnvVar
 
+		// Resolve envFrom references into individual key-value pairs
 		for _, ef := range sc.EnvFrom {
 			if ef.ConfigMapRef != nil {
-				envVars = append(envVars, EnvVar{
-					Name: ef.Prefix + "*",
-					From: "configmap:" + ef.ConfigMapRef.Name,
-				})
+				data := resolveConfigMap(ef.ConfigMapRef.Name)
+				for k, v := range data {
+					envVars = append(envVars, EnvVar{
+						Name:  ef.Prefix + k,
+						Value: v,
+						From:  "configmap:" + ef.ConfigMapRef.Name,
+					})
+				}
 			}
 			if ef.SecretRef != nil {
-				envVars = append(envVars, EnvVar{
-					Name: ef.Prefix + "*",
-					From: "secret:" + ef.SecretRef.Name,
-				})
+				keys := resolveSecretKeys(ef.SecretRef.Name)
+				for _, k := range keys {
+					envVars = append(envVars, EnvVar{
+						Name:  ef.Prefix + k,
+						Value: "••••••••",
+						From:  "secret:" + ef.SecretRef.Name,
+					})
+				}
 			}
 		}
 
@@ -1135,6 +1210,7 @@ func buildContainerStatuses(pod corev1.Pod) []ContainerStatus {
 			if e.ValueFrom != nil {
 				switch {
 				case e.ValueFrom.SecretKeyRef != nil:
+					ev.Value = "••••••••"
 					ev.From = "secret:" + e.ValueFrom.SecretKeyRef.Name + "/" + e.ValueFrom.SecretKeyRef.Key
 				case e.ValueFrom.ConfigMapKeyRef != nil:
 					ev.From = "configmap:" + e.ValueFrom.ConfigMapKeyRef.Name + "/" + e.ValueFrom.ConfigMapKeyRef.Key

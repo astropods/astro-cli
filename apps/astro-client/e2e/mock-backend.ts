@@ -352,7 +352,7 @@ const makeInitialDeployments = () => [
     created_at: nowIso,
     components: ["agent", "web", "slack"],
     external_urls: [],
-    pods: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
   {
@@ -367,7 +367,7 @@ const makeInitialDeployments = () => [
     created_at: nowIso,
     components: ["agent", "web", "slack"],
     external_urls: [],
-    pods: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
   {
@@ -382,7 +382,7 @@ const makeInitialDeployments = () => [
     created_at: nowIso,
     components: ["agent", "web"],
     external_urls: [],
-    pods: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
   {
@@ -398,7 +398,7 @@ const makeInitialDeployments = () => [
     components: ["agent", "web"],
     manual_ingestions: ["manual", "full-sync"],
     external_urls: [],
-    pods: [],
+    workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
     jobs: [],
   },
 ];
@@ -547,23 +547,23 @@ Bun.serve({
       /^\/api\/v1\/deployments\/([^/]+)\/ingestion\/([^/]+)\/trigger$/,
     );
     if (triggerMatch && request.method === "POST") {
-      const [, deploymentId, ingestionName] = triggerMatch;
+      const deploymentId = triggerMatch[1]!;
+      const ingestionName = triggerMatch[2]!;
       const dep = deployments.find((d) => d.id === deploymentId);
       if (!dep) return json({ error: "not_found" }, 404);
       const jobName = `${dep.name}-ingestion-${ingestionName}-manual`;
-      const podName = `${jobName}-abc12-x9k2p`;
       deployments = deployments.map((d) =>
         d.id === deploymentId
           ? {
               ...d,
-              pods: [
-                ...(d.pods ?? []),
+              workloads: [
+                ...(d.workloads ?? []),
                 {
-                  name: podName,
-                  phase: "Running",
-                  pod_ip: "10.1.0.42",
+                  name: jobName,
+                  kind: "Deployment" as const,
+                  component: ingestionName,
                   age: "5s",
-                  containers: [{ name: ingestionName, state: "running", ready: true, restart_count: 0 }],
+                  containers: [{ name: ingestionName, state: "running", ready: true as boolean, restart_count: 0 }],
                 },
               ],
             }
@@ -616,7 +616,7 @@ Bun.serve({
           created_at: nowIso,
           components: ["agent", "web"],
           external_urls: [],
-          pods: [],
+          workloads: [] as { name: string; kind: string; component: string; age: string; containers: { name: string; state: string; ready: boolean; restart_count: number }[] }[],
           jobs: [],
         }];
       }

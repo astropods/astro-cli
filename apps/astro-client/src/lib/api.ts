@@ -686,6 +686,7 @@ export interface WorkloadDetail {
   component: string;
   age: string;
   containers: ContainerStatus[];
+  urls?: ServiceEndpointInfo[];
 }
 
 export interface JobDetail {
