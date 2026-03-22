@@ -1311,13 +1311,50 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			return
 		}
 
-		// K8s fallback: direct pod log stream (used when LOKI_URL is not configured).
+		// K8s fallback: direct pod log stream (used when Loki is not configured).
 		if k8sClient == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
 			return
 		}
+
+		// Resolve pod name: if only workload is provided, find a running pod for it.
+		if podName == "" && workloadName != "" {
+			pods, listErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
+				LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+			})
+			if listErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list pods", "details": listErr.Error()})
+				return
+			}
+			prefix := workloadName + "-"
+			for _, p := range pods.Items {
+				if !strings.HasPrefix(p.Name, prefix) {
+					continue
+				}
+				if containerName != "" {
+					found := false
+					for _, cs := range append(p.Status.ContainerStatuses, p.Status.InitContainerStatuses...) {
+						if cs.Name == containerName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						continue
+					}
+				}
+				// Prefer running pods
+				if podName == "" || p.Status.Phase == corev1.PodRunning {
+					podName = p.Name
+				}
+				if p.Status.Phase == corev1.PodRunning {
+					break
+				}
+			}
+		}
+
 		if podName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "pod query parameter is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "pod or workload query parameter is required"})
 			return
 		}
 

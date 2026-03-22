@@ -301,13 +301,25 @@ func runAPI(
 		}
 	}
 
-	// Initialize Loki client (optional — falls back to K8s pod logs if LOKI_URL is unset)
+	// Resolve deployment log backend: explicit env var > auto-detect from LOKI_URL
+	logBackend := cfg.DeploymentLogBackend
+	if logBackend == "" {
+		if cfg.LokiURL != "" {
+			logBackend = "loki"
+		} else {
+			logBackend = "k8s"
+		}
+	}
 	var lokiClient *loki.Client
-	if cfg.LokiURL != "" {
-		lokiClient = loki.New(cfg.LokiURL)
-		log.Info("Loki log backend configured", "url", cfg.LokiURL)
+	if logBackend == "loki" {
+		if cfg.LokiURL == "" {
+			log.Error("DEPLOYMENT_LOG_BACKEND=loki but LOKI_URL is not set")
+		} else {
+			lokiClient = loki.New(cfg.LokiURL)
+			log.Info("Deployment log backend: loki", "url", cfg.LokiURL)
+		}
 	} else {
-		log.Warn("LOKI_URL not set — deployment logs will be fetched directly from K8s pods")
+		log.Info("Deployment log backend: k8s (direct pod logs)")
 	}
 
 	// Initialize probe handler
