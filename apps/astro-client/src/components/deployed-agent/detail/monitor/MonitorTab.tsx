@@ -444,8 +444,8 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
       second: "2-digit",
     }),
     tokens: t.total_tokens ?? 0,
-    input: t.input,
-    output: t.output,
+    input: typeof t.input === "string" ? t.input : t.input != null ? JSON.stringify(t.input, null, 2) : undefined,
+    output: typeof t.output === "string" ? t.output : t.output != null ? JSON.stringify(t.output, null, 2) : undefined,
   }));
 
   const tsData = useMemo(
@@ -870,7 +870,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                               {copiedTraceField === `${trace.id}:input` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
                             </button>
                           </div>
-                          <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6 }}>{trace.input ?? "—"}</span>
+                          <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.input ?? "—"}</span>
                         </div>
                         <div style={{ padding: "10px 16px 12px" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
@@ -887,7 +887,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                             ) : null}
                           </div>
                           {trace.output ? (
-                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6 }}>{trace.output}</span>
+                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.output}</span>
                           ) : (
                             <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.coral }}>
                               Trace did not complete — no output recorded
