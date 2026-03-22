@@ -91,6 +91,14 @@ function logLineColor(line: string): string {
   return C.muted;
 }
 
+function splitLogLineTimestamp(line: string): { timestamp: string | null; message: string } {
+  const iso = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/);
+  if (iso) return { timestamp: iso[1], message: iso[2] };
+  const basic = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(.*)$/);
+  if (basic) return { timestamp: basic[1], message: basic[2] };
+  return { timestamp: null, message: line };
+}
+
 async function copyTextToClipboard(text: string): Promise<boolean> {
   try {
     if (navigator?.clipboard?.writeText) {
@@ -572,22 +580,22 @@ export function ActiveContainerAccordion({
                     {logs.length === 0 ? "No log lines in this time window" : "No matching lines"}
                   </div>
                 ) : (
-                  filtered.map((line, li) => (
-                    <div key={li} className="dp-log" style={{ display: "flex", alignItems: "baseline", padding: "1px 0" }}>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.stone, minWidth: 56, textAlign: "right" as const, paddingRight: 18, flexShrink: 0, userSelect: "none" as const }}>
-                        {li + 1}
-                      </span>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: logLineColor(line), lineHeight: 1.75 }}>{line}</span>
-                    </div>
-                  ))
-                )}
-                {!isLoading && !logErrorMessage && filtered.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "baseline", padding: "1px 0", marginTop: 2 }}>
-                    <span style={{ minWidth: 56, paddingRight: 18, flexShrink: 0 }} />
-                    <span className="dp-blink" style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.tealMid }}>
-                      ▊
-                    </span>
-                  </div>
+                  filtered.map((line, li) => {
+                    const parsed = splitLogLineTimestamp(line);
+                    return (
+                      <div key={li} className="dp-log" style={{ display: "flex", alignItems: "baseline", padding: "1px 0" }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.stone, minWidth: 44, textAlign: "right" as const, paddingRight: 12, flexShrink: 0, userSelect: "none" as const }}>
+                          {li + 1}
+                        </span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, minWidth: 190, paddingRight: 12, flexShrink: 0 }}>
+                          {parsed.timestamp ?? "—"}
+                        </span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: logLineColor(line), lineHeight: 1.75 }}>
+                          {parsed.message}
+                        </span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>

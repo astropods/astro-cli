@@ -2462,7 +2462,7 @@ func TestGetDeploymentLogs_LokiPath(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
 		t.Errorf("Content-Type = %q, want text/plain; charset=utf-8", ct)
 	}
-	want := "line one\nline two\n"
+	want := "1970-01-01T00:00:01Z line one\n1970-01-01T00:00:02Z line two\n"
 	if got := w.Body.String(); got != want {
 		t.Errorf("body = %q, want %q", got, want)
 	}

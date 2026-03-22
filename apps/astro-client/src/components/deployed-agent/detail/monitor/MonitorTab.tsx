@@ -557,18 +557,30 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
         <div
           style={{
             display: "flex",
-            alignItems: "flex-start",
-            gap: 10,
-            padding: "10px 16px",
+            alignItems: "center",
+            gap: 12,
+            padding: "12px 16px",
             borderRadius: 8,
             background: C.amberBg,
             border: `1px solid ${C.amberBdr}`,
           }}
         >
-          <span style={{ fontFamily: S.mono, fontSize: T.label, fontWeight: 700, letterSpacing: "0.08em", color: C.amber }}>
+          <span
+            style={{
+              fontFamily: S.mono,
+              fontSize: T.label,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: C.amber,
+              display: "inline-flex",
+              alignItems: "center",
+              whiteSpace: "nowrap",
+              lineHeight: 1.1,
+            }}
+          >
             OBSERVABILITY
           </span>
-          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.5 }}>
+          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.45 }}>
             Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the{" "}
             <strong style={{ color: C.text }}>Deployments</strong> tab.
           </span>

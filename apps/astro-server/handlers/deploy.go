@@ -1280,7 +1280,10 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 
 			var sb strings.Builder
 			for _, l := range lines {
-				sb.WriteString(l.Line)
+				sb.WriteString(l.Timestamp.UTC().Format(time.RFC3339Nano))
+				sb.WriteString(" ")
+				sb.WriteString(strings.TrimRight(l.Line, "\n"))
+				sb.WriteString("\n")
 			}
 			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(sb.String()))
 			return
@@ -1296,7 +1299,7 @@ func GetDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore, c
 			return
 		}
 
-		logOpts := &corev1.PodLogOptions{TailLines: &tailLines}
+		logOpts := &corev1.PodLogOptions{TailLines: &tailLines, Timestamps: true}
 		if containerName != "" {
 			logOpts.Container = containerName
 		}
