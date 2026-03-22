@@ -31,27 +31,6 @@ func NewHeartbeat(client *Client, db *sql.DB, log *logger.Logger) *Heartbeat {
 	}
 }
 
-// Start runs the heartbeat loop until the context is cancelled.
-func (h *Heartbeat) Start(ctx context.Context) {
-	h.log.Info("OpenMeter heartbeat started", "interval", heartbeatInterval.String())
-
-	// Run immediately, then on interval
-	h.Tick(ctx)
-
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			h.log.Info("OpenMeter heartbeat stopping")
-			return
-		case <-ticker.C:
-			h.Tick(ctx)
-		}
-	}
-}
-
 // Tick runs a single heartbeat iteration: emits compute usage, active deployments, active agents, and active members.
 func (h *Heartbeat) Tick(ctx context.Context) {
 	h.log.Debug("openmeter: tick starting")

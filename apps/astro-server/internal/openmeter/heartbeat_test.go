@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -314,42 +313,5 @@ func TestHeartbeat_EmitActiveAgents(t *testing.T) {
 	}
 	if received[0].Type != "active_agents" {
 		t.Errorf("expected type 'active_agents', got %q", received[0].Type)
-	}
-}
-
-func TestHeartbeat_StartAndCancel(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	client := NewClient("http://localhost:0")
-	log := logger.New("error", "json")
-
-	// The immediate tick: workloads query (empty → fallback JSON query), deployments count, agents count
-	mock.ExpectQuery("SELECT d.account_id.+FROM deployments d.+JOIN deployment_workloads w").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"account_id", "agent_name", "namespace",
-			"component_kind", "component_key", "replicas", "cpu_request", "memory_request",
-		}))
-	mock.ExpectQuery("SELECT .+ FROM deployments WHERE status = 'active'").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "agent_name", "namespace", "deployment_spec_json"}))
-	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM deployments").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}))
-	mock.ExpectQuery("SELECT account_id, COUNT.+ FROM agents").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "cnt"}))
-
-	hb := NewHeartbeat(client, db, log)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		hb.Start(ctx)
-		close(done)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("heartbeat did not stop within timeout")
 	}
 }
