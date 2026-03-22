@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useAgents, useAgent, useDeployAgent, usePrefilledDeploymentTemplate, useDeleteAgent } from './agents';
+import { useAgents, useAgent, useDeployAgent, usePrefilledDeploymentTemplate, useArchiveAgent } from './agents';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockAgents } from '@/test/msw/handlers';
 import { agentKeys, deploymentKeys } from './keys';
@@ -202,8 +202,8 @@ describe('useDeployAgent', () => {
   });
 });
 
-describe('useDeleteAgent', () => {
-  // Successful deletion invalidates the account agent list and the global list
+describe('useArchiveAgent', () => {
+  // Successful archive invalidates the account agent list and the global list
   // so the profile page card disappears without a manual refresh.
   it('invalidates account and global agent caches on success', async () => {
     const { wrapper, queryClient } = createHookWrapper();
@@ -217,7 +217,7 @@ describe('useDeleteAgent', () => {
       count: 1,
     });
 
-    const { result } = renderHook(() => useDeleteAgent(testAccount), { wrapper });
+    const { result } = renderHook(() => useArchiveAgent(testAccount), { wrapper });
     result.current.mutate({ name: 'code-reviewer' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -228,13 +228,13 @@ describe('useDeleteAgent', () => {
 
   it('surfaces error when server returns non-2xx', async () => {
     server.use(
-      http.delete('/api/v1/agents/:account/:name', () =>
+      http.post('/api/v1/agents/:account/:name/archive', () =>
         HttpResponse.json({ error: 'internal_error' }, { status: 500 }),
       ),
     );
 
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useDeleteAgent(testAccount), { wrapper });
+    const { result } = renderHook(() => useArchiveAgent(testAccount), { wrapper });
     result.current.mutate({ name: 'code-reviewer' });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

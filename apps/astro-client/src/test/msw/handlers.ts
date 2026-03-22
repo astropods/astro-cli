@@ -200,8 +200,8 @@ export const handlers = [
     });
   }),
 
-  // DELETE /api/v1/agents/:account/:name
-  http.delete('/api/v1/agents/:account/:name', () => {
+  // POST /api/v1/agents/:account/:name/archive
+  http.post('/api/v1/agents/:account/:name/archive', () => {
     return new HttpResponse(null, { status: 204 });
   }),
 

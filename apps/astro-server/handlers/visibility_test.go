@@ -150,19 +150,19 @@ func TestSetAgentVisibility_NoAccount(t *testing.T) {
 	}
 }
 
-// --- DeleteAgent tests ---
+// --- ArchiveAgent tests ---
 
-func TestDeleteAgent_Success(t *testing.T) {
+func TestArchiveAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.DELETE("/agents/:account/:name", injectTestAccount(), DeleteAgent(log, index))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index))
 
-	mock.ExpectExec("DELETE FROM agents").
-		WithArgs("test-account-id", "my-agent").
+	mock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/my-agent", nil)
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -175,17 +175,17 @@ func TestDeleteAgent_Success(t *testing.T) {
 	}
 }
 
-func TestDeleteAgent_NotFound(t *testing.T) {
+func TestArchiveAgent_NotFound(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.DELETE("/agents/:account/:name", injectTestAccount(), DeleteAgent(log, index))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index))
 
-	mock.ExpectExec("DELETE FROM agents").
-		WithArgs("test-account-id", "nonexistent").
+	mock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "nonexistent").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/nonexistent/archive", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -194,17 +194,17 @@ func TestDeleteAgent_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeleteAgent_DBError(t *testing.T) {
+func TestArchiveAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.DELETE("/agents/:account/:name", injectTestAccount(), DeleteAgent(log, index))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index))
 
-	mock.ExpectExec("DELETE FROM agents").
-		WithArgs("test-account-id", "my-agent").
+	mock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/my-agent", nil)
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -216,12 +216,12 @@ func TestDeleteAgent_DBError(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
-	if resp["error"] != "failed to delete agent" {
-		t.Errorf("expected 'failed to delete agent' error, got %v", resp["error"])
+	if resp["error"] != "failed to archive agent" {
+		t.Errorf("expected 'failed to archive agent' error, got %v", resp["error"])
 	}
 }
 
-func TestDeleteAgent_NoAccount(t *testing.T) {
+func TestArchiveAgent_NoAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, _, _ := sqlmock.New()
 	index := agentindex.NewIndexWithDB(db)
@@ -229,9 +229,9 @@ func TestDeleteAgent_NoAccount(t *testing.T) {
 
 	router := gin.New()
 	// No account injected
-	router.DELETE("/agents/:account/:name", DeleteAgent(log, index))
+	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index))
 
-	req := httptest.NewRequest(http.MethodDelete, "/agents/testaccount/my-agent", nil)
+	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

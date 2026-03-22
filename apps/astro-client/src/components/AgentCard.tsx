@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { EllipsisVertical, Trash2 } from "lucide-react";
+import { EllipsisVertical, Archive } from "lucide-react";
 import { AgentIdentity } from "./AgentIdentity";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
-import { DeleteAgentDialog } from "@/components/DeleteAgentDialog";
+import { ArchiveAgentDialog } from "@/components/ArchiveAgentDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,8 +19,8 @@ export interface AgentCardProps {
   visibility?: string;
   variant?: "default" | "oftenUsedTogether";
   lifetimeMessages?: number;
-  /** When provided, shows a three-dot menu with a delete option. */
-  onDelete?: () => void;
+  /** When provided, shows a three-dot menu with an archive option. */
+  onArchive?: () => void;
 }
 
 export function AgentCard({
@@ -31,10 +31,10 @@ export function AgentCard({
   visibility,
   variant = "default",
   lifetimeMessages,
-  onDelete,
+  onArchive,
 }: AgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const formattedMessages = lifetimeMessages != null
     ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(lifetimeMessages)
     : null;
@@ -69,7 +69,7 @@ export function AgentCard({
         to={`/${slug}`}
         className="group relative flex flex-col overflow-hidden rounded-md border border-stone-400 bg-stone-50 transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
       >
-        {onDelete && (
+        {onArchive && (
           <div
             className="absolute top-3 right-3"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -86,14 +86,13 @@ export function AgentCard({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  variant="destructive"
                   onSelect={() => {
                     setMenuOpen(false);
-                    setDeleteOpen(true);
+                    setArchiveOpen(true);
                   }}
                 >
-                  <Trash2 />
-                  Delete <span className="max-w-[120px] truncate font-semibold">{name}</span>
+                  <Archive />
+                  Archive <span className="max-w-[120px] truncate font-semibold">{name}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -128,13 +127,13 @@ export function AgentCard({
         </div>
       </Link>
 
-      {onDelete && (
-        <DeleteAgentDialog
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
+      {onArchive && (
+        <ArchiveAgentDialog
+          open={archiveOpen}
+          onOpenChange={setArchiveOpen}
           agentName={name}
           account={account}
-          onDeleted={onDelete}
+          onArchived={onArchive}
         />
       )}
     </>

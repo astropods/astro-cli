@@ -121,7 +121,7 @@ function AccountProfileContent() {
                 description={getAgentDescription(agent)}
                 visibility={agent.visibility}
                 lifetimeMessages={agent.metrics?.lifetime_messages}
-                onDelete={isMember ? () => {} : undefined}
+                onArchive={isMember ? () => {} : undefined}
               />
             ))}
           </div>

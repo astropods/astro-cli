@@ -455,10 +455,10 @@ class ApiClient {
     );
   }
 
-  async deleteAgent(account: string, name: string): Promise<void> {
+  async archiveAgent(account: string, name: string): Promise<void> {
     return this.request(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`,
-      { method: 'DELETE' }
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/archive`,
+      { method: 'POST' }
     );
   }
 

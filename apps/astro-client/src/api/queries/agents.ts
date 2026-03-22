@@ -127,11 +127,11 @@ export function useValidateDeployment() {
   });
 }
 
-export function useDeleteAgent(account: string) {
+export function useArchiveAgent(account: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ name }: { name: string }) => api.deleteAgent(account, name),
+    mutationFn: ({ name }: { name: string }) => api.archiveAgent(account, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.byAccount(account) });
       queryClient.invalidateQueries({ queryKey: agentKeys.all });

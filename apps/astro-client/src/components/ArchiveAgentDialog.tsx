@@ -1,65 +1,61 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useDeleteAgent } from "@/api/queries/agents";
+import { useArchiveAgent } from "@/api/queries/agents";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 
-interface DeleteAgentDialogProps {
+interface ArchiveAgentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agentName: string;
   account: string;
-  /** Called after the agent is successfully deleted. */
-  onDeleted?: () => void;
+  /** Called after the agent is successfully archived. */
+  onArchived?: () => void;
 }
 
-export function DeleteAgentDialog({
+export function ArchiveAgentDialog({
   open,
   onOpenChange,
   agentName,
   account,
-  onDeleted,
-}: DeleteAgentDialogProps) {
+  onArchived,
+}: ArchiveAgentDialogProps) {
   const [confirmation, setConfirmation] = useState("");
-  const deleteAgent = useDeleteAgent(account);
+  const archiveAgent = useArchiveAgent(account);
 
   return (
     <ConfirmationDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Delete ${agentName}`}
+      title={`Archive ${agentName}`}
       description={
         <>
-          This will permanently delete the{" "}
+          This will archive the{" "}
           <span className="font-semibold text-destructive">{agentName}</span> blueprint
-          and all its published versions.{" "}
-          <span className="font-semibold text-destructive">
-            This action cannot be undone.
-          </span>
+          and hide it from listings. Existing deployments will not be affected.
         </>
       }
       checkboxLabel={
         <>
-          I understand that deleting this blueprint is{" "}
-          <strong>irreversible</strong> and that all published versions will be
-          removed.
+          I understand that archiving this blueprint will hide it from the
+          catalog and account profile.
         </>
       }
-      actionLabel="Delete blueprint"
-      pendingLabel="Deleting…"
-      error={deleteAgent.isError ? (deleteAgent.error as Error) : null}
-      defaultErrorMessage="Failed to delete blueprint."
-      isPending={deleteAgent.isPending}
+      actionLabel="Archive blueprint"
+      pendingLabel="Archiving…"
+      error={archiveAgent.isError ? (archiveAgent.error as Error) : null}
+      defaultErrorMessage="Failed to archive blueprint."
+      isPending={archiveAgent.isPending}
       canConfirm={confirmation === agentName}
       onConfirm={() => {
-        deleteAgent.mutate(
+        archiveAgent.mutate(
           { name: agentName },
-          { onSuccess: () => { onOpenChange(false); onDeleted?.(); } },
+          { onSuccess: () => { onOpenChange(false); onArchived?.(); } },
         );
       }}
       onReset={() => {
         setConfirmation("");
-        deleteAgent.reset();
+        archiveAgent.reset();
       }}
     >
       <div>

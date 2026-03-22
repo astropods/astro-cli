@@ -555,10 +555,11 @@ type SetAgentVisibilityRequest struct {
 	Visibility string `json:"visibility" binding:"required"`
 }
 
-// DeleteAgent handles DELETE /api/v1/agents/:account/:name
-// Permanently removes an agent and all its versions from the index.
+// ArchiveAgent handles POST /api/v1/agents/:account/:name/archive
+// Soft-deletes an agent by setting archived_at, hiding it from listings
+// while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func DeleteAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -569,16 +570,16 @@ func DeleteAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
 			return
 		}
 
-		if err := index.Delete(acct.ID, agentName); err != nil {
-			log.Error("Failed to delete agent", "error", err, "account", accountName, "name", agentName)
+		if err := index.Archive(acct.ID, agentName); err != nil {
+			log.Error("Failed to archive agent", "error", err, "account", accountName, "name", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "failed to delete agent",
+				"error":   "failed to archive agent",
 				"details": err.Error(),
 			})
 			return
 		}
 
-		log.Info("Agent deleted", "account", accountName, "name", agentName)
+		log.Info("Agent archived", "account", accountName, "name", agentName)
 		c.Status(http.StatusNoContent)
 	}
 }

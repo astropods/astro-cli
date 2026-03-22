@@ -50,6 +50,7 @@ CREATE TABLE public.agents (
     name text NOT NULL,
     registry text NOT NULL,
     visibility varchar(10) NOT NULL DEFAULT 'private',
+    archived_at timestamp,
     created_at timestamp NOT NULL,
     updated_at timestamp NOT NULL,
     CONSTRAINT agents_pkey PRIMARY KEY (account_id, name),

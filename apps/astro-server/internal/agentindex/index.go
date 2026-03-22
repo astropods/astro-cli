@@ -29,6 +29,7 @@ type Agent struct {
 	Registry   string          `json:"registry"`
 	Visibility string          `json:"visibility"`
 	Versions   []*AgentVersion `json:"versions"`
+	ArchivedAt *time.Time      `json:"archived_at,omitempty"`
 	CreatedAt  time.Time       `json:"created_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
@@ -101,7 +102,7 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 	_, err = tx.Exec(`
 		INSERT INTO agents (account_id, name, registry, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (account_id, name) DO UPDATE SET registry = $3, updated_at = $5
+		ON CONFLICT (account_id, name) DO UPDATE SET registry = $3, updated_at = $5, archived_at = NULL
 	`, accountID, name, registry, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to insert agent: %w", err)
@@ -128,10 +129,10 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
-		SELECT account_id, name, registry, visibility, created_at, updated_at
+		SELECT account_id, name, registry, visibility, archived_at, created_at, updated_at
 		FROM agents
 		WHERE account_id = $1 AND name = $2
-	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.CreatedAt, &agent.UpdatedAt)
+	`, accountID, name).Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.ArchivedAt, &agent.CreatedAt, &agent.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("agent not found: %s", name)
@@ -195,11 +196,12 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 	return &v, nil
 }
 
-// List returns all agents in the index (global browse)
+// List returns all agents in the index (global browse), excluding archived
 func (idx *Index) List() ([]*Agent, error) {
 	rows, err := idx.db.Query(`
 		SELECT account_id, name, registry, visibility, created_at, updated_at
 		FROM agents
+		WHERE archived_at IS NULL
 		ORDER BY name
 	`)
 	if err != nil {
@@ -247,12 +249,12 @@ func (idx *Index) List() ([]*Agent, error) {
 	return agents, nil
 }
 
-// ListForAccount returns all agents belonging to a specific account
+// ListForAccount returns all agents belonging to a specific account, excluding archived
 func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	rows, err := idx.db.Query(`
 		SELECT account_id, name, registry, visibility, created_at, updated_at
 		FROM agents
-		WHERE account_id = $1
+		WHERE account_id = $1 AND archived_at IS NULL
 		ORDER BY name
 	`, accountID)
 	if err != nil {
@@ -299,14 +301,19 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	return agents, nil
 }
 
-// Delete removes an agent and all its versions from the index
-func (idx *Index) Delete(accountID, name string) error {
+// Archive soft-deletes an agent by setting its archived_at timestamp.
+// The agent and its versions are preserved but hidden from list queries.
+//
+// Required migration:
+//
+//	ALTER TABLE agents ADD COLUMN archived_at TIMESTAMP;
+func (idx *Index) Archive(accountID, name string) error {
 	result, err := idx.db.Exec(`
-		DELETE FROM agents
-		WHERE account_id = $1 AND name = $2
-	`, accountID, name)
+		UPDATE agents SET archived_at = $1, updated_at = $1
+		WHERE account_id = $2 AND name = $3 AND archived_at IS NULL
+	`, time.Now(), accountID, name)
 	if err != nil {
-		return fmt.Errorf("failed to delete agent: %w", err)
+		return fmt.Errorf("failed to archive agent: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
@@ -315,7 +322,7 @@ func (idx *Index) Delete(accountID, name string) error {
 	}
 
 	if rows == 0 {
-		return fmt.Errorf("agent not found: %s", name)
+		return fmt.Errorf("agent not found or already archived: %s", name)
 	}
 
 	return nil
@@ -395,7 +402,7 @@ func (idx *Index) ListPublicAgents() ([]*Agent, error) {
 		       v.build_id, v.ecr_namespace, v.spec_json, v.readme, v.agent_card_json, v.published_at, v.updated_at
 		FROM agents a
 		JOIN agent_versions v ON a.account_id = v.account_id AND a.name = v.name
-		WHERE a.visibility = 'public'
+		WHERE a.visibility = 'public' AND a.archived_at IS NULL
 		AND v.published_at = (
 			SELECT MAX(v2.published_at) FROM agent_versions v2
 			WHERE v2.account_id = a.account_id AND v2.name = a.name
