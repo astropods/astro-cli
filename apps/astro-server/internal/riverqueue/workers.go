@@ -29,7 +29,7 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		db:           cfg.DB,
 		log:          log,
 	})
-	log.Info("river: registered worker", "worker", "WorkOSEventsWorker", "period", "30s")
+	log.Info("river: registered worker", "worker", "WorkOSEventsWorker", "period", "15s")
 
 	store := deploymentstore.NewStore(cfg.DB)
 

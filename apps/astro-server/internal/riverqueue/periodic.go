@@ -64,12 +64,12 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 
 	if cfg.WorkOSAPIKey != "" {
 		jobs = append(jobs, river.NewPeriodicJob(
-			river.PeriodicInterval(30*time.Second),
+			river.PeriodicInterval(15*time.Second),
 			func() (river.JobArgs, *river.InsertOpts) {
 				return WorkOSEventsArgs{}, &river.InsertOpts{
 					Queue: queueWorkOS,
 					UniqueOpts: river.UniqueOpts{
-						ByQueue: true,
+						ByPeriod: 15 * time.Second,
 					},
 				}
 			},
