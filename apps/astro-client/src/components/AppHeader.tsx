@@ -7,11 +7,9 @@ import {
   BuildingOffice2Icon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
-  MagnifyingGlassIcon,
   EllipsisHorizontalIcon,
   PlusIcon,
 } from "@heroicons/react/24/outline";
-import { Input } from "@/components/ui/input";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth, getUserDisplayName } from "@/lib/auth";
@@ -187,14 +185,7 @@ export function AppHeader() {
 
       {/* Right: search + auth */}
       <div className="ml-auto flex items-center gap-4">
-        <div className="relative">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search"
-            className="h-8 w-[168px] rounded-sm border-stone-300 pl-8 text-[13px] dark:border-input"
-          />
-        </div>
+        {/* Global search is intentionally hidden in this PR because it is not wired up yet. */}
 
         <div className="flex items-center gap-1">
         {isLoading ? (
