@@ -102,8 +102,8 @@ theme:
   footer-nav: minimal
 
 logo:
-  dark: docs/assets/new-logo-white.svg
-  light: docs/assets/new-logo.svg
+  dark: docs/assets/astro-logo-dark.svg
+  light: docs/assets/astro-logo.svg
   height: 24
   href: /welcome
 
