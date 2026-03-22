@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, useSearchParams } from "react-router";
 import { AppHeader } from "./AppHeader";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { useAuth } from "../lib/auth";
 
 export default function Layout() {
@@ -44,7 +45,9 @@ export default function Layout() {
           {displayError}
         </div>
       )}
-      <Outlet />
+      <ErrorBoundary>
+        <Outlet />
+      </ErrorBoundary>
     </div>
   );
 }
