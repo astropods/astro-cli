@@ -104,6 +104,7 @@ func (p *astroProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 				attrs := span.Attributes()
 				p.setLangfuseTags(attrs)
 				mapMastraAttributes(attrs)
+				mapLangchainAttributes(attrs)
 				mapMastraUserSession(attrs)
 				isRoot := span.ParentSpanID().IsEmpty()
 				if isRoot {
@@ -164,6 +165,25 @@ func (p *astroProcessor) setLangfuseTags(attrs pcommon.Map) {
 			for _, t := range parsed {
 				tags.AppendEmpty().SetStr(t)
 			}
+		}
+	}
+}
+
+// mapLangchainAttributes copies Traceloop/OpenLLMetry attributes emitted by
+// opentelemetry-instrumentation-langchain to Langfuse-recognized attribute
+// names when the destination is not already set.
+// The LangChain instrumentor sets traceloop.entity.input / traceloop.entity.output
+// on chain and agent spans; Langfuse's OTEL receiver maps these to observation
+// input/output but does NOT promote them to the trace-level output field, so
+// we do that explicitly here to ensure mapMastraTraceIO can set langfuse.trace.*.
+func mapLangchainAttributes(attrs pcommon.Map) {
+	for _, m := range mastraInputOutputSuffixes {
+		if _, exists := attrs.Get(m.dst); exists {
+			continue
+		}
+		srcKey := "traceloop.entity" + m.suffix // e.g. traceloop.entity.input
+		if src, ok := attrs.Get(srcKey); ok {
+			src.CopyTo(attrs.PutEmpty(m.dst))
 		}
 	}
 }

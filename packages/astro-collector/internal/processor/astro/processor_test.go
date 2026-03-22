@@ -652,6 +652,79 @@ func TestRedactPrompts_MastraAttributes(t *testing.T) {
 	}
 }
 
+func TestMapLangchainAttributes_RootSpan(t *testing.T) {
+	cfg := &Config{AgentName: "agent", AgentVersion: "v1", DeploymentID: "dep-1"}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("langchain.chain")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("traceloop.entity.input", `{"input":"hello"}`)
+	span.Attributes().PutStr("traceloop.entity.output", `{"output":"world"}`)
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+
+	v, ok := attrs.Get("langfuse.observation.input")
+	if !ok {
+		t.Fatal("expected langfuse.observation.input to be mapped from traceloop.entity.input")
+	}
+	if v.Str() != `{"input":"hello"}` {
+		t.Errorf("langfuse.observation.input: expected %q, got %q", `{"input":"hello"}`, v.Str())
+	}
+
+	v, ok = attrs.Get("langfuse.observation.output")
+	if !ok {
+		t.Fatal("expected langfuse.observation.output to be mapped from traceloop.entity.output")
+	}
+	if v.Str() != `{"output":"world"}` {
+		t.Errorf("langfuse.observation.output: expected %q, got %q", `{"output":"world"}`, v.Str())
+	}
+
+	// Root span: trace-level IO should be promoted
+	v, ok = attrs.Get("langfuse.trace.output")
+	if !ok {
+		t.Fatal("expected langfuse.trace.output to be promoted on root span")
+	}
+	if v.Str() != `{"output":"world"}` {
+		t.Errorf("langfuse.trace.output: expected %q, got %q", `{"output":"world"}`, v.Str())
+	}
+}
+
+func TestMapLangchainAttributes_NoOverwrite(t *testing.T) {
+	cfg := &Config{AgentName: "agent", AgentVersion: "v1", DeploymentID: "dep-1"}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+	span := ss.Spans().AppendEmpty()
+	span.SetName("langchain.chain")
+	span.SetTraceID(pcommon.TraceID([16]byte{1}))
+	span.SetSpanID(pcommon.SpanID([8]byte{1}))
+	span.Attributes().PutStr("traceloop.entity.output", "traceloop output")
+	span.Attributes().PutStr("langfuse.observation.output", "already set")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	attrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+	v, _ := attrs.Get("langfuse.observation.output")
+	if v.Str() != "already set" {
+		t.Errorf("should not overwrite existing langfuse.observation.output, got %q", v.Str())
+	}
+}
+
 func TestConsumeTraces_NilNext(t *testing.T) {
 	cfg := &Config{AgentName: "agent", AgentVersion: "v1", DeploymentID: "dep-1"}
 	p := newTestProcessor(cfg, nil) // nil nextTraces
