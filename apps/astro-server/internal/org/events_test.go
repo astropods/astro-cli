@@ -604,6 +604,52 @@ func TestProcessEvent_OrgCreated_CreateFailure(t *testing.T) {
 	}
 }
 
+func TestProcessEvent_OrgCreated_NameConflict_CreatesCorruptAccount(t *testing.T) {
+	ec, mock := newTestConsumer(t)
+	now := time.Now()
+
+	acctCols := []string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}
+
+	// GetByWorkOSOrganizationID — not found
+	mock.ExpectQuery("SELECT .+ FROM accounts a JOIN account_organizations ao").
+		WithArgs("org_stale").
+		WillReturnRows(sqlmock.NewRows(acctCols))
+
+	// GetByName("acme-corp") — name is taken (user recreated the org)
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("acme-corp").
+		WillReturnRows(sqlmock.NewRows(acctCols).
+			AddRow("acct-existing", "acme-corp", "organization", "", nil, now, now, 0, ""))
+
+	// CreateWithoutOwner with conflict suffix
+	mock.ExpectQuery("INSERT INTO accounts").
+		WithArgs(sqlmock.AnyArg(), "organization", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "created_at", "updated_at"}).
+			AddRow("acct-corrupt", "acme-conflict-123", "organization", now, now))
+
+	// MarkDeleted — soft-delete the corrupt account
+	mock.ExpectExec("UPDATE accounts SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "acct-corrupt").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// SetWorkOSOrganizationID — link so org.deleted can clean up
+	mock.ExpectExec("INSERT INTO account_organizations .+ ON CONFLICT").
+		WithArgs("acct-corrupt", "org_stale").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	event := makeEvent("organization.created", map[string]any{
+		"id":   "org_stale",
+		"name": "Acme Corp",
+	})
+
+	if err := ec.processEvent(context.TODO(), event); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestProcessEvent_OrgUpdated_RenameFailure(t *testing.T) {
 	ec, mock := newTestConsumer(t)
 	now := time.Now()

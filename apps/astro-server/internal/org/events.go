@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -244,11 +245,24 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 			}
 		}
 
-		// Externally-created WorkOS org — create a local account and link it
+		// Externally-created WorkOS org — create a local account and link it.
+		// The slug may already be taken (e.g. user deleted and recreated the
+		// org quickly, and this stale event arrived late). On name collision
+		// we create a suffixed account and immediately soft-delete it so it's
+		// invisible to users. The subsequent organization.deleted event will
+		// find it via the WorkOS org link and clean it up.
 		slug := slugifyOrgName(data.Name)
-		acct, err := ec.accountStore.CreateWithoutOwner(slug, "organization")
+		acct, corrupt, err := createAccountWithUniqueName(ec.accountStore, slug)
 		if err != nil {
 			return fmt.Errorf("create account for external org: %w", err)
+		}
+		if corrupt {
+			if err := ec.accountStore.MarkDeleted(acct.ID); err != nil {
+				_ = ec.accountStore.DeleteByID(acct.ID)
+				return fmt.Errorf("mark corrupt account deleted: %w", err)
+			}
+			ec.log.Warn("Created corrupt account from stale org event (soft-deleted immediately)",
+				"account_id", acct.ID, "workos_org_id", data.ID, "slug", slug)
 		}
 		if err := ec.accountStore.SetWorkOSOrganizationID(acct.ID, data.ID); err != nil {
 			// Clean up on failure
@@ -263,8 +277,10 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 			}
 		}
 
-		ec.log.Info("Created account for external WorkOS organization",
-			"account_id", acct.ID, "workos_org_id", data.ID, "name", data.Name)
+		if !corrupt {
+			ec.log.Info("Created account for external WorkOS organization",
+				"account_id", acct.ID, "workos_org_id", data.ID, "name", data.Name)
+		}
 
 	case "organization.updated":
 		acct, err := ec.accountStore.GetByWorkOSOrganizationID(data.ID)
@@ -359,6 +375,34 @@ func slugifyOrgName(name string) string {
 	}
 
 	return slug
+}
+
+// createAccountWithUniqueName creates an organization account with the given
+// slug. If the name is already taken (stale event collision), it appends
+// _conflict_<unix_timestamp> and returns corrupt=true so the caller can
+// soft-delete the account immediately.
+func createAccountWithUniqueName(store *account.AccountStore, slug string) (acct *account.Account, corrupt bool, err error) {
+	if _, err := store.GetByName(slug); err != nil {
+		// Name is available — happy path
+		acct, err := store.CreateWithoutOwner(slug, "organization")
+		if err != nil {
+			return nil, false, err
+		}
+		return acct, false, nil
+	}
+
+	// Name taken — create with a conflict suffix and mark as corrupt
+	suffix := "-conflict-" + strconv.FormatInt(time.Now().Unix(), 10)
+	maxBase := 39 - len(suffix)
+	base := slug
+	if len(base) > maxBase {
+		base = strings.TrimRight(base[:maxBase], "-")
+	}
+	acct, err = store.CreateWithoutOwner(base+suffix, "organization")
+	if err != nil {
+		return nil, false, err
+	}
+	return acct, true, nil
 }
 
 func (ec *EventsConsumer) getCursor(ctx context.Context) (string, error) {
