@@ -569,10 +569,8 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             OBSERVABILITY
           </span>
           <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.5 }}>
-            Trace metrics couldn&apos;t be loaded (backend returned an error). Local dev often needs valid Langfuse
-            credentials in <span style={{ fontFamily: S.mono, fontSize: T.monoSm }}>astro-server</span> env. Pod logs on
-            the <strong style={{ color: C.text }}>Deployments</strong> tab use Kubernetes/Loki and work independently
-            when the cluster is reachable.
+            Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the{" "}
+            <strong style={{ color: C.text }}>Deployments</strong> tab.
           </span>
         </div>
       )}
