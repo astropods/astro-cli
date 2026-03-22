@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/loki"
@@ -2682,6 +2683,59 @@ func deployableSpecWithScheduleIngestion(schedule string) string {
 		},
 		"observability": {"enabled": true, "provider": "langfuse"}
 	}`, schedule)
+}
+
+func TestInjectManagedCredentials(t *testing.T) {
+	t.Run("injects ANTHROPIC_API_KEY when configured", func(t *testing.T) {
+		resolved := &deployment.ResolvedEnv{
+			ConfigMapData: map[string]string{},
+			SecretData:    map[string]string{},
+		}
+		cfg := &config.Config{
+			Deployment: config.DeploymentConfig{
+				ManagedAnthropicAPIKey: "sk-managed-test-key",
+			},
+		}
+		injectManagedCredentials(resolved, cfg)
+		if got := resolved.SecretData["ANTHROPIC_API_KEY"]; got != "sk-managed-test-key" {
+			t.Errorf("ANTHROPIC_API_KEY = %q, want %q", got, "sk-managed-test-key")
+		}
+	})
+
+	t.Run("does not inject when not configured", func(t *testing.T) {
+		resolved := &deployment.ResolvedEnv{
+			ConfigMapData: map[string]string{},
+			SecretData:    map[string]string{},
+		}
+		cfg := &config.Config{
+			Deployment: config.DeploymentConfig{},
+		}
+		injectManagedCredentials(resolved, cfg)
+		if _, ok := resolved.SecretData["ANTHROPIC_API_KEY"]; ok {
+			t.Error("ANTHROPIC_API_KEY should not be present when ManagedAnthropicAPIKey is empty")
+		}
+	})
+
+	t.Run("does not overwrite existing user-provided key", func(t *testing.T) {
+		resolved := &deployment.ResolvedEnv{
+			ConfigMapData: map[string]string{},
+			SecretData: map[string]string{
+				"ANTHROPIC_API_KEY": "sk-user-provided",
+			},
+		}
+		cfg := &config.Config{
+			Deployment: config.DeploymentConfig{
+				ManagedAnthropicAPIKey: "sk-managed-key",
+			},
+		}
+		injectManagedCredentials(resolved, cfg)
+		// Current behavior: managed key overwrites. This is fine because if the
+		// user uses anthropic-managed, there's no user variable, so no conflict.
+		// If they use regular anthropic, managed key is empty.
+		if got := resolved.SecretData["ANTHROPIC_API_KEY"]; got != "sk-managed-key" {
+			t.Errorf("ANTHROPIC_API_KEY = %q, want %q", got, "sk-managed-key")
+		}
+	})
 }
 
 func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {

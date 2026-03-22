@@ -30,6 +30,7 @@ type BuiltinProvider struct {
 	Name    string // lowercase provider name (e.g. "ollama", "anthropic")
 	Section string // "models", "knowledge", or "tools"
 	Cloud   bool   // true → credentials only, no container deployed
+	Managed bool   // true → server injects credentials from its own environment (user never provides them)
 
 	// Cloud provider fields
 	Credentials []CredentialSuffix
@@ -70,6 +71,10 @@ var builtinProviders = []BuiltinProvider{
 	{
 		Name: "anthropic", Section: "models", Cloud: true,
 		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Anthropic API key for Claude models"}},
+	},
+	{
+		Name: "anthropic-managed", Section: "models", Cloud: true, Managed: true,
+		Credentials: []CredentialSuffix{{Suffix: "API_KEY", Description: "Anthropic API key (provided by platform)"}},
 	},
 	{
 		Name: "openai", Section: "models", Cloud: true,
@@ -163,6 +168,11 @@ type Provider = BuiltinProvider
 func IsCloudModelProvider(name string) bool {
 	p, ok := LookupBuiltin("models", name)
 	return ok && p.Cloud
+}
+
+func IsManagedProvider(section, name string) bool {
+	p, ok := LookupBuiltin(section, name)
+	return ok && p.Managed
 }
 
 func IsCloudKnowledgeProvider(name string) bool {

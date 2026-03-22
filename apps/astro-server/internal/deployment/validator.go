@@ -186,9 +186,12 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 
 	providerGroups := make(map[string][]cloudEntry)
 
-	// Pass 1: Collect cloud entries grouped by provider (skip custom providers).
+	// Pass 1: Collect cloud entries grouped by provider (skip managed providers).
 	for name, model := range astroSpec.Models {
 		if model.IsProviderMode() {
+			if spec.IsManagedProvider("models", model.Provider) {
+				continue // managed providers don't generate user-facing credentials
+			}
 			if suffixes, ok := spec.GetCloudModelCredentials(model.Provider); ok {
 				provider := strings.ToLower(model.Provider)
 				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
@@ -199,6 +202,9 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 	}
 	for name, knowledge := range astroSpec.Knowledge {
 		if knowledge.IsProviderMode() {
+			if spec.IsManagedProvider("knowledge", knowledge.Provider) {
+				continue
+			}
 			if suffixes, ok := spec.GetCloudKnowledgeCredentials(knowledge.Provider); ok {
 				provider := strings.ToLower(knowledge.Provider)
 				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
@@ -209,6 +215,9 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 	}
 	for name, tool := range astroSpec.Tools {
 		if tool.IsProviderMode() {
+			if spec.IsManagedProvider("tools", tool.Provider) {
+				continue
+			}
 			if suffixes, ok := spec.GetCloudToolCredentials(tool.Provider); ok {
 				provider := strings.ToLower(tool.Provider)
 				providerGroups[provider] = append(providerGroups[provider], cloudEntry{
@@ -236,7 +245,7 @@ func (v *Validator) GetRequiredCredentials(astroSpec *spec.AstroSpec, interfaces
 		})
 
 		isDuplicate := len(entries) > 1
-		basePrefix := strings.ToUpper(entries[0].provider)
+		basePrefix := spec.SanitizeEnvName(entries[0].provider)
 
 		// Find which entry owns the bare key.
 		bareOwnerIdx := 0

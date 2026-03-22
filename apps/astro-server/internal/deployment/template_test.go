@@ -666,6 +666,48 @@ func TestTemplate_VariablesFromCloudProviders(t *testing.T) {
 	assertEnvRef(t, ds.Agent.Environment, "GITHUB_TOKEN", "${variables.GITHUB_TOKEN}")
 }
 
+func TestTemplate_ManagedProviderNoVariable(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"claude": {Provider: "anthropic-managed"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// Managed providers must NOT create any variables — the server injects at deploy time
+	if _, ok := ds.Variables["ANTHROPIC_MANAGED_API_KEY"]; ok {
+		t.Error("managed provider should not create ANTHROPIC_MANAGED_API_KEY variable")
+	}
+	if _, ok := ds.Variables["ANTHROPIC_API_KEY"]; ok {
+		t.Error("managed provider should not create ANTHROPIC_API_KEY variable")
+	}
+
+	// Agent env should NOT reference a managed credential variable
+	if ref, ok := ds.Agent.Environment["ANTHROPIC_MANAGED_API_KEY"]; ok {
+		t.Errorf("managed credential should not be wired to agent env, got %q", ref)
+	}
+}
+
+func TestTemplate_ManagedAndRegularProvidersTogether(t *testing.T) {
+	input := baseInput()
+	input.Spec.Models = map[string]spec.Model{
+		"managed-claude": {Provider: "anthropic-managed"},
+		"user-openai":    {Provider: "openai"},
+	}
+
+	ds := mustGenerate(t, input)
+
+	// Only openai should produce a variable
+	if _, ok := ds.Variables["OPENAI_API_KEY"]; !ok {
+		t.Error("openai should produce OPENAI_API_KEY variable")
+	}
+	if _, ok := ds.Variables["ANTHROPIC_MANAGED_API_KEY"]; ok {
+		t.Error("managed provider should not create ANTHROPIC_MANAGED_API_KEY variable")
+	}
+
+	assertEnvRef(t, ds.Agent.Environment, "OPENAI_API_KEY", "${variables.OPENAI_API_KEY}")
+}
+
 func TestTemplate_VariablesCustomProvider(t *testing.T) {
 	// Variable names are suffixes per §5; full key is {UPPER(provider)}_{varName}.
 	input := baseInput()

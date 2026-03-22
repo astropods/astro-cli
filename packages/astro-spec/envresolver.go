@@ -194,6 +194,9 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 
 	for name, m := range s.Models {
 		if m.IsProviderMode() {
+			if IsManagedProvider("models", m.Provider) {
+				continue // managed providers don't generate user-facing credentials
+			}
 			// Skip custom-only providers (not builtin cloud). When a provider is
 			// both in s.Providers AND a builtin cloud provider, the cloud path wins.
 			if _, isCustom := s.Providers[m.Provider]; isCustom {
@@ -209,6 +212,9 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	}
 	for name, k := range s.Knowledge {
 		if k.IsProviderMode() {
+			if IsManagedProvider("knowledge", k.Provider) {
+				continue
+			}
 			if _, isCustom := s.Providers[k.Provider]; isCustom {
 				if _, isCloud := GetCloudKnowledgeCredentials(k.Provider); !isCloud {
 					continue
@@ -222,6 +228,9 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	}
 	for name, t := range s.Tools {
 		if t.IsProviderMode() {
+			if IsManagedProvider("tools", t.Provider) {
+				continue
+			}
 			if _, isCustom := s.Providers[t.Provider]; isCustom {
 				if _, isCloud := GetCloudToolCredentials(t.Provider); !isCloud {
 					continue
@@ -237,7 +246,7 @@ func CloudCredentialKeys(s *AstroSpec) map[string]CredentialMeta {
 	for _, entries := range groups {
 		sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
 		isDup := len(entries) > 1
-		basePrefix := strings.ToUpper(entries[0].provider)
+		basePrefix := SanitizeEnvName(entries[0].provider)
 
 		// Determine primary entry: prefer name that matches provider.
 		// -1 means no match found; bare key is only emitted when a match exists.

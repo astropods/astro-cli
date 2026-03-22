@@ -415,6 +415,10 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		}
 		resolved := deployment.ResolveDeploymentSpecEnv(dctx.resolveResult.Spec, rctx)
 
+		// Inject managed provider credentials into secret data.
+		// These are platform-provided (e.g. anthropic-managed) and bypass user variables entirely.
+		injectManagedCredentials(resolved, cfg)
+
 		// Create encryptor if KMS is configured
 		var enc *envelope.Encryptor
 		if cfg.Deployment.KMSKeyARN != "" {
@@ -1890,6 +1894,16 @@ func toValidationErrors(errs []string) []gin.H {
 		out = append(out, gin.H{"field": field, "message": message})
 	}
 	return out
+}
+
+// injectManagedCredentials adds platform-provided credentials to the resolved
+// secret data. Managed providers (e.g. anthropic-managed) have their API keys
+// supplied by the server rather than the user. The env var uses the canonical
+// name (ANTHROPIC_API_KEY) so agent code works identically.
+func injectManagedCredentials(resolved *deployment.ResolvedEnv, cfg *config.Config) {
+	if val := cfg.Deployment.ManagedAnthropicAPIKey; val != "" {
+		resolved.SecretData["ANTHROPIC_API_KEY"] = val
+	}
 }
 
 // GetDeploymentStatus returns the current status, events, and revisions for a deployment.

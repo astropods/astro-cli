@@ -292,6 +292,93 @@ func TestValidateSpec(t *testing.T) {
 	}
 }
 
+// TestValidateSpec_ManagedProvider verifies that managed providers (e.g. anthropic-managed)
+// do not require user-provided credentials, unlike regular cloud providers.
+func TestValidateSpec_ManagedProvider(t *testing.T) {
+	v := NewValidator()
+
+	t.Run("anthropic-managed requires no credentials", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "agent:latest"},
+			Models: map[string]spec.Model{
+				"claude": {Provider: "anthropic-managed"},
+			},
+		}
+		result := v.ValidateSpec(s, map[string]string{}, nil, nil)
+		if !result.Valid {
+			t.Errorf("expected valid (managed provider needs no creds), got errors: %v", result.Errors)
+		}
+		if len(result.MissingVariables) != 0 {
+			t.Errorf("expected 0 missing variables, got %v", result.MissingVariables)
+		}
+	})
+
+	t.Run("regular anthropic still requires credentials", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "agent:latest"},
+			Models: map[string]spec.Model{
+				"claude": {Provider: "anthropic"},
+			},
+		}
+		result := v.ValidateSpec(s, map[string]string{}, nil, nil)
+		if result.Valid {
+			t.Error("expected invalid (anthropic needs creds)")
+		}
+		if len(result.MissingVariables) != 1 {
+			t.Errorf("expected 1 missing variable, got %v", result.MissingVariables)
+		}
+	})
+
+	t.Run("managed and regular together", func(t *testing.T) {
+		s := &spec.AstroSpec{
+			Name:  "my-agent",
+			Agent: spec.Container{Image: "agent:latest"},
+			Models: map[string]spec.Model{
+				"managed-claude": {Provider: "anthropic-managed"},
+				"user-openai":    {Provider: "openai"},
+			},
+		}
+		// Only openai should require credentials
+		result := v.ValidateSpec(s, map[string]string{}, nil, nil)
+		if result.Valid {
+			t.Error("expected invalid (openai needs creds)")
+		}
+		if len(result.MissingVariables) != 1 {
+			t.Errorf("expected 1 missing variable (OPENAI_API_KEY), got %v", result.MissingVariables)
+		}
+
+		// Provide openai creds — should pass
+		result = v.ValidateSpec(s, map[string]string{"OPENAI_API_KEY": "sk-test"}, nil, nil)
+		if !result.Valid {
+			t.Errorf("expected valid with openai creds provided, got errors: %v", result.Errors)
+		}
+	})
+}
+
+// TestGetRequiredCredentials_ManagedProviderExcluded verifies that managed providers
+// don't appear in GetRequiredCredentials output.
+func TestGetRequiredCredentials_ManagedProviderExcluded(t *testing.T) {
+	v := NewValidator()
+
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Models: map[string]spec.Model{
+			"claude": {Provider: "anthropic-managed"},
+		},
+	}
+	creds := v.GetRequiredCredentials(s, nil)
+	if len(creds) != 0 {
+		keys := make([]string, 0, len(creds))
+		for _, c := range creds {
+			keys = append(keys, c.Key)
+		}
+		t.Errorf("managed provider should produce 0 credentials, got %v", keys)
+	}
+}
+
 // TestGetRequiredCredentials verifies that GetRequiredCredentials returns the
 // correct credential info for cloud providers in models/knowledge/tools,
 // integrations, slack interfaces, and env prefix overrides.
