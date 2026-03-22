@@ -99,6 +99,18 @@ function splitLogLineTimestamp(line: string): { timestamp: string | null; messag
   return { timestamp: null, message: line };
 }
 
+function formatLogTimestamp(timestamp: string | null): string {
+  if (!timestamp) return "—";
+  const m = timestamp.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?$/,
+  );
+  if (!m) return timestamp;
+  const date = m[1];
+  const time = m[2];
+  const millis = ((m[3] ?? "") + "000").slice(0, 3);
+  return `${date} ${time}.${millis}`;
+}
+
 async function copyTextToClipboard(text: string): Promise<boolean> {
   try {
     if (navigator?.clipboard?.writeText) {
@@ -588,7 +600,7 @@ export function ActiveContainerAccordion({
                           {li + 1}
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, minWidth: 190, paddingRight: 12, flexShrink: 0 }}>
-                          {parsed.timestamp ?? "—"}
+                          {formatLogTimestamp(parsed.timestamp)}
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: logLineColor(line), lineHeight: 1.75 }}>
                           {parsed.message}
