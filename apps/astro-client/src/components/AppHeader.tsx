@@ -185,7 +185,14 @@ export function AppHeader() {
 
       {/* Right: search + auth */}
       <div className="ml-auto flex items-center gap-4">
-        {/* Global search is intentionally hidden in this PR because it is not wired up yet. */}
+        {/* <div className="relative">
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search"
+            className="h-8 w-[168px] rounded-sm border-stone-300 pl-8 text-[13px] dark:border-input"
+          />
+        </div> */}
 
         <div className="flex items-center gap-1">
         {isLoading ? (
