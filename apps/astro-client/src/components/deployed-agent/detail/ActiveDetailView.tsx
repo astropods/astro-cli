@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
@@ -83,6 +83,13 @@ export function ActiveDetailView({
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<'monitor' | 'deployments'>(initialTab)
   const [configOpen, setConfigOpen] = useState(false)
+  const [isCompact, setIsCompact] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 1180;
+  })
+  const [contentScale, setContentScale] = useState<number>(1)
+  const contentViewportRef = useRef<HTMLDivElement | null>(null)
+  const contentInnerRef = useRef<HTMLDivElement | null>(null)
   const [optimisticDeploying, setOptimisticDeploying] = useState(false)
   const [pausing, setPausing] = useState(false)
   const pausePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -96,6 +103,7 @@ export function ActiveDetailView({
   const backPath = isPersonal ? '/agents' : `/${account}`
   const isDeploying = isDeployingState(renderedDeployment);
   const isPaused = isPausedState(renderedDeployment);
+  const showConfigureAsPage = isCompact && configOpen;
   const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
   const latestBuildId = accountAgents?.agents
     ?.find((a) => a.name === renderedDeployment.name)
@@ -139,6 +147,44 @@ export function ActiveDetailView({
     return () => clearTimeout(timer);
   }, [optimisticDeploying, deployment]);
 
+  useEffect(() => {
+    const onResize = () => setIsCompact(window.innerWidth < 1180);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useLayoutEffect(() => {
+    const fitContentToViewport = () => {
+      const viewport = contentViewportRef.current;
+      const inner = contentInnerRef.current;
+      if (!viewport || !inner) return;
+
+      // Skip autoscaling for narrow layouts to preserve readability.
+      if (window.innerWidth < 1180) {
+        setContentScale(1);
+        return;
+      }
+
+      const availableHeight = viewport.clientHeight;
+      const naturalHeight = inner.scrollHeight;
+      if (availableHeight <= 0 || naturalHeight <= 0) {
+        setContentScale(1);
+        return;
+      }
+
+      const nextScale = Math.min(1, Math.max(0.78, availableHeight / naturalHeight));
+      setContentScale((prev) => (Math.abs(prev - nextScale) < 0.005 ? prev : nextScale));
+    };
+
+    const raf = requestAnimationFrame(fitContentToViewport);
+    window.addEventListener("resize", fitContentToViewport);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", fitContentToViewport);
+    };
+  }, [tab, configOpen, renderedDeployment.id, isCompact]);
+
   return (
     <div style={{ display: 'flex', flex: 1, flexDirection: 'column', background: C.bg, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
       {/* ── TOP BAR ── */}
@@ -146,10 +192,13 @@ export function ActiveDetailView({
         background: C.panel,
         borderBottom: `1px solid ${C.border}`,
         position: 'sticky', top: 0, zIndex: 40,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 clamp(12px, 3vw, 40px)', height: TOP_BAR_HEIGHT_PX, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: isCompact ? 'flex-start' : 'space-between', flexWrap: isCompact ? 'wrap' : 'nowrap',
+        padding: isCompact ? '10px clamp(12px, 3vw, 40px)' : '0 clamp(12px, 3vw, 40px)',
+        height: isCompact ? 'auto' : TOP_BAR_HEIGHT_PX,
+        rowGap: isCompact ? 8 : 0,
+        flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: isCompact ? 'wrap' : 'nowrap' }}>
           <button
             onClick={() => navigate(backPath)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.faint, display: 'flex', padding: 4 }}
@@ -191,7 +240,7 @@ export function ActiveDetailView({
                   ? { bg: C.amberBg, bdr: C.amberBdr, dot: C.amber, label: 'Deploying', spinning: true }
                   : ds === 'inactive'
                   ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive', spinning: false }
-                    : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Live', spinning: false }
+                    : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'LIVE', spinning: false }
             return (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -219,8 +268,12 @@ export function ActiveDetailView({
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: isCompact ? 'flex-start' : 'flex-end',
+            flexWrap: isCompact ? 'wrap' : 'nowrap',
             gap: 8,
-            marginRight: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+            width: isCompact ? '100%' : 'auto',
+            marginTop: isCompact ? 2 : 0,
+            marginRight: !isCompact && configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
             transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
@@ -288,7 +341,7 @@ export function ActiveDetailView({
           display: 'flex',
           flex: 1,
           minHeight: 0,
-          marginRight: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+          marginRight: !isCompact && configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
           transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
@@ -333,6 +386,7 @@ export function ActiveDetailView({
                     fontWeight: tab === id ? 600 : 400,
                     color: isLockedMonitor ? C.faint : (tab === id ? C.text : C.faint),
                     padding: '11px 16px',
+                    paddingLeft: id === 'monitor' ? 0 : 16,
                     borderBottom: tab === id && !isLockedMonitor ? `2px solid ${C.tealMid}` : '2px solid transparent',
                     opacity: isLockedMonitor ? 0.65 : 1,
                     transition: 'color 0.15s',
@@ -363,22 +417,46 @@ export function ActiveDetailView({
           {/* tab content */}
           <div
             className="dp-scroll"
+            ref={contentViewportRef}
             style={{
               flex: 1,
               overflowY: 'auto',
               overflowX: 'auto',
-              padding: `20px ${DETAIL_HORIZONTAL_PAD}`,
+              padding: `24px calc(${DETAIL_HORIZONTAL_PAD} + 4px) 24px`,
             }}
           >
-            {tab === 'monitor' ? (
-              <MonitorTab deployment={renderedDeployment} />
-            ) : (
-              <DeploymentsTab
-                deployment={renderedDeployment}
-                account={account}
-                onOpenConfigure={() => setConfigOpen(true)}
-              />
-            )}
+            <div
+              ref={contentInnerRef}
+              style={{
+                transform: contentScale < 1 ? `scale(${contentScale})` : undefined,
+                transformOrigin: "top left",
+                width: contentScale < 1 ? `${100 / contentScale}%` : "100%",
+              }}
+            >
+              {showConfigureAsPage ? (
+                <ConfigurePanel
+                  deployment={renderedDeployment}
+                  account={account}
+                  fullPage
+                  onClose={() => setConfigOpen(false)}
+                  onRedeployStart={() => {
+                    setOptimisticDeploying(true);
+                  }}
+                  onRedeploy={() => {
+                    setOptimisticDeploying(true);
+                    onRedeploy?.();
+                  }}
+                />
+              ) : tab === 'monitor' ? (
+                <MonitorTab deployment={renderedDeployment} />
+              ) : (
+                <DeploymentsTab
+                  deployment={renderedDeployment}
+                  account={account}
+                  onOpenConfigure={() => setConfigOpen(true)}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -390,14 +468,14 @@ export function ActiveDetailView({
           top: 0,
           right: 0,
           bottom: 0,
-          width: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+          width: configOpen ? (isCompact ? 0 : CONFIG_PANEL_WIDTH_PX) : 0,
           overflow: 'hidden',
           transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-          pointerEvents: configOpen ? 'auto' : 'none',
+          pointerEvents: configOpen && !isCompact ? 'auto' : 'none',
           zIndex: 45,
         }}
       >
-        {configOpen && (
+        {configOpen && !isCompact && (
           <ConfigurePanel
             deployment={renderedDeployment}
             account={account}

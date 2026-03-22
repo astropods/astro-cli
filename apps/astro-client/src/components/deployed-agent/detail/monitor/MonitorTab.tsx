@@ -73,8 +73,35 @@ interface TraceRow {
   output?: string;
 }
 
+const MOCK_TRACE_ROWS: TraceRow[] = Array.from({ length: 50 }, (_, idx) => {
+  const statuses: TraceStatus[] = ["success", "success", "timeout", "error", "success"];
+  const status = statuses[idx % statuses.length];
+  const timestamp = new Date(Date.now() - idx * 97_000).toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const latency = status === "timeout" ? 2400 + (idx % 5) * 120 : status === "error" ? 900 + (idx % 4) * 90 : 140 + (idx % 7) * 35;
+  const tokens = status === "timeout" ? 0 : 96 + (idx % 11) * 23;
+  const suffix = String(idx + 1).padStart(3, "0");
+
+  return {
+    id: `trc_${suffix}ab12cd34ef56gh78ij90kl87we7xy`,
+    name: "chat.request",
+    status,
+    latency,
+    time: timestamp,
+    tokens,
+    input: `Mock trace ${idx + 1}: summarize recent deployment logs and identify anomalies.`,
+    output: status === "timeout" ? "" : status === "error" ? "Upstream provider returned a 5xx response." : "Deployment is healthy with no recent errors.",
+  };
+});
+
 const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeClass: string }> = {
-  success: { label: "SUCCESS", badgeClass: "text-green-700 bg-green-100 border-green-300 dark:text-green-300 dark:bg-green-900/35 dark:border-green-600/35" },
+  success: { label: "SUCCESS", badgeClass: "text-[var(--color-teal-600)] bg-[rgba(21,130,125,0.08)] border-[rgba(21,130,125,0.22)] dark:text-teal-300 dark:bg-teal-900/35 dark:border-teal-300/35" },
   error: { label: "ERROR", badgeClass: "text-red-700 bg-red-100 border-red-300 dark:text-red-300 dark:bg-red-900/35 dark:border-red-600/35" },
   timeout: { label: "TIMEOUT", badgeClass: "text-yellow-700 bg-yellow-100 border-yellow-300 dark:text-yellow-300 dark:bg-yellow-900/35 dark:border-yellow-600/35" },
 };
@@ -89,10 +116,15 @@ function formatLatencyMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function middleEllipsis(value: string, edge = 5): string {
+  if (!value) return value;
+  const minLengthForTruncation = edge * 2 + 3;
+  if (value.length <= minLengthForTruncation) return value;
+  return `${value.slice(0, edge)}...${value.slice(-edge)}`;
+}
+
 const CHART_H = 130;
-const TRACES_PANEL_H = "clamp(320px, calc(100vh - 560px), 420px)";
 const TRACE_GRID_COLUMNS = "250px 1fr 80px 80px 80px 132px";
-const TRACE_GRID_MIN_WIDTH = 760;
 
 interface ChartTooltipProps {
   active?: boolean;
@@ -158,11 +190,13 @@ function InlineChart({
   reqVisible,
   avgLatVisible,
   win,
+  hideXAxisLabels,
 }: {
   data: { t: string; req: number; avgLatencyMs: number }[];
   reqVisible: boolean;
   avgLatVisible: boolean;
   win: "1h" | "24h" | "7d";
+  hideXAxisLabels: boolean;
 }) {
   if (data.length === 0) return null;
   const hasSinglePoint = data.length === 1;
@@ -175,7 +209,7 @@ function InlineChart({
   const latUpper = Math.ceil(latMax + latPad);
   return (
     <ResponsiveContainer width="100%" height={CHART_H}>
-      <ComposedChart data={data} margin={{ top: 8, right: 10, bottom: 0, left: 0 }}>
+      <ComposedChart data={data} margin={{ top: 8, right: 14, bottom: 0, left: 12 }}>
         <defs>
           <linearGradient id="req-grad-obs" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor={C.tealMid} stopOpacity="0.18" />
@@ -188,10 +222,12 @@ function InlineChart({
           tick={{ fontFamily: S.mono, fontSize: T.monoSm, fill: C.faint }}
           tickLine={false}
           axisLine={false}
-          interval={0}
-          minTickGap={0}
+          interval={hideXAxisLabels ? "preserveStartEnd" : 0}
+          minTickGap={hideXAxisLabels ? 56 : 24}
+          padding={{ left: 10, right: 10 }}
           tickMargin={6}
           tickFormatter={(value, index) => {
+            if (hideXAxisLabels) return "";
             if (index === 0) return "";
             if (win === "24h") {
               return index % 4 === 0 ? String(value) : "";
@@ -206,7 +242,7 @@ function InlineChart({
           tick={{ fontFamily: S.mono, fontSize: T.monoSm, fill: C.faint }}
           tickLine={false}
           axisLine={false}
-          width={32}
+          width={48}
           tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))}
           tickCount={4}
         />
@@ -217,7 +253,7 @@ function InlineChart({
           tick={{ fontFamily: S.mono, fontSize: T.monoSm, fill: C.faint }}
           tickLine={false}
           axisLine={false}
-          width={46}
+          width={52}
           tickFormatter={(v: number) => formatLatencyMs(v)}
           tickCount={4}
         />
@@ -336,6 +372,11 @@ function buildRequestVolumeSeries(
 
 export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   const queryClient = useQueryClient();
+  const [isCompact, setIsCompact] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 1180;
+  });
+  const [showAllTraces, setShowAllTraces] = useState(false);
   const [win, setWin] = useState<Win>("24h");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -525,12 +566,32 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   };
   const activeToken =
     !tokens.hasSplit && tokens.total > 0
-      ? { value: tokens.total, color: C.tealMid }
+      ? { value: tokens.total, color: C.text }
       : tokenView === "input"
-        ? { value: tokens.input, color: C.tealMid }
-        : { value: tokens.output, color: C.issue };
+        ? { value: tokens.input, color: C.text }
+        : { value: tokens.output, color: C.text };
 
   const isError = mapDeploymentStatus(deployment) === "error";
+  const traceGridColumns = isCompact
+    ? "minmax(0, 1.25fr) minmax(0, 0.72fr) minmax(0, 0.72fr) minmax(0, 0.72fr)"
+    : TRACE_GRID_COLUMNS;
+  const traceGridGap = isCompact ? 8 : 10;
+  const traceHeaderPadding = isCompact ? "7px 10px" : "7px 16px";
+  const traceRowPadding = isCompact ? "10px 10px" : "10px 16px";
+  const traceHeaderFontSize = isCompact ? "11px" : T.label;
+  const traceCellFontSize = isCompact ? T.monoSm : T.monoMd;
+  const traceMetaFontSize = isCompact ? T.monoSm : T.label;
+  const showMockTraces = import.meta.env.DEV && !tracesLoading && traces.length === 0;
+  const renderedTraces = showMockTraces ? MOCK_TRACE_ROWS : visibleTraces;
+  const hasCollapsedTraces = renderedTraces.length > 4;
+  const visibleTraceRows = showAllTraces ? renderedTraces : renderedTraces.slice(0, 4);
+
+  useEffect(() => {
+    const onResize = () => setIsCompact(window.innerWidth < 1180);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -595,7 +656,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             <Select value={win} onValueChange={(value) => setWin(value as Win)}>
               <SelectTrigger
                 className="h-9 w-auto min-w-[160px] px-3"
-                style={{ fontFamily: S.body, fontSize: T.body, color: C.muted }}
+                style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, background: C.panel }}
               >
                 <SelectValue />
               </SelectTrigger>
@@ -618,7 +679,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ marginBottom: 8 }}>
-                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal }}>Request volume</span>
+                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text }}>Request volume</span>
               </div>
               <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
                 {[
@@ -670,13 +731,20 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   </div>
                 </div>
               ) : (
-                <InlineChart key={win} data={tsData} reqVisible={series.req} avgLatVisible={series.avgLat} win={win} />
+                <InlineChart
+                  key={win}
+                  data={tsData}
+                  reqVisible={series.req}
+                  avgLatVisible={series.avgLat}
+                  win={win}
+                  hideXAxisLabels={isCompact}
+                />
               )}
             </div>
 
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal }}>Token usage</span>
+                <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text }}>Token usage</span>
                 <div style={{ transform: "scale(0.9)", transformOrigin: "right center" }}>
                   <ToggleGroup
                     type="single"
@@ -741,9 +809,9 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             </div>
           </div>
 
-          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column", height: TRACES_PANEL_H }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
+          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", flexWrap: isCompact ? "wrap" : "nowrap", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text, flex: 1 }}>Traces</span>
               <MultiSelect
                 options={[
                   { value: "success", label: "Success", color: C.success },
@@ -755,45 +823,47 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                 placeholder="All statuses"
               />
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflowX: "auto" }}>
-              <div style={{ minWidth: TRACE_GRID_MIN_WIDTH, display: "flex", flexDirection: "column", height: "100%" }}>
-                <div style={{ display: "grid", gridTemplateColumns: TRACE_GRID_COLUMNS, gap: 10, padding: "7px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
-                  <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: "left" }}>CREATED AT</span>
-                  <span />
-                  {["STATUS", "LATENCY", "TOKENS", "EXTERNAL ID"].map((h) => (
+            <div style={{ minHeight: 0 }}>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <div style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, padding: traceHeaderPadding, borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
+                  <span style={{ fontFamily: S.mono, fontSize: traceHeaderFontSize, letterSpacing: "0.07em", color: C.faint, textAlign: "left", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>CREATED AT</span>
+                  {(isCompact ? ["STATUS", "LATENCY", "TOKENS"] : ["", "STATUS", "LATENCY", "TOKENS", "EXTERNAL ID"]).map((h) => (
                     <span
-                      key={h}
+                      key={h || "spacer"}
                       style={{
                         fontFamily: S.mono,
-                        fontSize: T.label,
+                        fontSize: traceHeaderFontSize,
                         letterSpacing: "0.07em",
                         color: C.faint,
                         textAlign: "center",
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                       }}
                     >
                       {h}
                     </span>
                   ))}
                 </div>
-            <div className="dp-scroll" style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingBottom: 12 }}>
+            <div style={{ paddingBottom: 12 }}>
               {tracesLoading && (
-                <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                  {Array.from({ length: 7 }).map((_, idx) => (
-                    <div key={idx} style={{ borderBottom: idx < 6 ? `1px solid ${C.border}` : "none" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: TRACE_GRID_COLUMNS, gap: 10, alignItems: "center", padding: "10px 16px" }}>
+                <div style={{ minHeight: 280, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  {Array.from({ length: 6 }).map((_, idx) => (
+                    <div key={idx} style={{ borderBottom: idx < 5 ? `1px solid ${C.border}` : "none" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, alignItems: "center", padding: traceRowPadding }}>
                         <Ghost width="64%" height={12} />
-                        <span />
                         <Ghost width="80%" height={16} radius={12} />
                         <Ghost width="70%" height={12} />
                         <Ghost width="66%" height={12} />
-                        <Ghost width="74%" height={12} />
+                        {!isCompact ? <Ghost width="74%" height={12} /> : null}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-              {!tracesLoading && traces.length === 0 && (
-                <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+              {!tracesLoading && traces.length === 0 && !showMockTraces && (
+                <div style={{ minHeight: 280, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                     <Activity size={I.lg} color={C.stone} />
                   </div>
@@ -808,18 +878,17 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   <p style={{ fontFamily: S.body, fontSize: T.body, color: C.success, margin: 0 }}>✓ All clear — no errors in this window</p>
                 </div>
               )}
-              {visibleTraces.map((trace) => {
+              {visibleTraceRows.map((trace) => {
                 const st = TRACE_STATUS_STYLE[trace.status];
                 const isOpen = expanded.has(trace.id);
-                const externalId = `...${trace.id.slice(-4)}`;
+                const externalId = middleEllipsis(trace.id);
                 const copied = copiedTraceId === trace.id;
-                const latencyColor = trace.latency > 2000 ? C.coral : C.text;
                 const outputText = trace.output ?? "";
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
                       onClick={() => toggleTrace(trace.id)}
-                      style={{ display: "grid", gridTemplateColumns: TRACE_GRID_COLUMNS, gap: 10, padding: "10px 16px", cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
+                      style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, padding: traceRowPadding, cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = C.bgDeep;
                       }}
@@ -829,42 +898,44 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <ChevronDown size={I.xs} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text, whiteSpace: "nowrap" }}>{trace.time}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
                       </div>
-                      <span />
+                      {!isCompact ? <span /> : null}
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
                         <InlineBadge className={st.badgeClass}>{st.label}</InlineBadge>
                       </div>
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: latencyColor }}>
+                        <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text }}>
                           {formatLatencyMs(trace.latency)}
                         </span>
                       </div>
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text }}>
+                        <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text }}>
                           {trace.tokens > 0 ? trace.tokens.toLocaleString() : "—"}
                         </span>
                       </div>
-                      <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.text }}>{externalId}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyTraceId(trace.id);
-                          }}
-                          style={{ background: "none", border: "none", padding: 0, display: "flex", color: C.muted, cursor: "pointer" }}
-                          aria-label={`Copy external id ${externalId}`}
-                        >
-                          {copied ? <Check size={I.xs} /> : <Copy size={I.xs} />}
-                        </button>
-                      </div>
+                      {!isCompact ? (
+                        <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text }}>{externalId}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyTraceId(trace.id);
+                            }}
+                            style={{ background: "none", border: "none", padding: 0, display: "flex", color: C.muted, cursor: "pointer" }}
+                            aria-label={`Copy external id ${externalId}`}
+                          >
+                            {copied ? <Check size={I.xs} /> : <Copy size={I.xs} />}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                     {isOpen && (
                       <div style={{ background: C.panel, borderTop: `1px solid ${C.border}` }}>
                         <div style={{ padding: "10px 16px 11px", borderBottom: `1px solid ${C.border}` }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                            <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint }}>INPUT</span>
+                            <span style={{ display: "block", fontFamily: S.mono, fontSize: traceMetaFontSize, letterSpacing: "0.09em", color: C.faint }}>INPUT</span>
                             <button
                               type="button"
                               onClick={() => copyTraceFieldText(trace.id, "input", trace.input ?? "")}
@@ -874,11 +945,11 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                               {copiedTraceField === `${trace.id}:input` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
                             </button>
                           </div>
-                          <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.input ?? "—"}</span>
+                          <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.input ?? "—"}</span>
                         </div>
                         <div style={{ padding: "10px 16px 12px" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                            <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.09em", color: C.faint }}>OUTPUT</span>
+                            <span style={{ display: "block", fontFamily: S.mono, fontSize: traceMetaFontSize, letterSpacing: "0.09em", color: C.faint }}>OUTPUT</span>
                             {trace.output ? (
                               <button
                                 type="button"
@@ -891,9 +962,9 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                             ) : null}
                           </div>
                           {trace.output ? (
-                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.output}</span>
+                            <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.output}</span>
                           ) : (
-                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.coral }}>
+                            <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.coral }}>
                               Trace did not complete — no output recorded
                             </span>
                           )}
@@ -903,6 +974,26 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   </div>
                 );
               })}
+              {hasCollapsedTraces && (
+                <div style={{ display: "flex", justifyContent: "center", padding: "8px 12px 2px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTraces((prev) => !prev)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: S.mono,
+                      fontSize: T.monoSm,
+                      letterSpacing: "0.04em",
+                      color: C.faint,
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {showAllTraces ? "See less" : `See more (${renderedTraces.length - 4} more)`}
+                  </button>
+                </div>
+              )}
             </div>
               </div>
             </div>

@@ -2,10 +2,10 @@ const C = {
   bgDeep: "var(--muted)",
   border: "var(--border)",
   faint: "var(--faint-foreground)",
+  text: "var(--foreground)",
   success: "var(--color-green-700)",
   coral: "var(--color-coral-600)",
   bgAlt: "var(--surface)",
-  teal: "var(--primary)",
 } as const;
 
 const S = {
@@ -126,7 +126,7 @@ export function HeadlineMetrics({ summary, summaryLoading, trendLoading, selecte
           {summaryLoading ? (
             <SkeletonBar width="70%" />
           ) : (
-            <span style={{ display: "block", fontFamily: S.body, fontSize: T.heading2, fontWeight: 700, color: C.teal }}>{card.value}</span>
+            <span style={{ display: "block", fontFamily: S.body, fontSize: T.heading2, fontWeight: 700, color: C.text }}>{card.value}</span>
           )}
           {trendLoading ? (
             <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center" }}>

@@ -66,11 +66,11 @@ const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
   { value: "7d", label: "Last 7 days" },
 ];
 const DEPLOYMENT_GRID_COLUMNS = "minmax(220px, 1fr) 88px 84px 116px 116px 28px";
-const DEPLOYMENT_GRID_MIN_WIDTH = 760;
 
 export interface ActiveContainerAccordionProps {
   workloadName: string;
   title: string;
+  isCompact?: boolean;
   isAgentService?: boolean;
   url?: string;
   urls?: { name: string; url: string; type?: string }[];
@@ -169,6 +169,7 @@ function isSensitiveEnvVar(key: string, value: string, source: string): boolean 
 export function ActiveContainerAccordion({
   workloadName,
   title,
+  isCompact = false,
   isAgentService = false,
   url,
   urls,
@@ -283,7 +284,8 @@ export function ActiveContainerAccordion({
         onClick={onToggle}
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: isCompact ? "flex-start" : "center",
+          flexWrap: isCompact ? "wrap" : "nowrap",
           gap: 8,
           width: "100%",
           padding: "10px 14px",
@@ -335,7 +337,7 @@ export function ActiveContainerAccordion({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  maxWidth: "min(430px, 55vw)",
+                  maxWidth: isCompact ? "min(430px, 50vw)" : "min(430px, 55vw)",
                   border: `1px solid ${C.border}`,
                   borderRadius: 5,
                   padding: "2px 8px",
@@ -361,14 +363,23 @@ export function ActiveContainerAccordion({
             </div>
           </div>
         )}
-        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, flexShrink: 0, marginLeft: 8 }}>
+        <span
+          style={{
+            fontFamily: S.mono,
+            fontSize: T.monoSm,
+            color: C.faint,
+            flexShrink: 0,
+            marginLeft: isCompact ? 0 : 8,
+            width: isCompact ? "100%" : "auto",
+          }}
+        >
           {readyText} ready · {uptime}
         </span>
       </button>
 
       {isOpen && (
         <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: isCompact ? "wrap" : "nowrap", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
             {(["logs", "vars", "domains"] as const).map((v) => (
               (v === "vars" && !canShowVars) || (v === "domains" && !canShowDomains) ? null : (
               <button
@@ -393,11 +404,11 @@ export function ActiveContainerAccordion({
               )
             ))}
             {containers.length > 1 && (
-              <div style={{ marginLeft: "auto", paddingRight: 8 }}>
+              <div style={{ marginLeft: "auto", paddingRight: 8, paddingBottom: isCompact ? 8 : 0 }}>
                 <Select value={selectedContainer} onValueChange={setSelectedContainer}>
                   <SelectTrigger
                     className="h-7 w-auto min-w-[130px] px-3"
-                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted }}
+                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted, background: C.panel }}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -488,7 +499,7 @@ export function ActiveContainerAccordion({
 
           {view === "logs" && (
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: isCompact ? "wrap" : "nowrap", gap: 6, padding: "8px 14px", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
                 {[
                   { key: "errors" as const, label: `Errors (${errCount})`, accent: "#dc2626", activeBg: "#fef2f2", activeBdr: "#fca5a5" },
                   { key: "warnings" as const, label: `Warnings (${warnCount})`, accent: "#d97706", activeBg: "#fffbeb", activeBdr: "#fcd34d" },
@@ -524,7 +535,7 @@ export function ActiveContainerAccordion({
                 <Select value={logTimeRange} onValueChange={(value) => setLogTimeRange(value as LogTimeRange)}>
                   <SelectTrigger
                     className="h-8 w-auto min-w-[130px] px-3"
-                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted }}
+                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted, background: C.panel }}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -543,7 +554,7 @@ export function ActiveContainerAccordion({
                     placeholder="Find in logs"
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
-                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: 120, caretColor: C.tealMid }}
+                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: isCompact ? 92 : 120, caretColor: C.tealMid }}
                   />
                 </div>
                 <button
@@ -598,10 +609,10 @@ export function ActiveContainerAccordion({
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.stone, minWidth: 44, textAlign: "right" as const, paddingRight: 12, flexShrink: 0, userSelect: "none" as const }}>
                           {li + 1}
                         </span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, minWidth: 190, paddingRight: 12, flexShrink: 0 }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, minWidth: isCompact ? 128 : 190, paddingRight: 12, flexShrink: 0 }}>
                           {formatLogTimestamp(parsed.timestamp)}
                         </span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: logLineColor(line), lineHeight: 1.75 }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: logLineColor(line), lineHeight: 1.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                           {parsed.message}
                         </span>
                       </div>
@@ -702,6 +713,11 @@ export function DeploymentsTab({
   onOpenConfigure?: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [isCompact, setIsCompact] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 1180;
+  });
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [openContainers, setOpenContainers] = useState<Set<string>>(new Set());
   const [openPastDeployMenu, setOpenPastDeployMenu] = useState<string | null>(null);
   const hasAutoOpenedOverview = useRef(false);
@@ -805,35 +821,72 @@ export function DeploymentsTab({
     setOpenContainers(new Set([serviceRows[0].id]));
   }, [serviceRows]);
 
+  useEffect(() => {
+    const onResize = () => setIsCompact(window.innerWidth < 1180);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const deploymentGridColumns = isCompact
+    ? "minmax(0, 1.35fr) minmax(0, 0.78fr) minmax(0, 0.65fr) minmax(0, 0.78fr)"
+    : DEPLOYMENT_GRID_COLUMNS;
+  const deploymentGridGap = isCompact ? 8 : 12;
+  const deploymentHeaderPadding = isCompact ? "8px 10px" : "8px 14px";
+  const deploymentRowPadding = isCompact ? "10px 10px" : "11px 14px";
+  const deploymentGridHeaders = isCompact
+    ? ["Deployment", "Status", "Duration", "Build No."]
+    : ["Deployment", "Status", "Duration", "Build No.", "Deployed on", ""];
+  const hasCollapsedHistory = pastRows.length > 4;
+  const visiblePastRows = showAllHistory ? pastRows : pastRows.slice(0, 4);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.text, flex: 1 }}>Deployments</span>
         </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
               {[
-                { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
-                { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase() },
-                { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
-                { label: "SERVICES", value: String(totalServiceCount) },
+                { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—", wrap: false },
+                { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase(), wrap: false },
+                {
+                  label: "DEPLOYED ON",
+                  value: deployment.created_at
+                    ? `${formatDate(deployment.created_at)},${isCompact ? "\n" : " "}${new Date(deployment.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                    : "—",
+                  wrap: true,
+                },
+                { label: "SERVICES", value: String(totalServiceCount), wrap: false },
               ].map((item) => (
-                <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", minWidth: 0 }}>
                   <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
                     {item.label}
                   </span>
-                  <span style={{ display: "block", fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span
+                    style={{
+                      display: "block",
+                      fontFamily: S.body,
+                      fontSize: T.heading4,
+                      fontWeight: 600,
+                      color: C.text,
+                      overflow: "hidden",
+                      textOverflow: item.wrap ? "clip" : "ellipsis",
+                      whiteSpace: item.wrap ? (isCompact ? ("pre-line" as const) : ("nowrap" as const)) : ("nowrap" as const),
+                      lineHeight: item.wrap ? 1.25 : undefined,
+                    }}
+                  >
                     {item.value}
                   </span>
                 </div>
               ))}
             </div>
 
-            <div style={{ overflowX: "auto" }}>
-              <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", minWidth: DEPLOYMENT_GRID_MIN_WIDTH }}>
-              <div style={{ display: "grid", gridTemplateColumns: DEPLOYMENT_GRID_COLUMNS, gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
-                {["Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h, i) => (
-                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", whiteSpace: "nowrap" }}>
+            <div>
+              <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", maxWidth: "100%" }}>
+              <div style={{ display: "grid", gridTemplateColumns: deploymentGridColumns, gap: deploymentGridGap, padding: deploymentHeaderPadding, borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
+                {deploymentGridHeaders.map((h, i) => (
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {h.toUpperCase()}
                   </span>
                 ))}
@@ -843,9 +896,9 @@ export function DeploymentsTab({
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: DEPLOYMENT_GRID_COLUMNS,
-                      gap: 12,
-                      padding: "12px 14px",
+                      gridTemplateColumns: deploymentGridColumns,
+                      gap: deploymentGridGap,
+                      padding: isCompact ? "11px 10px" : "12px 14px",
                       alignItems: "center",
                       borderLeft: `3px solid ${C.tealMid}`,
                       background: "rgba(21,130,125,0.02)",
@@ -873,10 +926,14 @@ export function DeploymentsTab({
                     </span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{currentRow.duration}</span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{currentRow.build}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
-                      {currentRow.time}
-                    </span>
-                    <span />
+                    {!isCompact ? (
+                      <>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                          {currentRow.time}
+                        </span>
+                        <span />
+                      </>
+                    ) : null}
                   </div>
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
@@ -898,6 +955,7 @@ export function DeploymentsTab({
                           key={svc.id}
                           workloadName={svc.workloadName}
                           title={svc.title}
+                          isCompact={isCompact}
                           isAgentService={svc.isAgentService}
                           url={svc.url}
                           urls={svc.urls}
@@ -936,16 +994,16 @@ export function DeploymentsTab({
                   </div>
                 ) : pastRows.length === 0 ? null : (
                   <>
-                    {pastRows.map((row, idx) => (
+                    {visiblePastRows.map((row, idx) => (
                       <div
                         key={row.id}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: DEPLOYMENT_GRID_COLUMNS,
-                          gap: 12,
-                          padding: "11px 14px",
+                          gridTemplateColumns: deploymentGridColumns,
+                          gap: deploymentGridGap,
+                          padding: deploymentRowPadding,
                           alignItems: "center",
-                          borderBottom: idx < pastRows.length - 1 ? `1px solid ${C.border}` : "none",
+                          borderBottom: idx < visiblePastRows.length - 1 ? `1px solid ${C.border}` : "none",
                         }}
                       >
                         <div style={{ minWidth: 0 }}>
@@ -970,76 +1028,100 @@ export function DeploymentsTab({
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{row.duration}</span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{row.build}</span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
-                          {row.time}
-                        </span>
-                        <div style={{ position: "relative" }}>
-                          <button
-                            type="button"
-                            onClick={() => setOpenPastDeployMenu((prev) => (prev === row.id ? null : row.id))}
-                            style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex", padding: 4, borderRadius: 4 }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = C.bgDeep;
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = "none";
-                            }}
-                            aria-label={`Actions for deployment ${row.id}`}
-                          >
-                            <MoreVertical size={I.md} />
-                          </button>
-                          {openPastDeployMenu === row.id && (
-                            <>
-                              <div onClick={() => setOpenPastDeployMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: "calc(100% + 4px)",
-                                  zIndex: 20,
-                                  minWidth: 150,
-                                  background: C.bgAlt,
-                                  border: `1px solid ${C.border}`,
-                                  borderRadius: 8,
-                                  overflow: "hidden",
-                                  boxShadow: "0 6px 20px rgba(0,0,0,0.1)",
+                        {!isCompact ? (
+                          <>
+                            <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
+                              {row.time}
+                            </span>
+                            <div style={{ position: "relative" }}>
+                              <button
+                                type="button"
+                                onClick={() => setOpenPastDeployMenu((prev) => (prev === row.id ? null : row.id))}
+                                style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex", padding: 4, borderRadius: 4 }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = C.bgDeep;
                                 }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = "none";
+                                }}
+                                aria-label={`Actions for deployment ${row.id}`}
                               >
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenPastDeployMenu(null);
-                                    onOpenConfigure?.();
-                                  }}
-                                  style={{
-                                    width: "100%",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                    padding: "9px 14px",
-                                    background: "none",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    fontFamily: S.body,
-                                    fontSize: T.body,
-                                    color: C.text,
-                                    textAlign: "left" as const,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = C.bgDeep;
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = "none";
-                                  }}
-                                >
-                                  Rollback
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                                <MoreVertical size={I.md} />
+                              </button>
+                              {openPastDeployMenu === row.id && (
+                                <>
+                                  <div onClick={() => setOpenPastDeployMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
+                                  <div
+                                    style={{
+                                      position: "absolute",
+                                      right: 0,
+                                      top: "calc(100% + 4px)",
+                                      zIndex: 20,
+                                      minWidth: 150,
+                                      background: C.bgAlt,
+                                      border: `1px solid ${C.border}`,
+                                      borderRadius: 8,
+                                      overflow: "hidden",
+                                      boxShadow: "0 6px 20px rgba(0,0,0,0.1)",
+                                    }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenPastDeployMenu(null);
+                                        onOpenConfigure?.();
+                                      }}
+                                      style={{
+                                        width: "100%",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                        padding: "9px 14px",
+                                        background: "none",
+                                        border: "none",
+                                        cursor: "pointer",
+                                        fontFamily: S.body,
+                                        fontSize: T.body,
+                                        color: C.text,
+                                        textAlign: "left" as const,
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = C.bgDeep;
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = "none";
+                                      }}
+                                    >
+                                      Rollback
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </>
+                        ) : null}
                       </div>
                     ))}
+                    {hasCollapsedHistory && (
+                      <div style={{ display: "flex", justifyContent: "center", padding: "8px 12px 10px", borderTop: `1px solid ${C.border}` }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowAllHistory((prev) => !prev)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: S.mono,
+                            fontSize: T.monoSm,
+                            letterSpacing: "0.04em",
+                            color: C.faint,
+                            textDecoration: "underline",
+                          }}
+                        >
+                          {showAllHistory ? "See less" : `See more (${pastRows.length - 4} more)`}
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

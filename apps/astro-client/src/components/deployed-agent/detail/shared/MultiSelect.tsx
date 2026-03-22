@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 const C = {
-  bg: "var(--muted)",
-  bgAlt: "var(--surface)",
+  panel: "var(--popover)",
+  bgAlt: "var(--popover)",
   bgDeep: "var(--muted)",
   border: "var(--border)",
   teal: "var(--primary)",
@@ -75,7 +75,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
           minWidth: 134,
           borderRadius: 7,
           border: `1px solid ${open ? C.tealMid : C.border}`,
-          background: open ? C.bgDeep : C.bg,
+          background: C.panel,
           cursor: "pointer",
           fontFamily: S.body,
           fontSize: T.body,
@@ -95,7 +95,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 4px)",
+            top: "calc(100% + 8px)",
             left: 0,
             zIndex: 300,
             minWidth: 160,
@@ -103,7 +103,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
             border: `1px solid ${C.border}`,
             borderRadius: 8,
             overflow: "hidden",
-            boxShadow: "0 6px 20px rgba(0,0,0,0.1)",
+            boxShadow: "0 14px 34px rgba(0,0,0,0.16), 0 2px 10px rgba(0,0,0,0.08)",
           }}
         >
           <button

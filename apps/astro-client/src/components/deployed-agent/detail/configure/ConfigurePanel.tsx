@@ -21,15 +21,17 @@ interface ConfigurePanelProps {
   onClose: () => void;
   onRedeployStart?: () => void;
   onRedeploy?: () => void;
+  fullPage?: boolean;
 }
 
-function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy }: {
+function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy, fullPage = false }: {
   deployment: AgentDeployment;
   account: string;
   template: import("@/lib/api").DeploymentTemplate;
   onClose: () => void;
   onRedeployStart?: () => void;
   onRedeploy?: () => void;
+  fullPage?: boolean;
 }) {
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
   const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
@@ -64,9 +66,15 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   };
 
   const manualIngestions = deployment.manual_ingestions ?? [];
+  const shellClass = fullPage
+    ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
+    : PANEL_SHELL_CLASS;
+  const formClass = fullPage
+    ? "flex min-h-0 flex-1 flex-col"
+    : "dp-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain";
 
   return (
-    <div className={PANEL_SHELL_CLASS}>
+    <div className={shellClass}>
       <div className={PANEL_HEADER_CLASS}>
         <Settings2 className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
@@ -75,7 +83,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
         </Button>
       </div>
 
-      <form id={PANEL_FORM_ID} onSubmit={handleSubmit} className="dp-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+      <form id={PANEL_FORM_ID} onSubmit={handleSubmit} className={formClass}>
         <div className="px-6 py-5">
           <DeployFormFields
             form={form}
@@ -98,6 +106,9 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
             <Button type="submit" disabled={form.isDeploying} className={`w-full ${REDEPLOY_BUTTON_CLASS}`}>
               {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
               {form.isDeploying ? "Redeploying…" : changes.requiresRedeploy ? "Save & Redeploy" : "Redeploy"}
+            </Button>
+            <Button type="button" variant="outline" className="w-full" onClick={onClose} disabled={form.isDeploying}>
+              Discard
             </Button>
             {changes.isDirty && (
               <Button type="button" variant="ghost" className="w-full" onClick={() => form.reset(initialValues)}>
@@ -171,11 +182,14 @@ function ManualTriggers({
   );
 }
 
-export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy }: ConfigurePanelProps) {
+export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false }: ConfigurePanelProps) {
   const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id);
+  const shellClass = fullPage
+    ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
+    : PANEL_SHELL_CLASS;
 
   const shell = (children: React.ReactNode) => (
-    <div className={PANEL_SHELL_CLASS}>
+    <div className={shellClass}>
       <div className={PANEL_HEADER_CLASS}>
         <Settings2 className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
@@ -197,6 +211,7 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, 
       onClose={onClose}
       onRedeployStart={onRedeployStart}
       onRedeploy={onRedeploy}
+      fullPage={fullPage}
     />
   );
 }
