@@ -16,7 +16,7 @@ import (
 func ensureDeleteTestAccount(t *testing.T, store *account.AccountStore, name string) *account.Account {
 	t.Helper()
 	// Create a throwaway user ID — deletion tests don't need real auth
-	acct, err := store.Create(name, "personal", "user-delete-test")
+	acct, err := store.Create(name, "personal", "user-delete-test", "")
 	if err != nil {
 		t.Fatalf("failed to create test account %q: %v", name, err)
 	}
