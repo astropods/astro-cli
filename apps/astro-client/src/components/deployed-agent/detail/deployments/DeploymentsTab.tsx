@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Search, Loader2, X, Eye, EyeOff, RefreshCw, Copy, Check, MoreVertical } from "lucide-react";
+import { ChevronRight, Search, Loader2, X, RefreshCw, Copy, Check, MoreVertical } from "lucide-react";
 import { useDeploymentLogs, useDeploymentHistory } from "@/api/queries/deployments";
 import {
   formatDate,
@@ -192,7 +192,6 @@ export function ActiveContainerAccordion({
   onToggle,
 }: ActiveContainerAccordionProps) {
   const [view, setView] = useState<"logs" | "vars">("logs");
-  const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [logSearch, setLogSearch] = useState("");
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
   const [activeFilters, setActiveFilters] = useState<Set<"errors" | "warnings">>(new Set());
@@ -240,14 +239,6 @@ export function ActiveContainerAccordion({
       (error as Error).message ??
       "Failed to fetch logs"
     : null;
-
-  const toggleReveal = (key: string) =>
-    setRevealed((prev) => {
-      const n = new Set(prev);
-      if (n.has(key)) n.delete(key);
-      else n.add(key);
-      return n;
-    });
 
   const toggleFilter = (f: "errors" | "warnings") =>
     setActiveFilters((prev) => {
@@ -424,7 +415,6 @@ export function ActiveContainerAccordion({
                 <div style={{ padding: "16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>No variables</div>
               ) : (
                 vars.map((v, vi) => {
-                  const isRevealed = revealed.has(v.key);
                   const isSecret =
                     v.secret || v.value.startsWith("sk-") || v.value.startsWith("secret:") || v.value.includes("••");
                   const srcStyle =
@@ -452,13 +442,8 @@ export function ActiveContainerAccordion({
                       </span>
                       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
-                          {isSecret && !isRevealed ? "•••••••••" : v.value}
+                          {isSecret ? "•••••••••" : v.value}
                         </span>
-                        {isSecret && (
-                          <button onClick={() => toggleReveal(v.key)} style={{ background: "none", border: "none", cursor: "pointer", color: C.stone, display: "flex", padding: 2, flexShrink: 0 }}>
-                            {isRevealed ? <EyeOff size={I.md} /> : <Eye size={I.md} />}
-                          </button>
-                        )}
                       </div>
                       <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.08em", padding: "2px 6px", borderRadius: 4, background: srcStyle.bg, color: srcStyle.color, flexShrink: 0 }}>
                         {srcStyle.label}
@@ -671,7 +656,7 @@ function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDep
     if (ds === "pending") return "deploying";
     return "active";
   }
-  // Historical (non-current) rows should appear as READY unless explicitly undeployed.
+  // Historical (non-current) rows should appear as INACTIVE unless explicitly undeployed.
   return "ready";
 }
 
@@ -680,12 +665,13 @@ function statusColor(status: DeployHistoryStatus): string {
   if (status === "undeployed") return C.stone;
   if (status === "deploying") return C.amber;
   if (status === "undeploying") return C.faint;
-  return C.success;
+  if (status === "active") return C.success;
+  return C.faint;
 }
 
 function statusLabel(status: DeployHistoryStatus): string {
   if (status === "active") return "Live";
-  if (status === "ready") return "Ready";
+  if (status === "ready") return "Inactive";
   if (status === "deploying") return "Deploying";
   if (status === "undeploying") return "Undeploying";
   if (status === "failed") return "Failed";
@@ -1032,7 +1018,7 @@ export function DeploymentsTab({
                                     e.currentTarget.style.background = "none";
                                   }}
                                 >
-                                  Redeploy
+                                  Rollback
                                 </button>
                               </div>
                             </>
