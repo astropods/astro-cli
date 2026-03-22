@@ -49,7 +49,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 // When the waitlist is removed, delete this component and its usage in Root().
 // Protected pages have their own auth via ProtectedRoute; public pages (browse,
 // agent detail, account profiles) will become accessible without login.
-const WAITLIST_URL = "https://blog.astropods.ai/waitlist";
+const WAITLIST_URL = "https://blog.astropods.com/waitlist";
 const isProduction = typeof window !== "undefined" && window.location.hostname === "astropods.ai";
 
 function WaitlistGuard({ children }: { children: React.ReactNode }) {

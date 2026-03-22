@@ -56,7 +56,7 @@ export function AgentListView({
         <p className="text-sm text-muted-foreground">
           {emptyDescription}{" "}
           <a
-            href="https://docs.astropods.ai"
+            href="https://docs.astropods.com"
             target="_blank"
             rel="noopener noreferrer"
             className="underline text-primary hover:text-primary/70"

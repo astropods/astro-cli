@@ -43,8 +43,8 @@ interface NavItem {
 
 const publicNav: NavItem[] = [
   { label: "Blueprints", to: "/blueprints" },
-  { label: "Docs", to: "https://docs.astropods.ai", external: true },
-  { label: "Blog", to: "https://blog.astropods.ai", external: true },
+  { label: "Docs", to: "https://docs.astropods.com", external: true },
+  { label: "Blog", to: "https://blog.astropods.com", external: true },
 ];
 
 function Logo() {
