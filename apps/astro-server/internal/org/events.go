@@ -249,17 +249,19 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 	case "organization.updated":
 		acct, err := ec.accountStore.GetByWorkOSOrganizationID(data.ID)
 		if err != nil {
-			ec.log.Debug("Skipping org updated — no local account",
-				"workos_org_id", data.ID)
 			return nil
 		}
 		newName := slugifyOrgName(data.Name)
 		if acct.Name != newName {
+			// Skip if the new name is already taken — don't block the consumer
+			if _, err := ec.accountStore.GetByName(newName); err == nil {
+				ec.log.Warn("Skipping org rename — name already taken",
+					"account_id", acct.ID, "old_name", acct.Name, "new_name", newName, "workos_org_id", data.ID)
+				return nil
+			}
 			if err := ec.accountStore.Rename(acct.ID, newName); err != nil {
 				return fmt.Errorf("rename account for org update: %w", err)
 			}
-			ec.log.Info("Renamed account from org update",
-				"account_id", acct.ID, "old_name", acct.Name, "new_name", newName)
 		}
 
 	case "organization.deleted":
