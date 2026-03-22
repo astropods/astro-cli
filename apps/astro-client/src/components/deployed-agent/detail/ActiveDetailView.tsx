@@ -55,9 +55,9 @@ const I = {
 } as const;
 
 const DETAIL_LEFT_ALIGN_PX = 108;
-const DETAIL_RIGHT_PAD_PX = 108;
 const TOP_BAR_HEIGHT_PX = 63;
 const CONFIG_PANEL_WIDTH_PX = 420;
+const DETAIL_HORIZONTAL_PAD = `clamp(16px, 4vw, ${DETAIL_LEFT_ALIGN_PX}px)`;
 
 // ─── main component ───────────────────────────────────────────────────────────
 interface ActiveDetailViewProps {
@@ -147,7 +147,7 @@ export function ActiveDetailView({
         borderBottom: `1px solid ${C.border}`,
         position: 'sticky', top: 0, zIndex: 40,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 40px', height: TOP_BAR_HEIGHT_PX, flexShrink: 0,
+        padding: '0 clamp(12px, 3vw, 40px)', height: TOP_BAR_HEIGHT_PX, flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
@@ -300,7 +300,7 @@ export function ActiveDetailView({
           <div
             style={{
               display: 'flex',
-              padding: `0 ${DETAIL_RIGHT_PAD_PX}px 0 ${DETAIL_LEFT_ALIGN_PX}px`,
+              padding: `0 ${DETAIL_HORIZONTAL_PAD}`,
               background: C.bg,
               borderBottom: `1px solid ${C.border}`,
               flexShrink: 0,
@@ -366,7 +366,8 @@ export function ActiveDetailView({
             style={{
               flex: 1,
               overflowY: 'auto',
-              padding: `20px ${DETAIL_RIGHT_PAD_PX}px 20px ${DETAIL_LEFT_ALIGN_PX}px`,
+              overflowX: 'auto',
+              padding: `20px ${DETAIL_HORIZONTAL_PAD}`,
             }}
           >
             {tab === 'monitor' ? (

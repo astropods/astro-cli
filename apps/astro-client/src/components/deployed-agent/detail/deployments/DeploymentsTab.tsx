@@ -65,6 +65,8 @@ const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
   { value: "24h", label: "Last 24 hours" },
   { value: "7d", label: "Last 7 days" },
 ];
+const DEPLOYMENT_GRID_COLUMNS = "minmax(220px, 1fr) 88px 84px 116px 116px 28px";
+const DEPLOYMENT_GRID_MIN_WIDTH = 760;
 
 export interface ActiveContainerAccordionProps {
   workloadName: string;
@@ -333,7 +335,7 @@ export function ActiveContainerAccordion({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  maxWidth: 430,
+                  maxWidth: "min(430px, 55vw)",
                   border: `1px solid ${C.border}`,
                   borderRadius: 5,
                   padding: "2px 8px",
@@ -809,7 +811,7 @@ export function DeploymentsTab({
           <span style={{ fontFamily: S.body, fontSize: T.heading1, fontWeight: 600, color: C.text, flex: 1 }}>Deployments</span>
         </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
               {[
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
                 { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase() },
@@ -827,8 +829,9 @@ export function DeploymentsTab({
               ))}
             </div>
 
-            <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", minWidth: DEPLOYMENT_GRID_MIN_WIDTH }}>
+              <div style={{ display: "grid", gridTemplateColumns: DEPLOYMENT_GRID_COLUMNS, gap: 12, padding: "8px 14px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
                 {["Deployment", "Status", "Duration", "Build No.", "Deployed on", ""].map((h, i) => (
                   <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", whiteSpace: "nowrap" }}>
                     {h.toUpperCase()}
@@ -840,7 +843,7 @@ export function DeploymentsTab({
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px",
+                      gridTemplateColumns: DEPLOYMENT_GRID_COLUMNS,
                       gap: 12,
                       padding: "12px 14px",
                       alignItems: "center",
@@ -938,7 +941,7 @@ export function DeploymentsTab({
                         key={row.id}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "minmax(200px, 1fr) 88px 84px 116px 116px 28px",
+                          gridTemplateColumns: DEPLOYMENT_GRID_COLUMNS,
                           gap: 12,
                           padding: "11px 14px",
                           alignItems: "center",
@@ -1039,6 +1042,7 @@ export function DeploymentsTab({
                     ))}
                   </>
                 )}
+              </div>
               </div>
             </div>
           </div>

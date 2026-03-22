@@ -91,6 +91,8 @@ function formatLatencyMs(ms: number): string {
 
 const CHART_H = 130;
 const TRACES_PANEL_H = "clamp(320px, calc(100vh - 560px), 420px)";
+const TRACE_GRID_COLUMNS = "250px 1fr 80px 80px 80px 132px";
+const TRACE_GRID_MIN_WIDTH = 760;
 
 interface ChartTooltipProps {
   active?: boolean;
@@ -613,7 +615,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             trends={trends}
           />
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
             <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px" }}>
               <div style={{ marginBottom: 8 }}>
                 <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal }}>Request volume</span>
@@ -739,7 +741,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             </div>
           </div>
 
-          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column", height: TRACES_PANEL_H }}>
+          <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column", height: TRACES_PANEL_H }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.teal, flex: 1 }}>Traces</span>
               <MultiSelect
@@ -753,30 +755,32 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                 placeholder="All statuses"
               />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "250px 1fr 80px 80px 80px 132px", gap: 10, padding: "7px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
-              <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: "left" }}>CREATED AT</span>
-              <span />
-              {["STATUS", "LATENCY", "TOKENS", "EXTERNAL ID"].map((h) => (
-                <span
-                  key={h}
-                  style={{
-                    fontFamily: S.mono,
-                    fontSize: T.label,
-                    letterSpacing: "0.07em",
-                    color: C.faint,
-                    textAlign: "center",
-                  }}
-                >
-                  {h}
-                </span>
-              ))}
-            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowX: "auto" }}>
+              <div style={{ minWidth: TRACE_GRID_MIN_WIDTH, display: "flex", flexDirection: "column", height: "100%" }}>
+                <div style={{ display: "grid", gridTemplateColumns: TRACE_GRID_COLUMNS, gap: 10, padding: "7px 16px", borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
+                  <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: "left" }}>CREATED AT</span>
+                  <span />
+                  {["STATUS", "LATENCY", "TOKENS", "EXTERNAL ID"].map((h) => (
+                    <span
+                      key={h}
+                      style={{
+                        fontFamily: S.mono,
+                        fontSize: T.label,
+                        letterSpacing: "0.07em",
+                        color: C.faint,
+                        textAlign: "center",
+                      }}
+                    >
+                      {h}
+                    </span>
+                  ))}
+                </div>
             <div className="dp-scroll" style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingBottom: 12 }}>
               {tracesLoading && (
                 <div style={{ flex: 1, minHeight: 300, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   {Array.from({ length: 7 }).map((_, idx) => (
                     <div key={idx} style={{ borderBottom: idx < 6 ? `1px solid ${C.border}` : "none" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "250px 1fr 80px 80px 80px 132px", gap: 10, alignItems: "center", padding: "10px 16px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: TRACE_GRID_COLUMNS, gap: 10, alignItems: "center", padding: "10px 16px" }}>
                         <Ghost width="64%" height={12} />
                         <span />
                         <Ghost width="80%" height={16} radius={12} />
@@ -815,7 +819,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
                       onClick={() => toggleTrace(trace.id)}
-                      style={{ display: "grid", gridTemplateColumns: "250px 1fr 80px 80px 80px 132px", gap: 10, padding: "10px 16px", cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
+                      style={{ display: "grid", gridTemplateColumns: TRACE_GRID_COLUMNS, gap: 10, padding: "10px 16px", cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = C.bgDeep;
                       }}
@@ -899,6 +903,8 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   </div>
                 );
               })}
+            </div>
+              </div>
             </div>
           </div>
       </div>
