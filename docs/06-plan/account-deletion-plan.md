@@ -12,7 +12,19 @@ Soft-delete the account immediately (sets `deleted_at`), enqueue undeploy jobs f
 
 ## Changes
 
-### 1. `apps/astro-server/handlers/accounts.go` — Rewrite `DeleteAccount`
+### 1. `apps/astro-server/handlers/deploy.go` — Extract `EnqueueUndeploy` helper
+
+Extract the shared undeploy core (currently lines 571-580 in `UndeployAgent`) into a package-level helper:
+
+```go
+func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, deploymentID string) error
+```
+
+Sets status to `undeploying` via `deployStore.UpdateStatus`, then calls `queue.InsertUndeployJob`. Returns first error. The River `UndeployWorker` handles K8s namespace teardown, status transition to `undeployed`, and `ClearScaledDown` asynchronously (with 3 retries).
+
+Refactor `UndeployAgent` to call `EnqueueUndeploy` instead of inlining those two calls.
+
+### 2. `apps/astro-server/handlers/accounts.go` — Rewrite `DeleteAccount`
 
 Expand the function signature to accept the dependencies it needs:
 
@@ -30,12 +42,12 @@ func DeleteAccount(
 Handler body (in order):
 1. Get account from context (existing)
 2. `accountStore.MarkDeleted(acct.ID)` — point of no return. Return 500 on error. If already deleted, return 404.
-3. `deployStore.GetVisibleDeploymentsByAccount(acct.ID)` — for each deployment, call `deployStore.UpdateStatus(dep.ID, "undeploying", "", nil)` then `queue.InsertUndeployJob(ctx, dep.ID)`. Log failures but continue.
+3. `deployStore.GetVisibleDeploymentsByAccount(acct.ID)` — for each deployment, call `EnqueueUndeploy(ctx, deployStore, queue, dep.ID)`. Log failures but continue.
 4. If `acct.WorkOSOrganizationID != ""` and `orgClient != nil`, call `orgClient.DeleteOrganization(ctx, acct.WorkOSOrganizationID)`. Log-and-continue on failure.
 5. `db.ExecContext(ctx, "DELETE FROM agent_message_counts WHERE account_id = $1", acct.ID)`. Log-and-continue.
 6. Return 200 `{"message": "account deleted"}`.
 
-### 2. `apps/astro-server/main.go:619` — Update route wiring
+### 3. `apps/astro-server/main.go:619` — Update route wiring
 
 Change `handlers.DeleteAccount(log, accountStore)` to:
 ```go
@@ -44,14 +56,14 @@ handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, db)
 
 All variables already in scope in `setupRoutes`. Also remove the `501` response spec, keep `200` and add `500`.
 
-### 3. `apps/astro-server/internal/account/store.go` — Filter deleted accounts
+### 4. `apps/astro-server/internal/account/store.go` — Filter deleted accounts
 
 Add `AND a.deleted_at IS NULL` to three queries:
 - **`GetByName`** (line 109) — used by `ResolveAccount` middleware. Without this, deleted accounts remain accessible via API.
 - **`GetByID`** (line 126) — same concern.
 - **`GetAccountsForUser`** (line 174) — without this, deleted accounts still appear in the user's account list.
 
-### 4. No frontend changes needed
+### 5. No frontend changes needed
 
 The frontend already handles success (logout + navigate to "/") and error (shows message in dialog). Switching from 501 to 200 on success requires zero code changes.
 
@@ -79,6 +91,7 @@ The frontend already handles success (logout + navigate to "/") and error (shows
 
 ## Files to modify
 
-- `apps/astro-server/handlers/accounts.go` (rewrite DeleteAccount)
+- `apps/astro-server/handlers/deploy.go` (extract `EnqueueUndeploy` helper, refactor `UndeployAgent` to use it)
+- `apps/astro-server/handlers/accounts.go` (rewrite `DeleteAccount` to use `EnqueueUndeploy`)
 - `apps/astro-server/main.go` (update route wiring at line 619)
 - `apps/astro-server/internal/account/store.go` (add deleted_at filters to GetByName, GetByID, GetAccountsForUser)

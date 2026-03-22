@@ -616,12 +616,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.RenameAccountResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore),
+				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, db),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.MessageResponse{}),
-					oapispec.Response(501, &handlers.ErrorResponse{}),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
 				)
 				if avatarStore != nil {
 					api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore),

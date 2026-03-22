@@ -362,6 +362,18 @@ type DeployQueue interface {
 	InsertWakeUpJob(ctx context.Context, deploymentID string) error
 }
 
+// EnqueueUndeploy transitions a deployment to "undeploying" and inserts an
+// async undeploy job. Used by both UndeployAgent and DeleteAccount.
+func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, deploymentID string) error {
+	if err := deployStore.UpdateStatus(deploymentID, deploymentstore.StatusUndeploying, "", nil); err != nil {
+		return fmt.Errorf("update status: %w", err)
+	}
+	if err := queue.InsertUndeployJob(ctx, deploymentID); err != nil {
+		return fmt.Errorf("insert undeploy job: %w", err)
+	}
+	return nil
+}
+
 func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
@@ -572,12 +584,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 		)
 
 		// Set status to undeploying and enqueue async undeploy job
-		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUndeploying, "", nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
-			return
-		}
-
-		if err := queue.InsertUndeployJob(c.Request.Context(), dep.ID); err != nil {
+		if err := EnqueueUndeploy(c.Request.Context(), deployStore, queue, dep.ID); err != nil {
 			log.Error("Failed to enqueue undeploy job", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
 			return

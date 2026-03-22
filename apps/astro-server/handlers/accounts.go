@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
@@ -265,10 +267,9 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 }
 
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
-// TODO: Not fully implemented. This stub returns success but does not actually
-// delete the account, its agents, deployments, API keys, or any other data.
-// Full implementation needs to tear down all resources before removing the account record.
-func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+// Soft-deletes the account, enqueues undeploy jobs for active deployments,
+// cleans up WorkOS org and agent message counts best-effort.
+func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -276,11 +277,46 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 			return
 		}
 
-		log.Warn("DeleteAccount called but not fully implemented", "account_id", acct.ID, "account_name", acct.Name)
+		ctx := c.Request.Context()
 
-		c.JSON(http.StatusNotImplemented, gin.H{
-			"error": "account deletion is not yet implemented",
-		})
+		// Soft-delete — point of no return
+		if err := accountStore.MarkDeleted(acct.ID); err != nil {
+			if strings.Contains(err.Error(), "not found or already deleted") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+				return
+			}
+			log.Error("Failed to mark account deleted", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+
+		// Enqueue undeploy for all visible deployments (reuses existing undeploy pipeline)
+		deps, err := deployStore.GetVisibleDeploymentsByAccount(acct.ID)
+		if err != nil {
+			log.Error("Failed to list deployments for deleted account", "error", err, "account_id", acct.ID)
+		} else {
+			for _, dep := range deps {
+				if err := EnqueueUndeploy(ctx, deployStore, queue, dep.ID); err != nil {
+					log.Error("Failed to enqueue undeploy for deleted account", "error", err, "deployment_id", dep.ID, "account_id", acct.ID)
+				}
+			}
+		}
+
+		// Clean up WorkOS organization (best-effort)
+		if acct.WorkOSOrganizationID != "" && orgClient != nil {
+			if err := orgClient.DeleteOrganization(ctx, acct.WorkOSOrganizationID); err != nil {
+				log.Error("Failed to delete WorkOS organization", "error", err, "workos_org_id", acct.WorkOSOrganizationID, "account_id", acct.ID)
+			}
+		}
+
+		// Clean up agent message counts (best-effort)
+		if _, err := db.ExecContext(ctx, "DELETE FROM agent_message_counts WHERE account_id = $1", acct.ID); err != nil {
+			log.Error("Failed to delete agent message counts", "error", err, "account_id", acct.ID)
+		}
+
+		log.Info("Account deleted", "account_id", acct.ID, "account_name", acct.Name)
+
+		c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
 	}
 }
 

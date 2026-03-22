@@ -106,7 +106,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
-		WHERE a.name = $1
+		WHERE a.name = $1 AND a.deleted_at IS NULL
 	`, name))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("account not found: %s", name)
@@ -123,7 +123,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.avatar_version
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
-		WHERE a.id = $1
+		WHERE a.id = $1 AND a.deleted_at IS NULL
 	`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("account not found: %s", id)
@@ -171,7 +171,7 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
-		WHERE am.user_id = $1
+		WHERE am.user_id = $1 AND a.deleted_at IS NULL
 		ORDER BY a.name
 	`, userID)
 	if err != nil {
