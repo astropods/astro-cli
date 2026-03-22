@@ -807,7 +807,7 @@ export function DeploymentsTab({
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—" },
                 { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase() },
                 { label: "DEPLOYED", value: deployment.created_at ? new Date(deployment.created_at).toLocaleString() : "—" },
-                { label: "PODS", value: String(totalPodCount) },
+                { label: "SERVICES", value: String(totalPodCount) },
               ].map((item) => (
                 <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
                   <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
@@ -871,16 +871,16 @@ export function DeploymentsTab({
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
                     <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, margin: "6px 0 10px" }}>
-                      Pods
+                      Services
                     </div>
                     {podRows.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
                         {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                         {currentRow.status === "deploying"
-                          ? "Waiting for pods to start and logs to stream…"
+                          ? "Waiting for services to start and logs to stream…"
                           : currentRow.status === "undeploying"
-                            ? "Tearing down pods and streaming final logs…"
-                            : "No pod data available"}
+                            ? "Tearing down services and streaming final logs…"
+                            : "No service data available"}
                       </p>
                     ) : (
                       podRows.map((pod) => (
