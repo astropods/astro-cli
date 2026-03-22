@@ -24,9 +24,9 @@ var (
 
 func fullVersion() string {
 	if commit != "" {
-		return binaryName + "/" + version + " (" + commit + ")"
+		return binaryName + "/" + version + " (" + commit + ") BETA"
 	}
-	return binaryName + "/" + version
+	return binaryName + "/" + version + " BETA"
 }
 
 var rootCmd = &cobra.Command{
