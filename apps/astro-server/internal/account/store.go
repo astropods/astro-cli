@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// ErrAlreadyDeleted is returned when MarkDeleted targets an account that is
+// already soft-deleted (or does not exist).
+var ErrAlreadyDeleted = errors.New("account not found or already deleted")
+
 // AccountStore manages account persistence in PostgreSQL
 type AccountStore struct {
 	db *sql.DB
@@ -547,7 +551,7 @@ func (s *AccountStore) MarkDeleted(accountID string) error {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("account not found or already deleted: %s", accountID)
+		return ErrAlreadyDeleted
 	}
 	return nil
 }

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -77,7 +78,7 @@ func TestMarkDeleted_FiltersByDeletedAt(t *testing.T) {
 }
 
 // TestMarkDeleted_AlreadyDeleted verifies that calling MarkDeleted on an
-// already-deleted account returns an error.
+// already-deleted account returns ErrAlreadyDeleted.
 func TestMarkDeleted_AlreadyDeleted(t *testing.T) {
 	db := testDB(t)
 	accountStore := account.NewAccountStore(db)
@@ -89,9 +90,9 @@ func TestMarkDeleted_AlreadyDeleted(t *testing.T) {
 		t.Fatalf("first MarkDeleted: %v", err)
 	}
 
-	// Second call should fail
-	if err := accountStore.MarkDeleted(acct.ID); err == nil {
-		t.Error("second MarkDeleted should return error for already-deleted account")
+	// Second call should return ErrAlreadyDeleted
+	if err := accountStore.MarkDeleted(acct.ID); !errors.Is(err, account.ErrAlreadyDeleted) {
+		t.Errorf("second MarkDeleted: expected ErrAlreadyDeleted, got: %v", err)
 	}
 }
 

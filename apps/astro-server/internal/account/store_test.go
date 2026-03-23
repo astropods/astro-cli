@@ -1,6 +1,7 @@
 package account
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -548,8 +549,8 @@ func TestMarkDeleted_AlreadyDeleted(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err := store.MarkDeleted("acct-1")
-	if err == nil {
-		t.Fatal("expected error for already deleted account")
+	if !errors.Is(err, ErrAlreadyDeleted) {
+		t.Fatalf("expected ErrAlreadyDeleted, got: %v", err)
 	}
 }
 

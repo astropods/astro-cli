@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -282,11 +283,10 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 		ctx := c.Request.Context()
 
 		// Soft-delete — point of no return
-		if err := accountStore.MarkDeleted(acct.ID); err != nil {
-			if strings.Contains(err.Error(), "not found or already deleted") {
-				c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-				return
-			}
+		if err := accountStore.MarkDeleted(acct.ID); errors.Is(err, account.ErrAlreadyDeleted) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		} else if err != nil {
 			log.Error("Failed to mark account deleted", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 			return
