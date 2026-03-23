@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -43,12 +44,7 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc, features ...string) gin.Han
 		}
 
 		if blocked, feature, ent := e.check(c.Request.Context(), acct.ID, features); blocked {
-			c.JSON(http.StatusPaymentRequired, gin.H{
-				"error":   "entitlement limit reached",
-				"feature": feature,
-				"usage":   ent.Usage,
-				"limit":   ent.TotalAvailableGrantAmount,
-			})
+			c.JSON(http.StatusPaymentRequired, LimitResponse(feature, ent))
 			return
 		}
 
@@ -90,4 +86,48 @@ func (e *Entitlements) check(ctx context.Context, accountID string, features []s
 		}
 	}
 	return false, "", nil
+}
+
+// featureInfo maps feature keys to human-readable descriptions used in error messages.
+var featureInfo = map[string]struct {
+	name string
+	desc string
+}{
+	"compute":           {name: "Compute", desc: "Your account has consumed its allocated compute-unit-hours for this billing period."},
+	"agents":            {name: "Agents", desc: "Your account has reached the maximum number of registered agents."},
+	"agent_builds":      {name: "Agent Builds", desc: "Your account has reached the maximum number of agent builds for this billing period."},
+	"agent_deployments": {name: "Deployments", desc: "Your account has reached the maximum number of active deployments."},
+	"members":           {name: "Members", desc: "Your account has reached the maximum number of team members."},
+}
+
+// LimitResponse builds the JSON response body returned when an entitlement
+// limit is reached. It includes actionable detail so the client can display
+// a meaningful upgrade prompt.
+func LimitResponse(feature string, ent *openmeter.EntitlementValue) gin.H {
+	info, ok := featureInfo[feature]
+	if !ok {
+		info.name = feature
+		info.desc = "Your account has reached its usage limit for this feature."
+	}
+
+	var usage, limit float64
+	if ent != nil && ent.Usage != nil {
+		usage = *ent.Usage
+	}
+	if ent != nil && ent.TotalAvailableGrantAmount != nil {
+		limit = *ent.TotalAvailableGrantAmount
+	}
+
+	return gin.H{
+		"error":   fmt.Sprintf("%s limit reached: %s To continue, request a quota increase from Settings > Usage.", info.name, info.desc),
+		"code":    "ENTITLEMENT_LIMIT_REACHED",
+		"feature": feature,
+		"usage":   usage,
+		"limit":   limit,
+		"details": gin.H{
+			"feature_name": info.name,
+			"description":  info.desc,
+			"action":       "Request a quota increase from Settings > Usage.",
+		},
+	}
 }

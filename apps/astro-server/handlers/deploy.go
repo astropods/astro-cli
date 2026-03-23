@@ -394,12 +394,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		// Check entitlements for deploy (account resolved from spec, not middleware)
 		if entCheck != nil {
 			if blocked, feature, entResult := entCheck.Check(c.Request.Context(), dctx.acct.ID, "agent_deployments", "compute"); blocked {
-				c.JSON(http.StatusPaymentRequired, gin.H{
-					"error":   "entitlement limit reached",
-					"feature": feature,
-					"usage":   entResult.Usage,
-					"limit":   entResult.TotalAvailableGrantAmount,
-				})
+				c.JSON(http.StatusPaymentRequired, middleware.LimitResponse(feature, entResult))
 				return
 			}
 		}
