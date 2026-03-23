@@ -10,4 +10,4 @@ langchain-openai>=0.3.0
 {{- if and (not (.HasIntegration "anthropic")) (not (.HasIntegration "openai"))}}
 langchain-anthropic>=0.3.0
 {{- end}}
-astropods-adapter-langchain>=0.1.0
+astropods-adapter-langchain>=0.1.1

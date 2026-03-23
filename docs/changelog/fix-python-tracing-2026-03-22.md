@@ -2,16 +2,22 @@
 
 ## Summary
 
-Python agents using `opentelemetry-instrumentation-langchain` showed "Trace did not complete — no output recorded" in the monitor UI. The trace `output` field was always null in Langfuse despite the agent responding correctly.
+Python LangChain/LangGraph agents showed "Trace did not complete — no output recorded" in Langfuse despite the agent responding correctly. Two root causes: the scaffold template pinned `astropods-adapter-langchain` to `0.1.0` which had no observability code, and the collector processor did not map LangGraph span attributes to Langfuse-recognized names.
 
 ## Design
 
-The collector's astro processor only mapped Mastra-specific attributes (`mastra.*.input/output` → `langfuse.observation.input/output`) to Langfuse-recognized names. Python LangChain agents emit `traceloop.entity.input`/`traceloop.entity.output` (from the Traceloop/OpenLLMetry instrumentation library) which the processor ignored entirely.
+**Adapter version (`astropods-adapter-langchain`):**
 
-The fix adds `mapLangchainAttributes()` to the processor, which maps `traceloop.entity.input/output` → `langfuse.observation.input/output` when those destinations are not already set. This runs before the existing `mapMastraTraceIO()` call, which then promotes `langfuse.observation.output` → `langfuse.trace.output` on root spans — the attribute Langfuse reads to populate the trace-level `output` field returned by `GET /api/public/traces`.
+`0.1.1` adds `setup_observability()` which installs `LangchainInstrumentor`. The scaffold template is bumped to `>=0.1.1` so new agents get observability without manual setup.
 
-The no-overwrite behavior is consistent with the existing Mastra mapping: if `langfuse.observation.output` is already set (e.g. by a future instrumentation library that sets it directly), the traceloop mapping is skipped.
+**Collector processor:**
+
+The astro processor only handled Mastra-specific attributes. Python LangChain/LangGraph agents emit `traceloop.entity.input`/`traceloop.entity.output` (Traceloop/OpenLLMetry) which the processor ignored.
+
+`mapLangchainAttributes()` is added to map `traceloop.entity.input/output` → `langfuse.observation.input/output` per span. LangGraph's span structure places entity IO on a workflow child span (`traceloop.span.kind=workflow`) rather than the root span, so `mapMastraTraceIO()` — which promotes `langfuse.observation.*` → `langfuse.trace.*` — is now also called on workflow-kind spans in addition to root spans. This ensures `langfuse.trace.input/output` is set where Langfuse reads it for the trace-level output field.
 
 ## Migration
 
-No changes required for deployed agents. Rebuild and redeploy the collector image (`moon run deployment:collector`) to pick up the fix.
+- Existing Python LangChain agents need to be rebuilt with `astropods-adapter-langchain>=0.1.1`. Run `astro build` and redeploy.
+- Rebuild and redeploy the collector image (`moon run deployment:collector`) to pick up the processor fix.
+- No changes required for TypeScript/Mastra agents.

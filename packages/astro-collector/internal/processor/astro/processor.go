@@ -107,7 +107,14 @@ func (p *astroProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) er
 				mapLangchainAttributes(attrs)
 				mapMastraUserSession(attrs)
 				isRoot := span.ParentSpanID().IsEmpty()
-				if isRoot {
+				// LangGraph places entity IO on a workflow child span rather than
+				// the root, so mapMastraTraceIO must also run on workflow-kind spans
+				// to promote langfuse.observation.* → langfuse.trace.* there.
+				isWorkflow := false
+				if v, ok := attrs.Get("traceloop.span.kind"); ok {
+					isWorkflow = v.Str() == "workflow"
+				}
+				if isRoot || isWorkflow {
 					mapMastraTraceIO(attrs)
 				}
 			}

@@ -699,6 +699,55 @@ func TestMapLangchainAttributes_RootSpan(t *testing.T) {
 	}
 }
 
+// TestMapLangchainAttributes_WorkflowSpan verifies that the LangGraph workflow
+// child span (traceloop.span.kind=workflow) gets langfuse.trace.* promoted from
+// its langfuse.observation.* attributes, since LangGraph places entity IO on the
+// workflow child rather than the root span.
+func TestMapLangchainAttributes_WorkflowSpan(t *testing.T) {
+	cfg := &Config{AgentName: "agent", AgentVersion: "v1", DeploymentID: "dep-1"}
+	capture := &captureTraces{}
+	p := newTestProcessor(cfg, capture)
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	ss := rs.ScopeSpans().AppendEmpty()
+
+	// Root span — no traceloop.entity.* attributes (LangGraph pattern)
+	root := ss.Spans().AppendEmpty()
+	root.SetName("invoke_agent LangGraph")
+	root.SetTraceID(pcommon.TraceID([16]byte{1}))
+	root.SetSpanID(pcommon.SpanID([8]byte{1}))
+
+	// Workflow child span — carries entity IO
+	child := ss.Spans().AppendEmpty()
+	child.SetName("LangGraph.workflow")
+	child.SetTraceID(pcommon.TraceID([16]byte{1}))
+	child.SetSpanID(pcommon.SpanID([8]byte{2}))
+	child.SetParentSpanID(pcommon.SpanID([8]byte{1}))
+	child.Attributes().PutStr("traceloop.span.kind", "workflow")
+	child.Attributes().PutStr("traceloop.entity.input", `{"input":"hello"}`)
+	child.Attributes().PutStr("traceloop.entity.output", `{"output":"world"}`)
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces failed: %v", err)
+	}
+
+	childAttrs := capture.last.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(1).Attributes()
+
+	if v, ok := childAttrs.Get("langfuse.observation.input"); !ok || v.Str() != `{"input":"hello"}` {
+		t.Errorf("langfuse.observation.input: expected %q, got %q", `{"input":"hello"}`, v.Str())
+	}
+	if v, ok := childAttrs.Get("langfuse.observation.output"); !ok || v.Str() != `{"output":"world"}` {
+		t.Errorf("langfuse.observation.output: expected %q, got %q", `{"output":"world"}`, v.Str())
+	}
+	if v, ok := childAttrs.Get("langfuse.trace.input"); !ok || v.Str() != `{"input":"hello"}` {
+		t.Errorf("langfuse.trace.input: expected %q, got %q", `{"input":"hello"}`, v.Str())
+	}
+	if v, ok := childAttrs.Get("langfuse.trace.output"); !ok || v.Str() != `{"output":"world"}` {
+		t.Errorf("langfuse.trace.output: expected %q, got %q", `{"output":"world"}`, v.Str())
+	}
+}
+
 func TestMapLangchainAttributes_NoOverwrite(t *testing.T) {
 	cfg := &Config{AgentName: "agent", AgentVersion: "v1", DeploymentID: "dep-1"}
 	capture := &captureTraces{}
