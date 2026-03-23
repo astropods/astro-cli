@@ -324,7 +324,7 @@ export function ActiveDetailView({
           )}
           <Button
             variant="outline"
-            size="sm"
+            size="default"
             onClick={() => setConfigOpen(o => !o)}
             data-active={configOpen || undefined}
           >

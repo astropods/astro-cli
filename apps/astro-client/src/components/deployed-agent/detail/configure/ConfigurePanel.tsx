@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Settings2, X, Loader2, Rocket, Play, Check } from "lucide-react";
+import { X, Loader2, Rocket, Play, Check } from "lucide-react";
+import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { usePrefilledDeploymentTemplate } from "@/api/queries/agents";
 import { useTriggerIngestion } from "@/api/queries/deployments";
@@ -76,7 +77,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   return (
     <div className={shellClass}>
       <div className={PANEL_HEADER_CLASS}>
-        <Settings2 className="size-3.5 text-primary shrink-0" />
+        <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
           <X className="size-4" />
@@ -193,7 +194,7 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, 
   const shell = (children: React.ReactNode) => (
     <div className={shellClass}>
       <div className={PANEL_HEADER_CLASS}>
-        <Settings2 className="size-3.5 text-primary shrink-0" />
+        <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
           <X className="size-4" />
