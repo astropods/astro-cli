@@ -203,9 +203,9 @@ export function AppHeader() {
         {isAuthenticated && (
           <>
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="gap-1.5 mr-1 text-[13px] font-normal text-muted-foreground"
+              className="gap-1.5 mr-2 text-[13px] font-normal"
               onClick={() => setFeedbackOpen(true)}
             >
               <ChatBubbleLeftEllipsisIcon className="size-4" />
