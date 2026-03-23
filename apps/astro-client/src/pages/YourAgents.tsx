@@ -60,8 +60,8 @@ function YourAgentsContent() {
       {filtered.length === 0 ? (
         <EmptyState
           title="No agents yet"
-          description="Browse available agents and add one to get started."
-          actionLabel="Browse agents"
+          description="Browse available agent blueprints and deploy one to get started."
+          actionLabel="Browse blueprints"
           actionTo="/blueprints"
         />
       ) : (
