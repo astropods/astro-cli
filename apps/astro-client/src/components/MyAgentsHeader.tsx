@@ -26,7 +26,7 @@ export function MyAgentsHeader({
       <div className="flex items-center gap-4">
         <h2 className="text-heading-1">My Agents</h2>
         <FilterInput
-          placeholder="Filter agents…"
+          placeholder="Filter agents..."
           className="w-[248px]"
           value={filter}
           onChange={(e) => onFilterChange(e.target.value)}
