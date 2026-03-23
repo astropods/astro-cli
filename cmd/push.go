@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -467,8 +468,27 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Final summary
-	fmt.Printf("\n%s%s✓ Pushed successfully!%s\n", colorBold, colorGreen, colorReset)
-	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, agentName, colorReset, colorDim, pushTag, colorReset)
+	agentURL := fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(effectiveServerURL, "/"), namespace, agentName)
+
+	bold := lipgloss.NewStyle().Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	link := lipgloss.NewStyle().Foreground(theme.Primary).Underline(true)
+
+	var lines []string
+	lines = append(lines, bold.Render("✓ Pushed successfully!"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+bold.Render(agentName)+"  "+dim.Render("tag "+pushTag))
+	lines = append(lines, "  "+dim.Render("View online → ")+link.Render(agentURL))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(theme.Primary).
+		Padding(0, 2).
+		Render(strings.Join(lines, "\n"))
+
+	fmt.Println()
+	fmt.Println(box)
+	fmt.Println()
 
 	return nil
 }

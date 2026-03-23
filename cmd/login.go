@@ -218,6 +218,24 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		if profile.User.AccountName != "" {
 			fmt.Printf("  Account: %s\n", profile.User.AccountName)
 		}
+
+		// List organizations the user belongs to
+		var orgs []auth.StoredAccount
+		for _, acct := range profile.Accounts {
+			if acct.Type == "organization" {
+				orgs = append(orgs, acct)
+			}
+		}
+		if len(orgs) > 0 {
+			fmt.Printf("  Organizations: ")
+			for i, org := range orgs {
+				if i > 0 {
+					fmt.Print(", ")
+				}
+				fmt.Print(org.Name)
+			}
+			fmt.Println()
+		}
 	}
 
 	return nil
