@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircleIcon } from "@heroicons/react/24/outline";
+import { CheckCircleIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import {
   Dialog,
   DialogContent,
@@ -28,8 +28,10 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
     if (!next) {
-      setMessage("");
-      setSubmitted(false);
+      setTimeout(() => {
+        setMessage("");
+        setSubmitted(false);
+      }, 200);
     }
   }
 
@@ -72,6 +74,19 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
                 <Button type="submit" disabled={!message.trim()}>
                   Send feedback
                 </Button>
+              </div>
+              <div className="border-t border-border pt-3 text-center">
+                <a
+                  href="https://calendar.app.google/dVgPXDXMuuZfwhk18"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    Interested in chatting? Book time
+                    <ArrowRightIcon className="size-3" />
+                  </span>
+                </a>
               </div>
             </form>
           </>
