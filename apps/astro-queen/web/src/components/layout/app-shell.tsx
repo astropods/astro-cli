@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
+  Activity,
   Users,
   Bot,
 
@@ -42,6 +43,7 @@ const sections = [
     label: "OpenMeter",
     homeTo: "/openmeter",
     links: [
+      { to: "/openmeter/dashboard", label: "Dashboard", icon: Activity },
       { to: "/openmeter/meters", label: "Meters", icon: Gauge },
       { to: "/openmeter/features", label: "Features", icon: Star },
       { to: "/openmeter/customers", label: "Customers", icon: UserCircle },

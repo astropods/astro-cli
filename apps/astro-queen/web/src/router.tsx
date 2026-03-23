@@ -15,6 +15,7 @@ import { CustomerDetailPage } from "@/pages/customer-detail";
 import { EventsPage } from "@/pages/events";
 import { PlansPage } from "@/pages/plans";
 import { OpenMeterHomePage } from "@/pages/openmeter-home";
+import { OpenMeterDashboardPage } from "@/pages/openmeter-dashboard";
 import { RiverUIPage } from "@/pages/river-ui";
 import { QuotaRequestsPage } from "@/pages/quota-requests";
 
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: "admin/api-client", element: <ApiClientPage /> },
       { path: "admin/river-ui", element: <RiverUIPage /> },
       { path: "admin/quota-requests", element: <QuotaRequestsPage /> },
+      { path: "openmeter/dashboard", element: <OpenMeterDashboardPage /> },
       { path: "openmeter/meters", element: <MetersPage /> },
       { path: "openmeter/features", element: <FeaturesPage /> },
       { path: "openmeter/customers", element: <CustomersPage /> },
