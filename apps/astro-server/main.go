@@ -423,6 +423,12 @@ func runWorker(
 		log.Info("Prometheus query client initialized", "url", cfg.PrometheusURL)
 	}
 
+	// Initialize WorkOS client for background jobs (user lookups)
+	var workosClient *auth.WorkOSClient
+	if cfg.Auth.WorkOSAPIKey != "" {
+		workosClient = auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
+	}
+
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:           db,
@@ -432,6 +438,7 @@ func runWorker(
 		K8sClient:    k8sClient,
 		ServerConfig: cfg,
 		WorkOSAPIKey: cfg.Auth.WorkOSAPIKey,
+		WorkOSClient: workosClient,
 		OrgClient:    orgClient,
 		PromClient:   promClient,
 		Logger:       log,

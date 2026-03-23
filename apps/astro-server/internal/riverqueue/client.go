@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -36,6 +37,7 @@ type Config struct {
 	OrgClient            *org.Client
 	PromClient           *promquery.Client
 	Logger               *logger.Logger
+	WorkOSClient         *auth.WorkOSClient
 	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
 }
 

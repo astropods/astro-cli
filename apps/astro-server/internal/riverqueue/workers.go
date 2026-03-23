@@ -86,6 +86,19 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 	})
 	log.Info("river: registered worker", "worker", "AvatarBackfillWorker", "period", "24h")
 
+	var omDefaultPlan string
+	if cfg.ServerConfig != nil {
+		omDefaultPlan = cfg.ServerConfig.OpenMeterDefaultPlan
+	}
+	river.AddWorker(workers, &OpenMeterBackfillWorker{
+		omClient:     cfg.OMClient,
+		accountStore: cfg.AccountStore,
+		workosClient: cfg.WorkOSClient,
+		defaultPlan:  omDefaultPlan,
+		log:          log,
+	})
+	log.Info("river: registered worker", "worker", "OpenMeterBackfillWorker", "period", "24h")
+
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{
 		db:            cfg.DB,
