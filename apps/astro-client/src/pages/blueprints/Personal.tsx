@@ -24,7 +24,7 @@ export default function Personal({ loaderData }: Route.ComponentProps) {
 
   return (
     <>
-      <h1 className="text-heading-1 text-foreground">Personal</h1>
+      <h1 className="text-heading-1 text-foreground">Personal blueprints</h1>
       <AccountAgentsList
         account={accountName}
         initialData={loaderData?.agentsData ?? undefined}

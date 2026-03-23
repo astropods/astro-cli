@@ -23,7 +23,7 @@ export default function Discover({ loaderData }: Route.ComponentProps) {
 
   return (
     <>
-      <h1 className="text-heading-1 text-foreground">Discover</h1>
+      <h1 className="text-heading-1 text-foreground">Discover blueprints</h1>
       <AgentListView
         agents={data?.agents ?? []}
         isLoading={isLoading}

@@ -21,7 +21,7 @@ export default function AccountBlueprints({ loaderData }: Route.ComponentProps) 
 
   return (
     <>
-      <h1 className="text-heading-1 text-foreground">{account}</h1>
+      <h1 className="text-heading-1 text-foreground">{account} blueprints</h1>
       <AccountAgentsList
         account={account}
         initialData={loaderData?.agentsData ?? undefined}
