@@ -29,6 +29,9 @@ const C = {
   amber: "var(--color-amber-700)",
   amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
   amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
+  warning: "var(--color-yellow-500)",
+  warningBg: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
+  warningBdr: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
   coral: "var(--color-coral-600)",
   coralBg: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
   coralBdr: "color-mix(in oklch, var(--color-coral-600) 28%, transparent)",
@@ -237,7 +240,7 @@ export function ActiveDetailView({
                 : ds === 'undeploying'
                   ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Undeploying', spinning: true }
                 : ds === 'pending'
-                  ? { bg: C.amberBg, bdr: C.amberBdr, dot: C.amber, label: 'Deploying', spinning: true }
+                  ? { bg: C.warningBg, bdr: C.warningBdr, dot: C.warning, label: 'Deploying', spinning: true }
                   : ds === 'inactive'
                   ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive', spinning: false }
                     : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'LIVE', spinning: false }

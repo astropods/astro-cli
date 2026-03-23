@@ -29,6 +29,7 @@ const C = {
   amber: "var(--color-amber-700)",
   amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
   amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
+  warning: "var(--color-yellow-500)",
   coral: "var(--color-coral-600)",
   coralBg: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
   coralBdr: "color-mix(in oklch, var(--color-coral-600) 28%, transparent)",
@@ -307,7 +308,14 @@ export function ActiveContainerAccordion({
       >
         <ChevronRight size={I.md} color={C.faint} style={{ flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }} />
         {deploymentStatus === "deploying" || deploymentStatus === "undeploying" ? (
-          <Loader2 size={16} style={{ color: C.amber, animation: "dp-spin 1.2s linear infinite", flexShrink: 0 }} />
+          <Loader2
+            size={16}
+            style={{
+              color: deploymentStatus === "deploying" ? C.warning : C.faint,
+              animation: "dp-spin 1.2s linear infinite",
+              flexShrink: 0,
+            }}
+          />
         ) : allReady ? (
           <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
             <circle cx="12" cy="12" r="10" fill="rgba(21,130,125,0.12)" />
@@ -359,7 +367,7 @@ export function ActiveContainerAccordion({
                 >
                   {playgroundCommand}
                 </span>
-                {hasPublicUrl ? (copiedPlaygroundCommand ? <Check size={I.xs} /> : <Copy size={I.xs} />) : null}
+                {hasPublicUrl ? (copiedPlaygroundCommand ? <Check size={I.sm} /> : <Copy size={I.sm} />) : null}
               </button>
             </div>
           </div>
@@ -374,7 +382,13 @@ export function ActiveContainerAccordion({
             width: isCompact ? "100%" : "auto",
           }}
         >
-          {readyText} ready · {uptime}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            {readyText}
+            {allReady ? <Check size={I.xs} style={{ color: C.success }} /> : null}
+            <span>ready</span>
+          </span>
+          {" · "}
+          {uptime}
         </span>
       </button>
 
@@ -502,8 +516,28 @@ export function ActiveContainerAccordion({
             <div>
               <div style={{ display: "flex", alignItems: "center", flexWrap: isCompact ? "wrap" : "nowrap", gap: 6, padding: "8px 14px", background: C.bgAlt, borderBottom: `1px solid ${C.border}` }}>
                 {[
-                  { key: "errors" as const, label: `Errors (${errCount})`, accent: "#dc2626", activeBg: "#fef2f2", activeBdr: "#fca5a5" },
-                  { key: "warnings" as const, label: `Warnings (${warnCount})`, accent: "#d97706", activeBg: "#fffbeb", activeBdr: "#fcd34d" },
+                  {
+                    key: "errors" as const,
+                    label: "Errors",
+                    count: errCount,
+                    accent: "var(--color-red-700)",
+                    tagBg: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
+                    chipBg: "color-mix(in oklch, var(--color-red-700) 5%, transparent)",
+                    chipBdr: "color-mix(in oklch, var(--color-red-700) 24%, transparent)",
+                    activeBg: "color-mix(in oklch, var(--color-red-700) 10%, transparent)",
+                    activeBdr: "color-mix(in oklch, var(--color-red-700) 28%, transparent)",
+                  },
+                  {
+                    key: "warnings" as const,
+                    label: "Warnings",
+                    count: warnCount,
+                    accent: "var(--color-yellow-700)",
+                    tagBg: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
+                    chipBg: "color-mix(in oklch, var(--color-yellow-700) 5%, transparent)",
+                    chipBdr: "color-mix(in oklch, var(--color-yellow-700) 24%, transparent)",
+                    activeBg: "color-mix(in oklch, var(--color-yellow-700) 10%, transparent)",
+                    activeBdr: "color-mix(in oklch, var(--color-yellow-700) 28%, transparent)",
+                  },
                 ].map((f) => {
                   const active = activeFilters.has(f.key);
                   return (
@@ -516,19 +550,37 @@ export function ActiveContainerAccordion({
                         gap: 5,
                         padding: "4px 8px",
                         borderRadius: 6,
-                        border: `1px solid ${active ? f.activeBdr : C.border}`,
+                        border: `1px solid ${active ? f.activeBdr : f.chipBdr}`,
                         cursor: "pointer",
                         fontFamily: S.body,
                         fontSize: T.bodySm,
                         transition: "all 0.12s",
-                        background: active ? f.activeBg : "transparent",
-                        color: active ? f.accent : C.muted,
+                        background: active ? f.activeBg : f.chipBg,
+                        color: f.accent,
                         fontWeight: active ? 500 : 400,
                         whiteSpace: "nowrap" as const,
                       }}
                     >
-                      {f.label}
-                      {active && <X size={I.xs} style={{ marginLeft: 2, flexShrink: 0 }} />}
+                      <span>{f.label}</span>
+                      <span
+                        style={{
+                          minWidth: 18,
+                          height: 18,
+                          borderRadius: 999,
+                          padding: "0 6px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontFamily: S.mono,
+                          fontSize: T.monoSm,
+                          lineHeight: 1,
+                          color: f.accent,
+                          background: f.tagBg,
+                        }}
+                      >
+                        {f.count}
+                      </span>
+                      {active && <X size={I.xs} style={{ marginLeft: 1, flexShrink: 0 }} />}
                     </button>
                   );
                 })}
@@ -548,11 +600,11 @@ export function ActiveContainerAccordion({
                     ))}
                   </SelectContent>
                 </Select>
-                <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, height: 32, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
                   <Search size={I.sm} color={C.faint} />
                   <input
                     type="text"
-                    placeholder="Find in logs"
+                    placeholder="Search Logs"
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
                     style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: isCompact ? 92 : 120, caretColor: C.tealMid }}
@@ -568,10 +620,14 @@ export function ActiveContainerAccordion({
                     background: "none",
                     border: `1px solid ${C.border}`,
                     cursor: "pointer",
-                    padding: "4px 6px",
+                    width: 32,
+                    height: 32,
+                    padding: 0,
                     borderRadius: 5,
                     color: C.faint,
                     display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     opacity: 1,
                   }}
                 >
@@ -583,7 +639,19 @@ export function ActiveContainerAccordion({
                   onClick={() => {
                     void handleCopyLogs();
                   }}
-                  style={{ background: "none", border: `1px solid ${C.border}`, cursor: "pointer", padding: "4px 6px", borderRadius: 5, color: C.faint, display: "flex" }}
+                  style={{
+                    background: "none",
+                    border: `1px solid ${C.border}`,
+                    cursor: "pointer",
+                    width: 32,
+                    height: 32,
+                    padding: 0,
+                    borderRadius: 5,
+                    color: C.faint,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
                 >
                   {copiedLogs ? <Check size={I.sm} color={C.tealMid} /> : <Copy size={I.sm} />}
                 </button>
@@ -689,7 +757,7 @@ function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDep
 function statusColor(status: DeployHistoryStatus): string {
   if (status === "failed") return C.coral;
   if (status === "undeployed") return C.stone;
-  if (status === "deploying") return C.amber;
+  if (status === "deploying") return C.warning;
   if (status === "undeploying") return C.faint;
   if (status === "active") return C.success;
   return C.faint;
@@ -849,16 +917,22 @@ export function DeploymentsTab({
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
               {[
-                { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—", wrap: false },
-                { label: "DEPLOYMENT STATUS", value: String(deployment.status || "unknown").toUpperCase(), wrap: false },
+                { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—", wrap: false, valueColor: C.text },
+                {
+                  label: "DEPLOYMENT STATUS",
+                  value: String(deployment.status || "unknown").toUpperCase(),
+                  wrap: false,
+                  valueColor: C.text,
+                },
                 {
                   label: "DEPLOYED ON",
                   value: deployment.created_at
                     ? `${formatDate(deployment.created_at)},${isCompact ? "\n" : " "}${new Date(deployment.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
                     : "—",
                   wrap: true,
+                  valueColor: C.text,
                 },
-                { label: "SERVICES", value: String(totalServiceCount), wrap: false },
+                { label: "SERVICES", value: String(totalServiceCount), wrap: false, valueColor: C.text },
               ].map((item) => (
                 <div key={item.label} style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", minWidth: 0 }}>
                   <span style={{ display: "block", fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, marginBottom: 8 }}>
@@ -870,7 +944,7 @@ export function DeploymentsTab({
                       fontFamily: S.body,
                       fontSize: T.heading4,
                       fontWeight: 600,
-                      color: C.text,
+                      color: item.valueColor,
                       overflow: "hidden",
                       textOverflow: item.wrap ? "clip" : "ellipsis",
                       whiteSpace: item.wrap ? (isCompact ? ("pre-line" as const) : ("nowrap" as const)) : ("nowrap" as const),
@@ -887,7 +961,7 @@ export function DeploymentsTab({
               <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", maxWidth: "100%" }}>
               <div style={{ display: "grid", gridTemplateColumns: deploymentGridColumns, gap: deploymentGridGap, padding: deploymentHeaderPadding, borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
                 {deploymentGridHeaders.map((h, i) => (
-                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", justifySelf: i === 1 ? "start" : undefined, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {h.toUpperCase()}
                   </span>
                 ))}
@@ -920,13 +994,14 @@ export function DeploymentsTab({
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 6,
+                        justifySelf: "start",
                       }}
                     >
                       {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                       {statusLabel(currentRow.status).toUpperCase()}
                     </span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{currentRow.duration}</span>
-                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{currentRow.build}</span>
+                    <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 400, color: C.text, textAlign: "right" as const }}>{currentRow.build}</span>
                     {!isCompact ? (
                       <>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>
@@ -939,11 +1014,19 @@ export function DeploymentsTab({
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
                     <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, margin: "6px 0 10px" }}>
-                      Services
+                      SERVICES
                     </div>
                     {serviceRows.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                        {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
+                        {currentRow.status === "deploying" || currentRow.status === "undeploying" ? (
+                          <Loader2
+                            size={I.md}
+                            style={{
+                              animation: "dp-spin 1.2s linear infinite",
+                              color: currentRow.status === "deploying" ? C.warning : C.faint,
+                            }}
+                          />
+                        ) : null}
                         {currentRow.status === "deploying"
                           ? "Waiting for services to start and logs to stream…"
                           : currentRow.status === "undeploying"
@@ -1024,13 +1107,14 @@ export function DeploymentsTab({
                             display: "inline-flex",
                             alignItems: "center",
                             gap: 6,
+                            justifySelf: "start",
                           }}
                         >
                           {row.status === "deploying" || row.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
                           {statusLabel(row.status).toUpperCase()}
                         </span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{row.duration}</span>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 600, color: C.text, textAlign: "right" as const }}>{row.build}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 400, color: C.text, textAlign: "right" as const }}>{row.build}</span>
                         {!isCompact ? (
                           <>
                             <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, whiteSpace: "nowrap" as const, textAlign: "right" as const }}>

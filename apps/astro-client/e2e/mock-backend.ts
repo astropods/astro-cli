@@ -406,6 +406,153 @@ const makeInitialDeployments = () => [
 let deployments = makeInitialDeployments();
 let storedPayloads: Record<string, Record<string, unknown>> = {};
 
+function buildMockTraceEntries(deploymentId: string) {
+  const now = Date.now();
+  return [
+    {
+      trace_id: `${deploymentId}-trace-001`,
+      name: "chat.completion",
+      status: "success",
+      latency_ms: 412,
+      total_tokens: 228,
+      input: "Summarize last deployment logs and report errors.",
+      output: "Deployment healthy. No critical errors in the last 24 hours.",
+      timestamp: new Date(now - 2 * 60 * 1000).toISOString(),
+    },
+    {
+      trace_id: `${deploymentId}-trace-002`,
+      name: "chat.completion",
+      status: "success",
+      latency_ms: 673,
+      total_tokens: 346,
+      input: "List all missing environment variables.",
+      output: "No required variables are missing for this deployment.",
+      timestamp: new Date(now - 7 * 60 * 1000).toISOString(),
+    },
+    {
+      trace_id: `${deploymentId}-trace-003`,
+      name: "tool.invoke",
+      status: "error",
+      latency_ms: 1290,
+      total_tokens: 190,
+      input: "Fetch pod logs for ingestion worker.",
+      output: "Failed to fetch pod logs: upstream timeout.",
+      timestamp: new Date(now - 13 * 60 * 1000).toISOString(),
+    },
+    {
+      trace_id: `${deploymentId}-trace-004`,
+      name: "chat.completion",
+      status: "success",
+      latency_ms: 532,
+      total_tokens: 271,
+      input: "Generate a rollout summary for stakeholders.",
+      output: "Rollout complete for build-125, all replicas ready.",
+      timestamp: new Date(now - 21 * 60 * 1000).toISOString(),
+    },
+    {
+      trace_id: `${deploymentId}-trace-005`,
+      name: "chat.completion",
+      status: "timeout",
+      latency_ms: 3021,
+      total_tokens: 0,
+      input: "Analyze recent latency outliers.",
+      output: "",
+      timestamp: new Date(now - 31 * 60 * 1000).toISOString(),
+    },
+    {
+      trace_id: `${deploymentId}-trace-006`,
+      name: "tool.invoke",
+      status: "success",
+      latency_ms: 288,
+      total_tokens: 118,
+      input: "Read deployment template.",
+      output: "Deployment template loaded successfully.",
+      timestamp: new Date(now - 42 * 60 * 1000).toISOString(),
+    },
+    {
+      trace_id: `${deploymentId}-trace-007`,
+      name: "chat.completion",
+      status: "success",
+      latency_ms: 756,
+      total_tokens: 389,
+      input: "Provide a concise incident summary.",
+      output: "Transient timeout observed. Service recovered automatically.",
+      timestamp: new Date(now - 53 * 60 * 1000).toISOString(),
+    },
+  ];
+}
+
+function buildMockMetrics(traces: ReturnType<typeof buildMockTraceEntries>) {
+  const end = new Date();
+  const bucketCount = 6;
+  const bucketMs = 10 * 60 * 1000;
+  const startMs = end.getTime() - bucketCount * bucketMs;
+
+  const buckets = Array.from({ length: bucketCount }, (_, idx) => ({
+    timestamp: new Date(startMs + idx * bucketMs).toISOString(),
+    trace_count: 0,
+    avg_latency_ms: 0,
+    p95_latency_ms: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    error_count: 0,
+    _latencies: [] as number[],
+  }));
+
+  for (const trace of traces) {
+    const ts = new Date(trace.timestamp).getTime();
+    if (Number.isNaN(ts) || ts < startMs || ts > end.getTime()) continue;
+    const idx = Math.min(bucketCount - 1, Math.floor((ts - startMs) / bucketMs));
+    const b = buckets[idx];
+    b.trace_count += 1;
+    b._latencies.push(trace.latency_ms);
+    if (trace.status === "error" || trace.status === "failed") b.error_count += 1;
+    const total = trace.total_tokens ?? 0;
+    b.input_tokens += Math.round(total * 0.45);
+    b.output_tokens += Math.round(total * 0.55);
+  }
+
+  return buckets.map((b) => {
+    const lats = b._latencies.sort((a, c) => a - c);
+    const avg = lats.length ? Math.round(lats.reduce((s, n) => s + n, 0) / lats.length) : 0;
+    const p95 = lats.length ? lats[Math.max(0, Math.floor(lats.length * 0.95) - 1)] : 0;
+    return {
+      timestamp: b.timestamp,
+      trace_count: b.trace_count,
+      avg_latency_ms: avg,
+      p95_latency_ms: p95,
+      input_tokens: b.input_tokens,
+      output_tokens: b.output_tokens,
+      error_count: b.error_count,
+    };
+  });
+}
+
+function buildMockSummary(
+  traces: ReturnType<typeof buildMockTraceEntries>,
+  startIso: string,
+  endIso: string,
+) {
+  const totalTraces = traces.length;
+  const totalLatency = traces.reduce((sum, t) => sum + t.latency_ms, 0);
+  const latencies = traces.map((t) => t.latency_ms).sort((a, b) => a - b);
+  const totalTokens = traces.reduce((sum, t) => sum + (t.total_tokens ?? 0), 0);
+  const errors = traces.filter((t) => t.status === "error" || t.status === "failed").length;
+  const durationHours = Math.max(1, (new Date(endIso).getTime() - new Date(startIso).getTime()) / (1000 * 60 * 60));
+
+  return {
+    total_traces: totalTraces,
+    time_range: { start: startIso, end: endIso },
+    metrics: {
+      avg_latency_ms: totalTraces ? Math.round(totalLatency / totalTraces) : 0,
+      p95_latency_ms: latencies.length ? latencies[Math.max(0, Math.floor(latencies.length * 0.95) - 1)] : 0,
+      total_tokens: totalTokens,
+      error_rate: totalTraces ? errors / totalTraces : 0,
+      traces_per_hour: totalTraces / durationHours,
+    },
+  };
+}
+
 const agentFor = (agentName: string) => ({
   name: agentName,
   account: ACCOUNT,
@@ -541,6 +688,41 @@ Bun.serve({
         return json({ deployments, count: deployments.length });
       }
       return json({ deployments: [], count: 0 });
+    }
+
+    const observabilityMatch = pathname.match(
+      /^\/api\/v1\/deployments\/([^/]+)\/observability\/(metrics|summary|traces)$/,
+    );
+    if (observabilityMatch) {
+      const deploymentId = observabilityMatch[1]!;
+      const endpoint = observabilityMatch[2]!;
+      const traces = buildMockTraceEntries(deploymentId);
+      const endIso = url.searchParams.get("end_time") ?? new Date().toISOString();
+      const startIso =
+        url.searchParams.get("start_time") ??
+        new Date(new Date(endIso).getTime() - 60 * 60 * 1000).toISOString();
+
+      if (endpoint === "traces") {
+        const limit = Math.max(1, Number(url.searchParams.get("limit") ?? "100"));
+        const offset = Math.max(0, Number(url.searchParams.get("offset") ?? "0"));
+        const paged = traces.slice(offset, offset + limit);
+        return json({
+          traces: paged,
+          total: traces.length,
+          limit,
+          offset,
+        });
+      }
+
+      if (endpoint === "metrics") {
+        return json({
+          buckets: buildMockMetrics(traces),
+          time_range: { start: startIso, end: endIso },
+          interval_minutes: 10,
+        });
+      }
+
+      return json(buildMockSummary(traces, startIso, endIso));
     }
 
     const triggerMatch = pathname.match(

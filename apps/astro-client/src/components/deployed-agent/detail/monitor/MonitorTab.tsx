@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { Activity, Copy, Check, ChevronDown } from "lucide-react";
+import { Activity, Copy, Check, ChevronDown, X } from "lucide-react";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { observabilityKeys } from "@/api/queries/keys";
@@ -10,8 +9,6 @@ import { api } from "@/lib/api";
 import type { AgentDeployment } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { InlineBadge } from "@/components/InlineBadge";
-import { ErrorPanel, WarningPanel } from "@/components/ui/status-panel";
 import { MultiSelect } from "../shared/MultiSelect";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
@@ -75,31 +72,74 @@ interface TraceRow {
   output?: string;
 }
 
-const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: CSSProperties }> = {
-  success: {
-    label: "SUCCESS",
-    badgeStyle: {
-      color: "var(--color-teal-600)",
-      background: "color-mix(in oklch, var(--color-teal-600) 10%, transparent)",
-      borderColor: "color-mix(in oklch, var(--color-teal-600) 28%, transparent)",
+function buildLocalTraceMocks(deploymentId: string): TraceRow[] {
+  const now = Date.now();
+  const rows: Array<Omit<TraceRow, "time"> & { timestamp: number }> = [
+    {
+      id: `${deploymentId}-local-trace-001`,
+      name: "chat.completion",
+      status: "success",
+      latency: 412,
+      tokens: 228,
+      input: "Summarize deployment status and key risks.",
+      output: "Deployment is healthy. No blocking issues detected.",
+      timestamp: now - 2 * 60 * 1000,
     },
-  },
-  error: {
-    label: "ERROR",
-    badgeStyle: {
-      color: "var(--color-red-700)",
-      background: "color-mix(in oklch, var(--color-red-700) 10%, transparent)",
-      borderColor: "color-mix(in oklch, var(--color-red-700) 28%, transparent)",
+    {
+      id: `${deploymentId}-local-trace-002`,
+      name: "tool.invoke",
+      status: "error",
+      latency: 1290,
+      tokens: 190,
+      input: "Fetch pod logs for ingestion worker.",
+      output: "Failed to fetch pod logs: upstream timeout.",
+      timestamp: now - 11 * 60 * 1000,
     },
-  },
-  timeout: {
-    label: "TIMEOUT",
-    badgeStyle: {
-      color: "var(--color-yellow-700)",
-      background: "color-mix(in oklch, var(--color-yellow-700) 10%, transparent)",
-      borderColor: "color-mix(in oklch, var(--color-yellow-700) 28%, transparent)",
+    {
+      id: `${deploymentId}-local-trace-003`,
+      name: "chat.completion",
+      status: "timeout",
+      latency: 3021,
+      tokens: 0,
+      input: "Analyze recent latency spikes.",
+      output: "",
+      timestamp: now - 19 * 60 * 1000,
     },
-  },
+    {
+      id: `${deploymentId}-local-trace-004`,
+      name: "chat.completion",
+      status: "success",
+      latency: 538,
+      tokens: 272,
+      input: "Generate concise rollout notes.",
+      output: "Rollout completed with all replicas ready.",
+      timestamp: now - 28 * 60 * 1000,
+    },
+  ];
+
+  return rows.map((trace) => ({
+    id: trace.id,
+    name: trace.name,
+    status: trace.status,
+    latency: trace.latency,
+    tokens: trace.tokens,
+    input: trace.input,
+    output: trace.output,
+    time: new Date(trace.timestamp).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+  }));
+}
+
+const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; color: string }> = {
+  success: { label: "Success", color: "var(--color-teal-600)" },
+  error: { label: "Error", color: "var(--color-red-700)" },
+  timeout: { label: "Timeout", color: "var(--color-yellow-700)" },
 };
 
 function fmtTokens(n: number) {
@@ -373,7 +413,6 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return window.innerWidth < 1180;
   });
   const [showAllTraces, setShowAllTraces] = useState(false);
-  const [isDeploymentErrorDismissed, setIsDeploymentErrorDismissed] = useState(false);
   const [isObservabilityNoticeDismissed, setIsObservabilityNoticeDismissed] = useState(false);
   const [win, setWin] = useState<Win>("24h");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
@@ -471,7 +510,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return { input, output, sum: input + output };
   }, [metricsData]);
 
-  const traces: TraceRow[] = (tracesData?.traces ?? []).map((t) => ({
+  const tracesFromApi: TraceRow[] = (tracesData?.traces ?? []).map((t) => ({
     id: t.trace_id,
     name: t.name,
     status: t.status === "error" || t.status === "failed" ? "error" : t.status === "timeout" ? "timeout" : "success",
@@ -488,6 +527,12 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     input: typeof t.input === "string" ? t.input : t.input != null ? JSON.stringify(t.input, null, 2) : undefined,
     output: typeof t.output === "string" ? t.output : t.output != null ? JSON.stringify(t.output, null, 2) : undefined,
   }));
+
+  // Local dev fallback so table UI can be reviewed even when observability data is empty.
+  const traces: TraceRow[] =
+    tracesFromApi.length > 0
+      ? tracesFromApi
+      : (import.meta.env.DEV ? buildLocalTraceMocks(deployment.id) : []);
 
   const tsData = useMemo(
     () =>
@@ -577,7 +622,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   const traceHeaderPadding = isCompact ? "7px 10px" : "7px 16px";
   const traceRowPadding = isCompact ? "10px 10px" : "10px 16px";
   const traceHeaderFontSize = isCompact ? "11px" : T.label;
-  const traceCellFontSize = isCompact ? T.monoSm : T.monoMd;
+  const traceCellFontSize = "12px";
   const traceMetaFontSize = isCompact ? T.monoSm : T.label;
   const tracesEmptyMinHeight = 172;
   const hasCollapsedTraces = visibleTraces.length > 4;
@@ -590,35 +635,81 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useEffect(() => {
-    if (!isError) {
-      setIsDeploymentErrorDismissed(false);
-    }
-  }, [isError, deployment.id]);
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {isError && !isDeploymentErrorDismissed && (
-        <ErrorPanel
-          title="Deployment error"
-          dismissible
-          onDismiss={() => setIsDeploymentErrorDismissed(true)}
+      {isError && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 16px",
+            borderRadius: 8,
+            background: C.coralBg,
+            border: `1px solid ${C.coralBdr}`,
+          }}
         >
-          This deployment is in an error state - no replicas are ready.
-        </ErrorPanel>
+          <span style={{ fontFamily: S.mono, fontSize: T.label, fontWeight: 700, letterSpacing: "0.08em", color: C.coral }}>
+            ERROR
+          </span>
+          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.coral, flex: 1 }}>
+            This deployment is in an error state — no replicas are ready.
+          </span>
+        </div>
       )}
 
       {observabilityBackendError && !isError && !isObservabilityNoticeDismissed && (
-        <WarningPanel
-          title="Observability"
-          variant="inline"
-          dismissible
-          onDismiss={() => setIsObservabilityNoticeDismissed(true)}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "12px 16px",
+            borderRadius: 8,
+            background: C.amberBg,
+            border: `1px solid ${C.amberBdr}`,
+          }}
         >
-          Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the
-          {" "}
-          Deployments tab.
-        </WarningPanel>
+          <span
+            style={{
+              fontFamily: S.mono,
+              fontSize: T.label,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: C.amber,
+              display: "inline-flex",
+              alignItems: "center",
+              whiteSpace: "nowrap",
+              lineHeight: 1.1,
+            }}
+          >
+            OBSERVABILITY
+          </span>
+          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.45 }}>
+            Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the{" "}
+            <strong style={{ color: C.text }}>Deployments</strong> tab.
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsObservabilityNoticeDismissed(true)}
+            aria-label="Dismiss observability notice"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              border: `1px solid ${C.coral}`,
+              background: "transparent",
+              color: C.coral,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -797,7 +888,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             <div style={{ minHeight: 0 }}>
               <div style={{ display: "flex", flexDirection: "column" }}>
                 <div style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, padding: traceHeaderPadding, borderBottom: `1px solid ${C.border}`, background: C.bgDeep, flexShrink: 0 }}>
-                  <span style={{ fontFamily: S.mono, fontSize: traceHeaderFontSize, letterSpacing: "0.07em", color: C.faint, textAlign: "left", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>CREATED AT</span>
+                  <span style={{ fontFamily: S.mono, fontSize: traceHeaderFontSize, letterSpacing: "0.07em", color: C.faint, textAlign: "left", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>DATE</span>
                   {(isCompact ? ["STATUS", "LATENCY", "TOKENS"] : ["", "STATUS", "LATENCY", "TOKENS", "EXTERNAL ID"]).map((h) => (
                     <span
                       key={h || "spacer"}
@@ -806,7 +897,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                         fontSize: traceHeaderFontSize,
                         letterSpacing: "0.07em",
                         color: C.faint,
-                        textAlign: "center",
+                        textAlign: h === "STATUS" ? "left" : "center",
                         minWidth: 0,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -872,8 +963,17 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                         <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
                       </div>
                       {!isCompact ? <span /> : null}
-                      <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                        <InlineBadge style={st.badgeStyle}>{st.label}</InlineBadge>
+                      <div style={{ width: "100%", display: "flex", justifyContent: "flex-start" }}>
+                        <span
+                          style={{
+                            fontFamily: S.mono,
+                            fontSize: traceCellFontSize,
+                            letterSpacing: "0.04em",
+                            color: st.color,
+                          }}
+                        >
+                          {st.label}
+                        </span>
                       </div>
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
                         <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text }}>
@@ -894,10 +994,10 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                               e.stopPropagation();
                               copyTraceId(trace.id);
                             }}
-                            style={{ background: "none", border: "none", padding: 0, display: "flex", color: C.muted, cursor: "pointer" }}
+                            style={{ background: "none", border: "none", padding: 2, display: "flex", color: C.muted, cursor: "pointer" }}
                             aria-label={`Copy external id ${externalId}`}
                           >
-                            {copied ? <Check size={I.xs} /> : <Copy size={I.xs} />}
+                            {copied ? <Check size={I.sm} /> : <Copy size={I.sm} />}
                           </button>
                         </div>
                       ) : null}
@@ -916,7 +1016,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                               {copiedTraceField === `${trace.id}:input` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
                             </button>
                           </div>
-                          <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.input ?? "—"}</span>
+                          <span style={{ fontFamily: S.body, fontSize: traceCellFontSize, color: C.text, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.input ?? "—"}</span>
                         </div>
                         <div style={{ padding: "10px 16px 12px" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
@@ -933,7 +1033,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                             ) : null}
                           </div>
                           {trace.output ? (
-                            <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.output}</span>
+                            <span style={{ fontFamily: S.body, fontSize: traceCellFontSize, color: C.text, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.output}</span>
                           ) : (
                             <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.coral }}>
                               Trace did not complete — no output recorded
