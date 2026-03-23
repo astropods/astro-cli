@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
-import { ArrowLeft, Settings2, Pause, Play, Loader2 } from "lucide-react";
+import { ArrowLeft, Pause, Play, Loader2 } from "lucide-react";
+import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
@@ -11,6 +12,7 @@ import { useAccountAgents } from "@/api/queries/agents";
 import { InlineBadge } from "@/components/InlineBadge";
 import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
@@ -320,21 +322,14 @@ export function ActiveDetailView({
               Resume
             </button>
           )}
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setConfigOpen(o => !o)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
-              background: configOpen ? C.bgDeep : 'transparent',
-              border: `1px solid ${configOpen ? C.tealMid : C.border}`,
-              fontFamily: S.body, fontSize: T.heading4, color: configOpen ? C.teal : C.muted,
-              transition: 'all 0.12s',
-            }}
-            onMouseEnter={e => { if (!configOpen) e.currentTarget.style.background = C.bgDeep }}
-            onMouseLeave={e => { if (!configOpen) e.currentTarget.style.background = 'transparent' }}
+            data-active={configOpen || undefined}
           >
-            <Settings2 size={I.md} /> Configure
-          </button>
+            <Cog6ToothIcon className="size-4" /> Configure
+          </Button>
         </div>
       </header>
 
