@@ -1014,10 +1014,13 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 			a.type,
 			COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '') AS owner_user_id,
 			(SELECT COUNT(*) FROM account_members WHERE account_id = a.id) AS member_count,
+			(a.openmeter_customer_id IS NOT NULL) AS has_openmeter,
+			EXISTS(SELECT 1 FROM account_langfuse WHERE account_id = a.id) AS has_langfuse,
+			a.deleted_at,
 			a.created_at,
 			a.updated_at
 		FROM accounts a
-		ORDER BY a.created_at DESC
+		ORDER BY a.deleted_at NULLS FIRST, a.created_at DESC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
@@ -1027,9 +1030,13 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 	var accounts []*adminv1.AdminAccount
 	for rows.Next() {
 		var acct adminv1.AdminAccount
+		var deletedAt sql.NullTime
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasOpenMeter, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		if deletedAt.Valid {
+			acct.DeletedAt = deletedAt.Time.Format(time.RFC3339)
 		}
 		acct.CreatedAt = createdAt.Format(time.RFC3339)
 		acct.UpdatedAt = updatedAt.Format(time.RFC3339)
@@ -1931,4 +1938,17 @@ func (s *Server) BackfillResolvedKeys(ctx context.Context, _ *adminv1.BackfillRe
 	}
 
 	return &adminv1.BackfillResolvedKeysResponse{BackfilledCount: count}, nil
+}
+
+// TriggerOpenMeterBackfill enqueues an immediate OpenMeter customer backfill job.
+// This creates OpenMeter customers for any accounts that are missing one.
+func (s *Server) TriggerOpenMeterBackfill(_ context.Context, _ *adminv1.TriggerOpenMeterBackfillRequest) (*adminv1.TriggerOpenMeterBackfillResponse, error) {
+	if s.queue == nil {
+		return nil, fmt.Errorf("river queue not available")
+	}
+	if err := s.queue.InsertOpenMeterBackfillJob(context.Background()); err != nil {
+		return nil, fmt.Errorf("enqueue openmeter backfill: %w", err)
+	}
+	s.log.Info("Triggered OpenMeter customer backfill via admin RPC")
+	return &adminv1.TriggerOpenMeterBackfillResponse{Status: "backfill_enqueued"}, nil
 }

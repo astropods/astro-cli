@@ -30,6 +30,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/deployments/{id}/refresh-drift", s.handleRefreshDriftReport)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/adapters", s.handleSetAdapters)
 	mux.HandleFunc("POST /api/admin/backfill-resolved-keys", s.handleBackfillResolvedKeys)
+	mux.HandleFunc("POST /api/admin/openmeter-backfill", s.handleTriggerOpenMeterBackfill)
 }
 
 func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
@@ -331,6 +332,15 @@ func (s *Server) handleSetAdapters(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBackfillResolvedKeys(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.BackfillResolvedKeys(r.Context(), &adminv1.BackfillResolvedKeysRequest{})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleTriggerOpenMeterBackfill(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.TriggerOpenMeterBackfill(r.Context(), &adminv1.TriggerOpenMeterBackfillRequest{})
 	if err != nil {
 		writeGRPCErr(w, err)
 		return

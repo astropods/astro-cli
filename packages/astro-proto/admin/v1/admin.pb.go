@@ -263,13 +263,16 @@ type RestartDeploymentResponse struct {
 type ListAccountsRequest struct{}
 
 type AdminAccount struct {
-	ID          string `json:"id,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Type        string `json:"type,omitempty"`
-	OwnerUserID string `json:"owner_user_id,omitempty"`
-	MemberCount int32  `json:"member_count,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
+	ID           string `json:"id,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Type         string `json:"type,omitempty"`
+	OwnerUserID  string `json:"owner_user_id,omitempty"`
+	MemberCount  int32  `json:"member_count,omitempty"`
+	HasOpenMeter bool   `json:"has_openmeter"`
+	HasLangfuse  bool   `json:"has_langfuse"`
+	DeletedAt    string `json:"deleted_at,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 type ListAccountsResponse struct {
@@ -643,6 +646,12 @@ type BackfillResolvedKeysRequest struct{}
 
 type BackfillResolvedKeysResponse struct {
 	BackfilledCount int32 `json:"backfilled_count"`
+}
+
+type TriggerOpenMeterBackfillRequest struct{}
+
+type TriggerOpenMeterBackfillResponse struct {
+	Status string `json:"status,omitempty"`
 }
 
 type SetAdaptersRequest struct {

@@ -165,6 +165,12 @@ func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID string) error 
 	return err
 }
 
+// InsertOpenMeterBackfillJob enqueues an immediate OpenMeter customer backfill job.
+func (q *Queue) InsertOpenMeterBackfillJob(ctx context.Context) error {
+	_, err := q.Insert(ctx, OpenMeterBackfillArgs{}, nil)
+	return err
+}
+
 // NewInsertOnly creates a Queue that can only insert jobs (no workers, no periodic jobs).
 // Used by the API process to enqueue deploy/undeploy/wakeup jobs without running workers.
 func NewInsertOnly(ctx context.Context, databaseURL string, log *logger.Logger) (*Queue, error) {

@@ -44,6 +44,7 @@ type AdminServiceClient interface {
 	RefreshDriftReport(ctx context.Context, in *RefreshDriftReportRequest, opts ...grpc.CallOption) (*RefreshDriftReportResponse, error)
 	BackfillResolvedKeys(ctx context.Context, in *BackfillResolvedKeysRequest, opts ...grpc.CallOption) (*BackfillResolvedKeysResponse, error)
 	SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error)
+	TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error)
 }
 
 type adminServiceClient struct {
@@ -302,6 +303,14 @@ func (c *adminServiceClient) SetAdapters(ctx context.Context, in *SetAdaptersReq
 	return out, nil
 }
 
+func (c *adminServiceClient) TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error) {
+	out := new(TriggerOpenMeterBackfillResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/TriggerOpenMeterBackfill", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -336,6 +345,7 @@ type AdminServiceServer interface {
 	RefreshDriftReport(context.Context, *RefreshDriftReportRequest) (*RefreshDriftReportResponse, error)
 	BackfillResolvedKeys(context.Context, *BackfillResolvedKeysRequest) (*BackfillResolvedKeysResponse, error)
 	SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error)
+	TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -464,6 +474,10 @@ func (UnimplementedAdminServiceServer) BackfillResolvedKeys(context.Context, *Ba
 
 func (UnimplementedAdminServiceServer) SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetAdapters not implemented")
+}
+
+func (UnimplementedAdminServiceServer) TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriggerOpenMeterBackfill not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -943,6 +957,21 @@ func _AdminService_SetAdapters_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_TriggerOpenMeterBackfill_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerOpenMeterBackfillRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).TriggerOpenMeterBackfill(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/TriggerOpenMeterBackfill"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).TriggerOpenMeterBackfill(ctx, req.(*TriggerOpenMeterBackfillRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -979,6 +1008,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "RefreshDriftReport", Handler: _AdminService_RefreshDriftReport_Handler},
 		{MethodName: "BackfillResolvedKeys", Handler: _AdminService_BackfillResolvedKeys_Handler},
 		{MethodName: "SetAdapters", Handler: _AdminService_SetAdapters_Handler},
+		{MethodName: "TriggerOpenMeterBackfill", Handler: _AdminService_TriggerOpenMeterBackfill_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

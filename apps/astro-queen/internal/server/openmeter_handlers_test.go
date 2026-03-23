@@ -111,6 +111,9 @@ func (m *mockAdminClient) BackfillResolvedKeys(context.Context, *adminv1.Backfil
 func (m *mockAdminClient) SetAdapters(context.Context, *adminv1.SetAdaptersRequest, ...grpc.CallOption) (*adminv1.SetAdaptersResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAdminClient) TriggerOpenMeterBackfill(context.Context, *adminv1.TriggerOpenMeterBackfillRequest, ...grpc.CallOption) (*adminv1.TriggerOpenMeterBackfillResponse, error) {
+	panic("not implemented")
+}
 
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {
