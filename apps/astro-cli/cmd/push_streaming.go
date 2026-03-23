@@ -26,11 +26,18 @@ const maxPushRetries = 3
 
 // getDockerRegistryAuth returns a base64-encoded registry auth string
 // for use with the Docker Engine API.
-func getDockerRegistryAuth() (string, error) {
-	tokenManager := auth.NewTokenManager(binaryName)
-	token, err := tokenManager.GetValidAccessToken(context.Background())
-	if err != nil {
-		return "", fmt.Errorf("failed to get access token: %w", err)
+// If tokenOverride is non-empty, it is used directly instead of fetching from the profile.
+func getDockerRegistryAuth(tokenOverride string) (string, error) {
+	var token string
+	if tokenOverride != "" {
+		token = tokenOverride
+	} else {
+		tokenManager := auth.NewTokenManager(binaryName)
+		var err error
+		token, err = tokenManager.GetValidAccessToken(context.Background())
+		if err != nil {
+			return "", fmt.Errorf("failed to get access token: %w", err)
+		}
 	}
 
 	authConfig := registry.AuthConfig{
@@ -85,7 +92,8 @@ func dockerPushWithRetry(ctx context.Context, dockerCli *client.Client, imageRef
 
 // pushImageToRegistryStreaming pushes an image using Docker Engine API streaming.
 // Image data flows directly from Docker daemon to registry without loading into Go memory.
-func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAuth bool) (int64, error) {
+// If tokenOverride is non-empty, it is used for auth instead of the stored profile token.
+func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAuth bool, tokenOverride string) (int64, error) {
 	fmt.Printf("  %sstreaming...%s", colorDim, colorReset)
 
 	ctx := context.Background()
@@ -106,7 +114,7 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 	// Get auth
 	var authStr string
 	if !skipAuth {
-		authStr, err = getDockerRegistryAuth()
+		authStr, err = getDockerRegistryAuth(tokenOverride)
 		if err != nil {
 			fmt.Println()
 			return 0, fmt.Errorf("failed to get registry auth: %w", err)
@@ -127,7 +135,7 @@ func pushImageToRegistryStreaming(localImageName, remoteImageName string, skipAu
 // pushMultiPlatformToRegistryStreaming pushes platform images using Docker Engine API
 // streaming, then creates a manifest list. Image data never enters Go process memory.
 // Platforms are pushed sequentially to avoid garbled progress output and Docker daemon contention.
-func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string, platforms []string, skipAuth bool) (int64, error) {
+func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string, platforms []string, skipAuth bool, tokenOverride string) (int64, error) {
 	fmt.Println()
 
 	ctx := context.Background()
@@ -141,7 +149,7 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 	// Get auth once for all pushes
 	var authStr string
 	if !skipAuth {
-		authStr, err = getDockerRegistryAuth()
+		authStr, err = getDockerRegistryAuth(tokenOverride)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get registry auth: %w", err)
 		}
@@ -203,7 +211,11 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 
 		var opts []remote.Option
 		if !skipAuth {
-			opts = append(opts, remote.WithAuth(auth.GetCraneAuth(binaryName)))
+			if tokenOverride != "" {
+				opts = append(opts, remote.WithAuth(auth.GetCraneAuthWithToken(tokenOverride)))
+			} else {
+				opts = append(opts, remote.WithAuth(auth.GetCraneAuth(binaryName)))
+			}
 		}
 		opts = append(opts, remote.WithTransport(getOptimizedTransport()))
 
@@ -240,7 +252,11 @@ func pushMultiPlatformToRegistryStreaming(baseName, tag, remoteImageName string,
 
 	var opts []remote.Option
 	if !skipAuth {
-		opts = append(opts, remote.WithAuth(auth.GetCraneAuth(binaryName)))
+		if tokenOverride != "" {
+			opts = append(opts, remote.WithAuth(auth.GetCraneAuthWithToken(tokenOverride)))
+		} else {
+			opts = append(opts, remote.WithAuth(auth.GetCraneAuth(binaryName)))
+		}
 	}
 	opts = append(opts, remote.WithTransport(getOptimizedTransport()))
 

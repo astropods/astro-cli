@@ -104,7 +104,7 @@ func TestRegisterAgent_PrintsServerHints(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com", specPath, "", "", "", false, true)
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com", specPath, "", "", "", false, true, "")
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -146,7 +146,7 @@ func TestRegisterAgent_NoHintsWhenReadmePresent(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com", specPath, "", "", "", false, true)
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com", specPath, "", "", "", false, true, "")
 
 	w.Close()
 	os.Stderr = oldStderr
@@ -287,5 +287,480 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "authentication failed") {
 		t.Errorf("expected authentication failed error, got: %s", err.Error())
+	}
+}
+
+func TestParseAgentName(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           string
+		expectedAccount string
+		expectedName    string
+	}{
+		{
+			name:            "bare name",
+			input:           "my-agent",
+			expectedAccount: "",
+			expectedName:    "my-agent",
+		},
+		{
+			name:            "org-scoped name",
+			input:           "@my-org/my-agent",
+			expectedAccount: "my-org",
+			expectedName:    "my-agent",
+		},
+		{
+			name:            "org with complex agent name",
+			input:           "@acme-corp/data-pipeline-v2",
+			expectedAccount: "acme-corp",
+			expectedName:    "data-pipeline-v2",
+		},
+		{
+			name:            "@ without slash treated as bare name",
+			input:           "@justname",
+			expectedAccount: "",
+			expectedName:    "@justname",
+		},
+		{
+			name:            "@ with trailing slash treated as bare name",
+			input:           "@org/",
+			expectedAccount: "",
+			expectedName:    "@org/",
+		},
+		{
+			name:            "@ with leading slash treated as bare name",
+			input:           "@/name",
+			expectedAccount: "",
+			expectedName:    "@/name",
+		},
+		{
+			name:            "no @ with slash is bare name",
+			input:           "org/name",
+			expectedAccount: "",
+			expectedName:    "org/name",
+		},
+		{
+			name:            "empty string",
+			input:           "",
+			expectedAccount: "",
+			expectedName:    "",
+		},
+		{
+			name:            "just @",
+			input:           "@",
+			expectedAccount: "",
+			expectedName:    "@",
+		},
+		{
+			name:            "multiple slashes picks first",
+			input:           "@org/name/extra",
+			expectedAccount: "org",
+			expectedName:    "name/extra",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account, name := parseAgentName(tt.input)
+			if account != tt.expectedAccount {
+				t.Errorf("parseAgentName(%q) account = %q, want %q", tt.input, account, tt.expectedAccount)
+			}
+			if name != tt.expectedName {
+				t.Errorf("parseAgentName(%q) name = %q, want %q", tt.input, name, tt.expectedName)
+			}
+		})
+	}
+}
+
+func TestGetUserNamespace_PersonalAccount(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "MyPersonal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "MyPersonal", Type: "personal"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	namespace, workosOrgID, err := getUserNamespace(false, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if namespace != "mypersonal" {
+		t.Errorf("expected namespace 'mypersonal', got %q", namespace)
+	}
+	if workosOrgID != "" {
+		t.Errorf("expected empty workosOrgID for personal account, got %q", workosOrgID)
+	}
+}
+
+func TestGetUserNamespace_OrgOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "personal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "personal", Type: "personal"},
+					{ID: "acct-2", Name: "my-org", Type: "organization", WorkOSOrganizationID: "org_workos_123"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	namespace, workosOrgID, err := getUserNamespace(false, "my-org")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if namespace != "my-org" {
+		t.Errorf("expected namespace 'my-org', got %q", namespace)
+	}
+	if workosOrgID != "org_workos_123" {
+		t.Errorf("expected workosOrgID 'org_workos_123', got %q", workosOrgID)
+	}
+}
+
+func TestGetUserNamespace_OrgOverrideCaseInsensitive(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "personal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "personal", Type: "personal"},
+					{ID: "acct-2", Name: "MyOrg", Type: "organization", WorkOSOrganizationID: "org_123"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	namespace, workosOrgID, err := getUserNamespace(false, "myorg")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if namespace != "myorg" {
+		t.Errorf("expected namespace 'myorg', got %q", namespace)
+	}
+	if workosOrgID != "org_123" {
+		t.Errorf("expected workosOrgID 'org_123', got %q", workosOrgID)
+	}
+}
+
+func TestGetUserNamespace_OrgNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "personal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "personal", Type: "personal"},
+					{ID: "acct-2", Name: "acme-corp", Type: "organization", WorkOSOrganizationID: "org_abc"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := getUserNamespace(false, "nonexistent-org")
+	if err == nil {
+		t.Fatal("expected error for nonexistent org, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "personal") {
+		t.Errorf("expected available accounts listed in error, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "acme-corp") {
+		t.Errorf("expected available accounts listed in error, got: %s", err.Error())
+	}
+}
+
+func TestGetUserNamespace_OrgMissingWorkOSID(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "personal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "personal", Type: "personal"},
+					{ID: "acct-2", Name: "stale-org", Type: "organization", WorkOSOrganizationID: ""},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := getUserNamespace(false, "stale-org")
+	if err == nil {
+		t.Fatal("expected error for org with missing WorkOSOrganizationID, got nil")
+	}
+	if !strings.Contains(err.Error(), "not linked") {
+		t.Errorf("expected 'not linked' in error, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "login") {
+		t.Errorf("expected suggestion to re-login in error, got: %s", err.Error())
+	}
+}
+
+func TestGetUserNamespace_PersonalOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "default-personal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "default-personal", Type: "personal"},
+					{ID: "acct-2", Name: "other-personal", Type: "personal"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Override to a different personal account — should return empty workosOrgID
+	namespace, workosOrgID, err := getUserNamespace(false, "other-personal")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if namespace != "other-personal" {
+		t.Errorf("expected namespace 'other-personal', got %q", namespace)
+	}
+	if workosOrgID != "" {
+		t.Errorf("expected empty workosOrgID for personal account override, got %q", workosOrgID)
+	}
+}
+
+func TestRegisterAgent_UsesTokenOverride(t *testing.T) {
+	var receivedAuthHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuthHeader = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		resp := map[string]any{
+			"message":  "Agent registered successfully",
+			"account":  "my-org",
+			"name":     "test-agent",
+			"build_id": "abc123",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("name: test-agent\nversion: 1.0.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	orgToken := "org-scoped-jwt-token"
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com/my-org", specPath, "", "", "", false, false, orgToken)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedAuth := "Bearer org-scoped-jwt-token"
+	if receivedAuthHeader != expectedAuth {
+		t.Errorf("expected Authorization header %q, got %q", expectedAuth, receivedAuthHeader)
+	}
+}
+
+func TestRegisterAgent_UsesAccountFromRegistryPath(t *testing.T) {
+	var receivedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"message": "ok"})
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("name: test-agent\nversion: 1.0.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := registerAgent(srv.URL, "my-agent", "abc123", "registry.example.com/my-org", specPath, "", "", "", false, true, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedPath := "/api/v1/agents/my-org/my-agent/register"
+	if receivedPath != expectedPath {
+		t.Errorf("expected URL path %q, got %q", expectedPath, receivedPath)
+	}
+}
+
+func TestPush_OrgScopedSpecName(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv(auth.EnvAccessToken)
+
+	credsPath := filepath.Join(tmpDir, ".ast", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	creds := auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:  "valid_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(1 * time.Hour),
+				User: &auth.StoredUser{
+					ID:          "user-1",
+					Email:       "test@example.com",
+					AccountName: "personal",
+					AccountID:   "acct-1",
+				},
+				Accounts: []auth.StoredAccount{
+					{ID: "acct-1", Name: "personal", Type: "personal"},
+					{ID: "acct-2", Name: "my-org", Type: "organization", WorkOSOrganizationID: "org_workos_123"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(creds)
+	if err := os.WriteFile(credsPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Spec with @org/name format — the push should resolve to org namespace
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	if err := os.WriteFile(specPath, []byte("spec: package/v1\nname: \"@my-org/test-agent\"\nagent:\n  image: test:latest\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(tmpDir)
+	defer os.Chdir(origDir) //nolint:errcheck
+
+	// This will fail at the org token refresh step (no real WorkOS server),
+	// but it proves the @org/name parsing and namespace resolution worked
+	cmd := pushCmd
+	cmd.Root().SetArgs([]string{"push", "--skip-build", "--skip-push", "--skip-register"})
+	err := cmd.Execute()
+
+	// The command should fail trying to get the org-scoped token (no real WorkOS)
+	if err == nil {
+		t.Fatal("expected push to fail when getting org-scoped token, got nil")
+	}
+	if !strings.Contains(err.Error(), "org-scoped token") {
+		t.Errorf("expected org-scoped token error, got: %s", err.Error())
 	}
 }

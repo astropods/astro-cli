@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -355,5 +355,86 @@ func TestPollForTokens_Timeout(t *testing.T) {
 	expectedMsg := "device authorization expired"
 	if err.Error() != expectedMsg {
 		t.Errorf("expected error %q, got %q", expectedMsg, err.Error())
+	}
+}
+
+func TestRefreshAccessTokenForOrg_Success(t *testing.T) {
+	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST request, got %s", r.Method)
+		}
+		if r.URL.Path != "/user_management/authenticate" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("failed to parse form: %v", err)
+		}
+
+		if r.FormValue("grant_type") != "refresh_token" {
+			t.Errorf("expected grant_type 'refresh_token', got %q", r.FormValue("grant_type"))
+		}
+		if r.FormValue("refresh_token") != "my_refresh_token" {
+			t.Errorf("expected refresh_token 'my_refresh_token', got %q", r.FormValue("refresh_token"))
+		}
+		if r.FormValue("organization_id") != "org_abc123" {
+			t.Errorf("expected organization_id 'org_abc123', got %q", r.FormValue("organization_id"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(TokenResponse{
+			AccessToken:  "org_scoped_access_token",
+			RefreshToken: "new_refresh_token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+		})
+	})
+	defer server.Close()
+
+	client := createTestClient(server.URL)
+	resp, err := client.RefreshAccessTokenForOrg(context.Background(), "my_refresh_token", "org_abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.AccessToken != "org_scoped_access_token" {
+		t.Errorf("expected AccessToken 'org_scoped_access_token', got %q", resp.AccessToken)
+	}
+	if resp.RefreshToken != "new_refresh_token" {
+		t.Errorf("expected RefreshToken 'new_refresh_token', got %q", resp.RefreshToken)
+	}
+}
+
+func TestRefreshAccessTokenForOrg_NotMember(t *testing.T) {
+	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(TokenError{
+			Error:            "invalid_grant",
+			ErrorDescription: "User is not a member of the organization",
+		})
+	})
+	defer server.Close()
+
+	client := createTestClient(server.URL)
+	_, err := client.RefreshAccessTokenForOrg(context.Background(), "my_refresh_token", "org_not_mine")
+	if err == nil {
+		t.Fatal("expected error for non-member org, got nil")
+	}
+	if !errors.Is(err, err) || err.Error() == "" {
+		t.Errorf("expected non-empty error, got: %v", err)
+	}
+}
+
+func TestRefreshAccessTokenForOrg_ServerError(t *testing.T) {
+	server := createMockWorkOSServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	defer server.Close()
+
+	client := createTestClient(server.URL)
+	_, err := client.RefreshAccessTokenForOrg(context.Background(), "my_refresh_token", "org_abc123")
+	if err == nil {
+		t.Fatal("expected error for server error, got nil")
 	}
 }

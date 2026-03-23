@@ -158,6 +158,26 @@ func (m *TokenManager) RequireAuth() error {
 	return nil
 }
 
+// GetOrgScopedAccessToken returns an access token scoped to the given WorkOS organization.
+// The token is not saved to the profile — the stored profile keeps the unscoped personal token.
+func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organizationID string) (string, error) {
+	profile, err := m.storage.GetCurrentProfile()
+	if err != nil {
+		return "", fmt.Errorf("not authenticated: %w", err)
+	}
+
+	if profile.RefreshToken == "" {
+		return "", errors.New("no refresh token available. Run 'ast login' to re-authenticate")
+	}
+
+	tokenResp, err := m.client.RefreshAccessTokenForOrg(ctx, profile.RefreshToken, organizationID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get org-scoped token: %w", err)
+	}
+
+	return tokenResp.AccessToken, nil
+}
+
 // AddAuthHeader adds the authorization header to an existing request
 func AddAuthHeader(ctx context.Context, req *http.Request, binaryName string) error {
 	manager := NewTokenManager(binaryName)

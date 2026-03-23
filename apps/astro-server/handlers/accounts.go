@@ -51,12 +51,13 @@ type AccountResponse struct {
 
 // AccountWithRoleResponse represents an account in the profile response
 type AccountWithRoleResponse struct {
-	ID            string         `json:"id"`
-	Name          string         `json:"name"`
-	Type          string         `json:"type"`
-	DisplayName   string         `json:"display_name"`
-	AvatarVersion int            `json:"avatar_version"`
-	Agents        []AgentSummary `json:"agents,omitempty"`
+	ID                   string         `json:"id"`
+	Name                 string         `json:"name"`
+	Type                 string         `json:"type"`
+	DisplayName          string         `json:"display_name"`
+	AvatarVersion        int            `json:"avatar_version"`
+	WorkOSOrganizationID string         `json:"workos_org_id,omitempty"`
+	Agents               []AgentSummary `json:"agents,omitempty"`
 }
 
 // AgentSummary represents a brief summary of an agent for the profile response
@@ -442,10 +443,11 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 		accountResponses := make([]AccountWithRoleResponse, 0, len(accounts))
 		for _, a := range accounts {
 			resp := AccountWithRoleResponse{
-				ID:          a.ID,
-				Name:        a.Name,
-				Type:        a.Type,
-				DisplayName: a.DisplayName,
+				ID:                   a.ID,
+				Name:                 a.Name,
+				Type:                 a.Type,
+				DisplayName:          a.DisplayName,
+				WorkOSOrganizationID: a.WorkOSOrganizationID,
 			}
 
 			// Include agent summaries for each account
