@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench, Layers } from "lucide-react";
+import { ChevronDown, Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Info, Play, Wrench, Layers, CheckCircle2 } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import type { K8sPodInfo, DeploymentEvent, DeploymentRevision, DeploymentJob, DriftReport, DriftResourceItem, AdminVariable } from "@/types/admin";
@@ -28,6 +28,12 @@ export function DeploymentDetailPage() {
   const [selectedPod, setSelectedPod] = useState<{ deploymentId: string; name: string; container?: string; mode: "logs" | "env" } | null>(null);
   const [adaptersOpen, setAdaptersOpen] = useState(false);
   const [pendingAdapters, setPendingAdapters] = useState<string>("none");
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const showSuccess = (msg: string) => {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(null), 4000);
+  };
 
   // Auto-refresh when in transitional states
   const isTransitional = data?.deployment?.status && ["pending", "provisioning", "undeploying"].includes(data.deployment.status);
@@ -40,6 +46,12 @@ export function DeploymentDetailPage() {
 
   return (
     <div className="space-y-6">
+      {successMsg && (
+        <div className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-600">
+          <CheckCircle2 className="size-3.5 shrink-0" />
+          {successMsg}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">{dep.name}</h2>
@@ -61,21 +73,21 @@ export function DeploymentDetailPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              if (confirm("Re-apply this deployment? This will rebuild and apply all K8s resources.")) {
-                reapplyMut.mutate(id!, { onSuccess: () => refetch() });
+              if (confirm("Redeploy this deployment? This will rebuild and apply all K8s resources.")) {
+                reapplyMut.mutate(id!, { onSuccess: () => { refetch(); showSuccess("Redeploy initiated — K8s resources are being rebuilt."); } });
               }
             }}
             disabled={reapplyMut.isPending || dep.status === "undeploying"}
           >
             <Play className="size-3.5" />
-            Re-apply
+            Redeploy
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
               if (confirm("Repair normalized spec? This will re-parse the stored spec and rebuild workloads/services/ingresses.")) {
-                repairMut.mutate(id!, { onSuccess: () => refetch() });
+                repairMut.mutate(id!, { onSuccess: () => { refetch(); showSuccess("Repair complete — spec re-parsed and resources rebuilt."); } });
               }
             }}
             disabled={repairMut.isPending}
