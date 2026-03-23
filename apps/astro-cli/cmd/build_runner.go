@@ -62,6 +62,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
+	// Strip @org/ prefix for Docker image tags
+	_, agentName := parseAgentName(astroSpec.Name)
+
 	if !quiet {
 		fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 	}
@@ -92,7 +95,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	if astroSpec.Agent.Build != nil {
-		baseName := astroSpec.Name
+		baseName := agentName
 		contextPath := filepath.Join(workingDir, astroSpec.Agent.Build.Context)
 		dockerfile := astroSpec.Agent.Build.Dockerfile
 		if dockerfile == "" {
@@ -124,7 +127,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom model containers (those with build config)
 	for name, model := range astroSpec.Models {
 		if model.Container != nil && model.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, name)
+			baseName := fmt.Sprintf("%s-model-%s", agentName, name)
 			contextPath := filepath.Join(workingDir, model.Container.Build.Context)
 			dockerfile := model.Container.Build.Dockerfile
 			if dockerfile == "" {
@@ -161,7 +164,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	for name, knowledge := range astroSpec.Knowledge {
 		container := knowledge.ResolvedContainer()
 		if container.Build != nil {
-			baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, name)
+			baseName := fmt.Sprintf("%s-knowledge-%s", agentName, name)
 			contextPath := filepath.Join(workingDir, container.Build.Context)
 			dockerfile := container.Build.Dockerfile
 			if dockerfile == "" {
@@ -194,7 +197,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom tool containers (those with build config)
 	for name, tool := range astroSpec.Tools {
 		if tool.Container != nil && tool.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, name)
+			baseName := fmt.Sprintf("%s-tool-%s", agentName, name)
 			contextPath := filepath.Join(workingDir, tool.Container.Build.Context)
 			dockerfile := tool.Container.Build.Dockerfile
 			if dockerfile == "" {
@@ -227,7 +230,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	// Build custom ingestion containers (those with build config)
 	for name, ingestion := range astroSpec.Ingestion {
 		if ingestion.Container.Build != nil {
-			baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, name)
+			baseName := fmt.Sprintf("%s-ingestion-%s", agentName, name)
 			contextPath := filepath.Join(workingDir, ingestion.Container.Build.Context)
 			dockerfile := ingestion.Container.Build.Dockerfile
 			if dockerfile == "" {
