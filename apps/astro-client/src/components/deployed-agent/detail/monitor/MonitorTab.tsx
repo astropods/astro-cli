@@ -11,7 +11,7 @@ import type { AgentDeployment } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InlineBadge } from "@/components/InlineBadge";
-import { ErrorPanel, WarningPanel } from "@/components/deploy/ErrorPanel";
+import { ErrorPanel, WarningPanel } from "@/components/ui/status-panel";
 import { MultiSelect } from "../shared/MultiSelect";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";

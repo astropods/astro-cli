@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { SuccessPanel } from "@/components/deploy/ErrorPanel";
+import { SuccessPanel } from "@/components/ui/status-panel";
 
 const meta = {
   title: "Design System/Composites/SuccessPanel",

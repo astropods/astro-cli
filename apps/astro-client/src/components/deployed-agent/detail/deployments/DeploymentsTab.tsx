@@ -11,7 +11,7 @@ import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymen
 import { deploymentKeys } from "@/api/queries/keys";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
-import { ErrorPanel } from "@/components/deploy/ErrorPanel";
+import { ErrorPanel } from "@/components/ui/status-panel";
 
 const C = {
   bg: "var(--muted)",

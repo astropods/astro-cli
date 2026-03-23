@@ -3,15 +3,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
 
 export interface ErrorPanelProps {
-  /** Heading shown next to the icon */
   title?: string;
-  /** Error message body */
   children: ReactNode;
-  /** Whether the panel can be dismissed by the user. */
   dismissible?: boolean;
-  /** Called after the dismiss button is clicked. */
   onDismiss?: () => void;
-  /** Visual presentation style for the panel body. */
   variant?: "default" | "inline";
 }
 
@@ -84,12 +79,8 @@ function BasePanel({ tone, title, children, dismissible = false, onDismiss, vari
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Icon size={16} className="shrink-0" style={toneTextStyle} />
-            {title ? (
-              <span className="text-sm font-medium" style={toneTextStyle}>{title}</span>
-            ) : null}
-            {title ? (
-              <span className="text-sm" style={toneTextStyle}>-</span>
-            ) : null}
+            {title ? <span className="text-sm font-medium" style={toneTextStyle}>{title}</span> : null}
+            {title ? <span className="text-sm" style={toneTextStyle}>-</span> : null}
             <span className="text-sm" style={toneTextStyle}>{children}</span>
           </div>
           {dismissible ? (

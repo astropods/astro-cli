@@ -5,7 +5,7 @@ import { AccountPicker } from "./AccountPicker";
 import { InterfacesPicker } from "./InterfacesPicker";
 import { VariableFields } from "./VariableFields";
 import { FormSection } from "./FormSection";
-import { ErrorPanel } from "./ErrorPanel";
+import { ErrorPanel } from "@/components/ui/status-panel";
 import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
 import type { useDeployForm } from "./useDeployForm";
