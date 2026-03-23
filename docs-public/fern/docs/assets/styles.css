@@ -11,7 +11,7 @@
   display: none;
 }
 
-.fern-page-actions {
+:has(.docs-home) .fern-page-actions {
   display: none !important;
 }
 
