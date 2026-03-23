@@ -774,6 +774,16 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, &handlers.HeartResponse{}),
 			)
 
+			// Feedback
+			api.POST(protected, "/feedback", "Submit feedback", handlers.SubmitFeedback(log, db),
+				oapispec.Tags("Feedback"),
+				oapispec.BearerAuth(),
+				oapispec.Body(&handlers.FeedbackInput{}),
+				oapispec.Response(201, &handlers.FeedbackResponse{}),
+				oapispec.Response(400, &handlers.ErrorResponse{}),
+				oapispec.Response(429, &handlers.ErrorResponse{}),
+			)
+
 			// Agent write operations (requires agents:write permission)
 			agentWriteRoutes := protected.Group("/agents/:account/:name")
 			agentWriteRoutes.Use(middleware.ResolveAccount(accountStore))

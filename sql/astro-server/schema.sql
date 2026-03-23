@@ -365,6 +365,18 @@ CREATE TABLE public.waitlist (
     CONSTRAINT waitlist_email_key UNIQUE (email)
 );
 
+CREATE TABLE public.feedback_submissions (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id text NOT NULL,
+    user_email text NOT NULL DEFAULT '',
+    message text NOT NULL,
+    page_url text NOT NULL DEFAULT '',
+    created_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT feedback_submissions_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_feedback_submissions_user_created ON public.feedback_submissions(user_id, created_at);
+
 CREATE TABLE public.account_langfuse (
     account_id uuid NOT NULL,
     langfuse_project_id text NOT NULL,

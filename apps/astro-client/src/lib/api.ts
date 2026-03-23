@@ -496,6 +496,13 @@ class ApiClient {
       { method: 'POST', body: JSON.stringify(body) }
     );
   }
+
+  async submitFeedback(body: FeedbackInput): Promise<{ id: string }> {
+    return this.request('/api/v1/feedback', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
 }
 
 export interface ConfigMapResponse {
@@ -812,6 +819,11 @@ export interface TriggerIngestionResponse {
 export interface UsageMeter {
   usage: number;
   quota?: number;
+}
+
+export interface FeedbackInput {
+  message: string;
+  page_url?: string;
 }
 
 export interface QuotaIncreaseInput {

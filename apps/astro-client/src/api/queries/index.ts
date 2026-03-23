@@ -4,3 +4,4 @@ export { useDeployments, useDeploymentLogs, useUndeployAgent } from './deploymen
 export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCreateAccount, useDeleteAccount, useRenameAccount, useUpdateProfile } from './accounts';
 export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
+export { useSubmitFeedback } from './feedback';

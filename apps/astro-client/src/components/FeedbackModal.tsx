@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useSubmitFeedback } from "@/api/queries";
 
 interface FeedbackModalProps {
   open: boolean;
@@ -18,11 +19,16 @@ interface FeedbackModalProps {
 export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
   const [message, setMessage] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const feedback = useSubmitFeedback();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // TODO: wire up submission endpoint
-    setSubmitted(true);
+    feedback.mutate(
+      { message: message.trim(), page_url: window.location.pathname },
+      {
+        onSuccess: () => setSubmitted(true),
+      },
+    );
   }
 
   function handleOpenChange(next: boolean) {
@@ -31,6 +37,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
       setTimeout(() => {
         setMessage("");
         setSubmitted(false);
+        feedback.reset();
       }, 200);
     }
   }
@@ -64,15 +71,21 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={5}
+                maxLength={5000}
                 className="resize-none"
                 autoFocus
               />
+              {feedback.isError && (
+                <p className="text-sm text-destructive">
+                  {(feedback.error as { error?: string })?.error ?? "Something went wrong. Please try again."}
+                </p>
+              )}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => handleOpenChange(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={!message.trim()}>
-                  Send feedback
+                <Button type="submit" disabled={!message.trim() || feedback.isPending}>
+                  {feedback.isPending ? "Sending…" : "Send feedback"}
                 </Button>
               </div>
               <div className="border-t border-border pt-3 text-center">
