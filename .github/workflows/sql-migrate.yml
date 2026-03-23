@@ -112,3 +112,29 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Notify: post migration status to #astro-ops
+  # ---------------------------------------------------------------------------
+  notify:
+    needs: [apply]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify #astro-ops
+        uses: slackapi/slack-github-action@v2
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ vars.SLACK_ASTRO_OPS_CHANNEL_ID }}
+            text: "*SQL Migrate (Prod)* — ${{ needs.apply.result == 'success' && '✅ Success' || '❌ Failed' }}"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: |
+                    *SQL Migrate (Prod)* — ${{ needs.apply.result == 'success' && '✅ Success' || '❌ Failed' }}
+                    *Commit:* `${{ github.sha }}`
+                    *Triggered by:* ${{ github.actor }}
+                    *Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View>

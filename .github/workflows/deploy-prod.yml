@@ -238,3 +238,30 @@ jobs:
           else
             echo "::warning::No $CONFIG_FILE found, skipping ConfigMap"
           fi
+
+  # ---------------------------------------------------------------------------
+  # Notify: post deployment status to #astro-ops
+  # ---------------------------------------------------------------------------
+  notify:
+    needs: [prepare, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify #astro-ops
+        uses: slackapi/slack-github-action@v2
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ vars.SLACK_ASTRO_OPS_CHANNEL_ID }}
+            text: "*Deploy (Prod)* — ${{ needs.deploy.result == 'success' && '✅ Success' || '❌ Failed' }}"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: |
+                    *Deploy (Prod)* — ${{ needs.deploy.result == 'success' && '✅ Success' || '❌ Failed' }}
+                    *Services:* ${{ join(fromJson(needs.prepare.outputs.services), ', ') }}
+                    *Commit:* `${{ github.sha }}`
+                    *Triggered by:* ${{ github.actor }}
+                    *Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View>
