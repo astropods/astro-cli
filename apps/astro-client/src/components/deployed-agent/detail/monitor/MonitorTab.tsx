@@ -74,70 +74,6 @@ interface TraceRow {
   output?: string;
 }
 
-function buildLocalTraceMocks(deploymentId: string): TraceRow[] {
-  const now = Date.now();
-  const rows: Array<Omit<TraceRow, "time"> & { timestamp: number }> = [
-    {
-      id: `${deploymentId}-local-trace-001`,
-      name: "chat.completion",
-      status: "success",
-      latency: 412,
-      tokens: 228,
-      input: "Summarize deployment status and key risks.",
-      output: "Deployment is healthy. No blocking issues detected.",
-      timestamp: now - 2 * 60 * 1000,
-    },
-    {
-      id: `${deploymentId}-local-trace-002`,
-      name: "tool.invoke",
-      status: "error",
-      latency: 1290,
-      tokens: 190,
-      input: "Fetch pod logs for ingestion worker.",
-      output: "Failed to fetch pod logs: upstream timeout.",
-      timestamp: now - 11 * 60 * 1000,
-    },
-    {
-      id: `${deploymentId}-local-trace-003`,
-      name: "chat.completion",
-      status: "timeout",
-      latency: 3021,
-      tokens: 0,
-      input: "Analyze recent latency spikes.",
-      output: "",
-      timestamp: now - 19 * 60 * 1000,
-    },
-    {
-      id: `${deploymentId}-local-trace-004`,
-      name: "chat.completion",
-      status: "success",
-      latency: 538,
-      tokens: 272,
-      input: "Generate concise rollout notes.",
-      output: "Rollout completed with all replicas ready.",
-      timestamp: now - 28 * 60 * 1000,
-    },
-  ];
-
-  return rows.map((trace) => ({
-    id: trace.id,
-    name: trace.name,
-    status: trace.status,
-    latency: trace.latency,
-    tokens: trace.tokens,
-    input: trace.input,
-    output: trace.output,
-    time: new Date(trace.timestamp).toLocaleString([], {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }),
-  }));
-}
-
 const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: CSSProperties }> = {
   success: {
     label: "Success",
@@ -530,7 +466,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return { input, output, sum: input + output };
   }, [metricsData]);
 
-  const tracesFromApi: TraceRow[] = (tracesData?.traces ?? []).map((t) => ({
+  const traces: TraceRow[] = (tracesData?.traces ?? []).map((t) => ({
     id: t.trace_id,
     name: t.name,
     status: t.status === "error" || t.status === "failed" ? "error" : t.status === "timeout" ? "timeout" : "success",
@@ -547,12 +483,6 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     input: typeof t.input === "string" ? t.input : t.input != null ? JSON.stringify(t.input, null, 2) : undefined,
     output: typeof t.output === "string" ? t.output : t.output != null ? JSON.stringify(t.output, null, 2) : undefined,
   }));
-
-  // Local dev fallback so table UI can be reviewed even when observability data is empty.
-  const traces: TraceRow[] =
-    tracesFromApi.length > 0
-      ? tracesFromApi
-      : (import.meta.env.DEV ? buildLocalTraceMocks(deployment.id) : []);
 
   const tsData = useMemo(
     () =>
