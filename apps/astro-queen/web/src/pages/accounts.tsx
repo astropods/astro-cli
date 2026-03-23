@@ -44,9 +44,10 @@ export function AccountsPage() {
   const [integration, setIntegration] = useState<IntegrationFilter>("all");
   const [page, setPage] = useState(0);
 
+  const accounts = data?.accounts ?? [];
   const filtered = useMemo(
-    () => (data?.accounts ? filterAccounts(data.accounts, search, status, integration) : []),
-    [data?.accounts, search, status, integration],
+    () => filterAccounts(accounts, search, status, integration),
+    [accounts, search, status, integration],
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -95,7 +96,7 @@ export function AccountsPage() {
         </Select>
         <span className="ml-auto text-xs text-muted-foreground">
           {filtered.length} account{filtered.length !== 1 ? "s" : ""}
-          {data?.accounts && filtered.length !== data.accounts.length && ` of ${data.accounts.length}`}
+          {accounts.length > 0 && filtered.length !== accounts.length && ` of ${accounts.length}`}
         </span>
       </div>
 
@@ -157,7 +158,7 @@ export function AccountsPage() {
                         )}
                       </td>
                       <td className="px-2 py-0.5 text-muted-foreground">{a.type}</td>
-                      <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{truncateUUID(a.owner_user_id)}</td>
+                      <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{a.owner_user_id ? truncateUUID(a.owner_user_id) : "-"}</td>
                       <td className="px-2 py-0.5 text-right">{a.member_count}</td>
                       <td className="px-2 py-0.5 text-center">
                         {a.has_openmeter ? (
