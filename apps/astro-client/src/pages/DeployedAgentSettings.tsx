@@ -123,8 +123,8 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
     <div className="flex flex-1 flex-col">
       <PageBreadcrumb items={breadcrumbItems} />
 
-      <div className="flex-1 w-full max-w-3xl mx-auto px-6 pt-8 pb-10 md:px-8">
-        <SidebarLayout>
+      <div className="flex-1 w-full max-w-3xl mx-auto px-6 pt-8 pb-10 md:px-8 md:overflow-hidden">
+        <SidebarLayout className="md:h-full">
           <SidebarNav label="Configure">
             <SidebarNavItem to={`${configurePath}/deployment`}>
               <span className="flex items-center gap-2">
@@ -139,7 +139,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
               </span>
             </SidebarNavItem>
           </SidebarNav>
-          <SidebarBody>
+          <SidebarBody className="md:overflow-y-auto">
             <Outlet
               context={{
                 account,

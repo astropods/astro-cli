@@ -157,6 +157,7 @@ export function ActiveDetailView({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+
   useLayoutEffect(() => {
     const fitContentToViewport = () => {
       const viewport = contentViewportRef.current;
@@ -189,7 +190,8 @@ export function ActiveDetailView({
   }, [tab, configOpen, renderedDeployment.id, isCompact]);
 
   return (
-    <div style={{ display: 'flex', flex: 1, flexDirection: 'column', background: C.bg, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flex: 1, minHeight: 0, background: C.bg }}>
+      <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0 }}>
       {/* ── TOP BAR ── */}
       <header style={{
         background: C.panel,
@@ -276,8 +278,6 @@ export function ActiveDetailView({
             gap: 8,
             width: isCompact ? '100%' : 'auto',
             marginTop: isCompact ? 2 : 0,
-            marginRight: !isCompact && configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
-            transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
           {!isPaused && !isDeploying && (
@@ -344,8 +344,6 @@ export function ActiveDetailView({
           display: 'flex',
           flex: 1,
           minHeight: 0,
-          marginRight: !isCompact && configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
-          transition: 'margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
 
@@ -462,37 +460,41 @@ export function ActiveDetailView({
             </div>
           </div>
         </div>
+
+      </div>
       </div>
 
-      {/* right: configure pop-out panel (anchored to top lane) */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: configOpen ? (isCompact ? 0 : CONFIG_PANEL_WIDTH_PX) : 0,
-          overflow: 'hidden',
-          transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-          pointerEvents: configOpen && !isCompact ? 'auto' : 'none',
-          zIndex: 45,
-        }}
-      >
-        {configOpen && !isCompact && (
-          <ConfigurePanel
-            deployment={renderedDeployment}
-            account={account}
-            onClose={() => setConfigOpen(false)}
-            onRedeployStart={() => {
-              setOptimisticDeploying(true);
-            }}
-            onRedeploy={() => {
-              setOptimisticDeploying(true);
-              onRedeploy?.();
-            }}
-          />
-        )}
-      </div>
+      {/* right: configure panel — sticky so it always aligns with the agent header */}
+      {!isCompact && (
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            alignSelf: 'flex-start',
+            height: '100vh',
+            width: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+            flexShrink: 0,
+            overflowX: 'clip',
+            transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            zIndex: 45,
+          }}
+        >
+          {configOpen && (
+            <ConfigurePanel
+              deployment={renderedDeployment}
+              account={account}
+              onClose={() => setConfigOpen(false)}
+              onRedeployStart={() => {
+                setOptimisticDeploying(true);
+              }}
+              onRedeploy={() => {
+                setOptimisticDeploying(true);
+                onRedeploy?.();
+              }}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }

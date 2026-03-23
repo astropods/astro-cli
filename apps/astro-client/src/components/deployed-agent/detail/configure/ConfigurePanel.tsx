@@ -84,7 +84,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
       </div>
 
       <form id={PANEL_FORM_ID} onSubmit={handleSubmit} className={formClass}>
-        <div className="px-6 py-5">
+        <div className="flex-1 px-6 py-5">
           <DeployFormFields
             form={form}
             hideAccountPicker
@@ -100,24 +100,26 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
             }
           />
         </div>
+      </form>
 
-        <div className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-          <div className="flex flex-col gap-2">
-            <Button type="submit" disabled={form.isDeploying} className={`w-full ${REDEPLOY_BUTTON_CLASS}`}>
+      <div className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={form.isDeploying}>
+              Discard
+            </Button>
+            <Button type="submit" form={PANEL_FORM_ID} disabled={form.isDeploying} className={`flex-1 ${REDEPLOY_BUTTON_CLASS}`}>
               {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
               {form.isDeploying ? "Redeploying…" : changes.requiresRedeploy ? "Save & Redeploy" : "Redeploy"}
             </Button>
-            <Button type="button" variant="outline" className="w-full" onClick={onClose} disabled={form.isDeploying}>
-              Discard
-            </Button>
-            {changes.isDirty && (
-              <Button type="button" variant="ghost" className="w-full" onClick={() => form.reset(initialValues)}>
-                Reset changes
-              </Button>
-            )}
           </div>
+          {changes.isDirty && (
+            <Button type="button" variant="ghost" className="w-full" onClick={() => form.reset(initialValues)}>
+              Reset changes
+            </Button>
+          )}
         </div>
-      </form>
+      </div>
     </div>
   );
 }
