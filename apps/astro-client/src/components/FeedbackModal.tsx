@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CheckCircleIcon } from "@heroicons/react/24/outline";
 import {
   Dialog,
   DialogContent,
@@ -36,10 +37,16 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         {submitted ? (
-          <div className="flex flex-col items-center gap-3 py-6 text-center">
-            <p className="text-lg font-semibold text-foreground">Thanks for your feedback</p>
-            <p className="text-sm text-muted-foreground">We read everything and use it to improve Astro.</p>
-            <Button className="mt-2" onClick={() => handleOpenChange(false)}>Done</Button>
+          <div className="flex flex-col items-center gap-4 py-4 text-center">
+            <div className="rounded-xl bg-teal-100 p-3 dark:bg-teal-900/50">
+              <CheckCircleIcon className="size-7 text-teal-600 dark:text-teal-400" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-base font-semibold text-foreground">Thank you for sharing!</p>
+              <p className="text-sm text-muted-foreground">
+                We read every submission and truly value your feedback.
+              </p>
+            </div>
           </div>
         ) : (
           <>
