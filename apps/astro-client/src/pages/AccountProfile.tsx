@@ -67,7 +67,7 @@ function AccountProfileContent() {
       {isMember && (
         <div className="mt-8">
           <h3 className="flex items-center gap-1.5 text-xl font-semibold">
-            Installed agents
+            Deployed agents
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -80,7 +80,7 @@ function AccountProfileContent() {
             </TooltipProvider>
           </h3>
           {deployments.length === 0 ? (
-            <p className="text-muted-foreground mt-3">No agents installed</p>
+            <p className="text-muted-foreground mt-3">No agents deployed</p>
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
               {deployments.map((deployment) => (
