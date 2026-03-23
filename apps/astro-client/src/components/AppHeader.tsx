@@ -7,7 +7,6 @@ import {
   BuildingOffice2Icon,
   Cog6ToothIcon,
   WrenchScrewdriverIcon,
-  EllipsisHorizontalIcon,
   PlusIcon,
   ChatBubbleLeftEllipsisIcon,
 } from "@heroicons/react/24/outline";
@@ -67,9 +66,6 @@ function ExternalOrNavLink({ to, external, children, className }: { to: string; 
   }
   return <RRNavLink to={to} className={className}>{children}</RRNavLink>;
 }
-
-/** Number of nav items always visible; the rest collapse below `lg`. */
-const ALWAYS_VISIBLE = 2;
 
 export function AppHeader() {
   const { user, accounts, isLoading, isAuthenticated, login, logout, hasPermission, personalAccount } = useAuth();
@@ -156,7 +152,7 @@ export function AppHeader() {
         </Link>
 
         <nav className="flex items-center gap-6">
-          {navItems.map((item, i) => (
+          {navItems.map((item) => (
             <ExternalOrNavLink
               key={item.to}
               to={item.to}
@@ -167,27 +163,12 @@ export function AppHeader() {
                   !item.external && isActive
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
-                  i >= ALWAYS_VISIBLE && "hidden lg:block",
                 )
               }
             >
               {item.label}
             </ExternalOrNavLink>
           ))}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 text-[var(--muted-foreground)] lg:hidden">
-                <EllipsisHorizontalIcon className="size-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {navItems.slice(ALWAYS_VISIBLE).map((item) => (
-                <DropdownMenuItem key={item.to} asChild>
-                  <ExternalOrNavLink to={item.to} external={item.external}>{item.label}</ExternalOrNavLink>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </nav>
       </div>
 
