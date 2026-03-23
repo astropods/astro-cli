@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { Activity, Copy, Check, ChevronDown, X } from "lucide-react";
+import { Activity, Copy, Check, ChevronDown } from "lucide-react";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { observabilityKeys } from "@/api/queries/keys";
@@ -10,6 +11,7 @@ import type { AgentDeployment } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InlineBadge } from "@/components/InlineBadge";
+import { ErrorPanel, WarningPanel } from "@/components/deploy/ErrorPanel";
 import { MultiSelect } from "../shared/MultiSelect";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
@@ -73,10 +75,31 @@ interface TraceRow {
   output?: string;
 }
 
-const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeClass: string }> = {
-  success: { label: "SUCCESS", badgeClass: "text-[var(--color-teal-600)] bg-[rgba(21,130,125,0.08)] border-[rgba(21,130,125,0.22)] dark:text-teal-300 dark:bg-teal-900/35 dark:border-teal-300/35" },
-  error: { label: "ERROR", badgeClass: "text-red-700 bg-red-100 border-red-300 dark:text-red-300 dark:bg-red-900/35 dark:border-red-600/35" },
-  timeout: { label: "TIMEOUT", badgeClass: "text-yellow-700 bg-yellow-100 border-yellow-300 dark:text-yellow-300 dark:bg-yellow-900/35 dark:border-yellow-600/35" },
+const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: CSSProperties }> = {
+  success: {
+    label: "SUCCESS",
+    badgeStyle: {
+      color: "var(--color-teal-600)",
+      background: "color-mix(in oklch, var(--color-teal-600) 10%, transparent)",
+      borderColor: "color-mix(in oklch, var(--color-teal-600) 28%, transparent)",
+    },
+  },
+  error: {
+    label: "ERROR",
+    badgeStyle: {
+      color: "var(--color-red-700)",
+      background: "color-mix(in oklch, var(--color-red-700) 10%, transparent)",
+      borderColor: "color-mix(in oklch, var(--color-red-700) 28%, transparent)",
+    },
+  },
+  timeout: {
+    label: "TIMEOUT",
+    badgeStyle: {
+      color: "var(--color-yellow-700)",
+      background: "color-mix(in oklch, var(--color-yellow-700) 10%, transparent)",
+      borderColor: "color-mix(in oklch, var(--color-yellow-700) 28%, transparent)",
+    },
+  },
 };
 
 function fmtTokens(n: number) {
@@ -350,6 +373,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return window.innerWidth < 1180;
   });
   const [showAllTraces, setShowAllTraces] = useState(false);
+  const [isDeploymentErrorDismissed, setIsDeploymentErrorDismissed] = useState(false);
   const [isObservabilityNoticeDismissed, setIsObservabilityNoticeDismissed] = useState(false);
   const [win, setWin] = useState<Win>("24h");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
@@ -566,81 +590,35 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    if (!isError) {
+      setIsDeploymentErrorDismissed(false);
+    }
+  }, [isError, deployment.id]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {isError && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "10px 16px",
-            borderRadius: 8,
-            background: C.coralBg,
-            border: `1px solid ${C.coralBdr}`,
-          }}
+      {isError && !isDeploymentErrorDismissed && (
+        <ErrorPanel
+          title="Deployment error"
+          dismissible
+          onDismiss={() => setIsDeploymentErrorDismissed(true)}
         >
-          <span style={{ fontFamily: S.mono, fontSize: T.label, fontWeight: 700, letterSpacing: "0.08em", color: C.coral }}>
-            ERROR
-          </span>
-          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.coral, flex: 1 }}>
-            This deployment is in an error state — no replicas are ready.
-          </span>
-        </div>
+          This deployment is in an error state - no replicas are ready.
+        </ErrorPanel>
       )}
 
       {observabilityBackendError && !isError && !isObservabilityNoticeDismissed && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            padding: "12px 16px",
-            borderRadius: 8,
-            background: C.amberBg,
-            border: `1px solid ${C.amberBdr}`,
-          }}
+        <WarningPanel
+          title="Observability"
+          variant="inline"
+          dismissible
+          onDismiss={() => setIsObservabilityNoticeDismissed(true)}
         >
-          <span
-            style={{
-              fontFamily: S.mono,
-              fontSize: T.label,
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              color: C.amber,
-              display: "inline-flex",
-              alignItems: "center",
-              whiteSpace: "nowrap",
-              lineHeight: 1.1,
-            }}
-          >
-            OBSERVABILITY
-          </span>
-          <span style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, flex: 1, lineHeight: 1.45 }}>
-            Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the{" "}
-            <strong style={{ color: C.text }}>Deployments</strong> tab.
-          </span>
-          <button
-            type="button"
-            onClick={() => setIsObservabilityNoticeDismissed(true)}
-            aria-label="Dismiss observability notice"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              border: `1px solid ${C.coral}`,
-              background: "transparent",
-              color: C.coral,
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            <X size={14} />
-          </button>
-        </div>
+          Trace metrics are temporarily unavailable. You can still inspect runtime and pod logs on the
+          {" "}
+          Deployments tab.
+        </WarningPanel>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -895,7 +873,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                       </div>
                       {!isCompact ? <span /> : null}
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                        <InlineBadge className={st.badgeClass}>{st.label}</InlineBadge>
+                        <InlineBadge style={st.badgeStyle}>{st.label}</InlineBadge>
                       </div>
                       <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
                         <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text }}>

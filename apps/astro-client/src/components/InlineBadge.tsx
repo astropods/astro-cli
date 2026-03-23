@@ -3,11 +3,13 @@ import { cn } from "@/lib/utils";
 export interface InlineBadgeProps {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }
 
-export function InlineBadge({ children, className }: InlineBadgeProps) {
+export function InlineBadge({ children, className, style }: InlineBadgeProps) {
   return (
     <span
+      style={style}
       className={cn(
         "inline-flex items-center font-mono text-mono-sm uppercase px-2.5 py-1 rounded-full",
         "text-muted-foreground bg-stone-200 border border-border-strong",

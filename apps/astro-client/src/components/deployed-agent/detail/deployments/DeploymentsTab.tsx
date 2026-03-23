@@ -11,6 +11,7 @@ import type { AgentDeployment, ApiError, DeploymentHistoryRecord as ApiDeploymen
 import { deploymentKeys } from "@/api/queries/keys";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
+import { ErrorPanel } from "@/components/deploy/ErrorPanel";
 
 const C = {
   bg: "var(--muted)",
@@ -983,8 +984,10 @@ export function DeploymentsTab({
               )}
               <div style={{ borderTop: `1px solid ${C.border}`, background: C.bgAlt }}>
                 {historyError && (
-                  <div style={{ padding: "14px", fontFamily: S.mono, fontSize: T.monoSm, color: C.coral }}>
-                    Could not load deployment history from the server.
+                  <div style={{ padding: "12px 14px" }}>
+                    <ErrorPanel title="Unable to load deployment history" dismissible>
+                      Could not load deployment history from the server.
+                    </ErrorPanel>
                   </div>
                 )}
                 {historyLoading ? (

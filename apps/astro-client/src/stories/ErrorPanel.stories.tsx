@@ -41,3 +41,19 @@ export const WithoutTitle: Story = {
   },
 };
 
+export const Dismissible: Story = {
+  args: {
+    title: "Deployment failed",
+    children: "Connection to the deployment service timed out. Please try again.",
+    dismissible: true,
+  },
+};
+
+export const Inline: Story = {
+  args: {
+    title: "Deployment failed",
+    children: "Connection to the deployment service timed out. Please try again.",
+    variant: "inline",
+  },
+};
+
