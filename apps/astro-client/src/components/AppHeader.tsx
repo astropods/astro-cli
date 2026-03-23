@@ -9,6 +9,7 @@ import {
   WrenchScrewdriverIcon,
   EllipsisHorizontalIcon,
   PlusIcon,
+  ChatBubbleLeftEllipsisIcon,
 } from "@heroicons/react/24/outline";
 import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
@@ -17,6 +18,7 @@ import { UserCircleIcon } from "@heroicons/react/24/outline";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserCard } from "@/components/UserCard";
+import { FeedbackModal } from "@/components/FeedbackModal";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -71,6 +73,7 @@ export function AppHeader() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const displayName = personalAccount?.display_name || personalAccount?.name || user?.email || "";
 
@@ -197,6 +200,20 @@ export function AppHeader() {
         </div> */}
 
         <div className="flex items-center gap-1">
+        {isAuthenticated && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-[13px] font-normal text-muted-foreground"
+              onClick={() => setFeedbackOpen(true)}
+            >
+              <ChatBubbleLeftEllipsisIcon className="size-4" />
+              Feedback
+            </Button>
+            <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+          </>
+        )}
         {isLoading ? (
           <Skeleton className="size-8 rounded-full" />
         ) : isAuthenticated && user ? (
