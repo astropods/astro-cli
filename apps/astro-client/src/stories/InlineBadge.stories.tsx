@@ -36,17 +36,35 @@ export const Categories: Story = {
 };
 
 export const StatusVariants: Story = {
-  args: { children: "SUCCESS" },
+  args: { children: "success" },
   render: () => (
     <div className="flex items-center gap-2">
-      <InlineBadge className="text-green-700 bg-green-100 border-green-300 dark:text-green-300 dark:bg-green-900/35 dark:border-green-600/35">
-        SUCCESS
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-teal-600)",
+          background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
+        }}
+      >
+        success
       </InlineBadge>
-      <InlineBadge className="text-yellow-700 bg-yellow-100 border-yellow-300 dark:text-yellow-300 dark:bg-yellow-900/35 dark:border-yellow-600/35">
-        TIMEOUT
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-yellow-700)",
+          background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
+        }}
+      >
+        timeout
       </InlineBadge>
-      <InlineBadge className="text-red-700 bg-red-100 border-red-300 dark:text-red-300 dark:bg-red-900/35 dark:border-red-600/35">
-        ERROR
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-red-700)",
+          background: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
+        }}
+      >
+        error
       </InlineBadge>
     </div>
   ),
