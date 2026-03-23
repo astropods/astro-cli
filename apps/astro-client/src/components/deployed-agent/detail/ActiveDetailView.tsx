@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
-import { ArrowLeft, Pause, Play, Loader2 } from "lucide-react";
-import { Cog6ToothIcon } from "@heroicons/react/24/outline";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { AgentIdentity } from "@/components/AgentIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
@@ -283,44 +283,29 @@ export function ActiveDetailView({
           }}
         >
           {!isPaused && !isDeploying && (
-            <button
+            <Button
+              variant="outline"
+              size="default"
               onClick={() => { setPausing(true); pauseMutation.mutate({ deploymentId: renderedDeployment.id }); }}
               disabled={pausing || controlsBusy}
               title="Pause deployment (scale instances to zero)"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 14px', borderRadius: 6,
-                cursor: pausing || controlsBusy ? 'not-allowed' : 'pointer',
-                background: 'transparent',
-                border: `1px solid ${pausing ? C.border : C.coralBdr}`,
-                fontFamily: S.body, fontSize: T.heading4,
-                color: pausing ? C.faint : C.coral,
-                opacity: pausing || controlsBusy ? 0.5 : 1,
-                transition: 'all 0.12s',
-              }}
+              className="text-[var(--color-coral-600)] border-[var(--color-coral-300)] hover:text-[var(--color-coral-600)] dark:border-[var(--color-coral-800)]"
             >
-              {pausing || pauseMutation.isPending ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : <Pause size={I.md} />}
+              {pausing || pauseMutation.isPending ? <Loader2 className="animate-spin" /> : <PauseCircleIcon className="size-4" />}
               Pause
-            </button>
+            </Button>
           )}
           {isPaused && (
-            <button
+            <Button
+              variant="outline"
+              size="default"
               onClick={() => wakeupMutation.mutate({ deploymentId: renderedDeployment.id })}
               disabled={controlsBusy}
               title="Resume deployment"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 14px', borderRadius: 6, cursor: controlsBusy ? 'wait' : 'pointer',
-                background: 'transparent',
-                border: `1px solid ${C.border}`,
-                fontFamily: S.body, fontSize: T.heading4, color: C.muted,
-                opacity: controlsBusy ? 0.7 : 1,
-                transition: 'all 0.12s',
-              }}
             >
-              {wakeupMutation.isPending ? <Loader2 size={I.md} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : <Play size={I.md} />}
+              {wakeupMutation.isPending ? <Loader2 className="animate-spin" /> : <PlayCircleIcon className="size-4" />}
               Resume
-            </button>
+            </Button>
           )}
           <Button
             variant="outline"
