@@ -18,5 +18,5 @@
 <stop offset="1" stop-color="#A1D1A8"/>
 </linearGradient>
 </defs>
-<text x="87" y="21" text-anchor="middle" font-family="sans-serif" font-size="6" letter-spacing="0.5" fill="#6D5BD0">BETA</text>
+<text x="87" y="21" text-anchor="middle" font-family="sans-serif" font-size="7" letter-spacing="0.5" fill="#6D5BD0">BETA</text>
 </svg>
