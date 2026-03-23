@@ -50,8 +50,8 @@ const publicNav: NavItem[] = [
 function Logo() {
   return (
     <>
-      <img src={astroLogo} alt="Astro" className="h-4 dark:hidden" />
-      <img src={astroLogoDark} alt="Astro" className="hidden h-4 dark:block" />
+      <img src={astroLogo} alt="Astro" className="h-6 dark:hidden" />
+      <img src={astroLogoDark} alt="Astro" className="hidden h-6 dark:block" />
     </>
   );
 }
