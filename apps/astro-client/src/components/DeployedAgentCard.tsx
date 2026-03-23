@@ -41,8 +41,8 @@ export interface DeployedAgentCardProps {
 function MetricCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="text-[13px] font-mono text-foreground tabular-nums">{value}</span>
+      <span className="text-body-sm text-muted-foreground">{label}</span>
+      <span className="text-mono-sm text-foreground tabular-nums">{value}</span>
     </div>
   );
 }
