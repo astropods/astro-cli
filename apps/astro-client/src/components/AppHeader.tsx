@@ -205,7 +205,7 @@ export function AppHeader() {
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-[13px] font-normal text-muted-foreground"
+              className="gap-1.5 mr-1 text-[13px] font-normal text-muted-foreground"
               onClick={() => setFeedbackOpen(true)}
             >
               <ChatBubbleLeftEllipsisIcon className="size-4" />
