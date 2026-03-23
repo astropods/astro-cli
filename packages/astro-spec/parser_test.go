@@ -3,6 +3,7 @@ package spec
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -458,6 +459,19 @@ providers:
 			yaml:    `invalid: [yaml`,
 			wantErr: true,
 		},
+		{
+			name: "unquoted @ in name gives helpful error",
+			yaml: `
+spec: package/v1
+name: @pirates/my-agent
+agent:
+  image: test:latest
+`,
+			wantErr: true,
+			check: func(t *testing.T, _ *AstroSpec) {
+				t.Error("should not reach check on error case")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -466,6 +480,14 @@ providers:
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
 				return
+			}
+			if tt.wantErr && err != nil {
+				// Check for helpful error on unquoted @ case
+				if tt.name == "unquoted @ in name gives helpful error" {
+					if !strings.Contains(err.Error(), "must be quoted") {
+						t.Errorf("expected helpful error about quoting @, got: %v", err)
+					}
+				}
 			}
 			if !tt.wantErr && tt.check != nil {
 				tt.check(t, spec)

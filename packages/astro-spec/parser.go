@@ -3,9 +3,13 @@ package spec
 import (
 	"fmt"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
+
+// unquotedAtName matches a top-level `name:` value starting with an unquoted @.
+var unquotedAtName = regexp.MustCompile(`(?m)^name:\s+@`)
 
 var validDatatypes = map[string]bool{
 	"string": true, "boolean": true, "number": true, "array": true, "object": true,
@@ -29,6 +33,9 @@ func ParseFile(path string) (*AstroSpec, error) {
 func Parse(data []byte) (*AstroSpec, error) {
 	var spec AstroSpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
+		if unquotedAtName.Match(data) {
+			return nil, fmt.Errorf("failed to parse spec YAML: the @ character in the name field must be quoted, e.g. name: \"@org/agent\"")
+		}
 		return nil, fmt.Errorf("failed to parse spec YAML: %w", err)
 	}
 
@@ -49,6 +56,9 @@ func ParseSpec(path string) (*AstroSpec, error) {
 
 	var spec AstroSpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
+		if unquotedAtName.Match(data) {
+			return nil, fmt.Errorf("failed to parse spec: the @ character in the name field must be quoted, e.g. name: \"@org/agent\"")
+		}
 		return nil, fmt.Errorf("failed to parse spec: %w", err)
 	}
 
