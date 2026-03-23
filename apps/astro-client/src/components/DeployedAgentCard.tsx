@@ -171,7 +171,7 @@ export function DeployedAgentCard({
       <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
         <MetricCell label="Requests" value={requests.toLocaleString()} />
         <MetricCell label="Last active" value={lastActive} />
-        <MetricCell label="Installed" value={installedAt} />
+        <MetricCell label="Deployed" value={installedAt} />
         <MetricCell label="Updated" value={updatedAt} />
       </div>
     </>
