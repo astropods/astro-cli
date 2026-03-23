@@ -93,8 +93,8 @@ function logLineColor(line: string): string {
   const l = line.toLowerCase();
   if (/✓|connected|ready|healthy|initialized|registered|success|loaded|complete/.test(l)) return C.success;
   if (/error|failed|exception|fatal/.test(l)) return C.coral;
-  if (/warn|warning|retry|attempt/.test(l)) return C.amber;
-  return C.muted;
+  if (/warn|warning|retry|attempt/.test(l)) return C.warning;
+  return C.text;
 }
 
 function splitLogLineTimestamp(line: string): { timestamp: string | null; message: string } {

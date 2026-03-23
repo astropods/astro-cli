@@ -668,7 +668,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             <Select value={win} onValueChange={(value) => setWin(value as Win)}>
               <SelectTrigger
                 className="h-9 w-auto min-w-[160px] px-3"
-                style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, background: C.panel }}
+                style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, background: "var(--popover)" }}
               >
                 <SelectValue />
               </SelectTrigger>
@@ -858,7 +858,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     </span>
                   ))}
                 </div>
-            <div style={{ paddingBottom: 12 }}>
+            <div>
               {tracesLoading && (
                 <div style={{ minHeight: tracesEmptyMinHeight, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   {Array.from({ length: 6 }).map((_, idx) => (
