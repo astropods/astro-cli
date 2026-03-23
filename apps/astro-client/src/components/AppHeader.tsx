@@ -45,6 +45,9 @@ interface NavItem {
 
 const publicNav: NavItem[] = [
   { label: "Blueprints", to: "/blueprints" },
+];
+
+const externalNav: NavItem[] = [
   { label: "Docs", to: "https://docs.astropods.com", external: true },
   { label: "Blog", to: "https://blog.astropods.com", external: true },
 ];
@@ -83,7 +86,7 @@ export function AppHeader() {
   }, [location.pathname]);
 
   const navItems: NavItem[] = isAuthenticated
-    ? [publicNav[0], { label: "My Agents", to: "/agents" }, ...publicNav.slice(1)]
+    ? [...publicNav, { label: "My Agents", to: "/agents" }]
     : publicNav;
 
   if (isMobile) {
@@ -105,7 +108,7 @@ export function AppHeader() {
               <SheetTitle>Menu</SheetTitle>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-4">
-              {navItems.map((item) => (
+              {[...navItems, ...externalNav].map((item) => (
                 <ExternalOrNavLink key={item.to} to={item.to} external={item.external}>
                   <Button
                     variant="ghost"
@@ -160,10 +163,10 @@ export function AppHeader() {
               external={item.external}
               className={({ isActive }) =>
                 cn(
-                  "whitespace-nowrap text-[13px] transition-colors hover:text-foreground",
+                  "whitespace-nowrap text-[13px] font-normal transition-colors",
                   !item.external && isActive
-                    ? "font-semibold text-primary"
-                    : "font-normal text-[var(--muted-foreground)]",
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                   i >= ALWAYS_VISIBLE && "hidden lg:block",
                 )
               }
@@ -188,8 +191,19 @@ export function AppHeader() {
         </nav>
       </div>
 
-      {/* Right: search + auth */}
+      {/* Right: external nav + auth */}
       <div className="ml-auto flex items-center gap-4">
+        {externalNav.map((item) => (
+          <ExternalOrNavLink
+            key={item.to}
+            to={item.to}
+            external={item.external}
+            className="whitespace-nowrap text-[13px] font-normal text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {item.label}
+          </ExternalOrNavLink>
+        ))}
+
         {/* <div className="relative">
           <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
