@@ -24,7 +24,7 @@ type DeviceAuthorizationResponse struct {
 
 // TokenResponse is returned by the token endpoint on success
 type TokenResponse struct {
-	AccessToken  string `json:"access_token"` //nolint:gosec
+	AccessToken  string `json:"access_token"`  //nolint:gosec
 	RefreshToken string `json:"refresh_token"` //nolint:gosec
 	ExpiresIn    int    `json:"expires_in"`
 	TokenType    string `json:"token_type"`
@@ -251,6 +251,48 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 			return nil, fmt.Errorf("token refresh failed: %s - %s", tokenErr.Error, tokenErr.ErrorDescription)
 		}
 		return nil, fmt.Errorf("token refresh failed with status %d", resp.StatusCode)
+	}
+
+	var tokenResp TokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	return &tokenResp, nil
+}
+
+// RefreshAccessTokenForOrg exchanges a refresh token for an org-scoped access token.
+// The returned JWT will contain the organization's ID, role, and permissions claims.
+func (c *Client) RefreshAccessTokenForOrg(ctx context.Context, refreshToken, organizationID string) (*TokenResponse, error) {
+	endpoint := fmt.Sprintf("%s/user_management/authenticate", c.baseURL)
+
+	data := url.Values{}
+	data.Set("client_id", c.clientID)
+	data.Set("refresh_token", refreshToken)
+	data.Set("grant_type", "refresh_token")
+	data.Set("organization_id", organizationID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		var tokenErr TokenError
+		if err := json.Unmarshal(body, &tokenErr); err == nil {
+			return nil, fmt.Errorf("org-scoped token refresh failed: %s - %s", tokenErr.Error, tokenErr.ErrorDescription)
+		}
+		return nil, fmt.Errorf("org-scoped token refresh failed with status %d", resp.StatusCode)
 	}
 
 	var tokenResp TokenResponse

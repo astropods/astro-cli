@@ -30,11 +30,11 @@ type Credentials struct {
 
 // Profile represents a single authentication profile
 type Profile struct {
-	AccessToken  string           `json:"access_token,omitempty"`  //nolint:gosec
-	RefreshToken string           `json:"refresh_token,omitempty"` //nolint:gosec
-	ExpiresAt    time.Time        `json:"expires_at,omitempty"`
-	User         *StoredUser      `json:"user,omitempty"`
-	Accounts     []StoredAccount  `json:"accounts,omitempty"`
+	AccessToken  string          `json:"access_token,omitempty"`  //nolint:gosec
+	RefreshToken string          `json:"refresh_token,omitempty"` //nolint:gosec
+	ExpiresAt    time.Time       `json:"expires_at,omitempty"`
+	User         *StoredUser     `json:"user,omitempty"`
+	Accounts     []StoredAccount `json:"accounts,omitempty"`
 }
 
 // StoredUser represents user info stored with credentials
@@ -49,10 +49,11 @@ type StoredUser struct {
 
 // StoredAccount represents an account stored with the profile
 type StoredAccount struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Role string `json:"role,omitempty"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	Role                 string `json:"role,omitempty"`
+	WorkOSOrganizationID string `json:"workos_org_id,omitempty"`
 }
 
 // Storage handles secure credential storage

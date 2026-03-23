@@ -143,7 +143,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse registry URL: %w", err)
 	}
 
+	// Parse @account/name from spec — strip the prefix for all downstream use
+	accountOverride, agentName := parseAgentName(astroSpec.Name)
+
 	// Validate credentials upfront so stale tokens fail before build/push
+	var orgToken string // non-empty when pushing to an organization
 	if !noAuth {
 		tokenManager := auth.NewTokenManager(binaryName)
 		if !tokenManager.IsAuthenticated() {
@@ -155,16 +159,33 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print header
-	fmt.Printf("%s→%s Pushing %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset, pushTag)
+	if accountOverride != "" {
+		fmt.Printf("%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, colorCyan, accountOverride, colorReset, pushTag)
+	} else {
+		fmt.Printf("%s→%s Pushing %s%s%s build %s\n\n", colorCyan, colorReset, colorBold, agentName, colorReset, pushTag)
+	}
 
 	// Step 1: Get namespace from profile
 	printStep("Reading account from profile...")
-	namespace, nsErr := getUserNamespace(verbose)
+	namespace, workosOrgID, nsErr := getUserNamespace(verbose, accountOverride)
 	if nsErr != nil {
 		printStepFail()
 		return fmt.Errorf("failed to get user namespace: %w", nsErr)
 	}
 	printStepDone(fmt.Sprintf("namespace: %s", namespace))
+
+	// If pushing to an org, obtain an org-scoped token
+	if workosOrgID != "" && !noAuth {
+		printStep("Obtaining organization token...")
+		tokenManager := auth.NewTokenManager(binaryName)
+		var tokenErr error
+		orgToken, tokenErr = tokenManager.GetOrgScopedAccessToken(cmd.Context(), workosOrgID)
+		if tokenErr != nil {
+			printStepFail()
+			return fmt.Errorf("failed to get org-scoped token: %w", tokenErr)
+		}
+		printStepDone("")
+	}
 
 	// Build images first if requested
 	imagesPushed := 0
@@ -186,11 +207,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 	if !skipPush {
 		// 1. Push agent container image
 		if multiPlatform {
-			baseName := astroSpec.Name
+			baseName := agentName
 			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 			printPushStart("agent", baseName)
-			size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
+			size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
 			if err != nil {
 				printPushComplete(false, 0)
 				return fmt.Errorf("failed to push agent image: %w", err)
@@ -199,11 +220,11 @@ func runPush(cmd *cobra.Command, args []string) error {
 			imagesPushed++
 		} else {
 			// Single platform: push the platform-specific image we built (not the convenience tag)
-			localImageName := platformImageTag(astroSpec.Name, pushTag, platforms[0])
-			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, pushTag)
+			localImageName := platformImageTag(agentName, pushTag, platforms[0])
+			remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, agentName, pushTag)
 
-			printPushStart("agent", astroSpec.Name)
-			size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
+			printPushStart("agent", agentName)
+			size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
 			if err != nil {
 				printPushComplete(false, 0)
 				return fmt.Errorf("failed to push agent image: %w", err)
@@ -215,12 +236,12 @@ func runPush(cmd *cobra.Command, args []string) error {
 		// 2. Push custom-built model images
 		for modelName, model := range astroSpec.Models {
 			if model.Container != nil && model.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, modelName)
+				baseName := fmt.Sprintf("%s-model-%s", agentName, modelName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("model", modelName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push model %s: %w", modelName, err)
@@ -228,7 +249,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push model %s: %w", modelName, err)
@@ -243,12 +264,12 @@ func runPush(cmd *cobra.Command, args []string) error {
 		for knowledgeName, knowledge := range astroSpec.Knowledge {
 			container := knowledge.ResolvedContainer()
 			if container.Build != nil {
-				baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, knowledgeName)
+				baseName := fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("knowledge", knowledgeName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
@@ -256,7 +277,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push knowledge store %s: %w", knowledgeName, err)
@@ -270,12 +291,12 @@ func runPush(cmd *cobra.Command, args []string) error {
 		// 4. Push custom-built tool images
 		for toolName, tool := range astroSpec.Tools {
 			if tool.Container != nil && tool.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, toolName)
+				baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("tool", toolName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
@@ -283,7 +304,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push tool %s: %w", toolName, err)
@@ -297,12 +318,12 @@ func runPush(cmd *cobra.Command, args []string) error {
 		// 5. Push custom-built ingestion images
 		for ingestionName, ingestion := range astroSpec.Ingestion {
 			if ingestion.Container.Build != nil {
-				baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, ingestionName)
+				baseName := fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName)
 				remoteImageName := fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag)
 
 				printPushStart("ingestion", ingestionName)
 				if multiPlatform {
-					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth)
+					size, err := pushMultiPlatformToRegistryStreaming(baseName, pushTag, remoteImageName, platforms, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
@@ -310,7 +331,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 					printPushComplete(true, size)
 				} else {
 					localImageName := platformImageTag(baseName, pushTag, platforms[0])
-					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth)
+					size, err := pushImageToRegistryStreaming(localImageName, remoteImageName, noAuth, orgToken)
 					if err != nil {
 						printPushComplete(false, 0)
 						return fmt.Errorf("failed to push ingestion %s: %w", ingestionName, err)
@@ -339,8 +360,8 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 			// Agent image
 			if err := retag(
-				platformImageTag(astroSpec.Name, pushTag, platform),
-				fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, astroSpec.Name, pushTag),
+				platformImageTag(agentName, pushTag, platform),
+				fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, agentName, pushTag),
 			); err != nil {
 				return err
 			}
@@ -348,7 +369,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 			// Custom-built model images
 			for modelName, model := range astroSpec.Models {
 				if model.Container != nil && model.Container.Build != nil {
-					baseName := fmt.Sprintf("%s-model-%s", astroSpec.Name, modelName)
+					baseName := fmt.Sprintf("%s-model-%s", agentName, modelName)
 					if err := retag(
 						platformImageTag(baseName, pushTag, platform),
 						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
@@ -362,7 +383,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 			for knowledgeName, knowledge := range astroSpec.Knowledge {
 				container := knowledge.ResolvedContainer()
 				if container.Build != nil {
-					baseName := fmt.Sprintf("%s-knowledge-%s", astroSpec.Name, knowledgeName)
+					baseName := fmt.Sprintf("%s-knowledge-%s", agentName, knowledgeName)
 					if err := retag(
 						platformImageTag(baseName, pushTag, platform),
 						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
@@ -375,7 +396,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 			// Custom-built tool images
 			for toolName, tool := range astroSpec.Tools {
 				if tool.Container != nil && tool.Container.Build != nil {
-					baseName := fmt.Sprintf("%s-tool-%s", astroSpec.Name, toolName)
+					baseName := fmt.Sprintf("%s-tool-%s", agentName, toolName)
 					if err := retag(
 						platformImageTag(baseName, pushTag, platform),
 						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
@@ -388,7 +409,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 			// Custom-built ingestion images
 			for ingestionName, ingestion := range astroSpec.Ingestion {
 				if ingestion.Container.Build != nil {
-					baseName := fmt.Sprintf("%s-ingestion-%s", astroSpec.Name, ingestionName)
+					baseName := fmt.Sprintf("%s-ingestion-%s", agentName, ingestionName)
 					if err := retag(
 						platformImageTag(baseName, pushTag, platform),
 						fmt.Sprintf("%s/%s/%s:%s", registryHost, namespace, baseName, pushTag),
@@ -418,7 +439,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		}
 
 		// Check if the agent already exists on the server
-		serverAgent := getAgentFromServer(effectiveServerURL, namespace, astroSpec.Name, noAuth)
+		serverAgent := getAgentFromServer(effectiveServerURL, namespace, agentName, noAuth, orgToken)
 
 		if !serverAgent.Exists {
 			// First push: prompt if not set in spec
@@ -436,7 +457,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 		// Build the full registry path for the transformed spec
 		registryPath := fmt.Sprintf("%s/%s", registryHost, namespace)
-		if err := registerAgent(effectiveServerURL, astroSpec.Name, pushTag, registryPath, specPath, pushTag, readmeContent, visibility, verbose, noAuth); err != nil {
+		if err := registerAgent(effectiveServerURL, agentName, pushTag, registryPath, specPath, pushTag, readmeContent, visibility, verbose, noAuth, orgToken); err != nil {
 			printStepFail()
 			return fmt.Errorf("registration failed: %w", err)
 		} else {
@@ -449,7 +470,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	// Final summary
 	fmt.Printf("\n%s%s✓ Pushed successfully!%s\n", colorBold, colorGreen, colorReset)
-	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, astroSpec.Name, colorReset, colorDim, pushTag, colorReset)
+	fmt.Printf("  %s%s%s tag %s%s%s\n\n", colorCyan, agentName, colorReset, colorDim, pushTag, colorReset)
 
 	return nil
 }
@@ -483,22 +504,58 @@ func printPushComplete(success bool, _ int64) {
 	}
 }
 
+// parseAgentName splits a spec name into an optional account override and the bare agent name.
+// "@my-org/my-agent" → ("my-org", "my-agent")
+// "my-agent"         → ("", "my-agent")
+func parseAgentName(raw string) (account, name string) {
+	if strings.HasPrefix(raw, "@") {
+		trimmed := strings.TrimPrefix(raw, "@")
+		if idx := strings.Index(trimmed, "/"); idx > 0 && idx < len(trimmed)-1 {
+			return trimmed[:idx], trimmed[idx+1:]
+		}
+	}
+	return "", raw
+}
+
 // getUserNamespace reads the user's namespace (account name) from the stored profile.
-func getUserNamespace(verbose bool) (string, error) {
+// If accountOverride is non-empty, it looks up that account and returns its WorkOS org ID
+// (needed for org-scoped token refresh). Otherwise it returns the personal account.
+func getUserNamespace(verbose bool, accountOverride string) (namespace, workosOrgID string, err error) {
 	storage := auth.NewStorage(binaryName)
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
+		return "", "", fmt.Errorf("not logged in. Run '%s login' to authenticate", binaryName)
 	}
 
-	// Try stored account name
+	if accountOverride != "" {
+		// Look up the requested account
+		for _, acct := range profile.Accounts {
+			if strings.EqualFold(acct.Name, accountOverride) {
+				if acct.Type == "organization" && acct.WorkOSOrganizationID == "" {
+					return "", "", fmt.Errorf("organization %q is not linked. Run '%s login' to refresh your accounts", accountOverride, binaryName)
+				}
+				if verbose {
+					fmt.Fprintf(os.Stderr, "  %sAccount: %s (ID: %s, type: %s)%s\n", colorDim, acct.Name, acct.ID, acct.Type, colorReset)
+				}
+				return strings.ToLower(acct.Name), acct.WorkOSOrganizationID, nil
+			}
+		}
+		// Not found — list available accounts
+		var names []string
+		for _, acct := range profile.Accounts {
+			names = append(names, acct.Name)
+		}
+		return "", "", fmt.Errorf("account %q not found. Available accounts: %s. Run '%s login' to refresh", accountOverride, strings.Join(names, ", "), binaryName)
+	}
+
+	// Default: personal account
 	name := profile.User.AccountName
 	if name == "" && len(profile.Accounts) > 0 {
 		name = profile.Accounts[0].Name
 	}
 
 	if name == "" {
-		return "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", binaryName)
+		return "", "", fmt.Errorf("no account found. Visit the dashboard to choose your username, then run '%s login' again", binaryName)
 	}
 
 	if verbose {
@@ -509,7 +566,7 @@ func getUserNamespace(verbose bool) (string, error) {
 		fmt.Fprintf(os.Stderr, "  %sAccount: %s (ID: %s)%s\n", colorDim, name, accountID, colorReset)
 	}
 
-	return strings.ToLower(name), nil
+	return strings.ToLower(name), "", nil
 }
 
 // generateBuildID returns a random 8-character hex string (4 bytes).
@@ -531,7 +588,7 @@ func getRegistryHost(registryURL string) (string, error) {
 }
 
 // registerAgent registers the agent spec with the astro-server
-func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme, visibility string, verbose bool, skipAuth bool) error {
+func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, readme, visibility string, verbose bool, skipAuth bool, tokenOverride string) error {
 	// Read and parse spec file
 	specData, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
@@ -599,7 +656,9 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 
 	// Add authentication header if not skipped
 	if !skipAuth {
-		if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
+		if tokenOverride != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenOverride))
+		} else if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
 			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, binaryName)
 		}
 		if verbose {
@@ -733,7 +792,7 @@ type agentServerInfo struct {
 }
 
 // getAgentFromServer checks if an agent exists on the server and returns its metadata.
-func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool) agentServerInfo {
+func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool, tokenOverride string) agentServerInfo {
 	reqURL := fmt.Sprintf("%s/api/v1/agents/%s/%s",
 		strings.TrimSuffix(serverURL, "/"),
 		url.PathEscape(accountName),
@@ -747,7 +806,9 @@ func getAgentFromServer(serverURL, accountName, agentName string, skipAuth bool)
 	}
 
 	if !skipAuth {
-		if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
+		if tokenOverride != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenOverride))
+		} else if err := auth.AddAuthHeader(context.Background(), req, binaryName); err != nil {
 			fmt.Fprintf(os.Stderr, "%s⚠%s  Could not check agent status: auth error\n", colorYellow, colorReset)
 			return agentServerInfo{}
 		}

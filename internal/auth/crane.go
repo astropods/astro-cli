@@ -25,3 +25,17 @@ func (a *craneAuthenticator) Authorization() (*authn.AuthConfig, error) {
 func GetCraneAuth(binaryName string) authn.Authenticator {
 	return &craneAuthenticator{tokenManager: NewTokenManager(binaryName)}
 }
+
+// staticTokenAuthenticator implements authn.Authenticator with a fixed token.
+type staticTokenAuthenticator struct {
+	token string
+}
+
+func (a *staticTokenAuthenticator) Authorization() (*authn.AuthConfig, error) {
+	return &authn.AuthConfig{RegistryToken: a.token}, nil
+}
+
+// GetCraneAuthWithToken returns an authn.Authenticator that uses the provided token directly.
+func GetCraneAuthWithToken(token string) authn.Authenticator {
+	return &staticTokenAuthenticator{token: token}
+}

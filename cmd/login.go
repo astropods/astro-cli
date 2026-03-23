@@ -436,10 +436,11 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 
 	var result struct {
 		Accounts []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-			Type string `json:"type"`
-			Role string `json:"role"`
+			ID                   string `json:"id"`
+			Name                 string `json:"name"`
+			Type                 string `json:"type"`
+			Role                 string `json:"role"`
+			WorkOSOrganizationID string `json:"workos_org_id"`
 		} `json:"accounts"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -449,10 +450,11 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 	var accounts []auth.StoredAccount
 	for _, a := range result.Accounts {
 		accounts = append(accounts, auth.StoredAccount{
-			ID:   a.ID,
-			Name: a.Name,
-			Type: a.Type,
-			Role: a.Role,
+			ID:                   a.ID,
+			Name:                 a.Name,
+			Type:                 a.Type,
+			Role:                 a.Role,
+			WorkOSOrganizationID: a.WorkOSOrganizationID,
 		})
 	}
 	return accounts, nil
