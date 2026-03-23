@@ -1,10 +1,11 @@
 ## Summary
 
-Page headings on the Blueprints section lacked the word "blueprints", making it unclear what was being shown.
+Two small copy improvements to reinforce the "blueprints" concept across the app.
 
 ## Design
 
-Added "blueprints" to the h1 heading on each of the three Blueprints views: Discover, Personal, and per-org (e.g. "postman blueprints").
+- Added "blueprints" to the h1 heading on each Blueprints section view: Discover, Personal, and per-org (e.g. "postman blueprints").
+- Updated the My Agents empty state description to "Browse available agent blueprints and deploy one to get started." and the CTA from "Browse agents" to "Browse blueprints".
 
 ## Migration
 
