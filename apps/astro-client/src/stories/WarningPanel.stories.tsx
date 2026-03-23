@@ -32,3 +32,11 @@ export const Inline: Story = {
     variant: "inline",
   },
 };
+
+export const Dismissible: Story = {
+  args: {
+    title: "Deployment delayed",
+    children: "We are retrying container startup after a temporary infrastructure issue.",
+    dismissible: true,
+  },
+};

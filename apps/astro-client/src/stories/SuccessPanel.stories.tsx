@@ -32,3 +32,11 @@ export const Inline: Story = {
     variant: "inline",
   },
 };
+
+export const Dismissible: Story = {
+  args: {
+    title: "Deployment complete",
+    children: "Your latest build is live and healthy across all services.",
+    dismissible: true,
+  },
+};

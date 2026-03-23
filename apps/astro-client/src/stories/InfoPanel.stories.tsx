@@ -32,3 +32,11 @@ export const Inline: Story = {
     variant: "inline",
   },
 };
+
+export const Dismissible: Story = {
+  args: {
+    title: "Heads up",
+    children: "Your deployment is still warming up. Some metrics may take a minute to appear.",
+    dismissible: true,
+  },
+};
