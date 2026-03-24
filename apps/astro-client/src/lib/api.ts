@@ -503,6 +503,59 @@ class ApiClient {
       body: JSON.stringify(body),
     });
   }
+
+  // Avatar endpoints
+  private async uploadFormData<T>(
+    endpoint: string,
+    formData: FormData,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...this.defaultHeaders },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error: ApiError = await response.json().catch(() => ({
+        error: 'request_failed',
+        error_description: `Request failed with status ${response.status}`,
+      }));
+      error.status = response.status;
+      throw error;
+    }
+
+    const text = await response.text();
+    if (!text) {
+      return {} as T;
+    }
+
+    return JSON.parse(text);
+  }
+
+  async uploadAvatar(account: string, file: Blob): Promise<AvatarResponse> {
+    const formData = new FormData();
+    formData.append('avatar', file, 'avatar.jpg');
+    return this.uploadFormData<AvatarResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/avatar`,
+      formData,
+    );
+  }
+
+  async setAvatarPreset(account: string, index: number): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/avatar/preset/${index}`,
+      { method: 'PUT' },
+    );
+  }
+
+  async resetAvatar(account: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/avatar`,
+      { method: 'DELETE' },
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -819,6 +872,11 @@ export interface TriggerIngestionResponse {
 export interface UsageMeter {
   usage: number;
   quota?: number;
+}
+
+export interface AvatarResponse {
+  avatar_url: string;
+  avatar_version: number;
 }
 
 export interface FeedbackInput {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useBlocker } from "react-router";
 import { CheckIcon } from "@heroicons/react/24/outline";
-import { Loader2 } from "lucide-react";
+import { Camera, Loader2 } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { useUpdateProfile } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
+import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { DISPLAY_NAME_MAX_LENGTH } from "@/lib/constants";
 
 const headingClass = {
@@ -65,6 +66,7 @@ function ProfileSection() {
   const initialName = personalAccount?.display_name ?? "";
   const [displayName, setDisplayName] = useState(initialName);
   const [savedName, setSavedName] = useState(initialName);
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const { showSaved, flash } = useSavedFlash();
 
   const isDirty = displayName !== savedName;
@@ -106,7 +108,16 @@ function ProfileSection() {
       {user && (
         <>
           <div className="flex items-center gap-4">
-            <UserAvatar handle={personalAccount?.name ?? user.id} name={accountDisplayName} avatarVersion={personalAccount?.avatar_version} className="size-[72px] text-2xl" />
+            <button
+              type="button"
+              className="group relative cursor-pointer"
+              onClick={() => setAvatarDialogOpen(true)}
+            >
+              <UserAvatar handle={personalAccount?.name ?? user.id} name={accountDisplayName} avatarVersion={personalAccount?.avatar_version} className="size-[72px] text-2xl" />
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                <Camera className="size-5 text-white" />
+              </div>
+            </button>
             <div>
               <div className="text-sm font-semibold text-foreground">
                 {accountDisplayName}
@@ -118,6 +129,14 @@ function ProfileSection() {
               )}
             </div>
           </div>
+          {personalAccount && (
+            <AvatarUploadDialog
+              account={personalAccount.name}
+              open={avatarDialogOpen}
+              onOpenChange={setAvatarDialogOpen}
+              onSuccess={() => { refresh(); flash(); }}
+            />
+          )}
 
           <div>
             <Label size="md">Display name</Label>

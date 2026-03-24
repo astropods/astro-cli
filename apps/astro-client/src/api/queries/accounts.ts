@@ -72,3 +72,24 @@ export function useUpdateProfile() {
       api.updateProfile(data),
   });
 }
+
+// Avatar mutations — callers refresh the session via useAuth().refresh()
+export function useUploadAvatar() {
+  return useMutation({
+    mutationFn: ({ account, file }: { account: string; file: Blob }) =>
+      api.uploadAvatar(account, file),
+  });
+}
+
+export function useSetAvatarPreset() {
+  return useMutation({
+    mutationFn: ({ account, index }: { account: string; index: number }) =>
+      api.setAvatarPreset(account, index),
+  });
+}
+
+export function useResetAvatar() {
+  return useMutation({
+    mutationFn: (account: string) => api.resetAvatar(account),
+  });
+}
