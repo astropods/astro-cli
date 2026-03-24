@@ -129,7 +129,7 @@ export function DeployedAgentCard({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={copyId} className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]">
               {copied ? <CheckIcon className="h-4 w-4" /> : <DocumentDuplicateIcon className="h-4 w-4" />}
-              {copied ? "Copied!" : "Copy deployment ID"}
+              {copied ? "Copied!" : "Copy deploy ID"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
