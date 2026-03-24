@@ -1,34 +1,14 @@
 import { useState } from "react";
-import { X, Copy, Check } from "lucide-react";
-import { QueueListIcon, ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import { Copy, Check } from "lucide-react";
+import { QueueListIcon, ChevronUpIcon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
 import { InlineBadge } from "@/components/InlineBadge";
-import type { TraceRow, TraceStatus } from "./MonitorTab";
+import type { TraceRow } from "./MonitorTab";
+import { TRACE_STATUS_STYLE, formatLatencyMs } from "./MonitorTab";
 
 const PANEL_SHELL_CLASS = "flex h-full w-[420px] flex-col border-l border-border bg-surface dark:bg-background";
 const PANEL_HEADER_CLASS = "flex h-[63px] shrink-0 items-center gap-2 border-b border-border px-5";
-
-const STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: React.CSSProperties }> = {
-  success: {
-    label: "Success",
-    badgeStyle: { color: "var(--color-teal-600)", background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)" },
-  },
-  error: {
-    label: "Error",
-    badgeStyle: { color: "var(--color-red-700)", background: "color-mix(in oklch, var(--color-red-700) 12%, transparent)" },
-  },
-  timeout: {
-    label: "Timeout",
-    badgeStyle: { color: "var(--color-yellow-700)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" },
-  },
-};
-
-function formatLatencyMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
 
 interface TraceDetailPanelProps {
   trace: TraceRow;
@@ -42,7 +22,7 @@ interface TraceDetailPanelProps {
 export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavigate, fullPage = false }: TraceDetailPanelProps) {
   const [tab, setTab] = useState<"input" | "output">("input");
   const [copied, setCopied] = useState(false);
-  const st = STATUS_STYLE[trace.status];
+  const st = TRACE_STATUS_STYLE[trace.status];
   const activeContent = tab === "input" ? (trace.input ?? "") : (trace.output ?? "");
 
   const handleCopy = () => {
@@ -79,7 +59,7 @@ export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavig
           <ChevronDownIcon className="size-4" />
         </Button>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
-          <X className="size-4" />
+          <XMarkIcon className="size-4" />
         </Button>
       </div>
 
@@ -96,7 +76,6 @@ export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavig
         </div>
       </div>
 
-      {/* Tab bar */}
       {/* Tab bar */}
       <div className="flex shrink-0 border-b border-border px-5">
         {(["input", "output"] as const).map((t) => (
@@ -126,15 +105,15 @@ export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavig
       {/* Content */}
       <div className="relative flex-1 overflow-y-auto px-5 py-4">
         {activeContent && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-3 top-3 size-6 text-muted-foreground"
             onClick={handleCopy}
-            className="absolute right-4 top-4 text-muted-foreground hover:text-foreground transition-colors"
-            style={{ background: "none", border: "none", padding: 2, display: "flex", cursor: "pointer" }}
             aria-label={`Copy ${tab}`}
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
+            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          </Button>
         )}
         {tab === "input" ? (
           trace.input ? (

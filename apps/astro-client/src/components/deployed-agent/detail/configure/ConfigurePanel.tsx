@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, Loader2, Rocket, Play, Check } from "lucide-react";
-import { Cog6ToothIcon } from "@heroicons/react/24/outline";
+import { Loader2, Rocket, Play, Check } from "lucide-react";
+import { Cog6ToothIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
@@ -81,7 +81,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
         <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
-          <X className="size-4" />
+          <XMarkIcon className="size-4" />
         </Button>
       </div>
 
@@ -207,7 +207,7 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, 
         <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
-          <X className="size-4" />
+          <XMarkIcon className="size-4" />
         </Button>
       </div>
       <div className="flex flex-1 items-center justify-center px-5">{children}</div>
