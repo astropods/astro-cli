@@ -43,7 +43,7 @@ func (m *MemFs) HasDir(path string) bool {
 // renderAstroYml uses the same rendering path as the CLI (RenderTemplate) so tests assert real behavior.
 func renderAstroYml(t *testing.T, config ScaffoldConfig) string {
 	t.Helper()
-	paths, err := GetTemplatePaths("ts", "mastra")
+	paths, err := GetTemplatePaths("mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -400,7 +400,7 @@ func subsets(items []string) [][]string {
 // interfaces, model state, integrations, knowledge, and ingestion selections.
 // This catches stale field references the moment a ScaffoldConfig field is renamed.
 func TestAllTemplatesRender(t *testing.T) {
-	paths, err := GetTemplatePaths("ts", "mastra")
+	paths, err := GetTemplatePaths("mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestAllTemplatesRender(t *testing.T) {
 func generateWithMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
 	t.Helper()
 	memfs := newMemFs()
-	if err := generateFiles(memfs, "/proj", config, "ts", "mastra"); err != nil {
+	if err := generateFiles(memfs, "/proj", config, "mastra"); err != nil {
 		t.Fatalf("generateFiles: %v", err)
 	}
 	return memfs
@@ -587,7 +587,7 @@ func TestAstroYml_IngestionDockerfilePath(t *testing.T) {
 }
 
 func TestIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
-	paths, err := GetTemplatePaths("ts", "mastra")
+	paths, err := GetTemplatePaths("mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -950,7 +950,7 @@ func TestAgentEnvVars_MatchesSpecEnvResolver(t *testing.T) {
 // TestMastraTemplate_AgentIndex_EnvVarsInComment checks that the rendered template
 // includes the computed env vars with their descriptions in the JSDoc comment.
 func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	cfg := ScaffoldConfig{
 		Name:            "test-agent",
 		Description:     "A test agent",
@@ -978,7 +978,7 @@ func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
 func generateWithPyMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
 	t.Helper()
 	memfs := newMemFs()
-	if err := generateFiles(memfs, "/proj", config, "py", "langchain"); err != nil {
+	if err := generateFiles(memfs, "/proj", config, "langchain"); err != nil {
 		t.Fatalf("generateFiles: %v", err)
 	}
 	return memfs
@@ -987,7 +987,7 @@ func generateWithPyMemFs(t *testing.T, config ScaffoldConfig) *MemFs {
 // TestGetTemplatePaths_Python_HasIngestionRequirementsTxt ensures the IngestionRequirementsTxt
 // field is set for the Python langchain template so the scaffold can generate requirements.txt.
 func TestGetTemplatePaths_Python_HasIngestionRequirementsTxt(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -1059,7 +1059,7 @@ func TestGenerateFiles_Python_IngestionRequirementsTxt(t *testing.T) {
 // TestPythonIngestionDockerfile_CorrectPathsPerType verifies each rendered Python ingestion
 // Dockerfile references the correct ingestion type in its COPY and CMD instructions.
 func TestPythonIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -1089,7 +1089,7 @@ func TestPythonIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
 // TestPythonIngestionDockerfile_HasRequirementsInstall verifies the ingestion Dockerfile
 // installs dependencies from requirements.txt.
 func TestPythonIngestionDockerfile_HasRequirementsInstall(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -1110,7 +1110,7 @@ func TestPythonIngestionDockerfile_HasRequirementsInstall(t *testing.T) {
 // TestPythonIngestionDockerfile_HasPythonUnbuffered verifies the ingestion Dockerfile
 // sets PYTHONUNBUFFERED=1 so logs are visible in Docker without buffering.
 func TestPythonIngestionDockerfile_HasPythonUnbuffered(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -1128,7 +1128,7 @@ func TestPythonIngestionDockerfile_HasPythonUnbuffered(t *testing.T) {
 // TestAllPythonTemplatesRender renders every Python template against a representative
 // set of config combinations to catch stale field references.
 func TestAllPythonTemplatesRender(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}

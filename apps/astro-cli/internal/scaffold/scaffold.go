@@ -170,15 +170,11 @@ func (c ScaffoldConfig) CollectEnvVars() map[string]string {
 // AstroSpec. This is the single source of truth for what the spec will look
 // like at runtime, so AgentEnvVars never drifts from the actual generated file.
 func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
-	lang := c.Lang
-	if lang == "" {
-		lang = "ts"
-	}
 	templateName := "mastra"
-	if lang == "py" {
+	if c.Lang == "py" {
 		templateName = "langchain"
 	}
-	paths, err := GetTemplatePaths(lang, templateName)
+	paths, err := GetTemplatePaths(templateName)
 	if err != nil {
 		return nil, err
 	}
@@ -205,16 +201,17 @@ func DefaultConfig(name string) ScaffoldConfig {
 }
 
 // GenerateFiles creates all project files in the target directory using the OS filesystem.
-// The templateName selects which agent scaffold to use ("mastra").
-func GenerateFiles(targetDir string, config ScaffoldConfig, lang string, templateName string) error {
-	return generateFiles(OsFs{}, targetDir, config, lang, templateName)
+// The templateName selects which agent scaffold to use ("mastra", "langchain").
+func GenerateFiles(targetDir string, config ScaffoldConfig, templateName string) error {
+	return generateFiles(OsFs{}, targetDir, config, templateName)
 }
 
-func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, lang string, templateName string) error {
+func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateName string) error {
+	lang, _ := LangForTemplate(templateName)
 	// Set lang in config so templates can reference {{.Lang}}
 	config.Lang = lang
 
-	paths, err := GetTemplatePaths(lang, templateName)
+	paths, err := GetTemplatePaths(templateName)
 	if err != nil {
 		return err
 	}

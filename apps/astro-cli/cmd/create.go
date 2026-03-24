@@ -19,29 +19,16 @@ import (
 var (
 	yesFlag      bool
 	pathFlag     string
-	langFlag     string
 	templateFlag string
 	forceFlag    bool
 )
-
-// Supported languages for project templates
-var supportedLangs = map[string]bool{
-	"ts": true,
-	"py": true,
-}
-
-// Supported template types
-var supportedTemplates = map[string]bool{
-	"mastra":    true,
-	"langchain": true,
-}
 
 var createCmd = &cobra.Command{
 	Use:   "create [name]",
 	Short: "Create a new Astro agent project",
 	Long: `Create a new Astro agent project with scaffolded files.
 
-The create command generates a new agent project with the specified language:
+The create command generates a new agent project from a template:
 - astropods.yml specification file
 - agent source files for your agent logic
 - ingestion source files for data pipelines
@@ -49,8 +36,9 @@ The create command generates a new agent project with the specified language:
 
 If no name is provided, you will be prompted for one interactively.
 
-Supported languages: ts (TypeScript/Bun), py (Python)
-Supported templates: mastra (default for ts), langchain (default for py)`,
+Available templates:
+  mastra     TypeScript/Bun agent using Mastra (default)
+  langchain  Python agent using LangChain`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runCreate,
 }
@@ -60,49 +48,25 @@ func init() {
 	createCmd.Example = fmt.Sprintf(`  %[1]s create
   %[1]s create my-agent
   %[1]s create my-agent --yes
-  %[1]s create my-agent --lang py
-  %[1]s create my-agent --lang ts --template mastra
+  %[1]s create my-agent --template langchain
   %[1]s create my-agent --path /path/to/projects
   %[1]s create my-agent --force`, binaryName)
 	createCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Accept defaults (non-interactive)")
 	createCmd.Flags().StringVarP(&pathFlag, "path", "p", "", "Parent directory where the project will be created")
-	createCmd.Flags().StringVarP(&langFlag, "lang", "l", "ts", "Project language (ts, py)")
-	createCmd.Flags().StringVarP(&templateFlag, "template", "t", "", "Agent template (mastra for ts, langchain for py)")
+	createCmd.Flags().StringVarP(&templateFlag, "template", "t", "mastra", "Agent template (mastra, langchain)")
 	createCmd.Flags().BoolVar(&forceFlag, "force", false, "Recreate in place if directory already exists")
 }
 
-func runCreate(cmd *cobra.Command, args []string) error {
+func runCreate(_ *cobra.Command, args []string) error {
 	var name string
 	if len(args) > 0 {
 		name = args[0]
 	}
 
-	// Validate language
-	if !supportedLangs[langFlag] {
-		return fmt.Errorf("unsupported language: %s (supported: ts, py)", langFlag)
-	}
-
-	// Apply language-dependent template default if not explicitly set
-	if !cmd.Flags().Changed("template") {
-		switch langFlag {
-		case "py":
-			templateFlag = "langchain"
-		default:
-			templateFlag = "mastra"
-		}
-	}
-
 	// Validate template
-	if !supportedTemplates[templateFlag] {
-		return fmt.Errorf("unsupported template: %s (supported: mastra, langchain)", templateFlag)
-	}
-
-	// Validate template/lang compatibility
-	if langFlag == "ts" && templateFlag == "langchain" {
-		return fmt.Errorf("template langchain requires --lang py")
-	}
-	if langFlag == "py" && templateFlag == "mastra" {
-		return fmt.Errorf("template mastra requires --lang ts")
+	if _, ok := scaffold.LangForTemplate(templateFlag); !ok {
+		available := "  mastra     TypeScript/Bun agent using Mastra\n  langchain  Python agent using LangChain"
+		return fmt.Errorf("unknown template: %q\n\nAvailable templates:\n%s", templateFlag, available)
 	}
 
 	// If name was provided as arg, validate it upfront
@@ -152,7 +116,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate files
-	if err := scaffold.GenerateFiles(targetDir, config, langFlag, templateFlag); err != nil {
+	if err := scaffold.GenerateFiles(targetDir, config, templateFlag); err != nil {
 		_ = os.RemoveAll(targetDir)
 		return fmt.Errorf("failed to generate files: %w", err)
 	}

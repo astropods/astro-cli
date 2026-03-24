@@ -28,7 +28,7 @@ func TestCreatePython_GeneratedFiles(t *testing.T) {
 		Ingestions:      []string{"webhook", "startup"},
 	}
 
-	if err := scaffold.GenerateFiles(target, config, "py", "langchain"); err != nil {
+	if err := scaffold.GenerateFiles(target, config, "langchain"); err != nil {
 		t.Fatalf("GenerateFiles: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestCreatePython_DockerBuild(t *testing.T) {
 		Ingestions:      []string{},
 	}
 
-	if err := scaffold.GenerateFiles(target, config, "py", "langchain"); err != nil {
+	if err := scaffold.GenerateFiles(target, config, "langchain"); err != nil {
 		t.Fatalf("GenerateFiles: %v", err)
 	}
 
@@ -123,7 +123,7 @@ func TestCreatePython_IngestionDockerBuild(t *testing.T) {
 		Ingestions:      []string{"webhook"},
 	}
 
-	if err := scaffold.GenerateFiles(target, config, "py", "langchain"); err != nil {
+	if err := scaffold.GenerateFiles(target, config, "langchain"); err != nil {
 		t.Fatalf("GenerateFiles: %v", err)
 	}
 
@@ -154,7 +154,7 @@ func TestCreatePython_RequirementsTxt(t *testing.T) {
 		Ingestions:      []string{},
 	}
 
-	if err := scaffold.GenerateFiles(target, config, "py", "langchain"); err != nil {
+	if err := scaffold.GenerateFiles(target, config, "langchain"); err != nil {
 		t.Fatalf("GenerateFiles: %v", err)
 	}
 
