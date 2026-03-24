@@ -188,16 +188,15 @@ func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avat
 			return
 		}
 
-		version, err := agentIndex.IncrementAvatarVersion(acct.ID, agentName)
-		if err != nil {
-			log.Error("Failed to increment agent avatar version", "error", err, "account", acct.Name, "agent", agentName)
+		if err := agentIndex.ResetAvatarVersion(acct.ID, agentName); err != nil {
+			log.Error("Failed to reset agent avatar version", "error", err, "account", acct.Name, "agent", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
 			return
 		}
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.AgentAvatarURL(acct.Name, agentName, version),
-			AvatarVersion: version,
+			AvatarURL:     "",
+			AvatarVersion: 0,
 		})
 	}
 }
@@ -252,16 +251,15 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 			return
 		}
 
-		version, err := deployStore.IncrementDeploymentAvatarVersion(dep.ID)
-		if err != nil {
-			log.Error("Failed to increment deployment avatar version", "error", err, "deployment", dep.ID)
+		if err := deployStore.ResetDeploymentAvatarVersion(dep.ID); err != nil {
+			log.Error("Failed to reset deployment avatar version", "error", err, "deployment", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
 			return
 		}
 
 		c.JSON(http.StatusOK, AvatarResponse{
-			AvatarURL:     avatarStore.DeploymentAvatarURL(dep.ID, version),
-			AvatarVersion: version,
+			AvatarURL:     "",
+			AvatarVersion: 0,
 		})
 	}
 }

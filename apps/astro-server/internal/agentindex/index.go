@@ -302,6 +302,19 @@ func (idx *Index) ListForAccount(accountID string) ([]*Agent, error) {
 	return agents, nil
 }
 
+// AgentNamesWithAvatars returns the names of agents with custom avatars for an account.
+func (idx *Index) AgentNamesWithAvatars(accountID string) ([]string, error) {
+	versions, err := idx.AvatarVersionsByAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(versions))
+	for name := range versions {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // AvatarVersionsByAccount returns a map of agent name → avatar_version for all
 // agents belonging to the given account. Single query, no version loading.
 func (idx *Index) AvatarVersionsByAccount(accountID string) (map[string]int, error) {
@@ -507,6 +520,19 @@ func (idx *Index) IncrementAvatarVersion(accountID, name string) (int, error) {
 		return 0, fmt.Errorf("failed to increment avatar version: %w", err)
 	}
 	return version, nil
+}
+
+// ResetAvatarVersion sets the avatar_version for an agent back to 0,
+// indicating no custom avatar. Used when an avatar is deleted.
+func (idx *Index) ResetAvatarVersion(accountID, name string) error {
+	_, err := idx.db.Exec(`
+		UPDATE agents SET avatar_version = 0, updated_at = $1
+		WHERE account_id = $2 AND name = $3
+	`, time.Now(), accountID, name)
+	if err != nil {
+		return fmt.Errorf("failed to reset avatar version: %w", err)
+	}
+	return nil
 }
 
 // Transfer moves an agent and all its versions from one account to another.

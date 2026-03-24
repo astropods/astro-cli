@@ -353,26 +353,9 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 
 		// Move avatars in storage to match the new account name
 		if avatarStore != nil && acct.Name != req.Name {
-			ctx := c.Request.Context()
-
-			// Move account avatar
-			if acct.AvatarVersion > 0 {
-				if err := avatarStore.Move(ctx, acct.Name, req.Name); err != nil {
-					log.Warn("Failed to move account avatar during rename", "error", err, "account_id", acct.ID)
-				}
-			}
-
-			// Move agent avatars
-			if agentIdx != nil {
-				if versions, err := agentIdx.AvatarVersionsByAccount(acct.ID); err == nil && len(versions) > 0 {
-					names := make([]string, 0, len(versions))
-					for name := range versions {
-						names = append(names, name)
-					}
-					if err := avatarStore.MoveAgentAvatars(ctx, acct.Name, req.Name, names); err != nil {
-						log.Warn("Failed to move agent avatars during rename", "error", err, "account_id", acct.ID)
-					}
-				}
+			agentNames, _ := agentIdx.AgentNamesWithAvatars(acct.ID)
+			if err := avatarStore.MoveAllForAccount(c.Request.Context(), acct.Name, req.Name, acct.AvatarVersion, agentNames); err != nil {
+				log.Warn("Failed to move avatars during rename", "error", err, "account_id", acct.ID)
 			}
 		}
 

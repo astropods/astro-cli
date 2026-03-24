@@ -271,21 +271,9 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 			}
 			// Move avatars in storage to match the new account name
 			if ec.avatarStore != nil {
-				if acct.AvatarVersion > 0 {
-					if err := ec.avatarStore.Move(ctx, oldName, newName); err != nil {
-						ec.log.Warn("Failed to move account avatar during org rename", "error", err, "account_id", acct.ID)
-					}
-				}
-				if ec.agentIdx != nil {
-					if versions, err := ec.agentIdx.AvatarVersionsByAccount(acct.ID); err == nil && len(versions) > 0 {
-						names := make([]string, 0, len(versions))
-						for name := range versions {
-							names = append(names, name)
-						}
-						if err := ec.avatarStore.MoveAgentAvatars(ctx, oldName, newName, names); err != nil {
-							ec.log.Warn("Failed to move agent avatars during org rename", "error", err, "account_id", acct.ID)
-						}
-					}
+				agentNames, _ := ec.agentIdx.AgentNamesWithAvatars(acct.ID)
+				if err := ec.avatarStore.MoveAllForAccount(ctx, oldName, newName, acct.AvatarVersion, agentNames); err != nil {
+					ec.log.Warn("Failed to move avatars during org rename", "error", err, "account_id", acct.ID)
 				}
 			}
 		}

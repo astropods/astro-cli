@@ -247,6 +247,23 @@ func (s *Store) MoveAgentAvatars(ctx context.Context, oldAccount, newAccount str
 	return nil
 }
 
+// MoveAllForAccount moves the account avatar (if accountAvatarVersion > 0)
+// and all specified agent avatars from oldAccount to newAccount. This is the
+// single entry point for account renames and org rename events.
+func (s *Store) MoveAllForAccount(ctx context.Context, oldAccount, newAccount string, accountAvatarVersion int, agentNames []string) error {
+	if accountAvatarVersion > 0 {
+		if err := s.Move(ctx, oldAccount, newAccount); err != nil {
+			return fmt.Errorf("move account avatar: %w", err)
+		}
+	}
+	if len(agentNames) > 0 {
+		if err := s.MoveAgentAvatars(ctx, oldAccount, newAccount, agentNames); err != nil {
+			return fmt.Errorf("move agent avatars: %w", err)
+		}
+	}
+	return nil
+}
+
 // Delete removes an account's avatar.
 func (s *Store) Delete(ctx context.Context, handle string) error {
 	return s.backend.Delete(ctx, avatarKey(handle))

@@ -2019,6 +2019,11 @@ func TestGetDeploymentStatus_Success(t *testing.T) {
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123",
 			"My Agent", `{}`, "active", now, nil))
 
+	// GetByID (account lookup for permission + avatar resolution)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
+			AddRow(acctID, "myaccount", "personal", nil, nil, now, now, 0, ""))
+
 	// IsMember check
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))

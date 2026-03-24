@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type AgentsListResponse, type Agent, type DeploymentTemplate, type DeployResponse, type DeploymentsListResponse } from '../../lib/api';
+import { useApiClient } from '../../lib/api-context';
 import { agentKeys, deploymentKeys } from './keys';
 
 interface AgentQueryOptions {
@@ -141,10 +142,11 @@ export function useArchiveAgent(account: string) {
 
 // Blueprint avatar mutations
 export function useUploadBlueprintAvatar() {
+  const apiClient = useApiClient();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ account, name, file }: { account: string; name: string; file: Blob }) =>
-      api.uploadBlueprintAvatar(account, name, file),
+      apiClient.uploadBlueprintAvatar(account, name, file),
     onSuccess: (_data, { account, name }) => {
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, name) });
       queryClient.invalidateQueries({ queryKey: agentKeys.byAccount(account) });

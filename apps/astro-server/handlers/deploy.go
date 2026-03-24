@@ -824,9 +824,12 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		// Resolve avatar URLs: deployment override → blueprint → empty (procedural SVG on client)
 		if avatarStore != nil && agentIdx != nil {
 			agentAvatarVersions, _ := agentIdx.AvatarVersionsByAccount(acct.ID)
+			dbDepByID := make(map[string]*deploymentstore.Deployment, len(dbDeps))
+			for _, d := range dbDeps {
+				dbDepByID[d.ID] = d
+			}
 			for i, dep := range allDeployments {
-				dbDep := findDBDeployment(dbDeps, dep.ID)
-				if dbDep != nil && dbDep.AvatarVersion > 0 {
+				if dbDep, ok := dbDepByID[dep.ID]; ok && dbDep.AvatarVersion > 0 {
 					allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dbDep.AvatarVersion)
 				} else if v, ok := agentAvatarVersions[dep.Name]; ok && v > 0 {
 					allDeployments[i].AvatarURL = avatarStore.AgentAvatarURL(accountName, dep.Name, v)
@@ -843,15 +846,6 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
-func findDBDeployment(deps []*deploymentstore.Deployment, id string) *deploymentstore.Deployment {
-	for _, d := range deps {
-		if d.ID == id {
-			return d
-		}
-	}
-	return nil
-}
-
 func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 	status := "error"
 	switch dep.Status {
@@ -1990,7 +1984,13 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			return
 		}
 
-		if !isAccountMember(c, accountStore, dep.AccountID, user.ID) {
+		acct, acctErr := accountStore.GetByID(dep.AccountID)
+		if acctErr != nil || acct == nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+		isMember, _ := accountStore.IsMember(acct.ID, user.ID)
+		if !isMember {
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}
@@ -2010,13 +2010,10 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			if dep.AvatarVersion > 0 {
 				avatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dep.AvatarVersion)
 			} else if agentIdx != nil {
-				acct, acctErr := accountStore.GetByID(dep.AccountID)
-				if acctErr == nil && acct != nil {
-					versions, versErr := agentIdx.AvatarVersionsByAccount(acct.ID)
-					if versErr == nil {
-						if v, ok := versions[dep.AgentName]; ok && v > 0 {
-							avatarURL = avatarStore.AgentAvatarURL(acct.Name, dep.AgentName, v)
-						}
+				versions, versErr := agentIdx.AvatarVersionsByAccount(acct.ID)
+				if versErr == nil {
+					if v, ok := versions[dep.AgentName]; ok && v > 0 {
+						avatarURL = avatarStore.AgentAvatarURL(acct.Name, dep.AgentName, v)
 					}
 				}
 			}
