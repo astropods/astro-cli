@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisVertical, Share2, Trash2 } from "lucide-react";
+import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { AgentIdentity } from "@/components/AgentIdentity";
@@ -10,6 +10,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
@@ -65,6 +66,13 @@ export function DeployedAgentCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyId = () => {
+    navigator.clipboard.writeText(deploymentId);
+    setCopied(true);
+    setTimeout(() => { setCopied(false); setMenuOpen(false); }, 1600);
+  };
 
   // Fetch agent data on demand for integrations (only when share modal is open)
   const { data: agent } = useAgent(account, name, { enabled: shareOpen });
@@ -102,30 +110,34 @@ export function DeployedAgentCard({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
               aria-label="Agent options"
             >
-              <EllipsisVertical className="h-4 w-4" />
+              <EllipsisHorizontalIcon className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onSelect={() => {
-                setMenuOpen(false);
-                setShareOpen(true);
-              }}
-            >
-              <Share2 />
+          <DropdownMenuContent align="end" className="min-w-[180px] rounded-[10px] p-0">
+            <DropdownMenuItem asChild className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]">
+              <Link to={`/${account}/${name}`} onClick={() => setMenuOpen(false)}>
+                <BookOpenIcon className="h-4 w-4" />
+                View blueprint
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => { setMenuOpen(false); setShareOpen(true); }} className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]">
+              <ShareIcon className="h-4 w-4" />
               Share agent badge
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={copyId} className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]">
+              {copied ? <CheckIcon className="h-4 w-4" /> : <DocumentDuplicateIcon className="h-4 w-4" />}
+              {copied ? "Copied!" : "Copy build number"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onSelect={() => {
-                setMenuOpen(false);
-                setDeleteOpen(true);
-              }}
+              onSelect={() => { setMenuOpen(false); setDeleteOpen(true); }}
+              className="gap-[10px] rounded-none px-[14px] py-[10px] text-[length:var(--text-heading-4)]"
             >
-              <Trash2 />
+              <TrashIcon className="h-4 w-4" />
               Delete agent
             </DropdownMenuItem>
           </DropdownMenuContent>
