@@ -120,7 +120,8 @@ function AccountProfileContent() {
                 name={agent.name}
                 description={getAgentDescription(agent)}
                 visibility={agent.visibility}
-                lifetimeMessages={agent.metrics?.lifetime_messages}
+                deployCount={agent.metrics?.deploy_count}
+                accountAvatarVersion={data.avatar_version}
                 onArchive={isMember ? () => {} : undefined}
               />
             ))}

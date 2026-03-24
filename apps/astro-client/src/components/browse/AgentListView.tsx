@@ -78,7 +78,7 @@ export function AgentListView({
           name={agent.name}
           description={getAgentDescription(agent)}
           visibility={agent.visibility}
-          lifetimeMessages={agent.metrics?.lifetime_messages}
+          deployCount={agent.metrics?.deploy_count}
         />
       ))}
     </div>

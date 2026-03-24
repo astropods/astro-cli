@@ -609,6 +609,7 @@ export interface AgentVersion {
 
 export interface AgentMetrics {
   lifetime_messages: number;
+  deploy_count?: number;
 }
 
 export interface Agent {

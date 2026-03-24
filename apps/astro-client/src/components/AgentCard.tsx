@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { EllipsisVertical, Archive } from "lucide-react";
 import { AgentIdentity } from "./AgentIdentity";
+import { UserAvatar } from "./UserAvatar";
 import { PrivacyBadge } from "@/components/PrivacyBadge";
 import { ArchiveAgentDialog } from "@/components/ArchiveAgentDialog";
 import {
@@ -18,7 +19,8 @@ export interface AgentCardProps {
   description: string;
   visibility?: string;
   variant?: "default" | "oftenUsedTogether";
-  lifetimeMessages?: number;
+  deployCount?: number;
+  accountAvatarVersion?: number;
   /** When provided, shows a three-dot menu with an archive option. */
   onArchive?: () => void;
 }
@@ -30,14 +32,15 @@ export function AgentCard({
   description,
   visibility,
   variant = "default",
-  lifetimeMessages,
+  deployCount,
+  accountAvatarVersion,
   onArchive,
 }: AgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const formattedMessages = lifetimeMessages != null
-    ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(lifetimeMessages)
-    : null;
+  const formattedDeploys = deployCount != null
+    ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(deployCount)
+    : "0";
 
   if (variant === "oftenUsedTogether") {
     return (
@@ -55,7 +58,9 @@ export function AgentCard({
           <h3 className="truncate text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
             {name}
           </h3>
-          <p className="font-mono text-mono-sm text-faint-foreground">
+          <p className="flex items-center gap-1.5 font-mono text-mono-sm text-faint-foreground">
+            {formattedDeploys} deploys
+            <span className="text-border-strong">•</span>
             {account}
           </p>
         </div>
@@ -119,9 +124,10 @@ export function AgentCard({
         </div>
         <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
           <span className="text-mono-sm font-mono text-faint-foreground">
-            {formattedMessages ?? "0"}
+            {formattedDeploys} deploys
           </span>
-          <span className="text-mono-sm font-mono text-faint-foreground">
+          <span className="flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
+            <UserAvatar handle={account} name={account} avatarVersion={accountAvatarVersion} className="!size-4" />
             {account}
           </span>
         </div>
