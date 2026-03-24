@@ -10,7 +10,7 @@ import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
 
 const C = {
-  bgAlt: "var(--surface)",
+  bgAlt: "var(--popover)",
   bgDeep: "var(--muted)",
   panel: "var(--surface)",
   border: "var(--border)",
