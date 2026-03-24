@@ -14,6 +14,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Button } from "@/components/ui/button";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
+import type { TraceRow } from "./monitor/MonitorTab";
+import { TraceDetailPanel } from "./monitor/TraceDetailPanel";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
 
@@ -92,6 +94,15 @@ export function ActiveDetailView({
     rawTab === "monitor" ? "monitor" :
     "deployments"
   const [configOpen, setConfigOpen] = useState(false)
+  const [selectedTrace, setSelectedTrace] = useState<TraceRow | null>(null)
+  const [navTraces, setNavTraces] = useState<TraceRow[]>([])
+  const selectedIndex = navTraces.findIndex((t) => t.id === selectedTrace?.id)
+  const canGoPrev = selectedIndex > 0
+  const canGoNext = selectedIndex < navTraces.length - 1
+  const handleNavigate = (dir: "prev" | "next") => {
+    const next = dir === "prev" ? navTraces[selectedIndex - 1] : navTraces[selectedIndex + 1]
+    if (next) setSelectedTrace(next)
+  }
   const [isCompact, setIsCompact] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.innerWidth < 1180;
@@ -113,6 +124,8 @@ export function ActiveDetailView({
   const isDeploying = isDeployingState(renderedDeployment);
   const isPaused = isPausedState(renderedDeployment);
   const showConfigureAsPage = isCompact && configOpen;
+  const showTraceAsPage = isCompact && selectedTrace !== null;
+  const panelOpen = configOpen || selectedTrace !== null;
   const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
   const latestBuildId = accountAgents?.agents
     ?.find((a) => a.name === renderedDeployment.name)
@@ -329,7 +342,7 @@ export function ActiveDetailView({
           <Button
             variant="outline"
             size="default"
-            onClick={() => setConfigOpen(o => !o)}
+            onClick={() => { setConfigOpen(o => !o); setSelectedTrace(null); }}
             data-active={configOpen || undefined}
           >
             <Cog6ToothIcon className="size-4" /> Configure
@@ -443,16 +456,25 @@ export function ActiveDetailView({
                   account={account}
                   fullPage
                   onClose={() => setConfigOpen(false)}
-                  onRedeployStart={() => {
-                    setOptimisticDeploying(true);
-                  }}
-                  onRedeploy={() => {
-                    setOptimisticDeploying(true);
-                    onRedeploy?.();
-                  }}
+                  onRedeployStart={() => { setOptimisticDeploying(true); }}
+                  onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+                />
+              ) : showTraceAsPage && selectedTrace ? (
+                <TraceDetailPanel
+                  trace={selectedTrace}
+                  fullPage
+                  canGoPrev={canGoPrev}
+                  canGoNext={canGoNext}
+                  onNavigate={handleNavigate}
+                  onClose={() => setSelectedTrace(null)}
                 />
               ) : tab === 'monitor' ? (
-                <MonitorTab deployment={renderedDeployment} />
+                <MonitorTab
+                  deployment={renderedDeployment}
+                  selectedTraceId={selectedTrace?.id ?? null}
+                  onSelectTrace={(trace) => { setSelectedTrace(trace); setConfigOpen(false); }}
+                  onVisibleTracesChange={setNavTraces}
+                />
               ) : (
                 <DeploymentsTab
                   deployment={renderedDeployment}
@@ -467,7 +489,7 @@ export function ActiveDetailView({
       </div>
       </div>
 
-      {/* right: configure panel — sticky so it always aligns with the agent header */}
+      {/* right panel — configure or trace detail */}
       {!isCompact && (
         <div
           style={{
@@ -475,7 +497,7 @@ export function ActiveDetailView({
             top: 0,
             alignSelf: 'flex-start',
             height: '100vh',
-            width: configOpen ? CONFIG_PANEL_WIDTH_PX : 0,
+            width: panelOpen ? CONFIG_PANEL_WIDTH_PX : 0,
             flexShrink: 0,
             overflowX: 'clip',
             transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -487,13 +509,17 @@ export function ActiveDetailView({
               deployment={renderedDeployment}
               account={account}
               onClose={() => setConfigOpen(false)}
-              onRedeployStart={() => {
-                setOptimisticDeploying(true);
-              }}
-              onRedeploy={() => {
-                setOptimisticDeploying(true);
-                onRedeploy?.();
-              }}
+              onRedeployStart={() => { setOptimisticDeploying(true); }}
+              onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+            />
+          )}
+          {selectedTrace && !configOpen && (
+            <TraceDetailPanel
+              trace={selectedTrace}
+              canGoPrev={canGoPrev}
+              canGoNext={canGoNext}
+              onNavigate={handleNavigate}
+              onClose={() => setSelectedTrace(null)}
             />
           )}
         </div>
