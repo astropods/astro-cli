@@ -108,7 +108,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		config = configFromSpec(astroSpec)
 	}
 
-	paths, err := scaffold.GetTemplatePaths("ts", "mastra")
+	paths, err := scaffold.GetTemplatePaths("mastra")
 	if err != nil {
 		return err
 	}

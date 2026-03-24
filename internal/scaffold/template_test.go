@@ -11,7 +11,7 @@ import (
 // --- GetTemplatePaths tests ---
 
 func TestGetTemplatePaths_MastraUsesOverridePaths(t *testing.T) {
-	paths, err := GetTemplatePaths("ts", "mastra")
+	paths, err := GetTemplatePaths("mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths(ts, mastra): %v", err)
 	}
@@ -25,7 +25,7 @@ func TestGetTemplatePaths_MastraUsesOverridePaths(t *testing.T) {
 }
 
 func TestGetTemplatePaths_UnsupportedTemplate(t *testing.T) {
-	_, err := GetTemplatePaths("ts", "nonexistent")
+	_, err := GetTemplatePaths("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unsupported template, got nil")
 	}
@@ -34,20 +34,10 @@ func TestGetTemplatePaths_UnsupportedTemplate(t *testing.T) {
 	}
 }
 
-func TestGetTemplatePaths_UnsupportedLanguage(t *testing.T) {
-	_, err := GetTemplatePaths("python", "mastra")
-	if err == nil {
-		t.Fatal("expected error for unsupported language, got nil")
-	}
-	if !strings.Contains(err.Error(), "unsupported language") {
-		t.Errorf("error = %q, want message containing 'unsupported language'", err.Error())
-	}
-}
-
 // --- Embedded template content tests ---
 
 func TestGetTemplatePaths_AllEmbeddedFilesExist(t *testing.T) {
-	paths, err := GetTemplatePaths("ts", "mastra")
+	paths, err := GetTemplatePaths("mastra")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -103,7 +93,7 @@ var defaultConfig = ScaffoldConfig{
 }
 
 func TestMastraTemplate_AgentIndex_UsesMastraImports(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
 	if !strings.Contains(content, `@mastra/core/agent`) {
@@ -133,7 +123,7 @@ func TestMastraTemplate_AgentIndex_UsesMastraImports(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_IncludesTracingDefaults(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
 	if !strings.Contains(content, "defaultOptions:") {
@@ -148,7 +138,7 @@ func TestMastraTemplate_AgentIndex_IncludesTracingDefaults(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_DoesNotUseAstroAgent(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
 	// Strip adapter references, then check if the standalone @saswatds/astro-agent package remains
@@ -165,7 +155,7 @@ func TestMastraTemplate_AgentIndex_DoesNotUseAstroAgent(t *testing.T) {
 }
 
 func TestMastraTemplate_PackageJson_HasMastraDeps(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)
 
 	if !strings.Contains(content, `"@mastra/core"`) {
@@ -186,7 +176,7 @@ func TestMastraTemplate_PackageJson_HasMastraDeps(t *testing.T) {
 }
 
 func TestMastraTemplate_PackageJson_DoesNotHaveAstroAgentDeps(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)
 
 	if strings.Contains(content, `"@saswatds/astro-agent"`) {
@@ -200,7 +190,7 @@ func TestMastraTemplate_PackageJson_DoesNotHaveAstroAgentDeps(t *testing.T) {
 // --- Template variable substitution tests ---
 
 func TestMastraTemplate_AgentIndex_IdAndName(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	cases := []struct {
 		name     string
 		wantID   string
@@ -224,7 +214,7 @@ func TestMastraTemplate_AgentIndex_IdAndName(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesName(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
 	if !strings.Contains(content, `id: 'test-agent'`) {
@@ -236,7 +226,7 @@ func TestMastraTemplate_AgentIndex_SubstitutesName(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_EscapesSingleQuotesInDescription(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.Description = "It's a helper that does O'Brien's work"
 	content := renderTemplate(t, paths.AgentIndex, config)
@@ -256,7 +246,7 @@ func TestMastraTemplate_AgentIndex_EscapesSingleQuotesInDescription(t *testing.T
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesDescription(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
 	if !strings.Contains(content, "A test agent") {
@@ -265,7 +255,7 @@ func TestMastraTemplate_AgentIndex_SubstitutesDescription(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_AnthropicModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.Integrations = []string{"anthropic"}
 	content := renderTemplate(t, paths.AgentIndex, config)
@@ -276,7 +266,7 @@ func TestMastraTemplate_AgentIndex_AnthropicModel(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_OpenAIModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.Integrations = []string{"openai"}
 	content := renderTemplate(t, paths.AgentIndex, config)
@@ -287,7 +277,7 @@ func TestMastraTemplate_AgentIndex_OpenAIModel(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_CustomModelProvider(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.ModelProvider = "ollama"
 	config.Model = "llama3"
@@ -299,7 +289,7 @@ func TestMastraTemplate_AgentIndex_CustomModelProvider(t *testing.T) {
 }
 
 func TestMastraTemplate_PackageJson_SubstitutesName(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)
 
 	if !strings.Contains(content, `"name": "test-agent"`) {
@@ -313,7 +303,7 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "my-agent")
 
-	err := GenerateFiles(target, defaultConfig, "ts", "mastra")
+	err := GenerateFiles(target, defaultConfig, "mastra")
 	if err != nil {
 		t.Fatalf("GenerateFiles(mastra): %v", err)
 	}
@@ -377,7 +367,7 @@ func TestGenerateFiles_WebhookPostmanCollection(t *testing.T) {
 	config := defaultConfig
 	config.Ingestions = []string{"webhook"}
 
-	if err := GenerateFiles(target, config, "ts", "mastra"); err != nil {
+	if err := GenerateFiles(target, config, "mastra"); err != nil {
 		t.Fatalf("GenerateFiles(mastra, webhook): %v", err)
 	}
 
@@ -400,7 +390,7 @@ func TestGenerateFiles_WebhookPostmanCollection(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_DefaultModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig // no integrations, no custom model
 	content := renderTemplate(t, paths.AgentIndex, config)
 
@@ -410,7 +400,7 @@ func TestMastraTemplate_AgentIndex_DefaultModel(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesInstructions(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
 
 	if !strings.Contains(content, "test-agent") {
@@ -422,7 +412,7 @@ func TestMastraTemplate_AgentIndex_SubstitutesInstructions(t *testing.T) {
 }
 
 func TestMastraTemplate_PackageJson_SubstitutesDescription(t *testing.T) {
-	paths, _ := GetTemplatePaths("ts", "mastra")
+	paths, _ := GetTemplatePaths("mastra")
 	content := renderTemplate(t, paths.PackageJson, defaultConfig)
 
 	if !strings.Contains(content, `"description": "A test agent"`) {
@@ -434,7 +424,7 @@ func TestGenerateFiles_UnsupportedTemplate(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "my-agent")
 
-	err := GenerateFiles(target, defaultConfig, "ts", "invalid")
+	err := GenerateFiles(target, defaultConfig, "invalid")
 	if err == nil {
 		t.Fatal("expected error for unsupported template, got nil")
 	}
@@ -446,7 +436,7 @@ func TestGenerateFiles_UnsupportedTemplate(t *testing.T) {
 // --- Python/langchain template path tests ---
 
 func TestGetTemplatePaths_LangchainUsesOverridePaths(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths(py, langchain): %v", err)
 	}
@@ -460,9 +450,9 @@ func TestGetTemplatePaths_LangchainUsesOverridePaths(t *testing.T) {
 }
 
 func TestGetTemplatePaths_Python_UnsupportedTemplate(t *testing.T) {
-	_, err := GetTemplatePaths("py", "mastra")
+	_, err := GetTemplatePaths("nonexistent")
 	if err == nil {
-		t.Fatal("expected error for py+mastra, got nil")
+		t.Fatal("expected error for unsupported template, got nil")
 	}
 	if !strings.Contains(err.Error(), "unsupported template") {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
@@ -470,7 +460,7 @@ func TestGetTemplatePaths_Python_UnsupportedTemplate(t *testing.T) {
 }
 
 func TestGetTemplatePaths_Python_AllEmbeddedFilesExist(t *testing.T) {
-	paths, err := GetTemplatePaths("py", "langchain")
+	paths, err := GetTemplatePaths("langchain")
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
@@ -498,7 +488,7 @@ func TestGetTemplatePaths_Python_AllEmbeddedFilesExist(t *testing.T) {
 // --- Python/langchain template content tests ---
 
 func TestLangchainTemplate_AgentMain_UsesLangchainImports(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	content := renderTemplate(t, paths.AgentMain, defaultConfig)
 
 	if !strings.Contains(content, "langchain") {
@@ -513,7 +503,7 @@ func TestLangchainTemplate_AgentMain_UsesLangchainImports(t *testing.T) {
 }
 
 func TestLangchainTemplate_AgentMain_SubstitutesName(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	content := renderTemplate(t, paths.AgentMain, defaultConfig)
 
 	if !strings.Contains(content, "test-agent") {
@@ -525,7 +515,7 @@ func TestLangchainTemplate_AgentMain_SubstitutesName(t *testing.T) {
 }
 
 func TestLangchainTemplate_AgentMain_DefaultModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	config := defaultConfig // no integrations
 	content := renderTemplate(t, paths.AgentMain, config)
 
@@ -535,7 +525,7 @@ func TestLangchainTemplate_AgentMain_DefaultModel(t *testing.T) {
 }
 
 func TestLangchainTemplate_AgentMain_AnthropicModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	config := defaultConfig
 	config.Integrations = []string{"anthropic"}
 	content := renderTemplate(t, paths.AgentMain, config)
@@ -546,7 +536,7 @@ func TestLangchainTemplate_AgentMain_AnthropicModel(t *testing.T) {
 }
 
 func TestLangchainTemplate_AgentMain_OpenAIModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	config := defaultConfig
 	config.Integrations = []string{"openai"}
 	content := renderTemplate(t, paths.AgentMain, config)
@@ -557,7 +547,7 @@ func TestLangchainTemplate_AgentMain_OpenAIModel(t *testing.T) {
 }
 
 func TestLangchainTemplate_RequirementsTxt_HasLangchainDeps(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	content := renderTemplate(t, paths.RequirementsTxt, defaultConfig)
 
 	if !strings.Contains(content, "langchain") {
@@ -569,7 +559,7 @@ func TestLangchainTemplate_RequirementsTxt_HasLangchainDeps(t *testing.T) {
 }
 
 func TestLangchainTemplate_RequirementsTxt_AnthropicDep(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	config := defaultConfig
 	config.Integrations = []string{"anthropic"}
 	content := renderTemplate(t, paths.RequirementsTxt, config)
@@ -580,7 +570,7 @@ func TestLangchainTemplate_RequirementsTxt_AnthropicDep(t *testing.T) {
 }
 
 func TestLangchainTemplate_RequirementsTxt_OpenAIDep(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	config := defaultConfig
 	config.Integrations = []string{"openai"}
 	content := renderTemplate(t, paths.RequirementsTxt, config)
@@ -594,7 +584,7 @@ func TestLangchainTemplate_RequirementsTxt_OpenAIDep(t *testing.T) {
 }
 
 func TestLangchainTemplate_AgentMain_EscapesDoubleQuotesInDescription(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	config := defaultConfig
 	config.Description = `She said "hello" and it's fine`
 	content := renderTemplate(t, paths.AgentMain, config)
@@ -614,7 +604,7 @@ func TestLangchainTemplate_AgentMain_EscapesDoubleQuotesInDescription(t *testing
 }
 
 func TestLangchainTemplate_AgentMain_EnvVarsInDocstring(t *testing.T) {
-	paths, _ := GetTemplatePaths("py", "langchain")
+	paths, _ := GetTemplatePaths("langchain")
 	cfg := ScaffoldConfig{
 		Name:            "test-agent",
 		Description:     "A test agent",
@@ -643,7 +633,7 @@ func TestGenerateFiles_LangchainTemplate(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "my-py-agent")
 
-	err := GenerateFiles(target, defaultConfig, "py", "langchain")
+	err := GenerateFiles(target, defaultConfig, "langchain")
 	if err != nil {
 		t.Fatalf("GenerateFiles(langchain): %v", err)
 	}
@@ -698,7 +688,7 @@ func TestGenerateFiles_LangchainTemplate_WithIngestion(t *testing.T) {
 	config := defaultConfig
 	config.Ingestions = []string{"webhook", "startup"}
 
-	err := GenerateFiles(target, config, "py", "langchain")
+	err := GenerateFiles(target, config, "langchain")
 	if err != nil {
 		t.Fatalf("GenerateFiles(langchain, ingestion): %v", err)
 	}
@@ -736,9 +726,9 @@ func TestGenerateFiles_Python_UnsupportedTemplate(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "my-py-agent")
 
-	err := GenerateFiles(target, defaultConfig, "py", "mastra")
+	err := GenerateFiles(target, defaultConfig, "invalid")
 	if err == nil {
-		t.Fatal("expected error for py+mastra, got nil")
+		t.Fatal("expected error for unsupported template, got nil")
 	}
 	if !strings.Contains(err.Error(), "unsupported template") {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())

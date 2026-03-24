@@ -32,13 +32,25 @@ type TemplatePaths struct {
 	IngestionWebhookIndex    string
 }
 
-// GetTemplatePaths returns the template paths for the specified language and template.
+// templateToLang maps each template name to its language.
+var templateToLang = map[string]string{
+	"mastra":    "ts",
+	"langchain": "py",
+}
+
+// LangForTemplate returns the language for the given template name.
+func LangForTemplate(templateName string) (string, bool) {
+	lang, ok := templateToLang[templateName]
+	return lang, ok
+}
+
+// GetTemplatePaths returns the template paths for the specified template.
 // The templateName selects which agent scaffold to use ("mastra" for ts, "langchain" for py).
 // Shared files (astropods.yml, AGENT.md, agents.md) always come from template-ts/.
-func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) {
-	switch lang {
-	case "ts":
-		paths := &TemplatePaths{
+func GetTemplatePaths(templateName string) (*TemplatePaths, error) {
+	switch templateName {
+	case "mastra":
+		return &TemplatePaths{
 			AstroYml:                 "templates/template-ts/astropods.yml",
 			Dockerfile:               "templates/template-ts/Dockerfile",
 			DockerfileIngestion:      "templates/template-ts/Dockerfile.ingestion",
@@ -52,18 +64,12 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
 			IngestionWebhookIndex:    "templates/template-ts/ingestion/webhook.ts",
-		}
-		switch templateName {
-		case "mastra":
-			paths.AgentIndex = "templates/template-ts-mastra/agent/index.ts"
-			paths.PackageJson = "templates/template-ts-mastra/package.json"
-		default:
-			return nil, fmt.Errorf("unsupported template: %s (supported: mastra)", templateName)
-		}
-		return paths, nil
+			AgentIndex:               "templates/template-ts-mastra/agent/index.ts",
+			PackageJson:              "templates/template-ts-mastra/package.json",
+		}, nil
 
-	case "py":
-		paths := &TemplatePaths{
+	case "langchain":
+		return &TemplatePaths{
 			AstroYml:                 "templates/template-ts/astropods.yml",
 			Dockerfile:               "templates/template-py/Dockerfile",
 			DockerfileIngestion:      "templates/template-py/Dockerfile.ingestion",
@@ -77,18 +83,13 @@ func GetTemplatePaths(lang string, templateName string) (*TemplatePaths, error) 
 			IngestionMain:            "templates/template-py/ingestion/main.py",
 			IngestionWebhookPy:       "templates/template-py/ingestion/webhook.py",
 			IngestionRequirementsTxt: "templates/template-py/ingestion/requirements.txt",
-		}
-		switch templateName {
-		case "langchain":
-			paths.AgentMain = "templates/template-py-langchain/agent/main.py"
-			paths.RequirementsTxt = "templates/template-py-langchain/requirements.txt"
-		default:
-			return nil, fmt.Errorf("unsupported template: %s (supported: langchain)", templateName)
-		}
-		return paths, nil
+			AgentMain:                "templates/template-py-langchain/agent/main.py",
+			RequirementsTxt:          "templates/template-py-langchain/requirements.txt",
+		}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported language: %s", lang)
+		// unreachable: templateToLang check above already caught unknowns
+		return nil, fmt.Errorf("unsupported template: %s", templateName)
 	}
 }
 
