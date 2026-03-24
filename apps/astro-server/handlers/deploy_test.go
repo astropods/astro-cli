@@ -2002,7 +2002,7 @@ func setupGetDeploymentStatusRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock,
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id/status", GetDeploymentStatus(log, accountStore, deployStore))
+	router.GET("/api/v1/deployments/:id/status", GetDeploymentStatus(log, accountStore, deployStore, nil, nil))
 
 	return router, deployMock, accountMock
 }

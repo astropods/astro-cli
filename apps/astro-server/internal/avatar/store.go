@@ -221,6 +221,32 @@ func (s *Store) Move(ctx context.Context, oldHandle, newHandle string) error {
 	return nil
 }
 
+// MoveAgentAvatar moves an agent avatar from one account/name path to another.
+// Used when an agent is transferred between accounts.
+func (s *Store) MoveAgentAvatar(ctx context.Context, oldAccount, newAccount, name string) error {
+	src := agentAvatarKey(oldAccount, name)
+	dst := agentAvatarKey(newAccount, name)
+	if err := s.backend.Copy(ctx, src, dst); err != nil {
+		return fmt.Errorf("copy agent avatar %s -> %s: %w", src, dst, err)
+	}
+	if err := s.backend.Delete(ctx, src); err != nil {
+		return fmt.Errorf("delete old agent avatar %s: %w", src, err)
+	}
+	return nil
+}
+
+// MoveAgentAvatars moves all agent avatars for a given account to a new account name.
+// Used when an account is renamed. The agentNames slice should contain only agents
+// that have avatars (avatar_version > 0).
+func (s *Store) MoveAgentAvatars(ctx context.Context, oldAccount, newAccount string, agentNames []string) error {
+	for _, name := range agentNames {
+		if err := s.MoveAgentAvatar(ctx, oldAccount, newAccount, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Delete removes an account's avatar.
 func (s *Store) Delete(ctx context.Context, handle string) error {
 	return s.backend.Delete(ctx, avatarKey(handle))

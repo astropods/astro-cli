@@ -9,6 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -324,7 +325,7 @@ type RenameAccountRequest struct {
 }
 
 // RenameAccount handles PUT /api/v1/accounts/:account (owner only)
-func RenameAccount(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenameAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -348,6 +349,31 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore) gin.H
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Move avatars in storage to match the new account name
+		if avatarStore != nil && acct.Name != req.Name {
+			ctx := c.Request.Context()
+
+			// Move account avatar
+			if acct.AvatarVersion > 0 {
+				if err := avatarStore.Move(ctx, acct.Name, req.Name); err != nil {
+					log.Warn("Failed to move account avatar during rename", "error", err, "account_id", acct.ID)
+				}
+			}
+
+			// Move agent avatars
+			if agentIdx != nil {
+				if versions, err := agentIdx.AvatarVersionsByAccount(acct.ID); err == nil && len(versions) > 0 {
+					names := make([]string, 0, len(versions))
+					for name := range versions {
+						names = append(names, name)
+					}
+					if err := avatarStore.MoveAgentAvatars(ctx, acct.Name, req.Name, names); err != nil {
+						log.Warn("Failed to move agent avatars during rename", "error", err, "account_id", acct.ID)
+					}
+				}
+			}
 		}
 
 		log.Info("Account renamed", "id", acct.ID, "old_name", acct.Name, "new_name", req.Name)

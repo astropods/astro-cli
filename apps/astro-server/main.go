@@ -82,8 +82,9 @@ func main() {
 	}
 	log.Info("Database connection established")
 
-	// Initialize account store (needed by both API and worker)
+	// Initialize account store and agent index (needed by both API and worker)
 	accountStore := account.NewAccountStore(db)
+	agentIndex := agentindex.NewIndexWithDB(db)
 
 	// Initialize avatar store (S3 or local filesystem)
 	var avatarStore *avatar.Store
@@ -146,12 +147,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin + gRPC connect ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, orgClient, orgSync, omClient, ent, avatarStore)
+		httpSrv, grpcServer, fleetGRPCServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, omClient, ent, avatarStore)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, db, omClient, orgClient, avatarStore)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, omClient, orgClient, avatarStore)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -233,6 +234,7 @@ func runAPI(
 	cfg *config.Config,
 	db *sql.DB,
 	accountStore *account.AccountStore,
+	agentIndex *agentindex.Index,
 	orgClient *org.Client,
 	orgSync *org.Sync,
 	omClient *openmeter.Client,
@@ -259,7 +261,6 @@ func runAPI(
 	}
 
 	// Initialize stores
-	agentIndex := agentindex.NewIndexWithDB(db)
 	deploymentStore := deploymentstore.NewStore(db)
 	waitlistStore := waitlist.NewStore(db)
 	heartStore := heartstore.New(db)
@@ -391,6 +392,7 @@ func runWorker(
 	log *logger.Logger,
 	cfg *config.Config,
 	accountStore *account.AccountStore,
+	agentIndex *agentindex.Index,
 	db *sql.DB,
 	omClient *openmeter.Client,
 	orgClient *org.Client,
@@ -434,6 +436,7 @@ func runWorker(
 		DB:           db,
 		OMClient:     omClient,
 		AccountStore: accountStore,
+		AgentIndex:   agentIndex,
 		AvatarStore:  avatarStore,
 		K8sClient:    k8sClient,
 		ServerConfig: cfg,
@@ -615,7 +618,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			accountAdmin.Use(middleware.ResolveAccount(accountStore))
 			accountAdmin.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
 			{
-				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore),
+				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -816,7 +819,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore),
+				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Source account name"),
@@ -865,7 +868,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Body(&deployment.UndeployRequest{}),
 				oapispec.Response(202, &handlers.UndeployResponseAlias{}),
 			)
-			api.GET(protected, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, deploymentStore),
+			api.GET(protected, "/deployments/:id/status", "Get deployment status", handlers.GetDeploymentStatus(log, accountStore, deploymentStore, agentIndex, avatarStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

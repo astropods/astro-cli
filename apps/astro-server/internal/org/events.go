@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/workos/workos-go/v4/pkg/events"
 )
@@ -22,16 +24,20 @@ type EventsConsumer struct {
 	eventsClient *events.Client
 	orgClient    *Client
 	accountStore *account.AccountStore
+	agentIdx     *agentindex.Index
+	avatarStore  *avatar.Store
 	db           *sql.DB
 	log          *logger.Logger
 }
 
 // NewEventsConsumer creates a new events consumer.
-func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, db *sql.DB, log *logger.Logger) *EventsConsumer {
+func NewEventsConsumer(apiKey string, orgClient *Client, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, db *sql.DB, log *logger.Logger) *EventsConsumer {
 	return &EventsConsumer{
 		eventsClient: &events.Client{APIKey: apiKey},
 		orgClient:    orgClient,
 		accountStore: accountStore,
+		agentIdx:     agentIdx,
+		avatarStore:  avatarStore,
 		db:           db,
 		log:          log,
 	}
@@ -259,8 +265,28 @@ func (ec *EventsConsumer) processOrganizationEvent(ctx context.Context, event ev
 					"account_id", acct.ID, "old_name", acct.Name, "new_name", newName, "workos_org_id", data.ID)
 				return nil
 			}
+			oldName := acct.Name
 			if err := ec.accountStore.Rename(acct.ID, newName); err != nil {
 				return fmt.Errorf("rename account for org update: %w", err)
+			}
+			// Move avatars in storage to match the new account name
+			if ec.avatarStore != nil {
+				if acct.AvatarVersion > 0 {
+					if err := ec.avatarStore.Move(ctx, oldName, newName); err != nil {
+						ec.log.Warn("Failed to move account avatar during org rename", "error", err, "account_id", acct.ID)
+					}
+				}
+				if ec.agentIdx != nil {
+					if versions, err := ec.agentIdx.AvatarVersionsByAccount(acct.ID); err == nil && len(versions) > 0 {
+						names := make([]string, 0, len(versions))
+						for name := range versions {
+							names = append(names, name)
+						}
+						if err := ec.avatarStore.MoveAgentAvatars(ctx, oldName, newName, names); err != nil {
+							ec.log.Warn("Failed to move agent avatars during org rename", "error", err, "account_id", acct.ID)
+						}
+					}
+				}
 			}
 		}
 

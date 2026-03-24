@@ -26,6 +26,8 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 		workOSAPIKey: cfg.WorkOSAPIKey,
 		orgClient:    cfg.OrgClient,
 		accountStore: cfg.AccountStore,
+		agentIdx:     cfg.AgentIndex,
+		avatarStore:  cfg.AvatarStore,
 		db:           cfg.DB,
 		log:          log,
 	})

@@ -5,6 +5,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
@@ -19,7 +20,7 @@ type TransferAgentRequest struct {
 // Moves an agent and all its versions from the source account to the target account.
 // The caller must be a member of both accounts. The agent's ECR namespace is preserved
 // so existing images continue to resolve correctly.
-func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore) gin.HandlerFunc {
+func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sourceAccountName := c.Param("account")
 		agentName := c.Param("name")
@@ -64,7 +65,8 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 		}
 
 		// Verify agent exists in source account
-		if _, err := index.Get(sourceAcct.ID, agentName); err != nil {
+		agent, err := index.Get(sourceAcct.ID, agentName)
+		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found in source account"})
 			return
 		}
@@ -88,6 +90,18 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 				"details": err.Error(),
 			})
 			return
+		}
+
+		// Move avatar in storage if the agent has one
+		if avatarStore != nil && agent.AvatarVersion > 0 {
+			if err := avatarStore.MoveAgentAvatar(c.Request.Context(), sourceAccountName, req.TargetAccount, agentName); err != nil {
+				log.Warn("Failed to move agent avatar during transfer (avatar may be stale)",
+					"agent", agentName,
+					"source", sourceAccountName,
+					"target", req.TargetAccount,
+					"error", err,
+				)
+			}
 		}
 
 		log.Info("Agent transferred",

@@ -111,10 +111,11 @@ export function AgentCard({
             account={account}
             name={name}
             size={36}
+            avatarUrl={avatarUrl}
             className="size-9 shrink-0 rounded-sm overflow-hidden"
           />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foregroundtransition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
+            <h3 className="flex flex-wrap items-center gap-1.5 text-heading-4 text-foreground transition-colors group-hover:text-teal-500 dark:group-hover:text-teal-400">
               <span className="truncate">{name}</span>
               {visibility === "private" && (
                 <PrivacyBadge onClick={(e) => e.preventDefault()} />

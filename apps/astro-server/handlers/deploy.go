@@ -1972,7 +1972,7 @@ func injectManagedCredentials(resolved *deployment.ResolvedEnv, cfg *config.Conf
 }
 
 // GetDeploymentStatus returns the current status, events, and revisions for a deployment.
-func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -2004,6 +2004,24 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			log.Warn("Failed to load deployment revisions", "error", revErr, "deployment_id", dep.ID)
 		}
 
+		// Resolve avatar URL: deployment override → blueprint → empty
+		var avatarURL string
+		if avatarStore != nil {
+			if dep.AvatarVersion > 0 {
+				avatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dep.AvatarVersion)
+			} else if agentIdx != nil {
+				acct, acctErr := accountStore.GetByID(dep.AccountID)
+				if acctErr == nil && acct != nil {
+					versions, versErr := agentIdx.AvatarVersionsByAccount(acct.ID)
+					if versErr == nil {
+						if v, ok := versions[dep.AgentName]; ok && v > 0 {
+							avatarURL = avatarStore.AgentAvatarURL(acct.Name, dep.AgentName, v)
+						}
+					}
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"deployment_id":     dep.ID,
 			"status":            dep.Status,
@@ -2014,6 +2032,7 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			"status_changed_at": dep.StatusChangedAt,
 			"events":            events,
 			"revisions":         revisions,
+			"avatar_url":        avatarURL,
 		})
 	}
 }
