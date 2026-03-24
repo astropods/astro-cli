@@ -858,7 +858,7 @@ func confirmVisibilityChange(current, desired string) bool {
 }
 
 // promptVisibility asks the user whether the agent should be public or private.
-func promptVisibility() string {
+func promptVisibility() string { //nolint:unused
 	var visibility string
 
 	form := huh.NewForm(
