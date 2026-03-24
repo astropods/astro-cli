@@ -962,7 +962,7 @@ export function DeploymentsTab({
               <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", maxWidth: "100%" }}>
               <div style={{ display: "grid", gridTemplateColumns: deploymentGridColumns, gap: deploymentGridGap, padding: deploymentHeaderPadding, borderBottom: `1px solid ${C.border}`, background: C.bgDeep }}>
                 {deploymentGridHeaders.map((h, i) => (
-                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i >= 2 ? "right" : "left", justifySelf: i === 1 ? "start" : undefined, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span key={h} style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {h.toUpperCase()}
                   </span>
                 ))}
@@ -994,8 +994,9 @@ export function DeploymentsTab({
                         fontWeight: 500,
                         display: "inline-flex",
                         alignItems: "center",
+                        justifyContent: "flex-end",
                         gap: 6,
-                        justifySelf: "start",
+                        width: "100%",
                       }}
                     >
                       {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
@@ -1112,8 +1113,9 @@ export function DeploymentsTab({
                             fontWeight: 500,
                             display: "inline-flex",
                             alignItems: "center",
+                            justifyContent: "flex-end",
                             gap: 6,
-                            justifySelf: "start",
+                            width: "100%",
                           }}
                         >
                           {row.status === "deploying" || row.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
