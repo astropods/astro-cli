@@ -443,6 +443,14 @@ func runPush(cmd *cobra.Command, args []string) error {
 			visibility = "private"
 		}
 
+		// If the agent already exists with a different visibility, confirm the change
+		serverAgent := getAgentFromServer(effectiveServerURL, namespace, agentName, noAuth, orgToken)
+		if serverAgent.Exists && serverAgent.Visibility != "" && visibility != serverAgent.Visibility {
+			if !confirmVisibilityChange(serverAgent.Visibility, visibility) {
+				visibility = serverAgent.Visibility // keep current visibility
+			}
+		}
+
 		printStep("Registering agent with server...")
 
 		// Build the full registry path for the transformed spec
