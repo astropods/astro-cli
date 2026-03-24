@@ -760,7 +760,7 @@ function statusColor(status: DeployHistoryStatus): string {
   if (status === "undeployed") return C.stone;
   if (status === "deploying") return C.warning;
   if (status === "undeploying") return C.faint;
-  if (status === "active") return C.success;
+  if (status === "active") return C.tealMid;
   return C.faint;
 }
 
@@ -985,23 +985,14 @@ export function DeploymentsTab({
                         {currentRow.rowLabel}
                       </div>
                     </div>
-                    <span
-                      style={{
-                        fontFamily: S.mono,
-                        fontSize: T.label,
-                        letterSpacing: "0.06em",
-                        color: statusColor(currentRow.status),
-                        fontWeight: 500,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "flex-end",
-                        gap: 6,
-                        width: "100%",
-                      }}
-                    >
-                      {currentRow.status === "deploying" || currentRow.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
-                      {statusLabel(currentRow.status).toUpperCase()}
-                    </span>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5 }}>
+                      {currentRow.status === "deploying" || currentRow.status === "undeploying"
+                        ? <Loader2 size={I.sm} style={{ color: statusColor(currentRow.status), animation: "dp-spin 1.2s linear infinite" }} />
+                        : <span style={{ width: 5, height: 5, borderRadius: "50%", background: statusColor(currentRow.status), flexShrink: 0, display: "inline-block" }} />}
+                      <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: statusColor(currentRow.status), fontWeight: 500 }}>
+                        {statusLabel(currentRow.status).toUpperCase()}
+                      </span>
+                    </div>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{currentRow.duration}</span>
                     <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 400, color: C.text, textAlign: "right" as const }}>{currentRow.build}</span>
                     {!isCompact ? (
@@ -1104,23 +1095,14 @@ export function DeploymentsTab({
                             {row.rowLabel}
                           </div>
                         </div>
-                        <span
-                          style={{
-                            fontFamily: S.mono,
-                            fontSize: T.label,
-                            letterSpacing: "0.06em",
-                            color: statusColor(row.status),
-                            fontWeight: 500,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "flex-end",
-                            gap: 6,
-                            width: "100%",
-                          }}
-                        >
-                          {row.status === "deploying" || row.status === "undeploying" ? <Loader2 size={I.sm} style={{ animation: "dp-spin 1.2s linear infinite" }} /> : null}
-                          {statusLabel(row.status).toUpperCase()}
-                        </span>
+                        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5 }}>
+                          {row.status === "deploying" || row.status === "undeploying"
+                            ? <Loader2 size={I.sm} style={{ color: statusColor(row.status), animation: "dp-spin 1.2s linear infinite" }} />
+                            : <span style={{ width: 5, height: 5, borderRadius: "50%", background: statusColor(row.status), flexShrink: 0, display: "inline-block" }} />}
+                          <span style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.06em", color: statusColor(row.status), fontWeight: 500 }}>
+                            {statusLabel(row.status).toUpperCase()}
+                          </span>
+                        </div>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.text, textAlign: "right" as const }}>{row.duration}</span>
                         <span style={{ fontFamily: S.mono, fontSize: T.monoSm, fontWeight: 400, color: C.text, textAlign: "right" as const }}>{row.build}</span>
                         {!isCompact ? (
