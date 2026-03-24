@@ -20,7 +20,6 @@
   },
   "dependencies": {
     "quansync": "^0.2.11",
-    "react-easy-crop": "^5.5.7",
     "zod": "^4.3.5"
   },
   "devDependencies": {
