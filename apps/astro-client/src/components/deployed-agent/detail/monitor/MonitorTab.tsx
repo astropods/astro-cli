@@ -880,8 +880,8 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     <Activity size={I.lg} color={C.stone} />
                   </div>
                   <p style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 600, color: C.text, margin: "0 0 6px" }}>Monitoring just started</p>
-                  <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, letterSpacing: "0.03em" }}>
-                    Traces will appear here on first request
+                  <p style={{ fontFamily: S.body, fontSize: T.body, color: C.faint, margin: 0 }}>
+                    Trace data will appear here after the first request
                   </p>
                 </div>
               )}
