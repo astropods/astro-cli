@@ -12,6 +12,7 @@ import { deploymentKeys } from "@/api/queries/keys";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DeploymentHistoryTableRow, DeployHistoryStatus } from "./history/types";
 import { ErrorPanel } from "@/components/ui/status-panel";
+import { InlineBadge } from "@/components/InlineBadge";
 
 const C = {
   bg: "var(--muted)",
@@ -26,7 +27,7 @@ const C = {
   muted: "var(--muted-foreground)",
   faint: "var(--faint-foreground)",
   stone: "var(--color-stone-500)",
-  amber: "var(--color-amber-700)",
+  amber: "var(--color-amber-800)",
   amberBg: "color-mix(in oklch, var(--color-amber-700) 12%, transparent)",
   amberBdr: "color-mix(in oklch, var(--color-amber-700) 28%, transparent)",
   warning: "var(--color-yellow-500)",
@@ -1013,8 +1014,13 @@ export function DeploymentsTab({
                   </div>
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-                    <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, margin: "6px 0 10px" }}>
-                      SERVICES
+                    <div style={{ fontFamily: S.mono, fontSize: T.monoSm, letterSpacing: "0.07em", color: C.text, margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                      Services
+                      {serviceRows.length > 0 && (
+                        <InlineBadge variant="fill" shape="square" className="normal-case size-[18px] p-0 justify-center text-muted-foreground">
+                          {serviceRows.length}
+                        </InlineBadge>
+                      )}
                     </div>
                     {serviceRows.length === 0 ? (
                       <p style={{ fontFamily: S.mono, fontSize: T.monoSm, color: C.faint, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
