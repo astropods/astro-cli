@@ -120,7 +120,7 @@ export function TradingCardModal({
 
         <DialogPrimitive.Content
           className="fixed inset-0 z-50 flex flex-col items-center justify-center outline-none"
-          onPointerDownOutside={() => onOpenChange(false)}
+          onClick={() => onOpenChange(false)}
         >
           <button
             onClick={() => onOpenChange(false)}
@@ -136,6 +136,7 @@ export function TradingCardModal({
                 ? "opacity-100 translate-y-0"
                 : "opacity-0 -translate-y-12",
             )}
+            onClick={(e) => e.stopPropagation()}
           >
             <HoloCard>
               <div
@@ -152,6 +153,7 @@ export function TradingCardModal({
                 ? "opacity-100 translate-y-0"
                 : "opacity-0 translate-y-4",
             )}
+            onClick={(e) => e.stopPropagation()}
           >
             <Button
               variant="outline"
