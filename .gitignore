@@ -164,3 +164,4 @@ assets/avatars/
 # Certificates
 .certs/
 *.pem
+apps/astro-client/public/mockServiceWorker.js
