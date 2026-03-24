@@ -670,7 +670,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
             <Select value={win} onValueChange={(value) => setWin(value as Win)}>
               <SelectTrigger
                 className="h-9 w-auto min-w-[160px] px-3"
-                style={{ fontFamily: S.body, fontSize: T.body, color: C.muted, background: "var(--popover)" }}
+                style={{ fontFamily: S.body, fontSize: T.body, background: "var(--popover)" }}
               >
                 <SelectValue />
               </SelectTrigger>

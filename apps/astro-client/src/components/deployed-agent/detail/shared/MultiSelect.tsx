@@ -75,11 +75,11 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
           minWidth: 134,
           borderRadius: 7,
           border: `1px solid ${open ? C.tealMid : C.border}`,
-          background: C.panel,
+          background: "var(--popover)",
           cursor: "pointer",
           fontFamily: S.body,
           fontSize: T.body,
-          color: allSelected ? C.muted : C.teal,
+          color: allSelected ? C.text : C.teal,
           transition: "all 0.12s",
           whiteSpace: "nowrap" as const,
         }}

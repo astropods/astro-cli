@@ -589,7 +589,7 @@ export function ActiveContainerAccordion({
                 <Select value={logTimeRange} onValueChange={(value) => setLogTimeRange(value as LogTimeRange)}>
                   <SelectTrigger
                     className="h-8 w-auto min-w-[130px] px-3"
-                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted, background: C.panel }}
+                    style={{ fontFamily: S.body, fontSize: T.bodySm, background: "var(--popover)" }}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -601,7 +601,7 @@ export function ActiveContainerAccordion({
                     ))}
                   </SelectContent>
                 </Select>
-                <div style={{ display: "flex", alignItems: "center", gap: 5, height: 32, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, height: 32, padding: "0 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "var(--popover)" }}>
                   <Search size={I.sm} color={C.faint} />
                   <input
                     type="text"
