@@ -370,6 +370,13 @@ func (a *Applier) applyCronJob(ctx context.Context, cj *batchv1.CronJob) (deploy
 	_, err := a.clientset.BatchV1().CronJobs(a.namespace).Create(ctx, cj, metav1.CreateOptions{})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
+			existing, getErr := a.clientset.BatchV1().CronJobs(a.namespace).Get(ctx, cj.Name, metav1.GetOptions{})
+			if getErr != nil {
+				status.Status = "failed"
+				status.Message = getErr.Error()
+				return status, getErr
+			}
+			cj.ResourceVersion = existing.ResourceVersion
 			_, err = a.clientset.BatchV1().CronJobs(a.namespace).Update(ctx, cj, metav1.UpdateOptions{})
 			if err != nil {
 				status.Status = "failed"

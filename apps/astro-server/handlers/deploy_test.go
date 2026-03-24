@@ -24,6 +24,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // --- deploymentNamespace tests ---
@@ -2758,5 +2760,165 @@ func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+// --- PauseDeployment tests ---
+
+func setupPauseRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+
+	// Use JSON content-type so request bodies are readable as JSON in tests.
+	srv := httptest.NewServer(k8sHandler)
+	t.Cleanup(srv.Close)
+	cs, _ := kubernetes.NewForConfig(&rest.Config{
+		Host:          srv.URL,
+		ContentConfig: rest.ContentConfig{ContentType: "application/json"},
+	})
+	k8sClient := &mockClusterClient{clientset: cs}
+
+	router := gin.New()
+	router.Use(setAuthUser("user-1"))
+	router.POST("/api/v1/deployments/:id/pause", PauseDeployment(log, accountStore, k8sClient, deployStore))
+
+	return router, deployMock, accountMock
+}
+
+func expectPauseDBMocks(t *testing.T, deployMock, accountMock sqlmock.Sqlmock, depID, acctID, namespace string, now time.Time) {
+	t.Helper()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace, "My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// MarkScaledDown transaction
+	deployMock.ExpectBegin()
+	deployMock.ExpectExec(`INSERT`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectExec(`INSERT`).WillReturnResult(sqlmock.NewResult(0, 1))
+	deployMock.ExpectCommit()
+}
+
+func TestPauseDeployment_SuspendsCronJobs(t *testing.T) {
+	namespace := "astro-abc123-0"
+	var suspendedCronJob bool
+
+	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(path, "/deployments"):
+			fmt.Fprintf(w, `{"kind":"DeploymentList","apiVersion":"apps/v1","items":[{"metadata":{"name":"agent","namespace":%q},"spec":{"replicas":1}}]}`, namespace)
+		case r.Method == http.MethodPut && strings.Contains(path, "/deployments/"):
+			fmt.Fprintf(w, `{"kind":"Deployment","apiVersion":"apps/v1","metadata":{"name":"agent","namespace":%q}}`, namespace)
+		case r.Method == http.MethodGet && strings.Contains(path, "/cronjobs"):
+			fmt.Fprintf(w, `{"kind":"CronJobList","apiVersion":"batch/v1","items":[{"metadata":{"name":"my-agent-ingestion-daily","namespace":%q},"spec":{"schedule":"0 0 * * *"}}]}`, namespace)
+		case r.Method == http.MethodPut && strings.Contains(path, "/cronjobs/"):
+			var body map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+				if spec, ok := body["spec"].(map[string]interface{}); ok {
+					suspendedCronJob, _ = spec["suspend"].(bool)
+				}
+			}
+			fmt.Fprintf(w, `{"kind":"CronJob","apiVersion":"batch/v1","metadata":{"name":"my-agent-ingestion-daily","namespace":%q}}`, namespace)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	router, deployMock, accountMock := setupPauseRouter(t, k8sHandler)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	expectPauseDBMocks(t, deployMock, accountMock, depID, acctID, namespace, now)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/pause", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "scaled_down" {
+		t.Errorf("expected status 'scaled_down', got %v", resp["status"])
+	}
+	if !suspendedCronJob {
+		t.Error("expected CronJob Spec.Suspend=true in PUT request")
+	}
+}
+
+func TestPauseDeployment_NoCronJobs(t *testing.T) {
+	namespace := "astro-abc123-0"
+
+	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(path, "/apis/apps/v1/namespaces/") && strings.HasSuffix(path, "/deployments"):
+			fmt.Fprintf(w, `{"kind":"DeploymentList","apiVersion":"apps/v1","items":[{"metadata":{"name":"agent","namespace":%q},"spec":{"replicas":1}}]}`, namespace)
+		case r.Method == http.MethodPut && strings.Contains(path, "/apis/apps/v1/namespaces/") && strings.Contains(path, "/deployments/"):
+			fmt.Fprintf(w, `{"kind":"Deployment","apiVersion":"apps/v1","metadata":{"name":"agent","namespace":%q}}`, namespace)
+		case r.Method == http.MethodGet && strings.Contains(path, "/apis/batch/v1/namespaces/") && strings.HasSuffix(path, "/cronjobs"):
+			fmt.Fprint(w, `{"kind":"CronJobList","apiVersion":"batch/v1","items":[]}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	router, deployMock, accountMock := setupPauseRouter(t, k8sHandler)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	expectPauseDBMocks(t, deployMock, accountMock, depID, acctID, namespace, now)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/pause", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPauseDeployment_Undeploying_Returns400(t *testing.T) {
+	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	router, deployMock, accountMock := setupPauseRouter(t, k8sHandler)
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc123-0", "My Agent", `{}`, "undeploying", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/pause", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }

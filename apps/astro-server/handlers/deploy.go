@@ -1980,8 +1980,10 @@ func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8s
 			return
 		}
 
+		labelSelector := "app.kubernetes.io/managed-by=astro-server"
+
 		k8sDeps, err := k8sClient.Clientset().AppsV1().Deployments(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
-			LabelSelector: "app.kubernetes.io/managed-by=astro-server",
+			LabelSelector: labelSelector,
 		})
 		if err != nil {
 			log.Error("Failed to list deployments for pause", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
@@ -2003,6 +2005,29 @@ func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8s
 				return
 			}
 			scaledCount++
+		}
+
+		cronJobs, err := k8sClient.Clientset().BatchV1().CronJobs(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			log.Error("Failed to list cronjobs for pause", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+			return
+		}
+
+		suspend := true
+		for i := range cronJobs.Items {
+			item := cronJobs.Items[i].DeepCopy()
+			if item.Spec.Suspend != nil && *item.Spec.Suspend {
+				continue
+			}
+			item.Spec.Suspend = &suspend
+			if _, err := k8sClient.Clientset().BatchV1().CronJobs(dep.Namespace).Update(c.Request.Context(), item, metav1.UpdateOptions{}); err != nil {
+				log.Error("Failed to suspend cronjob", "error", err, "namespace", dep.Namespace, "name", item.Name)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+				return
+			}
 		}
 
 		if err := deployStore.MarkScaledDown(dep.ID, dep.Namespace); err != nil {

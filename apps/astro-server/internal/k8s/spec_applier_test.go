@@ -7,6 +7,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	spec "github.com/astropods/astro/packages/astro-spec"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -1414,5 +1415,60 @@ func TestApplyDeploymentSpec_ManagedAnthropicKey(t *testing.T) {
 	got := string(secret.Data["ANTHROPIC_API_KEY"])
 	if got != "sk-ant-managed-test" {
 		t.Errorf("ANTHROPIC_API_KEY in secret = %q, want %q", got, "sk-ant-managed-test")
+	}
+}
+
+// TestApplyCronJob_SuspendedCronJobIsUnsuspendedOnApply verifies the fix to
+// applyCronJob: when a CronJob already exists (e.g. after a pause set
+// Suspend=true), a subsequent ApplyDeploymentSpec call must fetch the existing
+// resource version and update it — unsuspending the CronJob in the process.
+func TestApplyCronJob_SuspendedCronJobIsUnsuspendedOnApply(t *testing.T) {
+	cronJobName := deployment.GenerateResourceName("my-agent", "ingestion", "daily")
+	suspend := true
+	existing := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            cronJobName,
+			Namespace:       "default",
+			ResourceVersion: "42",
+		},
+		Spec: batchv1.CronJobSpec{
+			Schedule: "0 0 * * *",
+			Suspend:  &suspend,
+		},
+	}
+
+	fakeClient := fake.NewClientset(existing)
+	a := &Applier{
+		clientset:       fakeClient,
+		namespace:       "default",
+		registryURL:     "test-registry.example.com",
+		imageResolver:   NewImageResolver("", "test-registry.example.com", "test"),
+		imagePullPolicy: corev1.PullNever,
+	}
+
+	ds := minimalDeploymentSpec()
+	ds.Ingestion = map[string]spec.DeploymentIngestion{
+		"daily": {
+			Image:     "test-registry.example.com/my-agent:latest",
+			Resources: spec.StandardResources,
+			Trigger:   spec.DeploymentTrigger{Type: "schedule", Schedule: "0 0 * * *"},
+		},
+	}
+
+	ctx := context.Background()
+	result, err := a.ApplyDeploymentSpec(ctx, ds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Errorf("expected no errors, got %v", result.Errors)
+	}
+
+	updated, err := fakeClient.BatchV1().CronJobs("default").Get(ctx, cronJobName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get CronJob after apply: %v", err)
+	}
+	if updated.Spec.Suspend != nil && *updated.Spec.Suspend {
+		t.Error("expected CronJob to be unsuspended after apply, but Suspend was still true")
 	}
 }
