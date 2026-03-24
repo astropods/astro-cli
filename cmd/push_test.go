@@ -706,6 +706,60 @@ func TestRegisterAgent_UsesAccountFromRegistryPath(t *testing.T) {
 	}
 }
 
+func TestRegisterAgent_DefaultsToPrivateWhenVisibilityUnset(t *testing.T) {
+	var receivedBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedBody) //nolint:errcheck
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	// No meta.visibility set
+	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nagent:\n  image: test:latest\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com/testuser", specPath, "abc123", "", "private", false, true, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if receivedBody["visibility"] != "private" {
+		t.Errorf("expected visibility 'private', got %q", receivedBody["visibility"])
+	}
+}
+
+func TestRegisterAgent_UsesPublicVisibilityFromSpec(t *testing.T) {
+	var receivedBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedBody) //nolint:errcheck
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "astropods.yml")
+	// meta.visibility: public
+	if err := os.WriteFile(specPath, []byte("spec: astro/v1\nname: test-agent\nmeta:\n  visibility: public\nagent:\n  image: test:latest\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := registerAgent(srv.URL, "test-agent", "abc123", "registry.example.com/testuser", specPath, "abc123", "", "public", false, true, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if receivedBody["visibility"] != "public" {
+		t.Errorf("expected visibility 'public', got %q", receivedBody["visibility"])
+	}
+}
+
 func TestPush_OrgScopedSpecName(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
