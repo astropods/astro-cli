@@ -58,7 +58,7 @@ describe("AgentDetailSidebar", () => {
             account: "steve_jobs",
             name: "alert-router",
             description: "Routes alerts to the right team.",
-            lifetimeMessages: 1203,
+            deployCount: 1203,
           },
         ]}
       />,
@@ -66,7 +66,7 @@ describe("AgentDetailSidebar", () => {
 
     expect(screen.getByText("More agents")).toBeInTheDocument();
     expect(screen.getByText("alert-router")).toBeInTheDocument();
-    expect(screen.getByText("steve_jobs")).toBeInTheDocument();
+    expect(screen.getByText(/steve_jobs/)).toBeInTheDocument();
   });
 
   it("does not render often used together section when no recommended agents", () => {

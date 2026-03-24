@@ -26,12 +26,12 @@ describe("AgentCard", () => {
         name="alert-router"
         description="This text should not render in this variant."
         variant="oftenUsedTogether"
-        lifetimeMessages={1203}
+        deployCount={1203}
       />,
     );
 
     expect(screen.getByText("alert-router")).toBeInTheDocument();
-    expect(screen.getByText("steve_jobs")).toBeInTheDocument();
+    expect(screen.getByText(/steve_jobs/)).toBeInTheDocument();
     expect(screen.queryByText("4.6")).not.toBeInTheDocument();
     expect(screen.queryByText("1,203")).not.toBeInTheDocument();
     expect(
