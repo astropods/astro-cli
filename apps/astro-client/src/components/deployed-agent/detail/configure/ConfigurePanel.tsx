@@ -3,7 +3,7 @@ import { X, Loader2, Rocket, Play, Check } from "lucide-react";
 import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { usePrefilledDeploymentTemplate } from "@/api/queries/agents";
-import { useTriggerIngestion } from "@/api/queries/deployments";
+import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
@@ -36,6 +36,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
 }) {
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
   const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
+  const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
 
   const trackedState: TrackedFormState = {
     deployName: form.deployName,
@@ -89,6 +90,15 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
           <DeployFormFields
             form={form}
             hideAccountPicker
+            avatar={{
+              url: deployment.avatar_url,
+              account,
+              agentName: deployment.name,
+              onUpload: async (file) => {
+                await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
+              },
+              isPending: uploadDeploymentAvatar.isPending,
+            }}
             ingestionExtra={
               manualIngestions.length > 0 ? (
                 <ManualTriggers

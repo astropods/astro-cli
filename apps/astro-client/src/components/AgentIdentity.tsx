@@ -27,6 +27,8 @@ export function AgentIdentity({
       <img
         src={avatarUrl}
         alt={name}
+        width={size}
+        height={size}
         className={cn("object-cover", className)}
       />
     );

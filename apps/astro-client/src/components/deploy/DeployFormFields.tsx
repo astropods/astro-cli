@@ -64,14 +64,14 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
                 <img
                   src={displayUrl}
                   alt={avatar.agentName}
-                  className="size-[72px] rounded-sm object-cover"
+                  className="size-[68px] rounded-sm object-cover"
                 />
               ) : (
                 <AgentIdentity
                   account={avatar.account}
                   name={avatar.agentName}
-                  size={72}
-                  className="size-[72px] rounded-sm overflow-hidden"
+                  size={68}
+                  className="size-[68px] rounded-sm overflow-hidden"
                 />
               );
               const handleUploadOrStage = async (blob: Blob) => {

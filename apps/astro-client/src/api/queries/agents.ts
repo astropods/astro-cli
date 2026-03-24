@@ -147,9 +147,16 @@ export function useUploadBlueprintAvatar() {
   return useMutation({
     mutationFn: ({ account, name, file }: { account: string; name: string; file: Blob }) =>
       apiClient.uploadBlueprintAvatar(account, name, file),
-    onSuccess: (_data, { account, name }) => {
+    onSuccess: (data, { account, name }) => {
+      // Immediately patch the cached agent with the new avatar URL so the UI
+      // updates without waiting for the background refetch.
+      queryClient.setQueryData<Agent>(agentKeys.detail(account, name), (old) => {
+        if (!old) return old;
+        return { ...old, avatar_url: data.avatar_url };
+      });
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, name) });
       queryClient.invalidateQueries({ queryKey: agentKeys.byAccount(account) });
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
     },
   });
