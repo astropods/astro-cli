@@ -438,19 +438,9 @@ func runPush(cmd *cobra.Command, args []string) error {
 			visibility = "" // ignore invalid values
 		}
 
-		// Check if the agent already exists on the server
-		serverAgent := getAgentFromServer(effectiveServerURL, namespace, agentName, noAuth, orgToken)
-
-		if !serverAgent.Exists {
-			// First push: prompt if not set in spec
-			if visibility == "" {
-				visibility = promptVisibility()
-			}
-		} else if visibility != "" && serverAgent.Visibility != "" && visibility != serverAgent.Visibility {
-			// Existing agent with a visibility change — confirm
-			if !confirmVisibilityChange(serverAgent.Visibility, visibility) {
-				visibility = "" // keep current visibility
-			}
+		// Default to private when not set in spec
+		if visibility == "" {
+			visibility = "private"
 		}
 
 		printStep("Registering agent with server...")
