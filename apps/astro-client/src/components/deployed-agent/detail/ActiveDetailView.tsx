@@ -232,8 +232,6 @@ export function ActiveDetailView({
               currentBuildId={renderedDeployment.build_id}
               latestBuildId={latestBuildId}
             />
-          ) : renderedDeployment.build_id ? (
-            <InlineBadge>{renderedDeployment.build_id}</InlineBadge>
           ) : null}
           {(() => {
             const ds = mapDeploymentStatus(renderedDeployment)
