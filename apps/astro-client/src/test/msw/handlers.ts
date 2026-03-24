@@ -6,6 +6,8 @@ import type {
   DeploymentsListResponse,
   DeployResponse,
   UndeployResponse,
+  ObservabilitySummaryResponse,
+  ObservabilityTracesResponse,
 } from '@/lib/api';
 
 // Fixture data — realistic but minimal
@@ -203,6 +205,25 @@ export const handlers = [
   // POST /api/v1/agents/:account/:name/archive
   http.post('/api/v1/agents/:account/:name/archive', () => {
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // GET /api/v1/deployments/:id/observability/summary
+  http.get('/api/v1/deployments/:id/observability/summary', () => {
+    return HttpResponse.json<ObservabilitySummaryResponse>({
+      total_traces: 0,
+      time_range: { start: '2025-01-01T00:00:00Z', end: '2025-01-08T00:00:00Z' },
+      metrics: { avg_latency_ms: 0, p95_latency_ms: 0, total_tokens: 0, error_rate: 0, traces_per_hour: 0 },
+    });
+  }),
+
+  // GET /api/v1/deployments/:id/observability/traces
+  http.get('/api/v1/deployments/:id/observability/traces', () => {
+    return HttpResponse.json<ObservabilityTracesResponse>({
+      traces: [],
+      total: 0,
+      limit: 1,
+      offset: 0,
+    });
   }),
 
   // POST /api/v1/undeploy
