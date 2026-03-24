@@ -11,6 +11,7 @@ import type { AgentDeployment } from "@/lib/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InlineBadge } from "@/components/InlineBadge";
+import { Button } from "@/components/ui/button";
 import { MultiSelect } from "../shared/MultiSelect";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
@@ -1009,22 +1010,13 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
               })}
               {hasCollapsedTraces && (
                 <div style={{ display: "flex", justifyContent: "center", padding: "8px 12px 2px" }}>
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setShowAllTraces((prev) => !prev)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      fontFamily: S.mono,
-                      fontSize: T.monoSm,
-                      letterSpacing: "0.04em",
-                      color: C.faint,
-                      textDecoration: "underline",
-                    }}
                   >
-                    {showAllTraces ? "See less" : `See more (${visibleTraces.length - 4} more)`}
-                  </button>
+                    {showAllTraces ? "See less" : `See ${visibleTraces.length - 4} more`}
+                  </Button>
                 </div>
               )}
             </div>
