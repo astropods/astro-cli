@@ -167,6 +167,24 @@ func (s *Store) AgentAvatarURL(account, name string, version int) string {
 	return fmt.Sprintf("%s/%s?v=%d", s.assetsURL, agentAvatarKey(account, name), version)
 }
 
+// CopyAgentToDeployment copies a blueprint's avatar to a deployment.
+// Returns true if a copy was made, false if the blueprint had no avatar.
+func (s *Store) CopyAgentToDeployment(ctx context.Context, account, agentName, deploymentID string) (bool, error) {
+	src := agentAvatarKey(account, agentName)
+	exists, err := s.backend.Exists(ctx, src)
+	if err != nil {
+		return false, fmt.Errorf("check agent avatar: %w", err)
+	}
+	if !exists {
+		return false, nil
+	}
+	dst := deploymentAvatarKey(deploymentID)
+	if err := s.backend.Copy(ctx, src, dst); err != nil {
+		return false, fmt.Errorf("copy agent avatar to deployment: %w", err)
+	}
+	return true, nil
+}
+
 // UploadDeployment validates, resizes, and stores an avatar for a deployment.
 func (s *Store) UploadDeployment(ctx context.Context, id string, imageBytes []byte) error {
 	return s.uploadToKey(ctx, deploymentAvatarKey(id), imageBytes)

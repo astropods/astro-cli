@@ -375,7 +375,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -472,6 +472,17 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			log.Error("Failed to save deployment record", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
+		}
+
+		// Copy the blueprint's avatar to the new deployment (best-effort).
+		if avatarStore != nil && !dctx.isUpdate {
+			if copied, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.acct.Name, dctx.agentName, dctx.deploymentID); copyErr != nil {
+				log.Warn("Failed to copy blueprint avatar to deployment", "error", copyErr, "deployment_id", dctx.deploymentID)
+			} else if copied {
+				if _, verErr := deployStore.IncrementDeploymentAvatarVersion(dctx.deploymentID); verErr != nil {
+					log.Warn("Failed to set deployment avatar version after copy", "error", verErr, "deployment_id", dctx.deploymentID)
+				}
+			}
 		}
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
@@ -821,9 +832,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			allDeployments = append(allDeployments, deps...)
 		}
 
-		// Resolve avatar URLs: deployment override → blueprint → empty (procedural SVG on client)
-		if avatarStore != nil && agentIdx != nil {
-			agentAvatarVersions, _ := agentIdx.AvatarVersionsByAccount(acct.ID)
+		// Resolve avatar URLs for deployments that have their own custom avatar.
+		if avatarStore != nil {
 			dbDepByID := make(map[string]*deploymentstore.Deployment, len(dbDeps))
 			for _, d := range dbDeps {
 				dbDepByID[d.ID] = d
@@ -831,8 +841,6 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			for i, dep := range allDeployments {
 				if dbDep, ok := dbDepByID[dep.ID]; ok && dbDep.AvatarVersion > 0 {
 					allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dbDep.AvatarVersion)
-				} else if v, ok := agentAvatarVersions[dep.Name]; ok && v > 0 {
-					allDeployments[i].AvatarURL = avatarStore.AgentAvatarURL(accountName, dep.Name, v)
 				}
 			}
 		}
@@ -2004,19 +2012,10 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 			log.Warn("Failed to load deployment revisions", "error", revErr, "deployment_id", dep.ID)
 		}
 
-		// Resolve avatar URL: deployment override → blueprint → empty
+		// Resolve avatar URL for deployment's own custom avatar.
 		var avatarURL string
-		if avatarStore != nil {
-			if dep.AvatarVersion > 0 {
-				avatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dep.AvatarVersion)
-			} else if agentIdx != nil {
-				versions, versErr := agentIdx.AvatarVersionsByAccount(acct.ID)
-				if versErr == nil {
-					if v, ok := versions[dep.AgentName]; ok && v > 0 {
-						avatarURL = avatarStore.AgentAvatarURL(acct.Name, dep.AgentName, v)
-					}
-				}
-			}
+		if avatarStore != nil && dep.AvatarVersion > 0 {
+			avatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dep.AvatarVersion)
 		}
 
 		c.JSON(http.StatusOK, gin.H{

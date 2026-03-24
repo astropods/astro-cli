@@ -782,7 +782,7 @@ func (s *Store) IncrementDeploymentAvatarVersion(id string) (int, error) {
 }
 
 // ResetDeploymentAvatarVersion sets the avatar_version for a deployment back to 0,
-// indicating no custom avatar (falls back to blueprint). Used when an avatar is deleted.
+// indicating no custom avatar. Used when an avatar is deleted.
 func (s *Store) ResetDeploymentAvatarVersion(id string) error {
 	_, err := s.db.Exec(`
 		UPDATE deployments SET avatar_version = 0
