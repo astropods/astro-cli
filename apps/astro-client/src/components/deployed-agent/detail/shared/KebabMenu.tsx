@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisVerticalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { EllipsisHorizontalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon } from "@heroicons/react/24/outline";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useAgent } from "@/api/queries/agents";
@@ -137,7 +137,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
         onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
         onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
       >
-        <EllipsisVerticalIcon style={{ width: I.md, height: I.md }} />
+        <EllipsisHorizontalIcon style={{ width: I.md, height: I.md }} />
       </button>
       {open && (
         <div
