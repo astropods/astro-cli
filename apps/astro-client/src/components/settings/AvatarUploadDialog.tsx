@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -30,7 +30,15 @@ export function AvatarUploadDialog({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cropAreaRef = useRef<CropArea | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  previewUrlRef.current = previewUrl;
   const uploadAvatar = useUploadAvatar();
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    };
+  }, []);
 
   const reset = useCallback(() => {
     setPreviewUrl((prev) => {
@@ -113,13 +121,7 @@ export function AvatarUploadDialog({
           {previewUrl && (
             <Button
               variant="outline"
-              onClick={() => {
-                setPreviewUrl((prev) => {
-                  if (prev) URL.revokeObjectURL(prev);
-                  return null;
-                });
-                cropAreaRef.current = null;
-              }}
+              onClick={reset}
               disabled={uploadAvatar.isPending}
             >
               Back
