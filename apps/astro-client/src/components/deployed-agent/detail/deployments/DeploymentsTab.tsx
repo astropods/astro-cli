@@ -1130,7 +1130,7 @@ export function DeploymentsTab({
                               <button
                                 type="button"
                                 onClick={() => setOpenPastDeployMenu((prev) => (prev === row.id ? null : row.id))}
-                                style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex", padding: 4, borderRadius: 4 }}
+                                style={{ background: "none", border: "none", cursor: "pointer", color: C.text, display: "flex", padding: 4, borderRadius: 4 }}
                                 onMouseEnter={(e) => {
                                   e.currentTarget.style.background = C.bgDeep;
                                 }}
