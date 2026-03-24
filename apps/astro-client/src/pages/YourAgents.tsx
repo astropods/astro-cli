@@ -21,7 +21,7 @@ function formatRelativeTime(isoString: string): string {
   const diffHours = Math.round(diffMins / 60);
   const diffDays = Math.round(diffHours / 24);
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  if (Math.abs(diffSecs) < 60) return rtf.format(diffSecs, "second");
+  if (Math.abs(diffSecs) < 60) return "less than a minute ago";
   if (Math.abs(diffMins) < 60) return rtf.format(diffMins, "minute");
   if (Math.abs(diffHours) < 24) return rtf.format(diffHours, "hour");
   return rtf.format(diffDays, "day");
