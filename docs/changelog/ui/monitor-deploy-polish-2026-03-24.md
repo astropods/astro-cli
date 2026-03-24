@@ -11,6 +11,7 @@ A focused polish pass on the Monitor and Deployments detail pages, improving vis
 - **Filter controls** (log time range, search input, traces "All statuses" multi-select, monitor time window) unified to use `var(--popover)` background. `SelectTrigger` component now defaults to `text-foreground`.
 - **Deployments table status column** right-aligned to match other columns, and rendered with a colored dot + uppercase label using the same teal token as the breadcrumb header badge.
 - **Ready indicator** checkmark moved to after the "ready" label.
+- **Build ID badge** removed from the agent breadcrumb header; the update badge still appears when a newer build is available.
 
 ## Migration
 
