@@ -176,7 +176,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
           {[
             {
               icon: copied ? CheckIcon : DocumentDuplicateIcon,
-              label: copied ? "Copied!" : "Copy build number",
+              label: copied ? "Copied!" : "Copy deployment ID",
               color: C.text,
               onClick: copyId,
               sep: false,
