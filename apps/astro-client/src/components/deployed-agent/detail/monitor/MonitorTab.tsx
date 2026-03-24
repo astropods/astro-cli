@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { Activity, Copy, Check, ChevronDown, X } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/outline";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
 import { observabilityKeys } from "@/api/queries/keys";
@@ -1015,7 +1016,11 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     size="sm"
                     onClick={() => setShowAllTraces((prev) => !prev)}
                   >
-                    {showAllTraces ? "See less" : `See ${visibleTraces.length - 4} more`}
+                    {showAllTraces ? (
+                      <>See less <ChevronUpIcon className="h-3.5 w-3.5" /></>
+                    ) : (
+                      <>See {visibleTraces.length - 4} more <ChevronDownIcon className="h-3.5 w-3.5" /></>
+                    )}
                   </Button>
                 </div>
               )}
