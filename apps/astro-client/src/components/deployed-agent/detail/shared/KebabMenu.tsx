@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { EllipsisVerticalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon } from "@heroicons/react/24/outline";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
-import { useBlueprint } from "@/api/queries/blueprints";
-import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
+import { useAgent } from "@/api/queries/agents";
+import { getAgentIntegrations } from "@/lib/agent-utils";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 const C = {
-  bgAlt: "var(--popover)",
+  bgAlt: "var(--surface)",
   bgDeep: "var(--muted)",
   panel: "var(--surface)",
   border: "var(--border)",
@@ -48,11 +47,11 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
+  const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data: agent } = useBlueprint(account, deploymentName, { enabled: shareOpen });
-  const integrations = agent ? getBlueprintIntegrations(agent) : [];
+  const { data: agent } = useAgent(account, deploymentName, { enabled: shareOpen });
+  const integrations = agent ? getAgentIntegrations(agent) : [];
 
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
     if (avatarUrl) return { url: avatarUrl };
@@ -83,7 +82,12 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   }, [open]);
 
   const copyId = () => {
-    void copyToClipboard(deploymentId);
+    navigator.clipboard.writeText(deploymentId);
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+      setOpen(false);
+    }, 1600);
   };
 
   const linkStyle = {
@@ -133,7 +137,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
         onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
         onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
       >
-        <EllipsisHorizontalIcon style={{ width: I.md, height: I.md }} />
+        <EllipsisVerticalIcon style={{ width: I.md, height: I.md }} />
       </button>
       {open && (
         <div
@@ -172,7 +176,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
           {[
             {
               icon: copied ? CheckIcon : DocumentDuplicateIcon,
-              label: copied ? "Copied!" : "Copy deploy ID",
+              label: copied ? "Copied!" : "Copy build number",
               color: C.text,
               onClick: copyId,
               sep: false,

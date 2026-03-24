@@ -268,6 +268,13 @@ export function ActiveDetailView({
               </span>
             )
           })()}
+          <KebabMenu
+            deploymentId={deployment.id}
+            deploymentName={deployment.name}
+            displayName={deployment.display_name}
+            account={account}
+            installedAt={formatDate(deployment.created_at)}
+          />
         </div>
         <div
           style={{
