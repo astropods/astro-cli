@@ -9,7 +9,6 @@ import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/depl
 import type { AgentDeployment } from "@/lib/api";
 import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountAgents } from "@/api/queries/agents";
-import { InlineBadge } from "@/components/InlineBadge";
 import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
