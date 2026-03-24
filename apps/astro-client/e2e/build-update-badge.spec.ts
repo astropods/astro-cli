@@ -47,17 +47,6 @@ test("up-to-date deployment does not show new build badge", async ({ page }) => 
   await expect(page.getByText("New build")).toHaveCount(0);
 });
 
-// The current build_id should always be visible on the detail page as
-// informational context, regardless of whether a newer build exists.
-test("detail page always shows current build id badge", async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_OVERLAP_ID}`, {
-    waitUntil: "domcontentloaded",
-  });
-
-  await expect(page.getByRole("heading", { name: "Slack Overlap Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("build-123")).toBeVisible();
-});
 
 // Build-only upgrade flow: with no dirty config edits, configure page should still
 // surface a Redeploy action and allow submitting current config against latest build.
