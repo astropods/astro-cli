@@ -5,7 +5,7 @@ import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { AgentIdentity } from "@/components/AgentIdentity";
-import { isDeployingState, isPausedState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { isDeployingState, isPausedState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountAgents } from "@/api/queries/agents";
@@ -265,6 +265,7 @@ export function ActiveDetailView({
             deploymentName={deployment.name}
             displayName={deployment.display_name}
             account={account}
+            installedAt={formatDate(deployment.created_at)}
           />
         </div>
         <div
