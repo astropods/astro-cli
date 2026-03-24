@@ -227,9 +227,6 @@ export function ActiveDetailView({
           >
             {displayName}
           </h1>
-          <InlineBadge className="normal-case">
-            {renderedDeployment.build_id}
-          </InlineBadge>
           {hasNewBuildAvailable ? (
             <BuildUpdateBadge
               currentBuildId={renderedDeployment.build_id}
