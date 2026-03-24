@@ -214,18 +214,27 @@ export function ActiveDetailView({
           <div style={{ borderRadius: 8, overflow: 'hidden', flexShrink: 0, lineHeight: 0 }}>
             <AgentIdentity account={account} name={deployment.name} size={26} className="rounded-sm" />
           </div>
-          <h1
-            style={{
-              fontFamily: S.body,
-              fontSize: T.heading4,
-              fontWeight: 600,
-              color: C.text,
-              margin: 0,
-              lineHeight: 1.2,
-            }}
-          >
-            {displayName}
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <h1
+              style={{
+                fontFamily: S.body,
+                fontSize: T.heading4,
+                fontWeight: 600,
+                color: C.text,
+                margin: 0,
+                lineHeight: 1.2,
+              }}
+            >
+              {displayName}
+            </h1>
+            <KebabMenu
+            deploymentId={deployment.id}
+            deploymentName={deployment.name}
+            displayName={deployment.display_name}
+            account={account}
+            installedAt={formatDate(deployment.created_at)}
+            />
+          </div>
           {hasNewBuildAvailable ? (
             <BuildUpdateBadge
               currentBuildId={renderedDeployment.build_id}
@@ -260,13 +269,6 @@ export function ActiveDetailView({
               </span>
             )
           })()}
-          <KebabMenu
-            deploymentId={deployment.id}
-            deploymentName={deployment.name}
-            displayName={deployment.display_name}
-            account={account}
-            installedAt={formatDate(deployment.created_at)}
-          />
         </div>
         <div
           style={{
