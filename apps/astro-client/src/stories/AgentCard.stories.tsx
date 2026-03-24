@@ -75,12 +75,12 @@ export const OftenUsedTogether: Story = {
 };
 
 const gridCards = [
-  { slug: "acme/customer-insight-engine", account: "acme", name: "Customer Insight Engine", description: "Analyzes customer feedback to surface actionable insights and trends.", deployCount: 284 },
-  { slug: "acme/personalized-support-responses", account: "acme", name: "Personalized Support Responses", description: "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history and context.", deployCount: 57 },
-  { slug: "acme/security-monitor", account: "acme", name: "Security Monitor", description: "Continuously scans for vulnerabilities and alerts your security team.", deployCount: 1203 },
+  { slug: "acme/customer-insight-engine", account: "acme", name: "Customer Insight Engine", description: "Analyzes customer feedback to surface actionable insights and trends." },
+  { slug: "acme/personalized-support-responses", account: "acme", name: "Personalized Support Responses", description: "This agent helps your support team respond faster by drafting personalized replies that consider the customer's history and context." },
+  { slug: "acme/security-monitor", account: "acme", name: "Security Monitor", description: "Continuously scans for vulnerabilities and alerts your security team." },
   { slug: "postman/api-test-agent", account: "postman", name: "API Test Agent", description: "Automatically generates and runs API tests based on your OpenAPI specs." },
-  { slug: "atlas/deploy-bot", account: "atlas", name: "Deploy Bot", description: "Manages zero-downtime deployments across multiple environments with rollback support.", deployCount: 8 },
-  { slug: "nova/data-pipeline", account: "nova", name: "Data Pipeline", description: "Orchestrates ETL workflows and monitors data quality across your warehouse.", deployCount: 412 },
+  { slug: "atlas/deploy-bot", account: "atlas", name: "Deploy Bot", description: "Manages zero-downtime deployments across multiple environments with rollback support." },
+  { slug: "nova/data-pipeline", account: "nova", name: "Data Pipeline", description: "Orchestrates ETL workflows and monitors data quality across your warehouse." },
 ];
 
 export const Grid: StoryObj = {
