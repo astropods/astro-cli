@@ -15,7 +15,9 @@ function renderYourAgents() {
     [
       {
         path: '/agents',
-        Component: YourAgents,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Component: YourAgents as any,
+        loader: () => ({ count: 0 }),
       },
     ],
     { initialEntries: ['/agents'] },

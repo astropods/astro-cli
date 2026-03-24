@@ -465,7 +465,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     );
 
     try {
-      await deployMutation.mutateAsync(spec);
+      return await deployMutation.mutateAsync(spec);
     } catch (err) {
       const apiErr = err as ApiError;
       const messages: string[] = [];

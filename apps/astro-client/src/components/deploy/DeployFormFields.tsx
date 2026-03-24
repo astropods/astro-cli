@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { Camera } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AccountPicker } from "./AccountPicker";
@@ -8,6 +9,8 @@ import { FormSection } from "./FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
+import { AgentIdentity } from "@/components/AgentIdentity";
+import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import type { useDeployForm } from "./useDeployForm";
 import { slugToTitle } from "./useDeployForm";
 
@@ -19,9 +22,23 @@ export interface DeployFormFieldsProps {
   hideAccountPicker?: boolean;
   /** Extra content rendered at the end of the Ingestion section (e.g. manual trigger buttons). */
   ingestionExtra?: ReactNode;
+  /** Avatar display and optional upload/staging. */
+  avatar?: {
+    url?: string;
+    account: string;
+    agentName: string;
+    /** Immediate upload (for existing deployments). */
+    onUpload?: (file: Blob) => Promise<void>;
+    isPending?: boolean;
+    /** Stage a blob for deferred upload (for new deployments). */
+    onStage?: (blob: Blob | null) => void;
+    /** Local preview URL for a staged blob. */
+    stagedPreviewUrl?: string;
+  };
 }
 
-export function DeployFormFields({ form, hideAccountPicker, ingestionExtra }: DeployFormFieldsProps) {
+export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avatar }: DeployFormFieldsProps) {
+  const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
   const importableKeys = new Set<string>([
     ...form.requiredVariables.map(([key]) => key),
     ...form.optionalVariables.map(([key]) => key),
@@ -39,18 +56,69 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra }: De
       {/* Agent name & account */}
       <FormSection title="General" description="Choose what to call your agent and where to deploy it.">
         <div className="space-y-5">
-          <div>
-            <Label size="md">Agent Name</Label>
-            <Input
-              value={form.deployName}
-              onChange={(e) => form.setDeployName(e.target.value)}
-              placeholder="My Agent"
-              maxLength={64}
-              aria-invalid={!!form.errors.deployName}
-            />
-            {form.errors.deployName && (
-              <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
-            )}
+          <div className="flex items-start gap-4">
+            {avatar && (() => {
+              const canEdit = !!avatar.onUpload || !!avatar.onStage;
+              const displayUrl = avatar.stagedPreviewUrl ?? avatar.url;
+              const avatarImage = displayUrl ? (
+                <img
+                  src={displayUrl}
+                  alt={avatar.agentName}
+                  className="size-[72px] rounded-sm object-cover"
+                />
+              ) : (
+                <AgentIdentity
+                  account={avatar.account}
+                  name={avatar.agentName}
+                  size={72}
+                  className="size-[72px] rounded-sm overflow-hidden"
+                />
+              );
+              const handleUploadOrStage = async (blob: Blob) => {
+                if (avatar.onUpload) {
+                  await avatar.onUpload(blob);
+                } else if (avatar.onStage) {
+                  avatar.onStage(blob);
+                }
+              };
+              return canEdit ? (
+                <>
+                  <button
+                    type="button"
+                    className="group relative shrink-0 cursor-pointer"
+                    onClick={() => setAvatarDialogOpen(true)}
+                  >
+                    {avatarImage}
+                    <div className="absolute inset-0 flex items-center justify-center rounded-sm bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Camera className="size-5 text-white" />
+                    </div>
+                  </button>
+                  <AvatarUploadDialog
+                    open={avatarDialogOpen}
+                    onOpenChange={setAvatarDialogOpen}
+                    onUpload={handleUploadOrStage}
+                    isPending={avatar.isPending ?? false}
+                    title="Upload agent image"
+                    cropShape="rect"
+                  />
+                </>
+              ) : (
+                <div className="shrink-0">{avatarImage}</div>
+              );
+            })()}
+            <div className="flex-1 min-w-0">
+              <Label size="md">Agent Name</Label>
+              <Input
+                value={form.deployName}
+                onChange={(e) => form.setDeployName(e.target.value)}
+                placeholder="My Agent"
+                maxLength={64}
+                aria-invalid={!!form.errors.deployName}
+              />
+              {form.errors.deployName && (
+                <p className="text-sm text-destructive mt-1">{form.errors.deployName}</p>
+              )}
+            </div>
           </div>
 
           {!hideAccountPicker && form.accounts.length > 1 && (

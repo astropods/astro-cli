@@ -8,6 +8,8 @@ export interface AgentDetailContentProps {
   name: string;
   visibility?: string;
   categories: string[];
+  avatarUrl?: string;
+  canEdit?: boolean;
   readme?: string;
   mobileSidebar?: ReactNode;
 }
@@ -17,6 +19,8 @@ export function AgentDetailContent({
   name,
   visibility,
   categories,
+  avatarUrl,
+  canEdit,
   readme,
   mobileSidebar,
 }: AgentDetailContentProps) {
@@ -29,6 +33,8 @@ export function AgentDetailContent({
         name={name}
         visibility={visibility}
         categories={categories}
+        avatarUrl={avatarUrl}
+        canEdit={canEdit}
       />
 
       {/* Sidebar content inlined on mobile */}

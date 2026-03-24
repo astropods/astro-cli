@@ -47,7 +47,12 @@ type Store struct {
 }
 
 // NewStore creates a new avatar store with the given backend.
+// When assetsURL is empty (local dev), defaults to "/assets" so server-computed
+// avatar URLs resolve against the Vite dev server's public directory.
 func NewStore(backend Backend, assetsURL string) *Store {
+	if assetsURL == "" {
+		assetsURL = "/assets"
+	}
 	return &Store{
 		backend:   backend,
 		assetsURL: assetsURL,
@@ -78,6 +83,16 @@ func avatarKey(handle string) string {
 	return fmt.Sprintf("avatars/%s.jpg", handle)
 }
 
+// agentAvatarKey returns the storage key for an agent blueprint's avatar.
+func agentAvatarKey(account, name string) string {
+	return fmt.Sprintf("avatars/agents/%s/%s.jpg", account, name)
+}
+
+// deploymentAvatarKey returns the storage key for a deployment's avatar.
+func deploymentAvatarKey(id string) string {
+	return fmt.Sprintf("avatars/deployments/%s.jpg", id)
+}
+
 // AvatarExists checks whether an avatar exists for the given handle.
 func (s *Store) AvatarExists(ctx context.Context, handle string) (bool, error) {
 	return s.backend.Exists(ctx, avatarKey(handle))
@@ -96,20 +111,20 @@ func (s *Store) SetPreset(ctx context.Context, handle string, index int) error {
 	return s.backend.Copy(ctx, presetKey(index), avatarKey(handle))
 }
 
-// Upload validates, resizes, and stores an avatar image for the given handle.
-func (s *Store) Upload(ctx context.Context, handle string, imageBytes []byte) error {
+// processImage validates, decodes, resizes to 512x512, and JPEG-encodes an image.
+func processImage(imageBytes []byte) ([]byte, error) {
 	if len(imageBytes) > MaxUploadSize {
-		return fmt.Errorf("image too large: %d bytes (max %d)", len(imageBytes), MaxUploadSize)
+		return nil, fmt.Errorf("image too large: %d bytes (max %d)", len(imageBytes), MaxUploadSize)
 	}
 
 	contentType := http.DetectContentType(imageBytes)
 	if !isAllowedImageType(contentType) {
-		return fmt.Errorf("unsupported image type: %s", contentType)
+		return nil, fmt.Errorf("unsupported image type: %s", contentType)
 	}
 
 	src, _, err := image.Decode(bytes.NewReader(imageBytes))
 	if err != nil {
-		return fmt.Errorf("decode image: %w", err)
+		return nil, fmt.Errorf("decode image: %w", err)
 	}
 
 	dst := image.NewRGBA(image.Rect(0, 0, OutputSize, OutputSize))
@@ -117,10 +132,54 @@ func (s *Store) Upload(ctx context.Context, handle string, imageBytes []byte) er
 
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: jpegQuality}); err != nil {
-		return fmt.Errorf("encode jpeg: %w", err)
+		return nil, fmt.Errorf("encode jpeg: %w", err)
 	}
 
-	return s.backend.Write(ctx, avatarKey(handle), buf.Bytes(), "image/jpeg")
+	return buf.Bytes(), nil
+}
+
+// uploadToKey processes an image and writes it to the given storage key.
+func (s *Store) uploadToKey(ctx context.Context, key string, imageBytes []byte) error {
+	data, err := processImage(imageBytes)
+	if err != nil {
+		return err
+	}
+	return s.backend.Write(ctx, key, data, "image/jpeg")
+}
+
+// Upload validates, resizes, and stores an avatar image for the given account handle.
+func (s *Store) Upload(ctx context.Context, handle string, imageBytes []byte) error {
+	return s.uploadToKey(ctx, avatarKey(handle), imageBytes)
+}
+
+// UploadAgent validates, resizes, and stores an avatar for an agent blueprint.
+func (s *Store) UploadAgent(ctx context.Context, account, name string, imageBytes []byte) error {
+	return s.uploadToKey(ctx, agentAvatarKey(account, name), imageBytes)
+}
+
+// DeleteAgent removes an agent blueprint's avatar.
+func (s *Store) DeleteAgent(ctx context.Context, account, name string) error {
+	return s.backend.Delete(ctx, agentAvatarKey(account, name))
+}
+
+// AgentAvatarURL returns the CDN URL for an agent blueprint's avatar.
+func (s *Store) AgentAvatarURL(account, name string, version int) string {
+	return fmt.Sprintf("%s/%s?v=%d", s.assetsURL, agentAvatarKey(account, name), version)
+}
+
+// UploadDeployment validates, resizes, and stores an avatar for a deployment.
+func (s *Store) UploadDeployment(ctx context.Context, id string, imageBytes []byte) error {
+	return s.uploadToKey(ctx, deploymentAvatarKey(id), imageBytes)
+}
+
+// DeleteDeployment removes a deployment's avatar.
+func (s *Store) DeleteDeployment(ctx context.Context, id string) error {
+	return s.backend.Delete(ctx, deploymentAvatarKey(id))
+}
+
+// DeploymentAvatarURL returns the CDN URL for a deployment's avatar.
+func (s *Store) DeploymentAvatarURL(id string, version int) string {
+	return fmt.Sprintf("%s/%s?v=%d", s.assetsURL, deploymentAvatarKey(id), version)
 }
 
 // Ingest fetches an image from an external URL and uploads it as the account's avatar.

@@ -40,7 +40,7 @@ func newPurgeWorker(t *testing.T) (*AccountPurgeWorker, sqlmock.Sqlmock, sqlmock
 
 var purgeDeployColumns = []string{
 	"id", "account_id", "agent_name", "build_id", "namespace",
-	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
+	"display_name", "avatar_version", "deployment_spec_json", "encrypted_data_key", "kms_key_arn",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
 	"deployed_at", "undeployed_at",
 }
@@ -108,7 +108,7 @@ func TestAccountPurge_SkipsAccountWithPendingTeardown(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(purgeDeployColumns).AddRow(
 			"dep-1", "acct-1", "agent", "build-1", "ns-1",
-			"Agent", `{}`, nil, nil,
+			"Agent", 0, `{}`, nil, nil,
 			"active", nil, json.RawMessage(nil), now, &rev,
 			now, nil,
 		))
@@ -146,7 +146,7 @@ func TestAccountPurge_SkipsReenqueueForAlreadyUndeploying(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(purgeDeployColumns).AddRow(
 			"dep-1", "acct-1", "agent", "build-1", "ns-1",
-			"Agent", `{}`, nil, nil,
+			"Agent", 0, `{}`, nil, nil,
 			"undeploying", nil, json.RawMessage(nil), now, &rev,
 			now, nil,
 		))

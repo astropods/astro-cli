@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import type { Route } from "./+types/YourAgents";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { EmptyState } from "../components/EmptyState";
 import {
@@ -13,6 +14,7 @@ import { useAuth } from "../lib/auth";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import type { AgentDeployment } from "../lib/api";
+import { createServerApi } from "../lib/api.server";
 
 function formatRelativeTime(isoString: string): string {
   const diffMs = new Date(isoString).getTime() - Date.now();
@@ -58,18 +60,64 @@ function AgentCardWithStats({
       lastActive={lastActive}
       installedAt={formatDate(deployment.created_at)}
       updatedAt={formatDate(deployment.created_at)}
+      avatarUrl={deployment.avatar_url}
       hasNewBuildAvailable={hasNewBuildAvailable}
     />
   );
 }
 
-function YourAgentsContent() {
+export async function loader({ request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  try {
+    const auth = await api.getCurrentUser();
+    const personalAccount = auth.accounts?.find((a) => a.type === "personal");
+    if (!personalAccount) return { count: 0 };
+    const { count } = await api.countDeployments(personalAccount.name);
+    return { count };
+  } catch {
+    return { count: 0 };
+  }
+}
+
+function DeployedAgentCardSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-stone-300 bg-background px-4 pb-[22px] pt-3 dark:border-border animate-pulse">
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 shrink-0 rounded-sm bg-muted" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 w-28 rounded bg-muted" />
+          <div className="h-3 w-16 rounded bg-muted" />
+        </div>
+      </div>
+      <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
+        <div className="space-y-1">
+          <div className="h-3 w-14 rounded bg-muted" />
+          <div className="h-3 w-10 rounded bg-muted" />
+        </div>
+        <div className="space-y-1">
+          <div className="h-3 w-14 rounded bg-muted" />
+          <div className="h-3 w-10 rounded bg-muted" />
+        </div>
+        <div className="space-y-1">
+          <div className="h-3 w-14 rounded bg-muted" />
+          <div className="h-3 w-10 rounded bg-muted" />
+        </div>
+        <div className="space-y-1">
+          <div className="h-3 w-14 rounded bg-muted" />
+          <div className="h-3 w-10 rounded bg-muted" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
-  const { data } = useDeployments(userAccount, isAuthenticated);
+  const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountAgents } = useAccountAgents(userAccount, { enabled: isAuthenticated });
 
   const latestBuildByName = useMemo(() => {
@@ -108,7 +156,15 @@ function YourAgentsContent() {
         onViewModeChange={setViewMode}
       />
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        skeletonCount > 0 ? (
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: skeletonCount }, (_, i) => (
+              <DeployedAgentCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : null
+      ) : filtered.length === 0 ? (
         <EmptyState
           title="No agents yet"
           description="Browse available agent blueprints and deploy one to get started."
@@ -135,10 +191,10 @@ function YourAgentsContent() {
   );
 }
 
-export default function YourAgents() {
+export default function YourAgents({ loaderData }: Route.ComponentProps) {
   return (
     <ProtectedRoute>
-      <YourAgentsContent />
+      <YourAgentsContent skeletonCount={loaderData?.count ?? 0} />
     </ProtectedRoute>
   );
 }

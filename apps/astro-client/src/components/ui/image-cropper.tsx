@@ -73,7 +73,10 @@ export function ImageCropper({
             cropShape={cropShape}
             cropSize={{ width: containerSize, height: containerSize }}
             mediaProps={{ style: { background: "white" } }}
-            style={{ containerStyle: { background: "white" } }}
+            style={{
+              containerStyle: { background: "white" },
+              cropAreaStyle: cropShape === "rect" ? { borderRadius: 8 } : undefined,
+            }}
             onMediaLoaded={handleMediaLoaded}
             onCropChange={setCrop}
             onZoomChange={setZoom}

@@ -28,6 +28,7 @@ type Deployment struct {
 	BuildID            string          `json:"build_id"`
 	Namespace          string          `json:"namespace"`
 	DisplayName        string          `json:"display_name,omitempty"`
+	AvatarVersion      int             `json:"avatar_version"`
 	DeploymentSpecJSON string          `json:"deployment_spec_json"`
 	EncryptedDataKey   []byte          `json:"-"`
 	KMSKeyARN          *string         `json:"-"`
@@ -61,7 +62,7 @@ func nilIfEmpty(s string) interface{} {
 }
 
 // deploymentColumns is the SELECT column list for full deployment reads.
-const deploymentColumns = `id, account_id, agent_name, build_id, namespace, display_name,
+const deploymentColumns = `id, account_id, agent_name, build_id, namespace, display_name, avatar_version,
        deployment_spec_json, encrypted_data_key, kms_key_arn,
        status, error_message, error_details, status_changed_at, current_revision,
        deployed_at, undeployed_at`
@@ -71,7 +72,7 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 	var d Deployment
 	var errorDetails []byte
 	err := row.Scan(
-		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName, &d.AvatarVersion,
 		&d.DeploymentSpecJSON, &d.EncryptedDataKey, &d.KMSKeyARN,
 		&d.Status, &d.ErrorMessage, &errorDetails, &d.StatusChangedAt, &d.CurrentRevision,
 		&d.DeployedAt, &d.UndeployedAt,
@@ -230,6 +231,19 @@ func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, 
 
 // GetVisibleDeploymentsByAccount returns all deployments that exist for an
 // account — every status except fully undeployed (torn down).
+// CountVisibleDeploymentsByAccount returns the number of non-undeployed deployments for an account.
+func (s *Store) CountVisibleDeploymentsByAccount(accountID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM deployments
+		WHERE account_id = $1 AND status != 'undeployed'
+	`, accountID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count deployments: %w", err)
+	}
+	return count, nil
+}
+
 func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment, error) {
 	rows, err := s.db.Query(`
 		SELECT `+deploymentColumns+`
@@ -505,11 +519,11 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 		    status, status_changed_at, current_revision, deployed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), 1, NOW())
 		RETURNING id, account_id, agent_name, build_id, namespace, display_name,
-		    deployment_spec_json, status, deployed_at
+		    avatar_version, deployment_spec_json, status, deployed_at
 	`, p.ID, p.AccountID, p.AgentName, p.BuildID, p.Namespace, p.DisplayName,
 		p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN), StatusPending).Scan(
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
-		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
+		&d.DisplayName, &d.AvatarVersion, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert deployment: %w", err)
@@ -584,11 +598,11 @@ func (s *Store) UpdateDeploymentPending(p SaveDeploymentParams, txFn func(tx *sq
 		    status_changed_at = NOW(), current_revision = $8, deployed_at = NOW()
 		WHERE id = $1
 		RETURNING id, account_id, agent_name, build_id, namespace, display_name,
-		    deployment_spec_json, status, deployed_at
+		    avatar_version, deployment_spec_json, status, deployed_at
 	`, p.ID, p.BuildID, p.SpecJSON, p.EncryptedDataKey, nilIfEmpty(p.KMSKeyARN),
 		p.DisplayName, StatusPending, nextRevision).Scan(
 		&d.ID, &d.AccountID, &d.AgentName, &d.BuildID, &d.Namespace,
-		&d.DisplayName, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
+		&d.DisplayName, &d.AvatarVersion, &d.DeploymentSpecJSON, &d.Status, &d.DeployedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update deployment: %w", err)
@@ -746,4 +760,23 @@ func (s *Store) IsScaledDown(namespace string) (bool, error) {
 		return false, fmt.Errorf("failed to check scaled namespace: %w", err)
 	}
 	return exists, nil
+}
+
+// IncrementDeploymentAvatarVersion atomically increments the avatar_version for a
+// deployment and returns the new version number.
+//
+// Required migration:
+//
+//	ALTER TABLE deployments ADD COLUMN avatar_version INTEGER NOT NULL DEFAULT 0;
+func (s *Store) IncrementDeploymentAvatarVersion(id string) (int, error) {
+	var version int
+	err := s.db.QueryRow(`
+		UPDATE deployments SET avatar_version = avatar_version + 1
+		WHERE id = $1
+		RETURNING avatar_version
+	`, id).Scan(&version)
+	if err != nil {
+		return 0, fmt.Errorf("failed to increment deployment avatar version: %w", err)
+	}
+	return version, nil
 }

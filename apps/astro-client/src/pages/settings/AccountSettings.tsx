@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { useUpdateProfile } from "@/api/queries";
+import { useUpdateProfile, useUploadAvatar } from "@/api/queries";
 import { ChangeUsernameDialog } from "@/components/settings/ChangeUsernameDialog";
 import { DeleteAccountDialog } from "@/components/settings/DeleteAccountDialog";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
@@ -63,6 +63,7 @@ function useSavedFlash() {
 function ProfileSection() {
   const { user, personalAccount, refresh } = useAuth();
   const updateProfile = useUpdateProfile();
+  const uploadAvatar = useUploadAvatar();
   const initialName = personalAccount?.display_name ?? "";
   const [displayName, setDisplayName] = useState(initialName);
   const [savedName, setSavedName] = useState(initialName);
@@ -131,9 +132,13 @@ function ProfileSection() {
           </div>
           {personalAccount && (
             <AvatarUploadDialog
-              account={personalAccount.name}
               open={avatarDialogOpen}
               onOpenChange={setAvatarDialogOpen}
+              onUpload={async (file) => {
+                await uploadAvatar.mutateAsync({ account: personalAccount.name, file });
+              }}
+              isPending={uploadAvatar.isPending}
+              title="Upload profile image"
               onSuccess={() => { refresh(); flash(); }}
             />
           )}

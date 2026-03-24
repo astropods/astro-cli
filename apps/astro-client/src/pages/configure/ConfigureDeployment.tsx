@@ -9,7 +9,7 @@ import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { DeployFormActionBar } from "@/components/deploy/DeployFormActionBar";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
-import { useTriggerIngestion } from "@/api/queries/deployments";
+import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 
 const FORM_ID = "configure-deployment-form";
 
@@ -36,6 +36,8 @@ export default function ConfigureDeployment() {
     skipTemplateFetch: true,
     initialValues,
   });
+
+  const uploadDeploymentAvatar = useUploadDeploymentAvatar(account);
 
   const trackedState: TrackedFormState = {
     deployName: form.deployName,
@@ -86,6 +88,15 @@ export default function ConfigureDeployment() {
         <DeployFormFields
           form={form}
           hideAccountPicker
+          avatar={{
+            url: deployment.avatar_url,
+            account,
+            agentName: deployment.name,
+            onUpload: async (file) => {
+              await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
+            },
+            isPending: uploadDeploymentAvatar.isPending,
+          }}
           ingestionExtra={
             manualIngestions.length > 0
               ? <ManualTriggers

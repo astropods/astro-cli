@@ -139,3 +139,17 @@ export function useArchiveAgent(account: string) {
   });
 }
 
+// Blueprint avatar mutations
+export function useUploadBlueprintAvatar() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ account, name, file }: { account: string; name: string; file: Blob }) =>
+      api.uploadBlueprintAvatar(account, name, file),
+    onSuccess: (_data, { account, name }) => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(account, name) });
+      queryClient.invalidateQueries({ queryKey: agentKeys.byAccount(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+

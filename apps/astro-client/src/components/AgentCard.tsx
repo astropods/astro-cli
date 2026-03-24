@@ -18,6 +18,7 @@ export interface AgentCardProps {
   name: string;
   description: string;
   visibility?: string;
+  avatarUrl?: string;
   variant?: "default" | "oftenUsedTogether";
   deployCount?: number;
   accountAvatarVersion?: number;
@@ -31,6 +32,7 @@ export function AgentCard({
   name,
   description,
   visibility,
+  avatarUrl,
   variant = "default",
   deployCount,
   accountAvatarVersion,
@@ -52,6 +54,7 @@ export function AgentCard({
           account={account}
           name={name}
           size={36}
+          avatarUrl={avatarUrl}
           className="size-9 shrink-0 rounded-sm overflow-hidden"
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">

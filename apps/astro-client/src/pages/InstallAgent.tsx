@@ -1,10 +1,13 @@
+import { useState, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router";
 import type { Route } from "./+types/InstallAgent";
 import { ArrowLeft, Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAgent } from "@/api/queries";
+import { useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { createServerApi } from "@/lib/api.server";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { AgentIdentity } from "@/components/AgentIdentity";
@@ -52,6 +55,25 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
     initialTemplate: loaderData?.template ?? undefined,
   });
 
+  const { personalAccount } = useAuth();
+  const uploadDeploymentAvatar = useUploadDeploymentAvatar(personalAccount?.name ?? "");
+
+  // Staged avatar blob — held in memory until deploy succeeds
+  const [stagedPreviewUrl, setStagedPreviewUrl] = useState<string | null>(null);
+  const stagedBlobRef = useRef<Blob | null>(null);
+
+  const handleStageAvatar = useCallback((blob: Blob | null) => {
+    if (stagedPreviewUrl) URL.revokeObjectURL(stagedPreviewUrl);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      setStagedPreviewUrl(url);
+      stagedBlobRef.current = blob;
+    } else {
+      setStagedPreviewUrl(null);
+      stagedBlobRef.current = null;
+    }
+  }, [stagedPreviewUrl]);
+
   if (isError || !agent) {
     return (
       <div className="flex flex-col flex-1 bg-surface">
@@ -72,7 +94,18 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
     e.preventDefault();
     if (!form.trySubmit()) return;
     try {
-      await form.deploy();
+      const result = await form.deploy();
+      // Upload staged avatar to the newly created deployment
+      if (result?.deployment_id && stagedBlobRef.current) {
+        try {
+          await uploadDeploymentAvatar.mutateAsync({
+            id: result.deployment_id,
+            file: stagedBlobRef.current,
+          });
+        } catch {
+          // Avatar upload failure shouldn't block navigation — deployment succeeded
+        }
+      }
       navigate("/agents");
     } catch {
       // Error is captured in form.deployError
@@ -94,6 +127,7 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
               account={agent.account}
               name={agent.name}
               size={32}
+              avatarUrl={agent.avatar_url}
               className="size-8 shrink-0 rounded-sm overflow-hidden"
             />
             <div>
@@ -109,7 +143,16 @@ export default function InstallAgent({ loaderData }: Route.ComponentProps) {
 
         <div className="flex-1 overflow-y-auto">
         <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto px-6 pt-10 pb-20 md:px-8">
-          <DeployFormFields form={form} />
+          <DeployFormFields
+            form={form}
+            avatar={{
+              url: agent.avatar_url,
+              account: agent.account,
+              agentName: agent.name,
+              onStage: handleStageAvatar,
+              stagedPreviewUrl: stagedPreviewUrl ?? undefined,
+            }}
+          />
 
           {form.template && (
             <>

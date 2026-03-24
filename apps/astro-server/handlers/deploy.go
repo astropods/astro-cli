@@ -14,6 +14,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
@@ -650,6 +651,7 @@ type AgentDeployment struct {
 	ID               string                `json:"id"`
 	Name             string                `json:"name"`
 	DisplayName      string                `json:"display_name,omitempty"`
+	AvatarURL        string                `json:"avatar_url,omitempty"`
 	BuildID          string                `json:"build_id"`
 	Namespace        string                `json:"namespace"`
 	Status           string                `json:"status"`
@@ -663,8 +665,47 @@ type AgentDeployment struct {
 	Jobs             []JobDetail           `json:"jobs,omitempty"`
 }
 
+// CountDeployments returns a handler that returns the number of visible deployments for an account.
+// This is a lightweight DB-only query with no K8s calls, suitable for skeleton rendering.
+func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
+
+		count, err := deployStore.CountVisibleDeploymentsByAccount(acct.ID)
+		if err != nil {
+			log.Error("Failed to count deployments", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count deployments"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"count": count})
+	}
+}
+
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -780,6 +821,19 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			allDeployments = append(allDeployments, deps...)
 		}
 
+		// Resolve avatar URLs: deployment override → blueprint → empty (procedural SVG on client)
+		if avatarStore != nil && agentIdx != nil {
+			agentAvatarVersions, _ := agentIdx.AvatarVersionsByAccount(acct.ID)
+			for i, dep := range allDeployments {
+				dbDep := findDBDeployment(dbDeps, dep.ID)
+				if dbDep != nil && dbDep.AvatarVersion > 0 {
+					allDeployments[i].AvatarURL = avatarStore.DeploymentAvatarURL(dep.ID, dbDep.AvatarVersion)
+				} else if v, ok := agentAvatarVersions[dep.Name]; ok && v > 0 {
+					allDeployments[i].AvatarURL = avatarStore.AgentAvatarURL(accountName, dep.Name, v)
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"deployments": allDeployments,
 			"count":       len(allDeployments),
@@ -789,6 +843,15 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
+func findDBDeployment(deps []*deploymentstore.Deployment, id string) *deploymentstore.Deployment {
+	for _, d := range deps {
+		if d.ID == id {
+			return d
+		}
+	}
+	return nil
+}
+
 func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 	status := "error"
 	switch dep.Status {

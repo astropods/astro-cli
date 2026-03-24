@@ -212,7 +212,7 @@ export function ActiveDetailView({
             <ArrowLeft size={I.md} />
           </button>
           <div style={{ borderRadius: 8, overflow: 'hidden', flexShrink: 0, lineHeight: 0 }}>
-            <AgentIdentity account={account} name={deployment.name} size={26} className="rounded-sm" />
+            <AgentIdentity account={account} name={deployment.name} size={26} avatarUrl={deployment.avatar_url} className="rounded-sm" />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <h1

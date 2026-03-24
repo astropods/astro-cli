@@ -9,6 +9,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
@@ -33,6 +34,7 @@ type AgentResponse struct {
 	Name       string                 `json:"name"`
 	Registry   string                 `json:"registry"`
 	Visibility string                 `json:"visibility"`
+	AvatarURL  string                 `json:"avatar_url,omitempty"`
 	Versions   []AgentVersionResponse `json:"versions"`
 	HeartCount int                    `json:"heart_count"`
 	Hearted    bool                   `json:"hearted"`
@@ -176,7 +178,7 @@ func agentMetrics(lifetimeMessages, deployCount int64) *AgentMetrics {
 
 // ListAgents handles GET /api/v1/agents
 // Lists agents with visibility='public' (public catalog)
-func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store) gin.HandlerFunc {
+func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Info("Listing public agents from index")
 
@@ -253,7 +255,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				mc = m
 			}
 
-			responses = append(responses, AgentResponse{
+			resp := AgentResponse{
 				Account:    accountName,
 				Name:       agent.Name,
 				Registry:   agent.Registry,
@@ -261,7 +263,11 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				Versions:   versions,
 				HeartCount: heartCounts[agent.AccountID][agent.Name],
 				Metrics:    agentMetrics(mc[agent.Name], deployCounts[agent.AccountID][agent.Name]),
-			})
+			}
+			if avatarStore != nil && agent.AvatarVersion > 0 {
+				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarVersion)
+			}
+			responses = append(responses, resp)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -273,7 +279,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 // ListAccountAgents handles GET /api/v1/agents/:account
 // Lists all public agents for an account. Members also see private agents.
-func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store) gin.HandlerFunc {
+func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -329,7 +335,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				versions = append(versions, buildVersionResponse(v))
 			}
 
-			responses = append(responses, AgentResponse{
+			resp := AgentResponse{
 				Account:    accountName,
 				Name:       agent.Name,
 				Registry:   agent.Registry,
@@ -337,7 +343,11 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				Versions:   versions,
 				HeartCount: counts[agent.Name],
 				Metrics:    agentMetrics(mc[agent.Name], dc[agent.Name]),
-			})
+			}
+			if avatarStore != nil && agent.AvatarVersion > 0 {
+				resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, agent.Name, agent.AvatarVersion)
+			}
+			responses = append(responses, resp)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -349,7 +359,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 
 // GetAgent handles GET /api/v1/agents/:account/:name
 // Private agents are only visible to account members; public agents are visible to all
-func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store) gin.HandlerFunc {
+func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		name := c.Param("name")
@@ -420,6 +430,9 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			Visibility: agent.Visibility,
 			Versions:   versions,
 			Metrics:    agentMetrics(mc[name], dc[name]),
+		}
+		if avatarStore != nil && agent.AvatarVersion > 0 {
+			resp.AvatarURL = avatarStore.AgentAvatarURL(accountName, name, agent.AvatarVersion)
 		}
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count

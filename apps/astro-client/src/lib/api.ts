@@ -346,6 +346,12 @@ class ApiClient {
   }
 
   // List current deployments for an account
+  async countDeployments(account: string): Promise<{ count: number }> {
+    return this.request<{ count: number }>(
+      `/api/v1/deployments/count?account=${encodeURIComponent(account)}`
+    );
+  }
+
   async listDeployments(account: string): Promise<DeploymentsListResponse> {
     return this.request<DeploymentsListResponse>(
       `/api/v1/deployments?account=${encodeURIComponent(account)}`
@@ -556,6 +562,40 @@ class ApiClient {
       { method: 'DELETE' },
     );
   }
+
+  // Blueprint avatar endpoints
+  async uploadBlueprintAvatar(account: string, name: string, file: Blob): Promise<AvatarResponse> {
+    const formData = new FormData();
+    formData.append('avatar', file, 'avatar.jpg');
+    return this.uploadFormData<AvatarResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/avatar`,
+      formData,
+    );
+  }
+
+  async deleteBlueprintAvatar(account: string, name: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/avatar`,
+      { method: 'DELETE' },
+    );
+  }
+
+  // Deployment avatar endpoints
+  async uploadDeploymentAvatar(id: string, file: Blob): Promise<AvatarResponse> {
+    const formData = new FormData();
+    formData.append('avatar', file, 'avatar.jpg');
+    return this.uploadFormData<AvatarResponse>(
+      `/api/v1/deployments/${encodeURIComponent(id)}/avatar`,
+      formData,
+    );
+  }
+
+  async deleteDeploymentAvatar(id: string): Promise<AvatarResponse> {
+    return this.request<AvatarResponse>(
+      `/api/v1/deployments/${encodeURIComponent(id)}/avatar`,
+      { method: 'DELETE' },
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -617,6 +657,7 @@ export interface Agent {
   account: string;
   registry: string;
   visibility?: string;
+  avatar_url?: string;
   versions: AgentVersion[];
   heart_count?: number;
   hearted?: boolean;
@@ -703,6 +744,7 @@ export interface DeploymentError {
 
 export interface DeployResponse {
   status: string;
+  deployment_id?: string;
   name: string;
   build_id: string;
   k8s_namespace: string;
@@ -773,6 +815,7 @@ export interface AgentDeployment {
   id: string;
   name: string;
   display_name?: string;
+  avatar_url?: string;
   build_id: string;
   namespace: string;
   status: string;

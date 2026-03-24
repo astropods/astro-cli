@@ -9,6 +9,7 @@ import {
   SidebarCard,
 } from "@/components/agent-detail";
 import { useAgent, useAgents } from "@/api/queries";
+import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import {
   getAgentDescription,
@@ -130,9 +131,13 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         account: a.account,
         name: a.name,
         description: getAgentDescription(a),
+        avatarUrl: a.avatar_url,
         deployCount: a.metrics?.deploy_count,
       }));
   })();
+
+  const { isAuthenticated, accounts } = useAuth();
+  const canEdit = isAuthenticated && accounts.some((a) => a.name === agent.account);
 
   const integrations = getAgentIntegrations(agent);
   const categories = getAgentCategories(agent);
@@ -151,6 +156,8 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           name={agent.name}
           visibility={agent.visibility}
           categories={categories}
+          avatarUrl={agent.avatar_url}
+          canEdit={canEdit}
           readme={readme}
           mobileSidebar={
             <SidebarCard

@@ -12,19 +12,26 @@ import { Button } from "@/components/ui/button";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ImageCropper } from "@/components/ui/image-cropper";
 import { cropImage, type CropArea } from "@/lib/crop-image";
-import { useUploadAvatar } from "@/api/queries";
 
-interface AvatarUploadDialogProps {
-  account: string;
+export interface AvatarUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onUpload: (file: Blob) => Promise<void>;
+  isPending: boolean;
+  title?: string;
+  description?: string;
+  cropShape?: "rect" | "round";
   onSuccess?: () => void;
 }
 
 export function AvatarUploadDialog({
-  account,
   open,
   onOpenChange,
+  onUpload,
+  isPending,
+  title = "Upload image",
+  description,
+  cropShape = "round",
   onSuccess,
 }: AvatarUploadDialogProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -32,7 +39,6 @@ export function AvatarUploadDialog({
   const cropAreaRef = useRef<CropArea | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   previewUrlRef.current = previewUrl;
-  const uploadAvatar = useUploadAvatar();
 
   useEffect(() => {
     return () => {
@@ -47,8 +53,7 @@ export function AvatarUploadDialog({
     });
     setError(null);
     cropAreaRef.current = null;
-    uploadAvatar.reset();
-  }, [uploadAvatar]);
+  }, []);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -73,7 +78,7 @@ export function AvatarUploadDialog({
     setError(null);
     try {
       const blob = await cropImage(previewUrl, cropAreaRef.current);
-      await uploadAvatar.mutateAsync({ account, file: blob });
+      await onUpload(blob);
       handleOpenChange(false);
       onSuccess?.();
     } catch (err) {
@@ -83,17 +88,19 @@ export function AvatarUploadDialog({
           : "Upload failed. Please try again.",
       );
     }
-  }, [previewUrl, account, uploadAvatar, handleOpenChange, onSuccess]);
+  }, [previewUrl, onUpload, handleOpenChange, onSuccess]);
+
+  const defaultDescription = previewUrl
+    ? "Adjust the crop, then upload."
+    : "Choose an image.";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex h-[85dvh] w-[calc(100vw-2rem)] max-w-lg flex-col overflow-y-auto sm:h-auto">
         <DialogHeader>
-          <DialogTitle>Upload profile image</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            {previewUrl
-              ? "Adjust the crop, then upload."
-              : "Choose an image for your profile."}
+            {description ?? defaultDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -101,6 +108,7 @@ export function AvatarUploadDialog({
           {previewUrl ? (
             <ImageCropper
               src={previewUrl}
+              cropShape={cropShape}
               onCropComplete={handleCropComplete}
               className="h-full"
             />
@@ -122,16 +130,16 @@ export function AvatarUploadDialog({
             <Button
               variant="outline"
               onClick={reset}
-              disabled={uploadAvatar.isPending}
+              disabled={isPending}
             >
               Back
             </Button>
           )}
           <Button
             onClick={handleUpload}
-            disabled={!previewUrl || uploadAvatar.isPending}
+            disabled={!previewUrl || isPending}
           >
-            {uploadAvatar.isPending && (
+            {isPending && (
               <Loader2 size={14} className="spinner-delayed" />
             )}
             Upload

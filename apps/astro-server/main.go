@@ -541,20 +541,20 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		)
 
 		// Agent registry endpoints (public read, with optional auth for visibility)
-		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore),
+		api.GET(v1, "/agents", "List public agents", handlers.ListAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore),
 			oapispec.Tags("Agents"),
 			oapispec.Response(200, &handlers.ListAgentsResponse{}),
 		)
 		agentDetail := v1.Group("")
 		agentDetail.Use(authMw.OptionalAuth())
 		{
-			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore),
+			api.GET(agentDetail, "/agents/:account", "List agents for account", handlers.ListAccountAgents(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.Response(200, &handlers.ListAgentsResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
 			)
-			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore),
+			api.GET(agentDetail, "/agents/:account/:name", "Get agent details", handlers.GetAgent(log, agentIndex, accountStore, heartStore, agentMetricsStore, deploymentStore, avatarStore),
 				oapispec.Tags("Agents"),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.PathParam("name", "Agent name"),
@@ -825,6 +825,25 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.TransferAgentResponse{}),
 					oapispec.Response(409, &handlers.ErrorResponse{}),
 				)
+
+				if avatarStore != nil {
+					api.POST(agentWriteRoutes, "/avatar", "Upload blueprint avatar",
+						handlers.UploadBlueprintAvatar(log, agentIndex, avatarStore),
+						oapispec.Tags("Avatars"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.PathParam("name", "Agent name"),
+						oapispec.Response(200, &handlers.AvatarResponse{}),
+					)
+					api.DELETE(agentWriteRoutes, "/avatar", "Reset blueprint avatar",
+						handlers.ResetBlueprintAvatar(log, agentIndex, avatarStore),
+						oapispec.Tags("Avatars"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.PathParam("name", "Agent name"),
+						oapispec.Response(200, &handlers.AvatarResponse{}),
+					)
+				}
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
@@ -886,6 +905,23 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Response(200, &handlers.TriggerIngestionResponse{}),
 			)
 
+			if avatarStore != nil {
+				api.POST(protected, "/deployments/:id/avatar", "Upload deployment avatar",
+					handlers.UploadDeploymentAvatar(log, accountStore, deploymentStore, avatarStore),
+					oapispec.Tags("Avatars"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("id", "Deployment ID"),
+					oapispec.Response(200, &handlers.AvatarResponse{}),
+				)
+				api.DELETE(protected, "/deployments/:id/avatar", "Reset deployment avatar",
+					handlers.ResetDeploymentAvatar(log, accountStore, deploymentStore, avatarStore),
+					oapispec.Tags("Avatars"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("id", "Deployment ID"),
+					oapispec.Response(200, &handlers.AvatarResponse{}),
+				)
+			}
+
 			// Deployment read (status, logs, observability)
 			api.GET(protected, "/agents/:account/:name/deployment", "Get active deployment spec", handlers.GetActiveDeploymentSpec(log, accountStore, deploymentStore),
 				oapispec.Tags("Deployments"),
@@ -902,7 +938,13 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.PathParam("name", "Agent name"),
 				oapispec.Response(200, &handlers.DeploymentHistoryResponse{}),
 			)
-			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore),
+			api.GET(protected, "/deployments/count", "Count deployments", handlers.CountDeployments(log, accountStore, deploymentStore),
+				oapispec.Tags("Deployments"),
+				oapispec.BearerAuth(),
+				oapispec.QueryParam("account", "Account name", true),
+				oapispec.Response(200, nil),
+			)
+			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, cfg, k8sClient, deploymentStore, agentIndex, avatarStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),

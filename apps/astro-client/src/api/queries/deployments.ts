@@ -150,3 +150,29 @@ export function useTriggerIngestion(account: string) {
   });
 }
 
+// Deployment avatar mutations
+export function useUploadDeploymentAvatar(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: Blob }) =>
+      api.uploadDeploymentAvatar(id, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
+export function useDeleteDeploymentAvatar(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => api.deleteDeploymentAvatar(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+    },
+  });
+}
+
