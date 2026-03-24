@@ -1,6 +1,6 @@
 ## Summary
 
-Improves the trace viewer in the Monitor tab with rich text rendering for input/output content and a new slide-out detail panel for inspecting individual traces. Also adds a local development mock for observability data so the monitor tab works without a live backend.
+Improves the trace viewer in the Monitor tab with rich text rendering for input/output content and a new slide-out detail panel for inspecting individual traces.
 
 ## Design
 
@@ -26,10 +26,6 @@ Input and output fields now render via `StyledMarkdown` (the same component used
 
 `TraceStatus`, `TraceRow`, `TRACE_STATUS_STYLE`, and `formatLatencyMs` are now exported from `MonitorTab` so `TraceDetailPanel` can import them directly without duplication.
 
-### Mock observability data
-
-Adds MSW browser mocking (`src/mocks/`) and a Vite dev server middleware (`mockObservabilityPlugin` in `vite.config.ts`) that intercepts the three observability endpoints when `VITE_MOCK_API=true`. The Vite middleware runs server-side and is more reliable than the service worker alone — it intercepts before the proxy forwards to the real backend. Mock traces include realistic markdown content across all five output variations to exercise rich text rendering locally.
-
 ## Migration
 
-No migration required. `VITE_MOCK_API=true` is set in `.env` by default for local dev. Hard-refresh the browser after pulling if the monitor tab shows a stale service worker error.
+No migration required.
