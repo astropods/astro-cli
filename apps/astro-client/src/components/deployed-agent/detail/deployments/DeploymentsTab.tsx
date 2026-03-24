@@ -385,8 +385,8 @@ export function ActiveContainerAccordion({
         >
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             {readyText}
-            {allReady ? <Check size={I.xs} style={{ color: C.success }} /> : null}
             <span>ready</span>
+            {allReady ? <Check size={I.xs} /> : null}
           </span>
           {" · "}
           {uptime}
