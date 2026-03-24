@@ -10,7 +10,6 @@ import type { AgentDeployment } from "@/lib/api";
 import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountAgents } from "@/api/queries/agents";
 import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
-import { InlineBadge } from "@/components/InlineBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { KebabMenu } from "./shared/KebabMenu";
