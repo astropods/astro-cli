@@ -197,10 +197,12 @@ function LiveRevealOverlay({
   deployment,
   account,
   onViewMonitoring,
+  onDismiss,
 }: {
   deployment: AgentDeployment;
   account: string;
   onViewMonitoring: () => void;
+  onDismiss: () => void;
 }) {
   const [entered, setEntered] = useState(false);
   const { data: agent } = useAgent(account, deployment.name, { enabled: true });
@@ -273,6 +275,7 @@ function LiveRevealOverlay({
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center overflow-hidden p-6 transition-[background-color,backdrop-filter] duration-500 ease-out"
+      onMouseDown={onDismiss}
       style={{
         backgroundColor: entered ? "rgba(0, 0, 0, 0.62)" : "rgba(0, 0, 0, 0)",
         backdropFilter: entered ? "blur(3px)" : "blur(0px)",
@@ -290,13 +293,14 @@ function LiveRevealOverlay({
       />
 
       <div
-        className="relative z-10 flex w-full max-w-[980px] flex-col items-center text-center transition-all duration-700 ease-out"
+        className="relative z-10 flex w-fit max-w-[980px] flex-col items-center text-center transition-all duration-700 ease-out"
+        onMouseDown={(event) => event.stopPropagation()}
         style={{
           opacity: entered ? 1 : 0,
           transform: entered ? "translateY(0)" : "translateY(18px)",
         }}
       >
-        <div className="-mt-10 flex flex-col items-center gap-2">
+        <div className="-mt-16 flex flex-col items-center gap-2">
           <span className="inline-flex w-fit items-center gap-2 rounded-full border border-teal-300/45 bg-teal-400/18 px-3 py-1.5 font-mono text-label tracking-[0.08em] text-teal-100">
             <span className="size-1.5 rounded-full bg-teal-100" />
             LIVE
@@ -304,10 +308,9 @@ function LiveRevealOverlay({
           <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
             {(deployment.display_name ?? deployment.name)} is live.
           </h1>
-          <p className="mt-0 text-body text-stone-200/95">Monitoring begins on first request.</p>
         </div>
 
-        <div className="mt-10 flex w-[min(82vw,330px)] flex-col items-center gap-0">
+        <div className="mt-12 flex w-[min(82vw,330px)] flex-col items-center gap-0">
           <div
             className="w-full scale-[1.02] drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out"
             style={{
@@ -479,6 +482,10 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
         <LiveRevealOverlay
           deployment={deployment}
           account={account}
+          onDismiss={() => {
+            setStayOnDeployments(true);
+            setShowLiveReveal(false);
+          }}
           onViewMonitoring={() => {
             setAllowMonitorTab(true);
             const params = new URLSearchParams(location.search);
