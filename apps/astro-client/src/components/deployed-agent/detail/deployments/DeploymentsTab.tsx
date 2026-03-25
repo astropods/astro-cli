@@ -1047,7 +1047,7 @@ export function DeploymentsTab({
               ) : (
                 <div style={{ padding: "20px 16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>No active deployment found.</div>
               )}
-              <div style={{ borderTop: `1px solid ${C.border}`, background: C.bgAlt }}>
+              {(historyLoading || historyError || pastRows.length > 0) && <div style={{ borderTop: `1px solid ${C.border}`, background: C.bgAlt }}>
                 {historyError && (
                   <div style={{ padding: "12px 14px" }}>
                     <ErrorPanel title="Unable to load deployment history" dismissible>
@@ -1185,7 +1185,7 @@ export function DeploymentsTab({
                     )}
                   </>
                 )}
-              </div>
+              </div>}
               </div>
             </div>
           </div>
