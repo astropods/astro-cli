@@ -301,7 +301,7 @@ export function ActiveContainerAccordion({
           transition: "background 0.15s",
         }}
         onMouseEnter={(e) => {
-          if (!isOpen) e.currentTarget.style.background = C.panel;
+          if (!isOpen) e.currentTarget.style.background = "var(--color-stone-200)";
         }}
         onMouseLeave={(e) => {
           if (!isOpen) e.currentTarget.style.background = C.bg;
@@ -441,7 +441,7 @@ export function ActiveContainerAccordion({
           </div>
 
           {view === "vars" && (
-            <div style={{ background: C.bg }}>
+            <div style={{ background: "var(--color-stone-50)" }}>
               {vars.length === 0 ? (
                 <div style={{ padding: "16px", fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>No variables</div>
               ) : (
@@ -487,7 +487,7 @@ export function ActiveContainerAccordion({
           )}
 
           {view === "domains" && (
-            <div style={{ background: C.bg }}>
+            <div style={{ background: "var(--color-stone-50)" }}>
               {(urls ?? []).map((u, i) => (
                 <div
                   key={u.url}
@@ -657,7 +657,7 @@ export function ActiveContainerAccordion({
                   {copiedLogs ? <Check size={I.sm} color={C.tealMid} /> : <Copy size={I.sm} />}
                 </button>
               </div>
-              <div style={{ background: C.panel, padding: "10px 0 14px" }}>
+              <div style={{ background: "var(--color-stone-50)", padding: "10px 0 14px" }}>
                 {isLoading ? (
                   <div style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: S.mono, fontSize: T.monoSm, color: C.faint }}>
                     <Loader2 size={I.md} className="dp-spin" />
