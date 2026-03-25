@@ -1,13 +1,30 @@
-import { useParams, Link } from "react-router";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
+import { ArrowRight, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
-import { useDeployments } from "@/api/queries/deployments";
+import { HoloCard } from "@/components/trading-card/HoloCard";
+import { useAgent } from "@/api/queries/agents";
+import { useDeploymentHistory, useDeployments } from "@/api/queries/deployments";
+import { resolveCardIntegrations } from "@/lib/integrationIcons";
+import { getAgentIntegrations } from "@/lib/agent-utils";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
-import { isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { formatDate, isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { generateIdentity } from "identity-gen";
+import type { CardAvatar, CardColors, CardData } from "astro-trading-card";
+import { DEFAULT_COLORS, generateCard, stripSvgWrapper } from "astro-trading-card";
+import { extractColorsFromImage, svgToImageSource } from "astro-trading-card/browser";
+import type { AgentDeployment, ResolvedIntegration } from "@/lib/api";
 
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -49,10 +66,294 @@ function DeployedAgentDetailSkeleton() {
   );
 }
 
+function useExtractedColors(avatar: CardData["avatar"], enabled: boolean) {
+  const [colors, setColors] = useState<CardColors>(DEFAULT_COLORS);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    let source: string | null = null;
+    if (avatar?.url) {
+      source = avatar.url;
+    } else if (avatar?.svg) {
+      source = svgToImageSource(avatar.svg);
+    }
+
+    if (!source) {
+      setColors(DEFAULT_COLORS);
+      return;
+    }
+
+    extractColorsFromImage(source).then((result) => {
+      if (!cancelled) setColors(result ?? DEFAULT_COLORS);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [avatar, enabled]);
+
+  return colors;
+}
+
+function useResolvedIntegrations(integrations: ResolvedIntegration[] | undefined, enabled: boolean) {
+  return useMemo(
+    () => (enabled && integrations?.length ? resolveCardIntegrations(integrations) : []),
+    [enabled, integrations],
+  );
+}
+
+function LiveRevealConfetti() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const colors = ["#15827d", "#57c4c1", "#D48F1E", "#F0816A", "#073d3c", "#c4b89e", "#2d7a4f"];
+    const pieces: {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      rot: number;
+      vr: number;
+      w: number;
+      h: number;
+      color: string;
+      shape: "rect" | "circle";
+    }[] = [];
+
+    for (let i = 0; i < 120; i += 1) {
+      pieces.push({
+        x: Math.random() * canvas.width,
+        y: -10 - Math.random() * 200,
+        vx: (Math.random() - 0.5) * 3,
+        vy: 2 + Math.random() * 4,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 0.15,
+        w: 6 + Math.random() * 8,
+        h: 4 + Math.random() * 6,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        shape: Math.random() > 0.5 ? "rect" : "circle",
+      });
+    }
+
+    let raf = 0;
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      for (const piece of pieces) {
+        piece.x += piece.vx;
+        piece.y += piece.vy;
+        piece.rot += piece.vr;
+        piece.vy += 0.05;
+        if (piece.y < canvas.height + 20) alive = true;
+
+        ctx.save();
+        ctx.translate(piece.x, piece.y);
+        ctx.rotate(piece.rot);
+        ctx.fillStyle = piece.color;
+        ctx.globalAlpha = Math.max(0, 1 - piece.y / canvas.height);
+        if (piece.shape === "circle") {
+          ctx.beginPath();
+          ctx.arc(0, 0, piece.w / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(-piece.w / 2, -piece.h / 2, piece.w, piece.h);
+        }
+        ctx.restore();
+      }
+
+      if (alive) raf = window.requestAnimationFrame(draw);
+    };
+
+    const timer = window.setTimeout(() => {
+      raf = window.requestAnimationFrame(draw);
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-0"
+    />
+  );
+}
+
+function LiveRevealOverlay({
+  deployment,
+  account,
+  onViewMonitoring,
+}: {
+  deployment: AgentDeployment;
+  account: string;
+  onViewMonitoring: () => void;
+}) {
+  const [entered, setEntered] = useState(false);
+  const { data: agent } = useAgent(account, deployment.name, { enabled: true });
+  const integrations = agent ? getAgentIntegrations(agent) : [];
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setEntered(true), 20);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const cardAvatar = useMemo<CardAvatar | undefined>(() => {
+    const svg = generateIdentity({ seed: `${account}/${deployment.name}`, size: 128 });
+    return { svg: stripSvgWrapper(svg) };
+  }, [account, deployment.name]);
+
+  const baseCardData = useMemo<CardData>(() => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return {
+      name: deployment.name,
+      displayName: deployment.display_name,
+      account,
+      avatar: cardAvatar,
+      stats: [
+        { label: "Deployed", value: formatDate(deployment.created_at) },
+        { label: "From", value: `${account}/${deployment.name}` },
+      ],
+      barcodeId: deployment.id,
+      qrUrl: `${origin}/${account}/${deployment.name}`,
+    };
+  }, [account, cardAvatar, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
+
+  const colors = useExtractedColors(baseCardData.avatar, true);
+  const cardIntegrations = useResolvedIntegrations(integrations, true);
+
+  const revealCardData = useMemo<CardData>(
+    () => ({
+      ...baseCardData,
+      colors,
+      ...(cardIntegrations.length > 0 ? { integrations: cardIntegrations } : {}),
+    }),
+    [baseCardData, cardIntegrations, colors],
+  );
+
+  const revealCardSvg = useMemo(() => generateCard(revealCardData), [revealCardData]);
+
+  const handleDownload = async (format: "svg" | "png") => {
+    const mod = await import("astro-trading-card/browser");
+    const opts = { name: deployment.name, id: deployment.id };
+    if (format === "svg") {
+      await mod.downloadSvg(revealCardSvg, opts);
+    } else {
+      await mod.downloadPng(revealCardSvg, opts);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center overflow-hidden p-6 transition-[background-color,backdrop-filter] duration-500 ease-out"
+      style={{
+        backgroundColor: entered ? "rgba(0, 0, 0, 0.62)" : "rgba(0, 0, 0, 0)",
+        backdropFilter: entered ? "blur(3px)" : "blur(0px)",
+        WebkitBackdropFilter: entered ? "blur(3px)" : "blur(0px)",
+        transitionDelay: entered ? "120ms" : "0ms",
+      }}
+    >
+      <LiveRevealConfetti />
+      <div
+        className="pointer-events-none absolute z-[1] h-[700px] w-[600px] rounded-full"
+        style={{
+          background:
+            "radial-gradient(ellipse, rgba(21,130,125,0.18) 0%, rgba(7,61,60,0.06) 50%, transparent 70%)",
+        }}
+      />
+
+      <div
+        className="relative z-10 flex w-full max-w-[980px] flex-col items-center text-center transition-all duration-700 ease-out"
+        style={{
+          opacity: entered ? 1 : 0,
+          transform: entered ? "translateY(0)" : "translateY(18px)",
+        }}
+      >
+        <div className="-mt-10 flex flex-col items-center gap-2">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-teal-300/45 bg-teal-400/18 px-3 py-1.5 font-mono text-label tracking-[0.08em] text-teal-100">
+            <span className="size-1.5 rounded-full bg-teal-100" />
+            LIVE
+          </span>
+          <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
+            Your agent is live.
+          </h1>
+          <p className="mt-0 text-body text-stone-200/95">Monitoring begins on first request.</p>
+        </div>
+
+        <div className="mt-10 flex w-[min(82vw,330px)] flex-col items-center gap-0">
+          <div
+            className="w-full scale-[1.02] drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out"
+            style={{
+              opacity: entered ? 1 : 0,
+              transform: entered ? "translateY(0) scale(1.02)" : "translateY(16px) scale(0.98)",
+            }}
+          >
+            <HoloCard>
+              <div
+                className="[&>svg]:h-auto [&>svg]:w-full"
+                style={{ borderRadius: 16, overflow: "hidden", width: "100%" }}
+                dangerouslySetInnerHTML={{ __html: revealCardSvg }}
+              />
+            </HoloCard>
+          </div>
+        </div>
+
+        <div className="mt-10 flex w-[min(82vw,330px)] flex-col items-stretch gap-2">
+          <Button
+            variant="outline"
+            onClick={onViewMonitoring}
+            className="w-full gap-2 bg-teal-700 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-500"
+          >
+            View monitoring <ArrowRight className="size-4" />
+          </Button>
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-full gap-2 border-white/35 text-white hover:bg-white/10">
+                Share badge <Share2 className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" sideOffset={6} className="w-[210px]">
+              <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
+                <Download className="size-4" />
+                Download PNG
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void handleDownload("svg")} className="gap-2">
+                <Download className="size-4" />
+                Download SVG
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
+  const [showLiveReveal, setShowLiveReveal] = useState(false);
+  const [pendingReveal, setPendingReveal] = useState(false);
+  const [hasSeenReveal, setHasSeenReveal] = useState(false);
+  const prevStatusRef = useRef<ReturnType<typeof mapDeploymentStatus> | null>(null);
+  const trackedDeploymentIdRef = useRef<string | null>(null);
+  const activeSeenBeforeRef = useRef(false);
 
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
@@ -75,15 +376,108 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const isPersonal = personalAccount?.name === account;
   const status = mapDeploymentStatus(deployment);
   const monitorLocked = isDeployingState(deployment);
+  const historyEnabled = isAuthenticated && !!account && !!deployment.name;
+  const { data: historyData, isLoading: historyLoading, isFetched: historyFetched } = useDeploymentHistory(
+    account,
+    deployment.name,
+    undefined,
+    historyEnabled,
+  );
+  const queryTab = new URLSearchParams(location.search).get("tab");
+  const requestedTab = queryTab === "monitor" || queryTab === "deployments" ? queryTab : null;
+  const initialTab: "monitor" | "deployments" = monitorLocked
+    ? "deployments"
+    : (requestedTab ?? (status === "error" ? "deployments" : "monitor"));
+  const revealSeenKey = `astro:deploy-live-reveal:${account}:${deployment.name}:${deployment.id}`;
+  const activeSeenKey = `astro:deployment-active-seen:${account}:${deployment.name}:${deployment.id}`;
+
+  useEffect(() => {
+    trackedDeploymentIdRef.current = deployment.id;
+    prevStatusRef.current = null;
+    setShowLiveReveal(false);
+    setPendingReveal(false);
+
+    const activeSeen = typeof window !== "undefined" && window.localStorage.getItem(activeSeenKey) === "1";
+    const revealSeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
+    activeSeenBeforeRef.current = activeSeen;
+    setHasSeenReveal(revealSeen);
+  }, [activeSeenKey, deployment.id, revealSeenKey]);
+
+  useLayoutEffect(() => {
+    if (trackedDeploymentIdRef.current !== deployment.id) return;
+    const prev = prevStatusRef.current;
+
+    if (
+      prev === "pending" &&
+      status === "active" &&
+      !activeSeenBeforeRef.current &&
+      !hasSeenReveal
+    ) {
+      setPendingReveal(true);
+    }
+
+    if (status !== "active") {
+      setShowLiveReveal(false);
+    }
+
+    if (status === "active" && !activeSeenBeforeRef.current) {
+      activeSeenBeforeRef.current = true;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(activeSeenKey, "1");
+      }
+    }
+
+    prevStatusRef.current = status;
+  }, [activeSeenKey, deployment.id, hasSeenReveal, status]);
+
+  useEffect(() => {
+    if (!pendingReveal) return;
+    if (historyLoading && !historyFetched) return;
+
+    const hasHistoryData = !!historyData;
+    const historyCount = historyData?.count ?? historyData?.deployments?.length ?? 0;
+    const isFirstDeployment = hasHistoryData && historyCount <= 1;
+
+    if (isFirstDeployment && !hasSeenReveal) {
+      setShowLiveReveal(true);
+      setHasSeenReveal(true);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(revealSeenKey, "1");
+      }
+    }
+
+    setPendingReveal(false);
+  }, [hasSeenReveal, historyData, historyFetched, historyLoading, pendingReveal, revealSeenKey]);
+
+  const backgroundDeployment = showLiveReveal
+    ? { ...deployment, status: "pending", ready: 0 }
+    : deployment;
+  const backgroundInitialTab: "monitor" | "deployments" = showLiveReveal ? "deployments" : initialTab;
+  const backgroundMonitorLocked = showLiveReveal ? true : monitorLocked;
 
   return (
-    <ActiveDetailView
-      deployment={deployment}
-      account={account}
-      isPersonal={isPersonal}
-      initialTab={status === "error" || monitorLocked ? "deployments" : "monitor"}
-      monitorLocked={monitorLocked}
-    />
+    <>
+      <ActiveDetailView
+        key={`${deployment.id}-${backgroundInitialTab}-${showLiveReveal ? "reveal" : "normal"}`}
+        deployment={backgroundDeployment}
+        account={account}
+        isPersonal={isPersonal}
+        initialTab={backgroundInitialTab}
+        monitorLocked={backgroundMonitorLocked}
+      />
+      {showLiveReveal && (
+        <LiveRevealOverlay
+          deployment={deployment}
+          account={account}
+          onViewMonitoring={() => {
+            const params = new URLSearchParams(location.search);
+            params.set("tab", "monitor");
+            navigate(`${location.pathname}?${params.toString()}`, { replace: true });
+            setShowLiveReveal(false);
+          }}
+        />
+      )}
+    </>
   );
 }
 
