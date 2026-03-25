@@ -115,6 +115,10 @@ func (m *mockAdminClient) TriggerOpenMeterBackfill(context.Context, *adminv1.Tri
 	panic("not implemented")
 }
 
+func (m *mockAdminClient) ListFeedback(context.Context, *adminv1.ListFeedbackRequest, ...grpc.CallOption) (*adminv1.ListFeedbackResponse, error) {
+	panic("not implemented")
+}
+
 func TestOMReverseProxy(t *testing.T) {
 	tests := []struct {
 		name       string

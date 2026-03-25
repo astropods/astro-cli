@@ -663,3 +663,19 @@ type SetAdaptersResponse struct {
 	Status   string   `json:"status,omitempty"`
 	Adapters []string `json:"adapters"`
 }
+
+type ListFeedbackRequest struct{}
+
+type FeedbackSubmission struct {
+	ID        string `json:"id,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
+	UserEmail string `json:"user_email,omitempty"`
+	Message   string `json:"message,omitempty"`
+	PageURL   string `json:"page_url,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type ListFeedbackResponse struct {
+	Submissions []*FeedbackSubmission `json:"submissions,omitempty"`
+	Count       int32                 `json:"count,omitempty"`
+}

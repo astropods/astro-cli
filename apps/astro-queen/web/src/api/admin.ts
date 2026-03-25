@@ -279,6 +279,28 @@ export function useDenyQuotaRequest() {
 
 export type { QuotaRequest };
 
+interface FeedbackSubmission {
+  id: string;
+  user_id: string;
+  user_email: string;
+  message: string;
+  page_url: string;
+  created_at: string;
+}
+
+export function useFeedback() {
+  return useQuery({
+    queryKey: adminKeys.feedback(),
+    queryFn: () =>
+      api.get<{ submissions: FeedbackSubmission[]; count: number }>(
+        "/api/admin/feedback"
+      ),
+    refetchInterval: 30_000,
+  });
+}
+
+export type { FeedbackSubmission };
+
 export function useDeploymentEvents(id: string) {
   return useQuery({
     queryKey: adminKeys.deploymentEvents(id),

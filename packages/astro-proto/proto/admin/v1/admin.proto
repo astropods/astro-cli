@@ -27,6 +27,7 @@ service AdminService {
   rpc RollbackDeployment(RollbackDeploymentRequest) returns (RollbackDeploymentResponse);
   rpc ReapplyDeployment(ReapplyDeploymentRequest) returns (ReapplyDeploymentResponse);
   rpc GetPodLogs(GetPodLogsRequest) returns (GetPodLogsResponse);
+  rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
 }
 
 message ListDeploymentsRequest {
@@ -330,6 +331,22 @@ message ReapplyDeploymentRequest {
 
 message ReapplyDeploymentResponse {
   string status = 1;
+}
+
+message ListFeedbackRequest {}
+
+message FeedbackSubmission {
+  string id = 1;
+  string user_id = 2;
+  string user_email = 3;
+  string message = 4;
+  string page_url = 5;
+  string created_at = 6;
+}
+
+message ListFeedbackResponse {
+  repeated FeedbackSubmission submissions = 1;
+  int32 count = 2;
 }
 
 message GetPodLogsRequest {

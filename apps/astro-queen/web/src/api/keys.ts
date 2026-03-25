@@ -21,6 +21,7 @@ export const adminKeys = {
   deploymentEvents: (id: string) => [...adminKeys.all, "deploymentEvents", id] as const,
   deploymentJobs: (id: string) => [...adminKeys.all, "deploymentJobs", id] as const,
   quotaRequests: (status?: string) => [...adminKeys.all, "quotaRequests", status ?? "all"] as const,
+  feedback: () => [...adminKeys.all, "feedback"] as const,
 };
 
 export const openmeterKeys = {
