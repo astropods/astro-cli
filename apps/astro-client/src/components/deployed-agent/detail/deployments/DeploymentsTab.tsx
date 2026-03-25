@@ -334,7 +334,7 @@ export function ActiveContainerAccordion({
         <span style={{ flex: 1 }} />
         {isAgentService && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: C.faint }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: C.text }}>
               <span style={{ fontFamily: S.body, fontSize: T.bodySm, whiteSpace: "nowrap" as const }}>
                 To chat, run:
               </span>
@@ -351,9 +351,9 @@ export function ActiveContainerAccordion({
                   border: `1px solid ${C.border}`,
                   borderRadius: 5,
                   padding: "2px 8px",
-                  background: C.bgAlt,
+                  background: "var(--color-stone-200)",
                   cursor: hasPublicUrl ? "pointer" : "not-allowed",
-                  color: !hasPublicUrl ? C.faint : copiedPlaygroundCommand ? C.tealMid : C.faint,
+                  color: !hasPublicUrl ? C.faint : copiedPlaygroundCommand ? C.tealMid : C.muted,
                   opacity: hasPublicUrl ? 1 : 0.7,
                 }}
               >
