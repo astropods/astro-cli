@@ -408,7 +408,7 @@ export function ActiveContainerAccordion({
                   cursor: "pointer",
                   fontFamily: S.body,
                   fontSize: T.body,
-                  fontWeight: view === v ? 600 : 400,
+                  fontWeight: view === v ? 500 : 400,
                   color: view === v ? C.text : C.faint,
                   borderBottom: view === v ? `2px solid ${C.tealMid}` : "2px solid transparent",
                   transition: "color 0.12s",

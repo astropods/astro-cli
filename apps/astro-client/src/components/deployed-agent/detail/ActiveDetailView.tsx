@@ -363,7 +363,7 @@ export function ActiveDetailView({
                     display: 'flex', alignItems: 'center', gap: 6,
                     background: 'none', border: 'none', cursor: isLockedMonitor ? 'not-allowed' : 'pointer',
                     fontFamily: S.body, fontSize: T.heading4,
-                    fontWeight: tab === id ? 600 : 400,
+                    fontWeight: tab === id ? 500 : 400,
                     color: isLockedMonitor ? C.faint : (tab === id ? C.text : C.faint),
                     padding: '11px 16px',
                     paddingLeft: id === 'monitor' ? 0 : 16,
