@@ -82,6 +82,33 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 	return &d, err
 }
 
+// BulkDeploymentCounts returns the total deployment count per agent name for the given account.
+func (s *Store) BulkDeploymentCounts(accountID string) (map[string]int64, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT agent_name, COUNT(*) FROM deployments
+		WHERE account_id = $1
+		GROUP BY agent_name
+	`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deployment counts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var name string
+		var count int64
+		if err := rows.Scan(&name, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan deployment count row: %w", err)
+		}
+		counts[name] = count
+	}
+	return counts, rows.Err()
+}
+
 // GetDeploymentByID returns a deployment by its ID, or nil if not found.
 func (s *Store) GetDeploymentByID(id string) (*Deployment, error) {
 	d, err := scanDeployment(s.db.QueryRow(`

@@ -10,6 +10,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/heartstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
@@ -23,6 +24,7 @@ import (
 // AgentMetrics holds computed metrics for an agent.
 type AgentMetrics struct {
 	LifetimeMessages int64 `json:"lifetime_messages"`
+	DeployCount      int64 `json:"deploy_count"`
 }
 
 // AgentResponse represents an agent with all its versions
@@ -167,14 +169,14 @@ type RegisterAgentRequest struct {
 	Visibility  string `json:"visibility,omitempty"` // "public" or "private"; only applied on first registration
 }
 
-// agentMetrics returns an AgentMetrics value for the given count.
-func agentMetrics(lifetimeMessages int64) *AgentMetrics {
-	return &AgentMetrics{LifetimeMessages: lifetimeMessages}
+// agentMetrics returns an AgentMetrics value for the given counts.
+func agentMetrics(lifetimeMessages, deployCount int64) *AgentMetrics {
+	return &AgentMetrics{LifetimeMessages: lifetimeMessages, DeployCount: deployCount}
 }
 
 // ListAgents handles GET /api/v1/agents
 // Lists agents with visibility='public' (public catalog)
-func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store) gin.HandlerFunc {
+func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Info("Listing public agents from index")
 
@@ -196,6 +198,9 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 		// Bulk-fetch message counts per account
 		msgCounts := make(map[string]map[string]int64) // accountID -> agentName -> count
+
+		// Bulk-fetch deploy counts per account
+		deployCounts := make(map[string]map[string]int64) // accountID -> agentName -> count
 
 		responses := make([]AgentResponse, 0, len(agents))
 		for _, agent := range agents {
@@ -229,6 +234,15 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				msgCounts[agent.AccountID] = mc
 			}
 
+			// Lazy-load deploy counts for this account
+			if _, ok := deployCounts[agent.AccountID]; !ok {
+				dc, _ := deploys.BulkDeploymentCounts(agent.AccountID)
+				if dc == nil {
+					dc = map[string]int64{}
+				}
+				deployCounts[agent.AccountID] = dc
+			}
+
 			versions := make([]AgentVersionResponse, 0, len(agent.Versions))
 			for _, v := range agent.Versions {
 				versions = append(versions, buildVersionResponse(v))
@@ -246,7 +260,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 				Visibility: agent.Visibility,
 				Versions:   versions,
 				HeartCount: heartCounts[agent.AccountID][agent.Name],
-				Metrics:    agentMetrics(mc[agent.Name]),
+				Metrics:    agentMetrics(mc[agent.Name], deployCounts[agent.AccountID][agent.Name]),
 			})
 		}
 
@@ -259,7 +273,7 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 
 // ListAccountAgents handles GET /api/v1/agents/:account
 // Lists all public agents for an account. Members also see private agents.
-func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store) gin.HandlerFunc {
+func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -298,6 +312,12 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			mc = map[string]int64{}
 		}
 
+		// Bulk-fetch deploy counts for this account
+		dc, _ := deploys.BulkDeploymentCounts(acct.ID)
+		if dc == nil {
+			dc = map[string]int64{}
+		}
+
 		responses := make([]AgentResponse, 0, len(agents))
 		for _, agent := range agents {
 			if agent.Visibility == "private" && !isMember {
@@ -316,7 +336,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 				Visibility: agent.Visibility,
 				Versions:   versions,
 				HeartCount: counts[agent.Name],
-				Metrics:    agentMetrics(mc[agent.Name]),
+				Metrics:    agentMetrics(mc[agent.Name], dc[agent.Name]),
 			})
 		}
 
@@ -329,7 +349,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 
 // GetAgent handles GET /api/v1/agents/:account/:name
 // Private agents are only visible to account members; public agents are visible to all
-func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store) gin.HandlerFunc {
+func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, hearts *heartstore.Store, metrics *metricsstore.Store, deploys *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		name := c.Param("name")
@@ -387,13 +407,19 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			mc = map[string]int64{}
 		}
 
+		// Deploy count
+		dc, _ := deploys.BulkDeploymentCounts(acct.ID)
+		if dc == nil {
+			dc = map[string]int64{}
+		}
+
 		resp := AgentResponse{
 			Account:    accountName,
 			Name:       agent.Name,
 			Registry:   agent.Registry,
 			Visibility: agent.Visibility,
 			Versions:   versions,
-			Metrics:    agentMetrics(mc[name]),
+			Metrics:    agentMetrics(mc[name], dc[name]),
 		}
 		if heartInfo != nil {
 			resp.HeartCount = heartInfo.Count
