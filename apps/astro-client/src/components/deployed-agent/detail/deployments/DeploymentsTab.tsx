@@ -551,34 +551,19 @@ export function ActiveContainerAccordion({
                         gap: 5,
                         padding: "4px 8px",
                         borderRadius: 6,
-                        border: `1px solid ${active ? f.activeBdr : f.chipBdr}`,
+                        border: `1px solid ${C.border}`,
                         cursor: "pointer",
                         fontFamily: S.body,
                         fontSize: T.bodySm,
                         transition: "all 0.12s",
-                        background: active ? f.activeBg : f.chipBg,
+                        background: active ? "var(--color-stone-200)" : "transparent",
                         color: f.accent,
                         fontWeight: active ? 500 : 400,
                         whiteSpace: "nowrap" as const,
                       }}
                     >
                       <span>{f.label}</span>
-                      <span
-                        style={{
-                          minWidth: 18,
-                          height: 18,
-                          borderRadius: 999,
-                          padding: "0 6px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontFamily: S.mono,
-                          fontSize: T.monoSm,
-                          lineHeight: 1,
-                          color: f.accent,
-                          background: f.tagBg,
-                        }}
-                      >
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: f.accent }}>
                         {f.count}
                       </span>
                       {active && <X size={I.xs} style={{ marginLeft: 1, flexShrink: 0 }} />}
