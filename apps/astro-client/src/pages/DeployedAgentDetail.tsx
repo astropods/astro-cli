@@ -353,11 +353,11 @@ function LiveRevealOverlay({
                 Share on LinkedIn
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
-                <Download className="size-4" />
+                <Download className="size-4 text-current" />
                 Download PNG
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleDownload("svg")} className="gap-2">
-                <Download className="size-4" />
+                <Download className="size-4 text-current" />
                 Download SVG
               </DropdownMenuItem>
             </DropdownMenuContent>
