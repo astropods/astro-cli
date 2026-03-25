@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
-import { ArrowRight, Download, Linkedin, Share2 } from "lucide-react";
+import { ArrowRight, Download, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -193,6 +193,18 @@ function LiveRevealConfetti() {
   );
 }
 
+function LinkedInBrandIcon({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <rect x="2" y="2" width="20" height="20" rx="4" fill="#0A66C2" />
+      <path
+        d="M8.05 10.02h2.49V18H8.05v-7.98zm1.25-4.02c.8 0 1.45.66 1.45 1.47A1.46 1.46 0 0 1 9.3 8.94c-.8 0-1.45-.66-1.45-1.47S8.5 6 9.3 6zM12.07 10.02h2.39v1.09h.03c.33-.63 1.14-1.3 2.35-1.3 2.52 0 2.99 1.67 2.99 3.83V18h-2.49v-3.93c0-.94-.02-2.15-1.3-2.15-1.3 0-1.5 1.02-1.5 2.08V18h-2.47v-7.98z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  );
+}
+
 function LiveRevealOverlay({
   deployment,
   account,
@@ -327,9 +339,9 @@ function LiveRevealOverlay({
 
         <div className="mt-10 flex w-[min(82vw,330px)] flex-col items-stretch gap-2">
           <Button
-            variant="outline"
+            variant="default"
             onClick={onViewMonitoring}
-            className="w-full gap-2 bg-teal-700 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-500"
+            className="w-full gap-2 border-0 bg-teal-700 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-500"
           >
             View monitoring <ArrowRight className="size-4" />
           </Button>
@@ -347,7 +359,7 @@ function LiveRevealOverlay({
                 Share to X
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleShareToNetwork("linkedin")} className="gap-2">
-                <Linkedin className="size-4" />
+                <LinkedInBrandIcon className="size-4" />
                 Share in post
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
