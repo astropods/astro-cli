@@ -47,6 +47,12 @@ function AgentCardWithStats({
 
   const status = mapDeploymentStatus(deployment);
   const clickable = status === "active" || status === "error" || status === "pending" || status === "undeploying";
+  const href = (() => {
+    if (!clickable) return undefined;
+    const base = deploymentPath(userAccount, deployment.id);
+    if (status === "active") return `${base}?tab=monitor&from=agents`;
+    return `${base}?tab=deployments`;
+  })();
 
   return (
     <DeployedAgentCard
@@ -54,7 +60,7 @@ function AgentCardWithStats({
       displayName={deployment.display_name}
       deploymentId={deployment.id}
       account={userAccount}
-      href={clickable ? deploymentPath(userAccount, deployment.id) : undefined}
+      href={href}
       status={status}
       requests={requests}
       lastActive={lastActive}

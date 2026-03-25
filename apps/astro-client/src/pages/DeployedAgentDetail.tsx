@@ -134,10 +134,10 @@ function LiveRevealConfetti() {
       pieces.push({
         x: Math.random() * canvas.width,
         y: -10 - Math.random() * 200,
-        vx: (Math.random() - 0.5) * 4.2,
-        vy: 3.4 + Math.random() * 5.6,
+        vx: (Math.random() - 0.5) * 3.1,
+        vy: 2.1 + Math.random() * 3.6,
         rot: Math.random() * Math.PI * 2,
-        vr: (Math.random() - 0.5) * 0.2,
+        vr: (Math.random() - 0.5) * 0.14,
         w: 6 + Math.random() * 8,
         h: 4 + Math.random() * 6,
         color: colors[Math.floor(Math.random() * colors.length)],
@@ -154,7 +154,7 @@ function LiveRevealConfetti() {
         piece.x += piece.vx;
         piece.y += piece.vy;
         piece.rot += piece.vr;
-        piece.vy += 0.085;
+        piece.vy += 0.045;
         if (piece.y < canvas.height + 20) alive = true;
 
         ctx.save();
@@ -336,7 +336,7 @@ function LiveRevealOverlay({
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="w-full gap-2 border-white/35 text-white hover:bg-white/10">
-                Share badge <Share2 className="size-4" />
+                <Share2 className="size-4" /> Share badge
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center" sideOffset={6} className="w-fit min-w-0">
@@ -344,13 +344,13 @@ function LiveRevealOverlay({
                 <span className="inline-flex size-4 items-center justify-center rounded-[3px] border border-current text-[10px] font-semibold">
                   X
                 </span>
-                Share to X
+                Share on X
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleShareToNetwork("linkedin")} className="gap-2">
                 <span className="inline-flex size-4 items-center justify-center rounded-[3px] border border-current text-[8px] font-bold leading-none">
                   in
                 </span>
-                Share in post
+                Share on LinkedIn
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
                 <Download className="size-4" />
@@ -389,11 +389,13 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const monitorLocked = deployment ? isDeployingState(deployment) : false;
   const isPersonal = personalAccount?.name === account;
   const queryTab = new URLSearchParams(location.search).get("tab");
+  const queryFrom = new URLSearchParams(location.search).get("from");
   const requestedTab = queryTab === "monitor" || queryTab === "deployments" ? queryTab : null;
+  const requestedFromAgents = queryFrom === "agents";
   const initialTab: "monitor" | "deployments" =
     (monitorLocked || stayOnDeployments)
       ? "deployments"
-      : (requestedTab === "monitor" && allowMonitorTab ? "monitor" : "deployments");
+      : (requestedTab === "monitor" && (allowMonitorTab || requestedFromAgents) ? "monitor" : "deployments");
   const revealSeenKey = deployment
     ? `astro:deploy-live-reveal:${account}:${deployment.name}:${deployment.id}`
     : "";
@@ -436,12 +438,12 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   }, [deployment, hasLoadedRevealSeen, hasSeenReveal, revealSeenKey, status]);
 
   useEffect(() => {
-    if (requestedTab !== "monitor" || allowMonitorTab) return;
+    if (requestedTab !== "monitor" || allowMonitorTab || requestedFromAgents) return;
     const params = new URLSearchParams(location.search);
     params.delete("tab");
     const next = params.toString();
     navigate(`${location.pathname}${next ? `?${next}` : ""}`, { replace: true });
-  }, [allowMonitorTab, location.pathname, location.search, navigate, requestedTab]);
+  }, [allowMonitorTab, location.pathname, location.search, navigate, requestedFromAgents, requestedTab]);
 
   if (!deployment) {
     return (
