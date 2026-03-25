@@ -8,7 +8,7 @@ import {
 } from "../components/MyAgentsHeader";
 import { DeployedAgentCard } from "../components/DeployedAgentCard";
 import { useDeployments } from "../api/queries/deployments";
-import { useAccountAgents } from "../api/queries/agents";
+import { useAccountBlueprints } from "../api/queries/blueprints";
 import { useObservabilitySummary, useObservabilityTraces } from "../api/queries/observability";
 import { useAuth } from "../lib/auth";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
@@ -118,12 +118,12 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
-  const { data: accountAgents } = useAccountAgents(userAccount, { enabled: isAuthenticated });
+  const { data: accountBlueprints } = useAccountBlueprints(userAccount, { enabled: isAuthenticated });
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
-    const agents = accountAgents?.agents ?? [];
-    for (const agent of agents) {
+    const blueprints = accountBlueprints?.blueprints ?? [];
+    for (const agent of blueprints) {
       if (!agent.versions?.length) continue;
       const latestVersion = agent.versions.reduce((latest, current) =>
         new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
@@ -135,7 +135,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
       }
     }
     return result;
-  }, [accountAgents?.agents]);
+  }, [accountBlueprints?.blueprints]);
 
   const filtered = useMemo(() => {
     const list = data?.deployments ?? [];

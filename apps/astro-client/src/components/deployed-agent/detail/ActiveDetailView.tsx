@@ -4,11 +4,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
-import { AgentIdentity } from "@/components/AgentIdentity";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
 import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
-import { useAccountAgents } from "@/api/queries/agents";
+import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,7 @@ export function ActiveDetailView({
   const [optimisticDeploying, setOptimisticDeploying] = useState(false)
   const [pausing, setPausing] = useState(false)
   const pausePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const { data: accountAgents } = useAccountAgents(account);
+  const { data: accountAgents } = useAccountBlueprints(account);
   const pauseMutation = usePauseDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
   const renderedDeployment = optimisticDeploying
@@ -109,7 +109,7 @@ export function ActiveDetailView({
   const isPaused = isPausedState(renderedDeployment);
   const showConfigureAsPage = isCompact && configOpen;
   const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
-  const latestBuildId = accountAgents?.agents
+  const latestBuildId = accountAgents?.blueprints
     ?.find((a) => a.name === renderedDeployment.name)
     ?.versions?.reduce((latest, current) =>
       new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
@@ -212,7 +212,7 @@ export function ActiveDetailView({
             <ArrowLeft size={I.md} />
           </button>
           <div style={{ borderRadius: 4, overflow: 'hidden', flexShrink: 0, lineHeight: 0 }}>
-            <AgentIdentity account={account} name={deployment.name} size={26} avatarUrl={deployment.avatar_url} className="rounded-sm" />
+            <BlueprintIdentity account={account} name={deployment.name} size={26} avatarUrl={deployment.avatar_url} className="rounded-sm" />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <h1

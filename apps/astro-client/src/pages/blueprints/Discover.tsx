@@ -1,12 +1,12 @@
 import type { Route } from "./+types/Discover";
-import { useAgents } from "@/api/queries";
+import { useBlueprints } from "@/api/queries";
 import { createServerApi } from "@/lib/api.server";
-import { AgentListView } from "@/components/browse/AgentListView";
+import { BlueprintListView } from "@/components/browse/BlueprintListView";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
-  const agentsData = await api.listAgents().catch(() => ({ agents: [], count: 0 }));
-  return { agentsData };
+  const blueprintsData = await api.listBlueprints().catch(() => ({ blueprints: [], count: 0 }));
+  return { blueprintsData };
 }
 
 export const meta: Route.MetaFunction = () => [
@@ -17,15 +17,15 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export default function Discover({ loaderData }: Route.ComponentProps) {
-  const { data, isLoading, isError, error, refetch } = useAgents({
-    initialData: loaderData?.agentsData,
+  const { data, isLoading, isError, error, refetch } = useBlueprints({
+    initialData: loaderData?.blueprintsData,
   });
 
   return (
     <>
       <h1 className="text-heading-1 text-foreground">Discover blueprints</h1>
-      <AgentListView
-        agents={data?.agents ?? []}
+      <BlueprintListView
+        blueprints={data?.blueprints ?? []}
         isLoading={isLoading}
         isError={isError}
         error={error}

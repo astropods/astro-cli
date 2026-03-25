@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import type {
-  AgentsListResponse,
-  Agent,
+  BlueprintsListResponse,
+  Blueprint,
   DeploymentTemplate,
   DeploymentsListResponse,
   DeployResponse,
@@ -11,7 +11,7 @@ import type {
 } from '@/lib/api';
 
 // Fixture data — realistic but minimal
-export const mockAgents: Agent[] = [
+export const mockBlueprints: Blueprint[] = [
   {
     name: 'code-reviewer',
     account: 'testuser',
@@ -150,9 +150,9 @@ export const mockCrossAccountPrefilledTemplate: DeploymentTemplate = {
 export const handlers = [
   // GET /api/v1/agents
   http.get('/api/v1/agents', () => {
-    return HttpResponse.json<AgentsListResponse>({
-      agents: mockAgents,
-      count: mockAgents.length,
+    return HttpResponse.json<BlueprintsListResponse>({
+      blueprints: mockBlueprints,
+      count: mockBlueprints.length,
     });
   }),
 
@@ -166,7 +166,7 @@ export const handlers = [
 
   // GET /api/v1/agents/:account/:name/deployment-template
   http.get('/api/v1/agents/:account/:name/deployment-template', ({ params }) => {
-    const agent = mockAgents.find((a) => a.account === params.account && a.name === params.name);
+    const agent = mockBlueprints.find((a) => a.account === params.account && a.name === params.name);
     if (!agent) {
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
@@ -175,7 +175,7 @@ export const handlers = [
 
   // GET /api/v1/agents/:account/:name
   http.get('/api/v1/agents/:account/:name', ({ params }) => {
-    const agent = mockAgents.find((a) => a.account === params.account && a.name === params.name);
+    const agent = mockBlueprints.find((a) => a.account === params.account && a.name === params.name);
     if (!agent) {
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }

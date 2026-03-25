@@ -12,10 +12,10 @@ export function getPodStableName(podName: string): string {
  * @deprecated Use WorkloadDetail.component directly — the server now provides component names.
  * Kept for backward compatibility.
  */
-export function getPodDisplayName(stableName: string, agentName?: string): string {
-  if (agentName && stableName.startsWith(agentName + "-")) {
-    const suffix = stableName.slice(agentName.length + 1);
-    return `${agentName} ${suffix.replace(/-/g, " ")}`;
+export function getPodDisplayName(stableName: string, blueprintName?: string): string {
+  if (blueprintName && stableName.startsWith(blueprintName + "-")) {
+    const suffix = stableName.slice(blueprintName.length + 1);
+    return `${blueprintName} ${suffix.replace(/-/g, " ")}`;
   }
   return stableName;
 }

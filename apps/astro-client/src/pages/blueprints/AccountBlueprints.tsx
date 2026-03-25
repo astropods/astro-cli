@@ -1,15 +1,15 @@
 import { Navigate, useParams } from "react-router";
 import type { Route } from "./+types/AccountBlueprints";
-import { AccountAgentsList } from "@/components/browse/AccountAgentsList";
+import { AccountBlueprintsList } from "@/components/browse/AccountBlueprintsList";
 import { createServerApi } from "@/lib/api.server";
 import { blueprintsPaths } from "@/lib/routes";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const account = params.account ?? "";
-  if (!account) return { agentsData: null };
+  if (!account) return { blueprintsData: null };
   const api = createServerApi(request);
-  const agentsData = await api.listAccountAgents(account).catch(() => null);
-  return { agentsData };
+  const blueprintsData = await api.listAccountBlueprints(account).catch(() => null);
+  return { blueprintsData };
 }
 
 export default function AccountBlueprints({ loaderData }: Route.ComponentProps) {
@@ -22,9 +22,9 @@ export default function AccountBlueprints({ loaderData }: Route.ComponentProps) 
   return (
     <>
       <h1 className="text-heading-1 text-foreground">{account} blueprints</h1>
-      <AccountAgentsList
+      <AccountBlueprintsList
         account={account}
-        initialData={loaderData?.agentsData ?? undefined}
+        initialData={loaderData?.blueprintsData ?? undefined}
       />
     </>
   );

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
-import { AgentIdentity } from "@/components/AgentIdentity";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { InlineBadge } from "@/components/InlineBadge";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import {
@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
-import { useAgent } from "@/api/queries/agents";
-import { getAgentIntegrations } from "@/lib/agent-utils";
+import { useBlueprint } from "@/api/queries/blueprints";
+import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
@@ -75,8 +75,8 @@ export function DeployedAgentCard({
   };
 
   // Fetch agent data on demand for integrations (only when share modal is open)
-  const { data: agent } = useAgent(account, name, { enabled: shareOpen });
-  const integrations = agent ? getAgentIntegrations(agent) : [];
+  const { data: agent } = useBlueprint(account, name, { enabled: shareOpen });
+  const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
     if (avatarUrl) return { url: avatarUrl };
@@ -152,7 +152,7 @@ export function DeployedAgentCard({
             className="h-9 w-9 shrink-0 rounded-sm object-cover"
           />
         ) : (
-          <AgentIdentity
+          <BlueprintIdentity
             account={account}
             name={name}
             size={36}

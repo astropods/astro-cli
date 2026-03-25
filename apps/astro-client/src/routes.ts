@@ -11,7 +11,7 @@ export default [
         route(":account", "pages/blueprints/AccountBlueprints.tsx"),
       ]),
     ]),
-    route("request-agent", "pages/RequestAgent.tsx"),
+    route("request-agent", "pages/RequestBlueprint.tsx"),
     route("agents", "pages/YourAgents.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
     route("admin", "pages/Admin.tsx"),
@@ -24,7 +24,7 @@ export default [
     ]),
     route("organization/new", "pages/OrganizationNew.tsx"),
     route("organization", "pages/OrganizationRedirect.tsx"),
-    route("deploy/:account/:agentSlug", "pages/InstallAgent.tsx"),
+    route("deploy/:account/:agentSlug", "pages/DeployBlueprint.tsx"),
     route(":account", "pages/AccountProfile.tsx"),
     route(":account/agents/:deploymentId", "pages/DeployedAgentDetail.tsx"),
     ...prefix(":account/agents/:deploymentId/configure", [
@@ -34,7 +34,7 @@ export default [
         route("danger-zone", "pages/configure/ConfigureDangerZone.tsx"),
       ]),
     ]),
-    route(":account/:agentSlug", "pages/AgentDetail.tsx", { id: "agent-detail" }),
+    route(":account/:agentSlug", "pages/BlueprintDetail.tsx", { id: "agent-detail" }),
     route("*", "pages/NotFound.tsx"),
   ]),
 ] satisfies RouteConfig;

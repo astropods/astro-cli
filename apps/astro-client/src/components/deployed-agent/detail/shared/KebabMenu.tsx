@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import { EllipsisHorizontalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon } from "@heroicons/react/24/outline";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
-import { useAgent } from "@/api/queries/agents";
-import { getAgentIntegrations } from "@/lib/agent-utils";
+import { useBlueprint } from "@/api/queries/blueprints";
+import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
@@ -50,8 +50,8 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data: agent } = useAgent(account, deploymentName, { enabled: shareOpen });
-  const integrations = agent ? getAgentIntegrations(agent) : [];
+  const { data: agent } = useBlueprint(account, deploymentName, { enabled: shareOpen });
+  const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
     if (avatarUrl) return { url: avatarUrl };

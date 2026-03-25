@@ -3,9 +3,9 @@ import { useAccount } from "../api/queries/accounts";
 import { useDeployments } from "../api/queries/deployments";
 import { useAuth } from "../lib/auth";
 import { DeployedAgentCard } from "../components/DeployedAgentCard";
-import { AgentCard } from "../components/AgentCard";
-import { useAccountAgents } from "../api/queries/agents";
-import { getAgentDescription } from "../lib/agent-utils";
+import { BlueprintCard } from "../components/BlueprintCard";
+import { useAccountBlueprints } from "../api/queries/blueprints";
+import { getBlueprintDescription } from "../lib/blueprint-utils";
 import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import { ShieldCheck } from "lucide-react";
@@ -29,8 +29,8 @@ function AccountProfileContent() {
     isMember,
   );
 
-  const { data: agentsData } = useAccountAgents(data?.name ?? "", { enabled: !!data });
-  const accountAgents = agentsData?.agents ?? [];
+  const { data: blueprintsData } = useAccountBlueprints(data?.name ?? "", { enabled: !!data });
+  const accountBlueprints = blueprintsData?.blueprints ?? [];
 
   if (isLoading) {
     return (
@@ -108,17 +108,17 @@ function AccountProfileContent() {
         <p className="text-sm text-muted-foreground mt-0.5">
           Agents published by this account
         </p>
-        {accountAgents.length === 0 ? (
+        {accountBlueprints.length === 0 ? (
           <p className="text-muted-foreground mt-3">No agent blueprints published</p>
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-            {accountAgents.map((agent) => (
-              <AgentCard
+            {accountBlueprints.map((agent) => (
+              <BlueprintCard
                 key={agent.name}
                 slug={`${data.name}/${agent.name}`}
                 account={data.name}
                 name={agent.name}
-                description={getAgentDescription(agent)}
+                description={getBlueprintDescription(agent)}
                 visibility={agent.visibility}
                 avatarUrl={agent.avatar_url}
                 deployCount={agent.metrics?.deploy_count}

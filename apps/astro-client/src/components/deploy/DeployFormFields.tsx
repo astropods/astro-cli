@@ -9,7 +9,7 @@ import { FormSection } from "./FormSection";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
-import { AgentIdentity } from "@/components/AgentIdentity";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import type { useDeployForm } from "./useDeployForm";
 import { slugToTitle } from "./useDeployForm";
@@ -26,7 +26,7 @@ export interface DeployFormFieldsProps {
   avatar?: {
     url?: string;
     account: string;
-    agentName: string;
+    blueprintName: string;
     /** Immediate upload (for existing deployments). */
     onUpload?: (file: Blob) => Promise<void>;
     isPending?: boolean;
@@ -63,13 +63,13 @@ export function DeployFormFields({ form, hideAccountPicker, ingestionExtra, avat
               const avatarImage = displayUrl ? (
                 <img
                   src={displayUrl}
-                  alt={avatar.agentName}
+                  alt={avatar.blueprintName}
                   className="size-[68px] rounded-sm object-cover"
                 />
               ) : (
-                <AgentIdentity
+                <BlueprintIdentity
                   account={avatar.account}
-                  name={avatar.agentName}
+                  name={avatar.blueprintName}
                   size={68}
                   className="size-[68px] rounded-sm overflow-hidden"
                 />

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X, Loader2, Rocket, Play, Check } from "lucide-react";
 import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
-import { usePrefilledDeploymentTemplate } from "@/api/queries/agents";
+import { usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useTriggerIngestion, useUploadDeploymentAvatar } from "@/api/queries/deployments";
 import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
@@ -93,7 +93,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
             avatar={{
               url: deployment.avatar_url,
               account,
-              agentName: deployment.name,
+              blueprintName: deployment.name,
               onUpload: async (file) => {
                 await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
               },

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/agents";
+import { useDeploymentTemplate, useDeployAgent } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";

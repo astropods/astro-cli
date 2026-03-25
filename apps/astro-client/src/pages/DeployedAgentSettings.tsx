@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployments } from "@/api/queries/deployments";
-import { useAgent, usePrefilledDeploymentTemplate } from "@/api/queries/agents";
+import { useBlueprint, usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
 import { createServerApi } from "@/lib/api.server";
 import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
@@ -45,20 +45,20 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
 
   const deployments = deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
-  const { data: agentData } = useAgent(account, deployment?.name ?? "", {
+  const { data: blueprintData } = useBlueprint(account, deployment?.name ?? "", {
     initialData: undefined,
   });
 
   const latestBuildId = useMemo(() => {
-    if (!agentData?.versions?.length) return null;
-    const latestVersion = agentData.versions.reduce((latest, current) => {
+    if (!blueprintData?.versions?.length) return null;
+    const latestVersion = blueprintData.versions.reduce((latest, current) => {
       if (!latest) return current;
       return new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()
         ? current
         : latest;
-    }, agentData.versions[0]);
+    }, blueprintData.versions[0]);
     return latestVersion?.build_id ?? null;
-  }, [agentData]);
+  }, [blueprintData]);
 
   const hasNewerBuildAvailable = !!deployment?.build_id && !!latestBuildId && deployment.build_id !== latestBuildId;
 

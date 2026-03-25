@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SidebarSection } from "@/components/agent-detail/SidebarSection";
+import { SidebarSection } from "@/components/blueprint-detail/SidebarSection";
 
 const meta = {
   title: "Features/Agents/Sidebar/SidebarSection",

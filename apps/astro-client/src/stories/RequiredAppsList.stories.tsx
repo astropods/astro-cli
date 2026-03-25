@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { RequiredAppsList } from "@/components/agent-detail/RequiredAppsList";
+import { RequiredAppsList } from "@/components/blueprint-detail/RequiredAppsList";
 import type { ResolvedIntegration } from "@/lib/api";
 
 const ri = (id: string, name: string): ResolvedIntegration => ({ id, name, known: true });

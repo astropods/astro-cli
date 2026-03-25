@@ -9,7 +9,7 @@ export const accountKeys = {
   search: (q: string, type?: string) => ['accounts', 'search', q, type] as const,
 };
 
-export const agentKeys = {
+export const blueprintKeys = {
   all: ['agents'] as const,
   byAccount: (account: string) => ['agents', 'account', account] as const,
   detail: (account: string, name: string) => ['agents', account, name] as const,

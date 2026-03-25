@@ -12,7 +12,7 @@ export interface User {
   updated_at: string;
 }
 
-export interface AgentSummary {
+export interface BlueprintSummary {
   name: string;
   registry: string;
   build_count: number;
@@ -42,7 +42,7 @@ export interface Account {
   display_name?: string;
   role?: string;
   avatar_version?: number;
-  agents?: AgentSummary[];
+  agents?: BlueprintSummary[];
 }
 
 export interface AccountSearchResult {
@@ -279,19 +279,19 @@ class ApiClient {
     );
   }
 
-  // Agent endpoints
-  async listAgents(): Promise<AgentsListResponse> {
-    return this.request<AgentsListResponse>('/api/v1/agents');
+  // Blueprint endpoints
+  async listBlueprints(): Promise<BlueprintsListResponse> {
+    return this.request<BlueprintsListResponse>('/api/v1/agents');
   }
 
-  async listAccountAgents(account: string): Promise<AgentsListResponse> {
-    return this.request<AgentsListResponse>(
+  async listAccountBlueprints(account: string): Promise<BlueprintsListResponse> {
+    return this.request<BlueprintsListResponse>(
       `/api/v1/agents/${encodeURIComponent(account)}`
     );
   }
 
-  async getAgent(account: string, name: string): Promise<Agent> {
-    return this.request<Agent>(
+  async getBlueprint(account: string, name: string): Promise<Blueprint> {
+    return this.request<Blueprint>(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}`
     );
   }
@@ -461,7 +461,7 @@ class ApiClient {
     );
   }
 
-  async archiveAgent(account: string, name: string): Promise<void> {
+  async archiveBlueprint(account: string, name: string): Promise<void> {
     return this.request(
       `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/archive`,
       { method: 'POST' }
@@ -611,13 +611,13 @@ export interface SecretKeysResponse {
 }
 
 // Response types
-export interface AgentSpec {
+export interface BlueprintSpec {
   meta?: { visibility?: string };
   integrations?: Record<string, { provider: string; type?: string }>;
   [key: string]: unknown;
 }
 
-export interface AgentCardAuthor {
+export interface BlueprintAuthor {
   name: string;
   account?: string;
 }
@@ -628,44 +628,44 @@ export interface ResolvedIntegration {
   known: boolean;
 }
 
-export interface AgentCardData {
+export interface BlueprintCardData {
   description?: string;
   tags?: string[];
-  authors?: AgentCardAuthor[];
+  authors?: BlueprintAuthor[];
   capabilities?: string[];
   integrations?: ResolvedIntegration[];
   body?: string;
 }
 
-export interface AgentVersion {
+export interface BlueprintVersion {
   build_id: string;
   version?: string;
-  spec: AgentSpec;
+  spec: BlueprintSpec;
   readme?: string;
-  agent_card?: AgentCardData;
+  agent_card?: BlueprintCardData;
   published_at: string;
   validation_warnings?: ValidationError[];
 }
 
-export interface AgentMetrics {
+export interface BlueprintMetrics {
   lifetime_messages: number;
   deploy_count?: number;
 }
 
-export interface Agent {
+export interface Blueprint {
   name: string;
   account: string;
   registry: string;
   visibility?: string;
   avatar_url?: string;
-  versions: AgentVersion[];
+  versions: BlueprintVersion[];
   heart_count?: number;
   hearted?: boolean;
-  metrics?: AgentMetrics;
+  metrics?: BlueprintMetrics;
 }
 
-export interface AgentsListResponse {
-  agents: Agent[];
+export interface BlueprintsListResponse {
+  blueprints: Blueprint[];
   count: number;
 }
 

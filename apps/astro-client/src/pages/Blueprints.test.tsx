@@ -3,7 +3,7 @@ import { screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { mockAgents } from '@/test/msw/handlers';
+import { mockBlueprints } from '@/test/msw/handlers';
 import { renderRoute } from '@/test/test-utils';
 import Discover from './blueprints/Discover';
 
@@ -65,7 +65,7 @@ describe('Blueprints – Discover page', () => {
     it('shows empty state when no agents exist', async () => {
       server.use(
         http.get('/api/v1/agents', () =>
-          HttpResponse.json({ agents: [], count: 0 }),
+          HttpResponse.json({ blueprints: [], count: 0 }),
         ),
       );
 
@@ -84,7 +84,7 @@ describe('Blueprints – Discover page', () => {
           if (callCount === 1) {
             return HttpResponse.json({ error: 'internal_error' }, { status: 500 });
           }
-          return HttpResponse.json({ agents: mockAgents, count: mockAgents.length });
+          return HttpResponse.json({ blueprints: mockBlueprints, count: mockBlueprints.length });
         }),
       );
 

@@ -91,7 +91,7 @@ export default function ConfigureDeployment() {
           avatar={{
             url: deployment.avatar_url,
             account,
-            agentName: deployment.name,
+            blueprintName: deployment.name,
             onUpload: async (file) => {
               await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
             },

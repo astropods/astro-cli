@@ -1,0 +1,73 @@
+import { Meta, Canvas, Controls } from "@storybook/addon-docs/blocks"
+import * as BlueprintCardStories from "./BlueprintCard.stories"
+
+<Meta of={BlueprintCardStories} />
+
+# BlueprintCard
+
+A card component for blueprint discovery surfaces. The default variant is used in marketplace/grid contexts, and the `oftenUsedTogether` variant is used in the sidebar recommendation stack on blueprint detail pages.
+
+## Import
+
+```tsx
+import { BlueprintCard } from "@/components/BlueprintCard"
+```
+
+## Usage
+
+```tsx
+<BlueprintCard
+  slug="acme/customer-insight-engine"
+  account="acme"
+  name="Customer Insight Engine"
+  description="Analyzes customer feedback to surface actionable insights and trends."
+/>
+```
+
+### Often Used Together Variant
+
+```tsx
+<BlueprintCard
+  slug="steve_jobs/alert-router"
+  account="steve_jobs"
+  name="alert-router"
+  description="Routes alerts to the correct responders."
+  variant="oftenUsedTogether"
+  rating={4.6}
+  lifetimeMessages={1203}
+/>
+```
+
+## Default
+
+<Canvas of={BlueprintCardStories.Default} />
+
+## Long Description
+
+Descriptions are clamped to 3 lines in the default variant.
+
+<Canvas of={BlueprintCardStories.LongDescription} />
+
+## Short Description
+
+<Canvas of={BlueprintCardStories.ShortDescription} />
+
+## Different Account
+
+<Canvas of={BlueprintCardStories.DifferentAccount} />
+
+## Often Used Together
+
+Compact recommendation card variant with contrast background and metadata line.
+
+<Canvas of={BlueprintCardStories.OftenUsedTogether} />
+
+## Grid
+
+Cards laid out in a responsive grid.
+
+<Canvas of={BlueprintCardStories.Grid} />
+
+## Props
+
+<Controls of={BlueprintCardStories.Default} />

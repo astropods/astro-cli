@@ -29,11 +29,11 @@ describe("getPodDisplayName", () => {
     expect(getPodDisplayName("myagent-messaging", "myagent")).toBe("myagent messaging");
   });
 
-  it("returns the stable name as-is without agentName", () => {
+  it("returns the stable name as-is without blueprintName", () => {
     expect(getPodDisplayName("clawbot-ai-agent")).toBe("clawbot-ai-agent");
   });
 
-  it("returns the stable name as-is when it doesn't match agentName", () => {
+  it("returns the stable name as-is when it doesn't match blueprintName", () => {
     expect(getPodDisplayName("something-else", "clawbot-ai")).toBe("something-else");
   });
 });
