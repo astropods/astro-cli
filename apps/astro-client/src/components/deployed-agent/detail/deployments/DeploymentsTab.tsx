@@ -377,7 +377,7 @@ export function ActiveContainerAccordion({
           style={{
             fontFamily: S.mono,
             fontSize: T.monoSm,
-            color: C.faint,
+            color: C.text,
             flexShrink: 0,
             marginLeft: isCompact ? 0 : 8,
             width: isCompact ? "100%" : "auto",
@@ -388,7 +388,7 @@ export function ActiveContainerAccordion({
             <span>ready</span>
             {allReady ? <Check size={I.xs} /> : null}
           </span>
-          {" · "}
+          {" • "}
           {uptime}
         </span>
       </button>
