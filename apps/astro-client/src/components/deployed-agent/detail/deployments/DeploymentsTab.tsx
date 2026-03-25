@@ -605,10 +605,10 @@ export function ActiveContainerAccordion({
                   <Search size={I.sm} color={C.faint} />
                   <input
                     type="text"
-                    placeholder="Search Logs"
+                    placeholder="Search logs"
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
-                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: isCompact ? 92 : 120, caretColor: C.tealMid }}
+                    style={{ background: "none", border: "none", outline: "none", fontFamily: S.body, fontSize: T.bodySm, color: C.muted, width: isCompact ? 92 : 160, caretColor: C.tealMid }}
                   />
                 </div>
                 <button
@@ -625,7 +625,7 @@ export function ActiveContainerAccordion({
                     height: 32,
                     padding: 0,
                     borderRadius: 5,
-                    color: C.faint,
+                    color: C.text,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -648,7 +648,7 @@ export function ActiveContainerAccordion({
                     height: 32,
                     padding: 0,
                     borderRadius: 5,
-                    color: C.faint,
+                    color: C.text,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
