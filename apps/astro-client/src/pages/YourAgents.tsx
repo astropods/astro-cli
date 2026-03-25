@@ -12,7 +12,7 @@ import { useDeployments } from "../api/queries/deployments";
 import { useAccountBlueprints } from "../api/queries/blueprints";
 import { useObservabilitySummary, useObservabilityTraces } from "../api/queries/observability";
 import { useAuth } from "../lib/auth";
-import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
+import { mapDeploymentStatus } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import type { AgentDeployment } from "../lib/api";
 import { createServerApi } from "../lib/api.server";
@@ -66,8 +66,8 @@ function AgentCardWithStats({
       status={status}
       requests={requests}
       lastActive={lastActive}
-      installedAt={formatDate(deployment.created_at)}
-      updatedAt={formatDate(deployment.created_at)}
+      installedAt={deployment.created_at}
+      updatedAt={deployment.created_at}
       avatarUrl={deployment.avatar_url}
       hasNewBuildAvailable={hasNewBuildAvailable}
     />

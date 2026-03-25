@@ -23,6 +23,30 @@ import { generateIdentity } from "identity-gen";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "undeploying" | "error";
 
+function formatRelativeTime(isoString: string): string {
+  const diffMs = new Date(isoString).getTime() - Date.now();
+  const diffSecs = Math.round(diffMs / 1000);
+  const diffMins = Math.round(diffSecs / 60);
+  const diffHours = Math.round(diffMins / 60);
+  const diffDays = Math.round(diffHours / 24);
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  if (Math.abs(diffSecs) < 60) return "less than a minute ago";
+  if (Math.abs(diffMins) < 60) return rtf.format(diffMins, "minute");
+  if (Math.abs(diffHours) < 24) return rtf.format(diffHours, "hour");
+  return rtf.format(diffDays, "day");
+}
+
+function formatDateTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export interface DeployedAgentCardProps {
   name: string;
   displayName?: string;
@@ -90,7 +114,7 @@ export function DeployedAgentCard({
     account,
     avatar: cardAvatar,
     stats: [
-      { label: "Deployed", value: installedAt },
+      { label: "Deployed", value: formatDateTime(installedAt) },
       { label: "From", value: `${account}/${name}` },
     ],
     barcodeId: deploymentId,
@@ -183,8 +207,8 @@ export function DeployedAgentCard({
       <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
         <MetricCell label="Requests" value={requests.toLocaleString()} />
         <MetricCell label="Last active" value={lastActive} />
-        <MetricCell label="Deployed" value={installedAt} />
-        <MetricCell label="Updated" value={updatedAt} />
+        <MetricCell label="Deployed" value={formatDateTime(installedAt)} />
+        <MetricCell label="Updated" value={formatRelativeTime(updatedAt)} />
       </div>
     </>
   );
