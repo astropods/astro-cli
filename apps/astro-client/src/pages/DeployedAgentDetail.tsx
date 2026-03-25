@@ -193,18 +193,6 @@ function LiveRevealConfetti() {
   );
 }
 
-function LinkedInBrandIcon({ className = "size-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
-      <rect x="2" y="2" width="20" height="20" rx="4" fill="#0A66C2" />
-      <path
-        d="M8.05 10.02h2.49V18H8.05v-7.98zm1.25-4.02c.8 0 1.45.66 1.45 1.47A1.46 1.46 0 0 1 9.3 8.94c-.8 0-1.45-.66-1.45-1.47S8.5 6 9.3 6zM12.07 10.02h2.39v1.09h.03c.33-.63 1.14-1.3 2.35-1.3 2.52 0 2.99 1.67 2.99 3.83V18h-2.49v-3.93c0-.94-.02-2.15-1.3-2.15-1.3 0-1.5 1.02-1.5 2.08V18h-2.47v-7.98z"
-        fill="#FFFFFF"
-      />
-    </svg>
-  );
-}
-
 function LiveRevealOverlay({
   deployment,
   account,
@@ -359,7 +347,9 @@ function LiveRevealOverlay({
                 Share to X
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleShareToNetwork("linkedin")} className="gap-2">
-                <LinkedInBrandIcon className="size-4" />
+                <span className="inline-flex size-4 items-center justify-center rounded-[3px] border border-current text-[8px] font-bold leading-none">
+                  in
+                </span>
                 Share in post
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
