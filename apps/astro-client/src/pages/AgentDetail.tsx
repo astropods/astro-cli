@@ -130,6 +130,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
         account: a.account,
         name: a.name,
         description: getAgentDescription(a),
+        deployCount: a.metrics?.deploy_count,
       }));
   })();
 
@@ -157,6 +158,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
               integrations={integrations}
               capabilities={capabilities}
               authors={authors}
+              installs={agent.metrics?.deploy_count}
               recommendedAgents={recommendedAgents}
               initialAccountData={loaderData?.accountData ?? undefined}
             />
@@ -168,6 +170,7 @@ export default function AgentDetail({ loaderData }: Route.ComponentProps) {
           integrations={integrations}
           capabilities={capabilities}
           authors={authors}
+          installs={agent.metrics?.deploy_count}
           recommendedAgents={recommendedAgents}
           initialAccountData={loaderData?.accountData ?? undefined}
         />
