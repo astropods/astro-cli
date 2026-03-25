@@ -1,7 +1,7 @@
 import path from "path";
 import { createRequestHandler, type ServerBuild } from "react-router";
-import log from "./src/lib/logger";
-import { withLogging } from "./src/lib/request-logger";
+import log from "./logger";
+import { withLogging } from "./request-logger";
 
 const serverBuildPath = "./build/server/index.js";
 const build: ServerBuild = await import(serverBuildPath);

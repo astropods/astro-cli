@@ -59,6 +59,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 # Copy built artifacts
 COPY --from=builder /app/apps/astro-client/build ./build
 COPY --from=builder /app/apps/astro-client/server.ts ./server.ts
+COPY --from=builder /app/apps/astro-client/logger.ts ./logger.ts
+COPY --from=builder /app/apps/astro-client/request-logger.ts ./request-logger.ts
 
 # Create non-root user
 RUN echo "astro:x:1000:1000::/app:/bin/sh" >> /etc/passwd && \
