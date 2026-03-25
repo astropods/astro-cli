@@ -555,7 +555,7 @@ describe('InstallAgent page', () => {
       server.use(
         http.post('/api/v1/deploy', () =>
           HttpResponse.json(
-            { error: 'deploy_failed', details: 'Insufficient quota' },
+            { error: 'Insufficient quota' },
             { status: 400 },
           ),
         ),
