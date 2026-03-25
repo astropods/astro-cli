@@ -424,7 +424,7 @@ export function ActiveContainerAccordion({
                 <Select value={selectedContainer} onValueChange={setSelectedContainer}>
                   <SelectTrigger
                     className="h-7 w-auto min-w-[130px] px-3"
-                    style={{ fontFamily: S.body, fontSize: T.bodySm, color: C.muted, background: C.panel }}
+                    style={{ fontFamily: S.body, fontSize: T.bodySm, background: "var(--popover)" }}
                   >
                     <SelectValue />
                   </SelectTrigger>
