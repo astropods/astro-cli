@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { ArrowRight, Download, Share2 } from "lucide-react";
@@ -14,7 +14,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
 import { HoloCard } from "@/components/trading-card/HoloCard";
 import { useAgent } from "@/api/queries/agents";
-import { useDeploymentHistory, useDeployments } from "@/api/queries/deployments";
+import { useDeployments } from "@/api/queries/deployments";
 import { resolveCardIntegrations } from "@/lib/integrationIcons";
 import { getAgentIntegrations } from "@/lib/agent-utils";
 import { useAuth } from "@/lib/auth";
@@ -134,10 +134,10 @@ function LiveRevealConfetti() {
       pieces.push({
         x: Math.random() * canvas.width,
         y: -10 - Math.random() * 200,
-        vx: (Math.random() - 0.5) * 3,
-        vy: 2 + Math.random() * 4,
+        vx: (Math.random() - 0.5) * 4.2,
+        vy: 3.4 + Math.random() * 5.6,
         rot: Math.random() * Math.PI * 2,
-        vr: (Math.random() - 0.5) * 0.15,
+        vr: (Math.random() - 0.5) * 0.2,
         w: 6 + Math.random() * 8,
         h: 4 + Math.random() * 6,
         color: colors[Math.floor(Math.random() * colors.length)],
@@ -154,7 +154,7 @@ function LiveRevealConfetti() {
         piece.x += piece.vx;
         piece.y += piece.vy;
         piece.rot += piece.vr;
-        piece.vy += 0.05;
+        piece.vy += 0.085;
         if (piece.y < canvas.height + 20) alive = true;
 
         ctx.save();
@@ -177,7 +177,7 @@ function LiveRevealConfetti() {
 
     const timer = window.setTimeout(() => {
       raf = window.requestAnimationFrame(draw);
-    }, 400);
+    }, 180);
 
     return () => {
       window.clearTimeout(timer);
@@ -288,7 +288,7 @@ function LiveRevealOverlay({
             LIVE
           </span>
           <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
-            Your agent is live.
+            {(deployment.display_name ?? deployment.name)} is live.
           </h1>
           <p className="mt-0 text-body text-stone-200/95">Monitoring begins on first request.</p>
         </div>
@@ -349,15 +349,73 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const account = paramAccount ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
   const [showLiveReveal, setShowLiveReveal] = useState(false);
-  const [pendingReveal, setPendingReveal] = useState(false);
   const [hasSeenReveal, setHasSeenReveal] = useState(false);
-  const prevStatusRef = useRef<ReturnType<typeof mapDeploymentStatus> | null>(null);
+  const [hasLoadedRevealSeen, setHasLoadedRevealSeen] = useState(false);
+  const [stayOnDeployments, setStayOnDeployments] = useState(false);
+  const [allowMonitorTab, setAllowMonitorTab] = useState(false);
   const trackedDeploymentIdRef = useRef<string | null>(null);
-  const activeSeenBeforeRef = useRef(false);
 
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
+  const currentDeploymentId = deployment?.id ?? null;
+  const status = deployment ? mapDeploymentStatus(deployment) : null;
+  const monitorLocked = deployment ? isDeployingState(deployment) : false;
+  const isPersonal = personalAccount?.name === account;
+  const queryTab = new URLSearchParams(location.search).get("tab");
+  const requestedTab = queryTab === "monitor" || queryTab === "deployments" ? queryTab : null;
+  const initialTab: "monitor" | "deployments" =
+    (monitorLocked || stayOnDeployments)
+      ? "deployments"
+      : (requestedTab === "monitor" && allowMonitorTab ? "monitor" : "deployments");
+  const revealSeenKey = deployment
+    ? `astro:deploy-live-reveal:${account}:${deployment.name}:${deployment.id}`
+    : "";
+
+  useEffect(() => {
+    if (!currentDeploymentId) return;
+    if (trackedDeploymentIdRef.current !== currentDeploymentId) {
+      setAllowMonitorTab(false);
+    }
+    trackedDeploymentIdRef.current = currentDeploymentId;
+    setShowLiveReveal(false);
+    setStayOnDeployments(false);
+    setHasLoadedRevealSeen(false);
+
+    const revealSeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
+    setHasSeenReveal(revealSeen);
+    setHasLoadedRevealSeen(true);
+  }, [currentDeploymentId, revealSeenKey]);
+
+  useEffect(() => {
+    if (!deployment || !status) return;
+    if (!hasLoadedRevealSeen) return;
+    if (trackedDeploymentIdRef.current !== deployment.id) return;
+    if (status === "pending") {
+      setStayOnDeployments(true);
+      setShowLiveReveal(false);
+      return;
+    }
+    if (status === "active" && !hasSeenReveal) {
+      setShowLiveReveal(true);
+      setHasSeenReveal(true);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(revealSeenKey, "1");
+      }
+      return;
+    }
+    if (status !== "active") {
+      setShowLiveReveal(false);
+    }
+  }, [deployment, hasLoadedRevealSeen, hasSeenReveal, revealSeenKey, status]);
+
+  useEffect(() => {
+    if (requestedTab !== "monitor" || allowMonitorTab) return;
+    const params = new URLSearchParams(location.search);
+    params.delete("tab");
+    const next = params.toString();
+    navigate(`${location.pathname}${next ? `?${next}` : ""}`, { replace: true });
+  }, [allowMonitorTab, location.pathname, location.search, navigate, requestedTab]);
 
   if (!deployment) {
     return (
@@ -372,82 +430,6 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
       </div>
     );
   }
-
-  const isPersonal = personalAccount?.name === account;
-  const status = mapDeploymentStatus(deployment);
-  const monitorLocked = isDeployingState(deployment);
-  const historyEnabled = isAuthenticated && !!account && !!deployment.name;
-  const { data: historyData, isLoading: historyLoading, isFetched: historyFetched } = useDeploymentHistory(
-    account,
-    deployment.name,
-    undefined,
-    historyEnabled,
-  );
-  const queryTab = new URLSearchParams(location.search).get("tab");
-  const requestedTab = queryTab === "monitor" || queryTab === "deployments" ? queryTab : null;
-  const initialTab: "monitor" | "deployments" = monitorLocked
-    ? "deployments"
-    : (requestedTab ?? (status === "error" ? "deployments" : "monitor"));
-  const revealSeenKey = `astro:deploy-live-reveal:${account}:${deployment.name}:${deployment.id}`;
-  const activeSeenKey = `astro:deployment-active-seen:${account}:${deployment.name}:${deployment.id}`;
-
-  useEffect(() => {
-    trackedDeploymentIdRef.current = deployment.id;
-    prevStatusRef.current = null;
-    setShowLiveReveal(false);
-    setPendingReveal(false);
-
-    const activeSeen = typeof window !== "undefined" && window.localStorage.getItem(activeSeenKey) === "1";
-    const revealSeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
-    activeSeenBeforeRef.current = activeSeen;
-    setHasSeenReveal(revealSeen);
-  }, [activeSeenKey, deployment.id, revealSeenKey]);
-
-  useLayoutEffect(() => {
-    if (trackedDeploymentIdRef.current !== deployment.id) return;
-    const prev = prevStatusRef.current;
-
-    if (
-      prev === "pending" &&
-      status === "active" &&
-      !activeSeenBeforeRef.current &&
-      !hasSeenReveal
-    ) {
-      setPendingReveal(true);
-    }
-
-    if (status !== "active") {
-      setShowLiveReveal(false);
-    }
-
-    if (status === "active" && !activeSeenBeforeRef.current) {
-      activeSeenBeforeRef.current = true;
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(activeSeenKey, "1");
-      }
-    }
-
-    prevStatusRef.current = status;
-  }, [activeSeenKey, deployment.id, hasSeenReveal, status]);
-
-  useEffect(() => {
-    if (!pendingReveal) return;
-    if (historyLoading && !historyFetched) return;
-
-    const hasHistoryData = !!historyData;
-    const historyCount = historyData?.count ?? historyData?.deployments?.length ?? 0;
-    const isFirstDeployment = hasHistoryData && historyCount <= 1;
-
-    if (isFirstDeployment && !hasSeenReveal) {
-      setShowLiveReveal(true);
-      setHasSeenReveal(true);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(revealSeenKey, "1");
-      }
-    }
-
-    setPendingReveal(false);
-  }, [hasSeenReveal, historyData, historyFetched, historyLoading, pendingReveal, revealSeenKey]);
 
   const backgroundDeployment = showLiveReveal
     ? { ...deployment, status: "pending", ready: 0 }
@@ -470,9 +452,11 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
           deployment={deployment}
           account={account}
           onViewMonitoring={() => {
+            setAllowMonitorTab(true);
             const params = new URLSearchParams(location.search);
             params.set("tab", "monitor");
             navigate(`${location.pathname}?${params.toString()}`, { replace: true });
+            setStayOnDeployments(false);
             setShowLiveReveal(false);
           }}
         />
