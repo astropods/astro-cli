@@ -16,7 +16,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const deploymentId = params.deploymentId ?? "";
 
   const deploymentsData = await api.listDeployments(account).catch(() => ({ deployments: [], count: 0 }));
-  const deployment = deploymentsData.deployments.find((d) => d.id === deploymentId) ?? null;
+  const deployment = deploymentsData.deployments?.find((d) => d.id === deploymentId) ?? null;
 
   return { deploymentsData, deployment, account, deploymentId };
 }

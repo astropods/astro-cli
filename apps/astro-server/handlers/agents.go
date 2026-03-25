@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -447,7 +449,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
 // If minCLIVersion is non-empty, pushes from older CLI versions are rejected with 426.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -561,8 +563,9 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 			return
 		}
 
-		// Emit agent_build metering event (fire-and-forget)
+		// Emit agent_build metering event and updated agent count (fire-and-forget)
 		go openmeter.EmitAgentBuild(c.Request.Context(), omClient, log, accountID, agentName)
+		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, accountID)
 
 		// Set visibility if provided (only "public" or "private" are valid)
 		if req.Visibility == "public" || req.Visibility == "private" {
@@ -598,7 +601,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -617,6 +620,8 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
 			})
 			return
 		}
+
+		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, acct.ID)
 
 		log.Info("Agent archived", "account", accountName, "name", agentName)
 		c.Status(http.StatusNoContent)

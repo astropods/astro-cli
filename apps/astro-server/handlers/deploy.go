@@ -375,7 +375,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -483,6 +483,12 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 					log.Warn("Failed to set deployment avatar version after copy", "error", verErr, "deployment_id", dctx.deploymentID)
 				}
 			}
+		}
+
+		// Emit updated deployment count immediately so the next entitlement check
+		// doesn't see stale OpenMeter data (heartbeat only runs every 5 minutes).
+		if !dctx.isUpdate {
+			go openmeter.EmitActiveDeployments(context.Background(), omClient, db, log, dctx.acct.ID)
 		}
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
