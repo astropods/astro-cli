@@ -477,7 +477,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       }
       if (messages.length === 0) {
         messages.push(
-          apiErr.details ?? apiErr.error ?? (err instanceof Error ? err.message : "Deployment failed"),
+          apiErr.error ?? (typeof apiErr.details === "string" ? apiErr.details : undefined) ?? (err instanceof Error ? err.message : "Deployment failed"),
         );
       }
       setDeployError(messages.join("\n"));
