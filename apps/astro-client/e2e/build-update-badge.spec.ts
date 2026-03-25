@@ -18,7 +18,7 @@ test("my agents card shows new build badge for out-of-date deployment", async ({
   test.setTimeout(60_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const staleCard = page.locator(`a[href="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
+  const staleCard = page.locator(`a[href^="/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}"]`);
   await expect(staleCard).toBeVisible({ timeout: 20_000 });
   await expect(staleCard.getByText("update", { exact: true })).toBeVisible();
 });
