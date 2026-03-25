@@ -255,7 +255,7 @@ function LiveRevealOverlay({
     const shareText = `Just launched ${launchName} on Astro AI!\n\nCheck out the blueprint:\n\n${blueprintUrl}`;
     const url = network === "x"
       ? `https://x.com/intent/post?text=${encodeURIComponent(shareText)}`
-      : `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(blueprintUrl)}`;
+      : `https://www.linkedin.com/feed/?shareActive=true&mini=true&text=${encodeURIComponent(shareText)}`;
 
     window.open(url, "_blank", "noopener,noreferrer");
   };
