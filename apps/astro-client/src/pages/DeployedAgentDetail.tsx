@@ -383,6 +383,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const [stayOnDeployments, setStayOnDeployments] = useState(false);
   const [allowMonitorTab, setAllowMonitorTab] = useState(false);
   const trackedDeploymentIdRef = useRef<string | null>(null);
+  const previousStatusRef = useRef<string | null>(null);
 
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
@@ -409,6 +410,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
       setAllowMonitorTab(false);
     }
     trackedDeploymentIdRef.current = currentDeploymentId;
+    previousStatusRef.current = null;
     setShowLiveReveal(false);
     setStayOnDeployments(false);
     setHasLoadedRevealSeen(false);
@@ -422,22 +424,29 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     if (!deployment || !status) return;
     if (!hasLoadedRevealSeen) return;
     if (trackedDeploymentIdRef.current !== deployment.id) return;
+    const previousStatus = previousStatusRef.current;
+    const transitionedPendingToActive = previousStatus === "pending" && status === "active";
+
     if (status === "pending") {
       setStayOnDeployments(true);
       setShowLiveReveal(false);
+      previousStatusRef.current = status;
       return;
     }
-    if (status === "active" && !hasSeenReveal) {
+
+    if (status === "active" && !hasSeenReveal && transitionedPendingToActive) {
       setShowLiveReveal(true);
       setHasSeenReveal(true);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(revealSeenKey, "1");
       }
+      previousStatusRef.current = status;
       return;
     }
     if (status !== "active") {
       setShowLiveReveal(false);
     }
+    previousStatusRef.current = status;
   }, [deployment, hasLoadedRevealSeen, hasSeenReveal, revealSeenKey, status]);
 
   useEffect(() => {
