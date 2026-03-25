@@ -977,7 +977,6 @@ export function DeploymentsTab({
                       padding: isCompact ? "11px 10px" : "12px 14px",
                       alignItems: "center",
                       borderLeft: `3px solid ${C.tealMid}`,
-                      background: "rgba(21,130,125,0.02)",
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
