@@ -906,7 +906,7 @@ export function DeploymentsTab({
                 { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—", wrap: false, valueColor: C.text },
                 {
                   label: "DEPLOYMENT STATUS",
-                  value: String(deployment.status || "unknown").toUpperCase(),
+                  value: String(deployment.status || "unknown").charAt(0).toUpperCase() + String(deployment.status || "unknown").slice(1).toLowerCase(),
                   wrap: false,
                   valueColor: C.text,
                 },
