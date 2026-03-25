@@ -499,8 +499,8 @@ export function ActiveContainerAccordion({
                     borderBottom: i < (urls ?? []).length - 1 ? `1px solid ${C.border}` : "none",
                   }}
                 >
-                  <Globe size={14} style={{ flexShrink: 0, color: C.stone }} />
-                  <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: C.tealMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, flex: 1 }}>
+                  <Globe size={14} style={{ flexShrink: 0, color: C.faint }} />
+                  <span style={{ fontFamily: S.body, fontSize: T.body, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, flex: 1 }}>
                     {u.url}
                   </span>
                   {u.type && (
