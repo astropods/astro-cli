@@ -468,11 +468,11 @@ export function ActiveContainerAccordion({
                       <span style={{ fontFamily: S.mono, fontSize: T.label, color: C.stone, flexShrink: 0, userSelect: "none" as const }}>
                         {"{}"}
                       </span>
-                      <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: !v.value ? C.stone : C.text, minWidth: 160, flexShrink: 0, textDecoration: !v.value ? "line-through" : undefined }}>
+                      <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: !v.value ? C.stone : C.text, minWidth: 160, flexShrink: 0, textDecoration: !v.value ? "line-through" : undefined }}>
                         {v.key}
                       </span>
                       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <span style={{ fontFamily: S.mono, fontSize: T.monoMd, color: !v.value ? C.stone : C.faint, fontStyle: !v.value ? "italic" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                        <span style={{ fontFamily: S.mono, fontSize: T.monoSm, color: !v.value ? C.stone : C.muted, fontStyle: !v.value ? "italic" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
                           {!v.value ? "empty" : isSecret ? "•••••••••" : v.value}
                         </span>
                       </div>
