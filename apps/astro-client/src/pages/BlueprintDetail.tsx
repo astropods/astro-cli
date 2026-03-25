@@ -25,6 +25,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const api = createServerApi(request);
   const account = params.account ?? "";
   const agentSlug = params.agentSlug ?? "";
+  const origin = new URL(request.url).origin;
 
   const [blueprint, blueprintsData, accountData] = await Promise.all([
     account && agentSlug ? api.getBlueprint(account, agentSlug).catch(() => null) : null,
@@ -45,20 +46,42 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     if (acc) accountsMap[acc.name] = acc;
   }
 
-  return { blueprint, blueprintsData, accountData, accountsMap };
+  const canonicalUrl = account && agentSlug ? `${origin}/${account}/${agentSlug}` : origin;
+  const assetsBase = import.meta.env.VITE_ASSETS_URL?.replace(/\/$/, "");
+  const avatarHandle = accountData?.name || account;
+  const avatarVersion = accountData?.avatar_version;
+  const ogImage = assetsBase && avatarHandle
+    ? `${assetsBase}/avatars/${encodeURIComponent(avatarHandle)}.jpg${avatarVersion ? `?v=${avatarVersion}` : ""}`
+    : `${origin}/assets/placeholders/accounts/avatar_01.svg`;
+
+  return { blueprint, blueprintsData, accountData, accountsMap, canonicalUrl, ogImage };
 }
 
 export const meta: Route.MetaFunction = ({ data }) => {
   const blueprint = data?.blueprint;
+  const canonicalUrl = data?.canonicalUrl;
+  const ogImage = data?.ogImage;
   if (!blueprint) {
-    return [{ title: "Agent Details | Astro" }];
+    return [
+      { title: "Agent Details | Astro" },
+      ...(canonicalUrl ? [{ property: "og:url", content: canonicalUrl } as const] : []),
+      ...(ogImage ? [{ property: "og:image", content: ogImage } as const] : []),
+    ];
   }
-  const description = blueprint.versions[0]?.agent_card?.description ?? "";
+  const title = `${blueprint.account}/${blueprint.name} | Astro`;
+  const description = blueprint.versions[0]?.agent_card?.description ?? `Check out ${blueprint.account}/${blueprint.name} on Astro.`;
   return [
-    { title: `${blueprint.account}/${blueprint.name} | Astro` },
+    { title },
     { name: "description", content: description },
-    { property: "og:title", content: `${blueprint.account}/${blueprint.name} | Astro` },
+    { property: "og:type", content: "website" },
+    ...(canonicalUrl ? [{ property: "og:url", content: canonicalUrl } as const] : []),
+    { property: "og:title", content: title },
     { property: "og:description", content: description },
+    ...(ogImage ? [{ property: "og:image", content: ogImage } as const] : []),
+    { name: "twitter:card", content: "summary_large_image" },
+    { name: "twitter:title", content: title },
+    { name: "twitter:description", content: description },
+    ...(ogImage ? [{ name: "twitter:image", content: ogImage } as const] : []),
   ];
 };
 

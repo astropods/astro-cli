@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
-import { ArrowRight, Download, Share2 } from "lucide-react";
+import { ArrowRight, Download, Linkedin, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -245,6 +245,20 @@ function LiveRevealOverlay({
   );
 
   const revealCardSvg = useMemo(() => generateCard(revealCardData), [revealCardData]);
+  const blueprintUrl = useMemo(() => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}/${account}/${deployment.name}`;
+  }, [account, deployment.name]);
+
+  const handleShareToNetwork = (network: "x" | "linkedin") => {
+    const launchName = deployment.display_name ?? deployment.name;
+    const shareText = `Just launched ${launchName} on Astro AI!\n\nCheck out the blueprint:\n\n${blueprintUrl}`;
+    const url = network === "x"
+      ? `https://x.com/intent/post?text=${encodeURIComponent(shareText)}`
+      : `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(blueprintUrl)}`;
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const handleDownload = async (format: "svg" | "png") => {
     const mod = await import("astro-trading-card/browser");
@@ -325,7 +339,17 @@ function LiveRevealOverlay({
                 Share badge <Share2 className="size-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="center" sideOffset={6} className="w-[210px]">
+            <DropdownMenuContent align="center" sideOffset={6} className="w-fit min-w-0">
+              <DropdownMenuItem onSelect={() => void handleShareToNetwork("x")} className="gap-2">
+                <span className="inline-flex size-4 items-center justify-center rounded-[3px] border border-current text-[10px] font-semibold">
+                  X
+                </span>
+                Share to X
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void handleShareToNetwork("linkedin")} className="gap-2">
+                <Linkedin className="size-4" />
+                Share in post
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleDownload("png")} className="gap-2">
                 <Download className="size-4" />
                 Download PNG
