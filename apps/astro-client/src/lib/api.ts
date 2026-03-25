@@ -665,7 +665,7 @@ export interface Blueprint {
 }
 
 export interface BlueprintsListResponse {
-  blueprints: Blueprint[];
+  agents: Blueprint[];
   count: number;
 }
 

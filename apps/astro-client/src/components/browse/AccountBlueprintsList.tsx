@@ -7,7 +7,7 @@ export function AccountBlueprintsList({ account, initialData }: { account: strin
 
   return (
     <BlueprintListView
-      blueprints={data?.blueprints ?? []}
+      blueprints={data?.agents ?? []}
       isLoading={isLoading}
       isError={isError}
       error={error}

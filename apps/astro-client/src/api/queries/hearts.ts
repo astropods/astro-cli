@@ -26,7 +26,7 @@ export function useToggleHeart(account: string, name: string) {
         if (!old) return old;
         return {
           ...old,
-          blueprints: old.blueprints.map((a) =>
+          agents: old.agents.map((a) =>
             a.account === account && a.name === name
               ? patchBlueprint(a, hearted, heartCount)
               : a

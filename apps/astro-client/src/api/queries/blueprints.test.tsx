@@ -16,8 +16,8 @@ describe('useBlueprints', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(result.current.data?.blueprints).toHaveLength(mockBlueprints.length);
-    expect(result.current.data?.blueprints[0].name).toBe('code-reviewer');
+    expect(result.current.data?.agents).toHaveLength(mockBlueprints.length);
+    expect(result.current.data?.agents[0].name).toBe('code-reviewer');
   });
 
   it('returns an error when the server fails', async () => {
@@ -209,11 +209,11 @@ describe('useArchiveBlueprint', () => {
     const { wrapper, queryClient } = createHookWrapper();
 
     queryClient.setQueryData(blueprintKeys.byAccount(testAccount), {
-      blueprints: [{ name: 'code-reviewer' }],
+      agents: [{ name: 'code-reviewer' }],
       count: 1,
     });
     queryClient.setQueryData(blueprintKeys.all, {
-      blueprints: [{ name: 'code-reviewer' }],
+      agents: [{ name: 'code-reviewer' }],
       count: 1,
     });
 

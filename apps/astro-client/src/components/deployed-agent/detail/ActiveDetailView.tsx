@@ -109,7 +109,7 @@ export function ActiveDetailView({
   const isPaused = isPausedState(renderedDeployment);
   const showConfigureAsPage = isCompact && configOpen;
   const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
-  const latestBuildId = accountAgents?.blueprints
+  const latestBuildId = accountAgents?.agents
     ?.find((a) => a.name === renderedDeployment.name)
     ?.versions?.reduce((latest, current) =>
       new Date(current.published_at).getTime() > new Date(latest.published_at).getTime()

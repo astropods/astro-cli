@@ -65,7 +65,7 @@ describe('Blueprints – Discover page', () => {
     it('shows empty state when no agents exist', async () => {
       server.use(
         http.get('/api/v1/agents', () =>
-          HttpResponse.json({ blueprints: [], count: 0 }),
+          HttpResponse.json({ agents: [], count: 0 }),
         ),
       );
 
@@ -84,7 +84,7 @@ describe('Blueprints – Discover page', () => {
           if (callCount === 1) {
             return HttpResponse.json({ error: 'internal_error' }, { status: 500 });
           }
-          return HttpResponse.json({ blueprints: mockBlueprints, count: mockBlueprints.length });
+          return HttpResponse.json({ agents: mockBlueprints, count: mockBlueprints.length });
         }),
       );
 

@@ -5,7 +5,7 @@ import { BlueprintListView } from "@/components/browse/BlueprintListView";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const api = createServerApi(request);
-  const blueprintsData = await api.listBlueprints().catch(() => ({ blueprints: [], count: 0 }));
+  const blueprintsData = await api.listBlueprints().catch(() => ({ agents: [], count: 0 }));
   return { blueprintsData };
 }
 
@@ -25,7 +25,7 @@ export default function Discover({ loaderData }: Route.ComponentProps) {
     <>
       <h1 className="text-heading-1 text-foreground">Discover blueprints</h1>
       <BlueprintListView
-        blueprints={data?.blueprints ?? []}
+        blueprints={data?.agents ?? []}
         isLoading={isLoading}
         isError={isError}
         error={error}

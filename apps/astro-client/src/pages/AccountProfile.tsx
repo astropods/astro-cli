@@ -30,7 +30,7 @@ function AccountProfileContent() {
   );
 
   const { data: blueprintsData } = useAccountBlueprints(data?.name ?? "", { enabled: !!data });
-  const accountBlueprints = blueprintsData?.blueprints ?? [];
+  const accountBlueprints = blueprintsData?.agents ?? [];
 
   if (isLoading) {
     return (

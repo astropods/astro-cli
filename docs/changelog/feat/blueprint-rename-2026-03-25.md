@@ -14,7 +14,7 @@ The codebase used "Agent" to mean two different things: the template/spec pushed
 - `AgentCardData` → `BlueprintCardData`
 - `AgentCardAuthor` → `BlueprintAuthor`
 - `AgentMetrics` → `BlueprintMetrics`
-- `AgentsListResponse` → `BlueprintsListResponse` (field `agents` → `blueprints`)
+- `AgentsListResponse` → `BlueprintsListResponse` (field stays `agents` — server contract)
 - `AgentSummary` → `BlueprintSummary`
 
 API client methods:

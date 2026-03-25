@@ -28,7 +28,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
   const [blueprint, blueprintsData, accountData] = await Promise.all([
     account && agentSlug ? api.getBlueprint(account, agentSlug).catch(() => null) : null,
-    api.listBlueprints().catch(() => ({ blueprints: [], count: 0 })),
+    api.listBlueprints().catch(() => ({ agents: [], count: 0 })),
     account ? api.getAccount(account).catch(() => null) : null,
   ]);
 
@@ -36,7 +36,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // Seed with the already-fetched current account to avoid a duplicate request.
   const accountsMap: Record<string, AccountPublic> = {};
   if (accountData) accountsMap[accountData.name] = accountData;
-  const uniqueAccounts = [...new Set(blueprintsData.blueprints.map((a) => a.account))]
+  const uniqueAccounts = [...new Set(blueprintsData.agents.map((a) => a.account))]
     .filter((name) => !(name in accountsMap));
   const accountResults = await Promise.all(
     uniqueAccounts.map((name) => api.getAccount(name).catch(() => null)),
@@ -114,7 +114,7 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
       getBlueprintIntegrations(blueprint).map((integration) => integration.id.toLowerCase()),
     );
     const currentCategories = new Set(getBlueprintCategories(blueprint));
-    return blueprintsData.blueprints
+    return blueprintsData.agents
       .filter((a) => a.name !== agentSlug)
       .map((a) => {
         const ints = getBlueprintIntegrations(a);

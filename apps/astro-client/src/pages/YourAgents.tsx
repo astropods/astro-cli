@@ -122,7 +122,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
-    const blueprints = accountBlueprints?.blueprints ?? [];
+    const blueprints = accountBlueprints?.agents ?? [];
     for (const agent of blueprints) {
       if (!agent.versions?.length) continue;
       const latestVersion = agent.versions.reduce((latest, current) =>
@@ -135,7 +135,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
       }
     }
     return result;
-  }, [accountBlueprints?.blueprints]);
+  }, [accountBlueprints?.agents]);
 
   const filtered = useMemo(() => {
     const list = data?.deployments ?? [];

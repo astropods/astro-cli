@@ -151,7 +151,7 @@ export const handlers = [
   // GET /api/v1/agents
   http.get('/api/v1/agents', () => {
     return HttpResponse.json<BlueprintsListResponse>({
-      blueprints: mockBlueprints,
+      agents: mockBlueprints,
       count: mockBlueprints.length,
     });
   }),
