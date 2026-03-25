@@ -862,7 +862,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Validates a fulfilled deployment spec without applying it."),
 				oapispec.Response(200, &handlers.ValidateDeploymentResponse{}),
 			)
-			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue),
+			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue, omClient, db),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&deployment.UndeployRequest{}),

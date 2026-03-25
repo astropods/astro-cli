@@ -116,7 +116,7 @@ func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}))
+	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -1060,7 +1060,7 @@ func TestUndeploy_NoAuth(t *testing.T) {
 
 	router := gin.New()
 	// No auth middleware — user not set
-	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}))
+	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil))
 
 	body := `{"deployment_id":"some-id"}`
 	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))

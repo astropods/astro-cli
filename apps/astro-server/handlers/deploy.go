@@ -545,7 +545,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 }
 
 // UndeployAgent returns a handler for undeploying agents from Kubernetes
-func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
+func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.UndeployRequest
 
@@ -602,6 +602,8 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
 			return
 		}
+
+		go openmeter.EmitActiveDeployments(context.Background(), omClient, db, log, dep.AccountID)
 
 		log.Info("Undeploy queued",
 			"deployment_id", dep.ID,
