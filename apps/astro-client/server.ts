@@ -1,5 +1,7 @@
 import path from "path";
 import { createRequestHandler, type ServerBuild } from "react-router";
+import log from "./src/lib/logger";
+import { withLogging } from "./src/lib/request-logger";
 
 const serverBuildPath = "./build/server/index.js";
 const build: ServerBuild = await import(serverBuildPath);
@@ -12,6 +14,7 @@ const port = Number(process.env.PORT) || 3000;
 const API_URL = process.env.API_URL || "http://localhost:8080";
 const CLIENT_BUILD_DIR = path.resolve("./build/client");
 const PROXY_PREFIXES = ["/auth", "/api", "/download", "/install", "/schema"];
+const HEALTH_PATHS = new Set(["/healthz", "/readyz"]);
 
 const isBenignRenderAbort = (value: unknown): boolean => {
   if (value instanceof Error) return value.message.includes(RENDER_ABORT_WITHOUT_REASON);
@@ -20,38 +23,33 @@ const isBenignRenderAbort = (value: unknown): boolean => {
 
 if (SUPPRESS_E2E_RENDER_ABORT_LOGS) {
   const originalConsoleError = console.error.bind(console);
-  /*
-   * React can log this abort directly via console.error during stream cancellation.
-   * Filter only the known abort signal in E2E mode to keep Playwright output clean.
-   */
   console.error = (...args: unknown[]) => {
     if (args.some((arg) => isBenignRenderAbort(arg))) return;
     originalConsoleError(...args);
   };
 
-  /*
-   * Playwright E2E can intentionally interrupt SSR streams during navigation/teardown.
-   * React reports this as "render was aborted ... without a reason", which is expected
-   * in this test mode and creates noisy logs without affecting correctness.
-   * We suppress only this exact signal in E2E mode, while still failing fast on anything else.
-   */
   process.on("unhandledRejection", (reason) => {
     if (isBenignRenderAbort(reason)) return;
-    console.error(reason);
+    log.error("Unhandled rejection: {reason}", { reason });
     process.exit(1);
   });
 
   process.on("uncaughtException", (error) => {
     if (isBenignRenderAbort(error)) return;
-    console.error(error);
+    log.error("Uncaught exception: {error}", { error });
     process.exit(1);
   });
 }
 
 Bun.serve({
   port,
-  async fetch(request) {
+  fetch: withLogging(async (request) => {
     const url = new URL(request.url);
+
+    // Health check endpoints — return early before SSR
+    if (HEALTH_PATHS.has(url.pathname)) {
+      return new Response("ok", { status: 200 });
+    }
 
     // Proxy API, auth, and other backend routes to the Go server
     if (PROXY_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
@@ -97,7 +95,7 @@ Bun.serve({
       }
       throw err;
     }
-  },
+  }),
 });
 
-console.log(`astro-client listening on :${port}`);
+log.info("astro-client started on :{port} ({mode})", { port, mode });

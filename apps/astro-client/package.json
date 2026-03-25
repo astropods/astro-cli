@@ -29,6 +29,7 @@
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
     "@heroicons/react": "^2.2.0",
+    "@logtape/logtape": "^2.0.5",
     "@react-router/node": "^7.12.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.18",

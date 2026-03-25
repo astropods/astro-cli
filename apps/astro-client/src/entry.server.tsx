@@ -2,6 +2,9 @@ import type { EntryContext } from "react-router";
 import { ServerRouter } from "react-router";
 import { isbot } from "isbot";
 import { renderToReadableStream } from "react-dom/server";
+import { getChildLogger } from "./lib/logger";
+
+const log = getChildLogger("ssr");
 
 export default async function handleRequest(
   request: Request,
@@ -13,7 +16,7 @@ export default async function handleRequest(
     <ServerRouter context={routerContext} url={request.url} />,
     {
       onError(error: unknown) {
-        console.error(error);
+        log.error("SSR render error: {url} {error}", { error, url: request.url });
         responseStatusCode = 500;
       },
     },
