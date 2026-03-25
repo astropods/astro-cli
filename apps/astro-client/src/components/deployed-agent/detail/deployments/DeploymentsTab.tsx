@@ -990,10 +990,10 @@ export function DeploymentsTab({
                   </div>
 
                   <div style={{ padding: "8px 16px 16px", borderTop: `1px solid ${C.border}`, background: C.bg }}>
-                    <div style={{ fontFamily: S.mono, fontSize: T.monoSm, letterSpacing: "0.07em", color: C.text, margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ fontFamily: S.mono, fontSize: T.label, letterSpacing: "0.07em", color: C.faint, textTransform: "uppercase" as const, margin: "6px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
                       Services
                       {serviceRows.length > 0 && (
-                        <InlineBadge variant="fill" shape="square" className="normal-case size-[18px] p-0 justify-center text-muted-foreground">
+                        <InlineBadge variant="fill" shape="square" className="normal-case size-[18px] p-0 justify-center text-muted-foreground text-[11px]">
                           {serviceRows.length}
                         </InlineBadge>
                       )}
