@@ -79,7 +79,7 @@ export function ActiveContainerAccordion({
     <div className="mb-1.5">
       <div
         className={cn(
-          "dp-container-hdr flex gap-2 w-full px-3.5 py-2.5 border border-border cursor-pointer text-left transition-[background] duration-150",
+          "flex gap-2 w-full px-3.5 py-2.5 border border-border cursor-pointer text-left transition-[background] duration-150",
           isOpen ? "rounded-t-lg border-b-muted bg-surface" : "rounded-lg bg-muted hover:bg-stone-200",
           isCompact ? "items-start flex-wrap" : "items-center flex-nowrap",
         )}
