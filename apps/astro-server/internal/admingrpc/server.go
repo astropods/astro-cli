@@ -1409,7 +1409,7 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 }
 
 // StopDeployment stops a deployment by scaling workloads to zero without deleting resources.
-func (s *Server) StopDeployment(_ context.Context, req *adminv1.StopDeploymentRequest) (*adminv1.StopDeploymentResponse, error) {
+func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeploymentRequest) (*adminv1.StopDeploymentResponse, error) {
 	if req.Namespace == "" {
 		return nil, fmt.Errorf("namespace is required")
 	}
@@ -1429,7 +1429,7 @@ func (s *Server) StopDeployment(_ context.Context, req *adminv1.StopDeploymentRe
 		return nil, fmt.Errorf("kubernetes client not configured")
 	}
 
-	if err := k8s.StopNamespaceWorkloads(context.Background(), s.k8sClient.Clientset(), dep.Namespace); err != nil {
+	if err := k8s.StopNamespaceWorkloads(ctx, s.k8sClient.Clientset(), dep.Namespace); err != nil {
 		return nil, fmt.Errorf("stop workloads: %w", err)
 	}
 
