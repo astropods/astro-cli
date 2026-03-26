@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Download, Share2 } from "lucide-react";
 import type { AgentDeployment } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
-import { useAgent } from "@/api/queries/agents";
-import { getAgentIntegrations } from "@/lib/agent-utils";
+import { useBlueprint } from "@/api/queries/blueprints";
+import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -30,8 +30,8 @@ export function LiveRevealOverlay({
   onDismiss: () => void;
 }) {
   const [entered, setEntered] = useState(false);
-  const { data: agent } = useAgent(account, deployment.name, { enabled: true });
-  const integrations = agent ? getAgentIntegrations(agent) : [];
+  const { data: blueprint } = useBlueprint(account, deployment.name, { enabled: true });
+  const integrations = blueprint ? getBlueprintIntegrations(blueprint) : [];
 
   useEffect(() => {
     const timer = window.setTimeout(() => setEntered(true), 20);

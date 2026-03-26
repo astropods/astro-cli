@@ -10,7 +10,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const origin = new URL(request.url).origin;
 
   const [agent, accountData] = await Promise.all([
-    account && agentSlug ? api.getAgent(account, agentSlug).catch(() => null) : null,
+    account && agentSlug ? api.getBlueprint(account, agentSlug).catch(() => null) : null,
     account ? api.getAccount(account).catch(() => null) : null,
   ]);
 
