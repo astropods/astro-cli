@@ -31,7 +31,7 @@ export const lightTheme = {
   destructive: "var(--color-red-700)",
   border: "var(--color-stone-300)",
   input: "var(--color-stone-300)",
-  "input-background": "var(--color-stone-25)",
+  "input-background": "#fff",
   "input-focus-ring": "color-mix(in oklch, var(--color-teal-600) 20%, transparent)",
   ring: "var(--color-teal-500)",
 } as const;
