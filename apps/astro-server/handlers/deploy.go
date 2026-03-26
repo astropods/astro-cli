@@ -2065,80 +2065,10 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sC
 			return
 		}
 
-		labelSelector := "app.kubernetes.io/managed-by=astro-server"
-		ctx := c.Request.Context()
-		ns := dep.Namespace
-		clientset := k8sClient.Clientset()
-
-		// Scale Deployments to 0
-		k8sDeps, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			log.Error("Failed to list deployments for stop", "error", err, "namespace", ns, "deployment_id", dep.ID)
+		if err := k8s.StopNamespaceWorkloads(c.Request.Context(), k8sClient.Clientset(), dep.Namespace); err != nil {
+			log.Error("Failed to stop deployment workloads", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 			return
-		}
-
-		var zero int32 = 0
-		for i := range k8sDeps.Items {
-			item := k8sDeps.Items[i].DeepCopy()
-			if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
-				continue
-			}
-			item.Spec.Replicas = &zero
-			if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
-				log.Error("Failed to scale deployment to zero", "error", err, "namespace", ns, "name", item.Name)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
-				return
-			}
-		}
-
-		// Scale StatefulSets to 0
-		statefulSets, err := clientset.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			log.Error("Failed to list statefulsets for stop", "error", err, "namespace", ns, "deployment_id", dep.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
-			return
-		}
-
-		for i := range statefulSets.Items {
-			item := statefulSets.Items[i].DeepCopy()
-			if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
-				continue
-			}
-			item.Spec.Replicas = &zero
-			if _, err := clientset.AppsV1().StatefulSets(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
-				log.Error("Failed to scale statefulset to zero", "error", err, "namespace", ns, "name", item.Name)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
-				return
-			}
-		}
-
-		// Suspend CronJobs
-		cronJobs, err := clientset.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		if err != nil {
-			log.Error("Failed to list cronjobs for stop", "error", err, "namespace", ns, "deployment_id", dep.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
-			return
-		}
-
-		suspend := true
-		for i := range cronJobs.Items {
-			item := cronJobs.Items[i].DeepCopy()
-			if item.Spec.Suspend != nil && *item.Spec.Suspend {
-				continue
-			}
-			item.Spec.Suspend = &suspend
-			if _, err := clientset.BatchV1().CronJobs(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
-				log.Error("Failed to suspend cronjob", "error", err, "namespace", ns, "name", item.Name)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
-				return
-			}
 		}
 
 		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "", nil); err != nil {

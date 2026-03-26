@@ -1429,59 +1429,8 @@ func (s *Server) StopDeployment(_ context.Context, req *adminv1.StopDeploymentRe
 		return nil, fmt.Errorf("kubernetes client not configured")
 	}
 
-	ctx := context.Background()
-	clientset := s.k8sClient.Clientset()
-	ns := dep.Namespace
-	labelSelector := "app.kubernetes.io/managed-by=astro-server"
-
-	// Scale Deployments to 0
-	k8sDeps, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, fmt.Errorf("list deployments: %w", err)
-	}
-	var zero int32 = 0
-	for i := range k8sDeps.Items {
-		item := k8sDeps.Items[i].DeepCopy()
-		if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
-			continue
-		}
-		item.Spec.Replicas = &zero
-		if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
-			return nil, fmt.Errorf("scale deployment %s to 0: %w", item.Name, err)
-		}
-	}
-
-	// Scale StatefulSets to 0
-	statefulSets, err := clientset.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, fmt.Errorf("list statefulsets: %w", err)
-	}
-	for i := range statefulSets.Items {
-		item := statefulSets.Items[i].DeepCopy()
-		if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
-			continue
-		}
-		item.Spec.Replicas = &zero
-		if _, err := clientset.AppsV1().StatefulSets(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
-			return nil, fmt.Errorf("scale statefulset %s to 0: %w", item.Name, err)
-		}
-	}
-
-	// Suspend CronJobs
-	cronJobs, err := clientset.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, fmt.Errorf("list cronjobs: %w", err)
-	}
-	suspend := true
-	for i := range cronJobs.Items {
-		item := cronJobs.Items[i].DeepCopy()
-		if item.Spec.Suspend != nil && *item.Spec.Suspend {
-			continue
-		}
-		item.Spec.Suspend = &suspend
-		if _, err := clientset.BatchV1().CronJobs(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
-			return nil, fmt.Errorf("suspend cronjob %s: %w", item.Name, err)
-		}
+	if err := k8s.StopNamespaceWorkloads(context.Background(), s.k8sClient.Clientset(), dep.Namespace); err != nil {
+		return nil, fmt.Errorf("stop workloads: %w", err)
 	}
 
 	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "Admin stop requested", nil); err != nil {
