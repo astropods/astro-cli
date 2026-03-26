@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -186,12 +186,14 @@ function InlineChart({
   avgLatVisible,
   win,
   hideXAxisLabels,
+  animate = true,
 }: {
   data: { t: string; req: number; avgLatencyMs: number }[];
   reqVisible: boolean;
   avgLatVisible: boolean;
   win: "1h" | "24h" | "7d";
   hideXAxisLabels: boolean;
+  animate?: boolean;
 }) {
   if (data.length === 0) return null;
   const hasSinglePoint = data.length === 1;
@@ -266,6 +268,7 @@ function InlineChart({
             fill="url(#req-grad-obs)"
             dot={hasSinglePoint ? { r: 3.5, fill: C.tealMid, stroke: C.panel, strokeWidth: 1.5 } : false}
             activeDot={{ r: 4, fill: C.tealMid, stroke: C.panel, strokeWidth: 1.5 }}
+            isAnimationActive={animate}
             animationDuration={1000}
             animationEasing="ease-out"
           />
@@ -281,6 +284,7 @@ function InlineChart({
             strokeOpacity={0.85}
             dot={hasSinglePoint ? { r: 3.5, fill: C.issue, stroke: C.panel, strokeWidth: 1.5 } : false}
             activeDot={{ r: 4, fill: C.issue, stroke: C.panel, strokeWidth: 1.5 }}
+            isAnimationActive={animate}
             animationDuration={1000}
             animationEasing="ease-out"
           />
@@ -456,6 +460,10 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   const { data: metricsData } = metricsQuery;
   const { data: summaryData } = selectedSummaryQuery;
   const { data: tracesData } = tracesQuery;
+  // Skip chart entry animation when data was already cached (remount),
+  // so a background refetch doesn't interrupt the animation mid-way.
+  const mountedWithCache = useRef(!!tracesData);
+  const animateChart = !mountedWithCache.current;
   const observabilityBackendError = metricsQuery.isError || selectedSummaryQuery.isError || tracesQuery.isError;
   const tracesLoading = tracesQuery.isLoading && !tracesData;
 
@@ -753,6 +761,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   avgLatVisible={series.avgLat}
                   win={win}
                   hideXAxisLabels={isCompact}
+                  animate={animateChart}
                 />
               )}
             </div>
