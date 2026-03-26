@@ -85,12 +85,12 @@ export function useUndeployAgent(account: string) {
   });
 }
 
-export function usePauseDeployment(account: string) {
+export function useStopDeployment(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: api.pauseDeployment.bind(api),
+    mutationFn: api.stopDeployment.bind(api),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
     },

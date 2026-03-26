@@ -8,4 +8,5 @@ const (
 	StatusUndeploying  = "undeploying"
 	StatusUndeployed   = "undeployed"
 	StatusScaledDown   = "scaled_down"
+	StatusStopped      = "stopped"
 )

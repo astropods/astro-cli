@@ -7,7 +7,7 @@ import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import type { AgentDeployment } from "@/lib/api";
-import { usePauseDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
+import { useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -100,7 +100,7 @@ export function ActiveDetailView({
   const [pausing, setPausing] = useState(false)
   const pausePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { data: accountAgents } = useAccountBlueprints(account);
-  const pauseMutation = usePauseDeployment(account);
+  const pauseMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
   const renderedDeployment = optimisticDeploying
     ? { ...deployment, status: "pending", ready: 0 }

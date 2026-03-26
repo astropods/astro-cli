@@ -46,6 +46,7 @@ type AdminServiceClient interface {
 	SetAdapters(ctx context.Context, in *SetAdaptersRequest, opts ...grpc.CallOption) (*SetAdaptersResponse, error)
 	TriggerOpenMeterBackfill(ctx context.Context, in *TriggerOpenMeterBackfillRequest, opts ...grpc.CallOption) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(ctx context.Context, in *ListFeedbackRequest, opts ...grpc.CallOption) (*ListFeedbackResponse, error)
+	StopDeployment(ctx context.Context, in *StopDeploymentRequest, opts ...grpc.CallOption) (*StopDeploymentResponse, error)
 }
 
 type adminServiceClient struct {
@@ -320,6 +321,14 @@ func (c *adminServiceClient) ListFeedback(ctx context.Context, in *ListFeedbackR
 	return out, nil
 }
 
+func (c *adminServiceClient) StopDeployment(ctx context.Context, in *StopDeploymentRequest, opts ...grpc.CallOption) (*StopDeploymentResponse, error) {
+	out := new(StopDeploymentResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/StopDeployment", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -356,6 +365,7 @@ type AdminServiceServer interface {
 	SetAdapters(context.Context, *SetAdaptersRequest) (*SetAdaptersResponse, error)
 	TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error)
 	ListFeedback(context.Context, *ListFeedbackRequest) (*ListFeedbackResponse, error)
+	StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -492,6 +502,10 @@ func (UnimplementedAdminServiceServer) ListFeedback(context.Context, *ListFeedba
 
 func (UnimplementedAdminServiceServer) TriggerOpenMeterBackfill(context.Context, *TriggerOpenMeterBackfillRequest) (*TriggerOpenMeterBackfillResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TriggerOpenMeterBackfill not implemented")
+}
+
+func (UnimplementedAdminServiceServer) StopDeployment(context.Context, *StopDeploymentRequest) (*StopDeploymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopDeployment not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -1001,6 +1015,21 @@ func _AdminService_ListFeedback_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_StopDeployment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopDeploymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).StopDeployment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/StopDeployment"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).StopDeployment(ctx, req.(*StopDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -1039,6 +1068,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "SetAdapters", Handler: _AdminService_SetAdapters_Handler},
 		{MethodName: "TriggerOpenMeterBackfill", Handler: _AdminService_TriggerOpenMeterBackfill_Handler},
 		{MethodName: "ListFeedback", Handler: _AdminService_ListFeedback_Handler},
+		{MethodName: "StopDeployment", Handler: _AdminService_StopDeployment_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

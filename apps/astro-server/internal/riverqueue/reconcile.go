@@ -174,6 +174,7 @@ func (w *ReconcileWorker) maintainNamespaceOwnership(ctx context.Context) {
 		deploymentstore.StatusFailed,
 		deploymentstore.StatusUndeploying,
 		deploymentstore.StatusUndeployed,
+		deploymentstore.StatusStopped,
 	)
 	if err != nil {
 		w.log.Error("Reconcile: failed to list deployments for ownership", "error", err)

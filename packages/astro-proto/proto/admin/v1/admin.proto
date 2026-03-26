@@ -28,6 +28,7 @@ service AdminService {
   rpc ReapplyDeployment(ReapplyDeploymentRequest) returns (ReapplyDeploymentResponse);
   rpc GetPodLogs(GetPodLogsRequest) returns (GetPodLogsResponse);
   rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
+  rpc StopDeployment(StopDeploymentRequest) returns (StopDeploymentResponse);
 }
 
 message ListDeploymentsRequest {
@@ -360,4 +361,12 @@ message GetPodLogsRequest {
 
 message GetPodLogsResponse {
   string logs = 1;
+}
+
+message StopDeploymentRequest {
+  string namespace = 1;
+}
+
+message StopDeploymentResponse {
+  string status = 1;
 }

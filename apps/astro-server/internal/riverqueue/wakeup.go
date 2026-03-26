@@ -41,8 +41,8 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 	if err != nil {
 		return fmt.Errorf("get deployment: %w", err)
 	}
-	if dep == nil || (dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusPending) {
-		w.log.Info("Wakeup skipped: status is not scaled_down/pending",
+	if dep == nil || (dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped && dep.Status != deploymentstore.StatusPending) {
+		w.log.Info("Wakeup skipped: status is not scaled_down/stopped/pending",
 			"deployment_id", job.Args.DeploymentID,
 			"status", statusOrNil(dep),
 		)

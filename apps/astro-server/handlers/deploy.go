@@ -577,7 +577,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
 			return
 		}
-		if dep == nil || (dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusFailed) {
+		if dep == nil || (dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped && dep.Status != deploymentstore.StatusFailed) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "active deployment not found"})
 			return
 		}
@@ -869,7 +869,7 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 		status = "Running"
 	case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
 		status = "pending"
-	case deploymentstore.StatusScaledDown:
+	case deploymentstore.StatusScaledDown, deploymentstore.StatusStopped:
 		status = "Stopped"
 	case deploymentstore.StatusUndeploying:
 		status = "undeploying"
@@ -2041,9 +2041,9 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 	}
 }
 
-// PauseDeployment scales a deployment namespace to zero replicas and marks status scaled_down.
-// POST /api/v1/deployments/:id/pause
-func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+// StopDeployment scales all workloads to zero without deleting resources.
+// POST /api/v1/deployments/:id/stop
+func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2060,45 +2060,70 @@ func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8s
 			return
 		}
 
-		status := strings.ToLower(dep.Status)
-		if status == deploymentstore.StatusUndeploying {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot pause while undeploying"})
+		if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not active or scaled down"})
 			return
 		}
 
 		labelSelector := "app.kubernetes.io/managed-by=astro-server"
+		ctx := c.Request.Context()
+		ns := dep.Namespace
+		clientset := k8sClient.Clientset()
 
-		k8sDeps, err := k8sClient.Clientset().AppsV1().Deployments(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
+		// Scale Deployments to 0
+		k8sDeps, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{
 			LabelSelector: labelSelector,
 		})
 		if err != nil {
-			log.Error("Failed to list deployments for pause", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+			log.Error("Failed to list deployments for stop", "error", err, "namespace", ns, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 			return
 		}
 
 		var zero int32 = 0
-		scaledCount := 0
 		for i := range k8sDeps.Items {
 			item := k8sDeps.Items[i].DeepCopy()
 			if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
 				continue
 			}
 			item.Spec.Replicas = &zero
-			if _, err := k8sClient.Clientset().AppsV1().Deployments(dep.Namespace).Update(c.Request.Context(), item, metav1.UpdateOptions{}); err != nil {
-				log.Error("Failed to scale deployment to zero", "error", err, "namespace", dep.Namespace, "name", item.Name)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+			if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
+				log.Error("Failed to scale deployment to zero", "error", err, "namespace", ns, "name", item.Name)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 				return
 			}
-			scaledCount++
 		}
 
-		cronJobs, err := k8sClient.Clientset().BatchV1().CronJobs(dep.Namespace).List(c.Request.Context(), metav1.ListOptions{
+		// Scale StatefulSets to 0
+		statefulSets, err := clientset.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{
 			LabelSelector: labelSelector,
 		})
 		if err != nil {
-			log.Error("Failed to list cronjobs for pause", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+			log.Error("Failed to list statefulsets for stop", "error", err, "namespace", ns, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
+			return
+		}
+
+		for i := range statefulSets.Items {
+			item := statefulSets.Items[i].DeepCopy()
+			if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
+				continue
+			}
+			item.Spec.Replicas = &zero
+			if _, err := clientset.AppsV1().StatefulSets(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
+				log.Error("Failed to scale statefulset to zero", "error", err, "namespace", ns, "name", item.Name)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
+				return
+			}
+		}
+
+		// Suspend CronJobs
+		cronJobs, err := clientset.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
+		if err != nil {
+			log.Error("Failed to list cronjobs for stop", "error", err, "namespace", ns, "deployment_id", dep.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 			return
 		}
 
@@ -2109,23 +2134,22 @@ func PauseDeployment(log *logger.Logger, accountStore *account.AccountStore, k8s
 				continue
 			}
 			item.Spec.Suspend = &suspend
-			if _, err := k8sClient.Clientset().BatchV1().CronJobs(dep.Namespace).Update(c.Request.Context(), item, metav1.UpdateOptions{}); err != nil {
-				log.Error("Failed to suspend cronjob", "error", err, "namespace", dep.Namespace, "name", item.Name)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to pause deployment"})
+			if _, err := clientset.BatchV1().CronJobs(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
+				log.Error("Failed to suspend cronjob", "error", err, "namespace", ns, "name", item.Name)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 				return
 			}
 		}
 
-		if err := deployStore.MarkScaledDown(dep.ID, dep.Namespace); err != nil {
-			log.Error("Failed to mark deployment scaled down", "error", err, "deployment_id", dep.ID, "namespace", dep.Namespace)
+		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "", nil); err != nil {
+			log.Error("Failed to mark deployment stopped", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update deployment status"})
 			return
 		}
 
 		c.JSON(http.StatusAccepted, gin.H{
-			"status":        deploymentstore.StatusScaledDown,
+			"status":        deploymentstore.StatusStopped,
 			"deployment_id": dep.ID,
-			"scaled_count":  scaledCount,
 		})
 	}
 }
@@ -2148,9 +2172,8 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 			return
 		}
-		status := strings.ToLower(dep.Status)
-		if dep.Status != deploymentstore.StatusScaledDown && status != "stopped" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not scaled down"})
+		if dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "deployment is not stopped or scaled down"})
 			return
 		}
 

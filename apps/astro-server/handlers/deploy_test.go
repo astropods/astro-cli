@@ -2184,8 +2184,8 @@ func TestWakeUpDeployment_NotScaledDown(t *testing.T) {
 
 	var resp map[string]interface{}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] != "deployment is not scaled down" {
-		t.Errorf("expected error 'deployment is not scaled down', got %v", resp["error"])
+	if resp["error"] != "deployment is not stopped or scaled down" {
+		t.Errorf("expected error 'deployment is not stopped or scaled down', got %v", resp["error"])
 	}
 }
 
@@ -2768,9 +2768,9 @@ func TestGetDeploymentLogs_NoBackend_Returns503(t *testing.T) {
 	}
 }
 
-// --- PauseDeployment tests ---
+// --- StopDeployment tests ---
 
-func setupPauseRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+func setupStopRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -2792,12 +2792,12 @@ func setupPauseRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmo
 
 	router := gin.New()
 	router.Use(setAuthUser("user-1"))
-	router.POST("/api/v1/deployments/:id/pause", PauseDeployment(log, accountStore, k8sClient, deployStore))
+	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, k8sClient, deployStore))
 
 	return router, deployMock, accountMock
 }
 
-func expectPauseDBMocks(t *testing.T, deployMock, accountMock sqlmock.Sqlmock, depID, acctID, namespace string, now time.Time) {
+func expectStopDBMocks(t *testing.T, deployMock, accountMock sqlmock.Sqlmock, depID, acctID, namespace string, now time.Time) {
 	t.Helper()
 
 	deployMock.ExpectQuery(`SELECT`).
@@ -2805,15 +2805,14 @@ func expectPauseDBMocks(t *testing.T, deployMock, accountMock sqlmock.Sqlmock, d
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	// MarkScaledDown transaction
+	// UpdateStatus transaction
 	deployMock.ExpectBegin()
-	deployMock.ExpectExec(`INSERT`).WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`UPDATE`).WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectExec(`INSERT`).WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectCommit()
 }
 
-func TestPauseDeployment_SuspendsCronJobs(t *testing.T) {
+func TestStopDeployment_SuspendsCronJobs(t *testing.T) {
 	namespace := "astro-abc123-0"
 	var suspendedCronJob bool
 
@@ -2826,6 +2825,8 @@ func TestPauseDeployment_SuspendsCronJobs(t *testing.T) {
 			fmt.Fprintf(w, `{"kind":"DeploymentList","apiVersion":"apps/v1","items":[{"metadata":{"name":"agent","namespace":%q},"spec":{"replicas":1}}]}`, namespace)
 		case r.Method == http.MethodPut && strings.Contains(path, "/deployments/"):
 			fmt.Fprintf(w, `{"kind":"Deployment","apiVersion":"apps/v1","metadata":{"name":"agent","namespace":%q}}`, namespace)
+		case r.Method == http.MethodGet && strings.Contains(path, "/statefulsets"):
+			fmt.Fprint(w, `{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`)
 		case r.Method == http.MethodGet && strings.Contains(path, "/cronjobs"):
 			fmt.Fprintf(w, `{"kind":"CronJobList","apiVersion":"batch/v1","items":[{"metadata":{"name":"my-agent-ingestion-daily","namespace":%q},"spec":{"schedule":"0 0 * * *"}}]}`, namespace)
 		case r.Method == http.MethodPut && strings.Contains(path, "/cronjobs/"):
@@ -2841,15 +2842,15 @@ func TestPauseDeployment_SuspendsCronJobs(t *testing.T) {
 		}
 	})
 
-	router, deployMock, accountMock := setupPauseRouter(t, k8sHandler)
+	router, deployMock, accountMock := setupStopRouter(t, k8sHandler)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
 	now := time.Now()
 
-	expectPauseDBMocks(t, deployMock, accountMock, depID, acctID, namespace, now)
+	expectStopDBMocks(t, deployMock, accountMock, depID, acctID, namespace, now)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/pause", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/stop", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2859,15 +2860,15 @@ func TestPauseDeployment_SuspendsCronJobs(t *testing.T) {
 
 	var resp map[string]interface{}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["status"] != "scaled_down" {
-		t.Errorf("expected status 'scaled_down', got %v", resp["status"])
+	if resp["status"] != "stopped" {
+		t.Errorf("expected status 'stopped', got %v", resp["status"])
 	}
 	if !suspendedCronJob {
 		t.Error("expected CronJob Spec.Suspend=true in PUT request")
 	}
 }
 
-func TestPauseDeployment_NoCronJobs(t *testing.T) {
+func TestStopDeployment_NoCronJobs(t *testing.T) {
 	namespace := "astro-abc123-0"
 
 	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2879,6 +2880,8 @@ func TestPauseDeployment_NoCronJobs(t *testing.T) {
 			fmt.Fprintf(w, `{"kind":"DeploymentList","apiVersion":"apps/v1","items":[{"metadata":{"name":"agent","namespace":%q},"spec":{"replicas":1}}]}`, namespace)
 		case r.Method == http.MethodPut && strings.Contains(path, "/apis/apps/v1/namespaces/") && strings.Contains(path, "/deployments/"):
 			fmt.Fprintf(w, `{"kind":"Deployment","apiVersion":"apps/v1","metadata":{"name":"agent","namespace":%q}}`, namespace)
+		case r.Method == http.MethodGet && strings.Contains(path, "/apis/apps/v1/namespaces/") && strings.HasSuffix(path, "/statefulsets"):
+			fmt.Fprint(w, `{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`)
 		case r.Method == http.MethodGet && strings.Contains(path, "/apis/batch/v1/namespaces/") && strings.HasSuffix(path, "/cronjobs"):
 			fmt.Fprint(w, `{"kind":"CronJobList","apiVersion":"batch/v1","items":[]}`)
 		default:
@@ -2886,15 +2889,15 @@ func TestPauseDeployment_NoCronJobs(t *testing.T) {
 		}
 	})
 
-	router, deployMock, accountMock := setupPauseRouter(t, k8sHandler)
+	router, deployMock, accountMock := setupStopRouter(t, k8sHandler)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
 	now := time.Now()
 
-	expectPauseDBMocks(t, deployMock, accountMock, depID, acctID, namespace, now)
+	expectStopDBMocks(t, deployMock, accountMock, depID, acctID, namespace, now)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/pause", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/stop", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -2903,12 +2906,12 @@ func TestPauseDeployment_NoCronJobs(t *testing.T) {
 	}
 }
 
-func TestPauseDeployment_Undeploying_Returns400(t *testing.T) {
+func TestStopDeployment_Undeploying_Returns400(t *testing.T) {
 	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	router, deployMock, accountMock := setupPauseRouter(t, k8sHandler)
+	router, deployMock, accountMock := setupStopRouter(t, k8sHandler)
 
 	depID := deployid.New()
 	acctID := uuid.New().String()
@@ -2919,7 +2922,7 @@ func TestPauseDeployment_Undeploying_Returns400(t *testing.T) {
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/pause", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+depID+"/stop", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

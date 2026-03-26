@@ -1384,8 +1384,8 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 	if dep == nil {
 		return nil, fmt.Errorf("deployment not found for id %q", req.DeploymentId)
 	}
-	if dep.Status != deploymentstore.StatusScaledDown {
-		return nil, fmt.Errorf("deployment is not scaled_down (current: %s)", dep.Status)
+	if dep.Status != deploymentstore.StatusScaledDown && dep.Status != deploymentstore.StatusStopped {
+		return nil, fmt.Errorf("deployment is not stopped or scaled_down (current: %s)", dep.Status)
 	}
 
 	// Update status to pending
@@ -1406,6 +1406,89 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 	}
 
 	return &adminv1.WakeUpDeploymentResponse{Status: "waking_up"}, nil
+}
+
+// StopDeployment stops a deployment by scaling workloads to zero without deleting resources.
+func (s *Server) StopDeployment(_ context.Context, req *adminv1.StopDeploymentRequest) (*adminv1.StopDeploymentResponse, error) {
+	if req.Namespace == "" {
+		return nil, fmt.Errorf("namespace is required")
+	}
+
+	dep, err := s.deployStore.GetDeploymentByNamespace(req.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("get deployment: %w", err)
+	}
+	if dep == nil {
+		return nil, fmt.Errorf("deployment not found for namespace %q", req.Namespace)
+	}
+	if dep.Status != deploymentstore.StatusActive && dep.Status != deploymentstore.StatusScaledDown {
+		return nil, fmt.Errorf("deployment is not active or scaled_down (current: %s)", dep.Status)
+	}
+
+	if s.k8sClient == nil {
+		return nil, fmt.Errorf("kubernetes client not configured")
+	}
+
+	ctx := context.Background()
+	clientset := s.k8sClient.Clientset()
+	ns := dep.Namespace
+	labelSelector := "app.kubernetes.io/managed-by=astro-server"
+
+	// Scale Deployments to 0
+	k8sDeps, err := clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list deployments: %w", err)
+	}
+	var zero int32 = 0
+	for i := range k8sDeps.Items {
+		item := k8sDeps.Items[i].DeepCopy()
+		if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
+			continue
+		}
+		item.Spec.Replicas = &zero
+		if _, err := clientset.AppsV1().Deployments(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
+			return nil, fmt.Errorf("scale deployment %s to 0: %w", item.Name, err)
+		}
+	}
+
+	// Scale StatefulSets to 0
+	statefulSets, err := clientset.AppsV1().StatefulSets(ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list statefulsets: %w", err)
+	}
+	for i := range statefulSets.Items {
+		item := statefulSets.Items[i].DeepCopy()
+		if item.Spec.Replicas != nil && *item.Spec.Replicas == 0 {
+			continue
+		}
+		item.Spec.Replicas = &zero
+		if _, err := clientset.AppsV1().StatefulSets(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
+			return nil, fmt.Errorf("scale statefulset %s to 0: %w", item.Name, err)
+		}
+	}
+
+	// Suspend CronJobs
+	cronJobs, err := clientset.BatchV1().CronJobs(ns).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("list cronjobs: %w", err)
+	}
+	suspend := true
+	for i := range cronJobs.Items {
+		item := cronJobs.Items[i].DeepCopy()
+		if item.Spec.Suspend != nil && *item.Spec.Suspend {
+			continue
+		}
+		item.Spec.Suspend = &suspend
+		if _, err := clientset.BatchV1().CronJobs(ns).Update(ctx, item, metav1.UpdateOptions{}); err != nil {
+			return nil, fmt.Errorf("suspend cronjob %s: %w", item.Name, err)
+		}
+	}
+
+	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "Admin stop requested", nil); err != nil {
+		return nil, fmt.Errorf("update status: %w", err)
+	}
+
+	return &adminv1.StopDeploymentResponse{Status: "stopped"}, nil
 }
 
 // RollbackDeployment rolls back to a previous revision by atomically setting the revision and enqueuing a deploy job.

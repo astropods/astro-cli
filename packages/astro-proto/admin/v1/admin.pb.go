@@ -664,6 +664,14 @@ type SetAdaptersResponse struct {
 	Adapters []string `json:"adapters"`
 }
 
+type StopDeploymentRequest struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type StopDeploymentResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
 type ListFeedbackRequest struct{}
 
 type FeedbackSubmission struct {
