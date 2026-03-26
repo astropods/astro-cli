@@ -43,6 +43,7 @@ export function BlueprintCard({
   const formattedDeploys = deployCount != null
     ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(deployCount)
     : "0";
+  const deployLabel = deployCount === 1 ? "deploy" : "deploys";
 
   if (variant === "oftenUsedTogether") {
     return (
@@ -62,7 +63,7 @@ export function BlueprintCard({
             {name}
           </h3>
           <p className="flex items-center gap-1.5 font-mono text-mono-sm text-faint-foreground">
-            {formattedDeploys} deploys
+            {formattedDeploys} {deployLabel}
             <span className="text-border-strong">•</span>
             {account}
           </p>
@@ -128,7 +129,7 @@ export function BlueprintCard({
         </div>
         <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
           <span className="text-mono-sm font-mono text-faint-foreground">
-            {formattedDeploys} deploys
+            {formattedDeploys} {deployLabel}
           </span>
           <span className="flex items-center gap-1.5 text-mono-sm font-mono text-faint-foreground">
             <UserAvatar handle={account} name={account} avatarVersion={accountAvatarVersion} className="!size-4" />
