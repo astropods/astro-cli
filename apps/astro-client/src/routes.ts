@@ -15,7 +15,6 @@ export default [
     route("agents", "pages/YourAgents.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
     route("admin", "pages/Admin.tsx"),
-    route("share/:account/:agentSlug", "pages/AgentShare.tsx"),
     ...prefix("settings", [
       layout("pages/settings/SettingsLayout.tsx", [
         index("pages/settings/SettingsRedirect.tsx"),

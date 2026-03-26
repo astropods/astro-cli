@@ -78,7 +78,7 @@ export function LiveRevealOverlay({
   const revealCardSvg = useMemo(() => generateCard(revealCardData), [revealCardData]);
   const blueprintUrl = useMemo(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/share/${account}/${deployment.name}`;
+    return `${origin}/${account}/${deployment.name}`;
   }, [account, deployment.name]);
 
   const handleShareToNetwork = (network: "x" | "linkedin") => {
