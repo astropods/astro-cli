@@ -49,7 +49,7 @@ export function BlueprintCard({
     return (
       <Link
         to={`/${slug}`}
-        className="group flex items-center gap-3 overflow-hidden rounded-md border border-border-strong bg-stone-200 px-3 py-2 transition-all duration-150 hover:bg-stone-300 hover:border-teal-500 hover:shadow-md dark:bg-muted/30 dark:hover:border-teal-400"
+        className="group flex items-center gap-3 overflow-hidden rounded-md border border-border-strong bg-stone-100 px-3 py-2 transition-all duration-150 hover:bg-stone-200 hover:border-teal-500 hover:shadow-md dark:bg-muted/30 dark:hover:border-teal-400"
       >
         <BlueprintIdentity
           account={account}
