@@ -29,8 +29,13 @@ test("fresh install shows new deployment on agents list after redirect", async (
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
-  // The newly deployed agent should appear as a card on the agents list
-  await expect(page.getByText(AGENT_APP_TOKEN_ONLY)).toBeVisible({ timeout: 10_000 });
+  // The newly deployed agent should appear as a card on the agents list.
+  // Scope to list cards to avoid strict-mode collisions with reveal overlay text.
+  const newAgentCard = page
+    .locator(`a[href^="/${ACCOUNT}/agents/"]`)
+    .filter({ hasText: AGENT_APP_TOKEN_ONLY })
+    .first();
+  await expect(newAgentCard).toBeVisible({ timeout: 10_000 });
 });
 
 // Regression: the optimistic setQueryData path for redeploys patches build_id on
@@ -56,5 +61,9 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
-  await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
+  const redeployedCard = page
+    .locator(`a[href^="/${ACCOUNT}/agents/"]`)
+    .filter({ hasText: "Slack Full Bot" })
+    .first();
+  await expect(redeployedCard).toBeVisible({ timeout: 10_000 });
 });
