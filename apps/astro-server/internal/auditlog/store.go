@@ -157,6 +157,48 @@ func (s *Store) Query(ctx context.Context, p QueryParams) ([]Entry, error) {
 	return entries, nil
 }
 
+// LatestPerResource returns the most recent audit log timestamp for each
+// resource_id in the given set, scoped to a resource_type. Returns a map
+// from resource_id → latest created_at. Missing entries have no audit history.
+func (s *Store) LatestPerResource(ctx context.Context, resourceType string, resourceIDs []string) (map[string]time.Time, error) {
+	if len(resourceIDs) == 0 {
+		return nil, nil
+	}
+
+	// Build ($1, $2, ...) placeholders
+	placeholders := make([]string, len(resourceIDs))
+	args := make([]any, 0, len(resourceIDs)+1)
+	args = append(args, resourceType)
+	for i, id := range resourceIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT resource_id, MAX(created_at)
+		FROM audit_logs
+		WHERE resource_type = $1 AND resource_id IN (%s)
+		GROUP BY resource_id
+	`, strings.Join(placeholders, ", "))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest audit timestamps: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make(map[string]time.Time, len(resourceIDs))
+	for rows.Next() {
+		var resourceID string
+		var ts time.Time
+		if err := rows.Scan(&resourceID, &ts); err != nil {
+			return nil, fmt.Errorf("failed to scan latest audit timestamp: %w", err)
+		}
+		result[resourceID] = ts
+	}
+	return result, rows.Err()
+}
+
 func nullIfEmpty(s string) *string {
 	if s == "" {
 		return nil

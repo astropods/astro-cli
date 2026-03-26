@@ -822,6 +822,7 @@ export interface AgentDeployment {
   replicas: number;
   ready: number;
   created_at: string;
+  updated_at?: string;
   components: string[];
   manual_ingestions?: string[];
   external_urls?: ServiceEndpointInfo[];

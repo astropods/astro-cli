@@ -216,7 +216,7 @@ func setupListDeploymentsTest(t *testing.T, k8sHandler http.Handler) (*gin.Engin
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, deployStore, nil, nil))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, deployStore, nil, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -937,7 +937,7 @@ func TestListDeployments_NilDeployStore(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, nil, nil, nil))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, cfg, k8sClient, nil, nil, nil, nil))
 
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).

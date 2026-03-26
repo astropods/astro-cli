@@ -95,7 +95,7 @@ function AccountProfileContent() {
                   requests={0}
                   lastActive="—"
                   installedAt={formatDate(deployment.created_at)}
-                  updatedAt={formatDate(deployment.created_at)}
+                  updatedAt={formatDate(deployment.updated_at || deployment.created_at)}
                 />
               ))}
             </div>

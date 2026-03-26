@@ -695,6 +695,7 @@ type AgentDeployment struct {
 	Replicas         int32                 `json:"replicas"`
 	Ready            int32                 `json:"ready"`
 	CreatedAt        string                `json:"created_at"`
+	UpdatedAt        string                `json:"updated_at,omitempty"`
 	Components       []string              `json:"components"`
 	ManualIngestions []string              `json:"manual_ingestions,omitempty"`
 	ExternalURLs     []ServiceEndpointInfo `json:"external_urls,omitempty"`
@@ -742,7 +743,7 @@ func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, de
 }
 
 // ListDeployments returns a handler for listing deployed agents
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
+func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
@@ -856,6 +857,24 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				}
 			}
 			allDeployments = append(allDeployments, deps...)
+		}
+
+		// Resolve updated_at from the latest audit log entry per deployment.
+		if auditStore != nil && len(allDeployments) > 0 {
+			depIDs := make([]string, len(allDeployments))
+			for i, d := range allDeployments {
+				depIDs[i] = d.ID
+			}
+			latestMap, err := auditStore.LatestPerResource(c.Request.Context(), "deployment", depIDs)
+			if err != nil {
+				log.Warn("Failed to load audit timestamps for deployments", "error", err)
+			} else {
+				for i, d := range allDeployments {
+					if ts, ok := latestMap[d.ID]; ok {
+						allDeployments[i].UpdatedAt = ts.Format(time.RFC3339)
+					}
+				}
+			}
 		}
 
 		// Resolve avatar URLs for deployments that have their own custom avatar.
