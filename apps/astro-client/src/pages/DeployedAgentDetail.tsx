@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams, Link } from "react-router";
+import { useLocation, useSearchParams, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -220,15 +220,13 @@ function DeployedAgentDetailSkeleton() {
 
 function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
   const location = useLocation();
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? loaderData?.account ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
   const [showLiveReveal, setShowLiveReveal] = useState(false);
   const [hasSeenReveal, setHasSeenReveal] = useState(false);
   const [hasLoadedRevealSeen, setHasLoadedRevealSeen] = useState(false);
-  const [stayOnDeployments, setStayOnDeployments] = useState(false);
-  const [allowMonitorTab, setAllowMonitorTab] = useState(false);
   const trackedDeploymentIdRef = useRef<string | null>(null);
 
   const { data: deploymentsData, isLoading } = useDeployments(account, isAuthenticated);
@@ -238,28 +236,25 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const status = deployment ? mapDeploymentStatus(deployment) : null;
   const monitorLocked = deployment ? isDeployingState(deployment) : false;
   const isPersonal = personalAccount?.name === account;
-  const queryTab = new URLSearchParams(location.search).get("tab");
-  const queryFrom = new URLSearchParams(location.search).get("from");
-  const queryReveal = new URLSearchParams(location.search).get("reveal");
-  const requestedTab = queryTab === "monitor" || queryTab === "deployments" ? queryTab : null;
-  const requestedFromAgents = queryFrom === "agents";
-  const requestedFirstDeployReveal = queryReveal === "first-deploy";
-  const initialTab: "monitor" | "deployments" =
-    (monitorLocked || stayOnDeployments)
-      ? "deployments"
-      : (requestedTab === "monitor" && (allowMonitorTab || requestedFromAgents) ? "monitor" : "deployments");
+  const requestedFirstDeployReveal = searchParams.get("reveal") === "first-deploy";
+  const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
   const revealSeenKey = deployment
     ? `astro:deploy-live-reveal:${account}:${deployment.name}:${deployment.id}`
     : "";
 
+  const clearReveal = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("reveal");
+      next.set("tab", "deployments");
+      return next;
+    }, { replace: true });
+  };
+
   useEffect(() => {
     if (!currentDeploymentId) return;
-    if (trackedDeploymentIdRef.current !== currentDeploymentId) {
-      setAllowMonitorTab(false);
-    }
     trackedDeploymentIdRef.current = currentDeploymentId;
     setShowLiveReveal(false);
-    setStayOnDeployments(false);
     setHasLoadedRevealSeen(false);
 
     const revealSeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
@@ -274,7 +269,6 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     if (requestedFirstDeployReveal && showLiveReveal) return;
 
     if (requestedFirstDeployReveal && !hasSeenReveal && (status === "pending" || status === "active")) {
-      setStayOnDeployments(true);
       setShowLiveReveal(true);
       setHasSeenReveal(true);
       if (typeof window !== "undefined") {
@@ -284,20 +278,11 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     }
 
     if (status === "pending") {
-      setStayOnDeployments(true);
       setShowLiveReveal(false);
       return;
     }
     setShowLiveReveal(false);
   }, [deployment, hasLoadedRevealSeen, hasSeenReveal, requestedFirstDeployReveal, revealSeenKey, status]);
-
-  useEffect(() => {
-    if (requestedTab !== "monitor" || allowMonitorTab || requestedFromAgents) return;
-    const params = new URLSearchParams(location.search);
-    params.delete("tab");
-    const next = params.toString();
-    navigate(`${location.pathname}${next ? `?${next}` : ""}`, { replace: true });
-  }, [allowMonitorTab, location.pathname, location.search, navigate, requestedFromAgents, requestedTab]);
 
   if (isLoading) {
     return <DeployedAgentDetailSkeleton />;
@@ -320,17 +305,15 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const backgroundDeployment = showLiveReveal
     ? { ...deployment, status: "pending", ready: 0 }
     : deployment;
-  const backgroundInitialTab: "monitor" | "deployments" = showLiveReveal ? "deployments" : initialTab;
   const backgroundMonitorLocked = showLiveReveal ? true : monitorLocked;
 
   return (
     <>
       <ActiveDetailView
-        key={`${deployment.id}-${backgroundInitialTab}-${showLiveReveal ? "reveal" : "normal"}`}
+        key={`${deployment.id}-${showLiveReveal ? "reveal" : "normal"}`}
         deployment={backgroundDeployment}
         account={account}
         isPersonal={isPersonal}
-        initialTab={backgroundInitialTab}
         monitorLocked={backgroundMonitorLocked}
         backPathOverride={requestedFromAgents ? "/agents" : undefined}
       />
@@ -339,17 +322,11 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
           deployment={deployment}
           account={account}
           onDismiss={() => {
-            setStayOnDeployments(true);
-            const params = new URLSearchParams(location.search);
-            params.delete("reveal");
-            navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
+            clearReveal();
             setShowLiveReveal(false);
           }}
           onViewDeployment={() => {
-            setStayOnDeployments(true);
-            const params = new URLSearchParams(location.search);
-            params.delete("reveal");
-            navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
+            clearReveal();
             setShowLiveReveal(false);
           }}
         />

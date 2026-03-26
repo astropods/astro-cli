@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -68,7 +68,6 @@ interface ActiveDetailViewProps {
   deployment: AgentDeployment;
   account: string;
   isPersonal: boolean;
-  initialTab?: 'monitor' | 'deployments';
   monitorLocked?: boolean;
   monitorLockReason?: string;
   backPathOverride?: string;
@@ -79,15 +78,19 @@ export function ActiveDetailView({
   deployment,
   account,
   isPersonal,
-  initialTab = 'monitor',
   monitorLocked = false,
   monitorLockReason = "Available once deployment is live.",
   backPathOverride,
   onRedeploy,
 }: ActiveDetailViewProps) {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'monitor' | 'deployments'>(initialTab)
+  const rawTab = searchParams.get("tab")
+  const tab: "monitor" | "deployments" =
+    monitorLocked ? "deployments" :
+    rawTab === "monitor" ? "monitor" :
+    "deployments"
   const [configOpen, setConfigOpen] = useState(false)
   const [isCompact, setIsCompact] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -119,12 +122,6 @@ export function ActiveDetailView({
         : latest,
     )?.build_id;
   const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
-
-  useEffect(() => {
-    if (monitorLocked && tab === "monitor") {
-      setTab("deployments");
-    }
-  }, [monitorLocked, tab]);
 
   useEffect(() => {
     if (!pausing) return;
@@ -359,7 +356,11 @@ export function ActiveDetailView({
                   key={id}
                   onClick={() => {
                     if (isLockedMonitor) return;
-                    setTab(id);
+                    setSearchParams((prev) => {
+                      const next = new URLSearchParams(prev);
+                      next.set("tab", id);
+                      return next;
+                    }, { replace: true });
                   }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,

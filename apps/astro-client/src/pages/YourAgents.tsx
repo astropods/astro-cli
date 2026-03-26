@@ -52,7 +52,7 @@ function AgentCardWithStats({
   const href = (() => {
     if (!clickable) return undefined;
     const base = deploymentPath(userAccount, deployment.id);
-    if (status === "active") return `${base}?tab=monitor&from=agents`;
+    if (status === "active") return `${base}?tab=monitor`;
     return `${base}?tab=deployments`;
   })();
 
@@ -63,6 +63,7 @@ function AgentCardWithStats({
       deploymentId={deployment.id}
       account={userAccount}
       href={href}
+      linkState={{ fromAgents: true }}
       status={status}
       requests={requests}
       lastActive={lastActive}
@@ -259,7 +260,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
           onViewDeployment={() => {
             const targetPath = deploymentPath(userAccount, revealDeployment.id);
             markRevealSeen();
-            navigate(`${targetPath}?from=agents`);
+            navigate(targetPath, { state: { fromAgents: true } });
           }}
         />
       )}

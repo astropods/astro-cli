@@ -300,10 +300,13 @@ const WIN_BUCKET_MS: Record<"1h" | "24h" | "7d", number> = {
   "7d": 24 * 60 * 60 * 1000,
 };
 
+const ROUND_MS = 5 * 60 * 1000; // 5 minutes
+
 function buildTimeParams(win: string) {
   const hours = WIN_HOURS[win] ?? 24;
-  const end = new Date();
-  const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
+  const endMs = Math.floor(Date.now() / ROUND_MS) * ROUND_MS;
+  const end = new Date(endMs);
+  const start = new Date(endMs - hours * 60 * 60 * 1000);
   return { start_time: start.toISOString(), end_time: end.toISOString() };
 }
 

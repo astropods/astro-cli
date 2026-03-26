@@ -62,6 +62,7 @@ export interface DeployedAgentCardProps {
   avatarUrl?: string;
   hasNewBuildAvailable?: boolean;
   className?: string;
+  linkState?: Record<string, unknown>;
 }
 
 function MetricCell({ label, value }: { label: string; value: string }) {
@@ -87,6 +88,7 @@ export function DeployedAgentCard({
   avatarUrl,
   hasNewBuildAvailable = false,
   className,
+  linkState,
 }: DeployedAgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -215,7 +217,7 @@ export function DeployedAgentCard({
   return (
     <>
       {href ? (
-        <Link to={href} className={cardClassName}>{cardContent}</Link>
+        <Link to={href} state={linkState} className={cardClassName}>{cardContent}</Link>
       ) : (
         <div className={cardClassName}>{cardContent}</div>
       )}
