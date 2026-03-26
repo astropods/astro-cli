@@ -390,3 +390,25 @@ CREATE TABLE public.account_langfuse (
     CONSTRAINT account_langfuse_pkey PRIMARY KEY (account_id),
     CONSTRAINT account_langfuse_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
+
+CREATE TABLE public.audit_logs (
+    id bigserial NOT NULL,
+    account_id text NOT NULL,
+    actor_id text NOT NULL,
+    actor_type text NOT NULL DEFAULT 'user',
+    action text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id text NOT NULL,
+    resource_name text,
+    description text,
+    metadata jsonb,
+    ip_address text,
+    user_agent text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT audit_logs_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_audit_logs_account_created ON public.audit_logs (account_id, created_at DESC);
+CREATE INDEX idx_audit_logs_account_resource ON public.audit_logs (account_id, resource_type, created_at DESC);
+CREATE INDEX idx_audit_logs_actor ON public.audit_logs (actor_id, created_at DESC);
+CREATE INDEX idx_audit_logs_created ON public.audit_logs (created_at);

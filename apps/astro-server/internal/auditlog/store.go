@@ -24,13 +24,13 @@ func NewStore(db *sql.DB) *Store {
 
 // Log synchronously inserts an audit log entry.
 func (s *Store) Log(ctx context.Context, e Event) error {
-	var metadataBytes []byte
+	var metadataParam any
 	if e.Metadata != nil {
-		var err error
-		metadataBytes, err = json.Marshal(e.Metadata)
+		b, err := json.Marshal(e.Metadata)
 		if err != nil {
 			return fmt.Errorf("failed to marshal audit metadata: %w", err)
 		}
+		metadataParam = b
 	}
 
 	_, err := s.db.ExecContext(ctx, `
@@ -45,7 +45,7 @@ func (s *Store) Log(ctx context.Context, e Event) error {
 		e.ResourceID,
 		nullIfEmpty(e.ResourceName),
 		nullIfEmpty(e.Description),
-		metadataBytes,
+		metadataParam,
 		nullIfEmpty(e.IPAddress),
 		nullIfEmpty(e.UserAgent),
 	)
