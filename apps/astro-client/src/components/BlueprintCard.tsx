@@ -76,7 +76,7 @@ export function BlueprintCard({
     <>
       <Link
         to={`/${slug}`}
-        className="group relative flex flex-col overflow-hidden rounded-md border border-stone-400 bg-stone-50 transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
+        className="group relative flex flex-col overflow-hidden rounded-md border border-stone-400 bg-white transition-all duration-150 hover:bg-stone-25 hover:border-teal-500 hover:shadow-md dark:bg-teal-900/30 dark:hover:border-teal-400"
       >
         {onArchive && (
           <div
