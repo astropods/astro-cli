@@ -282,9 +282,8 @@ export function ActiveContainerAccordion({
 
   return (
     <div style={{ marginBottom: 6 }}>
-      <button
+      <div
         className="dp-container-hdr"
-        onClick={onToggle}
         style={{
           display: "flex",
           alignItems: isCompact ? "flex-start" : "center",
@@ -300,6 +299,7 @@ export function ActiveContainerAccordion({
           textAlign: "left" as const,
           transition: "background 0.15s",
         }}
+        onClick={onToggle}
         onMouseEnter={(e) => {
           if (!isOpen) e.currentTarget.style.background = "var(--color-stone-200)";
         }}
@@ -333,7 +333,7 @@ export function ActiveContainerAccordion({
         </span>
         <span style={{ flex: 1 }} />
         {isAgentService && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, minWidth: 0 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, color: C.text }}>
               <span style={{ fontFamily: S.body, fontSize: T.bodySm, whiteSpace: "nowrap" as const }}>
                 To chat, run:
@@ -391,7 +391,7 @@ export function ActiveContainerAccordion({
           {" • "}
           {uptime}
         </span>
-      </button>
+      </div>
 
       {isOpen && (
         <div style={{ border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
