@@ -1,17 +1,27 @@
-import { useState } from "react";
 import { Link as LinkIcon, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import type { ServiceEndpointInfo } from "@/lib/api";
 
+function CopyUrlButton({ url }: { url: string }) {
+  const { copy, copied } = useCopyToClipboard(2000);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="shrink-0 ml-auto"
+      onClick={() => { void copy(url); }}
+    >
+      {copied ? (
+        <><Check className="size-3" /> Copied</>
+      ) : (
+        <><Copy className="size-3" /> Copy</>
+      )}
+    </Button>
+  );
+}
+
 export function ExternalUrls({ urls }: { urls: ServiceEndpointInfo[] }) {
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
-
-  const handleCopy = (url: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedUrl(url);
-    setTimeout(() => setCopiedUrl(null), 2000);
-  };
-
   return (
     <div className="flex flex-col gap-2 px-6 py-4">
       {urls.map((ep) => (
@@ -29,18 +39,7 @@ export function ExternalUrls({ urls }: { urls: ServiceEndpointInfo[] }) {
           >
             {ep.url}
           </a>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 ml-auto"
-            onClick={() => handleCopy(ep.url)}
-          >
-            {copiedUrl === ep.url ? (
-              <><Check className="size-3" /> Copied</>
-            ) : (
-              <><Copy className="size-3" /> Copy</>
-            )}
-          </Button>
+          <CopyUrlButton url={ep.url} />
         </div>
       ))}
     </div>

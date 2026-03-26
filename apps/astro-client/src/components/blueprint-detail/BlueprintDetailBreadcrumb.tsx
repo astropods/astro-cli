@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { Check } from "lucide-react";
 import { HeartIcon as HeartOutline, ShareIcon } from "@heroicons/react/24/outline";
 import { HeartIcon as HeartSolid } from "@heroicons/react/24/solid";
 import { Button } from "@/components/ui/button";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { useToggleHeart } from "@/api/queries/hearts";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 export interface BlueprintDetailBreadcrumbProps {
   account: string;
@@ -19,7 +19,7 @@ export function BlueprintDetailBreadcrumb({
   hearted: initialHearted = false,
   heartCount: initialHeartCount = 0,
 }: BlueprintDetailBreadcrumbProps) {
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopyToClipboard(2000);
   const toggleHeart = useToggleHeart(account, blueprintName);
 
   const handleShare = async () => {
@@ -35,9 +35,7 @@ export function BlueprintDetailBreadcrumb({
       }
     }
 
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    await copy(url);
   };
 
   return (

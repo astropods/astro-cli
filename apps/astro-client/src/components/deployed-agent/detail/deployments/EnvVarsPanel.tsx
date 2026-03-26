@@ -1,38 +1,8 @@
 import { cn } from "@/lib/utils";
-
-interface EnvVar {
-  key: string;
-  value: string;
-  secret: boolean;
-  source: string;
-}
+import type { MappedEnvVar } from "./history/types";
 
 interface EnvVarsPanelProps {
-  vars: EnvVar[];
-}
-
-function isSensitiveEnvVar(key: string, value: string, source: string): boolean {
-  if (source.startsWith("secret:")) return true;
-
-  const upperKey = key.toUpperCase();
-  const keyLooksSensitive =
-    upperKey.includes("KEY") ||
-    upperKey.includes("TOKEN") ||
-    upperKey.includes("SECRET") ||
-    upperKey.includes("PASSWORD") ||
-    upperKey.includes("PASSWD") ||
-    upperKey.includes("PRIVATE") ||
-    upperKey.includes("CREDENTIAL") ||
-    upperKey.includes("AUTH") ||
-    upperKey.includes("DSN") ||
-    upperKey.includes("WEBHOOK");
-
-  const valueLooksSensitive =
-    value.startsWith("sk-") ||
-    value.startsWith("secret:") ||
-    value.includes("••");
-
-  return keyLooksSensitive || valueLooksSensitive;
+  vars: MappedEnvVar[];
 }
 
 const SOURCE_STYLES = {
@@ -48,10 +18,7 @@ export function EnvVarsPanel({ vars }: EnvVarsPanelProps) {
         <div className="p-4 font-mono text-mono-sm text-faint-foreground">No variables</div>
       ) : (
         vars.map((v, vi) => {
-          const isSecret =
-            v.secret || v.value.startsWith("sk-") || v.value.startsWith("secret:") || v.value.includes("••");
           const sourceKey = v.source === "input" ? "input" : v.source === "injected" ? "injected" : "static";
-          const sourceLabel = sourceKey;
           return (
             <div
               key={v.key}
@@ -78,11 +45,11 @@ export function EnvVarsPanel({ vars }: EnvVarsPanelProps) {
                     !v.value ? "text-stone-500 italic" : "text-muted-foreground",
                   )}
                 >
-                  {!v.value ? "empty" : (isSecret || isSensitiveEnvVar(v.key, v.value, v.source)) ? "•••••••••" : v.value}
+                  {!v.value ? "empty" : v.secret ? "•••••••••" : v.value}
                 </span>
               </div>
               <span className={cn("font-mono text-label tracking-[0.08em] px-1.5 py-0.5 rounded shrink-0", SOURCE_STYLES[sourceKey])}>
-                {sourceLabel}
+                {sourceKey}
               </span>
             </div>
           );

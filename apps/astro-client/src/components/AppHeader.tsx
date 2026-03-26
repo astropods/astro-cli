@@ -14,7 +14,7 @@ import astroLogo from "@/assets/astro-logo.svg";
 import astroLogoDark from "@/assets/astro-logo-dark.svg";
 import { useAuth } from "@/lib/auth";
 import { UserCircleIcon } from "@heroicons/react/24/outline";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/use-compact-layout";
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserCard } from "@/components/UserCard";
 import { FeedbackModal } from "@/components/FeedbackModal";

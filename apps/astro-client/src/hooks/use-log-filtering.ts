@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { LOG_ERROR_RE, LOG_WARN_RE } from "@/lib/log-utils";
 
-type LogFilter = "errors" | "warnings";
+export type LogFilter = "errors" | "warnings";
 
 export function useLogFiltering(logs: string[], search: string) {
   const [activeFilters, setActiveFilters] = useState<Set<LogFilter>>(new Set());
@@ -13,21 +14,30 @@ export function useLogFiltering(logs: string[], search: string) {
       return n;
     });
 
-  const errCount = useMemo(() => logs.filter((l) => /error|failed|fatal/i.test(l)).length, [logs]);
-  const warnCount = useMemo(() => logs.filter((l) => /warn|warning|retry|attempt/i.test(l)).length, [logs]);
+  const { errCount, warnCount, filtered } = useMemo(() => {
+    let errs = 0;
+    let warns = 0;
+    const lowerSearch = search.toLowerCase();
+    const result: string[] = [];
 
-  const filtered = useMemo(() => {
-    return logs.filter((l) => {
+    for (const l of logs) {
+      const isErr = LOG_ERROR_RE.test(l);
+      const isWarn = LOG_WARN_RE.test(l);
+      if (isErr) errs++;
+      if (isWarn) warns++;
+
       if (activeFilters.size > 0) {
-        const isErr = /error|failed|fatal/i.test(l);
-        const isWarn = /warn|warning|retry|attempt/i.test(l);
-        if (activeFilters.has("errors") && activeFilters.has("warnings") && !isErr && !isWarn) return false;
-        if (activeFilters.has("errors") && !activeFilters.has("warnings") && !isErr) return false;
-        if (activeFilters.has("warnings") && !activeFilters.has("errors") && !isWarn) return false;
+        const wantErr = activeFilters.has("errors");
+        const wantWarn = activeFilters.has("warnings");
+        if (wantErr && wantWarn && !isErr && !isWarn) continue;
+        if (wantErr && !wantWarn && !isErr) continue;
+        if (wantWarn && !wantErr && !isWarn) continue;
       }
-      if (search && !l.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
+      if (lowerSearch && !l.toLowerCase().includes(lowerSearch)) continue;
+      result.push(l);
+    }
+
+    return { errCount: errs, warnCount: warns, filtered: result };
   }, [logs, activeFilters, search]);
 
   return { activeFilters, toggleFilter, errCount, warnCount, filtered };

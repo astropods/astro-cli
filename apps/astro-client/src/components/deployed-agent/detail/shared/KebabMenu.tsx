@@ -8,6 +8,7 @@ import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 const C = {
   bgAlt: "var(--popover)",
@@ -47,7 +48,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
   const ref = useRef<HTMLDivElement>(null);
 
   const { data: agent } = useBlueprint(account, deploymentName, { enabled: shareOpen });
@@ -82,12 +83,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   }, [open]);
 
   const copyId = () => {
-    navigator.clipboard.writeText(deploymentId);
-    setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-      setOpen(false);
-    }, 1600);
+    void copyToClipboard(deploymentId);
   };
 
   const linkStyle = {

@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import type { MappedContainer } from "@/components/deployed-agent/detail/deployments/history/types";
 
-interface Container {
-  name: string;
-  ready: boolean;
-  vars: { key: string; value: string; secret: boolean; source: string }[];
-}
-
-export function useContainerSelection(containers: Container[]) {
+export function useContainerSelection(containers: MappedContainer[]) {
   const [selectedContainer, setSelectedContainer] = useState<string>(containers[0]?.name ?? "");
 
   useEffect(() => {

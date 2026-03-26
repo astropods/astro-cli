@@ -5,6 +5,7 @@ import { formatDate, isDeployingState } from "@/lib/deployment-utils";
 import type { AgentDeployment, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 import { deploymentKeys } from "@/api/queries/keys";
 import { cn } from "@/lib/utils";
+import { isSensitiveEnvVar } from "@/lib/env-utils";
 import { useCompactLayout } from "@/hooks/use-compact-layout";
 import { DeploymentHistoryTable } from "./DeploymentHistoryTable";
 import {
@@ -13,28 +14,7 @@ import {
   deploymentHistoryDurationMs,
   deploymentHistoryUiStatus,
 } from "./history/utils";
-import type { DeploymentHistoryTableRow } from "./history/types";
-
-function isSensitiveEnvVar(key: string, value: string, source: string): boolean {
-  if (source.startsWith("secret:")) return true;
-  const upperKey = key.toUpperCase();
-  const keyLooksSensitive =
-    upperKey.includes("KEY") ||
-    upperKey.includes("TOKEN") ||
-    upperKey.includes("SECRET") ||
-    upperKey.includes("PASSWORD") ||
-    upperKey.includes("PASSWD") ||
-    upperKey.includes("PRIVATE") ||
-    upperKey.includes("CREDENTIAL") ||
-    upperKey.includes("AUTH") ||
-    upperKey.includes("DSN") ||
-    upperKey.includes("WEBHOOK");
-  const valueLooksSensitive =
-    value.startsWith("sk-") ||
-    value.startsWith("secret:") ||
-    value.includes("••");
-  return keyLooksSensitive || valueLooksSensitive;
-}
+import type { DeploymentHistoryTableRow, ServiceRow } from "./history/types";
 
 export function DeploymentsTab({
   deployment,
@@ -52,18 +32,20 @@ export function DeploymentsTab({
 
   const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(account, deployment.name);
 
+  const isDeploying = isDeployingState(deployment);
   useEffect(() => {
-    if (!isDeployingState(deployment)) return;
+    if (!isDeploying) return;
     const interval = setInterval(() => {
       void queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
     }, 4000);
     return () => clearInterval(interval);
-  }, [account, deployment, queryClient]);
+  }, [account, isDeploying, queryClient]);
 
-  const serviceRows = useMemo(() => {
-    const externalUrls = deployment.external_urls ?? [];
-    const primaryUrl = externalUrls[0]?.url;
-    return (deployment.workloads ?? []).map((wl) => {
+  const workloads = deployment.workloads;
+  const externalUrls = deployment.external_urls;
+  const serviceRows = useMemo((): ServiceRow[] => {
+    const primaryUrl = (externalUrls ?? [])[0]?.url;
+    return (workloads ?? []).map((wl) => {
       const mappedContainers = (wl.containers ?? []).map((c) => ({
         name: c.name,
         ready: c.ready,
@@ -91,37 +73,45 @@ export function DeploymentsTab({
         urls: wl.urls,
       };
     });
-  }, [deployment]);
+  }, [workloads, externalUrls]);
 
   const totalServiceCount = serviceRows.length;
+
+  const deploymentId = deployment.id;
+  const deploymentName = deployment.name;
+  const deploymentDisplayName = deployment.display_name;
+  const deploymentBuildId = deployment.build_id;
+  const deploymentNamespace = deployment.namespace;
+  const deploymentStatus = deployment.status;
+  const deploymentCreatedAt = deployment.created_at;
 
   const allRows = useMemo((): DeploymentHistoryTableRow[] => {
     const fromApi = historyData?.deployments ?? [];
     const seen = new Set(fromApi.map((h) => h.id));
     const merged: ApiDeploymentHistoryRecord[] = [...fromApi];
-    if (!seen.has(deployment.id)) {
+    if (!seen.has(deploymentId)) {
       merged.unshift({
-        id: deployment.id,
-        agent_name: deployment.name,
-        build_id: deployment.build_id,
-        namespace: deployment.namespace,
-        status: deployment.status,
-        deployed_at: deployment.created_at,
+        id: deploymentId,
+        agent_name: deploymentName,
+        build_id: deploymentBuildId,
+        namespace: deploymentNamespace,
+        status: deploymentStatus,
+        deployed_at: deploymentCreatedAt,
         spec: {},
       });
     }
     merged.sort((a, b) => resolveDeployedAtMs(b, deployment) - resolveDeployedAtMs(a, deployment));
 
     return merged.map((h, idx) => {
-      const isCurrent = h.id === deployment.id;
+      const isCurrent = h.id === deploymentId;
       const status = deploymentHistoryUiStatus(h, deployment);
       const build = h.build_id?.slice(0, 8) || "—";
-      const rowLabel = isCurrent ? deployment.display_name || deployment.name : `${deployment.name} · ${build}`;
+      const rowLabel = isCurrent ? deploymentDisplayName || deploymentName : `${deploymentName} · ${build}`;
       const durMs = deploymentHistoryDurationMs(h, idx, merged, deployment, isCurrent);
       const deployedAtIso = new Date(resolveDeployedAtMs(h, deployment)).toISOString();
       return { id: h.id, status, build, duration: durMs !== null ? formatDurationMs(durMs) : "—", time: formatDate(deployedAtIso), isCurrent, rowLabel, source: h };
     });
-  }, [historyData, deployment]);
+  }, [historyData, deploymentId, deploymentName, deploymentDisplayName, deploymentBuildId, deploymentNamespace, deploymentStatus, deploymentCreatedAt, deployment]);
 
   const pastRows = useMemo(() => allRows.filter((row) => !row.isCurrent), [allRows]);
   const currentRow = useMemo(() => allRows.find((row) => row.isCurrent) ?? null, [allRows]);
@@ -129,7 +119,7 @@ export function DeploymentsTab({
   useEffect(() => {
     hasAutoOpenedOverview.current = false;
     setOpenContainers(new Set());
-  }, [deployment.id]);
+  }, [deploymentId]);
 
   useEffect(() => {
     if (serviceRows.length === 0) return;
@@ -155,19 +145,18 @@ export function DeploymentsTab({
       </div>
 
       <div className="flex flex-col gap-3">
-        {/* Summary cards */}
         <div className="grid grid-cols-4 gap-2.5">
           {[
-            { label: "CURRENT BUILD", value: deployment.build_id?.slice(0, 8) || "—", wrap: false },
+            { label: "CURRENT BUILD", value: deploymentBuildId?.slice(0, 8) || "—", wrap: false },
             {
               label: "DEPLOYMENT STATUS",
-              value: String(deployment.status || "unknown").charAt(0).toUpperCase() + String(deployment.status || "unknown").slice(1).toLowerCase(),
+              value: String(deploymentStatus || "unknown").charAt(0).toUpperCase() + String(deploymentStatus || "unknown").slice(1).toLowerCase(),
               wrap: false,
             },
             {
               label: "DEPLOYED ON",
-              value: deployment.created_at
-                ? `${formatDate(deployment.created_at)},${isCompact ? "\n" : " "}${new Date(deployment.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+              value: deploymentCreatedAt
+                ? `${formatDate(deploymentCreatedAt)},${isCompact ? "\n" : " "}${new Date(deploymentCreatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
                 : "—",
               wrap: true,
             },
@@ -192,12 +181,11 @@ export function DeploymentsTab({
           ))}
         </div>
 
-        {/* History table */}
         <DeploymentHistoryTable
           currentRow={currentRow}
           pastRows={pastRows}
           serviceRows={serviceRows}
-          deploymentId={deployment.id}
+          deploymentId={deploymentId}
           isCompact={isCompact}
           openContainers={openContainers}
           onToggleContainer={toggleContainer}

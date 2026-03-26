@@ -1,18 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight, Copy, Check } from "lucide-react";
-import { useDeploymentLogs } from "@/api/queries/deployments";
-import type { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { copyTextToClipboard } from "@/lib/clipboard";
-import { useLogFiltering } from "@/hooks/use-log-filtering";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useContainerSelection } from "@/hooks/use-container-selection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { statusVariant } from "./history/utils";
 import { DomainsPanel } from "./DomainsPanel";
 import { EnvVarsPanel } from "./EnvVarsPanel";
-import { LogViewer, type LogTimeRange } from "./LogViewer";
-import type { DeployHistoryStatus } from "./history/types";
+import { LogViewer } from "./LogViewer";
+import type { DeployHistoryStatus, MappedContainer, DomainUrl } from "./history/types";
 
 export interface ActiveContainerAccordionProps {
   workloadName: string;
@@ -20,14 +17,10 @@ export interface ActiveContainerAccordionProps {
   isCompact?: boolean;
   isAgentService?: boolean;
   url?: string;
-  urls?: { name: string; url: string; type?: string }[];
+  urls?: DomainUrl[];
   readyText: string;
   uptime: string;
-  containers: {
-    name: string;
-    ready: boolean;
-    vars: { key: string; value: string; secret: boolean; source: string }[];
-  }[];
+  containers: MappedContainer[];
   deploymentId: string;
   deploymentStatus: DeployHistoryStatus;
   isOpen: boolean;
@@ -50,10 +43,7 @@ export function ActiveContainerAccordion({
   onToggle,
 }: ActiveContainerAccordionProps) {
   const [view, setView] = useState<"logs" | "vars" | "domains">("logs");
-  const [logSearch, setLogSearch] = useState("");
-  const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
-  const [copiedPlaygroundCommand, setCopiedPlaygroundCommand] = useState(false);
-  const [copiedLogs, setCopiedLogs] = useState(false);
+  const { copy: copyPlayground, copied: copiedPlaygroundCommand } = useCopyToClipboard();
 
   const { selectedContainer, setSelectedContainer, activeContainer } = useContainerSelection(containers);
 
@@ -69,44 +59,13 @@ export function ActiveContainerAccordion({
     if (!canShowDomains && view === "domains") setView("logs");
   }, [canShowVars, canShowDomains, view]);
 
-  const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
-    deploymentId,
-    workloadName,
-    selectedContainer,
-    logTimeRange,
-    { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
-  );
-
-  const logs = useMemo(() => (logsRaw ?? "").split("\n"), [logsRaw]);
-
-  const logErrorMessage = error
-    ? (error as unknown as ApiError & { details?: string }).details ??
-      (error as unknown as ApiError).error_description ??
-      (error as Error).message ??
-      "Failed to fetch logs"
-    : null;
-
-  const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
-
   const hasPublicUrl = !!url;
   const playgroundCommand = hasPublicUrl ? `ast playground ${url}` : "ast playground <deployment-url>";
 
-  const handleCopyPlaygroundCommand = async (e: React.MouseEvent) => {
+  const handleCopyPlaygroundCommand = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!hasPublicUrl) return;
-    const ok = await copyTextToClipboard(playgroundCommand);
-    if (!ok) return;
-    setCopiedPlaygroundCommand(true);
-    setTimeout(() => setCopiedPlaygroundCommand(false), 1200);
-  };
-
-  const handleCopyLogs = async () => {
-    const payload = logs.join("\n");
-    if (!payload.trim()) return;
-    const ok = await copyTextToClipboard(payload);
-    if (!ok) return;
-    setCopiedLogs(true);
-    setTimeout(() => setCopiedLogs(false), 900);
+    void copyPlayground(playgroundCommand);
   };
 
   const variant = deploymentStatus === "deploying" || deploymentStatus === "undeploying"
@@ -118,7 +77,6 @@ export function ActiveContainerAccordion({
 
   return (
     <div className="mb-1.5">
-      {/* Accordion header */}
       <div
         className={cn(
           "dp-container-hdr flex gap-2 w-full px-3.5 py-2.5 border border-border cursor-pointer text-left transition-[background] duration-150",
@@ -183,10 +141,8 @@ export function ActiveContainerAccordion({
         </span>
       </div>
 
-      {/* Accordion body */}
       {isOpen && (
         <div className="border border-border border-t-0 rounded-b-lg overflow-hidden">
-          {/* Tabs */}
           <div className={cn("flex items-center bg-surface border-b border-border", isCompact ? "flex-wrap" : "flex-nowrap")}>
             {(["logs", "vars", "domains"] as const).map((v) =>
               (v === "vars" && !canShowVars) || (v === "domains" && !canShowDomains) ? null : (
@@ -222,28 +178,16 @@ export function ActiveContainerAccordion({
             )}
           </div>
 
-          {/* Tab content */}
           {view === "vars" && <EnvVarsPanel vars={vars} />}
           {view === "domains" && <DomainsPanel urls={urls ?? []} />}
           {view === "logs" && (
             <LogViewer
-              logs={logs}
-              filtered={filtered}
-              isLoading={isLoading}
-              isFetching={isFetching}
-              errorMessage={logErrorMessage}
+              deploymentId={deploymentId}
+              workloadName={workloadName}
+              selectedContainer={selectedContainer}
+              deploymentStatus={deploymentStatus}
+              isOpen={isOpen}
               isCompact={isCompact}
-              logSearch={logSearch}
-              onLogSearchChange={setLogSearch}
-              logTimeRange={logTimeRange}
-              onLogTimeRangeChange={setLogTimeRange}
-              activeFilters={activeFilters}
-              onToggleFilter={toggleFilter}
-              errCount={errCount}
-              warnCount={warnCount}
-              onRefresh={() => { void refetch({ cancelRefetch: true }); }}
-              onCopyLogs={() => { void handleCopyLogs(); }}
-              copiedLogs={copiedLogs}
             />
           )}
         </div>

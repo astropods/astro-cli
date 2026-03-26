@@ -1,24 +1,29 @@
+const ISO_TS_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/;
+const BASIC_TS_RE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(.*)$/;
+const FMT_TS_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?$/;
+
+export const LOG_SUCCESS_RE = /✓|\bconnected\b|\bready\b|\bhealthy\b|\binitialized\b|\bregistered\b|\bsuccess\b|\bloaded\b|\bcomplete\b/i;
+export const LOG_ERROR_RE = /\berror\b|\bfailed\b|\bexception\b|\bfatal\b/i;
+export const LOG_WARN_RE = /\bwarn\b|\bwarning\b|\bretry\b|\battempt\b/i;
+
 export function logLineColorClass(line: string): string {
-  const l = line.toLowerCase();
-  if (/✓|connected|ready|healthy|initialized|registered|success|loaded|complete/.test(l)) return "text-green-700";
-  if (/error|failed|exception|fatal/.test(l)) return "text-coral-600";
-  if (/warn|warning|retry|attempt/.test(l)) return "text-yellow-500";
+  if (LOG_SUCCESS_RE.test(line)) return "text-green-700";
+  if (LOG_ERROR_RE.test(line)) return "text-coral-600";
+  if (LOG_WARN_RE.test(line)) return "text-yellow-500";
   return "text-foreground";
 }
 
 export function splitLogLineTimestamp(line: string): { timestamp: string | null; message: string } {
-  const iso = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/);
+  const iso = line.match(ISO_TS_RE);
   if (iso) return { timestamp: iso[1], message: iso[2] };
-  const basic = line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(.*)$/);
+  const basic = line.match(BASIC_TS_RE);
   if (basic) return { timestamp: basic[1], message: basic[2] };
   return { timestamp: null, message: line };
 }
 
 export function formatLogTimestamp(timestamp: string | null): string {
   if (!timestamp) return "—";
-  const m = timestamp.match(
-    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?$/,
-  );
+  const m = timestamp.match(FMT_TS_RE);
   if (!m) return timestamp;
   const date = m[1];
   const time = m[2];

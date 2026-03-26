@@ -1,19 +1,25 @@
-import * as React from "react";
+import { useEffect, useState } from "react";
 
-const DEFAULT_BREAKPOINT = 1180;
+export function useMediaBreakpoint(breakpoint: number) {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < breakpoint : false,
+  );
 
-export function useCompactLayout(breakpoint = DEFAULT_BREAKPOINT) {
-  const [isCompact, setIsCompact] = React.useState<boolean | undefined>(undefined);
-
-  React.useEffect(() => {
+  useEffect(() => {
     const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    const onChange = () => {
-      setIsCompact(window.innerWidth < breakpoint);
-    };
+    setMatches(mql.matches);
+    const onChange = () => setMatches(mql.matches);
     mql.addEventListener("change", onChange);
-    setIsCompact(window.innerWidth < breakpoint);
     return () => mql.removeEventListener("change", onChange);
   }, [breakpoint]);
 
-  return !!isCompact;
+  return matches;
+}
+
+export function useCompactLayout() {
+  return useMediaBreakpoint(1180);
+}
+
+export function useIsMobile() {
+  return useMediaBreakpoint(768);
 }

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { MultiSelect } from "../shared/MultiSelect";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 const C = {
   bg: "var(--muted)",
@@ -510,14 +511,14 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     });
 
   const copyTraceId = (id: string) => {
-    void navigator.clipboard.writeText(id);
+    void copyTextToClipboard(id);
     setCopiedTraceId(id);
     setTimeout(() => setCopiedTraceId((prev) => (prev === id ? null : prev)), 1200);
   };
 
   const copyTraceFieldText = (traceId: string, field: "input" | "output", text: string) => {
     const key = `${traceId}:${field}`;
-    void navigator.clipboard.writeText(text);
+    void copyTextToClipboard(text);
     setCopiedTraceField(key);
     setTimeout(() => setCopiedTraceField((prev) => (prev === key ? null : prev)), 1200);
   };

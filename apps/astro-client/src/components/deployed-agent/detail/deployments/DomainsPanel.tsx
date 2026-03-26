@@ -1,8 +1,9 @@
 import { Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { DomainUrl } from "./history/types";
 
 interface DomainsPanelProps {
-  urls: { name: string; url: string; type?: string }[];
+  urls: DomainUrl[];
 }
 
 export function DomainsPanel({ urls }: DomainsPanelProps) {

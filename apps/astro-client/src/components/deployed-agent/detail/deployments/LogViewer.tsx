@@ -1,11 +1,17 @@
-import { Search, Loader2, X, RefreshCw, Copy, Check } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Search, Loader2, X, RefreshCw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { logLineColorClass, splitLogLineTimestamp, formatLogTimestamp } from "@/lib/log-utils";
+import { useLogFiltering } from "@/hooks/use-log-filtering";
+import { useDeploymentLogs } from "@/api/queries/deployments";
+import { CopyButton } from "@/components/ui/copy-button";
+import type { ApiError } from "@/lib/api";
+import type { DeployHistoryStatus } from "./history/types";
 
 export type LogTimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
 
-export const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
+const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = [
   { value: "15m", label: "Last 15 min" },
   { value: "1h", label: "Last 1 hour" },
   { value: "6h", label: "Last 6 hours" },
@@ -14,23 +20,12 @@ export const LOG_TIME_RANGE_OPTIONS: { value: LogTimeRange; label: string }[] = 
 ];
 
 interface LogViewerProps {
-  logs: string[];
-  filtered: string[];
-  isLoading: boolean;
-  isFetching: boolean;
-  errorMessage: string | null;
+  deploymentId: string;
+  workloadName: string;
+  selectedContainer: string;
+  deploymentStatus: DeployHistoryStatus;
+  isOpen: boolean;
   isCompact: boolean;
-  logSearch: string;
-  onLogSearchChange: (value: string) => void;
-  logTimeRange: LogTimeRange;
-  onLogTimeRangeChange: (value: LogTimeRange) => void;
-  activeFilters: Set<"errors" | "warnings">;
-  onToggleFilter: (f: "errors" | "warnings") => void;
-  errCount: number;
-  warnCount: number;
-  onRefresh: () => void;
-  onCopyLogs: () => void;
-  copiedLogs: boolean;
 }
 
 const FILTER_CONFIGS = [
@@ -39,36 +34,49 @@ const FILTER_CONFIGS = [
 ] as const;
 
 export function LogViewer({
-  logs,
-  filtered,
-  isLoading,
-  isFetching,
-  errorMessage,
+  deploymentId,
+  workloadName,
+  selectedContainer,
+  deploymentStatus,
+  isOpen,
   isCompact,
-  logSearch,
-  onLogSearchChange,
-  logTimeRange,
-  onLogTimeRangeChange,
-  activeFilters,
-  onToggleFilter,
-  errCount,
-  warnCount,
-  onRefresh,
-  onCopyLogs,
-  copiedLogs,
 }: LogViewerProps) {
+  const [logSearch, setLogSearch] = useState("");
+  const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
+
+  const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
+    deploymentId,
+    workloadName,
+    selectedContainer,
+    logTimeRange,
+    { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
+  );
+
+  const logs = useMemo(() => {
+    const raw = logsRaw ?? "";
+    return raw ? raw.split("\n") : [];
+  }, [logsRaw]);
+
+  const errorMessage = error
+    ? (error as unknown as ApiError & { details?: string }).details ??
+      (error as unknown as ApiError).error_description ??
+      (error as Error).message ??
+      "Failed to fetch logs"
+    : null;
+
+  const { activeFilters, toggleFilter, errCount, warnCount, filtered } = useLogFiltering(logs, logSearch);
+
   const counts = { errors: errCount, warnings: warnCount };
 
   return (
     <div>
-      {/* Toolbar */}
       <div className={cn("flex items-center gap-1.5 px-3.5 py-2 bg-surface border-b border-border", isCompact ? "flex-wrap" : "flex-nowrap")}>
         {FILTER_CONFIGS.map((f) => {
           const active = activeFilters.has(f.key);
           return (
             <button
               key={f.key}
-              onClick={() => onToggleFilter(f.key)}
+              onClick={() => toggleFilter(f.key)}
               className={cn(
                 "flex items-center gap-[5px] px-2 py-1 rounded-md border border-border cursor-pointer font-sans text-body-sm transition-all whitespace-nowrap",
                 f.colorClass,
@@ -84,7 +92,7 @@ export function LogViewer({
           );
         })}
         <div className="flex-1" />
-        <Select value={logTimeRange} onValueChange={(value) => onLogTimeRangeChange(value as LogTimeRange)}>
+        <Select value={logTimeRange} onValueChange={(value) => setLogTimeRange(value as LogTimeRange)}>
           <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover">
             <SelectValue />
           </SelectTrigger>
@@ -102,7 +110,7 @@ export function LogViewer({
             type="text"
             placeholder="Search logs"
             value={logSearch}
-            onChange={(e) => onLogSearchChange(e.target.value)}
+            onChange={(e) => setLogSearch(e.target.value)}
             className={cn(
               "bg-transparent border-none outline-none font-sans text-body-sm text-muted-foreground caret-teal-600",
               isCompact ? "w-[92px]" : "w-40",
@@ -112,22 +120,14 @@ export function LogViewer({
         <button
           type="button"
           title="Refresh logs"
-          onClick={onRefresh}
+          onClick={() => { void refetch({ cancelRefetch: true }); }}
           className="flex items-center justify-center size-8 rounded border border-border bg-transparent text-foreground cursor-pointer"
         >
           <RefreshCw size={12} className={isFetching ? "dp-spin" : undefined} />
         </button>
-        <button
-          type="button"
-          title="Copy logs"
-          onClick={onCopyLogs}
-          className="flex items-center justify-center size-8 rounded border border-border bg-transparent text-foreground cursor-pointer"
-        >
-          {copiedLogs ? <Check size={12} className="text-teal-600" /> : <Copy size={12} />}
-        </button>
+        <CopyButton copyText={() => logs.join("\n")} title="Copy logs" resetMs={900} />
       </div>
 
-      {/* Log output */}
       <div className="bg-stone-50 py-2.5 pb-3.5">
         {isLoading ? (
           <div className="flex items-center gap-2 px-[18px] py-3 font-mono text-mono-sm text-faint-foreground">

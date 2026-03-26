@@ -5,25 +5,9 @@ import { ErrorPanel } from "@/components/ui/status-panel";
 import { InlineBadge } from "@/components/InlineBadge";
 import { ActiveContainerAccordion } from "./ActiveContainerAccordion";
 import { DeploymentHistoryRow } from "./DeploymentHistoryRow";
-import type { DeploymentHistoryTableRow } from "./history/types";
+import type { DeploymentHistoryTableRow, ServiceRow } from "./history/types";
 
 const DEPLOYMENT_GRID_COLUMNS = "minmax(220px, 1fr) 88px 84px 116px 116px 28px";
-
-interface ServiceRow {
-  id: string;
-  workloadName: string;
-  title: string;
-  isAgentService: boolean;
-  readyText: string;
-  uptime: string;
-  containers: {
-    name: string;
-    ready: boolean;
-    vars: { key: string; value: string; secret: boolean; source: string }[];
-  }[];
-  url?: string;
-  urls?: { name: string; url: string; type?: string }[];
-}
 
 interface DeploymentHistoryTableProps {
   currentRow: DeploymentHistoryTableRow | null;

@@ -19,6 +19,7 @@ import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { generateIdentity } from "identity-gen";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "undeploying" | "error";
@@ -90,12 +91,10 @@ export function DeployedAgentCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
 
   const copyId = () => {
-    navigator.clipboard.writeText(deploymentId);
-    setCopied(true);
-    setTimeout(() => { setCopied(false); setMenuOpen(false); }, 1600);
+    void copyToClipboard(deploymentId);
   };
 
   // Fetch agent data on demand for integrations (only when share modal is open)
