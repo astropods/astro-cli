@@ -9,7 +9,6 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployments } from "@/api/queries/deployments";
 import { useBlueprint, usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import { createServerApi } from "@/lib/api.server";
 import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
 import {
   SidebarLayout,
@@ -19,32 +18,26 @@ import {
 } from "@/components/ui/sidebar-layout";
 
 
-export async function loader({ params, request }: Route.LoaderArgs) {
-  const api = createServerApi(request);
+export async function loader({ params }: Route.LoaderArgs) {
   const account = params.account ?? "";
   const deploymentId = params.deploymentId ?? "";
 
-  const deploymentsData = await api.listDeployments(account).catch(() => ({ deployments: [], count: 0 }));
-
-  const deployment = deploymentsData.deployments?.find((d) => d.id === deploymentId) ?? null;
-
-  return { deployment, account, deploymentId };
+  return { account, deploymentId };
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
-  const name = data?.deployment?.display_name || data?.deployment?.name || "Agent";
-  return [{ title: `Configure - ${name} | Astro` }];
+export const meta: Route.MetaFunction = () => {
+  return [{ title: "Configure - Agent | Astro" }];
 };
 
 function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
-  const account = paramAccount ?? "";
+  const account = paramAccount ?? loaderData?.account ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
 
-  const { data: deploymentsData } = useDeployments(account, isAuthenticated);
+  const { data: deploymentsData, isLoading } = useDeployments(account, isAuthenticated);
 
   const deployments = deploymentsData?.deployments ?? [];
-  const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
+  const deployment = deployments.find((d) => d.id === deploymentId) ?? null;
   const { data: blueprintData } = useBlueprint(account, deployment?.name ?? "", {
     initialData: undefined,
   });
@@ -70,16 +63,22 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
     enabled: !!deployment?.name && !!deploymentId,
   });
 
-  if (!deployment) {
+  if (isLoading || !deployment) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
-        <h1 className="text-xl font-semibold mb-3">Deployment not found</h1>
-        <p className="text-muted-foreground text-sm mb-4">
-          The deployed agent you&apos;re looking for doesn&apos;t exist or has been removed.
-        </p>
-        <Button asChild>
-          <Link to="/agents">My Agents</Link>
-        </Button>
+        {isLoading ? (
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        ) : (
+          <>
+            <h1 className="text-xl font-semibold mb-3">Deployment not found</h1>
+            <p className="text-muted-foreground text-sm mb-4">
+              The deployed agent you&apos;re looking for doesn&apos;t exist or has been removed.
+            </p>
+            <Button asChild>
+              <Link to="/agents">My Agents</Link>
+            </Button>
+          </>
+        )}
       </div>
     );
   }

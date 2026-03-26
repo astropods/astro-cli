@@ -43,15 +43,15 @@ interface HeadlineMetricsProps {
   trends: Record<WindowKey, WindowTrend>;
 }
 
-function SkeletonBar({ width = "65%" }: { width?: string }) {
+function SkeletonBar({ width = "65%", height = 24 }: { width?: string; height?: number }) {
   return (
     <span
       className="dp-pulse"
       style={{
         display: "block",
         width,
-        height: 14,
-        borderRadius: 7,
+        height,
+        borderRadius: Math.min(7, height / 2),
         background: `linear-gradient(90deg, ${C.bgDeep} 0%, ${C.border} 45%, ${C.bgDeep} 100%)`,
       }}
     />
@@ -84,6 +84,22 @@ function TrendIndicator({
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
       <span style={{ fontFamily: S.body, fontSize: T.bodySm, fontWeight: 700, color }}>{formatTrend(value)}</span>
       <span style={{ fontFamily: S.body, fontSize: T.bodySm, fontWeight: 700, color }}>{arrow}</span>
+    </div>
+  );
+}
+
+export function MetricCardSkeleton() {
+  return (
+    <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", height: 100, boxSizing: "border-box" }}>
+      <SkeletonBar width="60%" height={14} />
+      <div style={{ marginTop: 8 }}>
+        <SkeletonBar width="70%" />
+      </div>
+      <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center" }}>
+        <SkeletonBar width="24%" height={14} />
+        <SkeletonBar width="8%" height={14} />
+        <SkeletonBar width="30%" height={14} />
+      </div>
     </div>
   );
 }
@@ -130,9 +146,9 @@ export function HeadlineMetrics({ summary, summaryLoading, trendLoading, selecte
           )}
           {trendLoading ? (
             <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center" }}>
-              <SkeletonBar width="24%" />
-              <SkeletonBar width="8%" />
-              <SkeletonBar width="30%" />
+              <SkeletonBar width="24%" height={14} />
+              <SkeletonBar width="8%" height={14} />
+              <SkeletonBar width="30%" height={14} />
             </div>
           ) : (
             <TrendIndicator

@@ -2,48 +2,215 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
 import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
-import { createServerApi } from "@/lib/api.server";
 import { isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { MetricCardSkeleton } from "@/components/deployed-agent/detail/monitor/HeadlineMetrics";
 
 
-export async function loader({ params, request }: Route.LoaderArgs) {
-  const api = createServerApi(request);
+export async function loader({ params }: Route.LoaderArgs) {
   const account = params.account ?? "";
   const deploymentId = params.deploymentId ?? "";
 
-  const deploymentsData = await api.listDeployments(account).catch(() => ({ deployments: [], count: 0 }));
-  const deployment = deploymentsData.deployments?.find((d) => d.id === deploymentId) ?? null;
-
-  return { deploymentsData, deployment, account, deploymentId };
+  return { account, deploymentId };
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
-  const name = data?.deployment?.display_name || data?.deployment?.name || "Agent";
-  return [{ title: `${name} | Astro` }];
+export const meta: Route.MetaFunction = () => {
+  return [{ title: "Agent | Astro" }];
 };
 
-function DeployedAgentDetailSkeleton() {
+function Ghost({ width = "100%", height = 12, radius = 6 }: { width?: string | number; height?: number; radius?: number }) {
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-3.5 w-3.5" />
-          <Skeleton className="h-4 w-32" />
+    <span
+      className="dp-pulse"
+      style={{
+        display: "inline-block",
+        width,
+        height,
+        borderRadius: radius,
+        background: "linear-gradient(90deg, var(--muted) 0%, var(--border) 45%, var(--muted) 100%)",
+      }}
+    />
+  );
+}
+
+function DeployedAgentDetailSkeleton() {
+  const pad = "clamp(16px, 4vw, 108px)";
+  return (
+    <div style={{ display: "flex", flex: 1, minHeight: 0, background: "var(--muted)" }}>
+      <div style={{ display: "flex", flex: 1, flexDirection: "column", minWidth: 0 }}>
+        {/* top bar */}
+        <header
+          style={{
+            background: "var(--surface)",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            padding: "0 clamp(12px, 3vw, 40px)",
+            height: 63,
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Ghost width={14} height={14} radius={3} />
+            <Ghost width={26} height={26} radius={4} />
+            <Ghost width={120} height={16} radius={4} />
+            <Ghost width={52} height={20} radius={99} />
+          </div>
+        </header>
+
+        {/* tab bar */}
+        <div
+          style={{
+            display: "flex",
+            padding: `0 ${pad}`,
+            background: "var(--muted)",
+            borderBottom: "1px solid var(--border)",
+            flexShrink: 0,
+            gap: 0,
+          }}
+        >
+          <div style={{ padding: "11px 16px 11px 0", borderBottom: "2px solid var(--color-teal-600)" }}>
+            <Ghost width={80} height={16} radius={4} />
+          </div>
+          <div style={{ padding: "11px 16px" }}>
+            <Ghost width={100} height={16} radius={4} />
+          </div>
         </div>
-      </div>
-      <div className="mx-auto w-full max-w-3xl">
-        <div className="flex items-center gap-4 px-6 py-6">
-          <Skeleton className="size-14 rounded-lg" />
-          <div className="space-y-2">
-            <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-4 w-64" />
+
+        {/* tab content area */}
+        <div style={{ flex: 1, overflowY: "auto", padding: `24px calc(${pad} + 4px)` }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* heading + time window select */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Ghost width={120} height={24} radius={6} />
+              <Ghost width={160} height={36} radius={6} />
+            </div>
+
+            {/* 4 headline metric cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              {Array.from({ length: 4 }, (_, i) => (
+                <MetricCardSkeleton key={i} />
+              ))}
+            </div>
+
+            {/* two-column: request volume + token usage */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+              {/* request volume */}
+              <div
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  padding: "14px 16px",
+                }}
+              >
+                <Ghost width={130} height={16} radius={4} />
+                <div style={{ display: "flex", gap: 10, marginTop: 8, marginBottom: 6 }}>
+                  <Ghost width={70} height={10} radius={4} />
+                  <Ghost width={80} height={10} radius={4} />
+                </div>
+                <Ghost width="100%" height={130} radius={6} />
+              </div>
+
+              {/* token usage */}
+              <div
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 18px",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <Ghost width={100} height={16} radius={4} />
+                  <Ghost width={90} height={24} radius={4} />
+                </div>
+                <div style={{ padding: "16px 18px 14px" }}>
+                  <Ghost width="35%" height={24} radius={6} />
+                  <div style={{ margin: "14px 0 10px" }}>
+                    <Ghost width="100%" height={12} radius={999} />
+                  </div>
+                  <Ghost width="40%" height={12} radius={6} />
+                </div>
+              </div>
+            </div>
+
+            {/* traces panel */}
+            <div
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* traces header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "12px 16px",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                <Ghost width={60} height={16} radius={4} />
+                <Ghost width={120} height={28} radius={6} />
+              </div>
+              {/* traces grid header */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "250px 1fr 80px 80px 80px 132px",
+                  gap: 10,
+                  padding: "7px 16px",
+                  background: "var(--muted)",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                <Ghost width={40} height={10} radius={4} />
+                <span />
+                <Ghost width={48} height={10} radius={4} />
+                <Ghost width={52} height={10} radius={4} />
+                <Ghost width={48} height={10} radius={4} />
+                <Ghost width={72} height={10} radius={4} />
+              </div>
+              {/* trace skeleton rows */}
+              {Array.from({ length: 4 }, (_, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "250px 1fr 80px 80px 80px 132px",
+                    gap: 10,
+                    padding: "10px 16px",
+                    borderBottom: "1px solid var(--border)",
+                    alignItems: "center",
+                  }}
+                >
+                  <Ghost width="70%" height={12} radius={4} />
+                  <span />
+                  <Ghost width="60%" height={12} radius={4} />
+                  <Ghost width="55%" height={12} radius={4} />
+                  <Ghost width="50%" height={12} radius={4} />
+                  <Ghost width="65%" height={12} radius={4} />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -55,7 +222,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const location = useLocation();
   const navigate = useNavigate();
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
-  const account = paramAccount ?? "";
+  const account = paramAccount ?? loaderData?.account ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
   const [showLiveReveal, setShowLiveReveal] = useState(false);
   const [hasSeenReveal, setHasSeenReveal] = useState(false);
@@ -64,9 +231,9 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const [allowMonitorTab, setAllowMonitorTab] = useState(false);
   const trackedDeploymentIdRef = useRef<string | null>(null);
 
-  const { data: deploymentsData } = useDeployments(account, isAuthenticated);
-  const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
-  const deployment = deployments.find((d) => d.id === deploymentId) ?? loaderData?.deployment ?? null;
+  const { data: deploymentsData, isLoading } = useDeployments(account, isAuthenticated);
+  const deployments = deploymentsData?.deployments ?? [];
+  const deployment = deployments.find((d) => d.id === deploymentId) ?? null;
   const currentDeploymentId = deployment?.id ?? null;
   const status = deployment ? mapDeploymentStatus(deployment) : null;
   const monitorLocked = deployment ? isDeployingState(deployment) : false;
@@ -132,6 +299,10 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     navigate(`${location.pathname}${next ? `?${next}` : ""}`, { replace: true });
   }, [allowMonitorTab, location.pathname, location.search, navigate, requestedFromAgents, requestedTab]);
 
+  if (isLoading) {
+    return <DeployedAgentDetailSkeleton />;
+  }
+
   if (!deployment) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-6">
@@ -188,10 +359,6 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
 }
 
 export default function DeployedAgentDetail({ loaderData }: Route.ComponentProps) {
-  if (!loaderData) {
-    return <DeployedAgentDetailSkeleton />;
-  }
-
   return (
     <ProtectedRoute>
       <DeployedAgentDetailContent loaderData={loaderData} />
