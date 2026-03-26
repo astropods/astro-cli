@@ -131,6 +131,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountBlueprints } = useAccountBlueprints(userAccount, { enabled: isAuthenticated });
   const revealDeploymentId = new URLSearchParams(location.search).get("revealDeploymentId");
+  const revealAgentName = new URLSearchParams(location.search).get("revealAgentName");
   const revealSeenKey = revealDeploymentId ? `astro:agents-reveal-seen:${userAccount}:${revealDeploymentId}` : "";
 
   const latestBuildByName = useMemo(() => {
@@ -162,12 +163,30 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
 
   const revealDeployment = useMemo(() => {
     if (!revealDeploymentId) return null;
-    return (data?.deployments ?? []).find((d) => d.id === revealDeploymentId) ?? null;
-  }, [data?.deployments, revealDeploymentId]);
+    const existing = (data?.deployments ?? []).find((d) => d.id === revealDeploymentId);
+    if (existing) return existing;
+    if (!revealAgentName) return null;
+
+    // Optimistic fallback so reveal can render immediately after redirect
+    // before deployments polling returns the new deployment row.
+    return {
+      id: revealDeploymentId,
+      name: revealAgentName,
+      display_name: revealAgentName,
+      build_id: "",
+      namespace: "",
+      status: "pending",
+      replicas: 1,
+      ready: 0,
+      created_at: new Date().toISOString(),
+      components: [],
+    } satisfies AgentDeployment;
+  }, [data?.deployments, revealAgentName, revealDeploymentId]);
 
   const clearRevealParam = () => {
     const params = new URLSearchParams(location.search);
     params.delete("revealDeploymentId");
+    params.delete("revealAgentName");
     navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
   };
 
@@ -178,7 +197,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
 
   useEffect(() => {
     if (showReveal) return;
-    if (!revealDeploymentId || !revealDeployment || !revealSeenKey) return;
+    if (!revealDeploymentId || !revealSeenKey) return;
     const alreadySeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
     if (alreadySeen) {
       setShowReveal(false);
@@ -186,7 +205,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
       return;
     }
     setShowReveal(true);
-  }, [revealDeployment, revealDeploymentId, revealSeenKey, showReveal]);
+  }, [revealDeploymentId, revealSeenKey, showReveal]);
 
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">

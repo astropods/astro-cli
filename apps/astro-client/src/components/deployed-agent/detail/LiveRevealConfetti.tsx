@@ -12,7 +12,17 @@ export function LiveRevealConfetti() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    const colors = ["#15827d", "#57c4c1", "#D48F1E", "#F0816A", "#073d3c", "#c4b89e", "#2d7a4f"];
+    const rootStyles = window.getComputedStyle(document.documentElement);
+    const themeColor = (token: string, fallback: string) => rootStyles.getPropertyValue(token).trim() || fallback;
+    const colors = [
+      themeColor("--color-teal-600", "#15827d"),
+      themeColor("--color-teal-400", "#57c4c1"),
+      themeColor("--color-yellow-500", "#D48F1E"),
+      themeColor("--color-red-700", "#F0816A"),
+      themeColor("--color-teal-800", "#073d3c"),
+      themeColor("--color-neutral-400", "#c4b89e"),
+      themeColor("--color-green-700", "#2d7a4f"),
+    ];
     const pieces: {
       x: number;
       y: number;
@@ -71,12 +81,19 @@ export function LiveRevealConfetti() {
       if (alive) raf = window.requestAnimationFrame(draw);
     };
 
-    const timer = window.setTimeout(() => {
+    const startDelayMs = 180;
+    let startTimestamp: number | null = null;
+    const startLoop = (timestamp: number) => {
+      if (startTimestamp === null) startTimestamp = timestamp;
+      if (timestamp - startTimestamp < startDelayMs) {
+        raf = window.requestAnimationFrame(startLoop);
+        return;
+      }
       raf = window.requestAnimationFrame(draw);
-    }, 180);
+    };
+    raf = window.requestAnimationFrame(startLoop);
 
     return () => {
-      window.clearTimeout(timer);
       window.cancelAnimationFrame(raf);
     };
   }, []);

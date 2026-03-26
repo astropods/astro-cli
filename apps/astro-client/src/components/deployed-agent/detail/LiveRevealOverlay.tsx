@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Download, Share2 } from "lucide-react";
+import { ArrowRight, Download, Share2, X } from "lucide-react";
 import type { AgentDeployment } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
 import { useBlueprint } from "@/api/queries/blueprints";
 import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,8 +35,11 @@ export function LiveRevealOverlay({
   const integrations = blueprint ? getBlueprintIntegrations(blueprint) : [];
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setEntered(true), 20);
-    return () => window.clearTimeout(timer);
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      raf = window.requestAnimationFrame(() => setEntered(true));
+    });
+    return () => window.cancelAnimationFrame(raf);
   }, []);
 
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
@@ -99,42 +103,39 @@ export function LiveRevealOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center overflow-hidden p-6 transition-[background-color,backdrop-filter] duration-500 ease-out"
+      className={cn(
+        "fixed inset-0 z-40 flex items-center justify-center overflow-hidden p-6 transition-[background-color,backdrop-filter] duration-500 ease-out",
+        entered
+          ? "bg-black/[0.62] backdrop-blur-[3px] [transition-delay:120ms]"
+          : "bg-transparent backdrop-blur-0 [transition-delay:0ms]",
+      )}
       onMouseDown={onDismiss}
-      style={{
-        backgroundColor: entered ? "rgba(0, 0, 0, 0.62)" : "rgba(0, 0, 0, 0)",
-        backdropFilter: entered ? "blur(3px)" : "blur(0px)",
-        WebkitBackdropFilter: entered ? "blur(3px)" : "blur(0px)",
-        transitionDelay: entered ? "120ms" : "0ms",
-      }}
     >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={onDismiss}
+        className="absolute top-6 right-6 z-20 h-9 w-9 rounded-sm border border-white/35 bg-transparent text-white/80 shadow-none hover:border-white/55 hover:bg-transparent hover:text-white"
+        aria-label="Close reveal"
+      >
+        <X className="size-4" />
+      </Button>
       <LiveRevealConfetti />
       <div
-        className="pointer-events-none absolute z-[1] h-[700px] w-[600px] rounded-full"
-        style={{
-          background:
-            "radial-gradient(ellipse, rgba(21,130,125,0.18) 0%, rgba(7,61,60,0.06) 50%, transparent 70%)",
-        }}
+        className="pointer-events-none absolute z-[1] h-[700px] w-[600px] rounded-full bg-[radial-gradient(ellipse,_rgba(21,130,125,0.18)_0%,_rgba(7,61,60,0.06)_50%,_transparent_70%)]"
       />
 
       <div
-        className="relative z-10 flex w-fit max-w-[980px] flex-col items-center text-center transition-all duration-700 ease-out"
+        className={cn(
+          "relative z-10 flex w-fit max-w-[980px] flex-col items-center text-center transition-all duration-700 ease-out",
+          entered ? "translate-y-0 opacity-100" : "translate-y-[18px] opacity-0",
+        )}
         onMouseDown={(event) => event.stopPropagation()}
-        style={{
-          opacity: entered ? 1 : 0,
-          transform: entered ? "translateY(0)" : "translateY(18px)",
-        }}
       >
         <div className="-mt-16 flex flex-col items-center gap-2">
-          <span
-            className="inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-label tracking-[0.08em]"
-            style={{
-              color: "var(--color-yellow-500)",
-              borderColor: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
-              backgroundColor: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
-            }}
-          >
-            <span className="size-1.5 rounded-full" style={{ backgroundColor: "var(--color-yellow-500)" }} />
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[color-mix(in_oklch,_var(--color-yellow-500)_28%,_transparent)] bg-[color-mix(in_oklch,_var(--color-yellow-500)_12%,_transparent)] px-3 py-1.5 font-mono text-label tracking-[0.08em] text-[var(--color-yellow-500)]">
+            <span className="size-1.5 rounded-full bg-[var(--color-yellow-500)]" />
             DEPLOYING
           </span>
           <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
@@ -144,16 +145,14 @@ export function LiveRevealOverlay({
 
         <div className="mt-12 flex w-[min(82vw,330px)] flex-col items-center gap-0">
           <div
-            className="w-full scale-[1.02] drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out"
-            style={{
-              opacity: entered ? 1 : 0,
-              transform: entered ? "translateY(0) scale(1.02)" : "translateY(16px) scale(0.98)",
-            }}
+            className={cn(
+              "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",
+              entered ? "translate-y-0 scale-[1.02] opacity-100" : "translate-y-4 scale-[0.98] opacity-0",
+            )}
           >
             <HoloCard>
               <div
-                className="[&>svg]:h-auto [&>svg]:w-full"
-                style={{ borderRadius: 16, overflow: "hidden", width: "100%" }}
+                className="w-full overflow-hidden rounded-2xl [&>svg]:h-auto [&>svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: revealCardSvg }}
               />
             </HoloCard>
