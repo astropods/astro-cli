@@ -157,9 +157,6 @@ body {
   background: var(--border);
 }
 
-.dp-container-hdr:hover {
-  background: var(--popover) !important;
-}
 
 @theme inline {
   --radius-sm: calc(var(--radius) / 2);
