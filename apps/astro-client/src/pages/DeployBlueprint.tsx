@@ -114,11 +114,9 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           navigate("/agents");
           return;
         }
-        const params = new URLSearchParams({
-          revealDeploymentId: deploymentId,
-          revealAgentName: agent.name,
+        navigate("/agents", {
+          state: { revealDeploymentId: deploymentId, revealAgentName: agent.name },
         });
-        navigate(`/agents?${params.toString()}`);
       } else {
         navigate("/agents");
       }

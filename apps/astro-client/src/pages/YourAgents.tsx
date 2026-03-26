@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/YourAgents";
 import { ProtectedRoute } from "../components/ProtectedRoute";
@@ -125,15 +125,14 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const navigate = useNavigate();
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  const [showReveal, setShowReveal] = useState(false);
-
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountBlueprints } = useAccountBlueprints(userAccount, { enabled: isAuthenticated });
-  const revealDeploymentId = new URLSearchParams(location.search).get("revealDeploymentId");
-  const revealAgentName = new URLSearchParams(location.search).get("revealAgentName");
-  const revealSeenKey = revealDeploymentId ? `astro:agents-reveal-seen:${userAccount}:${revealDeploymentId}` : "";
+  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string } | null;
+  const revealDeploymentId = revealState?.revealDeploymentId ?? null;
+  const revealAgentName = revealState?.revealAgentName ?? null;
+  const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
@@ -184,29 +183,9 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
     } satisfies AgentDeployment;
   }, [data?.deployments, revealAgentName, revealDeploymentId]);
 
-  const clearRevealParam = () => {
-    const params = new URLSearchParams(location.search);
-    params.delete("revealDeploymentId");
-    params.delete("revealAgentName");
-    navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
+  const clearRevealState = () => {
+    navigate(location.pathname + location.search, { replace: true, state: {} });
   };
-
-  const markRevealSeen = () => {
-    if (!revealSeenKey || typeof window === "undefined") return;
-    window.localStorage.setItem(revealSeenKey, "1");
-  };
-
-  useEffect(() => {
-    if (showReveal) return;
-    if (!revealDeploymentId || !revealSeenKey) return;
-    const alreadySeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
-    if (alreadySeen) {
-      setShowReveal(false);
-      clearRevealParam();
-      return;
-    }
-    setShowReveal(true);
-  }, [revealDeploymentId, revealSeenKey, showReveal]);
 
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
@@ -253,13 +232,12 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
           deployment={revealDeployment}
           account={userAccount}
           onDismiss={() => {
-            markRevealSeen();
             setShowReveal(false);
-            clearRevealParam();
+            clearRevealState();
           }}
           onViewDeployment={() => {
             const targetPath = deploymentPath(userAccount, revealDeployment.id);
-            markRevealSeen();
+            window.history.replaceState({}, "", location.pathname + location.search);
             navigate(targetPath, { state: { fromAgents: true } });
           }}
         />

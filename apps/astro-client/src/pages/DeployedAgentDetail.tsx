@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { useLocation, useSearchParams, useParams, Link } from "react-router";
+import { useLocation, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
-import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 import { useDeployments } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
-import { isDeployingState, mapDeploymentStatus } from "@/lib/deployment-utils";
+import { isDeployingState } from "@/lib/deployment-utils";
 import { MetricCardSkeleton } from "@/components/deployed-agent/detail/monitor/HeadlineMetrics";
 
 
@@ -220,69 +218,15 @@ function DeployedAgentDetailSkeleton() {
 
 function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
   const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? loaderData?.account ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
-  const [showLiveReveal, setShowLiveReveal] = useState(false);
-  const [hasSeenReveal, setHasSeenReveal] = useState(false);
-  const [hasLoadedRevealSeen, setHasLoadedRevealSeen] = useState(false);
-  const trackedDeploymentIdRef = useRef<string | null>(null);
-
   const { data: deploymentsData, isLoading } = useDeployments(account, isAuthenticated);
   const deployments = deploymentsData?.deployments ?? [];
   const deployment = deployments.find((d) => d.id === deploymentId) ?? null;
-  const currentDeploymentId = deployment?.id ?? null;
-  const status = deployment ? mapDeploymentStatus(deployment) : null;
   const monitorLocked = deployment ? isDeployingState(deployment) : false;
   const isPersonal = personalAccount?.name === account;
-  const requestedFirstDeployReveal = searchParams.get("reveal") === "first-deploy";
   const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
-  const revealSeenKey = deployment
-    ? `astro:deploy-live-reveal:${account}:${deployment.name}:${deployment.id}`
-    : "";
-
-  const clearReveal = () => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("reveal");
-      next.set("tab", "deployments");
-      return next;
-    }, { replace: true });
-  };
-
-  useEffect(() => {
-    if (!currentDeploymentId) return;
-    trackedDeploymentIdRef.current = currentDeploymentId;
-    setShowLiveReveal(false);
-    setHasLoadedRevealSeen(false);
-
-    const revealSeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
-    setHasSeenReveal(revealSeen);
-    setHasLoadedRevealSeen(true);
-  }, [currentDeploymentId, revealSeenKey]);
-
-  useEffect(() => {
-    if (!deployment || !status) return;
-    if (!hasLoadedRevealSeen) return;
-    if (trackedDeploymentIdRef.current !== deployment.id) return;
-    if (requestedFirstDeployReveal && showLiveReveal) return;
-
-    if (requestedFirstDeployReveal && !hasSeenReveal && (status === "pending" || status === "active")) {
-      setShowLiveReveal(true);
-      setHasSeenReveal(true);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(revealSeenKey, "1");
-      }
-      return;
-    }
-
-    if (status === "pending") {
-      setShowLiveReveal(false);
-      return;
-    }
-    setShowLiveReveal(false);
-  }, [deployment, hasLoadedRevealSeen, hasSeenReveal, requestedFirstDeployReveal, revealSeenKey, status]);
 
   if (isLoading) {
     return <DeployedAgentDetailSkeleton />;
@@ -302,36 +246,14 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     );
   }
 
-  const backgroundDeployment = showLiveReveal
-    ? { ...deployment, status: "pending", ready: 0 }
-    : deployment;
-  const backgroundMonitorLocked = showLiveReveal ? true : monitorLocked;
-
   return (
-    <>
-      <ActiveDetailView
-        key={`${deployment.id}-${showLiveReveal ? "reveal" : "normal"}`}
-        deployment={backgroundDeployment}
-        account={account}
-        isPersonal={isPersonal}
-        monitorLocked={backgroundMonitorLocked}
-        backPathOverride={requestedFromAgents ? "/agents" : undefined}
-      />
-      {showLiveReveal && (
-        <LiveRevealOverlay
-          deployment={deployment}
-          account={account}
-          onDismiss={() => {
-            clearReveal();
-            setShowLiveReveal(false);
-          }}
-          onViewDeployment={() => {
-            clearReveal();
-            setShowLiveReveal(false);
-          }}
-        />
-      )}
-    </>
+    <ActiveDetailView
+      deployment={deployment}
+      account={account}
+      isPersonal={isPersonal}
+      monitorLocked={monitorLocked}
+      backPathOverride={requestedFromAgents ? "/agents" : undefined}
+    />
   );
 }
 
