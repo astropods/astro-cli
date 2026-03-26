@@ -17,52 +17,51 @@ Deployments move through a fixed set of statuses. Each transition is triggered b
 
 ## State Diagram
 
-```
-                          +------------------------------------+
-                          |                                    |
-                          v                                    |
-  [new]  deploy   +----------+  deploy   +--------------+      |
-  ------>-------->| pending  |---------> | provisioning |      |
-                  +----------+           +------+---+---+      |
-                    ^  ^  ^                    |   |           |
-                    |  |  |             success|   |failure    |
-          +---------+  |  +----------+         |   |           |
-          |            |             |         v   v           |
-          |         rollback      reapply  +--------+          |
-          |        (active or      (any)   | active |          |
-          |         failed)                +--+--+--+          |
-          |            |                      |  |             |
-          |     +------+-------+              |  | KEDA        |
-          |     |              |         stop |  | auto-scale  |
-          |  wakeup         wakeup            |  |             |
-          |     |              |              v  v             |
-          |  +--+-----+   +---+--------+                       |
-          |  |stopped |   |scaled_down |<--- reconcile         |
-          |  +--+-----+   +---+--------+                       |
-          |     | stop ^      |                                |
-          |     | -----+      |                                |
-          |     |             |                                |
-          +-----+-------------+                                |
-                                                               |
-                       undeploy (from any)                     |
-                              |                                |
-                              v                                |
-                      +-------------+                          |
-                      | undeploying |                          |
-                      +------+--+---+                          |
-                             |  |                              |
-                      success|  |failure                       |
-                             |  |                              |
-                             v  |    +-------------------------+
-                      +------+--+-+  |  stale timeout
-                      |  failed   |<-+  (pending >30m,
-                      +-----------+      provisioning >15m)
-                             |
-                      redeploy
-                             v
-                      +----------+
-                      |undeployed|  (terminal)
-                      +----------+
+```mermaid
+flowchart TD
+    new(( )) -->|deploy| pending
+
+    subgraph Provisioning
+        pending -->|worker picks up| provisioning
+        provisioning -->|success| active
+    end
+
+    subgraph "Stop & Resume"
+        active -->|KEDA auto-scale| scaled_down
+        active -->|user stop| stopped
+        scaled_down -->|user stop| stopped
+        scaled_down -->|wakeup| pending
+        stopped -->|wakeup| pending
+    end
+
+    subgraph Teardown
+        active -->|undeploy| undeploying
+        failed -->|undeploy| undeploying
+        scaled_down -->|undeploy| undeploying
+        stopped -->|undeploy| undeploying
+        undeploying -->|success| undeployed
+        undeploying -->|error| failed
+    end
+
+    active -->|redeploy / rollback| pending
+    failed -->|redeploy / reapply| pending
+    provisioning -->|error| failed
+    pending -->|stale &gt; 30m| failed
+    provisioning -->|stale &gt; 15m| failed
+
+    style active fill:#22c55e,color:#fff
+    style failed fill:#ef4444,color:#fff
+    style stopped fill:#f59e0b,color:#fff
+    style scaled_down fill:#f59e0b,color:#fff
+    style undeployed fill:#6b7280,color:#fff
+    style pending fill:#3b82f6,color:#fff
+    style provisioning fill:#3b82f6,color:#fff
+    style undeploying fill:#6b7280,color:#fff
+
+    linkStyle 6 stroke:#f59e0b,stroke-width:2px
+    linkStyle 7 stroke:#f59e0b,stroke-width:2px
+    linkStyle 14 stroke:#22c55e,stroke-width:2px
+    linkStyle 15 stroke:#ef4444,stroke-width:2px
 ```
 
 ## Transitions
