@@ -30,6 +30,7 @@ const (
 	DeploymentTriggerIngestion = "deployment.trigger_ingestion"
 
 	AvatarUpload = "avatar.upload"
+	AvatarPreset = "avatar.preset"
 	AvatarReset  = "avatar.reset"
 
 	QuotaApprove = "quota.approve"

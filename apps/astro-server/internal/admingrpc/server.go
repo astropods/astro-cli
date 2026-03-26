@@ -819,16 +819,13 @@ func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeployme
 	}
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			AccountID:    dep.AccountID,
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.DeploymentDelete,
-			ResourceType: "deployment",
-			ResourceID:   dep.ID,
-			ResourceName: dep.AgentName,
-			Description:  "Admin deleted deployment " + dep.AgentName,
-		})
+		evt := auditlog.ForAdmin(dep.AccountID, "grpc")
+		evt.Action = auditlog.DeploymentDelete
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Admin deleted deployment " + dep.AgentName
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.DeleteDeploymentResponse{Status: "undeploying"}, nil
@@ -857,17 +854,14 @@ func (s *Server) RestartDeployment(ctx context.Context, req *adminv1.RestartDepl
 	}
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			AccountID:    dep.AccountID,
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.DeploymentRestart,
-			ResourceType: "deployment",
-			ResourceID:   dep.ID,
-			ResourceName: dep.AgentName,
-			Description:  "Admin restarted pod " + req.Pod,
-			Metadata:     map[string]any{"pod": req.Pod, "namespace": dep.Namespace},
-		})
+		evt := auditlog.ForAdmin(dep.AccountID, "grpc")
+		evt.Action = auditlog.DeploymentRestart
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Admin restarted pod " + req.Pod
+		evt.Metadata = map[string]any{"pod": req.Pod, "namespace": dep.Namespace}
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.RestartDeploymentResponse{Status: "restarting"}, nil
@@ -1231,17 +1225,14 @@ func (s *Server) RenameAccount(ctx context.Context, req *adminv1.RenameAccountRe
 	}
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			AccountID:    req.AccountID,
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.AccountRename,
-			ResourceType: "account",
-			ResourceID:   req.AccountID,
-			ResourceName: req.NewName,
-			Description:  "Admin renamed account to " + req.NewName,
-			Metadata:     map[string]any{"new_name": req.NewName},
-		})
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.AccountRename
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.ResourceName = req.NewName
+		evt.Description = "Admin renamed account to " + req.NewName
+		evt.Metadata = map[string]any{"new_name": req.NewName}
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.RenameAccountResponse{Status: "renamed"}, nil
@@ -1452,16 +1443,13 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 	}
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			AccountID:    dep.AccountID,
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.DeploymentWakeup,
-			ResourceType: "deployment",
-			ResourceID:   dep.ID,
-			ResourceName: dep.AgentName,
-			Description:  "Admin woke up deployment " + dep.AgentName,
-		})
+		evt := auditlog.ForAdmin(dep.AccountID, "grpc")
+		evt.Action = auditlog.DeploymentWakeup
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Admin woke up deployment " + dep.AgentName
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.WakeUpDeploymentResponse{Status: "waking_up"}, nil
@@ -1497,16 +1485,13 @@ func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeployment
 	}
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			AccountID:    dep.AccountID,
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.DeploymentStop,
-			ResourceType: "deployment",
-			ResourceID:   dep.ID,
-			ResourceName: dep.AgentName,
-			Description:  "Admin stopped deployment " + dep.AgentName,
-		})
+		evt := auditlog.ForAdmin(dep.AccountID, "grpc")
+		evt.Action = auditlog.DeploymentStop
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Admin stopped deployment " + dep.AgentName
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.StopDeploymentResponse{Status: "stopped"}, nil
@@ -1544,17 +1529,14 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 	}
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			AccountID:    dep.AccountID,
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.DeploymentRollback,
-			ResourceType: "deployment",
-			ResourceID:   dep.ID,
-			ResourceName: dep.AgentName,
-			Description:  fmt.Sprintf("Admin rolled back deployment to revision %d", req.Revision),
-			Metadata:     map[string]any{"revision": req.Revision},
-		})
+		evt := auditlog.ForAdmin(dep.AccountID, "grpc")
+		evt.Action = auditlog.DeploymentRollback
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = fmt.Sprintf("Admin rolled back deployment to revision %d", req.Revision)
+		evt.Metadata = map[string]any{"revision": req.Revision}
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.RollbackDeploymentResponse{Status: "rolling_back"}, nil

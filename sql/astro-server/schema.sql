@@ -393,7 +393,7 @@ CREATE TABLE public.account_langfuse (
 
 CREATE TABLE public.audit_logs (
     id bigserial NOT NULL,
-    account_id text NOT NULL,
+    account_id uuid NOT NULL,
     actor_id text NOT NULL,
     actor_type text NOT NULL DEFAULT 'user',
     action text NOT NULL,

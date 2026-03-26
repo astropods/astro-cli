@@ -100,7 +100,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 		}
 
 		evt := auditlog.FromGinContext(c, acct.ID)
-		evt.Action = auditlog.AvatarUpload
+		evt.Action = auditlog.AvatarPreset
 		evt.ResourceType = "account"
 		evt.ResourceID = acct.ID
 		evt.ResourceName = acct.Name

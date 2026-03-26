@@ -866,7 +866,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			for i, d := range allDeployments {
 				depIDs[i] = d.ID
 			}
-			latestMap, err := auditStore.LatestPerResource(c.Request.Context(), "deployment", depIDs)
+			latestMap, err := auditStore.LatestPerResource(c.Request.Context(), acct.ID, "deployment", depIDs)
 			if err != nil {
 				log.Warn("Failed to load audit timestamps for deployments", "error", err)
 			} else {

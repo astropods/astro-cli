@@ -51,13 +51,15 @@ func ListAuditLog(log *logger.Logger, auditStore *auditlog.Store) gin.HandlerFun
 
 		limit := auditlog.ParseLimit(c.Query("limit"), 50, 200)
 
+		beforeTS, beforeID := auditlog.ParseCursor(c.Query("before"))
 		params := auditlog.QueryParams{
 			AccountID:    acct.ID,
 			ActorID:      c.Query("actor_id"),
 			ResourceType: c.Query("resource_type"),
 			ResourceID:   c.Query("resource_id"),
 			Action:       c.Query("action"),
-			Before:       auditlog.ParseBefore(c.Query("before")),
+			Before:       beforeTS,
+			BeforeID:     beforeID,
 			Limit:        limit,
 		}
 
@@ -101,7 +103,7 @@ func ListAuditLog(log *logger.Logger, auditStore *auditlog.Store) gin.HandlerFun
 		}
 
 		if hasMore && len(entries) > 0 {
-			resp.NextBefore = entries[len(entries)-1].CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00")
+			resp.NextBefore = auditlog.FormatCursor(entries[len(entries)-1])
 		}
 
 		c.JSON(http.StatusOK, resp)

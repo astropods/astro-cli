@@ -54,5 +54,6 @@ type QueryParams struct {
 	ResourceID   string
 	Action       string
 	Before       *time.Time // cursor: created_at < Before
+	BeforeID     int64      // cursor: id < BeforeID (tiebreaker)
 	Limit        int        // default 50, max 200
 }

@@ -88,15 +88,14 @@ func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQ
 	s.log.Info("Quota increase approved", "request_id", req.RequestID, "grant_amount", req.GrantAmount)
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.QuotaApprove,
-			ResourceType: "quota_request",
-			ResourceID:   req.RequestID,
-			Description:  "Admin approved quota increase",
-			Metadata:     map[string]any{"grant_amount": req.GrantAmount, "note": req.Note},
-		})
+		accountID := s.lookupQuotaRequestAccountID(ctx, req.RequestID)
+		evt := auditlog.ForAdmin(accountID, "grpc")
+		evt.Action = auditlog.QuotaApprove
+		evt.ResourceType = "quota_request"
+		evt.ResourceID = req.RequestID
+		evt.Description = "Admin approved quota increase"
+		evt.Metadata = map[string]any{"grant_amount": req.GrantAmount, "note": req.Note}
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.ApproveQuotaIncreaseResponse{Status: "approved"}, nil
@@ -125,16 +124,23 @@ func (s *Server) DenyQuotaIncrease(ctx context.Context, req *adminv1.DenyQuotaIn
 	s.log.Info("Quota increase denied", "request_id", req.RequestID)
 
 	if s.auditStore != nil {
-		s.auditStore.LogAsync(s.log, auditlog.Event{
-			ActorID:      "admin:grpc",
-			ActorType:    auditlog.ActorAdmin,
-			Action:       auditlog.QuotaDeny,
-			ResourceType: "quota_request",
-			ResourceID:   req.RequestID,
-			Description:  "Admin denied quota increase",
-			Metadata:     map[string]any{"note": req.Note},
-		})
+		accountID := s.lookupQuotaRequestAccountID(ctx, req.RequestID)
+		evt := auditlog.ForAdmin(accountID, "grpc")
+		evt.Action = auditlog.QuotaDeny
+		evt.ResourceType = "quota_request"
+		evt.ResourceID = req.RequestID
+		evt.Description = "Admin denied quota increase"
+		evt.Metadata = map[string]any{"note": req.Note}
+		s.auditStore.LogAsync(s.log, evt)
 	}
 
 	return &adminv1.DenyQuotaIncreaseResponse{Status: "denied"}, nil
+}
+
+// lookupQuotaRequestAccountID resolves the account_id for a quota request.
+// Returns empty string if the lookup fails (audit log will still record the event).
+func (s *Server) lookupQuotaRequestAccountID(ctx context.Context, requestID string) string {
+	var accountID string
+	_ = s.db.QueryRowContext(ctx, "SELECT account_id FROM quota_increase_requests WHERE id = $1", requestID).Scan(&accountID)
+	return accountID
 }

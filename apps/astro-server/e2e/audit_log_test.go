@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -385,7 +386,7 @@ func TestAuditLog_MetadataJsonb(t *testing.T) {
 	}
 	// Metadata is stored as json.RawMessage — verify it contains expected keys
 	raw := string(entries[0].Metadata)
-	if !containsSubstr(raw, "old-name") || !containsSubstr(raw, "new-name") {
+	if !strings.Contains(raw, "old-name") || !strings.Contains(raw, "new-name") {
 		t.Errorf("metadata doesn't contain expected values: %s", raw)
 	}
 }
@@ -413,7 +414,7 @@ func TestAuditLog_LatestPerResource(t *testing.T) {
 	// Single event for dep2
 	_ = store.Log(ctx, auditlog.Event{AccountID: acct.ID, ActorID: "admin:grpc", ActorType: auditlog.ActorAdmin, Action: auditlog.DeploymentWakeup, ResourceType: "deployment", ResourceID: dep2})
 
-	result, err := store.LatestPerResource(ctx, "deployment", []string{dep1, dep2, "nonexistent"})
+	result, err := store.LatestPerResource(ctx, acct.ID, "deployment", []string{dep1, dep2, "nonexistent"})
 	if err != nil {
 		t.Fatalf("LatestPerResource: %v", err)
 	}
@@ -443,15 +444,126 @@ func TestAuditLog_LatestPerResource(t *testing.T) {
 	}
 }
 
-func containsSubstr(s, sub string) bool {
-	return len(s) >= len(sub) && searchSubstr(s, sub)
+// TestAuditLog_LatestPerResource_AccountIsolation verifies that LatestPerResource
+// only returns entries scoped to the requested account, not cross-account data
+// for the same resource type.
+func TestAuditLog_LatestPerResource_AccountIsolation(t *testing.T) {
+	db := testDB(t)
+	store := auditlog.NewStore(db)
+	accountStore := account.NewAccountStore(db)
+
+	acct1 := ensureDeleteTestAccount(t, accountStore, "audit-lpr-iso1-"+deployid.New())
+	acct2 := ensureDeleteTestAccount(t, accountStore, "audit-lpr-iso2-"+deployid.New())
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM audit_logs WHERE account_id IN ($1, $2)", acct1.ID, acct2.ID)
+		_, _ = db.Exec("DELETE FROM accounts WHERE id IN ($1, $2)", acct1.ID, acct2.ID)
+	})
+
+	ctx := context.Background()
+	sharedResourceID := "shared-dep-" + deployid.New()
+
+	// Both accounts log an event for the same resource ID
+	_ = store.Log(ctx, auditlog.Event{AccountID: acct1.ID, ActorID: "user-a1", ActorType: auditlog.ActorUser, Action: auditlog.DeploymentDeploy, ResourceType: "deployment", ResourceID: sharedResourceID})
+	_ = store.Log(ctx, auditlog.Event{AccountID: acct2.ID, ActorID: "user-a2", ActorType: auditlog.ActorUser, Action: auditlog.DeploymentStop, ResourceType: "deployment", ResourceID: sharedResourceID})
+
+	// Query scoped to acct1 — should only see acct1's actor
+	result1, err := store.LatestPerResource(ctx, acct1.ID, "deployment", []string{sharedResourceID})
+	if err != nil {
+		t.Fatalf("LatestPerResource acct1: %v", err)
+	}
+	if r, ok := result1[sharedResourceID]; !ok {
+		t.Error("expected entry for acct1")
+	} else if r.ActorID != "user-a1" {
+		t.Errorf("acct1 actor_id = %q, want %q", r.ActorID, "user-a1")
+	}
+
+	// Query scoped to acct2 — should only see acct2's actor
+	result2, err := store.LatestPerResource(ctx, acct2.ID, "deployment", []string{sharedResourceID})
+	if err != nil {
+		t.Fatalf("LatestPerResource acct2: %v", err)
+	}
+	if r, ok := result2[sharedResourceID]; !ok {
+		t.Error("expected entry for acct2")
+	} else if r.ActorID != "user-a2" {
+		t.Errorf("acct2 actor_id = %q, want %q", r.ActorID, "user-a2")
+	}
 }
 
-func searchSubstr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
+// TestAuditLog_CompositeCursorPagination verifies that the (created_at, id) composite
+// cursor correctly paginates entries that share the same timestamp.
+func TestAuditLog_CompositeCursorPagination(t *testing.T) {
+	db := testDB(t)
+	store := auditlog.NewStore(db)
+	accountStore := account.NewAccountStore(db)
+
+	acct := ensureDeleteTestAccount(t, accountStore, "audit-ccursor-"+deployid.New())
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM audit_logs WHERE account_id = $1", acct.ID)
+		_, _ = db.Exec("DELETE FROM accounts WHERE id = $1", acct.ID)
+	})
+
+	ctx := context.Background()
+
+	// Insert 4 events without delays — they may share the same timestamp
+	for i := 0; i < 4; i++ {
+		_ = store.Log(ctx, auditlog.Event{
+			AccountID:    acct.ID,
+			ActorID:      "user-cc",
+			ActorType:    auditlog.ActorUser,
+			Action:       auditlog.AgentRegister,
+			ResourceType: "agent",
+			ResourceID:   deployid.New(),
+			Description:  "event",
+		})
+	}
+
+	// Fetch all to know the IDs
+	all, err := store.Query(ctx, auditlog.QueryParams{AccountID: acct.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("Query all: %v", err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(all))
+	}
+
+	// Page through with composite cursor, limit=1
+	var collected []int64
+	var cursor *time.Time
+	var cursorID int64
+
+	for {
+		entries, err := store.Query(ctx, auditlog.QueryParams{
+			AccountID: acct.ID,
+			Before:    cursor,
+			BeforeID:  cursorID,
+			Limit:     1,
+		})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if len(entries) == 0 {
+			break
+		}
+		// Take first entry (the page), remaining are for has_more detection
+		collected = append(collected, entries[0].ID)
+		cursor = &entries[0].CreatedAt
+		cursorID = entries[0].ID
+
+		if len(entries) <= 1 {
+			break // no more pages
 		}
 	}
-	return false
+
+	if len(collected) != 4 {
+		t.Errorf("composite cursor pagination collected %d entries, want 4 (collected IDs: %v)", len(collected), collected)
+	}
+
+	// Verify no duplicates
+	seen := make(map[int64]bool)
+	for _, id := range collected {
+		if seen[id] {
+			t.Errorf("duplicate entry ID %d in paginated results", id)
+		}
+		seen[id] = true
+	}
 }

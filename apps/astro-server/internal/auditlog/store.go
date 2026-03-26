@@ -107,9 +107,16 @@ func (s *Store) Query(ctx context.Context, p QueryParams) ([]Entry, error) {
 		argIdx++
 	}
 	if p.Before != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at < $%d", argIdx))
-		args = append(args, *p.Before)
-		argIdx++
+		if p.BeforeID > 0 {
+			// Composite cursor: break ties on entries with the same timestamp
+			conditions = append(conditions, fmt.Sprintf("(created_at, id) < ($%d, $%d)", argIdx, argIdx+1))
+			args = append(args, *p.Before, p.BeforeID)
+			argIdx += 2
+		} else {
+			conditions = append(conditions, fmt.Sprintf("created_at < $%d", argIdx))
+			args = append(args, *p.Before)
+			argIdx++
+		}
 	}
 
 	// Fetch one extra to determine has_more
@@ -118,7 +125,7 @@ func (s *Store) Query(ctx context.Context, p QueryParams) ([]Entry, error) {
 		       resource_name, description, metadata, ip_address, user_agent, created_at
 		FROM audit_logs WHERE `)
 	qb.WriteString(strings.Join(conditions, " AND "))
-	qb.WriteString(" ORDER BY created_at DESC LIMIT $")
+	qb.WriteString(" ORDER BY created_at DESC, id DESC LIMIT $")
 	qb.WriteString(strconv.Itoa(argIdx))
 	query := qb.String()
 	args = append(args, p.Limit+1)
@@ -164,26 +171,26 @@ type ResourceLatest struct {
 }
 
 // LatestPerResource returns the most recent audit log entry (timestamp + actor)
-// for each resource_id in the given set, scoped to a resource_type.
+// for each resource_id in the given set, scoped to an account and resource_type.
 // Missing entries have no audit history.
-func (s *Store) LatestPerResource(ctx context.Context, resourceType string, resourceIDs []string) (map[string]ResourceLatest, error) {
+func (s *Store) LatestPerResource(ctx context.Context, accountID, resourceType string, resourceIDs []string) (map[string]ResourceLatest, error) {
 	if len(resourceIDs) == 0 {
 		return nil, nil
 	}
 
-	// Build ($1, $2, ...) placeholders
+	// Build ($1, $2, ...) placeholders — $1=account_id, $2=resource_type, $3+=resource IDs
 	placeholders := make([]string, len(resourceIDs))
-	args := make([]any, 0, len(resourceIDs)+1)
-	args = append(args, resourceType)
+	args := make([]any, 0, len(resourceIDs)+2)
+	args = append(args, accountID, resourceType)
 	for i, id := range resourceIDs {
-		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		placeholders[i] = fmt.Sprintf("$%d", i+3)
 		args = append(args, id)
 	}
 
 	var qb strings.Builder
 	qb.WriteString(`SELECT DISTINCT ON (resource_id) resource_id, created_at, actor_id
 		FROM audit_logs
-		WHERE resource_type = $1 AND resource_id IN (`)
+		WHERE account_id = $1 AND resource_type = $2 AND resource_id IN (`)
 	qb.WriteString(strings.Join(placeholders, ", "))
 	qb.WriteString(`) ORDER BY resource_id, created_at DESC`)
 	query := qb.String()
@@ -228,7 +235,7 @@ func ParseLimit(s string, defaultLimit, maxLimit int) int {
 	return n
 }
 
-// ParseBefore parses an RFC3339 timestamp for cursor pagination.
+// ParseBefore parses an RFC3339 timestamp for cursor pagination (backward compat).
 func ParseBefore(s string) *time.Time {
 	if s == "" {
 		return nil
@@ -238,4 +245,27 @@ func ParseBefore(s string) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// ParseCursor parses a composite cursor "timestamp,id" for pagination.
+// Falls back to timestamp-only if the cursor has no ID component.
+func ParseCursor(s string) (*time.Time, int64) {
+	if s == "" {
+		return nil, 0
+	}
+	parts := strings.SplitN(s, ",", 2)
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return nil, 0
+	}
+	var id int64
+	if len(parts) == 2 {
+		id, _ = strconv.ParseInt(parts[1], 10, 64)
+	}
+	return &t, id
+}
+
+// FormatCursor formats a composite cursor from an Entry for next-page links.
+func FormatCursor(e Entry) string {
+	return e.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00") + "," + strconv.FormatInt(e.ID, 10)
 }
