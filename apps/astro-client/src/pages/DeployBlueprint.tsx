@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
+import type { DeployResponse } from "@/lib/api";
 
 // --- Loader & Meta ---
 
@@ -106,7 +107,17 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           // Avatar upload failure shouldn't block navigation — deployment succeeded
         }
       }
-      navigate("/agents");
+      if (result?.deployment_id) {
+        const deployResult = result as DeployResponse;
+        const deploymentId = deployResult.deployment_id;
+        if (!deploymentId) {
+          navigate("/agents");
+          return;
+        }
+        navigate(`/agents?revealDeploymentId=${encodeURIComponent(deploymentId)}`);
+      } else {
+        navigate("/agents");
+      }
     } catch {
       // Error is captured in form.deployError
     }

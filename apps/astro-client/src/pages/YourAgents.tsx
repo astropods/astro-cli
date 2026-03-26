@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/YourAgents";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { EmptyState } from "../components/EmptyState";
@@ -15,6 +16,7 @@ import { mapDeploymentStatus, formatDate } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import type { AgentDeployment } from "../lib/api";
 import { createServerApi } from "../lib/api.server";
+import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 
 function formatRelativeTime(isoString: string): string {
   const diffMs = new Date(isoString).getTime() - Date.now();
@@ -118,13 +120,18 @@ function DeployedAgentCardSkeleton() {
 }
 
 function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [showReveal, setShowReveal] = useState(false);
 
   const { personalAccount, isAuthenticated } = useAuth();
   const userAccount = personalAccount?.name ?? "";
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountBlueprints } = useAccountBlueprints(userAccount, { enabled: isAuthenticated });
+  const revealDeploymentId = new URLSearchParams(location.search).get("revealDeploymentId");
+  const revealSeenKey = revealDeploymentId ? `astro:agents-reveal-seen:${userAccount}:${revealDeploymentId}` : "";
 
   const latestBuildByName = useMemo(() => {
     const result = new Map<string, string>();
@@ -152,6 +159,34 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
       d.display_name?.toLowerCase().includes(lower),
     );
   }, [data?.deployments, filter]);
+
+  const revealDeployment = useMemo(() => {
+    if (!revealDeploymentId) return null;
+    return (data?.deployments ?? []).find((d) => d.id === revealDeploymentId) ?? null;
+  }, [data?.deployments, revealDeploymentId]);
+
+  const clearRevealParam = () => {
+    const params = new URLSearchParams(location.search);
+    params.delete("revealDeploymentId");
+    navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
+  };
+
+  const markRevealSeen = () => {
+    if (!revealSeenKey || typeof window === "undefined") return;
+    window.localStorage.setItem(revealSeenKey, "1");
+  };
+
+  useEffect(() => {
+    if (showReveal) return;
+    if (!revealDeploymentId || !revealDeployment || !revealSeenKey) return;
+    const alreadySeen = typeof window !== "undefined" && window.localStorage.getItem(revealSeenKey) === "1";
+    if (alreadySeen) {
+      setShowReveal(false);
+      clearRevealParam();
+      return;
+    }
+    setShowReveal(true);
+  }, [revealDeployment, revealDeploymentId, revealSeenKey, showReveal]);
 
   return (
     <div className="flex flex-1 flex-col p-6 md:p-8">
@@ -192,6 +227,22 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
             );
           })}
         </div>
+      )}
+      {showReveal && revealDeployment && (
+        <LiveRevealOverlay
+          deployment={revealDeployment}
+          account={userAccount}
+          onDismiss={() => {
+            markRevealSeen();
+            setShowReveal(false);
+            clearRevealParam();
+          }}
+          onViewDeployment={() => {
+            const targetPath = deploymentPath(userAccount, revealDeployment.id);
+            markRevealSeen();
+            navigate(`${targetPath}?from=agents`);
+          }}
+        />
       )}
     </div>
   );

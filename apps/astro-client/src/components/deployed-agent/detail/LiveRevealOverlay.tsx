@@ -21,12 +21,12 @@ import { generateCard, stripSvgWrapper } from "astro-trading-card";
 export function LiveRevealOverlay({
   deployment,
   account,
-  onViewMonitoring,
+  onViewDeployment,
   onDismiss,
 }: {
   deployment: AgentDeployment;
   account: string;
-  onViewMonitoring: () => void;
+  onViewDeployment: () => void;
   onDismiss: () => void;
 }) {
   const [entered, setEntered] = useState(false);
@@ -74,7 +74,7 @@ export function LiveRevealOverlay({
   const revealCardSvg = useMemo(() => generateCard(revealCardData), [revealCardData]);
   const blueprintUrl = useMemo(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/${account}/${deployment.name}`;
+    return `${origin}/share/${account}/${deployment.name}`;
   }, [account, deployment.name]);
 
   const handleShareToNetwork = (network: "x" | "linkedin") => {
@@ -126,12 +126,19 @@ export function LiveRevealOverlay({
         }}
       >
         <div className="-mt-16 flex flex-col items-center gap-2">
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-teal-300/45 bg-teal-400/18 px-3 py-1.5 font-mono text-label tracking-[0.08em] text-teal-100">
-            <span className="size-1.5 rounded-full bg-teal-100" />
-            LIVE
+          <span
+            className="inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-label tracking-[0.08em]"
+            style={{
+              color: "var(--color-yellow-500)",
+              borderColor: "color-mix(in oklch, var(--color-yellow-500) 28%, transparent)",
+              backgroundColor: "color-mix(in oklch, var(--color-yellow-500) 12%, transparent)",
+            }}
+          >
+            <span className="size-1.5 rounded-full" style={{ backgroundColor: "var(--color-yellow-500)" }} />
+            DEPLOYING
           </span>
           <h1 className="mb-0 text-[46px] leading-[1.04] font-semibold tracking-tight text-white drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)]">
-            {(deployment.display_name ?? deployment.name)} is live.
+            {(deployment.display_name ?? deployment.name)} is deploying!
           </h1>
         </div>
 
@@ -156,10 +163,10 @@ export function LiveRevealOverlay({
         <div className="mt-10 flex w-[min(82vw,330px)] flex-col items-stretch gap-2">
           <Button
             variant="default"
-            onClick={onViewMonitoring}
+            onClick={onViewDeployment}
             className="w-full gap-2 border-0 bg-teal-700 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-500"
           >
-            View monitoring <ArrowRight className="size-4" />
+            View deployment <ArrowRight className="size-4" />
           </Button>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>

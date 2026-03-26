@@ -71,6 +71,7 @@ interface ActiveDetailViewProps {
   initialTab?: 'monitor' | 'deployments';
   monitorLocked?: boolean;
   monitorLockReason?: string;
+  backPathOverride?: string;
   onRedeploy?: () => void;
 }
 
@@ -81,6 +82,7 @@ export function ActiveDetailView({
   initialTab = 'monitor',
   monitorLocked = false,
   monitorLockReason = "Available once deployment is live.",
+  backPathOverride,
   onRedeploy,
 }: ActiveDetailViewProps) {
   const navigate = useNavigate()
@@ -104,7 +106,7 @@ export function ActiveDetailView({
     ? { ...deployment, status: "pending", ready: 0 }
     : deployment;
   const displayName = renderedDeployment.display_name || renderedDeployment.name
-  const backPath = isPersonal ? '/agents' : `/${account}`
+  const backPath = backPathOverride ?? (isPersonal ? '/agents' : `/${account}`)
   const isDeploying = isDeployingState(renderedDeployment);
   const isPaused = isPausedState(renderedDeployment);
   const showConfigureAsPage = isCompact && configOpen;

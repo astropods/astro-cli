@@ -63,7 +63,6 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const [stayOnDeployments, setStayOnDeployments] = useState(false);
   const [allowMonitorTab, setAllowMonitorTab] = useState(false);
   const trackedDeploymentIdRef = useRef<string | null>(null);
-  const previousStatusRef = useRef<string | null>(null);
 
   const { data: deploymentsData } = useDeployments(account, isAuthenticated);
   const deployments = deploymentsData?.deployments ?? loaderData?.deploymentsData?.deployments ?? [];
@@ -74,8 +73,10 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const isPersonal = personalAccount?.name === account;
   const queryTab = new URLSearchParams(location.search).get("tab");
   const queryFrom = new URLSearchParams(location.search).get("from");
+  const queryReveal = new URLSearchParams(location.search).get("reveal");
   const requestedTab = queryTab === "monitor" || queryTab === "deployments" ? queryTab : null;
   const requestedFromAgents = queryFrom === "agents";
+  const requestedFirstDeployReveal = queryReveal === "first-deploy";
   const initialTab: "monitor" | "deployments" =
     (monitorLocked || stayOnDeployments)
       ? "deployments"
@@ -90,7 +91,6 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
       setAllowMonitorTab(false);
     }
     trackedDeploymentIdRef.current = currentDeploymentId;
-    previousStatusRef.current = null;
     setShowLiveReveal(false);
     setStayOnDeployments(false);
     setHasLoadedRevealSeen(false);
@@ -104,30 +104,25 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     if (!deployment || !status) return;
     if (!hasLoadedRevealSeen) return;
     if (trackedDeploymentIdRef.current !== deployment.id) return;
-    const previousStatus = previousStatusRef.current;
-    const transitionedPendingToActive = previousStatus === "pending" && status === "active";
+    if (requestedFirstDeployReveal && showLiveReveal) return;
 
-    if (status === "pending") {
+    if (requestedFirstDeployReveal && !hasSeenReveal && (status === "pending" || status === "active")) {
       setStayOnDeployments(true);
-      setShowLiveReveal(false);
-      previousStatusRef.current = status;
-      return;
-    }
-
-    if (status === "active" && !hasSeenReveal && transitionedPendingToActive) {
       setShowLiveReveal(true);
       setHasSeenReveal(true);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(revealSeenKey, "1");
       }
-      previousStatusRef.current = status;
       return;
     }
-    if (status !== "active") {
+
+    if (status === "pending") {
+      setStayOnDeployments(true);
       setShowLiveReveal(false);
+      return;
     }
-    previousStatusRef.current = status;
-  }, [deployment, hasLoadedRevealSeen, hasSeenReveal, revealSeenKey, status]);
+    setShowLiveReveal(false);
+  }, [deployment, hasLoadedRevealSeen, hasSeenReveal, requestedFirstDeployReveal, revealSeenKey, status]);
 
   useEffect(() => {
     if (requestedTab !== "monitor" || allowMonitorTab || requestedFromAgents) return;
@@ -166,6 +161,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
         isPersonal={isPersonal}
         initialTab={backgroundInitialTab}
         monitorLocked={backgroundMonitorLocked}
+        backPathOverride={requestedFromAgents ? "/agents" : undefined}
       />
       {showLiveReveal && (
         <LiveRevealOverlay
@@ -173,14 +169,16 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
           account={account}
           onDismiss={() => {
             setStayOnDeployments(true);
+            const params = new URLSearchParams(location.search);
+            params.delete("reveal");
+            navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
             setShowLiveReveal(false);
           }}
-          onViewMonitoring={() => {
-            setAllowMonitorTab(true);
+          onViewDeployment={() => {
+            setStayOnDeployments(true);
             const params = new URLSearchParams(location.search);
-            params.set("tab", "monitor");
-            navigate(`${location.pathname}?${params.toString()}`, { replace: true });
-            setStayOnDeployments(false);
+            params.delete("reveal");
+            navigate(`${location.pathname}${params.toString() ? `?${params.toString()}` : ""}`, { replace: true });
             setShowLiveReveal(false);
           }}
         />
