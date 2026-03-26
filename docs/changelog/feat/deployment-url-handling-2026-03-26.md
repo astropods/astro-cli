@@ -12,7 +12,7 @@ The deployment detail page had broken tab navigation (no back button support, de
 
 **Dead code removal** — `allowMonitorTab` (never set to true) and `stayOnDeployments` (replaced by URL) are deleted along with the tab-stripping effect.
 
-**Observability cache** — `buildTimeParams()` now rounds timestamps to 5-minute boundaries so that remounts within the same window produce identical query keys and hit TanStack Query's cache. Observability queries use `staleTime: 0` so cached data renders instantly but a background refetch always fires on mount to keep data fresh.
+**Observability cache** — Query keys now use the window name (`1h`, `24h`, `7d`) instead of timestamps, so tab switches and remounts always hit TanStack Query's cache. The `queryFn` still computes fresh time params from `Date.now()` on every fetch. Combined with `staleTime: 0`, this gives instant cached renders with an immediate background refetch using current timestamps. The request volume chart skips its entry animation when rendering from cache so that a background refetch completing mid-animation doesn't cause a visible jump.
 
 ## Migration
 
