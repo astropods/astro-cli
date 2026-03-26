@@ -379,6 +379,30 @@ CREATE TABLE public.feedback_submissions (
 
 CREATE INDEX idx_feedback_submissions_user_created ON public.feedback_submissions(user_id, created_at);
 
+CREATE TABLE public.account_encryption_keys (
+    account_id uuid NOT NULL,
+    encrypted_data_key bytea NOT NULL,
+    kms_key_arn varchar NOT NULL,
+    created_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT account_encryption_keys_pkey PRIMARY KEY (account_id),
+    CONSTRAINT account_encryption_keys_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE public.account_variables (
+    account_id uuid NOT NULL,
+    name varchar NOT NULL,
+    value text NOT NULL DEFAULT '',
+    secret boolean NOT NULL DEFAULT false,
+    nonce bytea,
+    description text NOT NULL DEFAULT '',
+    created_at timestamp NOT NULL DEFAULT now(),
+    updated_at timestamp NOT NULL DEFAULT now(),
+    CONSTRAINT account_variables_pkey PRIMARY KEY (account_id, name),
+    CONSTRAINT account_variables_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_account_variables_account ON public.account_variables(account_id);
+
 CREATE TABLE public.account_langfuse (
     account_id uuid NOT NULL,
     langfuse_project_id text NOT NULL,

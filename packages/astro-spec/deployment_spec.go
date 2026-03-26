@@ -38,6 +38,7 @@ type EndpointExpose struct {
 // present in deployment-template/v1 and must be stripped before deployment/v1.
 type Variable struct {
 	Value       string   `json:"value,omitempty" yaml:"value,omitempty"`
+	Ref         string   `json:"ref,omitempty" yaml:"ref,omitempty"` // reference to an account variable by name (deploy-time only)
 	Default     string   `json:"default,omitempty" yaml:"default,omitempty"`
 	Targets     []string `json:"targets,omitempty" yaml:"targets,omitempty"`
 	Secret      bool     `json:"secret,omitempty" yaml:"secret,omitempty"`

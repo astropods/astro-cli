@@ -36,10 +36,13 @@ func ValidateAndResolve(submitted *spec.AstroDeploymentSpec) (*ResolveResult, er
 		errs = append(errs, refErrs...)
 	}
 
-	// 3. Check required variables non-empty
+	// 3. Check required variables non-empty (ref counts as provided — resolved before this point)
 	for key, v := range submitted.Variables {
-		if !v.Optional && v.Value == "" {
+		if !v.Optional && v.Value == "" && v.Ref == "" {
 			errs = append(errs, fmt.Sprintf("variables.%s.value: required variable is empty", key))
+		}
+		if v.Value != "" && v.Ref != "" {
+			errs = append(errs, fmt.Sprintf("variables.%s: cannot set both value and ref", key))
 		}
 	}
 

@@ -1919,7 +1919,7 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, &mockQueue{}, nil, nil, nil, nil)) //nolint:staticcheck // nil EntitlementChecker, avatarStore, and omClient skip checks/emit in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, &mockQueue{}, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, avatarStore, omClient, and auditStore skip checks/emit in tests
 
 	return router, indexMock, accountMock, deployMock
 }

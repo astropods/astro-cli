@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
@@ -112,6 +113,7 @@ func prepareDeployment(
 	agentIndex *agentindex.Index,
 	cfg *config.Config,
 	deployStore *deploymentstore.Store,
+	varsStore *accountvars.Store,
 ) (*deployContext, bool) {
 	user, exists := middleware.GetUser(c)
 	if !exists {
@@ -330,6 +332,17 @@ func prepareDeployment(
 		return nil, false
 	}
 
+	// Resolve account variable refs before validation
+	if varsStore != nil {
+		if err := resolveVarReferences(c, log, submittedSpec, targetAcct.ID, varsStore, cfg); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "failed to resolve variable references",
+				"details": err.Error(),
+			})
+			return nil, false
+		}
+	}
+
 	// Validate and resolve
 	resolveResult, err := deployment.ValidateAndResolve(submittedSpec)
 	if err != nil {
@@ -388,7 +401,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -400,7 +413,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore)
 		if !ok {
 			return
 		}
@@ -553,7 +566,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, nil)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, nil, nil)
 		if !ok {
 			return
 		}

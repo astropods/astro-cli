@@ -101,6 +101,22 @@ func (d *Decryptor) Decrypt(ciphertext, nonce []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// NewEncryptorFromPlaintext creates an Encryptor from an already-decrypted data key.
+// Use this when you already have the plaintext key (e.g. from a KMS Decrypt call)
+// and the corresponding encrypted data key stored in the DB.
+// The caller is responsible for zeroing the plaintext key after this call.
+func NewEncryptorFromPlaintext(plaintextKey, encryptedDataKey []byte, kmsKeyARN string) (*Encryptor, error) {
+	gcm, err := newGCM(plaintextKey)
+	if err != nil {
+		return nil, err
+	}
+	return &Encryptor{
+		gcm:              gcm,
+		EncryptedDataKey: encryptedDataKey,
+		KMSKeyARN:        kmsKeyARN,
+	}, nil
+}
+
 func newGCM(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
