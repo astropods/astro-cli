@@ -187,7 +187,7 @@ test.describe("configure page", () => {
 
     await page.reload({ waitUntil: "networkidle" });
     await page.getByRole("button", { name: /^Deployments$/i }).click();
-    const manualContainer = page.getByRole("button", { name: /manual/i });
+    const manualContainer = page.locator(".dp-container-hdr", { hasText: /manual/i });
     await expect(manualContainer).toBeVisible({ timeout: 20_000 });
   });
 });
