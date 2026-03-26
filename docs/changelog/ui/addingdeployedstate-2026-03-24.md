@@ -1,16 +1,17 @@
-# Deployment Live Reveal and Share Flow
+# First-Deploy Reveal Flow on My Agents
 
 ## Summary
 
-Introduced a post-deploy "live reveal" experience that celebrates when a deployment becomes live, while preserving predictable navigation between Deployments and Monitor. The update also standardizes badge-sharing actions so users can share or export the deployed agent card directly from the reveal state.
+Refined the post-deploy experience so first-time deploy launches present a persistent reveal moment on `My Agents`, while preserving predictable navigation to deployment detail and back. This shifts the reveal from an in-detail transition to an entry-point experience tied to the initial deploy action.
 
 ## Design
 
-- **Deployment transition experience:** Added a full-screen reveal overlay with confetti and the generated trading-card badge when a deployment transitions into live for a new deployment identity. This avoids replaying the reveal for simple status churn while still honoring real new deployment launches.
-- **Navigation contract:** Kept background context on Deployments during reveal, and only navigate to Monitor on explicit user action (`View monitoring`). This separates celebratory state from observability workflow and prevents accidental tab jumps.
-- **Share architecture:** Consolidated sharing into a single dropdown with network actions plus deterministic asset export (`PNG`/`SVG`) from the same badge source used in the reveal, so shared artifacts match on-screen visuals.
-- **Social preview reliability:** Added a dedicated public share surface with Open Graph/Twitter metadata to improve external preview generation for network share links where platform composers do not reliably prefill rich content.
-- **UI consistency pass:** Aligned icon/button treatments and spacing in the reveal/share controls so action hierarchy is visually consistent with existing Astro client patterns.
+- **Reveal placement and timing:** The layered reveal now appears immediately after the first configure-page deploy action by routing into `My Agents` with a deployment handoff marker, instead of waiting for deployment-detail state transitions.
+- **Persistent user-controlled overlay:** The reveal remains visible until explicit user action (`View deployment` or dismiss), eliminating auto-close behavior caused by background polling and refresh cycles.
+- **One-time semantics per deployment:** A deployment-scoped local storage key ensures the reveal is only shown once for that deployment ID, even when users navigate back from deployment detail.
+- **Navigation contract:** `View deployment` opens deployment detail with `from=agents`, and back navigation returns users to `My Agents` rather than configure screens, keeping the flow coherent after the reveal handoff.
+- **Copy and status language:** Reveal copy now communicates deployment-in-progress state (`DEPLOYING`, `is deploying!`, `View deployment`) and uses the existing warning/yellow token styling for visual consistency with pending status patterns.
+- **Share target reliability:** Reveal share links point at the public share route (`/share/:account/:agentSlug`) so production social unfurls resolve against OG-tagged pages.
 
 ## Migration
 
