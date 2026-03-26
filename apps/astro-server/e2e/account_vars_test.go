@@ -3,11 +3,14 @@
 package e2e
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
+	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	spec "github.com/astropods/astro/packages/astro-spec"
 	_ "github.com/lib/pq"
 )
 
@@ -387,5 +390,196 @@ func TestAccountVars_CrossAccountIsolation(t *testing.T) {
 	}
 	if len(got2) != 0 {
 		t.Errorf("expected 0 results from acct2, got %d", len(got2))
+	}
+}
+
+// TestAccountVars_RefResolution simulates the deploy-time variable resolution flow:
+// save account variables, build a spec with ref fields, fetch and substitute.
+func TestAccountVars_RefResolution(t *testing.T) {
+	db := testDB(t)
+	accountStore := account.NewAccountStore(db)
+	varsStore := accountvars.NewStore(db)
+
+	acct := createVarsTestAccount(t, accountStore)
+	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM accounts WHERE id = $1", acct.ID) })
+
+	// Create account variables
+	for _, v := range []accountvars.AccountVariable{
+		{AccountID: acct.ID, Name: "API_KEY", Value: "sk-real-key", Secret: true},
+		{AccountID: acct.ID, Name: "LOG_LEVEL", Value: "debug", Secret: false},
+	} {
+		if err := varsStore.Save(&v); err != nil {
+			t.Fatalf("Save %s: %v", v.Name, err)
+		}
+	}
+
+	// Build a spec with refs and literal values
+	submittedSpec := &spec.AstroDeploymentSpec{
+		Variables: map[string]spec.Variable{
+			"API_KEY":   {Ref: "API_KEY", Secret: true, Targets: []string{"agent"}},
+			"LOG_LEVEL": {Ref: "LOG_LEVEL", Targets: []string{"agent"}},
+			"INLINE":    {Value: "literal-value", Targets: []string{"agent"}, Optional: true},
+		},
+	}
+
+	// Simulate resolution: fetch account vars matching refs, substitute values
+	refs := make(map[string]string)
+	for key, v := range submittedSpec.Variables {
+		if v.Ref != "" {
+			refs[key] = v.Ref
+		}
+	}
+
+	names := make([]string, 0, len(refs))
+	for _, name := range refs {
+		names = append(names, name)
+	}
+
+	acctVars, err := varsStore.GetByNames(acct.ID, names)
+	if err != nil {
+		t.Fatalf("GetByNames: %v", err)
+	}
+
+	varMap := make(map[string]*accountvars.AccountVariable, len(acctVars))
+	for i := range acctVars {
+		varMap[acctVars[i].Name] = &acctVars[i]
+	}
+
+	// Resolve
+	for varKey, acctVarName := range refs {
+		av, ok := varMap[acctVarName]
+		if !ok {
+			t.Fatalf("account variable %q not found", acctVarName)
+		}
+		v := submittedSpec.Variables[varKey]
+		v.Value = av.Value // no KMS in tests — plaintext
+		v.Ref = ""
+		submittedSpec.Variables[varKey] = v
+	}
+
+	// Verify resolved values
+	if v := submittedSpec.Variables["API_KEY"]; v.Value != "sk-real-key" || v.Ref != "" {
+		t.Errorf("API_KEY: expected resolved value 'sk-real-key', got value=%q ref=%q", v.Value, v.Ref)
+	}
+	if v := submittedSpec.Variables["LOG_LEVEL"]; v.Value != "debug" || v.Ref != "" {
+		t.Errorf("LOG_LEVEL: expected resolved value 'debug', got value=%q ref=%q", v.Value, v.Ref)
+	}
+	if v := submittedSpec.Variables["INLINE"]; v.Value != "literal-value" {
+		t.Errorf("INLINE: expected untouched value 'literal-value', got %q", v.Value)
+	}
+}
+
+// TestAccountVars_RefValidation tests that the validator correctly handles ref fields.
+func TestAccountVars_RefValidation(t *testing.T) {
+	// ref counts as provided — required variable with ref should pass
+	t.Run("ref_satisfies_required", func(t *testing.T) {
+		ds := minimalDeploySpec()
+		ds.Variables = map[string]spec.Variable{
+			"MY_KEY": {Ref: "MY_KEY", Targets: []string{"agent"}, Secret: true},
+		}
+		result, err := deployment.ValidateAndResolve(ds)
+		if err != nil {
+			t.Fatalf("ValidateAndResolve: %v", err)
+		}
+		if len(result.Errors) > 0 {
+			t.Errorf("expected no errors, got: %v", result.Errors)
+		}
+	})
+
+	// both value and ref set — should error
+	t.Run("value_and_ref_conflict", func(t *testing.T) {
+		ds := minimalDeploySpec()
+		ds.Variables = map[string]spec.Variable{
+			"MY_KEY": {Value: "inline", Ref: "MY_KEY", Targets: []string{"agent"}},
+		}
+		result, err := deployment.ValidateAndResolve(ds)
+		if err != nil {
+			t.Fatalf("ValidateAndResolve: %v", err)
+		}
+		if len(result.Errors) == 0 {
+			t.Fatal("expected validation error for value+ref conflict")
+		}
+		found := false
+		for _, e := range result.Errors {
+			if strings.Contains(e, "cannot set both value and ref") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected 'cannot set both value and ref' error, got: %v", result.Errors)
+		}
+	})
+
+	// empty required variable without ref — should error
+	t.Run("empty_required_no_ref", func(t *testing.T) {
+		ds := minimalDeploySpec()
+		ds.Variables = map[string]spec.Variable{
+			"MY_KEY": {Targets: []string{"agent"}, Secret: true},
+		}
+		result, err := deployment.ValidateAndResolve(ds)
+		if err != nil {
+			t.Fatalf("ValidateAndResolve: %v", err)
+		}
+		if len(result.Errors) == 0 {
+			t.Fatal("expected validation error for empty required variable")
+		}
+	})
+}
+
+// TestAccountVars_RefMissing tests that resolution fails when a ref points to a nonexistent account variable.
+func TestAccountVars_RefMissing(t *testing.T) {
+	db := testDB(t)
+	accountStore := account.NewAccountStore(db)
+	varsStore := accountvars.NewStore(db)
+
+	acct := createVarsTestAccount(t, accountStore)
+	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM accounts WHERE id = $1", acct.ID) })
+
+	// Don't create any account variables — refs should fail to resolve
+	refs := map[string]string{
+		"API_KEY": "NONEXISTENT_KEY",
+	}
+
+	names := []string{"NONEXISTENT_KEY"}
+	acctVars, err := varsStore.GetByNames(acct.ID, names)
+	if err != nil {
+		t.Fatalf("GetByNames: %v", err)
+	}
+
+	varMap := make(map[string]*accountvars.AccountVariable, len(acctVars))
+	for i := range acctVars {
+		varMap[acctVars[i].Name] = &acctVars[i]
+	}
+
+	// Check for missing refs
+	var missing []string
+	for varKey, acctVarName := range refs {
+		if _, ok := varMap[acctVarName]; !ok {
+			missing = append(missing, varKey+":"+acctVarName)
+		}
+	}
+	if len(missing) == 0 {
+		t.Fatal("expected missing ref error")
+	}
+	if !strings.Contains(missing[0], "NONEXISTENT_KEY") {
+		t.Errorf("expected NONEXISTENT_KEY in missing, got %v", missing)
+	}
+}
+
+// minimalDeploySpec returns a bare-minimum valid deployment spec for validation tests.
+func minimalDeploySpec() *spec.AstroDeploymentSpec {
+	return &spec.AstroDeploymentSpec{
+		Spec: "deployment/v1",
+		Source: spec.DeploymentSource{
+			Account: "test",
+			Name:    "agent",
+			Build:   "b1",
+		},
+		Agent: spec.DeploymentAgent{
+			Image: "test:latest",
+			Endpoints: map[string]spec.Endpoint{
+				"http": {Port: 8080, Protocol: "http"},
+			},
+		},
 	}
 }
