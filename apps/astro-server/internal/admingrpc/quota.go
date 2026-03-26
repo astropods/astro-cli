@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 )
 
@@ -85,6 +86,19 @@ func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQ
 	}
 
 	s.log.Info("Quota increase approved", "request_id", req.RequestID, "grant_amount", req.GrantAmount)
+
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.QuotaApprove,
+			ResourceType: "quota_request",
+			ResourceID:   req.RequestID,
+			Description:  "Admin approved quota increase",
+			Metadata:     map[string]any{"grant_amount": req.GrantAmount, "note": req.Note},
+		})
+	}
+
 	return &adminv1.ApproveQuotaIncreaseResponse{Status: "approved"}, nil
 }
 
@@ -109,5 +123,18 @@ func (s *Server) DenyQuotaIncrease(ctx context.Context, req *adminv1.DenyQuotaIn
 	}
 
 	s.log.Info("Quota increase denied", "request_id", req.RequestID)
+
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.QuotaDeny,
+			ResourceType: "quota_request",
+			ResourceID:   req.RequestID,
+			Description:  "Admin denied quota increase",
+			Metadata:     map[string]any{"note": req.Note},
+		})
+	}
+
 	return &adminv1.DenyQuotaIncreaseResponse{Status: "denied"}, nil
 }

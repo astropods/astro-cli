@@ -7,6 +7,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -21,7 +22,7 @@ type AvatarResponse struct {
 }
 
 // UploadAvatar handles POST /api/v1/accounts/:account/avatar
-func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -55,6 +56,14 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AvatarUpload
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Uploaded account avatar"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
 			AvatarVersion: version,
@@ -63,7 +72,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 }
 
 // SetAvatarPreset handles PUT /api/v1/accounts/:account/avatar/preset/:index
-func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -90,6 +99,14 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AvatarUpload
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Set account avatar preset"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
 			AvatarVersion: version,
@@ -98,7 +115,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 }
 
 // ResetAvatar handles DELETE /api/v1/accounts/:account/avatar
-func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -119,6 +136,14 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AvatarReset
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Reset account avatar"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     avatarStore.AvatarURL(acct.Name, version),
 			AvatarVersion: version,
@@ -137,7 +162,7 @@ func readAvatarUpload(c *gin.Context) ([]byte, error) {
 }
 
 // UploadBlueprintAvatar handles POST /api/v1/agents/:account/:name/avatar
-func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
+func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -165,6 +190,14 @@ func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, ava
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AvatarUpload
+		evt.ResourceType = "agent"
+		evt.ResourceID = agentName
+		evt.ResourceName = agentName
+		evt.Description = "Uploaded agent avatar"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     avatarStore.AgentAvatarURL(acct.Name, agentName, version),
 			AvatarVersion: version,
@@ -173,7 +206,7 @@ func UploadBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, ava
 }
 
 // ResetBlueprintAvatar handles DELETE /api/v1/agents/:account/:name/avatar
-func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
+func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -194,6 +227,14 @@ func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avat
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AvatarReset
+		evt.ResourceType = "agent"
+		evt.ResourceID = agentName
+		evt.ResourceName = agentName
+		evt.Description = "Reset agent avatar"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     "",
 			AvatarVersion: 0,
@@ -202,7 +243,7 @@ func ResetBlueprintAvatar(log *logger.Logger, agentIndex *agentindex.Index, avat
 }
 
 // UploadDeploymentAvatar handles POST /api/v1/deployments/:id/avatar
-func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
@@ -229,6 +270,14 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.AvatarUpload
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Uploaded deployment avatar"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     avatarStore.DeploymentAvatarURL(dep.ID, version),
 			AvatarVersion: version,
@@ -237,7 +286,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 }
 
 // ResetDeploymentAvatar handles DELETE /api/v1/deployments/:id/avatar
-func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dep, err := resolveDeployment(c, deployStore, accountStore)
 		if err != nil {
@@ -256,6 +305,14 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar version"})
 			return
 		}
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.AvatarReset
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Reset deployment avatar"
+		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, AvatarResponse{
 			AvatarURL:     "",

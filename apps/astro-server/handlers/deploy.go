@@ -14,6 +14,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
@@ -375,7 +376,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, entCheck EntitlementChecker, queue DeployQueue, avatarStore *avatar.Store, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -505,6 +506,15 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			"namespace", dctx.k8sNS,
 		)
 
+		evt := auditlog.FromGinContext(c, dctx.acct.ID)
+		evt.Action = auditlog.DeploymentDeploy
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dctx.deploymentID
+		evt.ResourceName = dctx.agentName
+		evt.Description = "Deployed agent " + dctx.agentName
+		evt.Metadata = map[string]any{"build_id": dctx.buildID, "namespace": dctx.k8sNS}
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusAccepted, deployment.DeployResponse{
 			Status:       "pending",
 			DeploymentID: dctx.deploymentID,
@@ -545,7 +555,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 }
 
 // UndeployAgent returns a handler for undeploying agents from Kubernetes
-func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, queue DeployQueue, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req deployment.UndeployRequest
 
@@ -609,6 +619,14 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			"deployment_id", dep.ID,
 			"namespace", dep.Namespace,
 		)
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentUndeploy
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Undeployed agent " + dep.AgentName
+		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusAccepted, deployment.UndeployResponse{
 			Status:       "undeploying",
@@ -1366,7 +1384,7 @@ func jobStatus(job *batchv1.Job) string {
 
 // RestartPod deletes a pod in a deployment's namespace, causing Kubernetes to recreate it.
 // POST /api/v1/deployments/:id/pods/:pod/restart
-func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -1393,6 +1411,16 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 
 		user, _ := middleware.GetUser(c)
 		log.Info("Pod restarted (deleted)", "pod", podName, "namespace", dep.Namespace, "user", user.ID)
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentRestartPod
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Restarted pod " + podName
+		evt.Metadata = map[string]any{"pod": podName, "namespace": dep.Namespace}
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, gin.H{"status": "restarting", "pod": podName})
 	}
 }
@@ -2043,7 +2071,7 @@ func GetDeploymentStatus(log *logger.Logger, accountStore *account.AccountStore,
 
 // StopDeployment scales all workloads to zero without deleting resources.
 // POST /api/v1/deployments/:id/stop
-func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2077,6 +2105,14 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sC
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentStop
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Stopped deployment " + dep.AgentName
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":        deploymentstore.StatusStopped,
 			"deployment_id": dep.ID,
@@ -2085,7 +2121,7 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sC
 }
 
 // WakeUpDeployment triggers re-provisioning of a KEDA-scaled-down deployment.
-func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
+func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -2123,6 +2159,14 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			return
 		}
 
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentWakeup
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Woke up deployment " + dep.AgentName
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":        "pending",
 			"deployment_id": dep.ID,
@@ -2131,7 +2175,7 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 }
 
 // RollbackDeployment rolls back a deployment to a previous revision.
-func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue) gin.HandlerFunc {
+func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -2183,6 +2227,15 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule rollback"})
 			return
 		}
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentRollback
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = fmt.Sprintf("Rolled back deployment to revision %d", req.Revision)
+		evt.Metadata = map[string]any{"revision": req.Revision}
+		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":           "pending",

@@ -19,6 +19,7 @@ import (
 	connectv1 "github.com/astropods/astro/packages/astro-proto/connect/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -52,6 +53,8 @@ type Server struct {
 	databaseURL    string
 	queue          *riverqueue.Queue
 
+	auditStore *auditlog.Store
+
 	// Ingress domain config — needed by RepairNormalizedSpec to regenerate ingress rows
 	ingressDomain          string
 	ingestionIngressDomain string
@@ -83,6 +86,7 @@ func New(
 	queue *riverqueue.Queue,
 	ingressDomain string,
 	ingestionIngressDomain string,
+	auditStore *auditlog.Store,
 ) *Server {
 	return &Server{
 		log:                    log,
@@ -95,6 +99,7 @@ func New(
 		queue:                  queue,
 		ingressDomain:          ingressDomain,
 		ingestionIngressDomain: ingestionIngressDomain,
+		auditStore:             auditStore,
 	}
 }
 
@@ -813,6 +818,19 @@ func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeployme
 		}
 	}
 
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			AccountID:    dep.AccountID,
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.DeploymentDelete,
+			ResourceType: "deployment",
+			ResourceID:   dep.ID,
+			ResourceName: dep.AgentName,
+			Description:  "Admin deleted deployment " + dep.AgentName,
+		})
+	}
+
 	return &adminv1.DeleteDeploymentResponse{Status: "undeploying"}, nil
 }
 
@@ -836,6 +854,20 @@ func (s *Server) RestartDeployment(ctx context.Context, req *adminv1.RestartDepl
 	err = s.k8sClient.Clientset().CoreV1().Pods(dep.Namespace).Delete(ctx, req.Pod, metav1.DeleteOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("delete pod: %w", err)
+	}
+
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			AccountID:    dep.AccountID,
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.DeploymentRestart,
+			ResourceType: "deployment",
+			ResourceID:   dep.ID,
+			ResourceName: dep.AgentName,
+			Description:  "Admin restarted pod " + req.Pod,
+			Metadata:     map[string]any{"pod": req.Pod, "namespace": dep.Namespace},
+		})
 	}
 
 	return &adminv1.RestartDeploymentResponse{Status: "restarting"}, nil
@@ -1198,6 +1230,20 @@ func (s *Server) RenameAccount(ctx context.Context, req *adminv1.RenameAccountRe
 		return nil, fmt.Errorf("account %q not found", req.AccountID)
 	}
 
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			AccountID:    req.AccountID,
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.AccountRename,
+			ResourceType: "account",
+			ResourceID:   req.AccountID,
+			ResourceName: req.NewName,
+			Description:  "Admin renamed account to " + req.NewName,
+			Metadata:     map[string]any{"new_name": req.NewName},
+		})
+	}
+
 	return &adminv1.RenameAccountResponse{Status: "renamed"}, nil
 }
 
@@ -1405,6 +1451,19 @@ func (s *Server) WakeUpDeployment(_ context.Context, req *adminv1.WakeUpDeployme
 		}
 	}
 
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			AccountID:    dep.AccountID,
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.DeploymentWakeup,
+			ResourceType: "deployment",
+			ResourceID:   dep.ID,
+			ResourceName: dep.AgentName,
+			Description:  "Admin woke up deployment " + dep.AgentName,
+		})
+	}
+
 	return &adminv1.WakeUpDeploymentResponse{Status: "waking_up"}, nil
 }
 
@@ -1435,6 +1494,19 @@ func (s *Server) StopDeployment(ctx context.Context, req *adminv1.StopDeployment
 
 	if err := s.deployStore.UpdateStatus(dep.ID, deploymentstore.StatusStopped, "Admin stop requested", nil); err != nil {
 		return nil, fmt.Errorf("update status: %w", err)
+	}
+
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			AccountID:    dep.AccountID,
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.DeploymentStop,
+			ResourceType: "deployment",
+			ResourceID:   dep.ID,
+			ResourceName: dep.AgentName,
+			Description:  "Admin stopped deployment " + dep.AgentName,
+		})
 	}
 
 	return &adminv1.StopDeploymentResponse{Status: "stopped"}, nil
@@ -1469,6 +1541,20 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 		if err := s.queue.InsertDeployJob(context.Background(), dep.ID); err != nil {
 			s.log.Warn("Failed to enqueue deploy job for rollback", "deployment_id", dep.ID, "error", err)
 		}
+	}
+
+	if s.auditStore != nil {
+		s.auditStore.LogAsync(s.log, auditlog.Event{
+			AccountID:    dep.AccountID,
+			ActorID:      "admin:grpc",
+			ActorType:    auditlog.ActorAdmin,
+			Action:       auditlog.DeploymentRollback,
+			ResourceType: "deployment",
+			ResourceID:   dep.ID,
+			ResourceName: dep.AgentName,
+			Description:  fmt.Sprintf("Admin rolled back deployment to revision %d", req.Revision),
+			Metadata:     map[string]any{"revision": req.Revision},
+		})
 	}
 
 	return &adminv1.RollbackDeploymentResponse{Status: "rolling_back"}, nil

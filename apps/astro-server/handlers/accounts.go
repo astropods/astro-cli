@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -84,7 +85,7 @@ type ProfileUser struct {
 // CreateAccount handles POST /api/v1/accounts
 // For organization accounts, also creates a WorkOS Organization and links it.
 // If omClient is non-nil, creates a corresponding OpenMeter customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, defaultPlan string) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, defaultPlan string, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -196,6 +197,15 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 
 		log.Info("Account created", "id", acct.ID, "name", acct.Name, "type", acct.Type, "user_id", user.ID)
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AccountCreate
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Created account " + acct.Name
+		evt.Metadata = map[string]any{"type": acct.Type}
+		auditStore.LogAsync(log, evt)
+
 		resp := AccountResponse{
 			ID:            acct.ID,
 			Name:          acct.Name,
@@ -274,7 +284,7 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, workos *
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
 // Soft-deletes the account, enqueues undeploy jobs for active deployments,
 // and cleans up WorkOS org best-effort.
-func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client) gin.HandlerFunc {
+func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, orgClient *org.Client, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -315,6 +325,14 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 
 		log.Info("Account deleted", "account_id", acct.ID, "account_name", acct.Name)
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AccountDelete
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Deleted account " + acct.Name
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
 	}
 }
@@ -325,7 +343,7 @@ type RenameAccountRequest struct {
 }
 
 // RenameAccount handles PUT /api/v1/accounts/:account (owner only)
-func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store) gin.HandlerFunc {
+func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RenameAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -361,6 +379,18 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 
 		log.Info("Account renamed", "id", acct.ID, "old_name", acct.Name, "new_name", req.Name)
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AccountRename
+		evt.ResourceType = "account"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = req.Name
+		evt.Description = "Renamed account from " + acct.Name + " to " + req.Name
+		evt.Metadata = map[string]any{
+			"before": map[string]any{"name": acct.Name},
+			"after":  map[string]any{"name": req.Name},
+		}
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, gin.H{
 			"message": "account renamed",
 			"name":    req.Name,
@@ -375,7 +405,7 @@ type UpdateProfileRequest struct {
 
 // UpdateProfile handles PATCH /api/v1/me (protected)
 // Updates the display name on the user's personal account.
-func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore) gin.HandlerFunc {
+func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -424,6 +454,15 @@ func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore) gin.H
 		}
 
 		log.Info("Display name updated", "user_id", user.ID, "account_id", personalAccountID)
+
+		evt := auditlog.FromGinContext(c, personalAccountID)
+		evt.Action = auditlog.ProfileUpdate
+		evt.ResourceType = "account"
+		evt.ResourceID = personalAccountID
+		evt.Description = "Updated profile display name"
+		evt.Metadata = map[string]any{"display_name": req.DisplayName}
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, UpdateProfileResponse{
 			User: &ProfileUser{
 				ID:    user.ID,

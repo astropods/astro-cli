@@ -26,6 +26,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/admingrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -333,11 +334,14 @@ func runAPI(
 		os.Exit(1)
 	}
 
+	// Create audit log store
+	auditStore := auditlog.NewStore(db)
+
 	// Register routes
-	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore)
+	setupRoutes(router, log, agentIndex, accountStore, deploymentStore, waitlistStore, heartStore, agentMetricsStore, cfg, probeHandler, k8sClient, lokiClient, orgClient, orgSync, omClient, ent, db, rq, avatarStore, auditStore)
 
 	// Start admin gRPC server
-	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain)
+	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.AdminGRPC.OpenMeterURL, cfg.Database.URL, rq, cfg.Deployment.IngressDomain, cfg.Deployment.IngestionIngressDomain, auditStore)
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
 		log.Error("Failed to start admin gRPC server", "error", grpcErr)
@@ -466,7 +470,7 @@ func runWorker(
 }
 
 // setupRoutes configures all application routes and builds the OpenAPI spec.
-func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store) {
+func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, deploymentStore *deploymentstore.Store, waitlistStore *waitlist.Store, heartStore *heartstore.Store, agentMetricsStore *metricsstore.Store, cfg *config.Config, probeHandler *handlers.ProbeHandler, k8sClient k8s.ClusterClient, lokiClient *loki.Client, orgClient *org.Client, orgSync *org.Sync, omClient *openmeter.Client, ent *middleware.Entitlements, db *sql.DB, queue *riverqueue.Queue, avatarStore *avatar.Store, auditStore *auditlog.Store) {
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
 	api := oapispec.New("Astro API", "1.0.0", "Platform for deploying and running AI agents. Provides agent-native infrastructure including models, knowledge bases, tool integrations, and observability.")
@@ -589,7 +593,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.Response(200, &handlers.ProfileResponse{}),
 			)
-			api.PATCH(protected, "/me", "Update current user profile", handlers.UpdateProfile(log, accountStore),
+			api.PATCH(protected, "/me", "Update current user profile", handlers.UpdateProfile(log, accountStore, auditStore),
 				oapispec.Tags("Profile"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.UpdateProfileRequest{}),
@@ -605,7 +609,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("limit", "Max results (default 10, max 10)", false),
 				oapispec.Response(200, &handlers.SearchAccountsResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient, cfg.OpenMeterDefaultPlan),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, omClient, cfg.OpenMeterDefaultPlan, auditStore),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),
@@ -618,7 +622,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			accountAdmin.Use(middleware.ResolveAccount(accountStore))
 			accountAdmin.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
 			{
-				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore),
+				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -626,7 +630,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.RenameAccountResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient),
+				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, orgClient, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -634,14 +638,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(500, &handlers.ErrorResponse{}),
 				)
 				if avatarStore != nil {
-					api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore),
+					api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 						oapispec.Response(400, &handlers.ErrorResponse{}),
 					)
-					api.PUT(accountAdmin, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore),
+					api.PUT(accountAdmin, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -649,7 +653,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 						oapispec.Response(400, &handlers.ErrorResponse{}),
 					)
-					api.DELETE(accountAdmin, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore),
+					api.DELETE(accountAdmin, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -678,6 +682,20 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.QuotaIncreaseListResponse{}),
 				)
+
+				// Audit log
+				api.GET(accountAdmin, "/audit-log", "List audit log entries", handlers.ListAuditLog(log, auditStore),
+					oapispec.Tags("Audit"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("resource_type", "Filter by resource type", false),
+					oapispec.QueryParam("resource_id", "Filter by resource ID", false),
+					oapispec.QueryParam("action", "Filter by action", false),
+					oapispec.QueryParam("actor_id", "Filter by actor ID", false),
+					oapispec.QueryParam("before", "Cursor for pagination (RFC3339)", false),
+					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
+					oapispec.Response(200, &handlers.AuditLogListResponse{}),
+				)
 			}
 
 			// Member management (requires org:manage permission)
@@ -692,14 +710,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(200, &handlers.ListMembersResponse{}),
 				)
 				api.POST(memberRoutes, "", "Add a member",
-					ent.Wrap(handlers.AddMember(log, orgSync, accountStore, omClient, db), "members"),
+					ent.Wrap(handlers.AddMember(log, orgSync, accountStore, omClient, db, auditStore), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Body(&handlers.AddMemberRequest{}),
 					oapispec.Response(201, &handlers.AddMemberResponse{}),
 				)
-				api.PUT(memberRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore),
+				api.PUT(memberRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore, auditStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -707,7 +725,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.ChangeMemberRoleRequest{}),
 					oapispec.Response(200, &handlers.MessageResponse{}),
 				)
-				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, omClient, db),
+				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, omClient, db, auditStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -727,14 +745,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListInvitationsResponse{}),
 				)
-				api.POST(invitationRoutes, "", "Send invitations", handlers.CreateInvitations(log, orgSync),
+				api.POST(invitationRoutes, "", "Send invitations", handlers.CreateInvitations(log, orgSync, auditStore),
 					oapispec.Tags("Invitations"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Body(&handlers.BulkInvitationRequest{}),
 					oapispec.Response(201, &handlers.BulkInvitationResponse{}),
 				)
-				api.DELETE(invitationRoutes, "/:id", "Revoke an invitation", handlers.RevokeInvitation(log, orgClient),
+				api.DELETE(invitationRoutes, "/:id", "Revoke an invitation", handlers.RevokeInvitation(log, orgClient, auditStore),
 					oapispec.Tags("Invitations"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -793,7 +811,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db), "agents", "agent_builds"),
+					ent.Wrap(handlers.RegisterAgent(log, agentIndex, omClient, cfg.Server.MinCLIVersion, db, auditStore), "agents", "agent_builds"),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -803,7 +821,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(426, &handlers.ErrorResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, omClient, db),
+				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, omClient, db, auditStore),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -811,7 +829,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Response(204, nil),
 					oapispec.Response(500, &handlers.ErrorResponse{}),
 				)
-				api.PUT(agentWriteRoutes, "/visibility", "Set agent visibility", handlers.SetAgentVisibility(log, agentIndex),
+				api.PUT(agentWriteRoutes, "/visibility", "Set agent visibility", handlers.SetAgentVisibility(log, agentIndex, auditStore),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -819,7 +837,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore),
+				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Source account name"),
@@ -831,7 +849,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 				if avatarStore != nil {
 					api.POST(agentWriteRoutes, "/avatar", "Upload blueprint avatar",
-						handlers.UploadBlueprintAvatar(log, agentIndex, avatarStore),
+						handlers.UploadBlueprintAvatar(log, agentIndex, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -839,7 +857,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 					)
 					api.DELETE(agentWriteRoutes, "/avatar", "Reset blueprint avatar",
-						handlers.ResetBlueprintAvatar(log, agentIndex, avatarStore),
+						handlers.ResetBlueprintAvatar(log, agentIndex, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -850,7 +868,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 			}
 
 			// Deployment write (deploy/undeploy/restart/trigger)
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, ent, queue, avatarStore, omClient, db),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, ent, queue, avatarStore, omClient, db, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
@@ -862,7 +880,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.Desc("Validates a fulfilled deployment spec without applying it."),
 				oapispec.Response(200, &handlers.ValidateDeploymentResponse{}),
 			)
-			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue, omClient, db),
+			api.POST(protected, "/undeploy", "Undeploy an agent", handlers.UndeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, queue, omClient, db, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&deployment.UndeployRequest{}),
@@ -873,25 +891,25 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 			)
-			api.POST(protected, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue),
+			api.POST(protected, "/deployments/:id/wakeup", "Wake up a scaled-down deployment", handlers.WakeUpDeployment(log, accountStore, deploymentStore, queue, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sClient, deploymentStore),
+			api.POST(protected, "/deployments/:id/stop", "Stop a running deployment", handlers.StopDeployment(log, accountStore, k8sClient, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue),
+			api.POST(protected, "/deployments/:id/rollback", "Rollback to a previous revision", handlers.RollbackDeployment(log, accountStore, deploymentStore, queue, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, nil),
 			)
-			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient, deploymentStore),
+			api.POST(protected, "/deployments/:id/pods/:pod/restart", "Restart a pod", handlers.RestartPod(log, accountStore, cfg, k8sClient, deploymentStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -899,7 +917,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, &handlers.RestartPodResponse{}),
 			)
-			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient, deploymentStore, cfg),
+			api.POST(protected, "/deployments/:id/ingestion/:ingestion/trigger", "Trigger an ingestion job", handlers.TriggerIngestion(log, agentIndex, accountStore, k8sClient, deploymentStore, cfg, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment namespace"),
@@ -910,14 +928,14 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 			if avatarStore != nil {
 				api.POST(protected, "/deployments/:id/avatar", "Upload deployment avatar",
-					handlers.UploadDeploymentAvatar(log, accountStore, deploymentStore, avatarStore),
+					handlers.UploadDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore),
 					oapispec.Tags("Avatars"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("id", "Deployment ID"),
 					oapispec.Response(200, &handlers.AvatarResponse{}),
 				)
 				api.DELETE(protected, "/deployments/:id/avatar", "Reset deployment avatar",
-					handlers.ResetDeploymentAvatar(log, accountStore, deploymentStore, avatarStore),
+					handlers.ResetDeploymentAvatar(log, accountStore, deploymentStore, avatarStore, auditStore),
 					oapispec.Tags("Avatars"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("id", "Deployment ID"),

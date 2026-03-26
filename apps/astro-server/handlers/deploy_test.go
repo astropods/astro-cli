@@ -116,7 +116,7 @@ func setupUndeployTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil))
+	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -1060,7 +1060,7 @@ func TestUndeploy_NoAuth(t *testing.T) {
 
 	router := gin.New()
 	// No auth middleware — user not set
-	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil))
+	router.POST("/api/v1/undeploy", UndeployAgent(log, index, accountStore, nil, deployStore, &mockQueue{}, nil, nil, nil))
 
 	body := `{"deployment_id":"some-id"}`
 	req := httptest.NewRequest("POST", "/api/v1/undeploy", strings.NewReader(body))
@@ -1711,7 +1711,7 @@ func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sql
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, &mockQueue{}, nil, nil, nil)) //nolint:staticcheck // nil EntitlementChecker, avatarStore, and omClient skip checks/emit in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, &mockQueue{}, nil, nil, nil, nil)) //nolint:staticcheck // nil EntitlementChecker, avatarStore, and omClient skip checks/emit in tests
 
 	return router, indexMock, accountMock, deployMock
 }
@@ -2099,7 +2099,7 @@ func setupWakeUpRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlm
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/deployments/:id/wakeup", WakeUpDeployment(log, accountStore, deployStore, &mockQueue{}))
+	router.POST("/api/v1/deployments/:id/wakeup", WakeUpDeployment(log, accountStore, deployStore, &mockQueue{}, nil))
 
 	return router, deployMock, accountMock
 }
@@ -2207,7 +2207,7 @@ func setupRollbackRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sq
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}))
+	router.POST("/api/v1/deployments/:id/rollback", RollbackDeployment(log, accountStore, deployStore, &mockQueue{}, nil))
 
 	return router, deployMock, accountMock
 }
@@ -2792,7 +2792,7 @@ func setupStopRouter(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmoc
 
 	router := gin.New()
 	router.Use(setAuthUser("user-1"))
-	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, k8sClient, deployStore))
+	router.POST("/api/v1/deployments/:id/stop", StopDeployment(log, accountStore, k8sClient, deployStore, nil))
 
 	return router, deployMock, accountMock
 }

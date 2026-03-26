@@ -8,6 +8,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -20,7 +21,7 @@ import (
 )
 
 // TriggerIngestion returns a handler that creates a one-shot Job for a manual ingestion trigger
-func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, cfg *config.Config) gin.HandlerFunc {
+func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, cfg *config.Config, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ingestionName := c.Param("ingestion")
 
@@ -126,6 +127,15 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 			"namespace", k8sNamespace,
 			"user", u.ID,
 		)
+
+		evt := auditlog.FromGinContext(c, dep.AccountID)
+		evt.Action = auditlog.DeploymentTriggerIngestion
+		evt.ResourceType = "deployment"
+		evt.ResourceID = dep.ID
+		evt.ResourceName = dep.AgentName
+		evt.Description = "Triggered ingestion " + ingestionName
+		evt.Metadata = map[string]any{"ingestion": ingestionName, "job": jobName}
+		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, gin.H{
 			"status":   "triggered",

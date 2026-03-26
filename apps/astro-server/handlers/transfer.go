@@ -5,6 +5,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -20,7 +21,7 @@ type TransferAgentRequest struct {
 // Moves an agent and all its versions from the source account to the target account.
 // The caller must be a member of both accounts. The agent's ECR namespace is preserved
 // so existing images continue to resolve correctly.
-func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store) gin.HandlerFunc {
+func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sourceAccountName := c.Param("account")
 		agentName := c.Param("name")
@@ -110,6 +111,18 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 			"target", req.TargetAccount,
 			"user_id", user.ID,
 		)
+
+		evt := auditlog.FromGinContext(c, sourceAcct.ID)
+		evt.Action = auditlog.AgentTransfer
+		evt.ResourceType = "agent"
+		evt.ResourceID = agentName
+		evt.ResourceName = agentName
+		evt.Description = "Transferred agent " + agentName + " to " + req.TargetAccount
+		evt.Metadata = map[string]any{
+			"source_account": sourceAccountName,
+			"target_account": req.TargetAccount,
+		}
+		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message":        "agent transferred successfully",

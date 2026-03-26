@@ -11,6 +11,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -449,7 +450,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // Registers a new agent or updates an existing one in the index.
 // Requires agents:write permission (enforced by middleware).
 // If minCLIVersion is non-empty, pushes from older CLI versions are rejected with 426.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -574,6 +575,15 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 			}
 		}
 
+		evt := auditlog.FromGinContext(c, accountID)
+		evt.Action = auditlog.AgentRegister
+		evt.ResourceType = "agent"
+		evt.ResourceID = agentName
+		evt.ResourceName = agentName
+		evt.Description = "Registered agent " + agentName
+		evt.Metadata = map[string]any{"build_id": req.BuildID}
+		auditStore.LogAsync(log, evt)
+
 		response := gin.H{
 			"message":  "Agent registered successfully",
 			"account":  accountName,
@@ -601,7 +611,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -624,6 +634,15 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 		go openmeter.EmitActiveAgents(context.Background(), omClient, db, log, acct.ID)
 
 		log.Info("Agent archived", "account", accountName, "name", agentName)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AgentArchive
+		evt.ResourceType = "agent"
+		evt.ResourceID = agentName
+		evt.ResourceName = agentName
+		evt.Description = "Archived agent " + agentName
+		auditStore.LogAsync(log, evt)
+
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -631,7 +650,7 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, omClient *openmet
 // SetAgentVisibility handles PUT /api/v1/agents/:account/:name/visibility
 // Toggles an agent between public and private visibility.
 // Requires agents:write permission (enforced by middleware).
-func SetAgentVisibility(log *logger.Logger, index *agentindex.Index) gin.HandlerFunc {
+func SetAgentVisibility(log *logger.Logger, index *agentindex.Index, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -665,6 +684,15 @@ func SetAgentVisibility(log *logger.Logger, index *agentindex.Index) gin.Handler
 			"name", agentName,
 			"visibility", req.Visibility,
 		)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AgentSetVisibility
+		evt.ResourceType = "agent"
+		evt.ResourceID = agentName
+		evt.ResourceName = agentName
+		evt.Description = "Set agent " + agentName + " visibility to " + req.Visibility
+		evt.Metadata = map[string]any{"visibility": req.Visibility}
+		auditStore.LogAsync(log, evt)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message":    "visibility updated",

@@ -23,7 +23,7 @@ func TestSetAgentVisibility_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index))
+	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	mock.ExpectExec("UPDATE agents SET visibility").
 		WithArgs("public", sqlmock.AnyArg(), "test-account-id", "my-agent").
@@ -53,7 +53,7 @@ func TestSetAgentVisibility_SetPrivate(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index))
+	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	mock.ExpectExec("UPDATE agents SET visibility").
 		WithArgs("private", sqlmock.AnyArg(), "test-account-id", "my-agent").
@@ -74,7 +74,7 @@ func TestSetAgentVisibility_InvalidVisibility(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index))
+	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	// SetVisibility will return error for invalid value
 	mock.ExpectExec("UPDATE agents SET visibility").
@@ -96,7 +96,7 @@ func TestSetAgentVisibility_MissingBody(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index))
+	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	req := httptest.NewRequest(http.MethodPut, "/agents/testaccount/my-agent/visibility", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -112,7 +112,7 @@ func TestSetAgentVisibility_AgentNotFound(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index))
+	router.PUT("/agents/:account/:name/visibility", injectTestAccount(), SetAgentVisibility(log, index, nil))
 
 	mock.ExpectExec("UPDATE agents SET visibility").
 		WithArgs("public", sqlmock.AnyArg(), "test-account-id", "nonexistent").
@@ -137,7 +137,7 @@ func TestSetAgentVisibility_NoAccount(t *testing.T) {
 
 	router := gin.New()
 	// No account injected
-	router.PUT("/agents/:account/:name/visibility", SetAgentVisibility(log, index))
+	router.PUT("/agents/:account/:name/visibility", SetAgentVisibility(log, index, nil))
 
 	body := `{"visibility": "public"}`
 	req := httptest.NewRequest(http.MethodPut, "/agents/testaccount/my-agent/visibility", strings.NewReader(body))
@@ -156,7 +156,7 @@ func TestArchiveAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil))
 
 	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
@@ -179,7 +179,7 @@ func TestArchiveAgent_NotFound(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil))
 
 	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "nonexistent").
@@ -198,7 +198,7 @@ func TestArchiveAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil))
 
 	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
@@ -229,7 +229,7 @@ func TestArchiveAgent_NoAccount(t *testing.T) {
 
 	router := gin.New()
 	// No account injected
-	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index, nil, nil))
+	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()

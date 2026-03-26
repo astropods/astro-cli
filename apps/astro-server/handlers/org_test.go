@@ -139,7 +139,7 @@ func TestAddMember_InvalidBody_MissingFields(t *testing.T) {
 
 	router := gin.New()
 	// syncSvc is nil — we test that validation fires before sync is called
-	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccount(acct, nil), AddMember(log, nil, nil, nil, nil, nil))
 
 	tests := []struct {
 		name string
@@ -168,7 +168,7 @@ func TestAddMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccount(nil, nil), AddMember(log, nil, nil, nil, nil, nil))
 
 	body := `{"user_id": "user-1", "role": "admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -188,7 +188,7 @@ func TestUpdateMemberRole_InvalidBody(t *testing.T) {
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
 
 	router := gin.New()
-	router.PUT("/members/:user_id", injectTestOrgAccount(acct, nil), UpdateMemberRole(log, nil, nil))
+	router.PUT("/members/:user_id", injectTestOrgAccount(acct, nil), UpdateMemberRole(log, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPut, "/members/user-1", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -204,7 +204,7 @@ func TestUpdateMemberRole_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.PUT("/members/:user_id", injectTestOrgAccount(nil, nil), UpdateMemberRole(log, nil, nil))
+	router.PUT("/members/:user_id", injectTestOrgAccount(nil, nil), UpdateMemberRole(log, nil, nil, nil))
 
 	body := `{"role": "admin"}`
 	req := httptest.NewRequest(http.MethodPut, "/members/user-1", strings.NewReader(body))
@@ -223,7 +223,7 @@ func TestRemoveMember_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil))
+	router.DELETE("/members/:user_id", injectTestOrgAccount(nil, nil), RemoveMember(log, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/members/user-1", nil)
 	rec := httptest.NewRecorder()
@@ -242,7 +242,7 @@ func TestCreateInvitations_NonOrgAccount(t *testing.T) {
 	user := &auth.User{ID: "user-1", Email: "test@example.com"}
 
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil))
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil, nil))
 
 	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
@@ -267,7 +267,7 @@ func TestCreateInvitations_NoAuth(t *testing.T) {
 
 	router := gin.New()
 	// No user injected
-	router.POST("/invitations", injectTestOrgAccount(acct, nil), CreateInvitations(log, nil))
+	router.POST("/invitations", injectTestOrgAccount(acct, nil), CreateInvitations(log, nil, nil))
 
 	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
@@ -286,7 +286,7 @@ func TestCreateInvitations_InvalidBody(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil))
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil, nil))
 
 	// Empty invitations array should fail
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(`{"invitations":[]}`))
@@ -303,7 +303,7 @@ func TestCreateInvitations_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccount(nil, nil), CreateInvitations(log, nil))
+	router.POST("/invitations", injectTestOrgAccount(nil, nil), CreateInvitations(log, nil, nil))
 
 	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
@@ -323,7 +323,7 @@ func TestRevokeInvitation_NoAccount(t *testing.T) {
 
 	router := gin.New()
 	// No account injected — handler should return 500
-	router.DELETE("/invitations/:id", injectTestOrgAccount(nil, nil), RevokeInvitation(log, nil))
+	router.DELETE("/invitations/:id", injectTestOrgAccount(nil, nil), RevokeInvitation(log, nil, nil))
 
 	req := httptest.NewRequest(http.MethodDelete, "/invitations/inv-123", nil)
 	rec := httptest.NewRecorder()
@@ -383,7 +383,7 @@ func TestAddMember_RoleEscalation_NonOwnerCannotAssignOwner(t *testing.T) {
 	session := &auth.Session{Role: "admin"}
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil, nil, nil))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, nil, nil, nil, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -412,7 +412,7 @@ func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
 		WillReturnError(sqlmock.ErrCancelled)
 
 	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store, nil, nil))
+	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store, nil, nil, nil))
 
 	body := `{"user_id": "new-user", "role": "owner"}`
 	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
@@ -433,7 +433,7 @@ func TestUpdateMemberRole_RoleEscalation_NonOwnerCannotPromoteToOwner(t *testing
 	session := &auth.Session{Role: "admin"}
 
 	router := gin.New()
-	router.PUT("/members/:user_id", injectTestOrgAccountWithSession(acct, caller, session), UpdateMemberRole(log, nil, nil))
+	router.PUT("/members/:user_id", injectTestOrgAccountWithSession(acct, caller, session), UpdateMemberRole(log, nil, nil, nil))
 
 	body := `{"role": "owner"}`
 	req := httptest.NewRequest(http.MethodPut, "/members/target-user", strings.NewReader(body))
@@ -453,7 +453,7 @@ func TestCreateInvitations_RoleEscalation_NonOwnerCannotInviteAsOwner(t *testing
 	session := &auth.Session{Role: "admin"}
 
 	router := gin.New()
-	router.POST("/invitations", injectTestOrgAccountWithSession(acct, caller, session), CreateInvitations(log, nil))
+	router.POST("/invitations", injectTestOrgAccountWithSession(acct, caller, session), CreateInvitations(log, nil, nil))
 
 	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "owner"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/openmeter"
@@ -63,7 +64,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore) gin.Han
 }
 
 // AddMember handles POST /api/v1/accounts/:account/members
-func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -95,13 +96,22 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 		}
 
 		log.Info("Member added", "account_id", acct.ID, "user_id", req.UserID, "role", req.Role)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.MemberAdd
+		evt.ResourceType = "member"
+		evt.ResourceID = req.UserID
+		evt.Description = "Added member with role " + req.Role
+		evt.Metadata = map[string]any{"role": req.Role}
+		auditStore.LogAsync(log, evt)
+
 		go openmeter.EmitActiveMembers(context.Background(), omClient, db, log, acct.ID)
 		c.JSON(http.StatusCreated, gin.H{"member": member})
 	}
 }
 
 // UpdateMemberRole handles PUT /api/v1/accounts/:account/members/:user_id
-func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore) gin.HandlerFunc {
+func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -134,12 +144,21 @@ func UpdateMemberRole(log *logger.Logger, syncSvc *org.Sync, accountStore *accou
 		}
 
 		log.Info("Member role updated", "account_id", acct.ID, "user_id", userID, "role", req.Role)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.MemberUpdateRole
+		evt.ResourceType = "member"
+		evt.ResourceID = userID
+		evt.Description = "Updated member role to " + req.Role
+		evt.Metadata = map[string]any{"role": req.Role}
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, gin.H{"message": "role updated"})
 	}
 }
 
 // RemoveMember handles DELETE /api/v1/accounts/:account/members/:user_id
-func RemoveMember(log *logger.Logger, syncSvc *org.Sync, omClient *openmeter.Client, db *sql.DB) gin.HandlerFunc {
+func RemoveMember(log *logger.Logger, syncSvc *org.Sync, omClient *openmeter.Client, db *sql.DB, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -159,6 +178,14 @@ func RemoveMember(log *logger.Logger, syncSvc *org.Sync, omClient *openmeter.Cli
 		}
 
 		log.Info("Member removed", "account_id", acct.ID, "user_id", userID)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.MemberRemove
+		evt.ResourceType = "member"
+		evt.ResourceID = userID
+		evt.Description = "Removed member"
+		auditStore.LogAsync(log, evt)
+
 		go openmeter.EmitActiveMembers(context.Background(), omClient, db, log, acct.ID)
 		c.JSON(http.StatusOK, gin.H{"message": "member removed"})
 	}
@@ -180,7 +207,7 @@ type InvitationEntry struct {
 
 // CreateInvitations handles POST /api/v1/accounts/:account/invitations
 // Expects {"invitations":[{value, kind, role}, ...]}.
-func CreateInvitations(log *logger.Logger, orgSync *org.Sync) gin.HandlerFunc {
+func CreateInvitations(log *logger.Logger, orgSync *org.Sync, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -235,6 +262,15 @@ func CreateInvitations(log *logger.Logger, orgSync *org.Sync) gin.HandlerFunc {
 			}
 		}
 
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.InvitationCreate
+		evt.ResourceType = "invitation"
+		evt.ResourceID = acct.ID
+		evt.ResourceName = acct.Name
+		evt.Description = "Sent invitations"
+		evt.Metadata = map[string]any{"count": len(req.Invitations)}
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusCreated, gin.H{"results": results})
 	}
 }
@@ -265,7 +301,7 @@ func ListAccountInvitations(log *logger.Logger, orgClient *org.Client) gin.Handl
 }
 
 // RevokeInvitation handles DELETE /api/v1/accounts/:account/invitations/:id
-func RevokeInvitation(log *logger.Logger, orgClient *org.Client) gin.HandlerFunc {
+func RevokeInvitation(log *logger.Logger, orgClient *org.Client, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -297,6 +333,14 @@ func RevokeInvitation(log *logger.Logger, orgClient *org.Client) gin.HandlerFunc
 		}
 
 		log.Info("Invitation revoked", "invitation_id", invitationID, "account_id", acct.ID)
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.InvitationRevoke
+		evt.ResourceType = "invitation"
+		evt.ResourceID = invitationID
+		evt.Description = "Revoked invitation"
+		auditStore.LogAsync(log, evt)
+
 		c.JSON(http.StatusOK, gin.H{"message": "invitation revoked"})
 	}
 }
