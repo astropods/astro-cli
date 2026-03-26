@@ -823,6 +823,7 @@ export interface AgentDeployment {
   ready: number;
   created_at: string;
   updated_at?: string;
+  updated_by?: string;
   components: string[];
   manual_ingestions?: string[];
   external_urls?: ServiceEndpointInfo[];

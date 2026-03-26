@@ -696,6 +696,7 @@ type AgentDeployment struct {
 	Ready            int32                 `json:"ready"`
 	CreatedAt        string                `json:"created_at"`
 	UpdatedAt        string                `json:"updated_at,omitempty"`
+	UpdatedBy        string                `json:"updated_by,omitempty"`
 	Components       []string              `json:"components"`
 	ManualIngestions []string              `json:"manual_ingestions,omitempty"`
 	ExternalURLs     []ServiceEndpointInfo `json:"external_urls,omitempty"`
@@ -870,8 +871,9 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				log.Warn("Failed to load audit timestamps for deployments", "error", err)
 			} else {
 				for i, d := range allDeployments {
-					if ts, ok := latestMap[d.ID]; ok {
-						allDeployments[i].UpdatedAt = ts.Format(time.RFC3339)
+					if latest, ok := latestMap[d.ID]; ok {
+						allDeployments[i].UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
+						allDeployments[i].UpdatedBy = latest.ActorID
 					}
 				}
 			}

@@ -157,10 +157,16 @@ func (s *Store) Query(ctx context.Context, p QueryParams) ([]Entry, error) {
 	return entries, nil
 }
 
-// LatestPerResource returns the most recent audit log timestamp for each
-// resource_id in the given set, scoped to a resource_type. Returns a map
-// from resource_id → latest created_at. Missing entries have no audit history.
-func (s *Store) LatestPerResource(ctx context.Context, resourceType string, resourceIDs []string) (map[string]time.Time, error) {
+// ResourceLatest holds the most recent audit log info for a resource.
+type ResourceLatest struct {
+	UpdatedAt time.Time
+	ActorID   string
+}
+
+// LatestPerResource returns the most recent audit log entry (timestamp + actor)
+// for each resource_id in the given set, scoped to a resource_type.
+// Missing entries have no audit history.
+func (s *Store) LatestPerResource(ctx context.Context, resourceType string, resourceIDs []string) (map[string]ResourceLatest, error) {
 	if len(resourceIDs) == 0 {
 		return nil, nil
 	}
@@ -175,10 +181,10 @@ func (s *Store) LatestPerResource(ctx context.Context, resourceType string, reso
 	}
 
 	query := fmt.Sprintf(`
-		SELECT resource_id, MAX(created_at)
+		SELECT DISTINCT ON (resource_id) resource_id, created_at, actor_id
 		FROM audit_logs
 		WHERE resource_type = $1 AND resource_id IN (%s)
-		GROUP BY resource_id
+		ORDER BY resource_id, created_at DESC
 	`, strings.Join(placeholders, ", "))
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -187,14 +193,14 @@ func (s *Store) LatestPerResource(ctx context.Context, resourceType string, reso
 	}
 	defer rows.Close() //nolint:errcheck
 
-	result := make(map[string]time.Time, len(resourceIDs))
+	result := make(map[string]ResourceLatest, len(resourceIDs))
 	for rows.Next() {
-		var resourceID string
+		var resourceID, actorID string
 		var ts time.Time
-		if err := rows.Scan(&resourceID, &ts); err != nil {
-			return nil, fmt.Errorf("failed to scan latest audit timestamp: %w", err)
+		if err := rows.Scan(&resourceID, &ts, &actorID); err != nil {
+			return nil, fmt.Errorf("failed to scan latest audit entry: %w", err)
 		}
-		result[resourceID] = ts
+		result[resourceID] = ResourceLatest{UpdatedAt: ts, ActorID: actorID}
 	}
 	return result, rows.Err()
 }

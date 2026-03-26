@@ -390,6 +390,59 @@ func TestAuditLog_MetadataJsonb(t *testing.T) {
 	}
 }
 
+func TestAuditLog_LatestPerResource(t *testing.T) {
+	db := testDB(t)
+	store := auditlog.NewStore(db)
+	accountStore := account.NewAccountStore(db)
+
+	acct := ensureDeleteTestAccount(t, accountStore, "audit-latest-"+deployid.New())
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM audit_logs WHERE account_id = $1", acct.ID)
+		_, _ = db.Exec("DELETE FROM accounts WHERE id = $1", acct.ID)
+	})
+
+	ctx := context.Background()
+	dep1 := "dep-" + deployid.New()
+	dep2 := "dep-" + deployid.New()
+
+	// Insert multiple events for dep1 — latest should win
+	_ = store.Log(ctx, auditlog.Event{AccountID: acct.ID, ActorID: "user-old", ActorType: auditlog.ActorUser, Action: auditlog.DeploymentDeploy, ResourceType: "deployment", ResourceID: dep1})
+	time.Sleep(2 * time.Millisecond)
+	_ = store.Log(ctx, auditlog.Event{AccountID: acct.ID, ActorID: "user-latest", ActorType: auditlog.ActorUser, Action: auditlog.DeploymentStop, ResourceType: "deployment", ResourceID: dep1})
+
+	// Single event for dep2
+	_ = store.Log(ctx, auditlog.Event{AccountID: acct.ID, ActorID: "admin:grpc", ActorType: auditlog.ActorAdmin, Action: auditlog.DeploymentWakeup, ResourceType: "deployment", ResourceID: dep2})
+
+	result, err := store.LatestPerResource(ctx, "deployment", []string{dep1, dep2, "nonexistent"})
+	if err != nil {
+		t.Fatalf("LatestPerResource: %v", err)
+	}
+
+	// dep1: should return the latest actor
+	if r, ok := result[dep1]; !ok {
+		t.Error("expected entry for dep1")
+	} else {
+		if r.ActorID != "user-latest" {
+			t.Errorf("dep1 actor_id = %q, want %q", r.ActorID, "user-latest")
+		}
+		if r.UpdatedAt.IsZero() {
+			t.Error("dep1 updated_at should not be zero")
+		}
+	}
+
+	// dep2: should return admin actor
+	if r, ok := result[dep2]; !ok {
+		t.Error("expected entry for dep2")
+	} else if r.ActorID != "admin:grpc" {
+		t.Errorf("dep2 actor_id = %q, want %q", r.ActorID, "admin:grpc")
+	}
+
+	// nonexistent: should be absent
+	if _, ok := result["nonexistent"]; ok {
+		t.Error("nonexistent should not have an entry")
+	}
+}
+
 func containsSubstr(s, sub string) bool {
 	return len(s) >= len(sub) && searchSubstr(s, sub)
 }
