@@ -113,14 +113,14 @@ func (s *Store) Query(ctx context.Context, p QueryParams) ([]Entry, error) {
 	}
 
 	// Fetch one extra to determine has_more
-	query := fmt.Sprintf(`
-		SELECT id, account_id, actor_id, actor_type, action, resource_type, resource_id,
+	var qb strings.Builder
+	qb.WriteString(`SELECT id, account_id, actor_id, actor_type, action, resource_type, resource_id,
 		       resource_name, description, metadata, ip_address, user_agent, created_at
-		FROM audit_logs
-		WHERE %s
-		ORDER BY created_at DESC
-		LIMIT $%d
-	`, strings.Join(conditions, " AND "), argIdx)
+		FROM audit_logs WHERE `)
+	qb.WriteString(strings.Join(conditions, " AND "))
+	qb.WriteString(" ORDER BY created_at DESC LIMIT $")
+	qb.WriteString(strconv.Itoa(argIdx))
+	query := qb.String()
 	args = append(args, p.Limit+1)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -180,12 +180,13 @@ func (s *Store) LatestPerResource(ctx context.Context, resourceType string, reso
 		args = append(args, id)
 	}
 
-	query := fmt.Sprintf(`
-		SELECT DISTINCT ON (resource_id) resource_id, created_at, actor_id
+	var qb strings.Builder
+	qb.WriteString(`SELECT DISTINCT ON (resource_id) resource_id, created_at, actor_id
 		FROM audit_logs
-		WHERE resource_type = $1 AND resource_id IN (%s)
-		ORDER BY resource_id, created_at DESC
-	`, strings.Join(placeholders, ", "))
+		WHERE resource_type = $1 AND resource_id IN (`)
+	qb.WriteString(strings.Join(placeholders, ", "))
+	qb.WriteString(`) ORDER BY resource_id, created_at DESC`)
+	query := qb.String()
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
