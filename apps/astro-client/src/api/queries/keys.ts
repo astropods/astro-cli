@@ -20,12 +20,12 @@ export const blueprintKeys = {
 };
 
 export const observabilityKeys = {
-  metrics: (deploymentId: string, params?: Record<string, string>) =>
-    ['observability', 'metrics', deploymentId, params] as const,
-  summary: (deploymentId: string, params?: Record<string, string>) =>
-    ['observability', 'summary', deploymentId, params] as const,
-  traces: (deploymentId: string, params?: Record<string, string>) =>
-    ['observability', 'traces', deploymentId, params] as const,
+  metrics: (deploymentId: string, window?: string) =>
+    ['observability', 'metrics', deploymentId, window] as const,
+  summary: (deploymentId: string, window?: string) =>
+    ['observability', 'summary', deploymentId, window] as const,
+  traces: (deploymentId: string, window?: string) =>
+    ['observability', 'traces', deploymentId, window] as const,
 };
 
 export const usageKeys = {

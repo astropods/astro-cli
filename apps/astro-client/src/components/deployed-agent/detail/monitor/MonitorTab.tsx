@@ -300,13 +300,10 @@ const WIN_BUCKET_MS: Record<"1h" | "24h" | "7d", number> = {
   "7d": 24 * 60 * 60 * 1000,
 };
 
-const ROUND_MS = 5 * 60 * 1000; // 5 minutes
-
 function buildTimeParams(win: string) {
   const hours = WIN_HOURS[win] ?? 24;
-  const endMs = Math.floor(Date.now() / ROUND_MS) * ROUND_MS;
-  const end = new Date(endMs);
-  const start = new Date(endMs - hours * 60 * 60 * 1000);
+  const end = new Date();
+  const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
   return { start_time: start.toISOString(), end_time: end.toISOString() };
 }
 
@@ -413,36 +410,36 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
   useEffect(() => {
     if (!deployment.id) return;
 
-    for (const window of OBS_WINDOWS) {
-      const params = scopedWindowParams[window];
-      const prevParams = previousWindowParams[window];
+    for (const w of OBS_WINDOWS) {
+      const params = scopedWindowParams[w];
+      const prevParams = previousWindowParams[w];
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.metrics(deployment.id, params),
+        queryKey: observabilityKeys.metrics(deployment.id, w),
         queryFn: () => api.getObservabilityMetrics(deployment.id, params),
       });
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.summary(deployment.id, params),
+        queryKey: observabilityKeys.summary(deployment.id, w),
         queryFn: () => api.getObservabilitySummary(deployment.id, params),
       });
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.traces(deployment.id, { ...params, limit: "100" }),
+        queryKey: observabilityKeys.traces(deployment.id, w),
         queryFn: () => api.getObservabilityTraces(deployment.id, { ...params, limit: "100" }),
       });
       void queryClient.prefetchQuery({
-        queryKey: observabilityKeys.summary(deployment.id, prevParams),
+        queryKey: observabilityKeys.summary(deployment.id, `prev-${w}`),
         queryFn: () => api.getObservabilitySummary(deployment.id, prevParams),
       });
     }
   }, [deployment.id, queryClient, scopedWindowParams, previousWindowParams]);
 
-  const metricsQuery = useObservabilityMetrics(deployment.id, timeParams);
-  const tracesQuery = useObservabilityTraces(deployment.id, { ...timeParams, limit: "100" });
-  const summary1hQuery = useObservabilitySummary(deployment.id, scopedWindowParams["1h"]);
-  const summary24hQuery = useObservabilitySummary(deployment.id, scopedWindowParams["24h"]);
-  const summary7dQuery = useObservabilitySummary(deployment.id, scopedWindowParams["7d"]);
-  const prevSummary1hQuery = useObservabilitySummary(deployment.id, previousWindowParams["1h"]);
-  const prevSummary24hQuery = useObservabilitySummary(deployment.id, previousWindowParams["24h"]);
-  const prevSummary7dQuery = useObservabilitySummary(deployment.id, previousWindowParams["7d"]);
+  const metricsQuery = useObservabilityMetrics(deployment.id, timeParams, { window: win });
+  const tracesQuery = useObservabilityTraces(deployment.id, { ...timeParams, limit: "100" }, { window: win });
+  const summary1hQuery = useObservabilitySummary(deployment.id, scopedWindowParams["1h"], { window: "1h" });
+  const summary24hQuery = useObservabilitySummary(deployment.id, scopedWindowParams["24h"], { window: "24h" });
+  const summary7dQuery = useObservabilitySummary(deployment.id, scopedWindowParams["7d"], { window: "7d" });
+  const prevSummary1hQuery = useObservabilitySummary(deployment.id, previousWindowParams["1h"], { window: "prev-1h" });
+  const prevSummary24hQuery = useObservabilitySummary(deployment.id, previousWindowParams["24h"], { window: "prev-24h" });
+  const prevSummary7dQuery = useObservabilitySummary(deployment.id, previousWindowParams["7d"], { window: "prev-7d" });
 
   const summaryByWin: Record<Win, typeof summary1hQuery> = {
     "1h": summary1hQuery,

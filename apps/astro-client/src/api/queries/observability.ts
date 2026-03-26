@@ -5,10 +5,10 @@ import { observabilityKeys } from './keys';
 export function useObservabilityMetrics(
   deploymentId: string,
   params?: Record<string, string>,
-  opts?: { enabled?: boolean },
+  opts?: { enabled?: boolean; window?: string },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.metrics(deploymentId, params),
+    queryKey: observabilityKeys.metrics(deploymentId, opts?.window),
     queryFn: () => api.getObservabilityMetrics(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     staleTime: 0,
@@ -22,10 +22,10 @@ export function useObservabilityMetrics(
 export function useObservabilitySummary(
   deploymentId: string,
   params?: Record<string, string>,
-  opts?: { enabled?: boolean },
+  opts?: { enabled?: boolean; window?: string },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.summary(deploymentId, params),
+    queryKey: observabilityKeys.summary(deploymentId, opts?.window),
     queryFn: () => api.getObservabilitySummary(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     staleTime: 0,
@@ -39,10 +39,10 @@ export function useObservabilitySummary(
 export function useObservabilityTraces(
   deploymentId: string,
   params?: Record<string, string>,
-  opts?: { enabled?: boolean },
+  opts?: { enabled?: boolean; window?: string },
 ) {
   return useQuery({
-    queryKey: observabilityKeys.traces(deploymentId, params),
+    queryKey: observabilityKeys.traces(deploymentId, opts?.window),
     queryFn: () => api.getObservabilityTraces(deploymentId, params),
     enabled: (opts?.enabled ?? true) && !!deploymentId,
     staleTime: 0,
