@@ -63,13 +63,29 @@ Query key: `deploymentKeys.detail(account, id)`, add to `src/api/queries/keys.ts
 
 ### Approach
 
-Convert the loop to a fan-out using `golang.org/x/sync/errgroup` (already in `go.mod`). Each deployment gets its own goroutine. Results are merged into a slice with a mutex or pre-allocated by index.
+Convert the loop to a fan-out using `golang.org/x/sync/errgroup` (already in `go.mod`). Each deployment gets its own goroutine. Results are pre-allocated by index to avoid a mutex. K8s errors fall back to the DB-only entry and do not cancel other goroutines.
 
-Error handling: a K8s error for one namespace falls back to the DB-only entry (same behavior as today) and does not cancel other goroutines.
+`firstSeenAt` queries run inside the same goroutine. The audit log and avatar resolution passes after the fan-out are already bulk queries and do not need parallelization.
 
-`firstSeenAt` queries (`deployStore.GetDeploymentFirstEventAt`) also run per-deployment, include in the same goroutine to avoid a second sequential pass.
+```go
+// before: sequential, total time = N x k8s latency
+for _, dbDep := range dbDeps {
+    result := fetchFromK8s(dbDep) // blocks until complete
+    allDeployments = append(allDeployments, result)
+}
 
-The audit log and avatar resolution passes after the fan-out are already bulk queries and do not need parallelization.
+// after: parallel, total time = 1 x k8s latency
+results := make([]AgentDeployment, len(dbDeps))
+g, gctx := errgroup.WithContext(ctx)
+for i, dbDep := range dbDeps {
+    i, dbDep := i, dbDep
+    g.Go(func() error {
+        results[i] = fetchFromK8s(gctx, dbDep) // runs concurrently
+        return nil // errors fall back to DB entry, never propagate
+    })
+}
+g.Wait()
+```
 
 ## 3. Redis cache for K8s namespace state
 
