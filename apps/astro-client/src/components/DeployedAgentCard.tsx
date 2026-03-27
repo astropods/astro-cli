@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
-import { AgentIdentity } from "@/components/AgentIdentity";
+import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { InlineBadge } from "@/components/InlineBadge";
 import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
 import {
@@ -15,13 +15,38 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
-import { useAgent } from "@/api/queries/agents";
-import { getAgentIntegrations } from "@/lib/agent-utils";
+import { useBlueprint } from "@/api/queries/blueprints";
+import { getBlueprintIntegrations } from "@/lib/blueprint-utils";
 import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { generateIdentity } from "identity-gen";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "undeploying" | "error";
+
+function formatRelativeTime(isoString: string): string {
+  const diffMs = new Date(isoString).getTime() - Date.now();
+  const diffSecs = Math.round(diffMs / 1000);
+  const diffMins = Math.round(diffSecs / 60);
+  const diffHours = Math.round(diffMins / 60);
+  const diffDays = Math.round(diffHours / 24);
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  if (Math.abs(diffSecs) < 60) return "less than a minute ago";
+  if (Math.abs(diffMins) < 60) return rtf.format(diffMins, "minute");
+  if (Math.abs(diffHours) < 24) return rtf.format(diffHours, "hour");
+  return rtf.format(diffDays, "day");
+}
+
+function formatDateTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export interface DeployedAgentCardProps {
   name: string;
@@ -37,6 +62,7 @@ export interface DeployedAgentCardProps {
   avatarUrl?: string;
   hasNewBuildAvailable?: boolean;
   className?: string;
+  linkState?: Record<string, unknown>;
 }
 
 function MetricCell({ label, value }: { label: string; value: string }) {
@@ -62,21 +88,20 @@ export function DeployedAgentCard({
   avatarUrl,
   hasNewBuildAvailable = false,
   className,
+  linkState,
 }: DeployedAgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
 
   const copyId = () => {
-    navigator.clipboard.writeText(deploymentId);
-    setCopied(true);
-    setTimeout(() => { setCopied(false); setMenuOpen(false); }, 1600);
+    void copyToClipboard(deploymentId);
   };
 
   // Fetch agent data on demand for integrations (only when share modal is open)
-  const { data: agent } = useAgent(account, name, { enabled: shareOpen });
-  const integrations = agent ? getAgentIntegrations(agent) : [];
+  const { data: agent } = useBlueprint(account, name, { enabled: shareOpen });
+  const integrations = agent ? getBlueprintIntegrations(agent) : [];
 
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
     if (avatarUrl) return { url: avatarUrl };
@@ -90,7 +115,7 @@ export function DeployedAgentCard({
     account,
     avatar: cardAvatar,
     stats: [
-      { label: "Deployed", value: installedAt },
+      { label: "Deployed", value: formatDateTime(installedAt) },
       { label: "From", value: `${account}/${name}` },
     ],
     barcodeId: deploymentId,
@@ -98,7 +123,7 @@ export function DeployedAgentCard({
   }), [name, displayName, account, cardAvatar, installedAt, deploymentId]);
 
   const cardClassName = cn(
-    "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-background px-4 py-3 transition-all duration-150",
+    "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-white px-4 py-3 transition-all duration-150",
     href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400" : "cursor-default opacity-70",
     className,
   );
@@ -152,7 +177,7 @@ export function DeployedAgentCard({
             className="h-9 w-9 shrink-0 rounded-sm object-cover"
           />
         ) : (
-          <AgentIdentity
+          <BlueprintIdentity
             account={account}
             name={name}
             size={36}
@@ -183,8 +208,8 @@ export function DeployedAgentCard({
       <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
         <MetricCell label="Requests" value={requests.toLocaleString()} />
         <MetricCell label="Last active" value={lastActive} />
-        <MetricCell label="Deployed" value={installedAt} />
-        <MetricCell label="Updated" value={updatedAt} />
+        <MetricCell label="Deployed" value={formatDateTime(installedAt)} />
+        <MetricCell label="Updated" value={formatRelativeTime(updatedAt)} />
       </div>
     </>
   );
@@ -192,7 +217,7 @@ export function DeployedAgentCard({
   return (
     <>
       {href ? (
-        <Link to={href} className={cardClassName}>{cardContent}</Link>
+        <Link to={href} state={linkState} className={cardClassName}>{cardContent}</Link>
       ) : (
         <div className={cardClassName}>{cardContent}</div>
       )}
