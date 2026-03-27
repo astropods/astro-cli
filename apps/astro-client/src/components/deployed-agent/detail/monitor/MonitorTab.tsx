@@ -1025,12 +1025,13 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                   <Button
                     variant="ghost"
                     size="sm"
+                    className="font-medium"
                     onClick={() => setShowAllTraces((prev) => !prev)}
                   >
                     {showAllTraces ? (
-                      <>See less <ChevronUpIcon className="h-3.5 w-3.5" /></>
+                      <>Show less <ChevronUpIcon className="h-3.5 w-3.5" /></>
                     ) : (
-                      <>See {visibleTraces.length - 4} more <ChevronDownIcon className="h-3.5 w-3.5" /></>
+                      <>Show {visibleTraces.length - 4} more <ChevronDownIcon className="h-3.5 w-3.5" /></>
                     )}
                   </Button>
                 </div>
