@@ -359,7 +359,7 @@ function buildRequestVolumeSeries(
     const label =
       win === "7d"
         ? d.toLocaleDateString([], { month: "short", day: "numeric" })
-        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 
     return {
       t: label,
@@ -489,6 +489,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
+      hour12: false,
     }),
     tokens: t.total_tokens ?? 0,
     input: typeof t.input === "string" ? t.input : t.input != null ? JSON.stringify(t.input, null, 2) : undefined,
@@ -922,7 +923,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <ChevronDown size={I.xs} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-                        <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
+                        <span style={{ fontFamily: S.body, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
                       </div>
                       {!isCompact ? <span /> : null}
                       <div style={{ width: "100%", display: "flex", justifyContent: "flex-start" }}>
