@@ -64,9 +64,9 @@ const I = {
   lg: 16,
 } as const;
 
-type TraceStatus = "success" | "error" | "timeout";
+export type TraceStatus = "success" | "error" | "timeout";
 
-interface TraceRow {
+export interface TraceRow {
   id: string;
   name: string;
   status: TraceStatus;
@@ -77,7 +77,7 @@ interface TraceRow {
   output?: string;
 }
 
-const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: CSSProperties }> = {
+export const TRACE_STATUS_STYLE: Record<TraceStatus, { label: string; badgeStyle: CSSProperties }> = {
   success: {
     label: "Success",
     badgeStyle: {
@@ -105,7 +105,7 @@ function fmtTokens(n: number) {
   return Math.round(n).toLocaleString();
 }
 
-function formatLatencyMs(ms: number): string {
+export function formatLatencyMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -359,7 +359,7 @@ function buildRequestVolumeSeries(
     const label =
       win === "7d"
         ? d.toLocaleDateString([], { month: "short", day: "numeric" })
-        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
     return {
       t: label,
@@ -369,7 +369,12 @@ function buildRequestVolumeSeries(
   });
 }
 
-export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
+export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisibleTracesChange }: {
+  deployment: AgentDeployment;
+  selectedTraceId?: string | null;
+  onSelectTrace?: (trace: TraceRow) => void;
+  onVisibleTracesChange?: (traces: TraceRow[]) => void;
+}) {
   const queryClient = useQueryClient();
   const [isCompact, setIsCompact] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -489,7 +494,6 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-      hour12: false,
     }),
     tokens: t.total_tokens ?? 0,
     input: typeof t.input === "string" ? t.input : t.input != null ? JSON.stringify(t.input, null, 2) : undefined,
@@ -510,6 +514,10 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
     if (traceStatuses.length > 0 && !traceStatuses.includes(t.status)) return false;
     return true;
   });
+
+  useEffect(() => {
+    onVisibleTracesChange?.(visibleTraces);
+  }, [visibleTraces, onVisibleTracesChange]);
 
   const toggleTrace = (id: string) =>
     setExpanded((prev) => {
@@ -912,8 +920,8 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
-                      onClick={() => toggleTrace(trace.id)}
-                      style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, padding: traceRowPadding, cursor: "pointer", alignItems: "center", transition: "background 0.1s" }}
+                      onClick={() => { toggleTrace(trace.id); onSelectTrace?.(trace); }}
+                      style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, padding: traceRowPadding, cursor: "pointer", alignItems: "center", transition: "background 0.1s", background: selectedTraceId === trace.id ? C.bgDeep : "transparent" }}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = C.bgDeep;
                       }}
@@ -923,7 +931,7 @@ export function MonitorTab({ deployment }: { deployment: AgentDeployment }) {
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <ChevronDown size={I.xs} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-                        <span style={{ fontFamily: S.body, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
+                        <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
                       </div>
                       {!isCompact ? <span /> : null}
                       <div style={{ width: "100%", display: "flex", justifyContent: "flex-start" }}>
