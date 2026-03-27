@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
 import type { TraceRow } from "./monitor/MonitorTab";
-import { TraceDetailPanelV2 as TraceDetailPanel } from "./monitor/TraceDetailPanelV2";
+import { TraceDetailPanel } from "./monitor/TraceDetailPanel";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
 

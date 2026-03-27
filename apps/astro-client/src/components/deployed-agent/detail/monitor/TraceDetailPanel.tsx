@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, ArrowUpRight, ArrowDownLeft, ChevronRight } from "lucide-react";
 import { QueueListIcon, ChevronUpIcon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { StyledMarkdown } from "@/components/StyledMarkdown";
@@ -19,22 +19,81 @@ interface TraceDetailPanelProps {
   fullPage?: boolean;
 }
 
-export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavigate, fullPage = false }: TraceDetailPanelProps) {
-  const [tab, setTab] = useState<"input" | "output">("input");
+function SectionAccordion({
+  label,
+  icon,
+  content,
+  emptyMessage,
+  defaultOpen = true,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  content: string | undefined;
+  emptyMessage: string;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const [copied, setCopied] = useState(false);
-  const st = TRACE_STATUS_STYLE[trace.status];
-  const activeContent = tab === "input" ? (trace.input ?? "") : (trace.output ?? "");
 
-  const handleCopy = () => {
-    if (!activeContent) return;
-    void navigator.clipboard.writeText(activeContent);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!content) return;
+    void navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };
 
   return (
+    <div className="border border-border rounded-md overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2.5 px-4 py-2 text-left bg-muted/40 hover:bg-muted transition-colors cursor-pointer"
+      >
+        <ChevronRight
+          className="size-3.5 text-muted-foreground shrink-0 transition-transform duration-200"
+          style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
+        />
+        <span className="flex items-center gap-2 text-body font-semibold text-foreground">
+          {icon}
+          {label}
+        </span>
+        <span className="flex-1" />
+        {content && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground shrink-0"
+            onClick={handleCopy}
+            aria-label={`Copy ${label.toLowerCase()}`}
+          >
+            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          </Button>
+        )}
+      </button>
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-border px-4 py-3 [&>*:first-child]:mt-0">
+            {content ? (
+              <StyledMarkdown className="text-body [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{content}</StyledMarkdown>
+            ) : (
+              <span className="text-body text-muted-foreground">{emptyMessage}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavigate, fullPage = false }: TraceDetailPanelProps) {
+  const st = TRACE_STATUS_STYLE[trace.status];
+
+  return (
     <div className={fullPage ? "flex flex-1 flex-col overflow-hidden" : PANEL_SHELL_CLASS}>
-      {/* Header — matches ConfigurePanel pattern */}
       <div className={PANEL_HEADER_CLASS}>
         <QueueListIcon className="size-3.5 text-primary shrink-0" />
         <span className="flex-1 text-heading-4 font-semibold text-foreground">Traces</span>
@@ -63,71 +122,31 @@ export function TraceDetailPanel({ trace, onClose, canGoPrev, canGoNext, onNavig
         </Button>
       </div>
 
-      {/* Metadata strip — two rows */}
       <div className="flex shrink-0 flex-col gap-1 border-b border-border px-5 py-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[13px] text-foreground">{trace.time}</span>
+          <span className="font-mono text-body text-foreground">{trace.time}</span>
           <InlineBadge variant="soft" style={st.badgeStyle}>{st.label}</InlineBadge>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[12px] text-muted-foreground">{formatLatencyMs(trace.latency)}</span>
-          <span className="text-muted-foreground text-[11px]">·</span>
-          <span className="font-mono text-[12px] text-muted-foreground">{trace.tokens > 0 ? `${trace.tokens.toLocaleString()} tokens` : "—"}</span>
+          <span className="font-mono text-body-sm text-muted-foreground">{formatLatencyMs(trace.latency)}</span>
+          <span className="text-muted-foreground text-label">·</span>
+          <span className="font-mono text-body-sm text-muted-foreground">{trace.tokens > 0 ? `${trace.tokens.toLocaleString()} tokens` : "—"}</span>
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex shrink-0 border-b border-border px-5">
-        {(["input", "output"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            style={{
-              fontFamily: "var(--font-sans), sans-serif",
-              fontSize: 13,
-              fontWeight: tab === t ? 600 : 400,
-              color: tab === t ? "var(--foreground)" : "var(--faint-foreground)",
-              background: "none",
-              border: "none",
-              borderBottom: tab === t ? "2px solid var(--color-teal-600)" : "2px solid transparent",
-              padding: "10px 0",
-              marginRight: 16,
-              cursor: "pointer",
-              transition: "color 0.15s",
-            }}
-          >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <div className="relative flex-1 overflow-y-auto px-5 py-4">
-        {activeContent && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-3 top-3 size-6 text-muted-foreground"
-            onClick={handleCopy}
-            aria-label={`Copy ${tab}`}
-          >
-            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-          </Button>
-        )}
-        {tab === "input" ? (
-          trace.input ? (
-            <StyledMarkdown className="text-[13px]">{trace.input}</StyledMarkdown>
-          ) : (
-            <span className="font-sans text-[13px] text-muted-foreground">—</span>
-          )
-        ) : trace.output ? (
-          <StyledMarkdown className="text-[13px]">{trace.output}</StyledMarkdown>
-        ) : (
-          <span className="font-mono text-[13px] text-[var(--color-coral-600)]">
-            Trace did not complete — no output recorded
-          </span>
-        )}
+      <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+        <SectionAccordion
+          label="Input"
+          icon={<ArrowUpRight className="size-3.5 text-muted-foreground" />}
+          content={trace.input}
+          emptyMessage="—"
+        />
+        <SectionAccordion
+          label="Output"
+          icon={<ArrowDownLeft className="size-3.5 text-muted-foreground" />}
+          content={trace.output}
+          emptyMessage="Trace did not complete — no output recorded"
+        />
       </div>
     </div>
   );
