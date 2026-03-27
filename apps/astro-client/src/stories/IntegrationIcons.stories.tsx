@@ -15,6 +15,8 @@ const KNOWN_IDS = [
   "figma",
   "gcp",
   "github",
+  "gitlab",
+  "bitbucket",
   "gmail",
   "google-calendar",
   "google-drive",

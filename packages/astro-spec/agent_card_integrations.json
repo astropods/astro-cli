@@ -1,6 +1,8 @@
 [
   { "id": "slack", "name": "Slack", "aliases": ["slackbot", "slack-bot"] },
   { "id": "github", "name": "GitHub", "aliases": ["gh", "github.com", "github-api"] },
+  { "id": "gitlab", "name": "GitLab", "aliases": ["gitlab.com", "gitlab-api"] },
+  { "id": "bitbucket", "name": "Bitbucket", "aliases": ["bitbucket.org", "bitbucket-api"] },
   { "id": "linear", "name": "Linear", "aliases": ["linear-app", "linear.app"] },
   { "id": "notion", "name": "Notion", "aliases": ["notion-api", "notion.so"] },
   { "id": "google-drive", "name": "Google Drive", "aliases": ["gdrive", "drive", "google-docs", "google docs"] },

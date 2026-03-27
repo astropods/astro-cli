@@ -7,5 +7,6 @@ export { BlueprintDetailSkeleton } from "./BlueprintDetailSkeleton";
 export { CapabilitiesList } from "./CapabilitiesList";
 export { RequiredAppsList } from "./RequiredAppsList";
 export { SidebarAuthor } from "./SidebarAuthor";
+export { SidebarRepository } from "./SidebarRepository";
 export { SidebarSection } from "./SidebarSection";
 export { SidebarStats } from "./SidebarStats";

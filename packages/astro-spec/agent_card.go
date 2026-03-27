@@ -28,8 +28,94 @@ type AgentCard struct {
 	Description  string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Tags         []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
 	Authors      []AgentCardAuthor `json:"authors,omitempty" yaml:"authors,omitempty"`
+	Repository   *AgentCardRepo    `json:"repository,omitempty" yaml:"repository,omitempty"`
 	Capabilities []string          `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Integrations []string          `json:"-" yaml:"integrations,omitempty"`
+}
+
+// AgentCardRepo represents a source-code repository pointer. It can be specified
+// as a shorthand string (e.g. "github:user/repo") or as an object with type, url,
+// and optional directory.
+type AgentCardRepo struct {
+	Type      string `json:"type,omitempty" yaml:"type,omitempty"`
+	URL       string `json:"url" yaml:"url"`
+	Directory string `json:"directory,omitempty" yaml:"directory,omitempty"`
+}
+
+// repoShorthandPrefixes maps shorthand prefixes to URL templates.
+var repoShorthandPrefixes = map[string]string{
+	"github:":    "https://github.com/",
+	"gitlab:":    "https://gitlab.com/",
+	"bitbucket:": "https://bitbucket.org/",
+	"gist:":      "https://gist.github.com/",
+}
+
+// resolveRepoShorthand expands a shorthand repo string into an AgentCardRepo.
+// Accepted forms: "user/repo", "github:user/repo", "gitlab:user/repo",
+// "bitbucket:user/repo", "gist:id", or a full URL.
+func resolveRepoShorthand(s string) *AgentCardRepo {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+
+	// Check for known shorthand prefixes
+	for prefix, baseURL := range repoShorthandPrefixes {
+		if strings.HasPrefix(strings.ToLower(s), prefix) {
+			path := strings.TrimSpace(s[len(prefix):])
+			repoType := "git"
+			if prefix == "gist:" {
+				repoType = "git"
+			}
+			return &AgentCardRepo{
+				Type: repoType,
+				URL:  baseURL + path,
+			}
+		}
+	}
+
+	// Full URL — pass through as-is
+	if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") ||
+		strings.HasPrefix(s, "git://") || strings.HasPrefix(s, "git+") ||
+		strings.HasPrefix(s, "ssh://") {
+		return &AgentCardRepo{
+			Type: "git",
+			URL:  s,
+		}
+	}
+
+	// Bare "user/repo" → GitHub
+	if strings.Contains(s, "/") && !strings.Contains(s, " ") {
+		return &AgentCardRepo{
+			Type: "git",
+			URL:  "https://github.com/" + s,
+		}
+	}
+
+	// Unrecognized format — store the raw string as the URL
+	return &AgentCardRepo{URL: s}
+}
+
+// UnmarshalYAML implements custom YAML unmarshaling for AgentCardRepo,
+// accepting both a shorthand string and an object form.
+func (r *AgentCardRepo) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		resolved := resolveRepoShorthand(value.Value)
+		if resolved == nil {
+			return nil
+		}
+		*r = *resolved
+		return nil
+	}
+
+	// Object form — decode into a plain struct to avoid recursion
+	type plain AgentCardRepo
+	var p plain
+	if err := value.Decode(&p); err != nil {
+		return err
+	}
+	*r = AgentCardRepo(p)
+	return nil
 }
 
 // AgentCardAuthor represents an author entry in the agent card frontmatter.

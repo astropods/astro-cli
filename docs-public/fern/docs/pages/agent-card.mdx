@@ -20,6 +20,7 @@ authors:
   - name: Jane Doe
     account: janedoe
   - name: Bob Smith
+repository: "github:acme/github-issue-analyzer"
 capabilities:
   - Analyzes GitHub issues and extracts patterns
   - Builds and maintains a Neo4j knowledge graph
@@ -127,6 +128,20 @@ capabilities:
   - Responds to Slack commands in real time
 ---
 ```
+
+### `repository`
+
+A pointer to the agent's source-code repository. Accepts a shorthand string or an object.
+
+A bare `user/repo` is treated as GitHub. You can also prefix with `github:`, `gitlab:`, `bitbucket:`, or `gist:`.
+
+```yaml
+---
+repository: "github:acme/my-agent"
+---
+```
+
+For the full specification including the object form, see the [Agent Card Spec](/agent-card-spec#25-repository).
 
 ### `integrations`
 

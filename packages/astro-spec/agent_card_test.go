@@ -437,6 +437,121 @@ authors:
 	}
 }
 
+func TestParseAgentCard_RepositoryStringShorthand(t *testing.T) {
+	tests := []struct {
+		name     string
+		repo     string
+		wantURL  string
+		wantType string
+	}{
+		{"bare user/repo", "acme/my-agent", "https://github.com/acme/my-agent", "git"},
+		{"github prefix", "github:acme/my-agent", "https://github.com/acme/my-agent", "git"},
+		{"gitlab prefix", "gitlab:acme/my-agent", "https://gitlab.com/acme/my-agent", "git"},
+		{"bitbucket prefix", "bitbucket:acme/my-agent", "https://bitbucket.org/acme/my-agent", "git"},
+		{"gist prefix", "gist:abc123", "https://gist.github.com/abc123", "git"},
+		{"full https url", "https://github.com/acme/my-agent.git", "https://github.com/acme/my-agent.git", "git"},
+		{"git+https url", "git+https://github.com/acme/my-agent.git", "git+https://github.com/acme/my-agent.git", "git"},
+		{"case insensitive prefix", "GitHub:acme/my-agent", "https://github.com/acme/my-agent", "git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := "---\nrepository: \"" + tt.repo + "\"\n---\n"
+			result, err := ParseAgentCard(content)
+			if err != nil {
+				t.Fatalf("ParseAgentCard() error = %v", err)
+			}
+			if result.Repository == nil {
+				t.Fatal("Repository is nil, want non-nil")
+			}
+			if result.Repository.URL != tt.wantURL {
+				t.Errorf("Repository.URL = %q, want %q", result.Repository.URL, tt.wantURL)
+			}
+			if result.Repository.Type != tt.wantType {
+				t.Errorf("Repository.Type = %q, want %q", result.Repository.Type, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestParseAgentCard_RepositoryObjectForm(t *testing.T) {
+	content := `---
+repository:
+  type: git
+  url: "https://github.com/acme/monorepo.git"
+  directory: packages/my-agent
+---
+Body.
+`
+	result, err := ParseAgentCard(content)
+	if err != nil {
+		t.Fatalf("ParseAgentCard() error = %v", err)
+	}
+	if result.Repository == nil {
+		t.Fatal("Repository is nil, want non-nil")
+	}
+	if result.Repository.Type != "git" {
+		t.Errorf("Repository.Type = %q, want %q", result.Repository.Type, "git")
+	}
+	if result.Repository.URL != "https://github.com/acme/monorepo.git" {
+		t.Errorf("Repository.URL = %q, want %q", result.Repository.URL, "https://github.com/acme/monorepo.git")
+	}
+	if result.Repository.Directory != "packages/my-agent" {
+		t.Errorf("Repository.Directory = %q, want %q", result.Repository.Directory, "packages/my-agent")
+	}
+}
+
+func TestParseAgentCard_RepositoryOmitted(t *testing.T) {
+	content := "---\ndescription: \"No repo\"\n---\n"
+	result, err := ParseAgentCard(content)
+	if err != nil {
+		t.Fatalf("ParseAgentCard() error = %v", err)
+	}
+	if result.Repository != nil {
+		t.Errorf("Repository = %+v, want nil", result.Repository)
+	}
+}
+
+func TestResolveRepoShorthand(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantNil  bool
+		wantURL  string
+		wantType string
+	}{
+		{"empty string", "", true, "", ""},
+		{"whitespace only", "   ", true, "", ""},
+		{"bare user/repo", "user/repo", false, "https://github.com/user/repo", "git"},
+		{"github prefix", "github:user/repo", false, "https://github.com/user/repo", "git"},
+		{"gitlab prefix", "gitlab:user/repo", false, "https://gitlab.com/user/repo", "git"},
+		{"bitbucket prefix", "bitbucket:user/repo", false, "https://bitbucket.org/user/repo", "git"},
+		{"gist prefix", "gist:12345", false, "https://gist.github.com/12345", "git"},
+		{"full url", "https://example.com/repo.git", false, "https://example.com/repo.git", "git"},
+		{"ssh url", "ssh://git@github.com/user/repo", false, "ssh://git@github.com/user/repo", "git"},
+		{"unrecognized string", "something", false, "something", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveRepoShorthand(tt.input)
+			if tt.wantNil {
+				if result != nil {
+					t.Errorf("resolveRepoShorthand(%q) = %+v, want nil", tt.input, result)
+				}
+				return
+			}
+			if result == nil {
+				t.Fatalf("resolveRepoShorthand(%q) = nil, want non-nil", tt.input)
+			}
+			if result.URL != tt.wantURL {
+				t.Errorf("URL = %q, want %q", result.URL, tt.wantURL)
+			}
+			if result.Type != tt.wantType {
+				t.Errorf("Type = %q, want %q", result.Type, tt.wantType)
+			}
+		})
+	}
+}
+
 func TestMergeResolvedIntegrations(t *testing.T) {
 	existing := []ResolvedIntegration{
 		{ID: "slack", Name: "Slack"},

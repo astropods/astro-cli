@@ -103,11 +103,56 @@ capabilities:
 
 Each entry MUST be a string. Entries SHOULD be concise (under 100 characters) and written as verb phrases describing an action the agent performs.
 
-### 2.5 `integrations`
+### 2.5 `repository`
+
+A pointer to the source-code repository for the agent.
+
+The value is either a **string shorthand** or an **object**.
+
+#### String shorthand
+
+```yaml
+---
+repository: "github:acme/my-agent"
+---
+```
+
+Accepted shorthand prefixes:
+
+| Prefix | Resolves to |
+|--------|-------------|
+| *(none)* | `https://github.com/{value}` (GitHub assumed) |
+| `github:` | `https://github.com/{user}/{repo}` |
+| `gitlab:` | `https://gitlab.com/{user}/{repo}` |
+| `bitbucket:` | `https://bitbucket.org/{user}/{repo}` |
+| `gist:` | `https://gist.github.com/{id}` |
+
+A bare `user/repo` (no prefix) is treated as `github:user/repo`. A full URL (`https://...`) is also accepted as-is.
+
+#### Object form
+
+```yaml
+---
+repository:
+  type: git
+  url: "https://github.com/acme/my-agent.git"
+  directory: packages/my-agent
+---
+```
+
+| Field       | Type   | Required     | Description |
+|-------------|--------|--------------|-------------|
+| `type`      | string | **REQUIRED** | Version-control system (`git`, `svn`, etc.). |
+| `url`       | string | **REQUIRED** | Repository URL (should be publicly accessible). |
+| `directory` | string | OPTIONAL     | Subdirectory within the repo (for monorepos). |
+
+The client SHOULD render the repository as a clickable link. When the shorthand form is used, the client resolves it to a full URL for display.
+
+### 2.6 `integrations`
 
 A list of third-party services or platforms the agent connects to. Used to display brand logos and connection requirements on the agent's detail page.
 
-Each entry is a string. When the string matches a **known integration** (see Section 2.5.2), the client renders the corresponding brand icon. Unknown strings are displayed with a generic icon and the raw name as a label.
+Each entry is a string. When the string matches a **known integration** (see Section 2.6.2), the client renders the corresponding brand icon. Unknown strings are displayed with a generic icon and the raw name as a label.
 
 ```yaml
 ---
@@ -119,7 +164,7 @@ integrations:
 
 Matching is **case-insensitive** — `slack`, `Slack`, and `SLACK` all resolve to the same known integration.
 
-#### 2.5.1 Hybrid Derivation
+#### 2.6.1 Hybrid Derivation
 
 The final integrations list displayed for an agent is a **merge** of two sources:
 
@@ -136,7 +181,7 @@ The merge is performed at display time by the client:
 
 This ensures that an agent using `provider: github` in its spec and also listing `GitHub` in its agent card does not show GitHub twice.
 
-#### 2.5.2 Known Integrations
+#### 2.6.2 Known Integrations
 
 The platform maintains a registry of known integrations with brand icons. This registry is defined in `packages/astro-spec/agent_card_integrations.json` and serves as the canonical list.
 
@@ -153,6 +198,8 @@ The initial registry:
 |----|-------------|
 | `slack` | Slack |
 | `github` | GitHub |
+| `gitlab` | GitLab |
+| `bitbucket` | Bitbucket |
 | `linear` | Linear |
 | `notion` | Notion |
 | `google-drive` | Google Drive |
@@ -174,7 +221,7 @@ The initial registry:
 
 New integrations are added by appending to the JSON registry and adding a corresponding icon asset to the client. The registry is intentionally broader than the current client icon set — entries without a client icon yet fall back to the generic icon until one is added.
 
-#### 2.5.3 Matching Rules
+#### 2.6.3 Matching Rules
 
 To resolve an agent card integration string to a known integration:
 
@@ -252,6 +299,7 @@ authors:
   - name: Jane Doe
     account: janedoe
   - name: Bob Smith
+repository: "github:acme/github-issue-analyzer"
 capabilities:
   - Analyzes GitHub issues and extracts patterns
   - Builds and maintains a Neo4j knowledge graph

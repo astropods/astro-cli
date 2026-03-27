@@ -628,10 +628,17 @@ export interface ResolvedIntegration {
   known: boolean;
 }
 
+export interface BlueprintCardRepo {
+  type?: string;
+  url: string;
+  directory?: string;
+}
+
 export interface BlueprintCardData {
   description?: string;
   tags?: string[];
   authors?: BlueprintAuthor[];
+  repository?: BlueprintCardRepo;
   capabilities?: string[];
   integrations?: ResolvedIntegration[];
   body?: string;

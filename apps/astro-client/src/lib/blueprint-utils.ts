@@ -1,4 +1,4 @@
-import type { Blueprint, BlueprintAuthor, ResolvedIntegration } from "@/lib/api";
+import type { Blueprint, BlueprintAuthor, BlueprintCardRepo, ResolvedIntegration } from "@/lib/api";
 
 export function getLatestVersion(blueprint: Blueprint) {
   return blueprint.versions[0];
@@ -31,6 +31,10 @@ export function getBlueprintAuthors(blueprint: Blueprint): BlueprintAuthor[] {
 
 export function getBlueprintCapabilities(blueprint: Blueprint): string[] {
   return getLatestVersion(blueprint)?.agent_card?.capabilities ?? [];
+}
+
+export function getBlueprintRepository(blueprint: Blueprint): BlueprintCardRepo | undefined {
+  return getLatestVersion(blueprint)?.agent_card?.repository;
 }
 
 /** Returns the resolved integrations from the blueprint (already merged with spec by the server). */

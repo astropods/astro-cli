@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import { RequiredAppsList } from "./RequiredAppsList";
 import { CapabilitiesList } from "./CapabilitiesList";
 import { SidebarAuthor } from "./SidebarAuthor";
+import { SidebarRepository } from "./SidebarRepository";
 import { SidebarStats } from "./SidebarStats";
 import { SidebarSection } from "./SidebarSection";
 import { BlueprintCard, type BlueprintCardProps } from "@/components/BlueprintCard";
 import { formatDate } from "@/lib/utils";
 import { useAccount } from "@/api/queries";
+import { getBlueprintRepository } from "@/lib/blueprint-utils";
 import type { Blueprint, AccountPublic, BlueprintAuthor, ResolvedIntegration } from "@/lib/api";
 
 export interface SidebarCardProps {
@@ -46,6 +48,8 @@ export function SidebarCard({
     ? `${owner.first_name} ${owner.last_name}`
     : agent.account;
 
+  const repository = getBlueprintRepository(agent);
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-border-strong bg-stone-200 p-4 dark:bg-muted/30">
@@ -62,6 +66,8 @@ export function SidebarCard({
         ownerName={ownerName}
         ownerHandle={agent.account}
       />
+
+      {repository && <SidebarRepository repository={repository} />}
 
       <SidebarStats
         rating={rating}
