@@ -108,13 +108,25 @@ export function DeploymentsTab({
       const build = h.build_id?.slice(0, 8) || "—";
       const rowLabel = isCurrent ? deploymentDisplayName || deploymentName : `${deploymentName} · ${build}`;
       const durMs = deploymentHistoryDurationMs(h, idx, merged, deployment, isCurrent);
-      const deployedAtIso = new Date(resolveDeployedAtMs(h, deployment)).toISOString();
-      return { id: h.id, status, build, duration: durMs !== null ? formatDurationMs(durMs) : "—", time: formatDate(deployedAtIso), isCurrent, rowLabel, source: h };
+      const deployedAtMs = resolveDeployedAtMs(h, deployment);
+      const deployedAtIso = new Date(deployedAtMs).toISOString();
+      const timeOfDay = Number.isFinite(deployedAtMs)
+        ? new Date(deployedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+        : "—";
+      return { id: h.id, status, build, duration: durMs !== null ? formatDurationMs(durMs) : "—", time: formatDate(deployedAtIso), timeOfDay, isCurrent, rowLabel, source: h };
     });
   }, [historyData, deploymentId, deploymentName, deploymentDisplayName, deploymentBuildId, deploymentNamespace, deploymentStatus, deploymentCreatedAt, deployment]);
 
   const pastRows = useMemo(() => allRows.filter((row) => !row.isCurrent), [allRows]);
   const currentRow = useMemo(() => allRows.find((row) => row.isCurrent) ?? null, [allRows]);
+
+  // Use the most recent row (allRows is sorted descending) so the stat card
+  // always shows when the agent was last deployed, matching the top table row.
+  const lastDeployedOnMs = useMemo(() => {
+    if (allRows.length > 0) return resolveDeployedAtMs(allRows[0].source, deployment);
+    if (deploymentCreatedAt) return new Date(deploymentCreatedAt).getTime();
+    return null;
+  }, [allRows, deployment, deploymentCreatedAt]);
 
   useEffect(() => {
     hasAutoOpenedOverview.current = false;
@@ -154,9 +166,9 @@ export function DeploymentsTab({
               wrap: false,
             },
             {
-              label: "DEPLOYED ON",
-              value: deploymentCreatedAt
-                ? `${formatDate(deploymentCreatedAt)},${isCompact ? "\n" : " "}${new Date(deploymentCreatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+              label: "LAST DEPLOYED ON",
+              value: lastDeployedOnMs !== null && Number.isFinite(lastDeployedOnMs)
+                ? `${formatDate(new Date(lastDeployedOnMs).toISOString())},${isCompact ? "\n" : " "}${new Date(lastDeployedOnMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
                 : "—",
               wrap: true,
             },

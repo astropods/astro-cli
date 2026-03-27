@@ -7,7 +7,7 @@ import { ActiveContainerAccordion } from "./ActiveContainerAccordion";
 import { DeploymentHistoryRow } from "./DeploymentHistoryRow";
 import type { DeploymentHistoryTableRow, ServiceRow } from "./history/types";
 
-const DEPLOYMENT_GRID_COLUMNS = "minmax(220px, 1fr) 88px 84px 116px 116px 28px";
+const DEPLOYMENT_GRID_COLUMNS = "minmax(180px, 1fr) 88px 84px 100px 185px 28px";
 
 interface DeploymentHistoryTableProps {
   currentRow: DeploymentHistoryTableRow | null;
@@ -63,6 +63,7 @@ export function DeploymentHistoryTable({
             className={cn(
               "font-mono text-label tracking-[0.07em] text-faint-foreground whitespace-nowrap min-w-0 truncate",
               i === 0 ? "text-left" : "text-right",
+              i === 3 && "pr-4",
             )}
           >
             {h.toUpperCase()}

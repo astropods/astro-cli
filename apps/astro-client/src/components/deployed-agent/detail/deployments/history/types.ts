@@ -8,6 +8,7 @@ export interface DeploymentHistoryTableRow {
   build: string;
   duration: string;
   time: string;
+  timeOfDay: string;
   isCurrent: boolean;
   rowLabel: string;
   source: ApiDeploymentHistoryRecord;
