@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { Activity, Copy, Check, ChevronDown, X } from "lucide-react";
+import { Activity, Copy, Check, X } from "lucide-react";
 import { ChevronDownIcon, ChevronUpIcon } from "@heroicons/react/24/outline";
 import { mapDeploymentStatus } from "@/lib/deployment-utils";
 import { useObservabilityMetrics, useObservabilitySummary, useObservabilityTraces } from "@/api/queries/observability";
@@ -924,17 +924,16 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
-                      onClick={() => { toggleTrace(trace.id); onSelectTrace?.(trace); }}
+                      onClick={() => { onSelectTrace?.(trace); }}
                       style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, padding: traceRowPadding, cursor: "pointer", alignItems: "center", transition: "background 0.1s", background: selectedTraceId === trace.id ? C.bgDeep : "transparent" }}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = C.bgDeep;
                       }}
                       onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.background = "transparent";
+                        (e.currentTarget as HTMLElement).style.background = selectedTraceId === trace.id ? C.bgDeep : "transparent";
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <ChevronDown size={I.xs} color={C.faint} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
                         <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{trace.time}</span>
                       </div>
                       {!isCompact ? <span /> : null}
@@ -989,46 +988,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                         </div>
                       ) : null}
                     </div>
-                    {isOpen && (
-                      <div style={{ background: C.panel, borderTop: `1px solid ${C.border}` }}>
-                        <div style={{ padding: "10px 16px 11px", borderBottom: `1px solid ${C.border}` }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                            <span style={{ display: "block", fontFamily: S.mono, fontSize: traceMetaFontSize, letterSpacing: "0.09em", color: C.faint }}>INPUT</span>
-                            <button
-                              type="button"
-                              onClick={() => copyTraceFieldText(trace.id, "input", trace.input ?? "")}
-                              style={{ background: "none", border: "none", padding: 2, display: "flex", color: C.muted, cursor: "pointer" }}
-                              aria-label="Copy input"
-                            >
-                              {copiedTraceField === `${trace.id}:input` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
-                            </button>
-                          </div>
-                          <span style={{ fontFamily: S.body, fontSize: traceCellFontSize, color: C.text, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.input ?? "—"}</span>
-                        </div>
-                        <div style={{ padding: "10px 16px 12px" }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                            <span style={{ display: "block", fontFamily: S.mono, fontSize: traceMetaFontSize, letterSpacing: "0.09em", color: C.faint }}>OUTPUT</span>
-                            {trace.output ? (
-                              <button
-                                type="button"
-                                onClick={() => copyTraceFieldText(trace.id, "output", outputText)}
-                                style={{ background: "none", border: "none", padding: 2, display: "flex", color: C.muted, cursor: "pointer" }}
-                                aria-label="Copy output"
-                              >
-                                {copiedTraceField === `${trace.id}:output` ? <Check size={I.sm} /> : <Copy size={I.sm} />}
-                              </button>
-                            ) : null}
-                          </div>
-                          {trace.output ? (
-                            <span style={{ fontFamily: S.body, fontSize: traceCellFontSize, color: C.text, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{trace.output}</span>
-                          ) : (
-                            <span style={{ fontFamily: S.mono, fontSize: traceCellFontSize, color: C.coral }}>
-                              Trace did not complete — no output recorded
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                    {/* inline expansion removed — input/output now in TraceDetailPanel */}
                   </div>
                 );
               })}
