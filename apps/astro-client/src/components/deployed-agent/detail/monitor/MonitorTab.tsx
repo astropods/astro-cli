@@ -510,10 +510,14 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
     [tracesData, win, timeParams.end_time]
   );
 
-  const visibleTraces = traces.filter((t) => {
-    if (traceStatuses.length > 0 && !traceStatuses.includes(t.status)) return false;
-    return true;
-  });
+  const visibleTraces = useMemo(
+    () => traces.filter((t) => {
+      if (traceStatuses.length > 0 && !traceStatuses.includes(t.status)) return false;
+      return true;
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tracesData, traceStatuses],
+  );
 
   useEffect(() => {
     onVisibleTracesChange?.(visibleTraces);
