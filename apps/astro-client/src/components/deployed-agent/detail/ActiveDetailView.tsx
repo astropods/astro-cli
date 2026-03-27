@@ -451,7 +451,7 @@ export function ActiveDetailView({
                 <MonitorTab
                   deployment={renderedDeployment}
                   selectedTraceId={selectedTrace?.id ?? null}
-                  onSelectTrace={(trace) => { setSelectedTrace(trace); setConfigOpen(false); }}
+                  onSelectTrace={(trace) => { setSelectedTrace((prev) => prev?.id === trace.id ? null : trace); setConfigOpen(false); }}
                   onVisibleTracesChange={setNavTraces}
                 />
               ) : (
