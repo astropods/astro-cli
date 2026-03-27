@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { InlineBadge } from "@/components/InlineBadge";
@@ -94,7 +96,7 @@ export function DeploymentHistoryTable({
               )}
             </div>
             {serviceRows.length === 0 ? (
-              <p className="font-mono text-mono-sm text-faint-foreground m-0 flex items-center gap-2">
+              <p className="font-sans text-sm text-faint-foreground m-0 flex items-center gap-2">
                 {(currentRow.status === "deploying" || currentRow.status === "undeploying") && (
                   <Loader2
                     size={14}
@@ -168,14 +170,19 @@ export function DeploymentHistoryTable({
                 />
               ))}
               {hasCollapsedHistory && (
-                <div className="flex justify-center px-3 py-2 pb-2.5 border-t border-border">
-                  <button
-                    type="button"
+                <div className="flex justify-center px-3 pt-2 pb-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="font-medium"
                     onClick={() => setShowAllHistory((prev) => !prev)}
-                    className="bg-transparent border-none cursor-pointer font-mono text-mono-sm tracking-[0.04em] text-faint-foreground underline"
                   >
-                    {showAllHistory ? "See less" : `See more (${pastRows.length - 4} more)`}
-                  </button>
+                    {showAllHistory ? (
+                      <>Show less <ChevronUpIcon className="h-3.5 w-3.5" /></>
+                    ) : (
+                      <>Show {pastRows.length - 4} more <ChevronDownIcon className="h-3.5 w-3.5" /></>
+                    )}
+                  </Button>
                 </div>
               )}
             </>
