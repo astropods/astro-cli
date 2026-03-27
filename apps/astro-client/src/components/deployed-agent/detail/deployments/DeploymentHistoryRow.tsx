@@ -63,15 +63,15 @@ export function DeploymentHistoryRow({
       </div>
 
       {/* Duration */}
-      <span className="font-mono text-mono-sm text-foreground text-right">{row.duration}</span>
+      <span className="font-sans text-body text-foreground text-right">{row.duration}</span>
 
       {/* Build */}
-      <span className="font-mono text-mono-sm text-foreground text-right pr-4">{row.build}</span>
+      <span className="font-sans text-body text-foreground text-right">{row.build}</span>
 
       {/* Deployed on + kebab (non-compact only) */}
       {!isCompact && (
         <>
-          <span className="font-mono text-mono-sm text-foreground whitespace-nowrap text-right">
+          <span className="font-sans text-body text-foreground whitespace-nowrap text-right pl-3">
             {row.time}, {row.timeOfDay}
           </span>
           {isCurrent ? (

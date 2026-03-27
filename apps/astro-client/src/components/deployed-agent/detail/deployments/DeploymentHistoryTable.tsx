@@ -63,7 +63,7 @@ export function DeploymentHistoryTable({
             className={cn(
               "font-mono text-label tracking-[0.07em] text-faint-foreground whitespace-nowrap min-w-0 truncate",
               i === 0 ? "text-left" : "text-right",
-              i === 3 && "pr-4",
+              i === 4 && "pl-3",
             )}
           >
             {h.toUpperCase()}

@@ -111,7 +111,7 @@ export function DeploymentsTab({
       const deployedAtMs = resolveDeployedAtMs(h, deployment);
       const deployedAtIso = new Date(deployedAtMs).toISOString();
       const timeOfDay = Number.isFinite(deployedAtMs)
-        ? new Date(deployedAtMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+        ? new Date(deployedAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
         : "—";
       return { id: h.id, status, build, duration: durMs !== null ? formatDurationMs(durMs) : "—", time: formatDate(deployedAtIso), timeOfDay, isCurrent, rowLabel, source: h };
     });
@@ -168,7 +168,7 @@ export function DeploymentsTab({
             {
               label: "LAST DEPLOYED ON",
               value: lastDeployedOnMs !== null && Number.isFinite(lastDeployedOnMs)
-                ? `${formatDate(new Date(lastDeployedOnMs).toISOString())},${isCompact ? "\n" : " "}${new Date(lastDeployedOnMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                ? `${formatDate(new Date(lastDeployedOnMs).toISOString())},${isCompact ? "\n" : " "}${new Date(lastDeployedOnMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
                 : "—",
               wrap: true,
             },
