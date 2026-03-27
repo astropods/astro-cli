@@ -4,9 +4,9 @@ Adds a trace detail panel to the Monitor tab with rich markdown rendering for in
 
 ## Design
 
-### Trace detail panel (V2 — accordion layout)
+### Trace detail panel
 
-A slide-out right panel (420px, sticky) for inspecting individual traces, reusing the Configure panel pattern. V2 replaces the original tabbed input/output view with two stacked collapsible accordion sections so both are visible simultaneously. Each section has an icon (↗ Input, ↙ Output), a per-section copy button, and smooth expand/collapse animation via CSS grid rows. Typography uses design system tokens (`text-body`, `text-body-sm`, `text-label`) throughout.
+A slide-out right panel (420px, sticky) for inspecting individual traces, reusing the Configure panel pattern. Input and output are shown in two stacked collapsible accordion sections so both are visible simultaneously. Each section has an icon (↗ Input, ↙ Output), a per-section copy button, and smooth expand/collapse animation via CSS grid rows. Typography uses design system tokens (`text-body`, `text-body-sm`, `text-label`) throughout.
 
 On compact viewports the panel renders full-page, matching Configure's compact behaviour.
 
