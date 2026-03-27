@@ -247,27 +247,6 @@ export function ActiveDetailView({
             installedAt={formatDate(deployment.created_at)}
             />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <h1
-              style={{
-                fontFamily: S.body,
-                fontSize: T.heading4,
-                fontWeight: 600,
-                color: C.text,
-                margin: 0,
-                lineHeight: 1.2,
-              }}
-            >
-              {displayName}
-            </h1>
-            <KebabMenu
-            deploymentId={deployment.id}
-            deploymentName={deployment.name}
-            displayName={deployment.display_name}
-            account={account}
-            installedAt={formatDate(deployment.created_at)}
-            />
-          </div>
           {hasNewBuildAvailable ? (
             <BuildUpdateBadge
               currentBuildId={renderedDeployment.build_id}
