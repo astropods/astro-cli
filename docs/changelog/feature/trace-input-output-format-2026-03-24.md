@@ -1,30 +1,22 @@
 ## Summary
 
-Improves the trace viewer in the Monitor tab with rich text rendering for input/output content and a new slide-out detail panel for inspecting individual traces.
+Adds a trace detail panel to the Monitor tab with rich markdown rendering for input/output, replaces the tabbed layout with stacked collapsible accordions, and standardises "Show more" buttons across the detail page.
 
 ## Design
 
-### Trace detail panel
+### Trace detail panel (V2 — accordion layout)
 
-Replaces the inline row expansion with a persistent right panel, reusing the same slide-out pattern as the Configure panel (`ActiveDetailView` → 420px sticky right column with a width transition). Clicking a trace row opens the panel; clicking a different row swaps the content. Opening Configure closes the trace panel and vice versa.
+A slide-out right panel (420px, sticky) for inspecting individual traces, reusing the Configure panel pattern. V2 replaces the original tabbed input/output view with two stacked collapsible accordion sections so both are visible simultaneously. Each section has an icon (↗ Input, ↙ Output), a per-section copy button, and smooth expand/collapse animation via CSS grid rows. Typography uses design system tokens (`text-body`, `text-body-sm`, `text-label`) throughout.
 
-The panel header follows the `ConfigurePanel` shell exactly — `QueueListIcon` + "Traces" label + up/down chevron `Button` icon buttons for keyboard-free navigation through the trace list + close button. Navigation is driven by `visibleTraces` in `MonitorTab`, passed up to `ActiveDetailView` via an `onVisibleTracesChange` callback and `useMemo`-stabilised to avoid infinite render loops.
-
-On compact viewports the panel renders full-page inside the content area, matching the existing Configure compact behaviour.
-
-**Metadata strip** uses a two-row layout: timestamp + status badge on the first row, latency + token count on the second. Both rows use the mono font and foreground/muted-foreground token hierarchy.
-
-**Input/Output tabs** — tab underline hugs the text width. A `Button ghost icon` copy button is positioned `absolute top-3 right-3` over the content area so it doesn't affect layout.
+On compact viewports the panel renders full-page, matching Configure's compact behaviour.
 
 ### Rich text rendering
 
-Input and output fields now render via `StyledMarkdown` (the same component used for agent READMEs) instead of displaying raw strings. This renders markdown headings, lists, tables, code blocks, and inline code with the existing prose styles.
+Input and output render via `StyledMarkdown` instead of raw strings, supporting headings, lists, tables, code blocks, and inline code.
 
-`TraceRow` mapping in `MonitorTab` was already normalising non-string values to JSON — those render correctly as fenced code blocks.
+### Button consistency
 
-### Shared utilities
-
-`TraceStatus`, `TraceRow`, `TRACE_STATUS_STYLE`, and `formatLatencyMs` are now exported from `MonitorTab` so `TraceDetailPanel` can import them directly without duplication.
+"See X more" / "See less" renamed to "Show X more" / "Show less" on both the traces list and deployment history table. The deployment history button was converted from a raw `<button>` with monospace styling to a ghost `Button` with chevron icons to match the traces pattern. Service empty state text switched from mono to sans.
 
 ## Migration
 
