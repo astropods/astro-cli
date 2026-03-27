@@ -54,7 +54,7 @@ function SectionAccordion({
           className="size-3.5 text-muted-foreground shrink-0 transition-transform duration-200"
           style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
         />
-        <span className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+        <span className="flex items-center gap-2 text-body font-semibold text-foreground">
           {icon}
           {label}
         </span>
@@ -78,9 +78,9 @@ function SectionAccordion({
         <div className="overflow-hidden">
           <div className="border-t border-border px-4 py-3 [&>*:first-child]:mt-0">
             {content ? (
-              <StyledMarkdown className="text-[13px] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{content}</StyledMarkdown>
+              <StyledMarkdown className="text-body [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{content}</StyledMarkdown>
             ) : (
-              <span className="text-[13px] text-muted-foreground">{emptyMessage}</span>
+              <span className="text-body text-muted-foreground">{emptyMessage}</span>
             )}
           </div>
         </div>
@@ -124,13 +124,13 @@ export function TraceDetailPanelV2({ trace, onClose, canGoPrev, canGoNext, onNav
 
       <div className="flex shrink-0 flex-col gap-1 border-b border-border px-5 py-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[13px] text-foreground">{trace.time}</span>
+          <span className="font-mono text-body text-foreground">{trace.time}</span>
           <InlineBadge variant="soft" style={st.badgeStyle}>{st.label}</InlineBadge>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[12px] text-muted-foreground">{formatLatencyMs(trace.latency)}</span>
-          <span className="text-muted-foreground text-[11px]">·</span>
-          <span className="font-mono text-[12px] text-muted-foreground">{trace.tokens > 0 ? `${trace.tokens.toLocaleString()} tokens` : "—"}</span>
+          <span className="font-mono text-body-sm text-muted-foreground">{formatLatencyMs(trace.latency)}</span>
+          <span className="text-muted-foreground text-label">·</span>
+          <span className="font-mono text-body-sm text-muted-foreground">{trace.tokens > 0 ? `${trace.tokens.toLocaleString()} tokens` : "—"}</span>
         </div>
       </div>
 
