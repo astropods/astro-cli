@@ -146,7 +146,6 @@ repository:
 | `url`       | string | **REQUIRED** | Repository URL (should be publicly accessible). |
 | `directory` | string | OPTIONAL     | Subdirectory within the repo (for monorepos). |
 
-The client SHOULD render the repository as a clickable link. When the shorthand form is used, the client resolves it to a full URL for display.
 
 ### 2.6 `integrations`
 

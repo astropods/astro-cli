@@ -138,7 +138,51 @@ capabilities:
 
 Implementations MUST truncate entries exceeding 100 characters silently.
 
-### 2.5 `integrations`
+### 2.5 `repository`
+
+A pointer to the source-code repository for the agent.
+
+The value is either a **string shorthand** or an **object**.
+
+#### String shorthand
+
+```yaml
+---
+repository: "github:acme/my-agent"
+---
+```
+
+Accepted shorthand prefixes:
+
+| Prefix | Resolves to |
+|--------|-------------|
+| *(none)* | `https://github.com/{value}` (GitHub assumed) |
+| `github:` | `https://github.com/{user}/{repo}` |
+| `gitlab:` | `https://gitlab.com/{user}/{repo}` |
+| `bitbucket:` | `https://bitbucket.org/{user}/{repo}` |
+| `gist:` | `https://gist.github.com/{id}` |
+
+A bare `user/repo` (no prefix) is treated as `github:user/repo`. A full URL (`https://...`) is also accepted as-is.
+
+#### Object form
+
+```yaml
+---
+repository:
+  type: git
+  url: "https://github.com/acme/my-agent.git"
+  directory: packages/my-agent
+---
+```
+
+| Field       | Type   | Required     | Description |
+|-------------|--------|--------------|-------------|
+| `type`      | string | **REQUIRED** | Version-control system (`git`, `svn`, etc.). |
+| `url`       | string | **REQUIRED** | Repository URL (should be publicly accessible). |
+| `directory` | string | OPTIONAL     | Subdirectory within the repo (for monorepos). |
+
+
+### 2.6 `integrations`
 
 | Property | Value    |
 | -------- | -------- |
@@ -155,15 +199,15 @@ integrations:
 ---
 ```
 
-#### 2.5.1 Derivation
+#### 2.6.1 Derivation
 
 Integrations are derived from two sources: the `integrations` section of `astropods.yml` (via `provider` fields) and the `integrations` frontmatter in `AGENT.md`. The platform MUST combine and deduplicate both sources for display. Use the agent card to declare integrations that cannot be inferred from the spec.
 
-#### 2.5.2 Matching
+#### 2.6.2 Matching
 
 Matching is case-insensitive. Each integration string is resolved against the known integrations registry by `id`, `name`, or `aliases`. Strings that do not match any known integration are displayed with a generic icon and the original text as a label.
 
-#### 2.5.3 Known Integrations Registry
+#### 2.6.3 Known Integrations Registry
 
 The platform maintains a registry of known integrations, each with an `id`, `name`, and optional `aliases`. See [Known Integrations](/known-integrations) for the full list.
 
@@ -190,7 +234,7 @@ The following normalizations are applied during parsing:
 | `tags` | Lowercased, spaces converted to hyphens, non-alphanumeric/non-hyphen characters stripped. |
 | `authors[].account` | Trimmed and lowercased. |
 | `capabilities[]` | Truncated to 100 characters per entry (rune-aware). |
-| `integrations[]` | Resolved against known integrations registry (see Section 2.5.2). |
+| `integrations[]` | Resolved against known integrations registry (see Section 2.6.2). |
 
 ---
 
@@ -205,7 +249,7 @@ The server:
 
 1. Receives the raw agent card content.
 2. Parses the YAML frontmatter to extract structured metadata.
-3. Resolves integrations by merging spec-derived and card-declared integrations (Section 2.5.1).
+3. Resolves integrations by merging spec-derived and card-declared integrations (Section 2.6.1).
 4. Stores both the raw content and the parsed metadata (as JSON) for efficient reads.
 
 ### 5.1 Legacy Compatibility
@@ -237,6 +281,7 @@ authors:
   - name: Jane Doe
     account: janedoe
   - name: Bob Smith
+repository: "github:acme/github-issue-analyzer"
 capabilities:
   - Analyzes GitHub issues and extracts patterns
   - Builds and maintains a Neo4j knowledge graph
