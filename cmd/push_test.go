@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 )
 
 func TestGenerateBuildID(t *testing.T) {
@@ -361,12 +362,12 @@ func TestParseAgentName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			account, name := parseAgentName(tt.input)
+			account, name := utils.ParseAgentName(tt.input)
 			if account != tt.expectedAccount {
-				t.Errorf("parseAgentName(%q) account = %q, want %q", tt.input, account, tt.expectedAccount)
+				t.Errorf("ParseAgentName(%q) account = %q, want %q", tt.input, account, tt.expectedAccount)
 			}
 			if name != tt.expectedName {
-				t.Errorf("parseAgentName(%q) name = %q, want %q", tt.input, name, tt.expectedName)
+				t.Errorf("ParseAgentName(%q) name = %q, want %q", tt.input, name, tt.expectedName)
 			}
 		})
 	}

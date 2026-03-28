@@ -24,6 +24,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-cli/internal/auth"
 	"github.com/astropods/astro/apps/astro-cli/internal/theme"
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
@@ -145,7 +146,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse @account/name from spec — strip the prefix for all downstream use
-	accountOverride, agentName := parseAgentName(astroSpec.Name)
+	accountOverride, agentName := utils.ParseAgentName(astroSpec.Name)
 
 	// Validate credentials upfront so stale tokens fail before build/push
 	var orgToken string // non-empty when pushing to an organization
@@ -520,19 +521,6 @@ func printPushComplete(success bool, _ int64) {
 	} else {
 		fmt.Printf("  %s✗%s failed\n", colorRed, colorReset)
 	}
-}
-
-// parseAgentName splits a spec name into an optional account override and the bare agent name.
-// "@my-org/my-agent" → ("my-org", "my-agent")
-// "my-agent"         → ("", "my-agent")
-func parseAgentName(raw string) (account, name string) {
-	if strings.HasPrefix(raw, "@") {
-		trimmed := strings.TrimPrefix(raw, "@")
-		if idx := strings.Index(trimmed, "/"); idx > 0 && idx < len(trimmed)-1 {
-			return trimmed[:idx], trimmed[idx+1:]
-		}
-	}
-	return "", raw
 }
 
 // getUserNamespace reads the user's namespace (account name) from the stored profile.

@@ -42,6 +42,23 @@ func TestBuildProject_MinimalSpec(t *testing.T) {
 	}
 }
 
+func TestBuildProject_ScopedName(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "@example/release-note-helper",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	if err != nil {
+		t.Fatalf("BuildProject() error = %v", err)
+	}
+
+	if project.Name != "release-note-helper" {
+		t.Errorf("Name = %q, want %q", project.Name, "release-note-helper")
+	}
+}
+
 func TestBuildProject_SlackInterface(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
