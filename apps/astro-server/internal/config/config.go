@@ -101,7 +101,7 @@ type SecurityConfig struct {
 
 // AvatarConfig holds avatar/profile-picture configuration.
 type AvatarConfig struct {
-	S3Bucket  string // AVATAR_S3_BUCKET — S3 bucket for avatar storage (empty = check LocalDir)
+	S3Bucket  string // ASSETS_BUCKET — S3 bucket for avatar storage (empty = check LocalDir)
 	LocalDir  string // ASSETS_LOCAL_DIR — local assets directory path (e.g. "../../assets", for local dev)
 	AssetsURL string // ASSETS_URL — CDN base URL for avatar URLs in API responses
 }
@@ -229,7 +229,7 @@ func Load() (*Config, error) {
 			KeyFile:  getEnv("FLEET_TLS_KEY_PATH", ""),
 		},
 		Avatar: AvatarConfig{
-			S3Bucket:  getEnv("AVATAR_S3_BUCKET", ""),
+			S3Bucket:  getEnv("ASSETS_BUCKET", ""),
 			LocalDir:  getEnv("ASSETS_LOCAL_DIR", ""),
 			AssetsURL: getEnv("ASSETS_URL", ""),
 		},

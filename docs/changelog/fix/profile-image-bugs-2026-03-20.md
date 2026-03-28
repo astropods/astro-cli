@@ -20,7 +20,7 @@ Every account has a single avatar file at `avatars/{handle}.jpg` in the assets S
 - **`handlers/avatar.go`** — `POST /avatar` (upload), `PUT /avatar/preset/:index` (pick preset), `DELETE /avatar` (reset to default).
 - **`accounts` table** — New `avatar_version` column for cache-busting. Incremented on every avatar change; the client appends `?v={version}` to the CDN URL.
 - **Auth callback** — On OAuth login, if the WorkOS user has a profile picture and the account's `avatar_version` is 0, the photo is ingested into S3 in a background goroutine.
-- **Config** — `AVATAR_S3_BUCKET` for production S3, `ASSETS_LOCAL_DIR` for local filesystem dev, `ASSETS_URL` for CDN base URL.
+- **Config** — `ASSETS_BUCKET` for production S3, `ASSETS_LOCAL_DIR` for local filesystem dev, `ASSETS_URL` for CDN base URL.
 
 ### Client changes
 
@@ -39,6 +39,6 @@ The S3 sync workflow now uses an allowlist (`--include "integrations/*" --includ
 ## Migration
 
 1. Apply schema: `avatar_version integer NOT NULL DEFAULT 0` on the `accounts` table (Atlas will diff automatically).
-2. Set `AVATAR_S3_BUCKET`, `ASSETS_URL` env vars in deployed environments.
-3. Run the backfill: `DATABASE_URL=... AVATAR_S3_BUCKET=... go run ./cmd/backfill-avatars`
+2. Set `ASSETS_BUCKET`, `ASSETS_URL` env vars in deployed environments.
+3. Run the backfill: `DATABASE_URL=... ASSETS_BUCKET=... go run ./cmd/backfill-avatars`
 4. Deploy server and client together — the client expects `avatar_version` in account API responses.

@@ -8,7 +8,7 @@
 //
 // Production usage (S3):
 //
-//	DATABASE_URL=postgres://... AVATAR_S3_BUCKET=prod-astro-assets go run ./cmd/backfill-avatars
+//	DATABASE_URL=postgres://... ASSETS_BUCKET=prod-astro-assets go run ./cmd/backfill-avatars
 //
 // Optional env vars:
 //
@@ -37,10 +37,10 @@ func main() {
 		log.Fatal("DATABASE_URL is required")
 	}
 
-	bucket := os.Getenv("AVATAR_S3_BUCKET")
+	bucket := os.Getenv("ASSETS_BUCKET")
 	localDir := os.Getenv("ASSETS_LOCAL_DIR")
 	if bucket == "" && localDir == "" {
-		log.Fatal("Either AVATAR_S3_BUCKET or ASSETS_LOCAL_DIR is required")
+		log.Fatal("Either ASSETS_BUCKET or ASSETS_LOCAL_DIR is required")
 	}
 
 	dryRun := os.Getenv("DRY_RUN") == "true"
