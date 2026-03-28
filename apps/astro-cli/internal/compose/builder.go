@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-cli/internal/utils"
 	spec "github.com/astropods/astro/packages/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
@@ -124,8 +125,9 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	_, agentName := utils.ParseAgentName(s.Name)
 	project := &types.Project{
-		Name:       s.Name,
+		Name:       agentName,
 		WorkingDir: workingDir,
 		Services:   make(types.Services),
 		Networks:   make(types.Networks),
@@ -134,7 +136,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 
 	// Create default network
 	project.Networks["astro-dev"] = types.NetworkConfig{
-		Name:   fmt.Sprintf("%s-network", s.Name),
+		Name:   fmt.Sprintf("%s-network", agentName),
 		Driver: "bridge",
 	}
 

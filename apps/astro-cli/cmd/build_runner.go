@@ -63,7 +63,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Strip @org/ prefix for Docker image tags
-	_, agentName := parseAgentName(astroSpec.Name)
+	_, agentName := utils.ParseAgentName(astroSpec.Name)
 
 	if !quiet {
 		fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
