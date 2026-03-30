@@ -581,7 +581,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
   const traceRowPadding = isCompact ? "10px 10px" : "10px 16px";
   const traceHeaderFontSize = isCompact ? "11px" : T.label;
   const traceCellFontSize = "12px";
-  const tracesEmptyMinHeight = 172;
+  const tracesEmptyMinHeight = 260;
   const hasCollapsedTraces = visibleTraces.length > 4;
   const visibleTraceRows = showAllTraces ? visibleTraces : visibleTraces.slice(0, 4);
 

@@ -126,6 +126,10 @@ body {
   animation: dp-fadein 0.2s ease forwards;
 }
 
+.dp-fadein {
+  animation: dp-fadein 0.18s ease forwards;
+}
+
 .dp-spin {
   animation: dp-spin 1.2s linear infinite;
 }

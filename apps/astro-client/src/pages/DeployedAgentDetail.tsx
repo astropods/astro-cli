@@ -1,7 +1,7 @@
-import { useLocation, useParams, Link } from "react-router";
+import { useEffect } from "react";
+import { useLocation, useParams, Link, Navigate } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
 import { useDeployment } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
@@ -220,20 +220,28 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const location = useLocation();
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? loaderData?.account ?? "";
-  const { isAuthenticated, personalAccount } = useAuth();
-  const { data: deploymentsData, isLoading } = useDeployment(deploymentId ?? "", isAuthenticated);
+  const { isAuthenticated, personalAccount, isLoading: isAuthLoading, login } = useAuth();
+  // isPending stays true for disabled queries (no data yet), covering the gap
+  // between auth resolving and the query transitioning to its loading state.
+  const { data: deploymentsData, isPending: isQueryPending } = useDeployment(deploymentId ?? "", isAuthenticated);
+  const isLoading = isAuthLoading || (isAuthenticated && isQueryPending);
   const deployment = deploymentsData?.deployment ?? null;
-  const monitorLocked = deployment ? isDeployingState(deployment) : false;
-  const isPersonal = personalAccount?.name === account;
-  const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
+
+  useEffect(() => {
+    if (!isAuthLoading && !isAuthenticated) login();
+  }, [isAuthLoading, isAuthenticated, login]);
 
   if (isLoading) {
     return <DeployedAgentDetailSkeleton />;
   }
 
+  if (!isAuthenticated) return null;
+
+  if (!personalAccount) return <Navigate to="/onboarding" replace />;
+
   if (!deployment) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 px-6">
+      <div className="dp-fadein flex flex-col items-center justify-center py-16 px-6">
         <h1 className="text-xl font-semibold mb-3">Deployment not found</h1>
         <p className="text-muted-foreground text-sm mb-4">
           The deployed agent you're looking for doesn't exist or has been removed.
@@ -245,21 +253,23 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
     );
   }
 
+  const monitorLocked = isDeployingState(deployment);
+  const isPersonal = personalAccount?.name === account;
+  const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
+
   return (
-    <ActiveDetailView
-      deployment={deployment}
-      account={account}
-      isPersonal={isPersonal}
-      monitorLocked={monitorLocked}
-      backPathOverride={requestedFromAgents ? "/agents" : undefined}
-    />
+    <div className="dp-fadein" style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0 }}>
+      <ActiveDetailView
+        deployment={deployment}
+        account={account}
+        isPersonal={isPersonal}
+        monitorLocked={monitorLocked}
+        backPathOverride={requestedFromAgents ? "/agents" : undefined}
+      />
+    </div>
   );
 }
 
 export default function DeployedAgentDetail({ loaderData }: Route.ComponentProps) {
-  return (
-    <ProtectedRoute>
-      <DeployedAgentDetailContent loaderData={loaderData} />
-    </ProtectedRoute>
-  );
+  return <DeployedAgentDetailContent loaderData={loaderData} />;
 }
