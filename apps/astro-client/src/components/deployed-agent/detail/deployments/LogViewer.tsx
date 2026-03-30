@@ -46,43 +46,18 @@ export function LogViewer({
   const [logSearch, setLogSearch] = useState("");
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
 
-  const MOCK_LOGS = import.meta.env.VITE_MOCK_API === "true"
-    ? [
-        "2026-03-30T09:00:01Z info: Agent started successfully",
-        "2026-03-30T09:00:02Z info: Loaded 3 integrations: github, slack, jira",
-        "2026-03-30T09:00:05Z info: Listening on port 8080",
-        "2026-03-30T09:01:12Z info: Received request from user taylor",
-        "2026-03-30T09:01:15Z info: Fetched diff (2,340 lines)",
-        "2026-03-30T09:01:18Z warn: File src/utils.ts exceeds 500 lines",
-        "2026-03-30T09:01:22Z info: Review complete — 4 comments posted",
-        "2026-03-30T09:02:00Z error: GitHub API rate limit exceeded (429)",
-        "2026-03-30T09:02:01Z warn: Retrying request in 30s",
-        "2026-03-30T09:02:31Z info: Retry succeeded",
-        "2026-03-30T09:03:05Z error: Failed to fetch diff — repository not found",
-        "2026-03-30T09:03:05Z error: Stack: NotFoundError at fetchDiff (agent.ts:142)",
-        "2026-03-30T09:03:06Z warn: Skipping review for PR #422",
-        "2026-03-30T09:04:00Z info: Health check OK",
-        "2026-03-30T09:06:20Z error: Model inference timeout after 30s",
-        "2026-03-30T09:06:21Z warn: Falling back to cached analysis",
-        "2026-03-30T09:06:25Z info: Review complete — 2 comments posted",
-        "2026-03-30T09:07:00Z info: Health check OK",
-        "2026-03-30T09:08:00Z error: Connection reset by peer",
-        "2026-03-30T09:08:15Z warn: Reconnecting to message bus",
-      ].join("\n")
-    : undefined;
-
   const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
     deploymentId,
     workloadName,
     selectedContainer,
     logTimeRange,
-    { enabled: !MOCK_LOGS && isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
+    { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
   );
 
   const logs = useMemo(() => {
-    const raw = MOCK_LOGS ?? logsRaw ?? "";
+    const raw = logsRaw ?? "";
     return raw ? raw.split("\n") : [];
-  }, [MOCK_LOGS, logsRaw]);
+  }, [logsRaw]);
 
   const errorMessage = error
     ? (error as unknown as ApiError & { details?: string }).details ??
