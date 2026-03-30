@@ -129,9 +129,10 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const userAccount = personalAccount?.name ?? "";
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountBlueprints } = useAccountBlueprints(userAccount, { enabled: isAuthenticated });
-  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealAvatarUrl?: string } | null;
+  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
   const revealDeploymentId = revealState?.revealDeploymentId ?? null;
   const revealAgentName = revealState?.revealAgentName ?? null;
+  const revealDisplayName = revealState?.revealDisplayName ?? null;
   const revealAvatarUrl = revealState?.revealAvatarUrl ?? null;
   const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
@@ -165,7 +166,13 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const revealDeployment = useMemo(() => {
     if (!revealDeploymentId) return null;
     const existing = (data?.deployments ?? []).find((d) => d.id === revealDeploymentId);
-    if (existing) return existing;
+    if (existing) {
+      return {
+        ...existing,
+        ...(!existing.display_name && revealDisplayName ? { display_name: revealDisplayName } : {}),
+        ...(!existing.avatar_url && revealAvatarUrl ? { avatar_url: revealAvatarUrl } : {}),
+      } satisfies AgentDeployment;
+    }
     if (!revealAgentName) return null;
 
     // Optimistic fallback so reveal can render immediately after redirect
@@ -173,7 +180,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
     return {
       id: revealDeploymentId,
       name: revealAgentName,
-      display_name: revealAgentName,
+      display_name: revealDisplayName ?? revealAgentName,
       build_id: "",
       namespace: "",
       status: "pending",
@@ -182,7 +189,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
       created_at: new Date().toISOString(),
       components: [],
     } satisfies AgentDeployment;
-  }, [data?.deployments, revealAgentName, revealDeploymentId]);
+  }, [data?.deployments, revealAgentName, revealAvatarUrl, revealDeploymentId, revealDisplayName]);
 
   const clearRevealState = () => {
     navigate(location.pathname + location.search, { replace: true, state: {} });
