@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
-import { Search, Loader2, X, RefreshCw } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import { MagnifyingGlassIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { logLineColorClass, splitLogLineTimestamp, formatLogTimestamp } from "@/lib/log-utils";
 import { useLogFiltering } from "@/hooks/use-log-filtering";
 import { useDeploymentLogs } from "@/api/queries/deployments";
+import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import type { ApiError } from "@/lib/api";
 import type { DeployHistoryStatus } from "./history/types";
@@ -44,18 +46,43 @@ export function LogViewer({
   const [logSearch, setLogSearch] = useState("");
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
 
+  const MOCK_LOGS = import.meta.env.VITE_MOCK_API === "true"
+    ? [
+        "2026-03-30T09:00:01Z info: Agent started successfully",
+        "2026-03-30T09:00:02Z info: Loaded 3 integrations: github, slack, jira",
+        "2026-03-30T09:00:05Z info: Listening on port 8080",
+        "2026-03-30T09:01:12Z info: Received request from user taylor",
+        "2026-03-30T09:01:15Z info: Fetched diff (2,340 lines)",
+        "2026-03-30T09:01:18Z warn: File src/utils.ts exceeds 500 lines",
+        "2026-03-30T09:01:22Z info: Review complete — 4 comments posted",
+        "2026-03-30T09:02:00Z error: GitHub API rate limit exceeded (429)",
+        "2026-03-30T09:02:01Z warn: Retrying request in 30s",
+        "2026-03-30T09:02:31Z info: Retry succeeded",
+        "2026-03-30T09:03:05Z error: Failed to fetch diff — repository not found",
+        "2026-03-30T09:03:05Z error: Stack: NotFoundError at fetchDiff (agent.ts:142)",
+        "2026-03-30T09:03:06Z warn: Skipping review for PR #422",
+        "2026-03-30T09:04:00Z info: Health check OK",
+        "2026-03-30T09:06:20Z error: Model inference timeout after 30s",
+        "2026-03-30T09:06:21Z warn: Falling back to cached analysis",
+        "2026-03-30T09:06:25Z info: Review complete — 2 comments posted",
+        "2026-03-30T09:07:00Z info: Health check OK",
+        "2026-03-30T09:08:00Z error: Connection reset by peer",
+        "2026-03-30T09:08:15Z warn: Reconnecting to message bus",
+      ].join("\n")
+    : undefined;
+
   const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
     deploymentId,
     workloadName,
     selectedContainer,
     logTimeRange,
-    { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
+    { enabled: !MOCK_LOGS && isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
   );
 
   const logs = useMemo(() => {
-    const raw = logsRaw ?? "";
+    const raw = MOCK_LOGS ?? logsRaw ?? "";
     return raw ? raw.split("\n") : [];
-  }, [logsRaw]);
+  }, [MOCK_LOGS, logsRaw]);
 
   const errorMessage = error
     ? (error as unknown as ApiError & { details?: string }).details ??
@@ -78,7 +105,7 @@ export function LogViewer({
               key={f.key}
               onClick={() => toggleFilter(f.key)}
               className={cn(
-                "flex items-center gap-[5px] px-2 py-1 rounded-md border border-border cursor-pointer font-sans text-body-sm transition-all whitespace-nowrap",
+                "flex items-center gap-[5px] px-2 py-1 rounded-[calc(var(--radius-sm)+2px)] border border-border cursor-pointer font-sans text-body-sm transition-all whitespace-nowrap",
                 f.colorClass,
                 active ? "bg-stone-200 font-medium" : "bg-transparent font-normal",
               )}
@@ -93,7 +120,7 @@ export function LogViewer({
         })}
         <div className="flex-1" />
         <Select value={logTimeRange} onValueChange={(value) => setLogTimeRange(value as LogTimeRange)}>
-          <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover">
+          <SelectTrigger className="h-8 w-auto min-w-[130px] px-3 font-sans text-body-sm bg-popover rounded-[calc(var(--radius-sm)+2px)]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -104,8 +131,8 @@ export function LogViewer({
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-[5px] h-8 px-2.5 rounded-md border border-border bg-popover">
-          <Search size={12} className="text-faint-foreground" />
+        <div className="flex items-center gap-[5px] h-8 px-2.5 rounded-[calc(var(--radius-sm)+2px)] border border-border bg-popover">
+          <MagnifyingGlassIcon className="size-3 text-faint-foreground shrink-0" />
           <input
             type="text"
             placeholder="Search logs"
@@ -117,14 +144,14 @@ export function LogViewer({
             )}
           />
         </div>
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="icon"
           title="Refresh logs"
           onClick={() => { void refetch({ cancelRefetch: true }); }}
-          className="flex items-center justify-center size-8 rounded border border-border bg-transparent text-foreground cursor-pointer"
         >
-          <RefreshCw size={12} className={isFetching ? "dp-spin" : undefined} />
-        </button>
+          <ArrowPathIcon className={cn("size-4", isFetching && "dp-spin")} />
+        </Button>
         <CopyButton copyText={() => logs.join("\n")} title="Copy logs" resetMs={900} />
       </div>
 
