@@ -1,5 +1,6 @@
-import { Copy, Check } from "lucide-react";
+import { Square2StackIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 interface CopyButtonProps {
@@ -7,27 +8,25 @@ interface CopyButtonProps {
   copyText: string | (() => string);
   title?: string;
   resetMs?: number;
-  size?: number;
+  iconClassName?: string;
   className?: string;
 }
 
-export function CopyButton({ copyText, title = "Copy", resetMs, size = 12, className }: CopyButtonProps) {
+export function CopyButton({ copyText, title = "Copy", resetMs, iconClassName = "size-4", className }: CopyButtonProps) {
   const { copy, copied } = useCopyToClipboard(resetMs);
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="icon"
       title={copied ? "Copied!" : title}
       onClick={() => {
         const text = typeof copyText === "function" ? copyText() : copyText;
         void copy(text);
       }}
-      className={cn(
-        "flex items-center justify-center size-8 rounded border border-border bg-transparent text-foreground cursor-pointer",
-        className,
-      )}
+      className={className}
     >
-      {copied ? <Check size={size} className="text-teal-600" /> : <Copy size={size} />}
-    </button>
+      {copied ? <CheckIcon className={cn("text-teal-600", iconClassName)} /> : <Square2StackIcon className={iconClassName} />}
+    </Button>
   );
 }
