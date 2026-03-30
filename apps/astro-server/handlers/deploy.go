@@ -130,6 +130,14 @@ func prepareDeployment(
 		return nil, false
 	}
 
+	// Reject org-scoped names (e.g. "@org/agent") — the CLI should strip these before pushing
+	if strings.Contains(submittedSpec.Source.Name, "/") || strings.HasPrefix(submittedSpec.Source.Name, "@") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("invalid source.name %q: must not contain @org/ prefix — re-push your agent with an updated CLI", submittedSpec.Source.Name),
+		})
+		return nil, false
+	}
+
 	// Determine target account: prefer target.account, fall back to source.account
 	targetAccountName := submittedSpec.Target.Account
 	if targetAccountName == "" {

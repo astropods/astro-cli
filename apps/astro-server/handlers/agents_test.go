@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -365,6 +366,50 @@ func TestRegisterAgent_DBError(t *testing.T) {
 
 	if resp["error"] != "Failed to register agent" {
 		t.Errorf("expected 'Failed to register agent' error, got %v", resp["error"])
+	}
+}
+
+func TestRegisterAgent_RejectsOrgScopedName(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentName string
+		wantCode  int
+	}{
+		// Names with slashes get a 404 from gin's router before reaching the handler,
+		// so we only test cases that reach our validation code.
+		{"bare @ rejected", "@my-agent", http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, _, _ := setupAgentTestRouter()
+			log := logger.New("error", "json")
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, nil, nil, "", nil, nil))
+
+			body := `{
+				"build_id": "a3f2b1c9",
+				"registry": "registry.example.com",
+				"spec_content": "name: test-agent\nversion: 1.0.0\n"
+			}`
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+url.PathEscape(tt.agentName)+"/register", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("expected status %d, got %d: %s", tt.wantCode, rec.Code, rec.Body.String())
+			}
+			var resp map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to unmarshal response: %v", err)
+			}
+			errMsg, _ := resp["error"].(string)
+			if !strings.Contains(errMsg, "@org/ prefix") {
+				t.Errorf("expected org prefix error message, got %q", errMsg)
+			}
+		})
 	}
 }
 

@@ -1275,6 +1275,55 @@ func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
 	}
 }
 
+func TestDeploy_OrgScopedSourceName_Rejected(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentName string
+	}{
+		{"scoped name", "@postman/feb19-astro"},
+		{"slash in name", "org/my-agent"},
+		{"bare @ prefix", "@my-agent"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, _, accountMock := setupValidateRouter("user-1")
+
+			now := time.Now()
+			body := minimalDeploySpec("myorg", tt.agentName, "build-1")
+
+			// Account lookup (validation happens before agent lookup)
+			accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+				WithArgs("myorg").
+				WillReturnRows(sqlmock.NewRows(
+					[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
+					AddRow("acct-1", "myorg", "organization", nil, nil, now, now, 0, ""))
+
+			// IsMember
+			accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+				WithArgs("acct-1", "user-1").
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+			req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			var resp map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to unmarshal response: %v", err)
+			}
+			errMsg, _ := resp["error"].(string)
+			if !strings.Contains(errMsg, "@org/ prefix") {
+				t.Errorf("expected org prefix error, got %q", errMsg)
+			}
+		})
+	}
+}
+
 // --- GetDeploymentTemplate visibility tests ---
 
 // setupTemplateRouter creates a gin engine wired with GetDeploymentTemplate.

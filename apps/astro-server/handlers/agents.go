@@ -483,6 +483,14 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 		accountName := c.Param("account")
 		agentName := c.Param("name")
 
+		// Reject org-scoped names (e.g. "@org/agent") — the CLI should strip these before pushing
+		if strings.Contains(agentName, "/") || strings.HasPrefix(agentName, "@") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("invalid agent name %q: must not contain @org/ prefix — upgrade your CLI", agentName),
+			})
+			return
+		}
+
 		var req RegisterAgentRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			log.Error("Invalid request body", "error", err)
