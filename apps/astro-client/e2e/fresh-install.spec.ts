@@ -31,10 +31,8 @@ test("fresh install shows new deployment on agents list after redirect", async (
 
   // Dismiss the reveal overlay — during the overlay the matched card is shown as a
   // skeleton (to avoid stale-avatar flash), so the link won't be present until dismissed.
-  const closeReveal = page.getByRole("button", { name: /close reveal/i });
-  if (await closeReveal.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await closeReveal.click();
-  }
+  // Use .click({ timeout }) which waits for the button to appear before clicking.
+  await page.getByRole("button", { name: /close reveal/i }).click({ timeout: 10_000 }).catch(() => null);
 
   // The newly deployed agent should appear as a card on the agents list.
   const newAgentCard = page
@@ -69,10 +67,8 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
 
   // Dismiss the reveal overlay — during the overlay the matched card is shown as a
   // skeleton (to avoid stale-avatar flash), so the link won't be present until dismissed.
-  const closeReveal = page.getByRole("button", { name: /close reveal/i });
-  if (await closeReveal.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await closeReveal.click();
-  }
+  // Use .click({ timeout }) which waits for the button to appear before clicking.
+  await page.getByRole("button", { name: /close reveal/i }).click({ timeout: 10_000 }).catch(() => null);
 
   const redeployedCard = page
     .locator(`a[href^="/${ACCOUNT}/agents/"]`)
