@@ -543,6 +543,13 @@ Bun.serve({
       return json({ deployments: [], count: 0 });
     }
 
+    const deploymentDetailMatch = pathname.match(/^\/api\/v1\/deployments\/([^/]+)$/);
+    if (deploymentDetailMatch && request.method === "GET") {
+      const dep = deployments.find((d) => d.id === deploymentDetailMatch[1]);
+      if (!dep) return json({ error: "not_found" }, 404);
+      return json({ deployment: dep });
+    }
+
     const triggerMatch = pathname.match(
       /^\/api\/v1\/deployments\/([^/]+)\/ingestion\/([^/]+)\/trigger$/,
     );
