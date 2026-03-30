@@ -109,8 +109,9 @@ export function useStopDeployment(account: string) {
 
   return useMutation({
     mutationFn: api.stopDeployment.bind(api),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
     },
   });
 }
@@ -134,6 +135,8 @@ export function useWakeUpDeployment(account: string) {
           };
         },
       );
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
     },
   });
 }
