@@ -384,9 +384,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
   const [isObservabilityNoticeDismissed, setIsObservabilityNoticeDismissed] = useState(false);
   const [win, setWin] = useState<Win>("24h");
   const [traceStatuses, setTraceStatuses] = useState<string[]>([]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [copiedTraceId, setCopiedTraceId] = useState<string | null>(null);
-  const [copiedTraceField, setCopiedTraceField] = useState<string | null>(null);
   const [series, setSeries] = useState({ req: true, avgLat: true });
   const [tokenView, setTokenView] = useState<"input" | "output">("input");
   const [windowParams] = useState<Record<Win, { start_time: string; end_time: string }>>(() => ({
@@ -523,26 +521,12 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
     onVisibleTracesChange?.(visibleTraces);
   }, [visibleTraces, onVisibleTracesChange]);
 
-  const toggleTrace = (id: string) =>
-    setExpanded((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-
   const copyTraceId = (id: string) => {
     void copyTextToClipboard(id);
     setCopiedTraceId(id);
     setTimeout(() => setCopiedTraceId((prev) => (prev === id ? null : prev)), 1200);
   };
 
-  const copyTraceFieldText = (traceId: string, field: "input" | "output", text: string) => {
-    const key = `${traceId}:${field}`;
-    void copyTextToClipboard(text);
-    setCopiedTraceField(key);
-    setTimeout(() => setCopiedTraceField((prev) => (prev === key ? null : prev)), 1200);
-  };
 
   const summaryLoading = selectedSummaryQuery.isLoading && !summaryData;
   const trendLoading =
@@ -597,7 +581,6 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
   const traceRowPadding = isCompact ? "10px 10px" : "10px 16px";
   const traceHeaderFontSize = isCompact ? "11px" : T.label;
   const traceCellFontSize = "12px";
-  const traceMetaFontSize = isCompact ? T.monoSm : T.label;
   const tracesEmptyMinHeight = 172;
   const hasCollapsedTraces = visibleTraces.length > 4;
   const visibleTraceRows = showAllTraces ? visibleTraces : visibleTraces.slice(0, 4);
@@ -917,10 +900,8 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
               )}
               {visibleTraceRows.map((trace) => {
                 const st = TRACE_STATUS_STYLE[trace.status];
-                const isOpen = expanded.has(trace.id);
                 const externalId = middleEllipsis(trace.id);
                 const copied = copiedTraceId === trace.id;
-                const outputText = trace.output ?? "";
                 return (
                   <div key={trace.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <div
