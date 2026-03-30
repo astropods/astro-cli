@@ -129,9 +129,10 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
   const userAccount = personalAccount?.name ?? "";
   const { data, isLoading } = useDeployments(userAccount, isAuthenticated);
   const { data: accountBlueprints } = useAccountBlueprints(userAccount, { enabled: isAuthenticated });
-  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string } | null;
+  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealAvatarUrl?: string } | null;
   const revealDeploymentId = revealState?.revealDeploymentId ?? null;
   const revealAgentName = revealState?.revealAgentName ?? null;
+  const revealAvatarUrl = revealState?.revealAvatarUrl ?? null;
   const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
   const latestBuildByName = useMemo(() => {
@@ -214,6 +215,9 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           {filtered.map((deployment) => {
+            if (showReveal && (deployment.id === revealDeploymentId || deployment.name === revealAgentName)) {
+              return <DeployedAgentCardSkeleton key={deployment.id} />;
+            }
             const latestBuildId = latestBuildByName.get(deployment.name);
             const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== deployment.build_id;
             return (
@@ -231,6 +235,7 @@ function YourAgentsContent({ skeletonCount }: { skeletonCount: number }) {
         <LiveRevealOverlay
           deployment={revealDeployment}
           account={userAccount}
+          fallbackAvatarUrl={revealAvatarUrl ?? undefined}
           onDismiss={() => {
             setShowReveal(false);
             clearRevealState();

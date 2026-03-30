@@ -115,7 +115,11 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           return;
         }
         navigate("/agents", {
-          state: { revealDeploymentId: deploymentId, revealAgentName: agent.name },
+          state: {
+            revealDeploymentId: deploymentId,
+            revealAgentName: agent.name,
+            revealAvatarUrl: stagedPreviewUrl,
+          },
         });
       } else {
         navigate("/agents");

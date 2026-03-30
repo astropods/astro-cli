@@ -22,11 +22,13 @@ import { generateCard, stripSvgWrapper } from "astro-trading-card";
 export function LiveRevealOverlay({
   deployment,
   account,
+  fallbackAvatarUrl,
   onViewDeployment,
   onDismiss,
 }: {
   deployment: AgentDeployment;
   account: string;
+  fallbackAvatarUrl?: string;
   onViewDeployment: () => void;
   onDismiss: () => void;
 }) {
@@ -43,9 +45,13 @@ export function LiveRevealOverlay({
   }, []);
 
   const cardAvatar = useMemo<CardAvatar | undefined>(() => {
+    const avatarUrl = deployment.avatar_url ?? fallbackAvatarUrl;
+    if (avatarUrl) {
+      return { url: avatarUrl };
+    }
     const svg = generateIdentity({ seed: `${account}/${deployment.name}`, size: 128 });
     return { svg: stripSvgWrapper(svg) };
-  }, [account, deployment.name]);
+  }, [account, deployment.avatar_url, deployment.name, fallbackAvatarUrl]);
 
   const baseCardData = useMemo<CardData>(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
