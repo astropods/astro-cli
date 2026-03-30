@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useDeployments, useUndeployAgent } from './deployments';
+import { useDeployments, useDeployment, useUndeployAgent } from './deployments';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockDeployments } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
@@ -95,6 +95,48 @@ describe('useDeployments – cross-account naming', () => {
     const dep = result.current.data?.deployments[0];
     expect(dep?.name).toBe('otheraccount.data-analyst');
     expect(dep?.name).toContain('.');
+  });
+});
+
+describe('useDeployment', () => {
+  it('fetches a single deployment by id', async () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeployment(testAccount, 'dep-code-reviewer'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.deployment.id).toBe('dep-code-reviewer');
+    expect(result.current.data?.deployment.name).toBe('code-reviewer');
+  });
+
+  it('returns 404 for an unknown deployment id', async () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeployment(testAccount, 'dep-unknown'), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toMatchObject({ error: 'not_found' });
+  });
+
+  it('returns an error when the server fails', async () => {
+    server.use(
+      http.get('/api/v1/deployments/:id', () =>
+        HttpResponse.json({ error: 'internal_error' }, { status: 500 }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeployment(testAccount, 'dep-code-reviewer'), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toMatchObject({ error: 'internal_error' });
+  });
+
+  it('does not fetch when account or id is empty', () => {
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useDeployment('', 'dep-code-reviewer'), { wrapper });
+    expect(result.current.fetchStatus).toBe('idle');
   });
 });
 

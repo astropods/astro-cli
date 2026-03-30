@@ -154,6 +154,11 @@ type ListDeploymentsResponse struct {
 	Count       int               `json:"count"`
 }
 
+// GetDeploymentDetailResponse wraps a single deployment for the detail endpoint.
+type GetDeploymentDetailResponse struct {
+	Deployment AgentDeployment `json:"deployment"`
+}
+
 // ActiveDeploymentResponse is returned by the active deployment endpoint.
 type ActiveDeploymentResponse struct {
 	ID         string          `json:"id"`

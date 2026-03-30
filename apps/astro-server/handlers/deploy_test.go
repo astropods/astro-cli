@@ -2930,3 +2930,204 @@ func TestStopDeployment_Undeploying_Returns400(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// --- GetDeployment tests ---
+
+func setupGetDeploymentTest(t *testing.T, k8sHandler http.Handler) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	accountDB, accountMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+
+	accountStore := account.NewAccountStore(accountDB)
+	deployStore := deploymentstore.NewStore(deployDB)
+	log := logger.New("error", "json")
+	cfg := &config.Config{}
+	k8sClient := newMockK8sClient(k8sHandler)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+		c.Next()
+	})
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, k8sClient, deployStore, nil, nil))
+
+	return router, deployMock, accountMock
+}
+
+func TestGetDeployment_Success(t *testing.T) {
+	depID := deployid.New()
+	namespace := "astro-abc123def-0"
+	agentName := "my-agent"
+	buildID := "build-1"
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sListHandler(namespace, agentName, buildID))
+
+	// accountStore.GetByName
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
+		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+
+	// accountStore.IsMember
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// deployStore.GetDeploymentByID
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, agentName, buildID, namespace, "My Agent", `{}`, "active", now, nil))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Deployment AgentDeployment `json:"deployment"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Deployment.ID != depID {
+		t.Errorf("expected ID %q, got %q", depID, resp.Deployment.ID)
+	}
+	if resp.Deployment.Name != agentName {
+		t.Errorf("expected name %q, got %q", agentName, resp.Deployment.Name)
+	}
+	if resp.Deployment.DisplayName != "My Agent" {
+		t.Errorf("expected display_name 'My Agent', got %q", resp.Deployment.DisplayName)
+	}
+}
+
+func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {
+	depID := deployid.New()
+	namespace := "astro-abc123def-0"
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	// K8s handler returns 404 for all requests (namespace does not exist)
+	k8sHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sHandler)
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
+		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace, "My Agent", `{}`, "active", now, nil))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Deployment AgentDeployment `json:"deployment"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Deployment.ID != depID {
+		t.Errorf("expected ID %q, got %q", depID, resp.Deployment.ID)
+	}
+}
+
+func TestGetDeployment_NotFound(t *testing.T) {
+	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+
+	depID := deployid.New()
+	acctID := uuid.New().String()
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
+		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(emptyDeploymentByIDRows())
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDeployment_MissingAccountParam(t *testing.T) {
+	router, _, _ := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/some-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDeployment_NotMember(t *testing.T) {
+	router, _, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+
+	now := time.Now()
+	acctID := uuid.New().String()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
+		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/some-id?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetDeployment_WrongAccount(t *testing.T) {
+	// Deployment belongs to a different account than the one in the query param.
+	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+
+	depID := deployid.New()
+	requestedAcctID := uuid.New().String()
+	ownerAcctID := uuid.New().String()
+	now := time.Now()
+
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
+		}).AddRow(requestedAcctID, "myorg", "organization", nil, nil, now, now, 0, ""))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	deployMock.ExpectQuery(`SELECT`).
+		WillReturnRows(deploymentByIDRow(depID, ownerAcctID, "my-agent", "build-1", "astro-abc-0", "My Agent", `{}`, "active", now, nil))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}

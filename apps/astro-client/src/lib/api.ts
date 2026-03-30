@@ -358,6 +358,12 @@ class ApiClient {
     );
   }
 
+  async getDeployment(account: string, id: string): Promise<{ deployment: AgentDeployment }> {
+    return this.request<{ deployment: AgentDeployment }>(
+      `/api/v1/deployments/${encodeURIComponent(id)}?account=${encodeURIComponent(account)}`
+    );
+  }
+
   // Get active deployment spec for an agent
   async getActiveDeploymentSpec(account: string, name: string): Promise<ActiveDeploymentSpecResponse> {
     return this.request<ActiveDeploymentSpecResponse>(

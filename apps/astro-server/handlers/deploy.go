@@ -899,6 +899,110 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 	}
 }
 
+// GetDeployment returns live K8s status for a single deployment.
+// GET /api/v1/deployments/:id
+func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		accountName := c.Query("account")
+		if accountName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(accountName)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
+
+		if k8sClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
+			return
+		}
+
+		if deployStore == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "deployment store not configured"})
+			return
+		}
+
+		deploymentID := c.Param("id")
+		dbDep, err := deployStore.GetDeploymentByID(deploymentID)
+		if err != nil || dbDep == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
+			return
+		}
+
+		if dbDep.AccountID != acct.ID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+			return
+		}
+
+		firstSeenAt := dbDep.DeployedAt
+		if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
+			log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
+		} else if firstEventAt != nil {
+			firstSeenAt = *firstEventAt
+		}
+
+		ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
+			c.Request.Context(), dbDep.Namespace, metav1.GetOptions{},
+		)
+
+		var result AgentDeployment
+		if nsErr != nil || ns.DeletionTimestamp != nil {
+			result = agentDeploymentFromDB(dbDep)
+			result.CreatedAt = firstSeenAt.Format(time.RFC3339)
+		} else {
+			manualIngestions := parseManualIngestions(ns.Annotations)
+			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
+			if k8sErr != nil || len(deps) == 0 {
+				result = agentDeploymentFromDB(dbDep)
+				result.CreatedAt = firstSeenAt.Format(time.RFC3339)
+			} else {
+				result = deps[0]
+				result.ID = dbDep.ID
+				result.Name = dbDep.AgentName
+				result.DisplayName = dbDep.DisplayName
+				result.CreatedAt = firstSeenAt.Format(time.RFC3339)
+				switch dbDep.Status {
+				case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+					result.Status = "pending"
+				case deploymentstore.StatusUndeploying:
+					result.Status = "undeploying"
+				}
+			}
+		}
+
+		if auditStore != nil {
+			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), acct.ID, "deployment", []string{dbDep.ID})
+			if auditErr != nil {
+				log.Warn("Failed to load audit timestamps for deployment", "error", auditErr)
+			} else if latest, ok := latestMap[dbDep.ID]; ok {
+				result.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
+				result.UpdatedBy = latest.ActorID
+			}
+		}
+
+		if avatarStore != nil && dbDep.AvatarVersion > 0 {
+			result.AvatarURL = avatarStore.DeploymentAvatarURL(dbDep.ID, dbDep.AvatarVersion)
+		}
+
+		c.JSON(http.StatusOK, gin.H{"deployment": result})
+	}
+}
+
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
 func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {

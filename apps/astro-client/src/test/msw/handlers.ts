@@ -182,6 +182,15 @@ export const handlers = [
     return HttpResponse.json(agent);
   }),
 
+  // GET /api/v1/deployments/:id
+  http.get('/api/v1/deployments/:id', ({ params }) => {
+    const dep = mockDeployments.deployments.find((d) => d.id === params.id);
+    if (!dep) {
+      return HttpResponse.json({ error: 'not_found' }, { status: 404 });
+    }
+    return HttpResponse.json({ deployment: dep });
+  }),
+
   // GET /api/v1/deployments
   http.get('/api/v1/deployments', () => {
     return HttpResponse.json(mockDeployments);

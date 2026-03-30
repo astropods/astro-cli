@@ -25,6 +25,24 @@ export function useDeployments(account: string, enabled = true) {
   });
 }
 
+export function useDeployment(account: string, id: string, enabled = true) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: deploymentKeys.detail(account, id),
+    queryFn: () => api.getDeployment(account, id),
+    enabled: !!account && !!id && enabled,
+    refetchInterval: (query) => {
+      const status = query.state.data?.deployment?.status?.toLowerCase?.() ?? "";
+      const isTransitional =
+        status === "pending" ||
+        status === "provisioning" ||
+        status === "deploying" ||
+        status === "undeploying";
+      return isTransitional ? 3000 : false;
+    },
+  });
+}
+
 const TIME_RANGE_MS: Record<string, number> = {
   '15m': 15 * 60 * 1000,
   '1h': 60 * 60 * 1000,
