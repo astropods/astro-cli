@@ -29,8 +29,14 @@ test("fresh install shows new deployment on agents list after redirect", async (
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
+  // Dismiss the reveal overlay — during the overlay the matched card is shown as a
+  // skeleton (to avoid stale-avatar flash), so the link won't be present until dismissed.
+  const closeReveal = page.getByRole("button", { name: /close reveal/i });
+  if (await closeReveal.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await closeReveal.click();
+  }
+
   // The newly deployed agent should appear as a card on the agents list.
-  // Scope to list cards to avoid strict-mode collisions with reveal overlay text.
   const newAgentCard = page
     .locator(`a[href^="/${ACCOUNT}/agents/"]`)
     .filter({ hasText: AGENT_APP_TOKEN_ONLY })
@@ -60,6 +66,13 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
     page.waitForURL("**/agents*", { timeout: 20_000 }),
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
+
+  // Dismiss the reveal overlay — during the overlay the matched card is shown as a
+  // skeleton (to avoid stale-avatar flash), so the link won't be present until dismissed.
+  const closeReveal = page.getByRole("button", { name: /close reveal/i });
+  if (await closeReveal.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await closeReveal.click();
+  }
 
   const redeployedCard = page
     .locator(`a[href^="/${ACCOUNT}/agents/"]`)
