@@ -107,7 +107,7 @@ export function useStopDeployment(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<{ status: string; deployment_id: string }, Error, { deploymentId: string }>({
     mutationFn: api.stopDeployment.bind(api),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
