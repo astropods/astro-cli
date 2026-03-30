@@ -235,6 +235,11 @@ export const handlers = [
     });
   }),
 
+  // POST /api/v1/deployments/:id/stop
+  http.post('/api/v1/deployments/:id/stop', ({ params }) => {
+    return HttpResponse.json({ status: 'stopped', deployment_id: params.id });
+  }),
+
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
     const body = (await request.json()) as { deployment_id: string };

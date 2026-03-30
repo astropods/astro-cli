@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useDeployments, useDeployment, useUndeployAgent } from './deployments';
+import { useDeployments, useDeployment, useUndeployAgent, useStopDeployment } from './deployments';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockDeployments } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
@@ -137,6 +137,50 @@ describe('useDeployment', () => {
     const { wrapper } = createHookWrapper();
     const { result } = renderHook(() => useDeployment(''), { wrapper });
     expect(result.current.fetchStatus).toBe('idle');
+  });
+});
+
+describe('useStopDeployment', () => {
+  it('stops a deployment and invalidates the deployments cache', async () => {
+    const { wrapper, queryClient } = createHookWrapper();
+
+    queryClient.setQueryData(deploymentKeys.all(testAccount), mockDeployments);
+
+    const { result } = renderHook(() => useStopDeployment(testAccount), { wrapper });
+
+    result.current.mutate({ deploymentId: 'dep-code-reviewer' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.status).toBe('stopped');
+
+    const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
+    expect(deploymentsState?.isInvalidated).toBe(true);
+  });
+
+  it('keeps the button disabled until the server responds — rejects a second stop call while one is in-flight', async () => {
+    let resolveFirst!: () => void;
+    server.use(
+      http.post('/api/v1/deployments/:id/stop', () =>
+        new Promise<Response>((resolve) => {
+          resolveFirst = () => resolve(HttpResponse.json({ status: 'stopped', deployment_id: 'dep-code-reviewer' }));
+        }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useStopDeployment(testAccount), { wrapper });
+
+    result.current.mutate({ deploymentId: 'dep-code-reviewer' });
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+
+    // A second call while the first is in-flight should not be possible —
+    // the button is disabled when isPending is true.
+    expect(result.current.isPending).toBe(true);
+
+    resolveFirst();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 });
 

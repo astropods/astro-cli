@@ -138,7 +138,7 @@ export function ActiveDetailView({
 
   useEffect(() => {
     if (!pausing) return;
-    if (isPaused || !isDeploying) {
+    if (isPaused) {
       setPausing(false);
       if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
       return;
