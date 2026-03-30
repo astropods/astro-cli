@@ -136,6 +136,14 @@ export function ActiveDetailView({
     )?.build_id;
   const hasNewBuildAvailable = !!latestBuildId && latestBuildId !== renderedDeployment.build_id;
 
+  // This view manages its own internal scroll — prevent the document from
+  // adding an outer scrollbar while this component is mounted.
+  useEffect(() => {
+    const prev = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
+    return () => { document.documentElement.style.overflow = prev; };
+  }, []);
+
   useEffect(() => {
     if (!pausing) return;
     if (isPaused) {
@@ -431,6 +439,7 @@ export function ActiveDetailView({
             ref={contentViewportRef}
             style={{
               flex: 1,
+              minHeight: 0,
               overflowY: 'auto',
               overflowX: 'auto',
               padding: `24px calc(${DETAIL_HORIZONTAL_PAD} + 4px) 24px`,
