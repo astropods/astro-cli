@@ -145,6 +145,7 @@ describe('useStopDeployment', () => {
     const { wrapper, queryClient } = createHookWrapper();
 
     queryClient.setQueryData(deploymentKeys.all(testAccount), mockDeployments);
+    queryClient.setQueryData(deploymentKeys.detail('dep-code-reviewer'), { deployment: mockDeployments.deployments[0] });
 
     const { result } = renderHook(() => useStopDeployment(testAccount), { wrapper });
 
