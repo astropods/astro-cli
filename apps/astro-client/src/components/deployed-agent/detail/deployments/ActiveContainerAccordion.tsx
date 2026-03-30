@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Copy, Check } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import { Square2StackIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useContainerSelection } from "@/hooks/use-container-selection";
@@ -80,7 +81,7 @@ export function ActiveContainerAccordion({
       <div
         className={cn(
           "flex gap-2 w-full px-3.5 py-2.5 border border-border cursor-pointer text-left transition-[background] duration-150",
-          isOpen ? "rounded-t-lg border-b-muted bg-surface" : "rounded-lg bg-muted hover:bg-stone-200",
+          isOpen ? "rounded-t-sm border-b-muted bg-surface" : "rounded-sm bg-muted hover:bg-stone-200",
           isCompact ? "items-start flex-wrap" : "items-center flex-nowrap",
         )}
         onClick={onToggle}
@@ -120,7 +121,7 @@ export function ActiveContainerAccordion({
                 <span className="font-mono text-mono-sm truncate">
                   {playgroundCommand}
                 </span>
-                {hasPublicUrl ? (copiedPlaygroundCommand ? <Check size={12} /> : <Copy size={12} />) : null}
+                {hasPublicUrl ? (copiedPlaygroundCommand ? <CheckIcon className="size-3 shrink-0" /> : <Square2StackIcon className="size-3 shrink-0" />) : null}
               </button>
             </div>
           </div>
@@ -134,7 +135,7 @@ export function ActiveContainerAccordion({
           <span className="inline-flex items-center gap-1">
             {readyText}
             <span>ready</span>
-            {allReady ? <Check size={10} /> : null}
+            {allReady ? <CheckIcon className="size-2.5" /> : null}
           </span>
           {" • "}
           {uptime}
@@ -142,7 +143,7 @@ export function ActiveContainerAccordion({
       </div>
 
       {isOpen && (
-        <div className="border border-border border-t-0 rounded-b-lg overflow-hidden">
+        <div className="border border-border border-t-0 rounded-b-sm overflow-hidden">
           <div className={cn("flex items-center bg-surface border-b border-border", isCompact ? "flex-wrap" : "flex-nowrap")}>
             {(["logs", "vars", "domains"] as const).map((v) =>
               (v === "vars" && !canShowVars) || (v === "domains" && !canShowDomains) ? null : (
