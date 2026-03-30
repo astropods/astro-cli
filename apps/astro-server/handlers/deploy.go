@@ -810,54 +810,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		// Deployments without K8s resources (failed, pending) get a DB-only entry.
 		var allDeployments []AgentDeployment
 		for _, dbDep := range dbDeps {
-			firstSeenAt := dbDep.DeployedAt
-			if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
-				log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
-			} else if firstEventAt != nil {
-				firstSeenAt = *firstEventAt
-			}
-
-			// Read manual ingestions from namespace annotations
-			ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
-				c.Request.Context(), dbDep.Namespace, metav1.GetOptions{},
-			)
-			if nsErr != nil || ns.DeletionTimestamp != nil {
-				// No K8s namespace — build entry from DB record alone
-				entry := agentDeploymentFromDB(dbDep)
-				entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
-				allDeployments = append(allDeployments, entry)
-				continue
-			}
-
-			manualIngestions := parseManualIngestions(ns.Annotations)
-			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
-			if k8sErr != nil || len(deps) == 0 {
-				// K8s resources missing or error — build entry from DB record
-				entry := agentDeploymentFromDB(dbDep)
-				entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
-				allDeployments = append(allDeployments, entry)
-				continue
-			}
-
-			// Populate DB-owned fields on all K8s deployment entries for this namespace.
-			// The DB is the source of truth for agent name — k8s labels must not
-			// leak into frontend responses.
-			for i := range deps {
-				deps[i].ID = dbDep.ID
-				deps[i].Name = dbDep.AgentName
-				deps[i].DisplayName = dbDep.DisplayName
-				// Use first event timestamp as canonical lifecycle start for this deployment ID.
-				deps[i].CreatedAt = firstSeenAt.Format(time.RFC3339)
-				// DB status is authoritative for transitional states.
-				// K8s can briefly report zero replicas ("Stopped") while a deploy is still pending/provisioning.
-				switch dbDep.Status {
-				case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
-					deps[i].Status = "pending"
-				case deploymentstore.StatusUndeploying:
-					deps[i].Status = "undeploying"
-				}
-			}
-			allDeployments = append(allDeployments, deps...)
+			allDeployments = append(allDeployments, enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep)...)
 		}
 
 		// Resolve updated_at from the latest audit log entry per deployment.
@@ -919,41 +872,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		firstSeenAt := dbDep.DeployedAt
-		if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
-			log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
-		} else if firstEventAt != nil {
-			firstSeenAt = *firstEventAt
-		}
-
-		ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(
-			c.Request.Context(), dbDep.Namespace, metav1.GetOptions{},
-		)
-
-		var result AgentDeployment
-		if nsErr != nil || ns.DeletionTimestamp != nil {
-			result = agentDeploymentFromDB(dbDep)
-			result.CreatedAt = firstSeenAt.Format(time.RFC3339)
-		} else {
-			manualIngestions := parseManualIngestions(ns.Annotations)
-			deps, k8sErr := listAstroDeployments(c.Request.Context(), k8sClient, dbDep.Namespace, manualIngestions)
-			if k8sErr != nil || len(deps) == 0 {
-				result = agentDeploymentFromDB(dbDep)
-				result.CreatedAt = firstSeenAt.Format(time.RFC3339)
-			} else {
-				result = deps[0]
-				result.ID = dbDep.ID
-				result.Name = dbDep.AgentName
-				result.DisplayName = dbDep.DisplayName
-				result.CreatedAt = firstSeenAt.Format(time.RFC3339)
-				switch dbDep.Status {
-				case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
-					result.Status = "pending"
-				case deploymentstore.StatusUndeploying:
-					result.Status = "undeploying"
-				}
-			}
-		}
+		result := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep)[0]
 
 		if auditStore != nil {
 			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
@@ -1006,6 +925,49 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 	}
 
 	return ad
+}
+
+// enrichDeployment fetches live K8s state for a single DB deployment record and
+// returns the resulting AgentDeployment entries (one per workload in the namespace).
+// Falls back to a DB-only entry if the namespace is missing or K8s calls fail.
+func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment) []AgentDeployment {
+	firstSeenAt := dbDep.DeployedAt
+	if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
+		log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
+	} else if firstEventAt != nil {
+		firstSeenAt = *firstEventAt
+	}
+
+	dbOnly := func() []AgentDeployment {
+		entry := agentDeploymentFromDB(dbDep)
+		entry.CreatedAt = firstSeenAt.Format(time.RFC3339)
+		return []AgentDeployment{entry}
+	}
+
+	ns, nsErr := k8sClient.Clientset().CoreV1().Namespaces().Get(ctx, dbDep.Namespace, metav1.GetOptions{})
+	if nsErr != nil || ns.DeletionTimestamp != nil {
+		return dbOnly()
+	}
+
+	manualIngestions := parseManualIngestions(ns.Annotations)
+	deps, k8sErr := listAstroDeployments(ctx, k8sClient, dbDep.Namespace, manualIngestions)
+	if k8sErr != nil || len(deps) == 0 {
+		return dbOnly()
+	}
+
+	for i := range deps {
+		deps[i].ID = dbDep.ID
+		deps[i].Name = dbDep.AgentName
+		deps[i].DisplayName = dbDep.DisplayName
+		deps[i].CreatedAt = firstSeenAt.Format(time.RFC3339)
+		switch dbDep.Status {
+		case deploymentstore.StatusPending, deploymentstore.StatusProvisioning:
+			deps[i].Status = "pending"
+		case deploymentstore.StatusUndeploying:
+			deps[i].Status = "undeploying"
+		}
+	}
+	return deps
 }
 
 // parseManualIngestions reads the "astro.dev/manual-ingestions" annotation from a namespace.
