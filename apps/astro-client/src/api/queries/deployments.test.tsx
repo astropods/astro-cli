@@ -141,7 +141,7 @@ describe('useDeployment', () => {
 });
 
 describe('useStopDeployment', () => {
-  it('stops a deployment and invalidates the deployments cache', async () => {
+  it('stops a deployment and invalidates the deployments list and detail cache', async () => {
     const { wrapper, queryClient } = createHookWrapper();
 
     queryClient.setQueryData(deploymentKeys.all(testAccount), mockDeployments);
@@ -156,6 +156,9 @@ describe('useStopDeployment', () => {
 
     const deploymentsState = queryClient.getQueryState(deploymentKeys.all(testAccount));
     expect(deploymentsState?.isInvalidated).toBe(true);
+
+    const detailState = queryClient.getQueryState(deploymentKeys.detail('dep-code-reviewer'));
+    expect(detailState?.isInvalidated).toBe(true);
   });
 
   it('keeps the button disabled until the server responds — rejects a second stop call while one is in-flight', async () => {

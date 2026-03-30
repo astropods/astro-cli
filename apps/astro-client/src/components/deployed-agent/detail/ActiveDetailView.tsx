@@ -140,16 +140,31 @@ export function ActiveDetailView({
     if (!pausing) return;
     if (isPaused) {
       setPausing(false);
-      if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
+      if (pausePollRef.current) {
+        clearInterval(pausePollRef.current);
+        pausePollRef.current = null;
+      }
       return;
     }
     pausePollRef.current = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      void queryClient.invalidateQueries({
+        queryKey: deploymentKeys.detail(renderedDeployment.id),
+      });
     }, 3000);
     return () => {
-      if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
+      if (pausePollRef.current) {
+        clearInterval(pausePollRef.current);
+        pausePollRef.current = null;
+      }
     };
-  }, [pausing, isPaused, isDeploying, account, queryClient]);
+  }, [
+    pausing,
+    isPaused,
+    isDeploying,
+    account,
+    queryClient,
+    renderedDeployment.id,
+  ]);
 
   useEffect(() => {
     if (!optimisticDeploying) return;

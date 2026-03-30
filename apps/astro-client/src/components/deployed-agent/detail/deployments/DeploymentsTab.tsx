@@ -36,10 +36,11 @@ export function DeploymentsTab({
   useEffect(() => {
     if (!isDeploying) return;
     const interval = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(deployment.id) });
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.history(account, deployment.name) });
     }, 4000);
     return () => clearInterval(interval);
-  }, [account, isDeploying, queryClient]);
+  }, [isDeploying, queryClient, deployment.id, account, deployment.name]);
 
   const workloads = deployment.workloads;
   const externalUrls = deployment.external_urls;
