@@ -899,6 +899,12 @@ func promptVisibility() string { //nolint:unused
 
 // transformSpecForRegistry replaces build sections with actual image references
 func transformSpecForRegistry(specObj map[string]interface{}, registry, agentName, tag string) map[string]interface{} {
+	// Strip @org/ prefix from the spec name so it matches the registered agent name
+	if name, ok := specObj["name"].(string); ok {
+		_, stripped := utils.ParseAgentName(name)
+		specObj["name"] = stripped
+	}
+
 	// Replace agent.build with agent.image
 	if agent, ok := specObj["agent"].(map[string]interface{}); ok {
 		if _, hasBuild := agent["build"]; hasBuild {
