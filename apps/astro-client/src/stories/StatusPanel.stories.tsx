@@ -26,7 +26,6 @@ type Story = StoryObj<typeof meta>;
 /* ── All Tones ── */
 
 export const AllTones: Story = {
-  name: "All Tones",
   render: () => (
     <div className="space-y-4">
       <ErrorPanel title="Deployment failed">

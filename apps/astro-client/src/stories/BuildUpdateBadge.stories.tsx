@@ -42,7 +42,6 @@ export const Stacked: Story = {
 }
 
 export const WithAvailableLabel: Story = {
-  name: "With Available Label",
   args: {
     currentBuildId: "abc123",
     latestBuildId: "def456",

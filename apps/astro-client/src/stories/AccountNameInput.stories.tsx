@@ -75,7 +75,6 @@ export const Unavailable: Story = {
 }
 
 export const WithCustomPlaceholder: Story = {
-  name: "With Custom Placeholder",
   args: {
     isChecking: false,
     isAvailable: false,

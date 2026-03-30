@@ -7,7 +7,7 @@ const meta = {
   component: CopyButton,
   parameters: { layout: "padded" },
   argTypes: {
-    size: { control: "number" },
+    iconClassName: { control: "text" },
   },
 } satisfies Meta<typeof CopyButton>
 
@@ -21,18 +21,17 @@ export const Default: Story = {
 }
 
 export const WithTitle: Story = {
-  name: "With Title",
   args: {
     copyText: "sk-1234567890abcdef",
     title: "Copy API key",
   },
 }
 
-export const LargeSize: Story = {
-  name: "Large Size",
+export const LargeIcon: Story = {
+  name: "Large Icon",
   args: {
     copyText: "Larger icon",
-    size: 18,
+    iconClassName: "size-6",
   },
 }
 

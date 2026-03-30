@@ -46,7 +46,6 @@ export const WithPreset: Story = {
 }
 
 export const WithCustomCron: Story = {
-  name: "With Custom Cron",
   args: {
     label: "Run Schedule",
     initialValue: "30 9 * * 1-5",

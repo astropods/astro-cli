@@ -40,7 +40,6 @@ export const LargeSize: Story = {
 }
 
 export const DifferentSeeds: Story = {
-  name: "Different Seeds",
   args: {
     account: "alice",
     name: "code-reviewer",
