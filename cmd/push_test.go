@@ -761,6 +761,51 @@ func TestRegisterAgent_UsesPublicVisibilityFromSpec(t *testing.T) {
 	}
 }
 
+func TestTransformSpecForRegistry_StripsOrgPrefix(t *testing.T) {
+	tests := []struct {
+		name         string
+		specName     string
+		expectedName string
+	}{
+		{
+			name:         "scoped name gets stripped",
+			specName:     "@postman/feb19-astro",
+			expectedName: "feb19-astro",
+		},
+		{
+			name:         "bare name unchanged",
+			specName:     "my-agent",
+			expectedName: "my-agent",
+		},
+		{
+			name:         "different org prefix",
+			specName:     "@acme-corp/data-pipeline",
+			expectedName: "data-pipeline",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			specObj := map[string]interface{}{
+				"name": tt.specName,
+				"agent": map[string]interface{}{
+					"image": "existing:latest",
+				},
+			}
+
+			result := transformSpecForRegistry(specObj, "registry.example.com/ns", "agent", "tag1")
+
+			gotName, ok := result["name"].(string)
+			if !ok {
+				t.Fatal("expected name to be a string")
+			}
+			if gotName != tt.expectedName {
+				t.Errorf("transformSpecForRegistry() name = %q, want %q", gotName, tt.expectedName)
+			}
+		})
+	}
+}
+
 func TestPush_OrgScopedSpecName(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
