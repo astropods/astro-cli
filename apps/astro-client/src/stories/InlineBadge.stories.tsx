@@ -69,3 +69,65 @@ export const StatusVariants: Story = {
     </div>
   ),
 };
+
+export const DeploymentStatusVariants: Story = {
+  args: { children: "Live" },
+  render: () => (
+    <div className="flex items-center gap-2">
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-teal-600)",
+          background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
+        }}
+      >
+        Live
+      </InlineBadge>
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-yellow-700)",
+          background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
+        }}
+      >
+        Deploying
+      </InlineBadge>
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-stone-500)",
+          background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+        }}
+      >
+        Inactive
+      </InlineBadge>
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-stone-500)",
+          background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+        }}
+      >
+        Undeploying
+      </InlineBadge>
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-red-700)",
+          background: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
+        }}
+      >
+        Failed
+      </InlineBadge>
+      <InlineBadge
+        variant="soft"
+        style={{
+          color: "var(--color-stone-500)",
+          background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+        }}
+      >
+        Undeployed
+      </InlineBadge>
+    </div>
+  ),
+};

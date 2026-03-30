@@ -1,14 +1,41 @@
 import { MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { StatusIndicator } from "@/components/StatusIndicator";
+import { InlineBadge } from "@/components/InlineBadge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { statusVariant, statusLabel } from "./history/utils";
-import type { DeploymentHistoryTableRow } from "./history/types";
+import { statusLabel } from "./history/utils";
+import type { DeployHistoryStatus, DeploymentHistoryTableRow } from "./history/types";
+
+const STATUS_BADGE_STYLE: Record<DeployHistoryStatus, React.CSSProperties> = {
+  active: {
+    color: "var(--color-teal-600)",
+    background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
+  },
+  deploying: {
+    color: "var(--color-yellow-700)",
+    background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)",
+  },
+  undeploying: {
+    color: "var(--color-stone-500)",
+    background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+  },
+  ready: {
+    color: "var(--color-stone-500)",
+    background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+  },
+  failed: {
+    color: "var(--color-red-700)",
+    background: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
+  },
+  undeployed: {
+    color: "var(--color-stone-500)",
+    background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+  },
+};
 
 interface DeploymentHistoryRowProps {
   row: DeploymentHistoryTableRow;
@@ -33,8 +60,6 @@ export function DeploymentHistoryRow({
   onRollback,
   className,
 }: DeploymentHistoryRowProps) {
-  const isSpinning = row.status === "deploying" || row.status === "undeploying";
-
   return (
     <div
       className={cn(
@@ -47,31 +72,28 @@ export function DeploymentHistoryRow({
     >
       {/* Name */}
       <div className="min-w-0">
-        <div className="font-sans text-body font-medium text-foreground truncate" title={row.rowLabel}>
+        <div className="font-mono text-body font-medium text-foreground truncate" title={row.rowLabel}>
           {row.rowLabel}
         </div>
       </div>
 
       {/* Status */}
       <div className="flex justify-end items-center">
-        <StatusIndicator
-          variant={statusVariant(row.status)}
-          spinner={isSpinning}
-        >
+        <InlineBadge variant="soft" style={STATUS_BADGE_STYLE[row.status]}>
           {statusLabel(row.status)}
-        </StatusIndicator>
+        </InlineBadge>
       </div>
 
       {/* Duration */}
-      <span className="font-sans text-body text-foreground text-right">{row.duration}</span>
+      <span className="font-mono text-body text-foreground text-right">{row.duration}</span>
 
       {/* Build */}
-      <span className="font-sans text-body text-foreground text-right">{row.build}</span>
+      <span className="font-mono text-body text-foreground text-right">{row.build}</span>
 
       {/* Deployed on + kebab (non-compact only) */}
       {!isCompact && (
         <>
-          <span className="font-sans text-body text-foreground whitespace-nowrap text-right pl-3">
+          <span className="font-mono text-body text-foreground whitespace-nowrap text-right pl-3">
             {row.time}, {row.timeOfDay}
           </span>
           {isCurrent ? (

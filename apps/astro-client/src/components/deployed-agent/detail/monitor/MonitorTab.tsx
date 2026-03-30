@@ -899,7 +899,7 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                   ))}
                 </div>
               )}
-              {!tracesLoading && traces.length === 0 && (
+              {!tracesLoading && traces.length === 0 && false && (
                 <div style={{ minHeight: tracesEmptyMinHeight, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
                   <div style={{ width: 40, height: 40, borderRadius: "50%", background: C.bgDeep, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
                     <Activity size={I.lg} color={C.stone} />
