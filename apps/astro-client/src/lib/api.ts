@@ -358,9 +358,9 @@ class ApiClient {
     );
   }
 
-  async getDeployment(account: string, id: string): Promise<{ deployment: AgentDeployment }> {
+  async getDeployment(id: string): Promise<{ deployment: AgentDeployment }> {
     return this.request<{ deployment: AgentDeployment }>(
-      `/api/v1/deployments/${encodeURIComponent(id)}?account=${encodeURIComponent(account)}`
+      `/api/v1/deployments/${encodeURIComponent(id)}`
     );
   }
 

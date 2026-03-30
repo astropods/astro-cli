@@ -221,7 +221,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? loaderData?.account ?? "";
   const { isAuthenticated, personalAccount } = useAuth();
-  const { data: deploymentsData, isLoading } = useDeployment(account, deploymentId ?? "", isAuthenticated);
+  const { data: deploymentsData, isLoading } = useDeployment(deploymentId ?? "", isAuthenticated);
   const deployment = deploymentsData?.deployment ?? null;
   const monitorLocked = deployment ? isDeployingState(deployment) : false;
   const isPersonal = personalAccount?.name === account;

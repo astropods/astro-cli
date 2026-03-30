@@ -2966,21 +2966,15 @@ func TestGetDeployment_Success(t *testing.T) {
 
 	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sListHandler(namespace, agentName, buildID))
 
-	// accountStore.GetByName
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
-		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
-
-	// accountStore.IsMember
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
 	// deployStore.GetDeploymentByID
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, agentName, buildID, namespace, "My Agent", `{}`, "active", now, nil))
 
-	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	// accountStore.IsMember (called by resolveDeployment)
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -3018,16 +3012,12 @@ func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {
 
 	router, deployMock, accountMock := setupGetDeploymentTest(t, k8sHandler)
 
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
-		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", namespace, "My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -3047,56 +3037,12 @@ func TestGetDeployment_NoNamespace_ReturnsDBEntry(t *testing.T) {
 }
 
 func TestGetDeployment_NotFound(t *testing.T) {
-	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	router, deployMock, _ := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 
-	depID := deployid.New()
-	acctID := uuid.New().String()
-	now := time.Now()
-
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
-		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(emptyDeploymentByIDRows())
 
-	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestGetDeployment_MissingAccountParam(t *testing.T) {
-	router, _, _ := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
-
-	req := httptest.NewRequest("GET", "/api/v1/deployments/some-id", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestGetDeployment_NotMember(t *testing.T) {
-	router, _, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
-
-	now := time.Now()
-	acctID := uuid.New().String()
-
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
-		}).AddRow(acctID, "myorg", "organization", nil, nil, now, now, 0, ""))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	req := httptest.NewRequest("GET", "/api/v1/deployments/some-id?account=myorg", nil)
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+deployid.New(), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -3105,25 +3051,19 @@ func TestGetDeployment_NotMember(t *testing.T) {
 	}
 }
 
-func TestGetDeployment_WrongAccount(t *testing.T) {
-	// Deployment belongs to a different account than the one in the query param.
+func TestGetDeployment_NotMember(t *testing.T) {
 	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 
 	depID := deployid.New()
-	requestedAcctID := uuid.New().String()
-	ownerAcctID := uuid.New().String()
+	acctID := uuid.New().String()
 	now := time.Now()
 
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
-		}).AddRow(requestedAcctID, "myorg", "organization", nil, nil, now, now, 0, ""))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(deploymentByIDRow(depID, ownerAcctID, "my-agent", "build-1", "astro-abc-0", "My Agent", `{}`, "active", now, nil))
+		WillReturnRows(deploymentByIDRow(depID, acctID, "my-agent", "build-1", "astro-abc-0", "My Agent", `{}`, "active", now, nil))
+	accountMock.ExpectQuery(`SELECT`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID+"?account=myorg", nil)
+	req := httptest.NewRequest("GET", "/api/v1/deployments/"+depID, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

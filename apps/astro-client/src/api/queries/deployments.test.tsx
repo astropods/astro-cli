@@ -101,7 +101,7 @@ describe('useDeployments – cross-account naming', () => {
 describe('useDeployment', () => {
   it('fetches a single deployment by id', async () => {
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useDeployment(testAccount, 'dep-code-reviewer'), { wrapper });
+    const { result } = renderHook(() => useDeployment('dep-code-reviewer'), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -111,7 +111,7 @@ describe('useDeployment', () => {
 
   it('returns 404 for an unknown deployment id', async () => {
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useDeployment(testAccount, 'dep-unknown'), { wrapper });
+    const { result } = renderHook(() => useDeployment('dep-unknown'), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -126,16 +126,16 @@ describe('useDeployment', () => {
     );
 
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useDeployment(testAccount, 'dep-code-reviewer'), { wrapper });
+    const { result } = renderHook(() => useDeployment('dep-code-reviewer'), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(result.current.error).toMatchObject({ error: 'internal_error' });
   });
 
-  it('does not fetch when account or id is empty', () => {
+  it('does not fetch when id is empty', () => {
     const { wrapper } = createHookWrapper();
-    const { result } = renderHook(() => useDeployment('', 'dep-code-reviewer'), { wrapper });
+    const { result } = renderHook(() => useDeployment(''), { wrapper });
     expect(result.current.fetchStatus).toBe('idle');
   });
 });

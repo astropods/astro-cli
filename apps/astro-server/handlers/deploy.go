@@ -903,27 +903,8 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 // GET /api/v1/deployments/:id
 func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
+		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			return
-		}
-
-		accountName := c.Query("account")
-		if accountName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "account query parameter is required"})
-			return
-		}
-
-		acct, err := accountStore.GetByName(accountName)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
-			return
-		}
-
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		if err != nil || !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
 			return
 		}
 
@@ -932,20 +913,9 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		if deployStore == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "deployment store not configured"})
-			return
-		}
-
-		deploymentID := c.Param("id")
-		dbDep, err := deployStore.GetDeploymentByID(deploymentID)
-		if err != nil || dbDep == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-			return
-		}
-
-		if dbDep.AccountID != acct.ID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
+		dbDep, err := resolveDeployment(c, deployStore, accountStore)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -986,7 +956,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		}
 
 		if auditStore != nil {
-			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), acct.ID, "deployment", []string{dbDep.ID})
+			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
 			if auditErr != nil {
 				log.Warn("Failed to load audit timestamps for deployment", "error", auditErr)
 			} else if latest, ok := latestMap[dbDep.ID]; ok {

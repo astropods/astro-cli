@@ -25,12 +25,12 @@ export function useDeployments(account: string, enabled = true) {
   });
 }
 
-export function useDeployment(account: string, id: string, enabled = true) {
+export function useDeployment(id: string, enabled = true) {
   const api = useApiClient();
   return useQuery({
-    queryKey: deploymentKeys.detail(account, id),
-    queryFn: () => api.getDeployment(account, id),
-    enabled: !!account && !!id && enabled,
+    queryKey: deploymentKeys.detail(id),
+    queryFn: () => api.getDeployment(id),
+    enabled: !!id && enabled,
     refetchInterval: (query) => {
       const status = query.state.data?.deployment?.status?.toLowerCase?.() ?? "";
       const isTransitional =
