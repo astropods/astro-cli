@@ -7,6 +7,7 @@ import { extractColorsFromImage, svgToImageSource } from "astro-trading-card/bro
 
 export function useExtractedColors(avatar: CardData["avatar"], enabled: boolean) {
   const [colors, setColors] = useState<CardColors>(DEFAULT_COLORS);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -21,11 +22,15 @@ export function useExtractedColors(avatar: CardData["avatar"], enabled: boolean)
 
     if (!source) {
       setColors(DEFAULT_COLORS);
+      setReady(true);
       return;
     }
 
     extractColorsFromImage(source).then((result) => {
-      if (!cancelled) setColors(result ?? DEFAULT_COLORS);
+      if (!cancelled) {
+        setColors(result ?? DEFAULT_COLORS);
+        setReady(true);
+      }
     });
 
     return () => {
@@ -33,7 +38,7 @@ export function useExtractedColors(avatar: CardData["avatar"], enabled: boolean)
     };
   }, [avatar, enabled]);
 
-  return colors;
+  return { colors, ready };
 }
 
 export function useResolvedIntegrations(integrations: ResolvedIntegration[] | undefined, enabled: boolean) {

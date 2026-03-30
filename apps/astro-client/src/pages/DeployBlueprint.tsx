@@ -96,13 +96,17 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
     if (!form.trySubmit()) return;
     try {
       const result = await form.deploy();
-      // Upload staged avatar to the newly created deployment
+      // Upload staged avatar before navigating so we can pass the server URL
+      // (not the local blob URL) in nav state — prevents a blob→server URL
+      // transition in the reveal overlay that causes an avatar flicker.
+      let revealAvatarUrl: string | null | undefined = stagedPreviewUrl;
       if (result?.deployment_id && stagedBlobRef.current) {
         try {
-          await uploadDeploymentAvatar.mutateAsync({
+          const avatarResult = await uploadDeploymentAvatar.mutateAsync({
             id: result.deployment_id,
             file: stagedBlobRef.current,
           });
+          revealAvatarUrl = avatarResult.avatar_url;
         } catch {
           // Avatar upload failure shouldn't block navigation — deployment succeeded
         }
@@ -119,7 +123,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
             revealDeploymentId: deploymentId,
             revealAgentName: agent.name,
             revealDisplayName: form.deployName,
-            revealAvatarUrl: stagedPreviewUrl,
+            revealAvatarUrl,
           },
         });
       } else {

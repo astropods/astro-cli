@@ -69,7 +69,7 @@ export function LiveRevealOverlay({
     };
   }, [account, cardAvatar, deployment.created_at, deployment.display_name, deployment.id, deployment.name]);
 
-  const colors = useExtractedColors(baseCardData.avatar, true);
+  const { colors, ready: colorsReady } = useExtractedColors(baseCardData.avatar, true);
   const cardIntegrations = useResolvedIntegrations(integrations, true);
 
   const revealCardData = useMemo<CardData>(
@@ -159,7 +159,7 @@ export function LiveRevealOverlay({
           <div
             className={cn(
               "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",
-              entered ? "translate-y-0 scale-[1.02] opacity-100" : "translate-y-4 scale-[0.98] opacity-0",
+              entered && colorsReady ? "translate-y-0 scale-[1.02] opacity-100" : "translate-y-4 scale-[0.98] opacity-0",
             )}
           >
             <HoloCard>
