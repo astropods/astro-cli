@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { MemoryRouter } from "react-router";
 import { UserCard } from "@/components/UserCard";
 import type { User } from "@/lib/api";
 
@@ -18,9 +19,11 @@ const meta = {
   component: UserCard,
   decorators: [
     (Story) => (
-      <div className="w-64">
-        <Story />
-      </div>
+      <MemoryRouter>
+        <div className="w-64">
+          <Story />
+        </div>
+      </MemoryRouter>
     ),
   ],
   args: {
