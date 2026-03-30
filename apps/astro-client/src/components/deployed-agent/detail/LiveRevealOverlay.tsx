@@ -150,6 +150,12 @@ export function LiveRevealOverlay({
         </div>
 
         <div className="mt-12 flex w-[min(82vw,330px)] flex-col items-center gap-0">
+          {/* Hidden preload keeps the avatar URL in the browser cache so the SVG
+              <image> element doesn't flicker when the card is regenerated after
+              color extraction completes. */}
+          {(deployment.avatar_url ?? fallbackAvatarUrl) && (
+            <img src={deployment.avatar_url ?? fallbackAvatarUrl} aria-hidden className="sr-only" alt="" />
+          )}
           <div
             className={cn(
               "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",
