@@ -827,7 +827,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 				return nil
 			})
 		}
-		g.Wait() //nolint:errcheck // errors fall back to DB-only entries; goroutines never return non-nil
+		g.Wait()
 
 		var allDeployments []AgentDeployment
 		for _, deps := range enriched {

@@ -445,8 +445,6 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 	}
 }
 
-// TestListAstroDeploymentsLight_StatusAndReplicas verifies that the light variant
-// returns correct status, replicas, and ready values from K8s Deployments.
 func TestListAstroDeploymentsLight_StatusAndReplicas(t *testing.T) {
 	namespace := "astro-abc123def-0"
 	agentName := "my-agent"
@@ -501,8 +499,6 @@ func TestListAstroDeploymentsLight_StatusAndReplicas(t *testing.T) {
 	}
 }
 
-// TestListAstroDeploymentsLight_SkipsPodsIngressesJobs verifies that the light variant
-// does not call the pods, ingresses, or jobs K8s APIs.
 func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
 	namespace := "astro-abc123def-0"
 	var calledPaths []string
