@@ -1,4 +1,4 @@
-# Deployment list: parallel K8s fetches and reduced per-deployment calls (steps 2–3)
+# Deployment list performance
 
 ## Summary
 
