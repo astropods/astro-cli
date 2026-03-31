@@ -818,6 +818,7 @@ func TestApplyDeploymentSpec_TemplateContract_SlackAllowlist(t *testing.T) {
 				},
 			},
 		},
+		AgentName:   "my-agent",
 		Account:     "acme",
 		BuildID:     "build-123",
 		RegistryURL: "test-registry.example.com",

@@ -27,6 +27,7 @@ func providerEnvKeys(basePrefix, name, suffix string, isDuplicate, isFirst bool)
 // TemplateInput holds the parameters needed to generate a deployment template.
 type TemplateInput struct {
 	Spec              *spec.AstroSpec
+	AgentName         string // canonical agent name from the registry (used in DeploymentSource and image fallback)
 	Account           string // account name (display, used in DeploymentSource)
 	ECRNamespace      string // where this version's images physically live in ECR
 	BuildID           string
@@ -48,7 +49,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 		Spec: "deployment-template/v1",
 		Source: spec.DeploymentSource{
 			Account:  input.Account,
-			Name:     astroSpec.Name,
+			Name:     input.AgentName,
 			Build:    input.BuildID,
 			Registry: input.RegistryURL,
 		},
@@ -262,7 +263,7 @@ func GenerateDeploymentTemplate(input TemplateInput) (*spec.AstroDeploymentSpec,
 	// Build agent block
 	agentImage := resolveImage(astroSpec.Agent.Image, input)
 	if agentImage == "" && input.RegistryURL != "" {
-		agentImage = fmt.Sprintf("%s/%s:%s", input.RegistryURL, astroSpec.Name, input.BuildID)
+		agentImage = fmt.Sprintf("%s/%s:%s", input.RegistryURL, input.AgentName, input.BuildID)
 	}
 	agentEndpoints := map[string]spec.Endpoint{
 		"http": {Port: 8080, Protocol: "http"},

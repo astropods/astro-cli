@@ -60,6 +60,7 @@ func runE2E(t *testing.T, yamlSpec string, opts e2eOpts) *e2eResult {
 	// Step 2: Generate deployment template
 	ds, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:        astroSpec,
+		AgentName:   astroSpec.Name,
 		Account:     opts.Account,
 		BuildID:     opts.BuildID,
 		RegistryURL: opts.RegistryURL,

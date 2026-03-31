@@ -147,6 +147,7 @@ dev:
 	// Step 3: Generate deployment template
 	ds, err := GenerateDeploymentTemplate(TemplateInput{
 		Spec:              &restored,
+		AgentName:         restored.Name,
 		Account:           "testuser",
 		BuildID:           "test-build",
 		RegistryURL:       "registry.example.com",
@@ -308,6 +309,7 @@ func TestTemplate_E2E_StoredJSON(t *testing.T) {
 	// === Generate deployment template ===
 	ds, err := GenerateDeploymentTemplate(TemplateInput{
 		Spec:              &astroSpec,
+		AgentName:         astroSpec.Name,
 		Account:           "testuser",
 		BuildID:           "abc123",
 		RegistryURL:       "registry.astropods.ai",

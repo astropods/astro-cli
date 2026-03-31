@@ -239,6 +239,7 @@ func prepareDeployment(
 	// Re-generate the server's canonical template for this build
 	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:              &astroSpec,
+		AgentName:         sourceAgent.Name,
 		Account:           sourceAcct.Name,
 		ECRNamespace:      agentVersion.ECRNamespace,
 		BuildID:           agentVersion.BuildID,
@@ -1800,7 +1801,8 @@ func generateTemplate(
 
 	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:              &astroSpec,
-		Account:           accountName,
+		AgentName:         agent.Name,
+		Account:           acct.Name,
 		ECRNamespace:      agentVersion.ECRNamespace,
 		BuildID:           agentVersion.BuildID,
 		RegistryURL:       cfg.Deployment.RegistryURL,

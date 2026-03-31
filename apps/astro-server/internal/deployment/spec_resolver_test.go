@@ -530,7 +530,6 @@ func TestResolveDeploymentSpecEnv_HardcodedValueMatchingSecretKey(t *testing.T) 
 	}
 }
 
-
 func TestResolveDeploymentSpecEnv_EmptyVariables(t *testing.T) {
 	ds := &spec.AstroDeploymentSpec{
 		Source: spec.DeploymentSource{Name: "agent", Build: "b1"},
@@ -719,6 +718,7 @@ func TestResolveDeploymentSpecEnv_SupportSignalAgent(t *testing.T) {
 	// Generate deployment template (same as the server does)
 	template, err := GenerateDeploymentTemplate(TemplateInput{
 		Spec:         &astroSpec,
+		AgentName:    astroSpec.Name,
 		Account:      "zain",
 		BuildID:      "8f406458",
 		RegistryURL:  "registry.astropods.ai",
@@ -812,6 +812,7 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	// that the old template code would have produced.
 	buggyTemplate, err := GenerateDeploymentTemplate(TemplateInput{
 		Spec:         &astroSpec,
+		AgentName:    astroSpec.Name,
 		Account:      "zain",
 		BuildID:      "8f406458",
 		RegistryURL:  "registry.astropods.ai",
@@ -881,6 +882,7 @@ func TestRepairRetemplate_FixesBuggyStoredSpec(t *testing.T) {
 	// Re-generate template from the package spec (with fixed code)
 	newTemplate, err := GenerateDeploymentTemplate(TemplateInput{
 		Spec:         &astroSpec,
+		AgentName:    astroSpec.Name,
 		Account:      "zain",
 		BuildID:      "8f406458",
 		RegistryURL:  "registry.astropods.ai",

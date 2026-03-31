@@ -1676,6 +1676,7 @@ func (s *Server) retemplateDeploymentSpec(dep *deploymentstore.Deployment, store
 	// Re-generate the template using the fixed code.
 	newTemplate, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:         &astroSpec,
+		AgentName:    dep.AgentName,
 		Account:      storedDS.Source.Account,
 		ECRNamespace: ecrNamespace,
 		BuildID:      dep.BuildID,
