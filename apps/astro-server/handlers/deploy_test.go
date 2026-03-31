@@ -3040,6 +3040,71 @@ func TestGetDeployment_NotFound(t *testing.T) {
 	}
 }
 
+// TestDeploy_SourcePropertiesFromDB verifies that source.account and source.build in the
+// deployment template are taken from the database, not the client-submitted spec.
+//
+// Setup: the DB's agentVersion.BuildID is "canonical-build", but the client submits a spec
+// with source.build = "build-1" (the ID used to look up the version). After the fix,
+// the template is stamped with "canonical-build" from the DB, so EnforceEditable rejects
+// the submitted spec (which still says "build-1") with a 400.
+func TestDeploy_SourcePropertiesFromDB(t *testing.T) {
+	router, indexMock, accountMock, _ := setupDeployRouter("user-1")
+
+	now := time.Now()
+
+	// accountStore.GetByName("myorg") → DB returns name="myorg"
+	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("myorg").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, 0, ""))
+
+	// IsMember → yes
+	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// agentIndex.Get (visibility check)
+	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"account_id", "name", "registry", "visibility", "avatar_version", "archived_at", "created_at", "updated_at"}).
+			AddRow("acct-1", "my-agent", "r.io", "public", 0, nil, now, now))
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+
+	// agentIndex.GetVersion — queried with "build-1" but DB returns canonical "canonical-build"
+	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
+		WithArgs("acct-1", "my-agent", "build-1").
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
+			AddRow("canonical-build", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
+
+	// Submit a spec with source.build = "build-1" (does not match the DB's "canonical-build")
+	body := deployableSpec("")
+	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Template has source.build="canonical-build" from DB; submitted spec has "build-1".
+	// EnforceEditable must reject the mismatch.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when source.build differs from DB value, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["error"] != "server-owned fields were modified" {
+		t.Errorf("expected 'server-owned fields were modified' error, got: %v", resp["error"])
+	}
+}
+
 func TestGetDeployment_NotMember(t *testing.T) {
 	router, deployMock, accountMock := setupGetDeploymentTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 

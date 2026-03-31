@@ -239,9 +239,9 @@ func prepareDeployment(
 	// Re-generate the server's canonical template for this build
 	template, err := deployment.GenerateDeploymentTemplate(deployment.TemplateInput{
 		Spec:              &astroSpec,
-		Account:           sourceAccountName,
+		Account:           sourceAcct.Name,
 		ECRNamespace:      agentVersion.ECRNamespace,
-		BuildID:           buildID,
+		BuildID:           agentVersion.BuildID,
 		RegistryURL:       cfg.Deployment.RegistryURL,
 		ProxyRegistryHost: cfg.Deployment.ProxyRegistryHost,
 		Environment:       cfg.Deployment.Environment,
