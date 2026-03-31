@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useParams, Link, Navigate } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
@@ -221,22 +221,44 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   // isPending stays true for disabled queries (no data yet), covering the gap
   // between auth resolving and the query transitioning to its loading state.
   const { data: deploymentsData, isPending: isQueryPending } = useDeployment(deploymentId ?? "", isAuthenticated);
-  // const isLoading = isAuthLoading || (isAuthenticated && isQueryPending);
+  const isLoading = isAuthLoading || (isAuthenticated && isQueryPending);
   const deployment = deploymentsData?.deployment ?? null;
+
+  // If loading takes more than 2s (hung auth/network), show a spinner so
+  // the user doesn't stare at a blank screen indefinitely.
+  const [slowLoad, setSlowLoad] = useState(false);
+  useEffect(() => {
+    if (!isLoading) { setSlowLoad(false); return; }
+    const t = setTimeout(() => setSlowLoad(true), 2000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) login();
   }, [isAuthLoading, isAuthenticated, login]);
 
-  // if (isLoading) {
-  //   return <DeployedAgentDetailSkeleton />;
-  // }
+  if (isLoading && slowLoad) {
+    return (
+      <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <div
+          className="dp-spin"
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: "50%",
+            border: "2px solid var(--border)",
+            borderTopColor: "var(--foreground)",
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (isLoading) return null;
 
   if (!isAuthenticated) return null;
 
   if (!personalAccount) return <Navigate to="/onboarding" replace />;
-
-  if (isAuthenticated && isQueryPending) return null;
 
   if (!deployment) {
     return (
