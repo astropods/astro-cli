@@ -821,13 +821,12 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 		enriched := make([][]AgentDeployment, len(dbDeps))
 		g, gctx := errgroup.WithContext(c.Request.Context())
 		for i, dbDep := range dbDeps {
-			i, dbDep := i, dbDep
 			g.Go(func() error {
 				enriched[i] = enrichDeployment(gctx, log, k8sClient, deployStore, dbDep, listAstroDeploymentsLight)
 				return nil
 			})
 		}
-		g.Wait()
+		_ = g.Wait()
 
 		var allDeployments []AgentDeployment
 		for _, deps := range enriched {
