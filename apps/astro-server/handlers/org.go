@@ -52,6 +52,18 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore) gin.Han
 			return
 		}
 
+		user, ok := middleware.GetUser(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "you are not a member of this account"})
+			return
+		}
+
 		members, err := accountStore.GetMembersForAccount(acct.ID)
 		if err != nil {
 			log.Error("Failed to list members", "error", err, "account_id", acct.ID)

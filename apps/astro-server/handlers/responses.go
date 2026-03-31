@@ -243,6 +243,14 @@ type ObservabilitySummaryResponse struct {
 	Metrics     ObservabilitySummaryMetrics `json:"metrics"`
 }
 
+// AccountObservabilitySummaryResponse is returned by the account-level summary endpoint.
+type AccountObservabilitySummaryResponse struct {
+	TotalTraces  int              `json:"total_traces"`
+	InputTokens  int              `json:"input_tokens"`
+	OutputTokens int              `json:"output_tokens"`
+	TimeRange    MetricsTimeRange `json:"time_range"`
+}
+
 // TraceEntry represents a single trace in the traces list.
 type TraceEntry struct {
 	TraceID   string  `json:"trace_id"`

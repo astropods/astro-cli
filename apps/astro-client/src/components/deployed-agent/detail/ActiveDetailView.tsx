@@ -120,7 +120,7 @@ export function ActiveDetailView({
     ? { ...deployment, status: "pending", ready: 0 }
     : deployment;
   const displayName = renderedDeployment.display_name || renderedDeployment.name
-  const backPath = backPathOverride ?? (isPersonal ? '/agents' : `/${account}`)
+  const backPath = backPathOverride ?? (isPersonal ? '/dashboard' : `/${account}`)
   const isDeploying = isDeployingState(renderedDeployment);
   const isPaused = isPausedState(renderedDeployment);
   const showConfigureAsPage = isCompact && configOpen;

@@ -75,7 +75,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
               The deployed agent you&apos;re looking for doesn&apos;t exist or has been removed.
             </p>
             <Button asChild>
-              <Link to="/agents">My Agents</Link>
+              <Link to="/dashboard">Dashboard</Link>
             </Button>
           </>
         )}
@@ -112,7 +112,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
   const isPersonal = personalAccount?.name === account;
   const breadcrumbItems = [
     isPersonal
-      ? { label: "My Agents", to: "/agents" }
+      ? { label: "Dashboard", to: "/dashboard" }
       : { label: account, to: `/${account}` },
     { label: displayName, to: basePath },
     { label: "Configure" },

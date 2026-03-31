@@ -39,9 +39,10 @@ interface MultiSelectProps {
   selected: string[];
   onChange: (v: string[]) => void;
   placeholder: string;
+  fontSize?: string;
 }
 
-export function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectProps) {
+export function MultiSelect({ options, selected, onChange, placeholder, fontSize }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -78,7 +79,7 @@ export function MultiSelect({ options, selected, onChange, placeholder }: MultiS
           background: "var(--popover)",
           cursor: "pointer",
           fontFamily: S.body,
-          fontSize: T.body,
+          fontSize: fontSize ?? T.body,
           color: allSelected ? C.text : C.teal,
           transition: "all 0.12s",
           whiteSpace: "nowrap" as const,

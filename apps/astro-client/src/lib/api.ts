@@ -51,6 +51,16 @@ export interface AccountSearchResult {
   type: string;
 }
 
+export interface AccountMember {
+  account_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface AccountMembersResponse {
+  members: AccountMember[];
+}
+
 export interface AccountSearchResponse {
   results: AccountSearchResult[];
 }
@@ -261,6 +271,12 @@ class ApiClient {
     );
   }
 
+  async getAccountMembers(account: string): Promise<AccountMembersResponse> {
+    return this.request<AccountMembersResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/members`
+    );
+  }
+
   async checkAccountName(name: string): Promise<{ available: boolean; reason?: string }> {
     return this.request<{ available: boolean; reason?: string }>(
       `/api/v1/accounts/check/${encodeURIComponent(name)}`
@@ -444,6 +460,16 @@ class ApiClient {
     const qs = params ? `?${new URLSearchParams(params)}` : '';
     return this.request<ObservabilitySummaryResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/observability/summary${qs}`
+    );
+  }
+
+  async getAccountObservabilitySummary(
+    account: string,
+    params?: Record<string, string>,
+  ): Promise<AccountObservabilitySummaryResponse> {
+    const qs = params ? `?${new URLSearchParams(params)}` : '';
+    return this.request<AccountObservabilitySummaryResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/observability/summary${qs}`
     );
   }
 
@@ -913,6 +939,13 @@ export interface TraceEntry {
   input: string;
   output: string;
   timestamp: string;
+}
+
+export interface AccountObservabilitySummaryResponse {
+  total_traces: number;
+  input_tokens: number;
+  output_tokens: number;
+  time_range: { start: string; end: string };
 }
 
 export interface ObservabilityTracesResponse {

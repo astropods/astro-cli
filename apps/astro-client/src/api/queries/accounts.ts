@@ -3,6 +3,14 @@ import { api } from '../../lib/api';
 import type { AccountPublic, CreateAccountData } from '../../lib/api';
 import { accountKeys } from './keys';
 
+export function useAccountMembers(account: string) {
+  return useQuery({
+    queryKey: accountKeys.members(account),
+    queryFn: () => api.getAccountMembers(account),
+    enabled: !!account,
+  });
+}
+
 export function useProfile() {
   return useQuery({
     queryKey: accountKeys.profile,

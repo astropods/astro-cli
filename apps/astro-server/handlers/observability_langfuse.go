@@ -68,6 +68,67 @@ func resolveLangfuseContext(
 	return &langfuseContext{Client: client, DeploymentID: dep.ID}, true
 }
 
+// GetAccountLangfuseSummary returns the total trace count for all deployments
+// in an account over a given time window. Uses the account's Langfuse project
+// credentials without a deployment tag filter, so it aggregates across all deployments.
+// GET /api/v1/accounts/:account/observability/summary
+func GetAccountLangfuseSummary(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	langfuseStore *langfuse.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		acct, err := accountStore.GetByName(c.Param("account"))
+		if err != nil || acct == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+
+		isMember, err := accountStore.IsMember(acct.ID, user.ID)
+		if err != nil || !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+
+		creds, err := langfuseStore.Get(acct.ID)
+		if err != nil || creds == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "langfuse not configured for this account"})
+			return
+		}
+
+		client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
+
+		// Empty deploymentID = no tag filter; queries all traces in the account's Langfuse project.
+		metrics, err := client.GetDailyMetrics("", c.Query("start_time"), c.Query("end_time"))
+		if err != nil {
+			log.Error("Failed to get Langfuse account metrics", "error", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
+			return
+		}
+
+		var totalTraces, inputTokens, outputTokens int
+		for _, m := range metrics.Data {
+			totalTraces += m.CountTraces
+			inputTokens += m.InputTokens()
+			outputTokens += m.OutputTokens()
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"total_traces":  totalTraces,
+			"input_tokens":  inputTokens,
+			"output_tokens": outputTokens,
+			"time_range":    gin.H{"start": c.Query("start_time"), "end": c.Query("end_time")},
+		})
+	}
+}
+
 // GetLangfuseMetrics returns daily metrics for a deployment from Langfuse.
 // GET /api/v1/deployments/:id/observability/metrics
 func GetLangfuseMetrics(

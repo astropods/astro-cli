@@ -4,6 +4,10 @@ export const blueprintsPaths = {
   account: (name: string) => `/blueprints/${name}`,
 } as const;
 
+export function accountProfilePath(account: string) {
+  return `/${account}`;
+}
+
 export function deploymentPath(account: string, deploymentId: string) {
   return `/${account}/agents/${deploymentId}`;
 }

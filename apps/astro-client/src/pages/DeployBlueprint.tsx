@@ -111,14 +111,19 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           // Avatar upload failure shouldn't block navigation — deployment succeeded
         }
       }
+      const isOrgDeploy = form.targetAccount && form.targetAccount !== personalAccount?.name;
+      const dashboardPath = isOrgDeploy
+        ? `/dashboard?account=${encodeURIComponent(form.targetAccount)}`
+        : "/dashboard";
+
       if (result?.deployment_id) {
         const deployResult = result as DeployResponse;
         const deploymentId = deployResult.deployment_id;
         if (!deploymentId) {
-          navigate("/agents");
+          navigate(dashboardPath);
           return;
         }
-        navigate("/agents", {
+        navigate(dashboardPath, {
           state: {
             revealDeploymentId: deploymentId,
             revealAgentName: agent.name,
@@ -127,7 +132,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           },
         });
       } else {
-        navigate("/agents");
+        navigate(dashboardPath);
       }
     } catch {
       // Error is captured in form.deployError

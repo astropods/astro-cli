@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
+import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon, MapPinIcon } from "@heroicons/react/24/outline";
+import { MapPinIcon as MapPinSolidIcon } from "@heroicons/react/24/solid";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { InlineBadge } from "@/components/InlineBadge";
-import { deploymentStatusVariant, deploymentStatusLabel } from "@/lib/deployment-utils";
+import { deploymentStatusVariant, deploymentStatusLabel, formatRelativeTime, formatDaysActive } from "@/lib/deployment-utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,18 +25,6 @@ import { generateIdentity } from "identity-gen";
 
 export type DeployedAgentStatus = "active" | "inactive" | "pending" | "undeploying" | "error";
 
-function formatRelativeTime(isoString: string): string {
-  const diffMs = new Date(isoString).getTime() - Date.now();
-  const diffSecs = Math.round(diffMs / 1000);
-  const diffMins = Math.round(diffSecs / 60);
-  const diffHours = Math.round(diffMins / 60);
-  const diffDays = Math.round(diffHours / 24);
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  if (Math.abs(diffSecs) < 60) return "less than a minute ago";
-  if (Math.abs(diffMins) < 60) return rtf.format(diffMins, "minute");
-  if (Math.abs(diffHours) < 24) return rtf.format(diffHours, "hour");
-  return rtf.format(diffDays, "day");
-}
 
 function formatDateTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -63,6 +52,11 @@ export interface DeployedAgentCardProps {
   hasNewBuildAvailable?: boolean;
   className?: string;
   linkState?: Record<string, unknown>;
+  onClick?: () => void;
+  isPinned?: boolean;
+  onPin?: () => void;
+  installedAtLabel?: string;
+  updatedAtLabel?: string;
 }
 
 function MetricCell({ label, value }: { label: string; value: string }) {
@@ -89,6 +83,11 @@ export function DeployedAgentCard({
   hasNewBuildAvailable = false,
   className,
   linkState,
+  onClick,
+  isPinned,
+  onPin,
+  installedAtLabel = "Days active",
+  updatedAtLabel = "Updated",
 }: DeployedAgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -122,15 +121,32 @@ export function DeployedAgentCard({
     qrUrl: `${window.location.origin}/${account}/${name}`,
   }), [name, displayName, account, cardAvatar, installedAt, deploymentId]);
 
+  const isInteractive = !!href || !!onClick;
   const cardClassName = cn(
     "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-white px-4 py-3 transition-all duration-150",
-    href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400" : "cursor-default opacity-70",
+    isInteractive
+      ? "cursor-pointer hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400"
+      : "cursor-default opacity-70",
     className,
   );
 
   const cardContent = (
     <>
-      <div className="absolute top-3 right-3" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+      <div className="absolute top-3 right-3 flex items-center gap-1" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+        {onPin && (
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label={isPinned ? "Unpin agent" : "Pin agent"}
+            onClick={onPin}
+          >
+            {isPinned ? (
+              <MapPinSolidIcon className="h-4 w-4 text-primary" />
+            ) : (
+              <MapPinIcon className="h-4 w-4" />
+            )}
+          </button>
+        )}
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -207,9 +223,9 @@ export function DeployedAgentCard({
 
       <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
         <MetricCell label="Requests" value={requests.toLocaleString()} />
-        <MetricCell label="Last active" value={lastActive} />
-        <MetricCell label="Deployed" value={formatDateTime(installedAt)} />
-        <MetricCell label="Updated" value={formatRelativeTime(updatedAt)} />
+        <MetricCell label="Last request" value={lastActive} />
+        <MetricCell label={installedAtLabel} value={formatDaysActive(installedAt)} />
+        <MetricCell label={updatedAtLabel} value={formatRelativeTime(updatedAt)} />
       </div>
     </>
   );
@@ -217,9 +233,9 @@ export function DeployedAgentCard({
   return (
     <>
       {href ? (
-        <Link to={href} state={linkState} className={cardClassName}>{cardContent}</Link>
+        <Link to={href} state={linkState} className={cardClassName} onClick={onClick}>{cardContent}</Link>
       ) : (
-        <div className={cardClassName}>{cardContent}</div>
+        <div className={cardClassName} onClick={onClick} role={onClick ? "button" : undefined}>{cardContent}</div>
       )}
 
 

@@ -1,6 +1,20 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { observabilityKeys } from './keys';
+
+export function useAccountObservabilitySummary(
+  account: string,
+  params?: Record<string, string>,
+  opts?: { enabled?: boolean; window?: string },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.accountSummary(account, opts?.window),
+    queryFn: () => api.getAccountObservabilitySummary(account, params),
+    enabled: (opts?.enabled ?? true) && !!account,
+    staleTime: 0,
+    retry: false,
+  });
+}
 
 export function useObservabilityMetrics(
   deploymentId: string,
@@ -16,6 +30,21 @@ export function useObservabilityMetrics(
     placeholderData: keepPreviousData,
     retry: false,
     refetchOnWindowFocus: false,
+  });
+}
+
+export function useObservabilitySummaries(deploymentIds: string[]) {
+  return useQueries({
+    queries: deploymentIds.map((id) => ({
+      queryKey: observabilityKeys.summary(id),
+      queryFn: () => api.getObservabilitySummary(id),
+      enabled: !!id,
+      staleTime: 0,
+      gcTime: 1000 * 60 * 30,
+      placeholderData: keepPreviousData,
+      retry: false,
+      refetchOnWindowFocus: false,
+    })),
   });
 }
 

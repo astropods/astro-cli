@@ -13,6 +13,7 @@ export default [
     ]),
     route("request-agent", "pages/RequestBlueprint.tsx"),
     route("agents", "pages/YourAgents.tsx"),
+    route("dashboard", "pages/AgentDashboard.tsx"),
     route("onboarding", "pages/Onboarding.tsx"),
     route("admin", "pages/Admin.tsx"),
     ...prefix("settings", [

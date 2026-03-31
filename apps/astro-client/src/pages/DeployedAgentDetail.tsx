@@ -44,7 +44,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
           The deployed agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>
-          <Link to="/agents">My Agents</Link>
+          <Link to="/dashboard">Dashboard</Link>
         </Button>
       </div>
     );
@@ -61,7 +61,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
         account={account}
         isPersonal={isPersonal}
         monitorLocked={monitorLocked}
-        backPathOverride={requestedFromAgents ? "/agents" : undefined}
+        backPathOverride={requestedFromAgents ? "/dashboard" : undefined}
       />
     </div>
   );

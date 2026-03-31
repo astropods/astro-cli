@@ -7,6 +7,7 @@ export const accountKeys = {
   detail: (name: string) => ['accounts', name] as const,
   checkName: (name: string) => ['accounts', 'check', name] as const,
   search: (q: string, type?: string) => ['accounts', 'search', q, type] as const,
+  members: (account: string) => ['accounts', account, 'members'] as const,
 };
 
 export const blueprintKeys = {
@@ -26,6 +27,8 @@ export const observabilityKeys = {
     ['observability', 'summary', deploymentId, window] as const,
   traces: (deploymentId: string, window?: string) =>
     ['observability', 'traces', deploymentId, window] as const,
+  accountSummary: (account: string, window?: string) =>
+    ['observability', 'account-summary', account, window] as const,
 };
 
 export const usageKeys = {

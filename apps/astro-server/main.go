@@ -698,17 +698,23 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				)
 			}
 
-			// Member management (requires org:manage permission)
-			memberRoutes := protected.Group("/accounts/:account/members")
-			memberRoutes.Use(middleware.ResolveAccount(accountStore))
-			memberRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			// List members (requires membership only — no org:manage needed)
+			listMemberRoutes := protected.Group("/accounts/:account/members")
+			listMemberRoutes.Use(middleware.ResolveAccount(accountStore))
 			{
-				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore),
+				api.GET(listMemberRoutes, "", "List account members", handlers.ListMembers(log, accountStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListMembersResponse{}),
 				)
+			}
+
+			// Member management (requires org:manage permission)
+			memberRoutes := protected.Group("/accounts/:account/members")
+			memberRoutes.Use(middleware.ResolveAccount(accountStore))
+			memberRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			{
 				api.POST(memberRoutes, "", "Add a member",
 					ent.Wrap(handlers.AddMember(log, orgSync, accountStore, omClient, db, auditStore), "members"),
 					oapispec.Tags("Members"),
@@ -1032,6 +1038,15 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				oapispec.QueryParam("limit", "Page size (default 50)", false),
 				oapispec.QueryParam("offset", "Pagination offset (default 0)", false),
 				oapispec.Response(200, &handlers.ObservabilityTracesResponse{}),
+			)
+			// Account-scoped observability (aggregates across all account deployments)
+			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, langfuseStore),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.QueryParam("start_time", "Start time (RFC3339)", false),
+				oapispec.QueryParam("end_time", "End time (RFC3339)", false),
+				oapispec.Response(200, &handlers.AccountObservabilitySummaryResponse{}),
 			)
 		}
 
