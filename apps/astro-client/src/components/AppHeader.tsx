@@ -81,7 +81,10 @@ export function AppHeader() {
     setSheetOpen(false);
   }, [location.pathname]);
 
-  const navItems: NavItem[] = isAuthenticated
+  // Include authenticated nav items during loading too — WaitlistGuard ensures
+  // only logged-in users reach the app, so isLoading just means auth hasn't
+  // resolved client-side yet. This prevents "My Agents" from popping in.
+  const navItems: NavItem[] = isAuthenticated || isLoading
     ? [...publicNav, { label: "My Agents", to: "/agents" }]
     : publicNav;
 
@@ -195,13 +198,14 @@ export function AppHeader() {
         </div> */}
 
         <div className="flex items-center gap-1">
-        {isAuthenticated && (
+        {(isAuthenticated || isLoading) && (
           <>
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5 mr-2 text-[13px] font-normal"
               onClick={() => setFeedbackOpen(true)}
+              disabled={isLoading}
             >
               <ChatBubbleLeftEllipsisIcon className="size-4" />
               Feedback
