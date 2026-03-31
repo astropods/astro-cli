@@ -93,6 +93,9 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 
 	now := time.Now()
 
+	// Strip name from spec before storage — the canonical name lives in the agents table.
+	delete(spec, "name")
+
 	// Marshal spec to JSON
 	specJSON, err := json.Marshal(spec)
 	if err != nil {

@@ -7,10 +7,10 @@ import (
 	spec "github.com/astropods/astro/packages/astro-spec"
 )
 
-// TestValidateSpec verifies that ValidateSpec rejects specs with missing agent
-// name, missing version, missing container image/build, invalid trigger types,
-// missing cron schedule, invalid cron expressions, and missing credentials. Also
-// verifies that a valid spec with all credentials provided passes validation.
+// TestValidateSpec verifies that ValidateSpec rejects specs with missing
+// container image/build, invalid trigger types, missing cron schedule,
+// invalid cron expressions, and missing credentials. Also verifies that
+// a valid spec with all credentials provided passes validation.
 func TestValidateSpec(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -31,16 +31,6 @@ func TestValidateSpec(t *testing.T) {
 			},
 			creds:     map[string]string{},
 			wantValid: true,
-		},
-		{
-			name: "missing agent name",
-			spec: &spec.AstroSpec{
-				Meta:  spec.Meta{},
-				Agent: spec.Container{Image: "agent:latest"},
-			},
-			creds:          map[string]string{},
-			wantValid:      false,
-			wantErrorField: "agent",
 		},
 		{
 			name: "no version field is valid",

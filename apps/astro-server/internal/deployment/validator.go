@@ -30,15 +30,6 @@ func (v *Validator) ValidateSpec(astroSpec *spec.AstroSpec, userVariables map[st
 		MissingVariables: []string{},
 	}
 
-	// Validate basic spec fields
-	if astroSpec.Name == "" {
-		result.Valid = false
-		result.Errors = append(result.Errors, ValidationError{
-			Field:   "agent",
-			Message: "agent name is required",
-		})
-	}
-
 	// Validate container
 	if astroSpec.Agent.Image == "" && astroSpec.Agent.Build == nil {
 		result.Valid = false
