@@ -1,5 +1,5 @@
-import { Suspense, useEffect } from "react";
-import { useLocation, useParams, Link, Navigate } from "react-router";
+import { Suspense } from "react";
+import { useLocation, useParams, Link } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
@@ -30,7 +30,7 @@ function SpinnerFallback() {
 function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
   deploymentId: string;
   account: string;
-  personalAccount: { name: string };
+  personalAccount: NonNullable<ReturnType<typeof useAuth>["personalAccount"]>;
 }) {
   const location = useLocation();
   const { data } = useDeploymentSuspense(deploymentId);
@@ -70,22 +70,14 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
 function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
   const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
   const account = paramAccount ?? loaderData?.account ?? "";
-  const { isAuthenticated, personalAccount, isLoading: isAuthLoading, login } = useAuth();
-
-  useEffect(() => {
-    if (!isAuthLoading && !isAuthenticated) login();
-  }, [isAuthLoading, isAuthenticated, login]);
-
-  if (isAuthLoading || !isAuthenticated) return null;
-
-  if (!personalAccount) return <Navigate to="/onboarding" replace />;
+  const { personalAccount } = useAuth();
 
   return (
     <Suspense fallback={<SpinnerFallback />}>
       <DeployedAgentDetailData
         deploymentId={deploymentId ?? ""}
         account={account}
-        personalAccount={personalAccount}
+        personalAccount={personalAccount!}
       />
     </Suspense>
   );
