@@ -48,9 +48,7 @@ function AgentCardWithStats({
   const lastActive = latestTrace ? formatRelativeTime(latestTrace.timestamp) : "—";
 
   const status = mapDeploymentStatus(deployment);
-  const clickable = status === "active" || status === "error" || status === "pending" || status === "undeploying";
   const href = (() => {
-    if (!clickable) return undefined;
     const base = deploymentPath(userAccount, deployment.id);
     if (status === "active") return `${base}?tab=monitor`;
     return `${base}?tab=deployments`;
