@@ -6,6 +6,7 @@ const meta = {
   component: Spinner,
   argTypes: {
     size: { control: { type: "range", min: 12, max: 64, step: 4 } },
+    delay: { control: { type: "number" }, description: "ms before spinner becomes visible (CSS animation, no JS timer)" },
   },
 } satisfies Meta<typeof Spinner>;
 
@@ -41,6 +42,20 @@ export const Centered: Story = {
   render: () => (
     <div style={{ display: "flex", height: 200, alignItems: "center", justifyContent: "center", border: "1px dashed var(--border)", borderRadius: 8 }}>
       <Spinner size={20} />
+    </div>
+  ),
+};
+
+export const WithDelay: Story = {
+  args: { size: 20, delay: 2000 },
+  render: () => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p style={{ fontSize: 13, color: "var(--muted-foreground)", margin: 0 }}>
+        Spinner renders immediately but stays invisible for 2s — reload to see the effect.
+      </p>
+      <div style={{ display: "flex", height: 120, alignItems: "center", justifyContent: "center", border: "1px dashed var(--border)", borderRadius: 8 }}>
+        <Spinner size={20} delay={2000} />
+      </div>
     </div>
   ),
 };

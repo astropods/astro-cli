@@ -206,7 +206,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   const { accounts, personalAccount } = useAuth();
   const iv = opts?.initialValues;
 
-  const [targetAccount, setTargetAccount] = useState(iv?.targetAccount ?? personalAccount?.name ?? "");
+  // Derive targetAccount reactively: explicit initialValue > user selection > personalAccount.
+  // Do NOT initialize from personalAccount directly in useState — if the hook
+  // mounts before auth resolves, personalAccount is null and the value freezes as "".
+  const [_targetAccount, setTargetAccount] = useState(iv?.targetAccount ?? "");
+  const targetAccount = _targetAccount || personalAccount?.name || "";
 
   const {
     data: fetchedTemplate,

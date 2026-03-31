@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { useLocation, useParams, Link, Navigate } from "react-router";
 import type { Route } from "./+types/DeployedAgentDetail";
 import { Button } from "@/components/ui/button";
 import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetailView";
-import { useDeployment } from "@/api/queries/deployments";
+import { useDeploymentSuspense } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { isDeployingState } from "@/lib/deployment-utils";
 import { Spinner } from "@/components/ui/spinner";
@@ -16,43 +16,25 @@ export const meta: Route.MetaFunction = () => {
   return [{ title: "Agent | Astro" }];
 };
 
-function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
+function SpinnerFallback() {
+  return (
+    <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <Spinner size={20} delay={2000} />
+    </div>
+  );
+}
+
+// Inner component — only rendered after auth is confirmed, inside a Suspense
+// boundary. useSuspenseQuery throws while the deployment is loading so the
+// Suspense fallback (delayed Spinner) handles the waiting state.
+function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
+  deploymentId: string;
+  account: string;
+  personalAccount: { name: string };
+}) {
   const location = useLocation();
-  const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
-  const account = paramAccount ?? loaderData?.account ?? "";
-  const { isAuthenticated, personalAccount, isLoading: isAuthLoading, login } = useAuth();
-  // isPending stays true for disabled queries (no data yet), covering the gap
-  // between auth resolving and the query transitioning to its loading state.
-  const { data: deploymentsData, isPending: isQueryPending } = useDeployment(deploymentId ?? "", isAuthenticated);
-  const isLoading = isAuthLoading || (isAuthenticated && isQueryPending);
-  const deployment = deploymentsData?.deployment ?? null;
-
-  // If loading takes more than 2s (hung auth/network), show a spinner so
-  // the user doesn't stare at a blank screen indefinitely.
-  const [slowLoad, setSlowLoad] = useState(false);
-  useEffect(() => {
-    if (!isLoading) { setSlowLoad(false); return; }
-    const t = setTimeout(() => setSlowLoad(true), 2000);
-    return () => clearTimeout(t);
-  }, [isLoading]);
-
-  useEffect(() => {
-    if (!isAuthLoading && !isAuthenticated) login();
-  }, [isAuthLoading, isAuthenticated, login]);
-
-  if (isLoading && slowLoad) {
-    return (
-      <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <Spinner size={20} />
-      </div>
-    );
-  }
-
-  if (isLoading) return null;
-
-  if (!isAuthenticated) return null;
-
-  if (!personalAccount) return <Navigate to="/onboarding" replace />;
+  const { data } = useDeploymentSuspense(deploymentId);
+  const deployment = data?.deployment ?? null;
 
   if (!deployment) {
     return (
@@ -69,7 +51,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   }
 
   const monitorLocked = isDeployingState(deployment);
-  const isPersonal = personalAccount?.name === account;
+  const isPersonal = personalAccount.name === account;
   const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
 
   return (
@@ -82,6 +64,30 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
         backPathOverride={requestedFromAgents ? "/agents" : undefined}
       />
     </div>
+  );
+}
+
+function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.ComponentProps["loaderData"] }) {
+  const { account: paramAccount, deploymentId } = useParams<{ account: string; deploymentId: string }>();
+  const account = paramAccount ?? loaderData?.account ?? "";
+  const { isAuthenticated, personalAccount, isLoading: isAuthLoading, login } = useAuth();
+
+  useEffect(() => {
+    if (!isAuthLoading && !isAuthenticated) login();
+  }, [isAuthLoading, isAuthenticated, login]);
+
+  if (isAuthLoading || !isAuthenticated) return null;
+
+  if (!personalAccount) return <Navigate to="/onboarding" replace />;
+
+  return (
+    <Suspense fallback={<SpinnerFallback />}>
+      <DeployedAgentDetailData
+        deploymentId={deploymentId ?? ""}
+        account={account}
+        personalAccount={personalAccount}
+      />
+    </Suspense>
   );
 }
 

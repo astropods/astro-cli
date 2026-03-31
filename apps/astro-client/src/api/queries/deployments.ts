@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
 import type { DeploymentsListResponse, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
@@ -31,6 +31,23 @@ export function useDeployment(id: string, enabled = true) {
     queryKey: deploymentKeys.detail(id),
     queryFn: () => api.getDeployment(id),
     enabled: !!id && enabled,
+    refetchInterval: (query) => {
+      const status = query.state.data?.deployment?.status?.toLowerCase?.() ?? "";
+      const isTransitional =
+        status === "pending" ||
+        status === "provisioning" ||
+        status === "deploying" ||
+        status === "undeploying";
+      return isTransitional ? 3000 : false;
+    },
+  });
+}
+
+export function useDeploymentSuspense(id: string) {
+  const api = useApiClient();
+  return useSuspenseQuery({
+    queryKey: deploymentKeys.detail(id),
+    queryFn: () => api.getDeployment(id),
     refetchInterval: (query) => {
       const status = query.state.data?.deployment?.status?.toLowerCase?.() ?? "";
       const isTransitional =
