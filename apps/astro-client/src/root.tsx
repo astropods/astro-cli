@@ -9,6 +9,7 @@ import {
   useLocation,
   isRouteErrorResponse,
 } from "react-router";
+import "./index.css";
 import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./lib/auth";
@@ -66,7 +67,7 @@ function WaitlistGuard({ children }: { children: React.ReactNode }) {
     }
   }, [isLoading, isAuthenticated, login, location.pathname]);
 
-  if (isLoading || !isAuthenticated) return null;
+  if (!isLoading && !isAuthenticated) return null;
 
   return <>{children}</>;
 }
