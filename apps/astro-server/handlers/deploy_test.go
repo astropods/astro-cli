@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -446,20 +445,16 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 	}
 }
 
-func TestListDeployments_IncludesInitContainerStatuses(t *testing.T) {
-	depID := deployid.New()
-	namespace := "astro-init-sidecar-0"
+// TestListAstroDeploymentsLight_StatusAndReplicas verifies that the light variant
+// returns correct status, replicas, and ready values from K8s Deployments.
+func TestListAstroDeploymentsLight_StatusAndReplicas(t *testing.T) {
+	namespace := "astro-abc123def-0"
 	agentName := "my-agent"
 	buildID := "build-1"
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		path := r.URL.Path
-
-		if r.Method == http.MethodGet && strings.HasSuffix(path, "/namespaces/"+namespace) {
-			fmt.Fprintf(w, `{"kind":"Namespace","apiVersion":"v1","metadata":{"name":%q}}`, namespace)
-			return
-		}
 		if strings.Contains(path, "/deployments") {
 			fmt.Fprintf(w, `{
 				"kind":"DeploymentList","apiVersion":"apps/v1","items":[{
@@ -473,8 +468,8 @@ func TestListDeployments_IncludesInitContainerStatuses(t *testing.T) {
 							"app.kubernetes.io/component":"agent"
 						}
 					},
-					"spec":{"replicas":1},
-					"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}
+					"spec":{"replicas":2},
+					"status":{"replicas":2,"readyReplicas":1}
 				}]
 			}`, namespace, agentName, buildID)
 			return
@@ -483,107 +478,56 @@ func TestListDeployments_IncludesInitContainerStatuses(t *testing.T) {
 			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
 			return
 		}
-		if strings.Contains(path, "/ingresses") {
-			_, _ = w.Write([]byte(`{"kind":"IngressList","apiVersion":"networking.k8s.io/v1","items":[]}`))
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	k8sClient := newMockK8sClient(handler)
+	deps, err := listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 deployment, got %d", len(deps))
+	}
+	d := deps[0]
+	if d.Replicas != 2 {
+		t.Errorf("expected replicas=2, got %d", d.Replicas)
+	}
+	if d.Ready != 1 {
+		t.Errorf("expected ready=1, got %d", d.Ready)
+	}
+	if d.Status != "Pending" {
+		t.Errorf("expected status=Pending (ready < replicas), got %q", d.Status)
+	}
+}
+
+// TestListAstroDeploymentsLight_SkipsPodsIngressesJobs verifies that the light variant
+// does not call the pods, ingresses, or jobs K8s APIs.
+func TestListAstroDeploymentsLight_SkipsPodsIngressesJobs(t *testing.T) {
+	namespace := "astro-abc123def-0"
+	var calledPaths []string
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calledPaths = append(calledPaths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/deployments") {
+			_, _ = w.Write([]byte(`{"kind":"DeploymentList","apiVersion":"apps/v1","items":[]}`))
 			return
 		}
-		if strings.Contains(path, "/pods") {
-			fmt.Fprintf(w, `{
-				"kind":"PodList",
-				"apiVersion":"v1",
-				"items":[{
-					"metadata":{
-						"name":"agent-abc123",
-						"namespace":%q,
-						"creationTimestamp":"2026-03-12T21:08:24Z",
-						"labels":{
-							"app.kubernetes.io/managed-by":"astro-server",
-							"astro.dev/agent":%q,
-							"app.kubernetes.io/version":%q,
-							"app.kubernetes.io/component":"agent"
-						}
-					},
-					"status":{
-						"phase":"Running",
-						"podIP":"10.0.0.1",
-						"containerStatuses":[{
-							"name":"app",
-							"ready":true,
-							"restartCount":0,
-							"state":{"running":{"startedAt":"2026-03-12T21:08:24Z"}}
-						}],
-						"initContainerStatuses":[{
-							"name":"messaging",
-							"ready":true,
-							"restartCount":0,
-							"state":{"running":{"startedAt":"2026-03-12T21:08:24Z"}}
-						}]
-					},
-					"spec":{
-						"containers":[{"name":"app"}],
-						"initContainers":[{"name":"messaging"}]
-					}
-				}]
-			}`, namespace, agentName, buildID)
-			return
-		}
-		if strings.Contains(path, "/jobs") {
-			_, _ = w.Write([]byte(`{"kind":"JobList","apiVersion":"batch/v1","items":[]}`))
+		if strings.Contains(r.URL.Path, "/statefulsets") {
+			_, _ = w.Write([]byte(`{"kind":"StatefulSetList","apiVersion":"apps/v1","items":[]}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	router, deployMock, accountMock := setupListDeploymentsTest(t, handler)
-	now := time.Now()
+	k8sClient := newMockK8sClient(handler)
+	_, _ = listAstroDeploymentsLight(context.Background(), k8sClient, namespace, nil)
 
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "avatar_version", "display_name",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, 0, ""))
-	accountMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "account_id", "agent_name", "build_id", "namespace", "display_name", "avatar_version",
-			"deployment_spec_json", "encrypted_data_key", "kms_key_arn",
-			"status", "error_message", "error_details", "status_changed_at", "current_revision",
-			"deployed_at", "undeployed_at",
-		}).AddRow(
-			depID, "acct-1", agentName, buildID, namespace, "My Agent", 0,
-			`{}`, nil, nil,
-			"active", nil, nil, now, 1,
-			now, nil,
-		))
-
-	req := httptest.NewRequest("GET", "/api/v1/deployments?account=myorg", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp struct {
-		Count       int               `json:"count"`
-		Deployments []AgentDeployment `json:"deployments"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.Count != 1 {
-		t.Fatalf("expected count=1, got %d", resp.Count)
-	}
-	if len(resp.Deployments[0].Workloads) == 0 {
-		t.Fatalf("expected at least one workload in response")
-	}
-
-	var names []string
-	for _, c := range resp.Deployments[0].Workloads[0].Containers {
-		names = append(names, c.Name)
-	}
-	if !slices.Contains(names, "app") || !slices.Contains(names, "messaging") {
-		t.Fatalf("expected app and messaging in workload containers, got %v", names)
+	for _, p := range calledPaths {
+		if strings.Contains(p, "/pods") || strings.Contains(p, "/ingresses") || strings.Contains(p, "/jobs") {
+			t.Errorf("light variant made unexpected K8s call: %s", p)
+		}
 	}
 }
 

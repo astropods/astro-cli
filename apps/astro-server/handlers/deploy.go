@@ -30,6 +30,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -814,11 +815,23 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, cfg
 			return
 		}
 
-		// For each DB deployment, fetch live K8s status from its namespace.
+		// For each DB deployment, fetch live K8s status from its namespace in parallel.
 		// Deployments without K8s resources (failed, pending) get a DB-only entry.
+		// Results are pre-allocated by index to avoid a mutex; each slice is merged after.
+		enriched := make([][]AgentDeployment, len(dbDeps))
+		g, gctx := errgroup.WithContext(c.Request.Context())
+		for i, dbDep := range dbDeps {
+			i, dbDep := i, dbDep
+			g.Go(func() error {
+				enriched[i] = enrichDeployment(gctx, log, k8sClient, deployStore, dbDep, listAstroDeploymentsLight)
+				return nil
+			})
+		}
+		g.Wait() //nolint:errcheck // errors fall back to DB-only entries; goroutines never return non-nil
+
 		var allDeployments []AgentDeployment
-		for _, dbDep := range dbDeps {
-			allDeployments = append(allDeployments, enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep)...)
+		for _, deps := range enriched {
+			allDeployments = append(allDeployments, deps...)
 		}
 
 		// Resolve updated_at from the latest audit log entry per deployment.
@@ -880,7 +893,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 			return
 		}
 
-		result := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep)[0]
+		result := enrichDeployment(c.Request.Context(), log, k8sClient, deployStore, dbDep, listAstroDeployments)[0]
 
 		if auditStore != nil {
 			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
@@ -938,7 +951,10 @@ func agentDeploymentFromDB(dep *deploymentstore.Deployment) AgentDeployment {
 // enrichDeployment fetches live K8s state for a single DB deployment record and
 // returns the resulting AgentDeployment entries (one per workload in the namespace).
 // Falls back to a DB-only entry if the namespace is missing or K8s calls fail.
-func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment) []AgentDeployment {
+// k8sListFn is the function signature shared by listAstroDeployments and listAstroDeploymentsLight.
+type k8sListFn func(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, manualIngestions []string) ([]AgentDeployment, error)
+
+func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.ClusterClient, deployStore *deploymentstore.Store, dbDep *deploymentstore.Deployment, listFn k8sListFn) []AgentDeployment {
 	firstSeenAt := dbDep.DeployedAt
 	if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
 		log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
@@ -958,7 +974,7 @@ func enrichDeployment(ctx context.Context, log *logger.Logger, k8sClient k8s.Clu
 	}
 
 	manualIngestions := parseManualIngestions(ns.Annotations)
-	deps, k8sErr := listAstroDeployments(ctx, k8sClient, dbDep.Namespace, manualIngestions)
+	deps, k8sErr := listFn(ctx, k8sClient, dbDep.Namespace, manualIngestions)
 	if k8sErr != nil || len(deps) == 0 {
 		return dbOnly()
 	}
@@ -1073,7 +1089,6 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		agentKey := dep.Labels[deployment.LabelKeyAgent]
 		version := dep.Labels["app.kubernetes.io/version"]
 		component := dep.Labels["app.kubernetes.io/component"]
-
 		if agentKey == "" {
 			continue
 		}
@@ -1091,18 +1106,15 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				Components:       []string{},
 				ManualIngestions: manualIngestions,
 			}
-
-			// Add external URLs if available
 			if urls, ok := agentExternalURLs[key]; ok {
 				info.ExternalURLs = urls
 			}
-
 			agentDeployments[key] = info
 		}
 
 		// "agent" is the source of truth for deployment readiness. Other components
 		// (collector, ingestion, etc.) can have independent readiness without blocking
-		// the top-level deployment status shown in UI.
+		// the top-level deployment status.
 		isPrimary := component == "agent" || component == ""
 		if isPrimary || !agentStatusFromPrimary[key] {
 			info.Status = deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas)
@@ -1114,12 +1126,10 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 			}
 		}
 
-		// Add component
 		if component != "" {
 			info.Components = append(info.Components, component)
 		}
 
-		// Build workload entry
 		wl := WorkloadDetail{
 			Name:      dep.Name,
 			Kind:      "Deployment",
@@ -1132,12 +1142,10 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		info.Workloads = append(info.Workloads, wl)
 	}
 
-	// Group StatefulSets by agent and build workload entries
 	for _, sts := range statefulSetList.Items {
 		agentKey := sts.Labels[deployment.LabelKeyAgent]
 		version := sts.Labels["app.kubernetes.io/version"]
 		component := sts.Labels["app.kubernetes.io/component"]
-
 		if agentKey == "" {
 			continue
 		}
@@ -1155,11 +1163,9 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 				Components:       []string{},
 				ManualIngestions: manualIngestions,
 			}
-
 			if urls, ok := agentExternalURLs[key]; ok {
 				info.ExternalURLs = urls
 			}
-
 			agentDeployments[key] = info
 		}
 
@@ -1284,6 +1290,99 @@ func listAstroDeployments(ctx context.Context, k8sClient k8s.ClusterClient, name
 		result = append(result, *info)
 	}
 
+	return result, nil
+}
+
+// listAstroDeploymentsLight fetches only Deployments and StatefulSets for a namespace,
+// skipping ingresses, pods, and jobs. Returns status, replicas, ready, and components.
+func listAstroDeploymentsLight(ctx context.Context, k8sClient k8s.ClusterClient, namespace string, _ []string) ([]AgentDeployment, error) {
+	clientset := k8sClient.Clientset()
+	labelSelector := "app.kubernetes.io/managed-by=astro-server"
+
+	deploymentList, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list deployments: %w", err)
+	}
+
+	statefulSetList, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list statefulsets: %w", err)
+	}
+
+	agentDeployments := make(map[string]*AgentDeployment)
+	agentStatusFromPrimary := make(map[string]bool)
+
+	for _, dep := range deploymentList.Items {
+		agentKey := dep.Labels[deployment.LabelKeyAgent]
+		version := dep.Labels["app.kubernetes.io/version"]
+		component := dep.Labels["app.kubernetes.io/component"]
+		if agentKey == "" {
+			continue
+		}
+
+		key := agentKey + ":" + version
+		info, exists := agentDeployments[key]
+		if !exists {
+			info = &AgentDeployment{
+				BuildID:    version,
+				Namespace:  namespace,
+				Status:     deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas),
+				Replicas:   dep.Status.Replicas,
+				Ready:      dep.Status.ReadyReplicas,
+				CreatedAt:  dep.CreationTimestamp.Format(time.RFC3339),
+				Components: []string{},
+			}
+			agentDeployments[key] = info
+		}
+
+		isPrimary := component == "agent" || component == ""
+		if isPrimary || !agentStatusFromPrimary[key] {
+			info.Status = deploymentReadinessStatus(dep.Status.Replicas, dep.Status.ReadyReplicas)
+			info.Replicas = dep.Status.Replicas
+			info.Ready = dep.Status.ReadyReplicas
+			info.CreatedAt = dep.CreationTimestamp.Format(time.RFC3339)
+			if isPrimary {
+				agentStatusFromPrimary[key] = true
+			}
+		}
+
+		if component != "" {
+			info.Components = append(info.Components, component)
+		}
+	}
+
+	for _, sts := range statefulSetList.Items {
+		agentKey := sts.Labels[deployment.LabelKeyAgent]
+		version := sts.Labels["app.kubernetes.io/version"]
+		component := sts.Labels["app.kubernetes.io/component"]
+		if agentKey == "" {
+			continue
+		}
+
+		key := agentKey + ":" + version
+		info, exists := agentDeployments[key]
+		if !exists {
+			info = &AgentDeployment{
+				BuildID:    version,
+				Namespace:  namespace,
+				Status:     deploymentReadinessStatus(sts.Status.Replicas, sts.Status.ReadyReplicas),
+				Replicas:   sts.Status.Replicas,
+				Ready:      sts.Status.ReadyReplicas,
+				CreatedAt:  sts.CreationTimestamp.Format(time.RFC3339),
+				Components: []string{},
+			}
+			agentDeployments[key] = info
+		}
+
+		if component != "" {
+			info.Components = append(info.Components, component)
+		}
+	}
+
+	result := make([]AgentDeployment, 0, len(agentDeployments))
+	for _, info := range agentDeployments {
+		result = append(result, *info)
+	}
 	return result, nil
 }
 
