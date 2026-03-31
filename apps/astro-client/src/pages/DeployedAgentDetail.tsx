@@ -6,6 +6,7 @@ import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetai
 import { useDeployment } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { isDeployingState } from "@/lib/deployment-utils";
+import { Spinner } from "@/components/ui/spinner";
 // import { MetricCardSkeleton } from "@/components/deployed-agent/detail/monitor/HeadlineMetrics";
 
 
@@ -240,16 +241,7 @@ function DeployedAgentDetailContent({ loaderData }: { loaderData: Route.Componen
   if (isLoading && slowLoad) {
     return (
       <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <div
-          className="dp-spin"
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: "50%",
-            border: "2px solid var(--border)",
-            borderTopColor: "var(--foreground)",
-          }}
-        />
+        <Spinner size={20} />
       </div>
     );
   }
