@@ -866,9 +866,9 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
                     </span>
                   ))}
                 </div>
-            <div>
+            <div style={{ minHeight: tracesEmptyMinHeight }}>
               {tracesLoading && (
-                <div style={{ minHeight: tracesEmptyMinHeight, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", minHeight: tracesEmptyMinHeight }}>
                   {Array.from({ length: 6 }).map((_, idx) => (
                     <div key={idx} style={{ borderBottom: idx < 5 ? `1px solid ${C.border}` : "none" }}>
                       <div style={{ display: "grid", gridTemplateColumns: traceGridColumns, gap: traceGridGap, alignItems: "center", padding: traceRowPadding }}>
