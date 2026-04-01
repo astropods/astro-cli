@@ -146,7 +146,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, accou
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
-        <VaultRefChip token={value} onClear={() => onChange("")} />
+        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError} />
       ) : (
         <Input
           id={fieldKey}
@@ -174,7 +174,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError, account }: Var
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
-        <VaultRefChip token={value} onClear={() => onChange("")} />
+        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError} />
       ) : (
         <Input
           id={fieldKey}

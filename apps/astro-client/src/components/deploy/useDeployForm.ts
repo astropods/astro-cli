@@ -6,11 +6,17 @@ import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError }
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
 import { parseVaultToken } from "./VaultPicker";
+import { useAccountVariables } from "@/api/queries";
 import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
 
 function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
   const parsed = parseVaultToken(raw);
   return parsed ? { ref: parsed.name } : { value: raw };
+}
+
+function isInvalidVaultRef(value: string, knownNames: Set<string>): boolean {
+  const parsed = parseVaultToken(value);
+  return parsed !== null && !knownNames.has(parsed.name);
 }
 
 export interface DeployFormInitialValues {
@@ -217,6 +223,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   // mounts before auth resolves, personalAccount is null and the value freezes as "".
   const [_targetAccount, setTargetAccount] = useState(iv?.targetAccount ?? "");
   const targetAccount = _targetAccount || personalAccount?.name || "";
+  const { data: accountVarsData, isSuccess: accountVarsLoaded } = useAccountVariables(targetAccount);
+  const accountVarNames = useMemo(
+    () => new Set(accountVarsData?.variables.map(v => v.name) ?? []),
+    [accountVarsData?.variables],
+  );
 
   const {
     data: fetchedTemplate,
@@ -413,8 +424,14 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     const emptyRequired = requiredVariables
       .filter(([key, v]) => !isVariableFilled(v, allFormValues[key]))
       .map(([key]) => key);
-    if (emptyRequired.length > 0) {
-      result.credentials = emptyRequired;
+
+    const invalidRefs = accountVarsLoaded
+      ? variableEntries.filter(([key]) => isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames)).map(([key]) => key)
+      : [];
+
+    const credErrors = [...new Set([...emptyRequired, ...invalidRefs])];
+    if (credErrors.length > 0) {
+      result.credentials = credErrors;
     }
 
     const emptyAdapterCreds = selectedAdapters.flatMap((adapterId) => {
@@ -435,7 +452,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, variableEntries, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, accountVarNames, accountVarsLoaded]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules
@@ -455,8 +472,11 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       return creds.every(([key, def]) => def.optional || allFormValues[key]?.trim());
     });
     const schedulesValid = scheduleIngestions.every((n) => ingestionSchedules[n]?.trim());
+    const vaultRefsValid = !accountVarsLoaded || variableEntries.every(
+      ([key]) => !isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames)
+    );
 
-    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid;
+    return hasAccount && hasName && hasAdapter && varsValid && adapterCredsValid && schedulesValid && vaultRefsValid;
   };
 
   // Submission

@@ -86,7 +86,9 @@ export function VariableFields({ variables, values, onChange, errorKeys, account
               account={account}
             />
             {errorKeys?.includes(key) && (
-              <p className="text-destructive text-xs mt-1">Required</p>
+              <p className="text-destructive text-xs mt-1">
+                {values[key] ? 'Variable not found in selected account' : 'Required'}
+              </p>
             )}
           </div>
         ))}

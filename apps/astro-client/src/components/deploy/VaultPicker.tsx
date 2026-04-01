@@ -110,11 +110,27 @@ export function VaultPicker({ onSelect, account }: VaultPickerProps) {
   )
 }
 
-// Chip shown in the input field when a vault ref is active
-export function VaultRefChip({ token, onClear }: { token: string; onClear: () => void }) {
+// Chip shown in the input field when a vault ref is active.
+// invalid=true means the referenced variable doesn't exist in the target account.
+export function VaultRefChip({ token, onClear, invalid }: { token: string; onClear: () => void; invalid?: boolean }) {
   const parsed = parseVaultToken(token)
   const [hovered, setHovered] = useState(false)
   if (!parsed) return null
+
+  const chipClass = cn(
+    "flex items-center gap-1.5 rounded px-2 py-0.5 border transition-colors",
+    invalid
+      ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 hover:border-red-400"
+      : "border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 hover:border-teal-300"
+  )
+  const textClass = cn(
+    "font-mono text-xs font-medium",
+    invalid ? "text-red-700 dark:text-red-300" : "text-teal-700 dark:text-teal-300"
+  )
+  const iconClass = cn(
+    "size-3 shrink-0",
+    invalid ? "text-red-500 dark:text-red-400" : "text-teal-500 dark:text-teal-400"
+  )
 
   return (
     <div className="flex items-center h-11 flex-1 min-w-0 px-3 rounded-sm border border-border bg-[var(--input-background)]">
@@ -123,13 +139,11 @@ export function VaultRefChip({ token, onClear }: { token: string; onClear: () =>
         onClick={onClear}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="flex items-center gap-1.5 rounded px-2 py-0.5 border border-teal-200 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 hover:border-teal-300 transition-colors"
+        className={chipClass}
         aria-label="Clear vault reference"
       >
-        <span className="font-mono text-xs font-medium text-teal-700 dark:text-teal-300">
-          {parsed.name}
-        </span>
-        {hovered && <X className="size-3 text-teal-500 dark:text-teal-400 shrink-0" />}
+        <span className={textClass}>{parsed.name}</span>
+        {hovered && <X className={iconClass} />}
       </button>
     </div>
   )
