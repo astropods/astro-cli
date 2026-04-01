@@ -44,10 +44,11 @@ export interface VariableFieldProps {
   value: string;
   onChange: (value: string) => void;
   hasError?: boolean;
+  refInvalid?: boolean;
   account?: string;
 }
 
-export function VariableField({ fieldKey, meta, value, onChange, hasError, account }: VariableFieldProps) {
+export function VariableField({ fieldKey, meta, value, onChange, hasError, refInvalid, account }: VariableFieldProps) {
   // 1. Select dropdown
   if (meta.displayAs === "select" && meta.options && meta.options.length > 0) {
     return (
@@ -138,7 +139,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, accou
 
   // 6. Secret (password) input with reveal toggle
   if (meta.secret) {
-    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} account={account} />;
+    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} refInvalid={refInvalid} account={account} />;
   }
 
   // 7. Default — text input with vault picker
@@ -146,7 +147,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, accou
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
-        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError} />
+        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError || refInvalid} />
       ) : (
         <Input
           id={fieldKey}
@@ -167,14 +168,14 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError, accou
   );
 }
 
-function SecretField({ fieldKey, meta, value, onChange, hasError, account }: VariableFieldProps) {
+function SecretField({ fieldKey, meta, value, onChange, hasError, refInvalid, account }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const isVaultRef = value.startsWith("{{");
 
   return (
     <div className="relative flex items-center">
       {isVaultRef ? (
-        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError} />
+        <VaultRefChip token={value} onClear={() => onChange("")} invalid={hasError || refInvalid} />
       ) : (
         <Input
           id={fieldKey}

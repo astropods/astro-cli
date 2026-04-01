@@ -35,10 +35,11 @@ export interface VariableFieldsProps {
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
   errorKeys?: string[];
+  invalidRefKeys?: string[];
   account?: string;
 }
 
-export function VariableFields({ variables, values, onChange, errorKeys, account }: VariableFieldsProps) {
+export function VariableFields({ variables, values, onChange, errorKeys, invalidRefKeys, account }: VariableFieldsProps) {
   if (variables.length === 0) return null;
 
   return (
@@ -83,6 +84,7 @@ export function VariableFields({ variables, values, onChange, errorKeys, account
               value={values[key] || ""}
               onChange={(val) => onChange({ ...values, [key]: val })}
               hasError={errorKeys?.includes(key)}
+              refInvalid={invalidRefKeys?.includes(key)}
               account={account}
             />
             {errorKeys?.includes(key) && (

@@ -401,6 +401,17 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
   }, [adapterDisplayFields, template]);
 
+  // Always-on vault ref validation — not gated by submitted so chips turn red
+  // immediately when the target account changes, without requiring a submit attempt.
+  const invalidVaultRefKeys = useMemo(
+    () => accountVarsLoaded
+      ? variableEntries
+          .filter(([key]) => isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames))
+          .map(([key]) => key)
+      : [],
+    [accountVarsLoaded, variableEntries, allFormValues, accountVarNames],
+  );
+
   // Compute validation errors (only surfaced after first submit attempt)
   const errors = useMemo<FormErrors>(() => {
     if (!submitted) return {};
@@ -425,11 +436,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       .filter(([key, v]) => !isVariableFilled(v, allFormValues[key]))
       .map(([key]) => key);
 
-    const invalidRefs = accountVarsLoaded
-      ? variableEntries.filter(([key]) => isInvalidVaultRef(allFormValues[key] ?? '', accountVarNames)).map(([key]) => key)
-      : [];
-
-    const credErrors = [...new Set([...emptyRequired, ...invalidRefs])];
+    const credErrors = [...new Set([...emptyRequired, ...invalidVaultRefKeys])];
     if (credErrors.length > 0) {
       result.credentials = credErrors;
     }
@@ -452,7 +459,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     }
 
     return result;
-  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, variableEntries, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, accountVarNames, accountVarsLoaded]);
+  }, [submitted, targetAccount, deployName, selectedAdapters, requiredVariables, allFormValues, adapterDisplayFields, scheduleIngestions, ingestionSchedules, invalidVaultRefKeys]);
 
   const isValid = submitted
     ? !errors.account && !errors.deployName && !errors.adapters && !errors.credentials && !errors.adapterCredentials && !errors.ingestionSchedules
@@ -549,6 +556,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     setIngestionSchedules,
 
     errors,
+    invalidVaultRefKeys,
     submitted,
     isValid,
     trySubmit,
