@@ -17,14 +17,15 @@ export function parseVaultToken(token: string): { type: 'secret' | 'variable'; n
 
 interface VaultPickerProps {
   onSelect: (token: string) => void
+  account?: string
 }
 
-export function VaultPicker({ onSelect }: VaultPickerProps) {
+export function VaultPicker({ onSelect, account }: VaultPickerProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
 
   const { personalAccount } = useAuth()
-  const accountName = personalAccount?.name ?? ''
+  const accountName = account || personalAccount?.name || ''
   const { data } = useAccountVariables(accountName)
   const entries = data?.variables ?? []
 

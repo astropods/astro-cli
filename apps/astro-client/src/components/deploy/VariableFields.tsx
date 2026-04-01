@@ -35,9 +35,10 @@ export interface VariableFieldsProps {
   values: Record<string, string>;
   onChange: (values: Record<string, string>) => void;
   errorKeys?: string[];
+  account?: string;
 }
 
-export function VariableFields({ variables, values, onChange, errorKeys }: VariableFieldsProps) {
+export function VariableFields({ variables, values, onChange, errorKeys, account }: VariableFieldsProps) {
   if (variables.length === 0) return null;
 
   return (
@@ -82,6 +83,7 @@ export function VariableFields({ variables, values, onChange, errorKeys }: Varia
               value={values[key] || ""}
               onChange={(val) => onChange({ ...values, [key]: val })}
               hasError={errorKeys?.includes(key)}
+              account={account}
             />
             {errorKeys?.includes(key) && (
               <p className="text-destructive text-xs mt-1">Required</p>

@@ -44,9 +44,10 @@ export interface VariableFieldProps {
   value: string;
   onChange: (value: string) => void;
   hasError?: boolean;
+  account?: string;
 }
 
-export function VariableField({ fieldKey, meta, value, onChange, hasError }: VariableFieldProps) {
+export function VariableField({ fieldKey, meta, value, onChange, hasError, account }: VariableFieldProps) {
   // 1. Select dropdown
   if (meta.displayAs === "select" && meta.options && meta.options.length > 0) {
     return (
@@ -137,7 +138,7 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
 
   // 6. Secret (password) input with reveal toggle
   if (meta.secret) {
-    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} />;
+    return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} account={account} />;
   }
 
   // 7. Default — text input with vault picker
@@ -160,13 +161,13 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
         />
       )}
       <div className="absolute right-2">
-        <VaultPicker onSelect={(token) => onChange(token)} />
+        <VaultPicker onSelect={onChange} account={account} />
       </div>
     </div>
   );
 }
 
-function SecretField({ fieldKey, meta, value, onChange, hasError }: VariableFieldProps) {
+function SecretField({ fieldKey, meta, value, onChange, hasError, account }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const isVaultRef = value.startsWith("{{");
 
@@ -198,7 +199,7 @@ function SecretField({ fieldKey, meta, value, onChange, hasError }: VariableFiel
             {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         )}
-        <VaultPicker onSelect={(token) => onChange(token)} />
+        <VaultPicker onSelect={onChange} account={account} />
       </div>
     </div>
   );

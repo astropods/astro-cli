@@ -5,7 +5,13 @@ import { useAuth } from "@/lib/auth";
 import type { DeploymentTemplate, DeploymentVariable, DeploymentSpec, ApiError } from "@/lib/api";
 import type { VariableDisplay } from "./VariableFields";
 import { getVariableDefault, isVariableFilled } from "./VariableField";
+import { parseVaultToken } from "./VaultPicker";
 import { SLACK_CONFIG_KEY, serializeSlackConfig, deserializeSlackConfig } from "./slackConfig";
+
+function resolveValue(raw: string): Pick<DeploymentVariable, 'value' | 'ref'> {
+  const parsed = parseVaultToken(raw);
+  return parsed ? { ref: parsed.name } : { value: raw };
+}
 
 export interface DeployFormInitialValues {
   deployName?: string;
@@ -136,14 +142,10 @@ function fulfillTemplate(
   // Rebuild variables: keep only runtime fields, fill in user-supplied value or vault ref
   const variables: Record<string, DeploymentVariable> = rest.variables
     ? Object.fromEntries(
-        Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => {
-          const rawValue = variableValues[key] ?? '';
-          const vaultMatch = rawValue.match(/^\{\{(?:secrets|vars)\.([A-Z0-9_]+)\}\}$/);
-          if (vaultMatch) {
-            return [key, { ref: vaultMatch[1], targets, secret, optional }];
-          }
-          return [key, { value: rawValue, targets, secret, optional }];
-        }),
+        Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => [
+          key,
+          { ...resolveValue(variableValues[key] ?? ''), targets, secret, optional },
+        ]),
       )
     : {};
   // Inject adapter credentials not already declared in template variables
@@ -152,7 +154,7 @@ function fulfillTemplate(
     for (const [key, cred] of creds) {
       if (!(key in variables)) {
         variables[key] = {
-          value: variableValues[key] ?? '',
+          ...resolveValue(variableValues[key] ?? ''),
           targets: [`interface.${adapterId}`],
           secret: cred.secret ?? false,
           optional: cred.optional ?? false,
