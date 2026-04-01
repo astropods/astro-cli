@@ -92,6 +92,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [updateFromResponse]);
 
+  const switchOrg = useCallback(async (organizationId: string) => {
+    const response = await api.switchOrg(organizationId);
+    updateFromResponse(response, { isRefresh: true });
+  }, [updateFromResponse]);
+
   const login = useCallback(() => {
     // Redirect to the server's login endpoint which will redirect to WorkOS
     window.location.href = api.getLoginUrl();
@@ -158,6 +163,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
     refresh,
     checkAuth,
+    switchOrg,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

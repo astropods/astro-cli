@@ -41,6 +41,7 @@ export interface Account {
   type: string;
   display_name?: string;
   role?: string;
+  organization_id?: string; // WorkOS org ID, present on organization accounts
   avatar_version?: number;
   agents?: BlueprintSummary[];
 }
@@ -182,11 +183,12 @@ class ApiClient {
   }
 
   // Auth endpoints - use authUrl for direct backend communication
-  async getCurrentUser(): Promise<AuthResponse> {
-    const url = `${this.authUrl}/auth/me`;
+  private async authRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const url = `${this.authUrl}${endpoint}`;
     const response = await fetch(url, {
+      ...options,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...this.defaultHeaders },
+      headers: { 'Content-Type': 'application/json', ...this.defaultHeaders, ...options.headers },
     });
     if (!response.ok) {
       const error: ApiError = await response.json().catch(() => ({
@@ -199,22 +201,19 @@ class ApiClient {
     return response.json();
   }
 
+  async getCurrentUser(): Promise<AuthResponse> {
+    return this.authRequest<AuthResponse>('/auth/me');
+  }
+
   async refreshSession(): Promise<AuthResponse> {
-    const url = `${this.authUrl}/auth/refresh`;
-    const response = await fetch(url, {
+    return this.authRequest<AuthResponse>('/auth/refresh', { method: 'POST' });
+  }
+
+  async switchOrg(organizationId: string): Promise<AuthResponse> {
+    return this.authRequest<AuthResponse>('/auth/switch-org', {
       method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...this.defaultHeaders },
+      body: JSON.stringify({ organization_id: organizationId }),
     });
-    if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
-        error: 'request_failed',
-        error_description: `Request failed with status ${response.status}`,
-      }));
-      error.status = response.status;
-      throw error;
-    }
-    return response.json();
   }
 
   getLoginUrl(): string {

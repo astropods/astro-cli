@@ -21,6 +21,7 @@ export interface AuthContextType extends AuthState {
   logout: () => void;
   refresh: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  switchOrg: (organizationId: string) => Promise<void>;
 }
 
 export const initialAuthState: AuthState = {

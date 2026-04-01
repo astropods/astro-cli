@@ -1,5 +1,6 @@
 import { Outlet, useParams, Link } from 'react-router'
-import { KeyRound, ArrowLeft } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { KeyRound, ArrowLeft, Loader2 } from 'lucide-react'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import {
   SidebarLayout,
@@ -11,8 +12,27 @@ import { useAuth } from '@/lib/auth'
 
 function OrgSettingsContent() {
   const { orgSlug = '' } = useParams()
-  const { accounts } = useAuth()
-  const displayName = accounts.find(a => a.name === orgSlug)?.display_name ?? orgSlug
+  const { accounts, organizationId, switchOrg } = useAuth()
+  const org = accounts.find(a => a.name === orgSlug)
+  const displayName = org?.display_name ?? orgSlug
+  const [switching, setSwitching] = useState(false)
+
+  useEffect(() => {
+    if (!org?.organization_id || org.organization_id === organizationId) return
+    let mounted = true
+    setSwitching(true)
+    switchOrg(org.organization_id).finally(() => { if (mounted) setSwitching(false) })
+    return () => { mounted = false }
+  }, [org?.organization_id, organizationId, switchOrg])
+
+  if (switching) {
+    return (
+      <div className="flex items-center gap-2 py-8 px-6 text-[13px] text-muted-foreground">
+        <Loader2 size={14} className="animate-spin" />
+        Switching organization context...
+      </div>
+    )
+  }
 
   return (
     <div className="@container w-full flex-1 overflow-y-auto bg-surface px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">

@@ -83,6 +83,7 @@ export const mockAuthContext: AuthContextType = {
   logout: () => {},
   refresh: async () => {},
   checkAuth: async () => {},
+  switchOrg: async () => {},
 };
 
 // Render a route using createRoutesStub (RR v7 test API)
