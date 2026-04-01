@@ -66,12 +66,10 @@ export function VaultPicker({ onSelect }: VaultPickerProps) {
           align="end"
           className="z-50 w-[280px] rounded-lg border border-border bg-popover shadow-lg overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
         >
-          {/* Header */}
           <div className="px-3 pt-3 pb-2">
             <p className="text-xs font-semibold text-foreground">Reference an existing value</p>
           </div>
 
-          {/* Search */}
           <div className="px-2 pb-2 border-b border-border">
             <Input
               value={search}
@@ -82,7 +80,6 @@ export function VaultPicker({ onSelect }: VaultPickerProps) {
             />
           </div>
 
-          {/* Results */}
           <div className="max-h-[240px] overflow-y-auto py-1">
             {!hasResults ? (
               <p className="px-3 py-4 text-sm text-center text-muted-foreground">

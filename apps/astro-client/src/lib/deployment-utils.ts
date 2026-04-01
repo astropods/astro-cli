@@ -59,6 +59,18 @@ export function isPausedState(deployment: AgentDeployment): boolean {
   return s === "scaled_down" || s === "stopped";
 }
 
+export function formatRelativeTime(dateStr: string): string {
+  const diffSecs = Math.round((new Date(dateStr).getTime() - Date.now()) / 1000);
+  const diffMins = Math.round(diffSecs / 60);
+  const diffHours = Math.round(diffMins / 60);
+  const diffDays = Math.round(diffHours / 24);
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  if (Math.abs(diffSecs) < 60) return "just now";
+  if (Math.abs(diffMins) < 60) return rtf.format(diffMins, "minute");
+  if (Math.abs(diffHours) < 24) return rtf.format(diffHours, "hour");
+  return rtf.format(diffDays, "day");
+}
+
 export function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString("en-US", {

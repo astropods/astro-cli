@@ -30,11 +30,13 @@ type AccountVariable struct {
 	UpdatedAt   time.Time
 }
 
-// VariableMetadata is the non-sensitive view returned by List (no value or nonce).
+// VariableMetadata is the non-sensitive view returned by List.
+// Value is populated for non-secret variables; it is omitted for secrets.
 type VariableMetadata struct {
 	Name        string    `json:"name"`
 	Secret      bool      `json:"secret"`
 	Description string    `json:"description"`
+	Value       *string   `json:"value,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -83,10 +85,11 @@ func (s *Store) SaveEncryptionKey(accountID string, encryptedDataKey []byte, kms
 	return nil
 }
 
-// List returns metadata for all variables in an account (no values).
+// List returns metadata for all variables in an account.
+// Plaintext values are included for non-secret variables; secrets omit the value.
 func (s *Store) List(accountID string) ([]VariableMetadata, error) {
 	rows, err := s.db.Query(`
-		SELECT name, secret, description, created_at, updated_at
+		SELECT name, secret, description, value, created_at, updated_at
 		FROM account_variables
 		WHERE account_id = $1
 		ORDER BY name
@@ -99,8 +102,12 @@ func (s *Store) List(accountID string) ([]VariableMetadata, error) {
 	var vars []VariableMetadata
 	for rows.Next() {
 		var m VariableMetadata
-		if err := rows.Scan(&m.Name, &m.Secret, &m.Description, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		var rawValue string
+		if err := rows.Scan(&m.Name, &m.Secret, &m.Description, &rawValue, &m.CreatedAt, &m.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("accountvars list scan: %w", err)
+		}
+		if !m.Secret {
+			m.Value = &rawValue
 		}
 		vars = append(vars, m)
 	}

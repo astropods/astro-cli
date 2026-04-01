@@ -1,5 +1,5 @@
 import { Outlet } from "react-router";
-import { UserIcon, ChartBarIcon } from "@heroicons/react/24/outline";
+import { UserIcon, ChartBarIcon, BuildingOfficeIcon } from "@heroicons/react/24/outline";
 import { KeyRound } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import {
@@ -11,9 +11,9 @@ import {
 
 function SettingsContent() {
   return (
-    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-6 pb-6 pt-8 md:px-8 md:pb-8 md:pt-10 max-w-[820px] mx-auto">
+    <div className="@container w-full flex-1 overflow-y-auto bg-surface px-4 pb-6 pt-8 md:px-6 md:pb-8 md:pt-10 max-w-[1120px] mx-auto">
       <SidebarLayout>
-        <SidebarNav label="Settings">
+        <SidebarNav label="Settings" className="md:w-48">
           <SidebarNavItem to="/settings/account">
             <span className="flex items-center gap-2">
               <UserIcon className="size-3.5" />
@@ -30,6 +30,12 @@ function SettingsContent() {
             <span className="flex items-center gap-2">
               <KeyRound className="size-3.5" />
               Secrets & Variables
+            </span>
+          </SidebarNavItem>
+          <SidebarNavItem to="/settings/organizations">
+            <span className="flex items-center gap-2">
+              <BuildingOfficeIcon className="size-3.5" />
+              Organizations
             </span>
           </SidebarNavItem>
         </SidebarNav>

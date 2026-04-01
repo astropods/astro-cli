@@ -22,6 +22,12 @@ export default [
         route("account", "pages/settings/AccountSettings.tsx"),
         route("usage", "pages/settings/UsageSettings.tsx"),
         route("secrets", "pages/settings/SecretsSettings.tsx"),
+        route("organizations", "pages/settings/OrganizationsSettings.tsx"),
+      ]),
+      ...prefix("org/:orgSlug", [
+        layout("pages/settings/OrgSettingsLayout.tsx", [
+          route("secrets", "pages/settings/OrgSecretsSettings.tsx"),
+        ]),
       ]),
     ]),
     route("organization/new", "pages/OrganizationNew.tsx"),

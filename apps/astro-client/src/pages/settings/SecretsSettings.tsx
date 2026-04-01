@@ -30,23 +30,11 @@ import {
   useDeleteAccountVariable,
 } from '@/api/queries'
 import { useAuth } from '@/lib/auth'
+import { formatRelativeTime } from '@/lib/deployment-utils'
 import type { VaultEntry } from '@/lib/vault'
 import type { AccountVariable, CreateAccountVariableInput } from '@/lib/api'
 
 const GRID_COLS = '1.5fr 1.5fr 0.75fr 56px'
-
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const diffSecs = Math.round((date.getTime() - Date.now()) / 1000)
-  const diffMins = Math.round(diffSecs / 60)
-  const diffHours = Math.round(diffMins / 60)
-  const diffDays = Math.round(diffHours / 24)
-  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
-  if (Math.abs(diffSecs) < 60) return 'just now'
-  if (Math.abs(diffMins) < 60) return rtf.format(diffMins, 'minute')
-  if (Math.abs(diffHours) < 24) return rtf.format(diffHours, 'hour')
-  return rtf.format(diffDays, 'day')
-}
 
 function toVaultEntry(v: AccountVariable): VaultEntry {
   return {
@@ -58,9 +46,7 @@ function toVaultEntry(v: AccountVariable): VaultEntry {
   }
 }
 
-export default function SecretsSettings() {
-  const { personalAccount } = useAuth()
-  const accountName = personalAccount?.name ?? ''
+export function VaultSettings({ account: accountName }: { account: string }) {
 
   const { data, isLoading, error } = useAccountVariables(accountName)
   const createMutation = useCreateAccountVariable(accountName)
@@ -98,16 +84,9 @@ export default function SecretsSettings() {
     )
   }
 
-  const handleImport = (entries: CreateAccountVariableInput[]) => {
-    // Sequential creates; invalidation happens after each, UI stays consistent
-    let pending = entries.length
-    const done = () => {
-      pending--
-      if (pending === 0) setImportEnvOpen(false)
-    }
-    for (const entry of entries) {
-      createMutation.mutate(entry, { onSuccess: done, onError: done })
-    }
+  const handleImport = async (entries: CreateAccountVariableInput[]) => {
+    await Promise.all(entries.map(entry => createMutation.mutateAsync(entry)))
+    setImportEnvOpen(false)
   }
 
   const handleDelete = () => {
@@ -276,7 +255,6 @@ function EntryRow({
       }}
       className="hover:bg-muted/40 transition-colors"
     >
-      {/* Name */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0', minWidth: 0, overflow: 'hidden' }}>
         <div style={{ minWidth: 0 }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-mono-sm)', fontWeight: 500, color: 'var(--foreground)' }}>
@@ -290,7 +268,6 @@ function EntryRow({
         </div>
       </div>
 
-      {/* Value */}
       <div style={{ display: 'flex', minWidth: 0, overflow: 'hidden', padding: '12px 0' }}>
         {isSecret ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -317,14 +294,12 @@ function EntryRow({
         )}
       </div>
 
-      {/* Last updated */}
       <div style={{ display: 'flex' }}>
         <span style={{ fontSize: 12, color: 'var(--foreground)' }}>
           {formatRelativeTime(entry.updatedAt)}
         </span>
       </div>
 
-      {/* Actions */}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -375,4 +350,9 @@ function EmptyState({ onNew }: { onNew: () => void }) {
       </Button>
     </div>
   )
+}
+
+export default function SecretsSettings() {
+  const { personalAccount } = useAuth()
+  return <VaultSettings account={personalAccount?.name ?? ''} />
 }
