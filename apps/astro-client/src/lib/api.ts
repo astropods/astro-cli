@@ -558,6 +558,44 @@ class ApiClient {
     });
   }
 
+  // Account variables / secrets vault
+  async listAccountVariables(account: string): Promise<AccountVariablesListResponse> {
+    return this.request<AccountVariablesListResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables`
+    );
+  }
+
+  async createAccountVariable(
+    account: string,
+    data: CreateAccountVariableInput,
+  ): Promise<{ name: string; message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async updateAccountVariable(
+    account: string,
+    varName: string,
+    data: UpdateAccountVariableInput,
+  ): Promise<{ name: string; message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    );
+  }
+
+  async deleteAccountVariable(
+    account: string,
+    varName: string,
+  ): Promise<{ message: string }> {
+    return this.request(
+      `/api/v1/accounts/${encodeURIComponent(account)}/variables/${encodeURIComponent(varName)}`,
+      { method: 'DELETE' }
+    );
+  }
+
   // Avatar endpoints
   private async uploadFormData<T>(
     endpoint: string,
@@ -726,6 +764,7 @@ export interface BlueprintsListResponse {
 
 export interface DeploymentVariable {
   value?: string;
+  ref?: string; // reference to an account variable by name, resolved server-side
   targets: string[];
   secret?: boolean;
   optional?: boolean;
@@ -735,6 +774,32 @@ export interface DeploymentVariable {
   datatype?: string;
   'display-as'?: string;
   options?: string[];
+}
+
+export interface AccountVariable {
+  name: string;
+  secret: boolean;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  value?: string; // only present for non-secret variables
+}
+
+export interface AccountVariablesListResponse {
+  variables: AccountVariable[];
+}
+
+export interface CreateAccountVariableInput {
+  name: string;
+  value: string;
+  secret: boolean;
+  description?: string;
+}
+
+export interface UpdateAccountVariableInput {
+  value?: string;
+  secret?: boolean;
+  description?: string;
 }
 
 export interface DeploymentEndpoint {

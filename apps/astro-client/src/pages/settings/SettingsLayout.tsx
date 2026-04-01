@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
 import { UserIcon, ChartBarIcon } from "@heroicons/react/24/outline";
+import { KeyRound } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import {
   SidebarLayout,
@@ -23,6 +24,12 @@ function SettingsContent() {
             <span className="flex items-center gap-2">
               <ChartBarIcon className="size-3.5" />
               Usage
+            </span>
+          </SidebarNavItem>
+          <SidebarNavItem to="/settings/secrets">
+            <span className="flex items-center gap-2">
+              <KeyRound className="size-3.5" />
+              Secrets & Variables
             </span>
           </SidebarNavItem>
         </SidebarNav>

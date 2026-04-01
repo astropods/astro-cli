@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { VaultPicker, VaultRefChip } from "./VaultPicker";
 import type { VariableDisplay } from "./VariableFields";
 
 /** Convert "SLACK_BOT_TOKEN" → "your-slack-bot-token" */
@@ -139,45 +140,66 @@ export function VariableField({ fieldKey, meta, value, onChange, hasError }: Var
     return <SecretField fieldKey={fieldKey} meta={meta} value={value} onChange={onChange} hasError={hasError} />;
   }
 
-  // 7. Default — text input
+  // 7. Default — text input with vault picker
+  const isVaultRef = value.startsWith("{{");
   return (
-    <Input
-      id={fieldKey}
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-      autoComplete="off"
-      spellCheck={false}
-      aria-invalid={hasError || undefined}
-    />
+    <div className="relative flex items-center">
+      {isVaultRef ? (
+        <VaultRefChip token={value} onClear={() => onChange("")} />
+      ) : (
+        <Input
+          id={fieldKey}
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={hasError || undefined}
+          className="pr-9"
+        />
+      )}
+      <div className="absolute right-2">
+        <VaultPicker onSelect={(token) => onChange(token)} />
+      </div>
+    </div>
   );
 }
 
 function SecretField({ fieldKey, meta, value, onChange, hasError }: VariableFieldProps) {
   const [revealed, setRevealed] = useState(false);
+  const isVaultRef = value.startsWith("{{");
 
   return (
-    <div className="relative">
-      <Input
-        id={fieldKey}
-        type={revealed ? "text" : "password"}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
-        className="pr-9"
-        autoComplete="off"
-        spellCheck={false}
-        aria-invalid={hasError || undefined}
-      />
-      <button
-        type="button"
-        onClick={() => setRevealed((r) => !r)}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-        aria-label={revealed ? "Hide value" : "Reveal value"}
-      >
-        {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-      </button>
+    <div className="relative flex items-center">
+      {isVaultRef ? (
+        <VaultRefChip token={value} onClear={() => onChange("")} />
+      ) : (
+        <Input
+          id={fieldKey}
+          type={revealed ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={meta.placeholder || placeholderFromKey(fieldKey)}
+          className="pr-16"
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={hasError || undefined}
+        />
+      )}
+      <div className="absolute right-2 flex items-center gap-3">
+        {!isVaultRef && (
+          <button
+            type="button"
+            onClick={() => setRevealed((r) => !r)}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={revealed ? "Hide value" : "Reveal value"}
+          >
+            {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        )}
+        <VaultPicker onSelect={(token) => onChange(token)} />
+      </div>
     </div>
   );
 }

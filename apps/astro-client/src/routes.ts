@@ -21,6 +21,7 @@ export default [
         index("pages/settings/SettingsRedirect.tsx"),
         route("account", "pages/settings/AccountSettings.tsx"),
         route("usage", "pages/settings/UsageSettings.tsx"),
+        route("secrets", "pages/settings/SecretsSettings.tsx"),
       ]),
     ]),
     route("organization/new", "pages/OrganizationNew.tsx"),

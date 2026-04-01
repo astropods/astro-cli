@@ -133,13 +133,17 @@ function fulfillTemplate(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentionally omitting editable from rest
   const { editable: _editable, ...rest } = template;
 
-  // Rebuild variables: keep only runtime fields, fill in user-supplied value
+  // Rebuild variables: keep only runtime fields, fill in user-supplied value or vault ref
   const variables: Record<string, DeploymentVariable> = rest.variables
     ? Object.fromEntries(
-        Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => [
-          key,
-          { value: variableValues[key] ?? '', targets, secret, optional },
-        ]),
+        Object.entries(rest.variables).map(([key, { targets, secret, optional }]) => {
+          const rawValue = variableValues[key] ?? '';
+          const vaultMatch = rawValue.match(/^\{\{(?:secrets|vars)\.([A-Z0-9_]+)\}\}$/);
+          if (vaultMatch) {
+            return [key, { ref: vaultMatch[1], targets, secret, optional }];
+          }
+          return [key, { value: rawValue, targets, secret, optional }];
+        }),
       )
     : {};
   // Inject adapter credentials not already declared in template variables

@@ -36,6 +36,10 @@ export const usageKeys = {
   quotaRequests: (account: string) => ['usage', 'quotaRequests', account] as const,
 };
 
+export const variableKeys = {
+  byAccount: (account: string) => ['variables', account] as const,
+};
+
 export const deploymentKeys = {
   all: (account: string) => ['deployments', account] as const,
   detail: (id: string) => ['deployments', 'detail', id] as const,
