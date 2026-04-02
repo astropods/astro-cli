@@ -54,7 +54,7 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56 p-2">
-        {accounts.map((account) => (
+        {[...accounts].sort((a, b) => (a.type === "personal" ? -1 : b.type === "personal" ? 1 : 0)).map((account) => (
           <DropdownMenuItem
             key={account.id}
             onSelect={() => onChange(account.name)}
