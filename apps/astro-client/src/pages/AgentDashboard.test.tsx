@@ -337,7 +337,7 @@ describe('reveal overlay after deploy', () => {
           Component: () => <div data-testid="deployment-detail">Deployment Detail</div>,
         },
       ],
-      { initialEntries: [{ pathname: '/dashboard', state: revealState }] },
+      { initialEntries: [{ pathname: '/dashboard', state: revealState }] as unknown as string[] },
     );
   }
 
