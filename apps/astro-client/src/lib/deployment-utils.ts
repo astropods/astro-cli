@@ -5,17 +5,23 @@ import type { StatusIndicatorVariant } from "../components/StatusIndicator";
 export const deploymentStatusVariant: Record<DeployedAgentStatus, StatusIndicatorVariant> = {
   active: "success",
   inactive: "muted",
-  pending: "warning",
+  deploying: "warning",
   undeploying: "muted",
   error: "error",
+  restarting: "warning",
+  pausing: "error",
+  resuming: "success",
 };
 
 export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
-  active: "Live",
-  error: "Error",
-  pending: "Deploying",
+  active: "Active",
   inactive: "Inactive",
-  undeploying: "Undeployed",
+  deploying: "Deploying",
+  undeploying: "Undeploying",
+  error: "Error",
+  restarting: "Restarting",
+  pausing: "Pausing",
+  resuming: "Resuming",
 };
 
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {
@@ -27,7 +33,7 @@ export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentS
     return "error";
   }
   if (s === "pending" || s === "provisioning" || s === "deploying" || deployment.ready < deployment.replicas) {
-    return "pending";
+    return "deploying";
   }
   if (deployment.ready === 0 && deployment.replicas > 0) {
     return "error";
@@ -41,7 +47,7 @@ export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentS
 export function isDeployingState(deployment: AgentDeployment): boolean {
   const s = deployment.status?.toLowerCase() ?? "";
   if (s === "pending" || s === "provisioning" || s === "deploying" || s === "undeploying") return true;
-  return mapDeploymentStatus(deployment) === "pending";
+  return mapDeploymentStatus(deployment) === "deploying";
 }
 
 export function isLiveState(deployment: AgentDeployment): boolean {

@@ -19,7 +19,7 @@ export const meta: Route.MetaFunction = () => {
 
 function SpinnerFallback() {
   return (
-    <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center" }}>
+    <div className="flex flex-1 items-center justify-center">
       <Spinner size={20} delay={2000} />
     </div>
   );
@@ -56,7 +56,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
   const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
 
   return (
-    <div className="dp-fadein" style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0 }}>
+    <div className="dp-fadein" style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
       <ActiveDetailView
         deployment={deployment}
         account={account}

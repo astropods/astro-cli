@@ -22,7 +22,7 @@ import { stripSvgWrapper } from "astro-trading-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { generateIdentity } from "identity-gen";
 
-export type DeployedAgentStatus = "active" | "inactive" | "pending" | "undeploying" | "error";
+export type DeployedAgentStatus = "active" | "inactive" | "deploying" | "undeploying" | "error" | "restarting" | "pausing" | "resuming";
 
 
 function formatDateTime(dateStr: string): string {
@@ -179,8 +179,8 @@ export function DeployedAgentCard({
           <div className="mt-1 flex items-center gap-2">
             <StatusIndicator
               variant={deploymentStatusVariant[status]}
-              pulse={status === "pending" || status === "undeploying"}
-              spinner={status === "pending" || status === "undeploying"}
+              pulse={status === "deploying"}
+              spinner={status === "deploying" || status === "restarting" || status === "pausing" || status === "resuming" || status === "undeploying"}
             >
               {deploymentStatusLabel[status]}
             </StatusIndicator>

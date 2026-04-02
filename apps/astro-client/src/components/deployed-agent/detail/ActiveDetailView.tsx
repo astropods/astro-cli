@@ -1,24 +1,25 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { deploymentKeys } from "@/api/queries/keys";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
-import { isDeployingState, isPausedState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
+import { isDeployingState, isPausedState, isLiveState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
 import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
-import { useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
+import { useRestartDeployment, useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
-import { BuildUpdateBadge } from "@/components/BuildUpdateBadge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { InlineBadge } from "@/components/InlineBadge";
 import { KebabMenu } from "./shared/KebabMenu";
 import { MonitorTab } from "./monitor/MonitorTab";
 import type { TraceRow } from "./monitor/MonitorTab";
 import { TraceDetailPanel } from "./monitor/TraceDetailPanel";
 import { DeploymentsTab } from "./deployments/DeploymentsTab";
 import { ConfigurePanel } from "./configure/ConfigurePanel";
+import { ActionPanel } from "@/components/ui/status-panel";
 
 const C = {
   bg: "var(--muted)",
@@ -88,13 +89,15 @@ export function ActiveDetailView({
 }: ActiveDetailViewProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const queryClient = useQueryClient()
   const rawTab = searchParams.get("tab")
   const tab: "monitor" | "deployments" =
     monitorLocked ? "deployments" :
     rawTab === "monitor" ? "monitor" :
     "deployments"
   const [configOpen, setConfigOpen] = useState(false)
+  const [configRevision, setConfigRevision] = useState<number | null>(null)
+  const [configIsNewBuild, setConfigIsNewBuild] = useState(false)
+  const [configRollbackBuildId, setConfigRollbackBuildId] = useState<string | null>(null)
   const [selectedTrace, setSelectedTrace] = useState<TraceRow | null>(null)
   const [navTraces, setNavTraces] = useState<TraceRow[]>([])
   const selectedIndex = navTraces.findIndex((t) => t.id === selectedTrace?.id)
@@ -108,15 +111,17 @@ export function ActiveDetailView({
     if (typeof window === "undefined") return false;
     return window.innerWidth < 1180;
   })
-  const [contentScale, setContentScale] = useState<number>(1)
-  const contentViewportRef = useRef<HTMLDivElement | null>(null)
-  const contentInnerRef = useRef<HTMLDivElement | null>(null)
   const [optimisticDeploying, setOptimisticDeploying] = useState(false)
   const [pausing, setPausing] = useState(false)
   const pausePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const queryClient = useQueryClient()
+  const [isGloballyRestarting, setIsGloballyRestarting] = useState(false)
+  const [isPodLevelRestarting, setIsPodLevelRestarting] = useState(false)
+  const isRestarting = isGloballyRestarting || isPodLevelRestarting
   const { data: accountAgents } = useAccountBlueprints(account);
   const pauseMutation = useStopDeployment(account);
   const wakeupMutation = useWakeUpDeployment(account);
+  const restartAllMutation = useRestartDeployment(account);
   const renderedDeployment = optimisticDeploying
     ? { ...deployment, status: "pending", ready: 0 }
     : deployment;
@@ -128,6 +133,11 @@ export function ActiveDetailView({
   const showTraceAsPage = isCompact && selectedTrace !== null;
   const panelOpen = configOpen || selectedTrace !== null;
   const controlsBusy = pauseMutation.isPending || wakeupMutation.isPending;
+  // Use replicas===0 as a fallback for "fully paused" since some clusters don't set scaled_down/stopped status.
+  const isActuallyPaused = isPaused || mapDeploymentStatus(renderedDeployment) === "inactive";
+  const isPausing = (pausing || pauseMutation.isPending) && !isActuallyPaused;
+  // isResuming persists until live, so the badge doesn't flash then hand off to "Deploying".
+  const isResuming = (wakeupMutation.isPending || wakeupMutation.isSuccess) && !isLiveState(renderedDeployment) && !isActuallyPaused;
   const latestBuildId = accountAgents?.agents
     ?.find((a) => a.name === renderedDeployment.name)
     ?.versions?.reduce((latest, current) =>
@@ -139,33 +149,24 @@ export function ActiveDetailView({
 
   useEffect(() => {
     if (!pausing) return;
-    if (isPaused) {
+    if (isActuallyPaused) {
       setPausing(false);
-      if (pausePollRef.current) {
-        clearInterval(pausePollRef.current);
-        pausePollRef.current = null;
-      }
+      if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
       return;
     }
     pausePollRef.current = setInterval(() => {
-      void queryClient.invalidateQueries({
-        queryKey: deploymentKeys.detail(renderedDeployment.id),
-      });
+      void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(renderedDeployment.id) });
     }, 3000);
     return () => {
-      if (pausePollRef.current) {
-        clearInterval(pausePollRef.current);
-        pausePollRef.current = null;
-      }
+      if (pausePollRef.current) { clearInterval(pausePollRef.current); pausePollRef.current = null; }
     };
-  }, [
-    pausing,
-    isPaused,
-    isDeploying,
-    account,
-    queryClient,
-    renderedDeployment.id,
-  ]);
+  }, [pausing, isActuallyPaused, queryClient, renderedDeployment.id]);
+
+  useEffect(() => {
+    if (!isGloballyRestarting) return;
+    const timer = setTimeout(() => setIsGloballyRestarting(false), 15000);
+    return () => clearTimeout(timer);
+  }, [isGloballyRestarting]);
 
   useEffect(() => {
     if (!optimisticDeploying) return;
@@ -187,40 +188,9 @@ export function ActiveDetailView({
   }, []);
 
 
-  useLayoutEffect(() => {
-    const fitContentToViewport = () => {
-      const viewport = contentViewportRef.current;
-      const inner = contentInnerRef.current;
-      if (!viewport || !inner) return;
-
-      // Skip autoscaling for narrow layouts to preserve readability.
-      if (window.innerWidth < 1180) {
-        setContentScale(1);
-        return;
-      }
-
-      const availableHeight = viewport.clientHeight;
-      const naturalHeight = inner.scrollHeight;
-      if (availableHeight <= 0 || naturalHeight <= 0) {
-        setContentScale(1);
-        return;
-      }
-
-      const nextScale = Math.min(1, Math.max(0.78, availableHeight / naturalHeight));
-      setContentScale((prev) => (Math.abs(prev - nextScale) < 0.005 ? prev : nextScale));
-    };
-
-    const raf = requestAnimationFrame(fitContentToViewport);
-    window.addEventListener("resize", fitContentToViewport);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", fitContentToViewport);
-    };
-  }, [tab, configOpen, renderedDeployment.id, isCompact]);
-
   return (
     <div style={{ display: 'flex', flex: 1, minHeight: 0, background: C.bg }}>
-      <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
       {/* ── TOP BAR ── */}
       <header style={{
         background: C.panel,
@@ -261,26 +231,30 @@ export function ActiveDetailView({
             displayName={deployment.display_name}
             account={account}
             installedAt={formatDate(deployment.created_at)}
+            onRestart={!isPaused && !isDeploying ? () => { setIsGloballyRestarting(true); restartAllMutation.mutate({ deploymentId: renderedDeployment.id }); } : undefined}
             />
           </div>
-          {hasNewBuildAvailable ? (
-            <BuildUpdateBadge
-              currentBuildId={renderedDeployment.build_id}
-              latestBuildId={latestBuildId}
-            />
-          ) : null}
           {(() => {
-            const ds = mapDeploymentStatus(renderedDeployment)
+            const ds = isRestarting ? 'restarting'
+              : isPausing ? 'pausing'
+              : isResuming ? 'resuming'
+              : mapDeploymentStatus(renderedDeployment)
             const badge =
-              ds === 'error'
+              ds === 'restarting'
+                ? { bg: 'color-mix(in oklch, var(--color-yellow-500) 12%, transparent)', bdr: 'color-mix(in oklch, var(--color-yellow-500) 30%, transparent)', dot: 'var(--color-yellow-600)', label: 'Restarting', spinning: true }
+              : ds === 'pausing'
+                ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Pausing', spinning: true }
+              : ds === 'resuming'
+                ? { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Resuming', spinning: true }
+              : ds === 'error'
                 ? { bg: C.coralBg, bdr: C.coralBdr, dot: C.coral, label: 'Error', spinning: false }
-                : ds === 'undeploying'
-                  ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Undeploying', spinning: true }
-                : ds === 'pending'
-                  ? { bg: C.warningBg, bdr: C.warningBdr, dot: C.warning, label: 'Deploying', spinning: true }
-                  : ds === 'inactive'
-                  ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive', spinning: false }
-                    : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'LIVE', spinning: false }
+              : ds === 'undeploying'
+                ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Undeploying', spinning: true }
+              : ds === 'deploying'
+                ? { bg: C.warningBg, bdr: C.warningBdr, dot: C.warning, label: 'Deploying', spinning: true }
+              : ds === 'inactive'
+                ? { bg: C.bgDeep, bdr: C.border, dot: C.faint, label: 'Inactive', spinning: false }
+              : { bg: 'rgba(21,130,125,0.08)', bdr: 'rgba(21,130,125,0.22)', dot: C.tealMid, label: 'Active', spinning: false }
             return (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -309,35 +283,26 @@ export function ActiveDetailView({
             marginTop: isCompact ? 2 : 0,
           }}
         >
-          {!isPaused && !isDeploying && (
-            <Button
-              variant="outline"
-              size="default"
-              onClick={() => { setPausing(true); pauseMutation.mutate({ deploymentId: renderedDeployment.id }); }}
-              disabled={pausing || controlsBusy}
-              title="Pause deployment (scale instances to zero)"
-              className="text-[var(--color-coral-600)] border-[var(--color-coral-300)] hover:text-[var(--color-coral-600)] dark:border-[var(--color-coral-800)]"
-            >
-              {pausing || pauseMutation.isPending ? <Loader2 className="animate-spin" /> : <PauseCircleIcon className="size-4" />}
-              Pause
-            </Button>
-          )}
-          {isPaused && (
-            <Button
-              variant="outline"
-              size="default"
-              onClick={() => wakeupMutation.mutate({ deploymentId: renderedDeployment.id })}
-              disabled={controlsBusy}
-              title="Resume deployment"
-            >
-              {wakeupMutation.isPending ? <Loader2 className="animate-spin" /> : <PlayCircleIcon className="size-4" />}
-              Resume
-            </Button>
-          )}
           <Button
             variant="outline"
             size="default"
-            onClick={() => { setConfigOpen(o => !o); setSelectedTrace(null); }}
+            onClick={isPaused || isResuming
+              ? () => { setPausing(false); wakeupMutation.mutate({ deploymentId: renderedDeployment.id }); }
+              : () => { setPausing(true); pauseMutation.mutate({ deploymentId: renderedDeployment.id }); }}
+            disabled={isPaused || isResuming ? (controlsBusy || isResuming) : (isDeploying || isGloballyRestarting || controlsBusy)}
+            title={isPaused || isResuming ? "Resume deployment" : "Pause deployment (scale instances to zero)"}
+            className={isPaused || isResuming ? undefined : "text-[var(--color-coral-600)] border-[var(--color-coral-300)] hover:text-[var(--color-coral-600)] dark:border-[var(--color-coral-800)]"}
+          >
+            {isPaused || isResuming
+              ? (isResuming ? <Loader2 className="animate-spin" /> : <PlayCircleIcon className="size-4" />)
+              : (pausing || pauseMutation.isPending ? <Loader2 className="animate-spin" /> : <PauseCircleIcon className="size-4" />)}
+            {isPaused || isResuming ? "Resume" : "Pause"}
+          </Button>
+          <Button
+            variant="outline"
+            size="default"
+            onClick={() => { setConfigOpen(o => !o); setConfigRevision(null); setConfigIsNewBuild(false); setSelectedTrace(null); }}
+            disabled={isRestarting}
             data-active={configOpen || undefined}
           >
             <Cog6ToothIcon className="size-4" /> Configure
@@ -429,7 +394,6 @@ export function ActiveDetailView({
           {/* tab content */}
           <div
             className="dp-scroll"
-            ref={contentViewportRef}
             style={{
               flex: 1,
               minHeight: 0,
@@ -438,22 +402,40 @@ export function ActiveDetailView({
               padding: `24px calc(${DETAIL_HORIZONTAL_PAD} + 4px) 24px`,
             }}
           >
-            <div
-              ref={contentInnerRef}
-              style={{
-                transform: contentScale < 1 ? `scale(${contentScale})` : undefined,
-                transformOrigin: "top left",
-                width: contentScale < 1 ? `${100 / contentScale}%` : "100%",
-              }}
-            >
+            <div>
+              {hasNewBuildAvailable && !showConfigureAsPage && !showTraceAsPage && (
+                <div className="mb-4">
+                  <ActionPanel
+                    tone="warning"
+                    title={
+                      <span>
+                        <InlineBadge variant="soft" className="text-sm px-2.5 py-1 mr-2" style={{ color: "var(--color-yellow-700)", borderColor: "color-mix(in oklch, var(--color-yellow-700) 30%, transparent)", background: "color-mix(in oklch, var(--color-yellow-700) 12%, transparent)" }}>
+                          Update
+                        </InlineBadge>
+                        A new build is available for this agent.
+                      </span>
+                    }
+                    primaryLabel="Redeploy →"
+                    onPrimary={() => { setConfigOpen(true); setConfigIsNewBuild(true); setConfigRevision(null); setSelectedTrace(null); }}
+                    confirmTitle="Are you sure?"
+                    confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
+                    confirmLabel="Redeploy"
+                    dismissible
+                  />
+                </div>
+              )}
               {showConfigureAsPage ? (
                 <ConfigurePanel
                   deployment={renderedDeployment}
                   account={account}
                   fullPage
-                  onClose={() => setConfigOpen(false)}
+                  onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
                   onRedeployStart={() => { setOptimisticDeploying(true); }}
                   onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+                  revisionOverride={configRevision ?? undefined}
+                  readOnly={configRevision !== null && configRollbackBuildId === null}
+                  isNewBuild={configIsNewBuild}
+                  rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
                 />
               ) : showTraceAsPage && selectedTrace ? (
                 <TraceDetailPanel
@@ -475,7 +457,12 @@ export function ActiveDetailView({
                 <DeploymentsTab
                   deployment={renderedDeployment}
                   account={account}
-                  onOpenConfigure={() => setConfigOpen(true)}
+                  isPausing={isPausing}
+                  isResuming={isResuming}
+                  isRestarting={isRestarting}
+                  isGloballyRestarting={isGloballyRestarting}
+                  onRollback={(revision, buildId) => { setConfigRevision(revision); setConfigRollbackBuildId(buildId); setConfigIsNewBuild(false); setConfigOpen(true); setSelectedTrace(null); }}
+                  onPodRestartStateChange={setIsPodLevelRestarting}
                 />
               )}
             </div>
@@ -504,9 +491,13 @@ export function ActiveDetailView({
             <ConfigurePanel
               deployment={renderedDeployment}
               account={account}
-              onClose={() => setConfigOpen(false)}
+              onClose={() => { setConfigOpen(false); setConfigRevision(null); setConfigIsNewBuild(false); setConfigRollbackBuildId(null); }}
               onRedeployStart={() => { setOptimisticDeploying(true); }}
               onRedeploy={() => { setOptimisticDeploying(true); onRedeploy?.(); }}
+              revisionOverride={configRevision ?? undefined}
+              readOnly={configRevision !== null && configRollbackBuildId === null}
+              isNewBuild={configIsNewBuild}
+              rollbackContext={configRevision !== null && configRollbackBuildId !== null ? { revision: configRevision, buildId: configRollbackBuildId } : undefined}
             />
           )}
           {selectedTrace && !configOpen && (
