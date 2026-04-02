@@ -21,6 +21,7 @@ type Config struct {
 	OpenMeterURL         string // OPENMETER_URL — base URL for OpenMeter API
 	OpenMeterDefaultPlan string // OPENMETER_DEFAULT_PLAN — plan key to auto-subscribe new accounts (empty = disabled)
 	OpenMeterEnforce     bool   // OPENMETER_ENFORCE — enable entitlement enforcement (default false)
+	S3                   S3Config
 	GitHub               GitHubConfig
 	LokiURL              string // LOKI_URL — Loki base URL for log queries (e.g. http://<nlb-dns>:3100); falls back to K8s pod logs if unset
 	DeploymentLogBackend string // DEPLOYMENT_LOG_BACKEND — "loki" or "k8s"; defaults to "loki" if LOKI_URL is set, otherwise "k8s"
@@ -118,9 +119,19 @@ func (a AvatarConfig) IsLocal() bool {
 	return a.S3Bucket == "" && a.LocalDir != ""
 }
 
+// S3Config holds S3 / S3-compatible storage configuration.
+type S3Config struct {
+	// S3_ENDPOINT — custom endpoint URL for S3-compatible stores (e.g. http://localhost:9000 for MinIO).
+	// Empty in production; the AWS SDK uses the standard S3 endpoint.
+	Endpoint string
+	// S3_PATH_STYLE — force path-style addressing (required for MinIO and most S3-compatible stores).
+	// Automatically set to true when Endpoint is non-empty.
+	PathStyle bool
+}
+
 // GitHubConfig holds GitHub connection configuration.
 type GitHubConfig struct {
-	// GITHUB_BUILD_NAMESPACE — K8s namespace for Kaniko build Jobs (default: astro-builds)
+	// GITHUB_BUILD_NAMESPACE — K8s namespace for Kaniko build Jobs (default: as0-builds)
 	BuildNamespace string
 	// GITHUB_BUILD_SERVICE_ACCOUNT — K8s service account for Kaniko Jobs (default: kaniko-builder)
 	BuildServiceAccount string
@@ -244,6 +255,10 @@ func Load() (*Config, error) {
 			S3Bucket:  getEnv("ASSETS_BUCKET", ""),
 			LocalDir:  getEnv("ASSETS_LOCAL_DIR", ""),
 			AssetsURL: getEnv("ASSETS_URL", ""),
+		},
+		S3: S3Config{
+			Endpoint:  getEnv("S3_ENDPOINT", ""),
+			PathStyle: getEnv("S3_ENDPOINT", "") != "",
 		},
 		GitHub: GitHubConfig{
 			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "as0-builds"),

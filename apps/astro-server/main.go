@@ -92,6 +92,12 @@ func main() {
 	accountStore := account.NewAccountStore(db)
 	agentIndex := agentindex.NewIndexWithDB(db)
 
+	// Build a shared S3 client (respects S3_ENDPOINT for local MinIO / S3-compatible stores).
+	sharedS3Client, sharedS3Err := newS3Client(cfg)
+	if sharedS3Err != nil {
+		log.Warn("Failed to initialize S3 client", "error", sharedS3Err)
+	}
+
 	// Initialize avatar store (S3 or local filesystem)
 	var avatarStore *avatar.Store
 	if cfg.Avatar.Enabled() {
@@ -99,16 +105,10 @@ func main() {
 			backend := avatar.NewLocalBackend(cfg.Avatar.LocalDir)
 			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
 			log.Info("Avatar store initialized (local)", "dir", cfg.Avatar.LocalDir)
-		} else {
-			avatarAwsCfg, avatarAwsErr := awsconfig.LoadDefaultConfig(context.Background())
-			if avatarAwsErr != nil {
-				log.Error("Failed to load AWS config for avatar store", "error", avatarAwsErr)
-			} else {
-				s3Client := s3.NewFromConfig(avatarAwsCfg)
-				backend := avatar.NewS3Backend(s3Client, cfg.Avatar.S3Bucket)
-				avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
-				log.Info("Avatar store initialized (S3)", "bucket", cfg.Avatar.S3Bucket)
-			}
+		} else if sharedS3Client != nil {
+			backend := avatar.NewS3Backend(sharedS3Client, cfg.Avatar.S3Bucket)
+			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
+			log.Info("Avatar store initialized (S3)", "bucket", cfg.Avatar.S3Bucket)
 		}
 	}
 	// Initialize WorkOS organization client
@@ -465,15 +465,18 @@ func runWorker(
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 	ghStore := githubconnection.New(db)
 
-	// Initialize S3 client for GitHub build contexts (reuse AWS config if available).
+	// S3 client for GitHub build contexts.
+	workerS3Client, workerS3Err := newS3Client(cfg)
+	if workerS3Err != nil {
+		log.Warn("Failed to initialize S3 client for build worker", "error", workerS3Err)
+	}
 	var buildS3Client *s3.Client
 	if cfg.GitHub.BuildContextBucket != "" {
-		buildAwsCfg, buildAwsErr := awsconfig.LoadDefaultConfig(context.Background())
-		if buildAwsErr != nil {
-			log.Warn("Failed to load AWS config for GitHub build S3", "error", buildAwsErr)
-		} else {
-			buildS3Client = s3.NewFromConfig(buildAwsCfg)
+		if workerS3Client != nil {
+			buildS3Client = workerS3Client
 			log.Info("GitHub build S3 client initialized", "bucket", cfg.GitHub.BuildContextBucket)
+		} else {
+			log.Warn("GitHub build context bucket configured but S3 client unavailable")
 		}
 	}
 
@@ -1287,4 +1290,22 @@ func startFleetGRPCServer(
 	}()
 
 	return grpcSrv, srv, nil
+}
+
+// newS3Client creates an S3 client using the shared AWS config, applying a custom
+// endpoint when S3_ENDPOINT is set (e.g. MinIO for local dev).
+func newS3Client(cfg *config.Config) (*s3.Client, error) {
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	opts := []func(*s3.Options){}
+	if cfg.S3.Endpoint != "" {
+		endpoint := cfg.S3.Endpoint
+		opts = append(opts, func(o *s3.Options) {
+			o.BaseEndpoint = &endpoint
+			o.UsePathStyle = cfg.S3.PathStyle
+		})
+	}
+	return s3.NewFromConfig(awsCfg, opts...), nil
 }
