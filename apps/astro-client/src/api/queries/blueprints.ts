@@ -133,6 +133,17 @@ export function useValidateDeployment() {
   });
 }
 
+export function useCreateBlueprint(account: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; visibility?: string }) => api.createBlueprint(account, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: blueprintKeys.byAccount(account) });
+      queryClient.invalidateQueries({ queryKey: blueprintKeys.all });
+    },
+  });
+}
+
 export function useArchiveBlueprint(account: string) {
   const queryClient = useQueryClient();
 
