@@ -75,6 +75,7 @@ interface DeployedAgentsSectionProps {
   blueprintAgents: { name: string; versions?: { build_id: string; published_at: string }[] }[];
   account: string;
   isLoading: boolean;
+  skeletonDeploymentId?: string | null;
 }
 
 export function DeployedAgentsSection({
@@ -82,6 +83,7 @@ export function DeployedAgentsSection({
   blueprintAgents,
   account,
   isLoading,
+  skeletonDeploymentId,
 }: DeployedAgentsSectionProps) {
   const summaryResults = useObservabilitySummaries(deployments.map((d) => d.id));
 
@@ -166,15 +168,20 @@ export function DeployedAgentsSection({
       )}
       {filtered.length > 0 && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((deployment) => (
-            <AgentCard
-              key={deployment.id}
-              deployment={deployment}
-              account={account}
-              hasNewBuildAvailable={deploymentsWithNewBuild.has(deployment.id)}
-              requests={requestCounts.get(deployment.id)}
-            />
-          ))}
+          {filtered.map((deployment) => {
+            if (skeletonDeploymentId && deployment.id === skeletonDeploymentId) {
+              return <AgentCardSkeleton key={deployment.id} />;
+            }
+            return (
+              <AgentCard
+                key={deployment.id}
+                deployment={deployment}
+                account={account}
+                hasNewBuildAvailable={deploymentsWithNewBuild.has(deployment.id)}
+                requests={requestCounts.get(deployment.id)}
+              />
+            );
+          })}
         </div>
       )}
     </>

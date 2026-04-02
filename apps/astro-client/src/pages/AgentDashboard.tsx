@@ -180,6 +180,7 @@ function AgentDashboardContent() {
             account={userAccount}
             isLoading={isLoading}
             blueprintAgents={blueprintAgents}
+            skeletonDeploymentId={showReveal ? revealDeploymentId : null}
           />
         </div>
       </div>
