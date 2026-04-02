@@ -14,7 +14,8 @@ describe("MetricCard", () => {
 
   it("shows flat trend when no trend is provided", () => {
     render(<MetricCard label="Tokens" value="84k" />);
-    expect(screen.getByText("—")).toBeInTheDocument();
+    // Both the trend value and arrow render "—" for a flat/null trend
+    expect(screen.getAllByText("—")).toHaveLength(2);
   });
 
   it("shows up arrow and green color when trend is positive and higherIsBetter", () => {
@@ -47,9 +48,9 @@ describe("MetricCard", () => {
   });
 
   it("shows value skeleton when loading", () => {
-    const { container } = render(<MetricCard label="Requests" value="—" loading />);
+    const { container } = render(<MetricCard label="Requests" value="1,284" loading />);
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
-    expect(screen.queryByText("—")).not.toBeInTheDocument();
+    expect(screen.queryByText("1,284")).not.toBeInTheDocument();
   });
 
   it("shows trend skeleton when trendLoading", () => {
