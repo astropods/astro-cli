@@ -74,8 +74,8 @@ export function DashboardStats({
         label="COMPUTE USAGE"
         value={usageData?.compute_unit_hours.usage ?? 0}
         quota={usageData?.compute_unit_hours.quota}
-        unit="CU-hours"
-        link={{ href: "/settings/usage", label: "Request increase" }}
+        unit="hours"
+        account={account}
         loading={isLoading || usageLoading}
         className="bg-white dark:bg-background"
       />

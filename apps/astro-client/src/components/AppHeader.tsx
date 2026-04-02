@@ -86,7 +86,7 @@ export function AppHeader() {
   // only logged-in users reach the app, so isLoading just means auth hasn't
   // resolved client-side yet. This prevents "My Agents" from popping in.
   const navItems: NavItem[] = isAuthenticated || isLoading
-    ? [...publicNav, { label: "Dashboard", to: dashboardPath }]
+    ? [{ label: "Dashboard", to: dashboardPath }, ...publicNav]
     : publicNav;
 
   if (isMobile) {

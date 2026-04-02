@@ -1,12 +1,12 @@
 import React, { useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
-  Square3Stack3DIcon,
+  BookOpenIcon,
   UsersIcon,
-  CpuChipIcon,
   AtSymbolIcon,
   Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
+import { Bot } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import { blueprintsPaths, accountProfilePath } from "@/lib/routes";
 
 function DashboardLabel({ icon: Icon, to, children }: { icon: React.ElementType; to?: string; children: React.ReactNode }) {
   const className = "inline-flex items-center gap-1.5 font-mono text-mono-sm" + (to ? " hover:text-teal-700 transition-colors" : "");
-  const content = <><Icon className="size-3.5" />{children}</>;
+  const content = <><Icon className="size-3.5" strokeWidth={1.5} />{children}</>;
   return to ? <Link to={to} className={className}>{content}</Link> : <span className={className}>{content}</span>;
 }
 
@@ -59,7 +59,7 @@ function AgentDashboardContent() {
     <div className="min-h-full bg-muted">
       <PageBreadcrumb
         items={[
-          { label: "Dashboard" },
+          { label: "Dashboard", to: "/dashboard" },
           {
             label: (
               <OrgSwitcher
@@ -87,6 +87,20 @@ function AgentDashboardContent() {
             </Button>
           </div>
         }
+        mobileActions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" asChild>
+              <Link to={blueprintsPaths.discover} aria-label="Browse blueprints">
+                <BookOpenIcon className="size-3.5" />
+              </Link>
+            </Button>
+            <Button variant="outline" size="icon" asChild>
+              <Link to="/settings" aria-label="Settings">
+                <Cog6ToothIcon className="size-3.5" />
+              </Link>
+            </Button>
+          </div>
+        }
       />
 
       <div className="px-6 py-6">
@@ -101,14 +115,11 @@ function AgentDashboardContent() {
                 {memberCount} member{memberCount !== 1 ? "s" : ""}
               </DashboardLabel>
             )}
-            <DashboardLabel icon={CpuChipIcon}>
+            <DashboardLabel icon={Bot}>
               {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
             </DashboardLabel>
-            <DashboardLabel icon={Square3Stack3DIcon} to={blueprintsPaths.personal}>
+            <DashboardLabel icon={BookOpenIcon} to={blueprintsPaths.personal}>
               {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
-            </DashboardLabel>
-            <DashboardLabel icon={AtSymbolIcon} to={accountProfilePath(userAccount)}>
-              {userAccount}
             </DashboardLabel>
           </div>
         </div>

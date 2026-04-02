@@ -12,10 +12,10 @@ export const deploymentStatusVariant: Record<DeployedAgentStatus, StatusIndicato
 
 export const deploymentStatusLabel: Record<DeployedAgentStatus, string> = {
   active: "Live",
-  inactive: "Inactive",
-  pending: "Deploying",
-  undeploying: "Undeploying",
   error: "Error",
+  pending: "Deploying",
+  inactive: "Inactive",
+  undeploying: "Undeployed",
 };
 
 export function mapDeploymentStatus(deployment: AgentDeployment): DeployedAgentStatus {

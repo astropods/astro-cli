@@ -1,4 +1,4 @@
-import { ChevronDownIcon, BuildingOffice2Icon, CheckIcon } from "@heroicons/react/24/outline";
+import { ChevronDownIcon, BuildingOffice2Icon, CheckIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   DropdownMenu,
@@ -46,11 +46,11 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-mono-sm font-semibold text-foreground transition-colors hover:bg-accent"
+          className="inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-mono-sm text-left text-foreground transition-colors hover:bg-accent"
         >
           <AccountIcon account={current} />
           {label}
-          <ChevronDownIcon className="size-3 text-muted-foreground" />
+          <ChevronDownIcon className="size-3 text-primary" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56 p-2">
@@ -69,7 +69,10 @@ export function OrgSwitcher({ activeAccount, onChange }: OrgSwitcherProps) {
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild className="gap-2">
-          <a href="/organization/new">Create organization</a>
+          <a href="/organization/new">
+            <PlusIcon className="size-4" />
+            Create organization
+          </a>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

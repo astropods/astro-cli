@@ -123,7 +123,7 @@ function MultiSelectAllItem({ children = "All" }: { children?: React.ReactNode }
     <button
       type="button"
       onClick={() => onValueChange([])}
-      className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-body-sm text-muted-foreground hover:bg-muted transition-colors"
+      className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-sm text-muted-foreground hover:bg-muted transition-colors"
     >
       <span
         className={cn(
@@ -157,7 +157,7 @@ function MultiSelectItem({ value, color, children, className }: MultiSelectItemP
       type="button"
       onClick={toggle}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-body-sm text-foreground hover:bg-muted transition-colors",
+        "flex w-full items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors",
         className,
       )}
     >

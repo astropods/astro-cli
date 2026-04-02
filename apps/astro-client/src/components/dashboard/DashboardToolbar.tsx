@@ -60,16 +60,16 @@ export function DashboardToolbar({
   disabled,
 }: DashboardToolbarProps) {
   return (
-    <div className={cn("flex items-center gap-2", disabled && "pointer-events-none opacity-40")}>
+    <div className={cn("flex flex-wrap items-center gap-2", disabled && "pointer-events-none opacity-40")}>
       <FilterInput
         placeholder="Search agents..."
         value={filter}
         onChange={(e) => onFilterChange(e.target.value)}
-        containerClassName="flex-1 max-w-lg h-8 !bg-white dark:!bg-background"
+        containerClassName="w-full sm:flex-1 sm:max-w-lg h-8 !bg-white dark:!bg-background"
       />
 
       <MultiSelect value={statusFilter} onValueChange={onStatusFilterChange}>
-        <MultiSelectTrigger className="h-8 w-36 text-xs">
+        <MultiSelectTrigger className="h-8 w-full sm:w-36 text-sm">
           <MultiSelectValue options={STATUS_OPTIONS} placeholder="All statuses" />
         </MultiSelectTrigger>
         <MultiSelectContent>
@@ -83,7 +83,7 @@ export function DashboardToolbar({
       </MultiSelect>
 
       <Select value={sortBy} onValueChange={(v) => onSortChange(v as SortOption)}>
-        <SelectTrigger className="h-8 w-36 px-3 text-xs bg-background">
+        <SelectTrigger className="h-8 w-full sm:w-36 px-3 text-sm bg-background">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
