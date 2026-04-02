@@ -89,7 +89,7 @@ export function DeployedAgentsSection({
     new Map(
       deployments
         .map((d, i) => [d.id, summaryResults[i]?.data?.total_traces] as const)
-        .filter(([, count]) => count !== undefined)
+        .filter((entry): entry is [string, number] => entry[1] !== undefined)
     ),
   [deployments, summaryResults]);
 

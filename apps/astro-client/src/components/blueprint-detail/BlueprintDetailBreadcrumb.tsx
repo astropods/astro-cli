@@ -38,46 +38,50 @@ export function BlueprintDetailBreadcrumb({
     await copy(url);
   };
 
-  const heartButton = (iconOnly?: boolean) => (
-    <Button
-      variant="outline"
-      size={iconOnly ? "icon" : "sm"}
-      aria-label="Heart"
-      onClick={() => toggleHeart.mutate()}
-    >
-      {initialHearted ? (
-        <HeartSolid className="h-3.5 w-3.5 text-red-500" />
-      ) : (
-        <HeartOutline className="h-3.5 w-3.5" />
-      )}
-      {!iconOnly && (
-        <>
-          Hearts
-          <span className="border-l pl-2 ml-1 text-xs tabular-nums">{initialHeartCount}</span>
-        </>
-      )}
-    </Button>
-  );
+  function HeartButton({ iconOnly }: { iconOnly?: boolean }) {
+    return (
+      <Button
+        variant="outline"
+        size={iconOnly ? "icon" : "sm"}
+        aria-label="Heart"
+        onClick={() => toggleHeart.mutate()}
+      >
+        {initialHearted ? (
+          <HeartSolid className="h-3.5 w-3.5 text-red-500" />
+        ) : (
+          <HeartOutline className="h-3.5 w-3.5" />
+        )}
+        {!iconOnly && (
+          <>
+            Hearts
+            <span className="border-l pl-2 ml-1 text-xs tabular-nums">{initialHeartCount}</span>
+          </>
+        )}
+      </Button>
+    );
+  }
 
-  const shareButton = (iconOnly?: boolean) => (
-    <Button
-      variant="outline"
-      size={iconOnly ? "icon" : "sm"}
-      onClick={handleShare}
-    >
-      {copied ? (
-        <>
-          <Check className="h-3.5 w-3.5 text-green-500" />
-          {!iconOnly && "Link copied"}
-        </>
-      ) : (
-        <>
-          <ShareIcon className="h-3.5 w-3.5" />
-          {!iconOnly && "Share"}
-        </>
-      )}
-    </Button>
-  );
+  function ShareButton({ iconOnly }: { iconOnly?: boolean }) {
+    return (
+      <Button
+        variant="outline"
+        size={iconOnly ? "icon" : "sm"}
+        onClick={handleShare}
+      >
+        {copied ? (
+          <>
+            <Check className="h-3.5 w-3.5 text-green-500" />
+            {!iconOnly && "Link copied"}
+          </>
+        ) : (
+          <>
+            <ShareIcon className="h-3.5 w-3.5" />
+            {!iconOnly && "Share"}
+          </>
+        )}
+      </Button>
+    );
+  }
 
   return (
     <PageBreadcrumb
@@ -93,14 +97,14 @@ export function BlueprintDetailBreadcrumb({
       ]}
       actions={
         <>
-          {heartButton()}
-          {shareButton()}
+          <HeartButton />
+          <ShareButton />
         </>
       }
       mobileActions={
         <>
-          {heartButton(true)}
-          {shareButton(true)}
+          <HeartButton iconOnly />
+          <ShareButton iconOnly />
         </>
       }
     />

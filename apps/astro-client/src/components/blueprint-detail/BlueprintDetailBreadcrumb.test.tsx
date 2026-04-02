@@ -9,8 +9,8 @@ describe("BlueprintDetailBreadcrumb", () => {
   it("renders Like and Share action badges", () => {
     renderWithProviders(<BlueprintDetailBreadcrumb account="acme" blueprintName="signal-watcher" />);
 
-    expect(screen.getByRole("button", { name: /heart/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /share/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /heart/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: /share/i })).not.toHaveLength(0);
   });
 
   it("renders account and agent path in breadcrumb", () => {

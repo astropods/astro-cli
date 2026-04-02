@@ -3,7 +3,6 @@ import { Link, useSearchParams } from "react-router";
 import {
   BookOpenIcon,
   UsersIcon,
-  AtSymbolIcon,
   Cog6ToothIcon,
 } from "@heroicons/react/24/outline";
 import { Bot } from "lucide-react";
@@ -17,7 +16,7 @@ import { useDeployments } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { useAuth } from "@/lib/auth";
-import { blueprintsPaths, accountProfilePath } from "@/lib/routes";
+import { blueprintsPaths } from "@/lib/routes";
 
 function DashboardLabel({ icon: Icon, to, children }: { icon: React.ElementType; to?: string; children: React.ReactNode }) {
   const className = "inline-flex items-center gap-1.5 font-mono text-mono-sm" + (to ? " hover:text-teal-700 transition-colors" : "");
