@@ -55,7 +55,7 @@ export function DashboardStats({
   return (
     <div className="mb-9 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
       <MetricCard
-        label="TOKENS TODAY"
+        label="TOTAL TOKENS"
         value={tokensToday.toLocaleString()}
         trend={tokensTrend}
         loading={isLoading || todayLoading}
@@ -63,7 +63,7 @@ export function DashboardStats({
         className="bg-white dark:bg-background"
       />
       <MetricCard
-        label="REQUESTS TODAY"
+        label="TOTAL REQUESTS"
         value={requestsToday.toLocaleString()}
         trend={requestsTrend}
         loading={isLoading || todayLoading}
