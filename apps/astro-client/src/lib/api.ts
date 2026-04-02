@@ -681,6 +681,40 @@ class ApiClient {
       { method: 'DELETE' },
     );
   }
+
+  // GitHub connection
+  async getGitHubStatus(account: string, name: string): Promise<GitHubStatusResponse> {
+    return this.request<GitHubStatusResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`
+    );
+  }
+
+  async gitHubConnect(account: string, name: string): Promise<GitHubConnectResponse> {
+    return this.request<GitHubConnectResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/connect`,
+      { method: 'POST' }
+    );
+  }
+
+  async gitHubListRepos(account: string, name: string): Promise<{ repos: GitHubRepo[] }> {
+    return this.request<{ repos: GitHubRepo[] }>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/repos`
+    );
+  }
+
+  async gitHubLink(account: string, name: string, body: GitHubLinkInput): Promise<void> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github/link`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+  }
+
+  async gitHubDisconnect(account: string, name: string): Promise<void> {
+    return this.request(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/github`,
+      { method: 'DELETE' }
+    );
+  }
 }
 
 export interface ConfigMapResponse {
@@ -1090,6 +1124,40 @@ export interface AccountUsageResponse {
   agent_builds: UsageMeter;
   active_deployments: UsageMeter;
   active_agents: UsageMeter;
+}
+
+export interface GitHubRepo {
+  full_name: string;
+  default_branch: string;
+  private: boolean;
+}
+
+export interface GitHubBuild {
+  id: string;
+  build_id: string;
+  commit_sha: string;
+  branch: string;
+  status: 'pending' | 'building' | 'registered' | 'failed';
+  error?: string;
+  enqueued_at: string;
+  completed_at?: string;
+}
+
+export interface GitHubStatusResponse {
+  connected: boolean;
+  repo_full_name?: string;
+  branch?: string;
+  builds: GitHubBuild[];
+}
+
+export interface GitHubConnectResponse {
+  connected?: boolean;
+  redirect_url?: string;
+}
+
+export interface GitHubLinkInput {
+  repo_full_name: string;
+  branch: string;
 }
 
 // Export singleton instance

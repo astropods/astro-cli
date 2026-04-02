@@ -134,7 +134,7 @@ func GitHubCallback(log *logger.Logger, pipesClient *pipes.Client, accountStore 
 		log.Info("GitHub OAuth completed", "account", acct.Name, "agent", agentName, "user", session.UserID)
 
 		// Redirect to frontend — user can now select a repo.
-		c.Redirect(http.StatusFound, fmt.Sprintf("%s/agents/%s/%s?github_connected=true",
+		c.Redirect(http.StatusFound, fmt.Sprintf("%s/%s/%s?github_connected=true",
 			cfg.FrontendURL, acct.Name, agentName))
 	}
 }
