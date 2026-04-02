@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
-import { AgentAvatar } from "@/components/AgentAvatar";
+import { AgentEmptyIllustration } from "@/components/ui/svgs/agentEmptyIllustration";
 import { DeployedAgentCard } from "@/components/DeployedAgentCard";
 import { DashboardToolbar } from "./DashboardToolbar";
 import { useAgentFilters } from "./useAgentFilters";
@@ -130,11 +130,7 @@ export function DeployedAgentsSection({
   if (isEmpty) {
     return (
       <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-14 px-12 gap-4">
-        <div className="flex items-center">
-          <AgentAvatar name="agent-avatar-1" size={52} className="z-10 relative" />
-          <AgentAvatar name="agent-avatar-3" size={52} className="-ml-3 z-20 relative" />
-          <AgentAvatar name="agent-avatar-2" size={52} className="-ml-3 z-10 relative" />
-        </div>
+        <AgentEmptyIllustration />
         <div className="flex flex-col items-center gap-1.5">
           <p className="text-heading-4 font-semibold text-foreground">No agents deployed yet</p>
           <p className="text-body-sm text-muted-foreground text-center max-w-[300px]">
