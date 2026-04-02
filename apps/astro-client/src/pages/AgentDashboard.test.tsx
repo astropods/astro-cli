@@ -310,76 +310,14 @@ describe('stats', () => {
     });
   });
 
-  it('shows upward trend when today exceeds yesterday', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2025-04-08T00:00:00.000Z'));
-
-    const dayMs = 24 * 60 * 60 * 1000;
-    const now = new Date('2025-04-08T00:00:00.000Z');
-    const yesterdayEnd = new Date(now.getTime() - dayMs).toISOString();
-
-    server.use(
-      http.get('/api/v1/accounts/:account/observability/summary', ({ request }) => {
-        const url = new URL(request.url);
-        const endTime = url.searchParams.get('end_time');
-        if (endTime === yesterdayEnd) {
-          return HttpResponse.json({ total_traces: 100, input_tokens: 0, output_tokens: 0, time_range: { start: '', end: '' } });
-        }
-        return HttpResponse.json({ total_traces: 150, input_tokens: 0, output_tokens: 0, time_range: { start: '', end: '' } });
-      }),
-    );
-
+  it('shows no trend indicators', async () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('150')).toBeInTheDocument();
-      expect(screen.getAllByText('↑')[0]).toBeInTheDocument();
-      expect(screen.getAllByText('50%')[0]).toBeInTheDocument();
+      expect(screen.getByText('TOTAL TOKENS')).toBeInTheDocument();
     });
-  });
-
-  it('shows downward trend when today is below yesterday', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2025-04-08T00:00:00.000Z'));
-
-    const dayMs = 24 * 60 * 60 * 1000;
-    const now = new Date('2025-04-08T00:00:00.000Z');
-    const yesterdayEnd = new Date(now.getTime() - dayMs).toISOString();
-
-    server.use(
-      http.get('/api/v1/accounts/:account/observability/summary', ({ request }) => {
-        const url = new URL(request.url);
-        const endTime = url.searchParams.get('end_time');
-        if (endTime === yesterdayEnd) {
-          return HttpResponse.json({ total_traces: 200, input_tokens: 0, output_tokens: 0, time_range: { start: '', end: '' } });
-        }
-        return HttpResponse.json({ total_traces: 100, input_tokens: 0, output_tokens: 0, time_range: { start: '', end: '' } });
-      }),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText('100')).toBeInTheDocument();
-      expect(screen.getAllByText('↓')[0]).toBeInTheDocument();
-      expect(screen.getAllByText('50%')[0]).toBeInTheDocument();
-    });
-  });
-
-  it('shows no trend indicator when today is 0', async () => {
-    server.use(
-      http.get('/api/v1/accounts/:account/observability/summary', () =>
-        HttpResponse.json({ total_traces: 0, input_tokens: 0, output_tokens: 0, time_range: { start: '', end: '' } }),
-      ),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => {
-      // "0" value is rendered; trend should show the flat "—" not an arrow
-      expect(screen.queryByText('↑')).not.toBeInTheDocument();
-      expect(screen.queryByText('↓')).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText('↑')).not.toBeInTheDocument();
+    expect(screen.queryByText('↓')).not.toBeInTheDocument();
   });
 });
 
