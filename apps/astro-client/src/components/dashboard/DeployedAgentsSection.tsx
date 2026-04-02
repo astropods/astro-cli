@@ -76,6 +76,7 @@ interface DeployedAgentsSectionProps {
   account: string;
   isLoading: boolean;
   skeletonDeploymentId?: string | null;
+  skeletonCount?: number;
 }
 
 export function DeployedAgentsSection({
@@ -84,6 +85,7 @@ export function DeployedAgentsSection({
   account,
   isLoading,
   skeletonDeploymentId,
+  skeletonCount = 4,
 }: DeployedAgentsSectionProps) {
   const summaryResults = useObservabilitySummaries(deployments.map((d) => d.id));
 
@@ -121,7 +123,7 @@ export function DeployedAgentsSection({
           <DashboardToolbar {...toolbarProps} disabled />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: skeletonCount }).map((_, i) => (
             <AgentCardSkeleton key={i} />
           ))}
         </div>

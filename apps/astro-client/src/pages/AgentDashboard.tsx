@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import type { Route } from "./+types/AgentDashboard";
+import { createServerApi } from "@/lib/api.server";
 import {
   BookOpenIcon,
   UsersIcon,
@@ -20,13 +22,29 @@ import { blueprintsPaths, deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 import type { AgentDeployment } from "@/lib/api";
 
+export async function loader({ request }: Route.LoaderArgs) {
+  const api = createServerApi(request);
+  try {
+    const auth = await api.getCurrentUser();
+    const url = new URL(request.url);
+    const accountParam = url.searchParams.get("account");
+    const account = auth.accounts?.find((a) => a.name === accountParam)
+      ?? auth.accounts?.find((a) => a.type === "personal");
+    if (!account) return { count: 0 };
+    const { count } = await api.countDeployments(account.name);
+    return { count };
+  } catch {
+    return { count: 0 };
+  }
+}
+
 function DashboardLabel({ icon: Icon, to, children }: { icon: React.ElementType; to?: string; children: React.ReactNode }) {
   const className = "inline-flex items-center gap-1.5 font-mono text-mono-sm" + (to ? " hover:text-teal-700 transition-colors" : "");
   const content = <><Icon className="size-3.5" strokeWidth={1.5} />{children}</>;
   return to ? <Link to={to} className={className}>{content}</Link> : <span className={className}>{content}</span>;
 }
 
-function AgentDashboardContent() {
+function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -181,6 +199,7 @@ function AgentDashboardContent() {
             isLoading={isLoading}
             blueprintAgents={blueprintAgents}
             skeletonDeploymentId={showReveal ? revealDeploymentId : null}
+            skeletonCount={skeletonCount}
           />
         </div>
       </div>
@@ -204,10 +223,10 @@ function AgentDashboardContent() {
   );
 }
 
-export default function AgentDashboard() {
+export default function AgentDashboard({ loaderData }: Route.ComponentProps) {
   return (
     <ProtectedRoute>
-      <AgentDashboardContent />
+      <AgentDashboardContent skeletonCount={loaderData?.count ?? 0} />
     </ProtectedRoute>
   );
 }

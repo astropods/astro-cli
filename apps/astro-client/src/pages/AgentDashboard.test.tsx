@@ -44,7 +44,7 @@ function renderDashboard(path = '/dashboard', auth = mockAuthContext) {
         path: '/dashboard',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Component: AgentDashboard as any,
-        loader: () => null,
+        loader: () => ({ count: 0 }),
       },
     ],
     { initialEntries: [path], auth },
