@@ -40,8 +40,7 @@ export function DashboardStats({
   const requestsTrend = useMemo(() => {
     const today = todaySummary?.total_traces;
     const yesterday = yesterdaySummary?.total_traces;
-    if (today === undefined || yesterday === undefined) return null;
-    if (yesterday === 0 || today === 0) return null;
+    if (today === 0) return null;
     return percentChange(today, yesterday);
   }, [todaySummary?.total_traces, yesterdaySummary?.total_traces]);
 
@@ -49,8 +48,7 @@ export function DashboardStats({
   const tokensTrend = useMemo(() => {
     const today = todaySummary ? todaySummary.input_tokens + todaySummary.output_tokens : undefined;
     const yesterday = yesterdaySummary ? yesterdaySummary.input_tokens + yesterdaySummary.output_tokens : undefined;
-    if (today === undefined || yesterday === undefined) return null;
-    if (yesterday === 0 || today === 0) return null;
+    if (today === 0) return null;
     return percentChange(today, yesterday);
   }, [todaySummary, yesterdaySummary]);
 

@@ -85,32 +85,31 @@ export function DeployedAgentsSection({
 }: DeployedAgentsSectionProps) {
   const summaryResults = useObservabilitySummaries(deployments.map((d) => d.id));
 
-  const requestCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    deployments.forEach((d, i) => {
-      const count = summaryResults[i]?.data?.total_traces;
-      if (count !== undefined) map.set(d.id, count);
-    });
-    return map;
-  }, [deployments, summaryResults]);
+  const requestCounts = useMemo(() =>
+    new Map(
+      deployments
+        .map((d, i) => [d.id, summaryResults[i]?.data?.total_traces] as const)
+        .filter(([, count]) => count !== undefined)
+    ),
+  [deployments, summaryResults]);
 
   const { filtered, toolbarProps } = useAgentFilters(deployments, requestCounts);
   const isEmpty = !isLoading && deployments.length === 0;
 
   const deploymentsWithNewBuild = useMemo(() => {
-    const result = new Set<string>();
-    for (const agent of blueprintAgents) {
-      if (!agent.versions?.length) continue;
-      const latest = agent.versions.reduce((a, b) =>
-        new Date(b.published_at) > new Date(a.published_at) ? b : a,
-      );
-      if (!latest?.build_id) continue;
-      const deployment = deployments.find((d) => d.name === agent.name);
-      if (deployment && deployment.build_id !== latest.build_id) {
-        result.add(deployment.id);
-      }
-    }
-    return result;
+    const byName = new Map(deployments.map((d) => [d.name, d]));
+    return new Set(
+      blueprintAgents.flatMap((agent) => {
+        if (!agent.versions?.length) return [];
+        const latest = agent.versions.reduce((a, b) =>
+          new Date(b.published_at) > new Date(a.published_at) ? b : a,
+        );
+        const deployment = byName.get(agent.name);
+        return deployment && latest.build_id && deployment.build_id !== latest.build_id
+          ? [deployment.id]
+          : [];
+      }),
+    );
   }, [blueprintAgents, deployments]);
 
   if (isLoading) {

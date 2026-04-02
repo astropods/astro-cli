@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon, MapPinIcon } from "@heroicons/react/24/outline";
-import { MapPinIcon as MapPinSolidIcon } from "@heroicons/react/24/solid";
+import { EllipsisHorizontalIcon, ShareIcon, TrashIcon, BookOpenIcon, DocumentDuplicateIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
@@ -52,11 +51,6 @@ export interface DeployedAgentCardProps {
   hasNewBuildAvailable?: boolean;
   className?: string;
   linkState?: Record<string, unknown>;
-  onClick?: () => void;
-  isPinned?: boolean;
-  onPin?: () => void;
-  installedAtLabel?: string;
-  updatedAtLabel?: string;
 }
 
 function MetricCell({ label, value }: { label: string; value: string }) {
@@ -83,11 +77,6 @@ export function DeployedAgentCard({
   hasNewBuildAvailable = false,
   className,
   linkState,
-  onClick,
-  isPinned,
-  onPin,
-  installedAtLabel = "Days active",
-  updatedAtLabel = "Updated",
 }: DeployedAgentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -121,32 +110,15 @@ export function DeployedAgentCard({
     qrUrl: `${window.location.origin}/${account}/${name}`,
   }), [name, displayName, account, cardAvatar, installedAt, deploymentId]);
 
-  const isInteractive = !!href || !!onClick;
   const cardClassName = cn(
     "group relative flex flex-col gap-3 rounded-md border border-stone-400 bg-white px-4 py-3 transition-all duration-150",
-    isInteractive
-      ? "cursor-pointer hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400"
-      : "cursor-default opacity-70",
+    href ? "hover:border-teal-500 hover:shadow-md dark:hover:border-teal-400" : "cursor-default opacity-70",
     className,
   );
 
   const cardContent = (
     <>
-      <div className="absolute top-3 right-3 flex items-center gap-1" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-        {onPin && (
-          <button
-            type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label={isPinned ? "Unpin agent" : "Pin agent"}
-            onClick={onPin}
-          >
-            {isPinned ? (
-              <MapPinSolidIcon className="h-4 w-4 text-primary" />
-            ) : (
-              <MapPinIcon className="h-4 w-4" />
-            )}
-          </button>
-        )}
+      <div className="absolute top-3 right-3" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -224,8 +196,8 @@ export function DeployedAgentCard({
       <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3">
         <MetricCell label="Requests" value={requests.toLocaleString()} />
         <MetricCell label="Last request" value={lastActive} />
-        <MetricCell label={installedAtLabel} value={formatDaysActive(installedAt)} />
-        <MetricCell label={updatedAtLabel} value={formatRelativeTime(updatedAt)} />
+        <MetricCell label="Days active" value={formatDaysActive(installedAt)} />
+        <MetricCell label="Updated" value={formatRelativeTime(updatedAt)} />
       </div>
     </>
   );
@@ -233,9 +205,9 @@ export function DeployedAgentCard({
   return (
     <>
       {href ? (
-        <Link to={href} state={linkState} className={cardClassName} onClick={onClick}>{cardContent}</Link>
+        <Link to={href} state={linkState} className={cardClassName}>{cardContent}</Link>
       ) : (
-        <div className={cardClassName} onClick={onClick} role={onClick ? "button" : undefined}>{cardContent}</div>
+        <div className={cardClassName}>{cardContent}</div>
       )}
 
 

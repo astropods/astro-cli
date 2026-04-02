@@ -6,6 +6,7 @@ import { ActiveDetailView } from "@/components/deployed-agent/detail/ActiveDetai
 import { useDeploymentSuspense } from "@/api/queries/deployments";
 import { useAuth } from "@/lib/auth";
 import { isDeployingState } from "@/lib/deployment-utils";
+import { dashboardPath } from "@/lib/routes";
 import { Spinner } from "@/components/ui/spinner";
 
 export function loader({ params }: Route.LoaderArgs) {
@@ -44,7 +45,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
           The deployed agent you're looking for doesn't exist or has been removed.
         </p>
         <Button asChild>
-          <Link to="/dashboard">Dashboard</Link>
+          <Link to={dashboardPath}>Dashboard</Link>
         </Button>
       </div>
     );
@@ -61,7 +62,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
         account={account}
         isPersonal={isPersonal}
         monitorLocked={monitorLocked}
-        backPathOverride={requestedFromAgents ? "/dashboard" : undefined}
+        backPathOverride={requestedFromAgents ? dashboardPath : undefined}
       />
     </div>
   );

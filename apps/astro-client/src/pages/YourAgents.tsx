@@ -12,24 +12,12 @@ import { useDeployments } from "../api/queries/deployments";
 import { useAccountBlueprints } from "../api/queries/blueprints";
 import { useObservabilitySummary, useObservabilityTraces } from "../api/queries/observability";
 import { useAuth } from "../lib/auth";
-import { mapDeploymentStatus } from "../lib/deployment-utils";
+import { mapDeploymentStatus, formatRelativeTime } from "../lib/deployment-utils";
 import { deploymentPath } from "../lib/routes";
 import type { AgentDeployment } from "../lib/api";
 import { createServerApi } from "../lib/api.server";
 import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
 
-function formatRelativeTime(isoString: string): string {
-  const diffMs = new Date(isoString).getTime() - Date.now();
-  const diffSecs = Math.round(diffMs / 1000);
-  const diffMins = Math.round(diffSecs / 60);
-  const diffHours = Math.round(diffMins / 60);
-  const diffDays = Math.round(diffHours / 24);
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  if (Math.abs(diffSecs) < 60) return "less than a minute ago";
-  if (Math.abs(diffMins) < 60) return rtf.format(diffMins, "minute");
-  if (Math.abs(diffHours) < 24) return rtf.format(diffHours, "hour");
-  return rtf.format(diffDays, "day");
-}
 
 function AgentCardWithStats({
   deployment,

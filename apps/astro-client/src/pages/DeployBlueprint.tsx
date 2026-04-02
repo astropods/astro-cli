@@ -12,6 +12,7 @@ import { useDeployForm } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import type { DeployResponse } from "@/lib/api";
+import { dashboardPath } from "@/lib/routes";
 
 // --- Loader & Meta ---
 
@@ -112,18 +113,18 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
         }
       }
       const isOrgDeploy = form.targetAccount && form.targetAccount !== personalAccount?.name;
-      const dashboardPath = isOrgDeploy
-        ? `/dashboard?account=${encodeURIComponent(form.targetAccount)}`
-        : "/dashboard";
+      const destination = isOrgDeploy
+        ? `${dashboardPath}?account=${encodeURIComponent(form.targetAccount)}`
+        : dashboardPath;
 
       if (result?.deployment_id) {
         const deployResult = result as DeployResponse;
         const deploymentId = deployResult.deployment_id;
         if (!deploymentId) {
-          navigate(dashboardPath);
+          navigate(destination);
           return;
         }
-        navigate(dashboardPath, {
+        navigate(destination, {
           state: {
             revealDeploymentId: deploymentId,
             revealAgentName: agent.name,
@@ -132,7 +133,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           },
         });
       } else {
-        navigate(dashboardPath);
+        navigate(destination);
       }
     } catch {
       // Error is captured in form.deployError

@@ -9,7 +9,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useDeployments } from "@/api/queries/deployments";
 import { useBlueprint, usePrefilledDeploymentTemplate } from "@/api/queries/blueprints";
 import { useAuth } from "@/lib/auth";
-import { deploymentPath, deploymentConfigurePath } from "@/lib/routes";
+import { dashboardPath, deploymentPath, deploymentConfigurePath } from "@/lib/routes";
 import {
   SidebarLayout,
   SidebarNav,
@@ -75,7 +75,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
               The deployed agent you&apos;re looking for doesn&apos;t exist or has been removed.
             </p>
             <Button asChild>
-              <Link to="/dashboard">Dashboard</Link>
+              <Link to={dashboardPath}>Dashboard</Link>
             </Button>
           </>
         )}
@@ -112,7 +112,7 @@ function DeployedAgentSettingsContent({ loaderData }: { loaderData: Route.Compon
   const isPersonal = personalAccount?.name === account;
   const breadcrumbItems = [
     isPersonal
-      ? { label: "Dashboard", to: "/dashboard" }
+      ? { label: "Dashboard", to: dashboardPath }
       : { label: account, to: `/${account}` },
     { label: displayName, to: basePath },
     { label: "Configure" },

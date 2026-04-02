@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { Cog6ToothIcon, PauseCircleIcon, PlayCircleIcon } from "@heroicons/react/24/outline";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { isDeployingState, isPausedState, mapDeploymentStatus, formatDate } from "@/lib/deployment-utils";
+import { dashboardPath } from "@/lib/routes";
 import type { AgentDeployment } from "@/lib/api";
 import { useStopDeployment, useWakeUpDeployment } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
@@ -120,7 +121,7 @@ export function ActiveDetailView({
     ? { ...deployment, status: "pending", ready: 0 }
     : deployment;
   const displayName = renderedDeployment.display_name || renderedDeployment.name
-  const backPath = backPathOverride ?? (isPersonal ? '/dashboard' : `/${account}`)
+  const backPath = backPathOverride ?? (isPersonal ? dashboardPath : `/${account}`)
   const isDeploying = isDeployingState(renderedDeployment);
   const isPaused = isPausedState(renderedDeployment);
   const showConfigureAsPage = isCompact && configOpen;

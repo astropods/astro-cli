@@ -62,15 +62,6 @@ export function formatDate(dateStr: string): string {
   });
 }
 
-export function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-export function formatPercent(rate: number): string {
-  return `${(rate * 100).toFixed(1)}%`;
-}
-
 export function formatDaysActive(isoString: string): string {
   const days = Math.floor((Date.now() - new Date(isoString).getTime()) / (1000 * 60 * 60 * 24));
   if (days === 0) return "< 1 day";

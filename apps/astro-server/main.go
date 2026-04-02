@@ -698,24 +698,21 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 				)
 			}
 
-			// List members (requires membership only — no org:manage needed)
-			listMemberRoutes := protected.Group("/accounts/:account/members")
-			listMemberRoutes.Use(middleware.ResolveAccount(accountStore))
+			// Member routes — list is membership-only, mutations require org:manage
+			memberRoutes := protected.Group("/accounts/:account/members")
+			memberRoutes.Use(middleware.ResolveAccount(accountStore))
 			{
-				api.GET(listMemberRoutes, "", "List account members", handlers.ListMembers(log, accountStore),
+				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListMembersResponse{}),
 				)
 			}
-
-			// Member management (requires org:manage permission)
-			memberRoutes := protected.Group("/accounts/:account/members")
-			memberRoutes.Use(middleware.ResolveAccount(accountStore))
-			memberRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			memberManageRoutes := memberRoutes.Group("")
+			memberManageRoutes.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
-				api.POST(memberRoutes, "", "Add a member",
+				api.POST(memberManageRoutes, "", "Add a member",
 					ent.Wrap(handlers.AddMember(log, orgSync, accountStore, omClient, db, auditStore), "members"),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
@@ -723,7 +720,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.AddMemberRequest{}),
 					oapispec.Response(201, &handlers.AddMemberResponse{}),
 				)
-				api.PUT(memberRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore, auditStore),
+				api.PUT(memberManageRoutes, "/:user_id", "Update member role", handlers.UpdateMemberRole(log, orgSync, accountStore, auditStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -731,7 +728,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 					oapispec.Body(&handlers.ChangeMemberRoleRequest{}),
 					oapispec.Response(200, &handlers.MessageResponse{}),
 				)
-				api.DELETE(memberRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, omClient, db, auditStore),
+				api.DELETE(memberManageRoutes, "/:user_id", "Remove a member", handlers.RemoveMember(log, orgSync, omClient, db, auditStore),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
