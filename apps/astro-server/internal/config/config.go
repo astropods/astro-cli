@@ -120,8 +120,6 @@ func (a AvatarConfig) IsLocal() bool {
 
 // GitHubConfig holds GitHub connection configuration.
 type GitHubConfig struct {
-	// GITHUB_WEBHOOK_URL — public base URL for incoming GitHub webhooks (e.g. https://api.astropods.ai)
-	WebhookBaseURL string
 	// GITHUB_BUILD_NAMESPACE — K8s namespace for Kaniko build Jobs (default: astro-builds)
 	BuildNamespace string
 	// GITHUB_BUILD_SERVICE_ACCOUNT — K8s service account for Kaniko Jobs (default: kaniko-builder)
@@ -248,8 +246,7 @@ func Load() (*Config, error) {
 			AssetsURL: getEnv("ASSETS_URL", ""),
 		},
 		GitHub: GitHubConfig{
-			WebhookBaseURL:      getEnv("GITHUB_WEBHOOK_URL", ""),
-			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "astro-builds"),
+			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "as0-builds"),
 			BuildServiceAccount: getEnv("GITHUB_BUILD_SERVICE_ACCOUNT", "kaniko-builder"),
 			BuildContextBucket:  getEnv("GITHUB_BUILD_CONTEXT_BUCKET", ""),
 		},

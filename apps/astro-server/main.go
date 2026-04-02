@@ -1139,7 +1139,7 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 
 		// GitHub connection routes
 		githubCfg := handlers.GitHubHandlerConfig{
-			WebhookBaseURL: cfg.GitHub.WebhookBaseURL,
+			WebhookBaseURL: cfg.Auth.FrontendURL,
 			FrontendURL:    cfg.Auth.FrontendURL,
 		}
 		githubRoutes := protected.Group("/agents/:account/:name")
