@@ -639,6 +639,32 @@ Bun.serve({
       });
     }
 
+    const accountMembersMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/members$/);
+    if (accountMembersMatch && request.method === "GET") {
+      return json({ members: [] });
+    }
+
+    const accountObsMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/observability\/summary$/);
+    if (accountObsMatch && request.method === "GET") {
+      return json({
+        total_traces: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        time_range: { start: nowIso, end: nowIso },
+      });
+    }
+
+    const accountUsageMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/usage$/);
+    if (accountUsageMatch && request.method === "GET") {
+      return json({
+        account_id: "acct-1",
+        compute_unit_hours: { usage: 0, quota: 100 },
+        agent_builds: { usage: 0 },
+        active_deployments: { usage: 0 },
+        active_agents: { usage: 0 },
+      });
+    }
+
     return json({ error: "not_found", path: pathname }, 404);
   },
 });

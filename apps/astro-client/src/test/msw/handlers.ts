@@ -8,6 +8,9 @@ import type {
   UndeployResponse,
   ObservabilitySummaryResponse,
   ObservabilityTracesResponse,
+  AccountObservabilitySummaryResponse,
+  AccountUsageResponse,
+  AccountMembersResponse,
 } from '@/lib/api';
 
 // Fixture data — realistic but minimal
@@ -171,6 +174,41 @@ export const handlers = [
       return HttpResponse.json({ error: 'not_found' }, { status: 404 });
     }
     return HttpResponse.json(mockTemplate);
+  }),
+
+  // GET /api/v1/accounts/:account/members
+  http.get('/api/v1/accounts/:account/members', () => {
+    return HttpResponse.json<AccountMembersResponse>({ members: [] });
+  }),
+
+  // GET /api/v1/accounts/:account/observability/summary
+  http.get('/api/v1/accounts/:account/observability/summary', () => {
+    return HttpResponse.json<AccountObservabilitySummaryResponse>({
+      total_traces: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      time_range: { start: '2025-01-01T00:00:00Z', end: '2025-01-08T00:00:00Z' },
+    });
+  }),
+
+  // GET /api/v1/accounts/:account/usage
+  http.get('/api/v1/accounts/:account/usage', () => {
+    return HttpResponse.json<AccountUsageResponse>({
+      account_id: 'acct-1',
+      compute_unit_hours: { usage: 0, quota: 100 },
+      agent_builds: { usage: 0 },
+      active_deployments: { usage: 0 },
+      active_agents: { usage: 0 },
+    });
+  }),
+
+  // GET /api/v1/agents/:account (list account blueprints)
+  http.get('/api/v1/agents/:account', ({ params }) => {
+    const accountBlueprints = mockBlueprints.filter((b) => b.account === params.account);
+    return HttpResponse.json<BlueprintsListResponse>({
+      agents: accountBlueprints,
+      count: accountBlueprints.length,
+    });
   }),
 
   // GET /api/v1/agents/:account/:name
