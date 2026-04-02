@@ -131,6 +131,10 @@ type S3Config struct {
 
 // GitHubConfig holds GitHub connection configuration.
 type GitHubConfig struct {
+	// GITHUB_CALLBACK_URL — base URL for GitHub OAuth callbacks and webhook delivery
+	// (e.g. https://api.astropods.ai or an ngrok tunnel in local dev).
+	// Falls back to FRONTEND_URL if not set.
+	CallbackURL string
 	// GITHUB_BUILD_NAMESPACE — K8s namespace for Kaniko build Jobs (default: as0-builds)
 	BuildNamespace string
 	// GITHUB_BUILD_SERVICE_ACCOUNT — K8s service account for Kaniko Jobs (default: kaniko-builder)
@@ -261,6 +265,7 @@ func Load() (*Config, error) {
 			PathStyle: getEnv("S3_ENDPOINT", "") != "",
 		},
 		GitHub: GitHubConfig{
+			CallbackURL:         getEnv("GITHUB_CALLBACK_URL", ""),
 			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "as0-builds"),
 			BuildServiceAccount: getEnv("GITHUB_BUILD_SERVICE_ACCOUNT", "kaniko-builder"),
 			BuildContextBucket:  getEnv("GITHUB_BUILD_CONTEXT_BUCKET", ""),

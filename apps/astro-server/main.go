@@ -1156,8 +1156,12 @@ func setupRoutes(router *gin.Engine, log *logger.Logger, agentIndex *agentindex.
 		}
 
 		// GitHub connection routes
+		callbackBase := cfg.GitHub.CallbackURL
+		if callbackBase == "" {
+			callbackBase = cfg.Auth.FrontendURL
+		}
 		githubCfg := handlers.GitHubHandlerConfig{
-			WebhookBaseURL: cfg.Auth.FrontendURL,
+			WebhookBaseURL: callbackBase,
 			FrontendURL:    cfg.Auth.FrontendURL,
 		}
 		githubRoutes := protected.Group("/agents/:account/:name")

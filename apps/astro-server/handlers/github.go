@@ -42,7 +42,7 @@ type GitHubLinkRequest struct {
 	Branch       string `json:"branch"`
 }
 
-// GitHubConnect handles POST /api/v1/accounts/:account/agents/:name/github/connect.
+// GitHubConnect handles POST /api/v1/agents/:account/:name/github/connect.
 // Checks if the user already has a GitHub Pipes connection. If not, returns an OAuth redirect URL.
 // If already connected, the client should proceed to GitHubLink.
 func GitHubConnect(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHandlerConfig) gin.HandlerFunc {
@@ -81,7 +81,7 @@ func GitHubConnect(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHand
 		}
 
 		// Build return_to URL: server callback that will complete the connection.
-		returnTo := fmt.Sprintf("%s/api/v1/accounts/%s/agents/%s/github/callback",
+		returnTo := fmt.Sprintf("%s/api/v1/agents/%s/%s/github/callback",
 			cfg.WebhookBaseURL, acct.Name, agentName)
 
 		authURL, err := pipesClient.GetAuthorizationURL(c.Request.Context(), pipes.GetAuthorizationURLInput{
@@ -100,7 +100,7 @@ func GitHubConnect(log *logger.Logger, pipesClient *pipes.Client, cfg GitHubHand
 	}
 }
 
-// GitHubCallback handles GET /api/v1/accounts/:account/agents/:name/github/callback.
+// GitHubCallback handles GET /api/v1/agents/:account/:name/github/callback.
 // WorkOS redirects the user here after completing GitHub OAuth. No body — the user session
 // carries auth context. After getting the token, we redirect to the frontend repo selector.
 func GitHubCallback(log *logger.Logger, pipesClient *pipes.Client, accountStore *account.AccountStore, cfg GitHubHandlerConfig) gin.HandlerFunc {
@@ -139,7 +139,7 @@ func GitHubCallback(log *logger.Logger, pipesClient *pipes.Client, accountStore 
 	}
 }
 
-// GitHubListRepos handles GET /api/v1/accounts/:account/agents/:name/github/repos.
+// GitHubListRepos handles GET /api/v1/agents/:account/:name/github/repos.
 // Returns the user's GitHub repos so the frontend can show a repo selector.
 func GitHubListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -175,7 +175,7 @@ func GitHubListRepos(log *logger.Logger, pipesClient *pipes.Client) gin.HandlerF
 	}
 }
 
-// GitHubLink handles POST /api/v1/accounts/:account/agents/:name/github/link.
+// GitHubLink handles POST /api/v1/agents/:account/:name/github/link.
 // Installs a webhook on the selected repo and saves the connection.
 func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store, cfg GitHubHandlerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -269,7 +269,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 	}
 }
 
-// GitHubDisconnect handles DELETE /api/v1/accounts/:account/agents/:name/github.
+// GitHubDisconnect handles DELETE /api/v1/agents/:account/:name/github.
 // Removes the webhook from GitHub and deletes the connection record.
 func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubconnection.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -323,7 +323,7 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 	}
 }
 
-// GitHubStatus handles GET /api/v1/accounts/:account/agents/:name/github.
+// GitHubStatus handles GET /api/v1/agents/:account/:name/github.
 // Returns the current connection info and recent builds.
 func GitHubStatus(log *logger.Logger, ghStore *githubconnection.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
