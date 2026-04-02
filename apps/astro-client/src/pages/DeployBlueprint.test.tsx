@@ -35,8 +35,8 @@ function renderInstallWithAgentsRoute() {
         Component: DeployBlueprint,
       },
       {
-        path: '/agents',
-        Component: () => <div>Agents Page</div>,
+        path: '/dashboard',
+        Component: () => <div>Dashboard Page</div>,
       },
     ],
     { initialEntries: [`/${ACCOUNT}/${AGENT}/install`] },
@@ -411,7 +411,7 @@ describe('DeployBlueprint page', () => {
   // ── Deployment Submission ─────────────────────────────────────────
 
   describe('deployment submission', () => {
-    it('navigates to /agents on successful deploy', async () => {
+    it('navigates to /dashboard on successful deploy', async () => {
       const user = userEvent.setup();
       renderInstallWithAgentsRoute();
       await waitForForm();
@@ -420,7 +420,7 @@ describe('DeployBlueprint page', () => {
       await user.click(screen.getByRole('button', { name: /deploy/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('Agents Page')).toBeInTheDocument();
+        expect(screen.getByText('Dashboard Page')).toBeInTheDocument();
       });
     });
 
