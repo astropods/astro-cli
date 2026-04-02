@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
-import { useDeployments, useDeployment, useUndeployAgent, useStopDeployment } from './deployments';
+import { useDeployments, useDeployment, useUndeployAgent, useStopDeployment, useRestartDeployment } from './deployments';
 import { createHookWrapper } from '@/test/test-utils';
 import { mockDeployments } from '@/test/msw/handlers';
 import { deploymentKeys } from './keys';
@@ -184,6 +184,48 @@ describe('useStopDeployment', () => {
     expect(result.current.isPending).toBe(true);
 
     resolveFirst();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+});
+
+describe('useRestartDeployment', () => {
+  it('restarts a deployment and invalidates the detail cache', async () => {
+    const { wrapper, queryClient } = createHookWrapper();
+
+    queryClient.setQueryData(deploymentKeys.detail('dep-code-reviewer'), { deployment: mockDeployments.deployments[0] });
+
+    const { result } = renderHook(() => useRestartDeployment(testAccount), { wrapper });
+
+    result.current.mutate({ deploymentId: 'dep-code-reviewer' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.status).toBe('restarting');
+    expect(result.current.data?.pods).toEqual(['pod-abc-1', 'pod-abc-2']);
+
+    const detailState = queryClient.getQueryState(deploymentKeys.detail('dep-code-reviewer'));
+    expect(detailState?.isInvalidated).toBe(true);
+  });
+
+  it('exposes isPending while the request is in-flight', async () => {
+    let resolve!: () => void;
+    server.use(
+      http.post('/api/v1/deployments/:id/restart', () =>
+        new Promise<Response>((res) => {
+          resolve = () => res(HttpResponse.json({ status: 'restarting', pods: [] }));
+        }),
+      ),
+    );
+
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useRestartDeployment(testAccount), { wrapper });
+
+    result.current.mutate({ deploymentId: 'dep-code-reviewer' });
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(result.current.isPending).toBe(true);
+
+    resolve();
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 });

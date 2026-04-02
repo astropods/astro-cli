@@ -1,7 +1,24 @@
 import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiClient } from '../../lib/api-context';
-import type { DeploymentsListResponse, UndeployResponse } from '@/lib/api';
+import type { AgentDeployment, DeploymentsListResponse, UndeployResponse } from '@/lib/api';
 import { deploymentKeys } from './keys';
+
+/**
+ * Returns true when workload container readiness hasn't caught up with the
+ * deployment's desired replica count. This happens briefly after pause/resume:
+ *  - After pause: replicas=0 but containers may still report ready:true
+ *  - After resume: replicas>0 but containers may still report ready:false
+ * We keep polling in these windows so the service accordion updates without
+ * requiring a hard refresh.
+ */
+function hasContainerMismatch(dep: AgentDeployment | null | undefined): boolean {
+  if (!dep) return false;
+  const workloads = dep.workloads ?? [];
+  if (dep.replicas === 0) {
+    return workloads.some((wl) => (wl.containers ?? []).some((c) => c.ready));
+  }
+  return workloads.some((wl) => (wl.containers ?? []).some((c) => !c.ready));
+}
 
 export function useDeployments(account: string, enabled = true) {
   const api = useApiClient();
@@ -32,16 +49,18 @@ export function useDeployment(id: string, enabled = true) {
     queryFn: () => api.getDeployment(id),
     enabled: !!id && enabled,
     refetchInterval: (query) => {
-      const status = query.state.data?.deployment?.status?.toLowerCase?.() ?? "";
+      const dep = query.state.data?.deployment;
+      const status = dep?.status?.toLowerCase?.() ?? "";
       const isTransitional =
         status === "pending" ||
         status === "provisioning" ||
         status === "deploying" ||
         status === "undeploying";
-      return isTransitional ? 3000 : false;
+      return isTransitional || hasContainerMismatch(dep) ? 3000 : false;
     },
   });
 }
+
 
 export function useDeploymentSuspense(id: string) {
   const api = useApiClient();
@@ -49,13 +68,14 @@ export function useDeploymentSuspense(id: string) {
     queryKey: deploymentKeys.detail(id),
     queryFn: () => api.getDeployment(id),
     refetchInterval: (query) => {
-      const status = query.state.data?.deployment?.status?.toLowerCase?.() ?? "";
+      const dep = query.state.data?.deployment;
+      const status = dep?.status?.toLowerCase?.() ?? "";
       const isTransitional =
         status === "pending" ||
         status === "provisioning" ||
         status === "deploying" ||
         status === "undeploying";
-      return isTransitional ? 3000 : false;
+      return isTransitional || hasContainerMismatch(dep) ? 3000 : false;
     },
   });
 }
@@ -120,6 +140,31 @@ export function useUndeployAgent(account: string) {
   });
 }
 
+export function useRestartDeployment(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<{ status: string; pods: string[] }, Error, { deploymentId: string }>({
+    mutationFn: api.restartDeployment.bind(api),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.all(account) });
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
+    },
+  });
+}
+
+export function useRestartPod() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<{ status: string; pod: string }, Error, { deploymentId: string; podName: string }>({
+    mutationFn: api.restartPod.bind(api),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(variables.deploymentId) });
+    },
+  });
+}
+
 export function useStopDeployment(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
@@ -167,12 +212,19 @@ export function useActiveDeploymentSpec(account: string, name: string, enabled =
   });
 }
 
-export function useDeploymentHistory(account: string, name: string, deploymentId?: string, enabled = true) {
+export function useDeploymentHistory(
+  account: string,
+  name: string,
+  deploymentId?: string,
+  enabled = true,
+  options?: { refetchInterval?: number | false },
+) {
   const api = useApiClient();
   return useQuery({
     queryKey: deploymentKeys.history(account, name, deploymentId),
     queryFn: () => api.getDeploymentHistory(account, name, deploymentId),
     enabled: !!account && !!name && enabled,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

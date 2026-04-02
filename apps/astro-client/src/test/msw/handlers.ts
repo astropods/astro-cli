@@ -280,6 +280,11 @@ export const handlers = [
     return HttpResponse.json({ status: 'stopped', deployment_id: params.id });
   }),
 
+  // POST /api/v1/deployments/:id/restart
+  http.post('/api/v1/deployments/:id/restart', () => {
+    return HttpResponse.json({ status: 'restarting', pods: ['pod-abc-1', 'pod-abc-2'] });
+  }),
+
   // POST /api/v1/undeploy
   http.post('/api/v1/undeploy', async ({ request }) => {
     const body = (await request.json()) as { deployment_id: string };

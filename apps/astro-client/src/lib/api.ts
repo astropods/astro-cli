@@ -341,6 +341,18 @@ class ApiClient {
     });
   }
 
+  async restartDeployment(data: { deploymentId: string }): Promise<{ status: string; pods: string[] }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/restart`, {
+      method: "POST",
+    });
+  }
+
+  async restartPod(data: { deploymentId: string; podName: string }): Promise<{ status: string; pod: string }> {
+    return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/pods/${encodeURIComponent(data.podName)}/restart`, {
+      method: "POST",
+    });
+  }
+
   async wakeupDeployment(data: { deploymentId: string }): Promise<{ status: string; deployment_id: string }> {
     return this.request(`/api/v1/deployments/${encodeURIComponent(data.deploymentId)}/wakeup`, {
       method: "POST",
@@ -354,10 +366,13 @@ class ApiClient {
     );
   }
 
-  // Get deployment template pre-filled with values from an existing deployment
-  async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string): Promise<DeploymentTemplate> {
+  // Get deployment template pre-filled with values from an existing deployment.
+  // Pass revision to prefill from a specific historical revision's spec.
+  async getPrefilledDeploymentTemplate(account: string, name: string, deploymentId: string, revision?: number): Promise<DeploymentTemplate> {
+    const params = new URLSearchParams({ format: "json" });
+    if (revision != null) params.set("revision", String(revision));
     return this.request<DeploymentTemplate>(
-      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template/${encodeURIComponent(deploymentId)}?format=json`
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/deployment-template/${encodeURIComponent(deploymentId)}?${params}`
     );
   }
 
@@ -837,6 +852,7 @@ export interface WorkloadDetail {
   kind: string;
   component: string;
   age: string;
+  pod_name?: string;
   containers: ContainerStatus[];
   urls?: ServiceEndpointInfo[];
 }
@@ -888,11 +904,13 @@ export interface ActiveDeploymentSpecResponse {
 export interface DeploymentHistoryRecord {
   id: string;
   agent_name: string;
+  revision: number;
   build_id: string;
   namespace: string;
+  display_name: string;
+  is_current: boolean;
   status: string;
   deployed_at: string;
-  undeployed_at?: string;
   spec: Record<string, unknown>;
 }
 
