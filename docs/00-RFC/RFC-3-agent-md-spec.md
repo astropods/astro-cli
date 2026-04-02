@@ -1,10 +1,10 @@
-# Agent Card Spec
+# RFC-3: Agent Card Spec
 
-**RFC:** 3
-**Version:** 1.0
-**Date:** 2026-03-09
-**Status:** Draft
-**Authors:** Chris (@chrisjpatty)
+| | |
+|---|---|
+| **Version** | 1.0 (Draft) |
+| **Date** | 2026-03-09 |
+| **Authors** | Chris ([@chrisjpatty](https://github.com/chrisjpatty)) |
 
 ## Abstract
 

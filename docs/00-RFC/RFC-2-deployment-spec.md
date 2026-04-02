@@ -1,10 +1,10 @@
-# Astro Deployment Spec (deployment-template/v1, deployment/v1)
+# RFC-2: Astro Deployment Spec (deployment-template/v1, deployment/v1)
 
-**RFC:** 2
-**Version:** 1.0
-**Date:** 2026-02-18
-**Status:** Draft
-**Authors:** Saswat Das (@saswatds)
+| | |
+|---|---|
+| **Version** | 1.0 (Draft) |
+| **Date** | 2026-02-18 |
+| **Authors** | Saswat Das ([@saswatds](https://github.com/saswatds)) |
 
 ## Abstract
 
