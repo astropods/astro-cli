@@ -93,7 +93,7 @@ export function BlueprintCard({
                   <EllipsisHorizontalIcon className="h-4 w-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[180px] rounded-[10px] p-0">
+              <DropdownMenuContent align="end" className="rounded-[10px] p-0">
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => {

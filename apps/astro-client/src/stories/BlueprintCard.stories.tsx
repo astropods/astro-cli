@@ -62,6 +62,19 @@ export const DifferentAccount: Story = {
   },
 };
 
+export const IsMember: Story = {
+  decorators: [singleCardDecorator],
+  args: {
+    slug: "acme/customer-insight-engine",
+    account: "acme",
+    name: "Customer Insight Engine",
+    description:
+      "Analyzes customer feedback to surface actionable insights and trends.",
+    visibility: "private",
+    onArchive: () => {},
+  },
+};
+
 export const OftenUsedTogether: Story = {
   decorators: [singleCardDecorator],
   args: {

@@ -1,4 +1,3 @@
-import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { InlineBadge } from "@/components/InlineBadge";
 import {
@@ -18,8 +17,14 @@ export function PrivacyBadge({ className, onClick }: PrivacyBadgeProps) {
     <TooltipProvider delayDuration={500}>
       <Tooltip>
         <TooltipTrigger asChild onClick={onClick}>
-          <InlineBadge className={cn("cursor-default gap-1", className)}>
-            <Lock className="size-3" />
+          <InlineBadge
+            variant="soft"
+            className={cn("cursor-default", className)}
+            style={{
+              color: "var(--color-stone-500)",
+              background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+            }}
+          >
             Private
           </InlineBadge>
         </TooltipTrigger>
