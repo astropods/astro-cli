@@ -5,7 +5,6 @@ import {
   BlueprintDetailBreadcrumb,
   BlueprintDetailContent,
   BlueprintDetailSidebar,
-  BlueprintDetailSkeleton,
   SidebarCard,
 } from "@/components/blueprint-detail";
 import { useBlueprint, useBlueprints } from "@/api/queries/blueprints";
@@ -93,15 +92,12 @@ export default function BlueprintDetail({ loaderData }: Route.ComponentProps) {
   const { account, agentSlug } = useParams<{ account?: string; agentSlug: string }>();
 
   // Support both /:account/:agentSlug and legacy /:agentSlug routes
-  const { data: blueprint, isLoading, isError, error } = useBlueprint(account ?? '', agentSlug ?? "", {
+  const { data: blueprint, isError, error } = useBlueprint(account ?? '', agentSlug ?? "", {
     initialData: loaderData?.blueprint ?? undefined,
   });
   const { data: blueprintsData } = useBlueprints({
     initialData: loaderData?.blueprintsData ?? undefined,
   });
-  if (isLoading) {
-    return <BlueprintDetailSkeleton />;
-  }
 
   if (isError) {
     return (

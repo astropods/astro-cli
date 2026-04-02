@@ -3,7 +3,6 @@ export { BlueprintDetailContent } from "./BlueprintDetailContent";
 export { BlueprintDetailHeader } from "./BlueprintDetailHeader";
 export { BlueprintDetailSidebar, SidebarCard } from "./BlueprintDetailSidebar";
 export type { SidebarCardProps } from "./BlueprintDetailSidebar";
-export { BlueprintDetailSkeleton } from "./BlueprintDetailSkeleton";
 export { CapabilitiesList } from "./CapabilitiesList";
 export { RequiredAppsList } from "./RequiredAppsList";
 export { SidebarAuthor } from "./SidebarAuthor";
