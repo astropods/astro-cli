@@ -41,7 +41,7 @@ export function DashboardStats({
     const today = todaySummary?.total_traces;
     const yesterday = yesterdaySummary?.total_traces;
     if (today === undefined || yesterday === undefined) return null;
-    if (yesterday === 0) return today > 0 ? 100 : null;
+    if (yesterday === 0 || today === 0) return null;
     return percentChange(today, yesterday);
   }, [todaySummary?.total_traces, yesterdaySummary?.total_traces]);
 
@@ -50,7 +50,7 @@ export function DashboardStats({
     const today = todaySummary ? todaySummary.input_tokens + todaySummary.output_tokens : undefined;
     const yesterday = yesterdaySummary ? yesterdaySummary.input_tokens + yesterdaySummary.output_tokens : undefined;
     if (today === undefined || yesterday === undefined) return null;
-    if (yesterday === 0) return today > 0 ? 100 : null;
+    if (yesterday === 0 || today === 0) return null;
     return percentChange(today, yesterday);
   }, [todaySummary, yesterdaySummary]);
 
