@@ -465,21 +465,6 @@ func runWorker(
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 	ghStore := githubconnection.New(db)
 
-	// S3 client for GitHub build contexts.
-	workerS3Client, workerS3Err := newS3Client(cfg)
-	if workerS3Err != nil {
-		log.Warn("Failed to initialize S3 client for build worker", "error", workerS3Err)
-	}
-	var buildS3Client *s3.Client
-	if cfg.GitHub.BuildContextBucket != "" {
-		if workerS3Client != nil {
-			buildS3Client = workerS3Client
-			log.Info("GitHub build S3 client initialized", "bucket", cfg.GitHub.BuildContextBucket)
-		} else {
-			log.Warn("GitHub build context bucket configured but S3 client unavailable")
-		}
-	}
-
 	// Start River queue (handles all periodic workers)
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:           db,
@@ -497,7 +482,6 @@ func runWorker(
 		Logger:       log,
 		PipesClient:  pipesClient,
 		GitHubStore:  ghStore,
-		S3Client:     buildS3Client,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)

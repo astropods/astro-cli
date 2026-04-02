@@ -12,8 +12,6 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -50,7 +48,6 @@ type Config struct {
 	// GitHub build worker deps (optional — worker skipped if PipesClient is nil)
 	PipesClient *pipes.Client
 	GitHubStore *githubconnection.Store
-	S3Client    *s3.Client
 }
 
 // Queue wraps a River client and its pgxpool connection.

@@ -135,7 +135,6 @@ func addWorkers(workers *river.Workers, cfg Config) (*ReconcileWorker, *AccountP
 			ghStore:     cfg.GitHubStore,
 			agentIndex:  cfg.AgentIndex,
 			k8sClient:   cfg.K8sClient,
-			s3Client:    cfg.S3Client,
 			cfg:         cfg.ServerConfig,
 			log:         log,
 		})

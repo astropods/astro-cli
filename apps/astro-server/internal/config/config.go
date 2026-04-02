@@ -135,12 +135,10 @@ type GitHubConfig struct {
 	// (e.g. https://api.astropods.ai or an ngrok tunnel in local dev).
 	// Falls back to FRONTEND_URL if not set.
 	CallbackURL string
-	// GITHUB_BUILD_NAMESPACE — K8s namespace for Kaniko build Jobs (default: as0-builds)
+	// GITHUB_BUILD_NAMESPACE — K8s namespace for build Jobs (default: as0-builds)
 	BuildNamespace string
-	// GITHUB_BUILD_SERVICE_ACCOUNT — K8s service account for Kaniko Jobs (default: kaniko-builder)
+	// GITHUB_BUILD_SERVICE_ACCOUNT — K8s service account for build Jobs; needs IRSA ECR push permissions in production (default: build-worker)
 	BuildServiceAccount string
-	// GITHUB_BUILD_CONTEXT_BUCKET — S3 bucket for uploading build context tarballs
-	BuildContextBucket string
 }
 
 // DeploymentConfig holds deployment-related configuration
@@ -267,8 +265,7 @@ func Load() (*Config, error) {
 		GitHub: GitHubConfig{
 			CallbackURL:         getEnv("GITHUB_CALLBACK_URL", ""),
 			BuildNamespace:      getEnv("GITHUB_BUILD_NAMESPACE", "as0-builds"),
-			BuildServiceAccount: getEnv("GITHUB_BUILD_SERVICE_ACCOUNT", "kaniko-builder"),
-			BuildContextBucket:  getEnv("GITHUB_BUILD_CONTEXT_BUCKET", ""),
+			BuildServiceAccount: getEnv("GITHUB_BUILD_SERVICE_ACCOUNT", "build-worker"),
 		},
 		OpenMeterURL:         getEnv("OPENMETER_URL", ""),
 		OpenMeterDefaultPlan: getEnv("OPENMETER_DEFAULT_PLAN", ""),
