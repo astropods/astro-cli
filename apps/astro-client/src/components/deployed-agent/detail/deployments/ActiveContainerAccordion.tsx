@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Square2StackIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
@@ -10,10 +10,12 @@ import { statusVariant } from "./history/utils";
 import { DomainsPanel } from "./DomainsPanel";
 import { EnvVarsPanel } from "./EnvVarsPanel";
 import { LogViewer } from "./LogViewer";
+import { useRestartPod } from "@/api/queries/deployments";
 import type { DeployHistoryStatus, MappedContainer, DomainUrl } from "./history/types";
 
 export interface ActiveContainerAccordionProps {
   workloadName: string;
+  podName?: string;
   title: string;
   isCompact?: boolean;
   isAgentService?: boolean;
@@ -26,10 +28,15 @@ export interface ActiveContainerAccordionProps {
   deploymentStatus: DeployHistoryStatus;
   isOpen: boolean;
   onToggle: () => void;
+  /** True when a global (all-pods) restart is in progress — forces this accordion into restarting state. */
+  isGloballyRestarting?: boolean;
+  /** Called when this pod's local restart state changes, so the parent can reflect it in the status row. */
+  onPodRestartStateChange?: (isRestarting: boolean) => void;
 }
 
 export function ActiveContainerAccordion({
   workloadName,
+  podName,
   title,
   isCompact = false,
   isAgentService = false,
@@ -42,9 +49,17 @@ export function ActiveContainerAccordion({
   deploymentStatus,
   isOpen,
   onToggle,
+  isGloballyRestarting = false,
+  onPodRestartStateChange,
 }: ActiveContainerAccordionProps) {
   const [view, setView] = useState<"logs" | "vars" | "domains">("logs");
   const { copy: copyPlayground, copied: copiedPlaygroundCommand } = useCopyToClipboard();
+  const restartMutation = useRestartPod();
+  const [isLocallyRestarting, setIsLocallyRestarting] = useState(false);
+  // canClear is unlocked 8s after mutation success — prevents instant clearing if pod restarts fast
+  const [canClear, setCanClear] = useState(false);
+  // isServiceRestarting persists until the pod is actually back up (not just during the HTTP call)
+  const isServiceRestarting = isLocallyRestarting || isGloballyRestarting;
 
   const { selectedContainer, setSelectedContainer, activeContainer } = useContainerSelection(containers);
 
@@ -55,10 +70,27 @@ export function ActiveContainerAccordion({
   const readyContainers = containers.filter((c) => c.ready).length;
   const allReady = totalContainers > 0 && readyContainers === totalContainers;
 
+  const clearRestarting = useRef(() => {});
+  clearRestarting.current = () => {
+    setIsLocallyRestarting(false);
+    setCanClear(false);
+    onPodRestartStateChange?.(false);
+  };
+
+  // Clear when canClear unlocked AND all containers are ready (pod is back up)
   useEffect(() => {
-    if (!canShowVars && view === "vars") setView("logs");
-    if (!canShowDomains && view === "domains") setView("logs");
-  }, [canShowVars, canShowDomains, view]);
+    if (!isLocallyRestarting || !canClear) return;
+    if (allReady) clearRestarting.current();
+  }, [isLocallyRestarting, canClear, allReady]);
+
+  // Safety: clear after 60s regardless
+  useEffect(() => {
+    if (!isLocallyRestarting) return;
+    const t = setTimeout(() => clearRestarting.current(), 60_000);
+    return () => clearTimeout(t);
+  }, [isLocallyRestarting]);
+
+  const effectiveView = (!canShowVars && view === "vars") || (!canShowDomains && view === "domains") ? "logs" : view;
 
   const hasPublicUrl = !!url;
   const playgroundCommand = hasPublicUrl ? `ast playground ${url}` : "ast playground <deployment-url>";
@@ -69,19 +101,21 @@ export function ActiveContainerAccordion({
     void copyPlayground(playgroundCommand);
   };
 
-  const variant = deploymentStatus === "deploying" || deploymentStatus === "undeploying"
-    ? statusVariant(deploymentStatus)
+  const effectiveStatus: DeployHistoryStatus = isServiceRestarting ? "restarting" : deploymentStatus;
+  const isTransitioning = effectiveStatus === "deploying" || effectiveStatus === "undeploying" || effectiveStatus === "restarting" || effectiveStatus === "pausing" || effectiveStatus === "resuming";
+  const variant = isTransitioning
+    ? statusVariant(effectiveStatus)
     : allReady
       ? "success"
       : "warning";
-  const isSpinning = deploymentStatus === "deploying" || deploymentStatus === "undeploying";
+  const isSpinning = isTransitioning;
 
   return (
     <div className="mb-1.5">
       <div
         className={cn(
           "flex gap-2 w-full px-3.5 py-2.5 border border-border cursor-pointer text-left transition-[background] duration-150",
-          isOpen ? "rounded-t-sm border-b-muted bg-surface" : "rounded-sm bg-muted hover:bg-stone-200",
+          isOpen ? "rounded-t-sm border-b-muted bg-surface" : "rounded-sm bg-muted hover:bg-accent",
           isCompact ? "items-start flex-wrap" : "items-center flex-nowrap",
         )}
         onClick={onToggle}
@@ -112,10 +146,10 @@ export function ActiveContainerAccordion({
                 title={hasPublicUrl ? playgroundCommand : "Public URL not available yet"}
                 disabled={!hasPublicUrl}
                 className={cn(
-                  "inline-flex items-center gap-[5px] border border-border rounded px-2 py-0.5 bg-stone-200 cursor-pointer",
+                  "inline-flex items-center gap-[5px] border border-border rounded px-2 py-0.5 bg-muted cursor-pointer",
                   isCompact ? "max-w-[min(430px,50vw)]" : "max-w-[min(430px,55vw)]",
                   !hasPublicUrl && "cursor-not-allowed opacity-70",
-                  !hasPublicUrl ? "text-faint-foreground" : copiedPlaygroundCommand ? "text-teal-600" : "text-muted-foreground",
+                  !hasPublicUrl ? "text-faint-foreground" : copiedPlaygroundCommand ? "text-primary" : "text-muted-foreground",
                 )}
               >
                 <span className="font-mono text-mono-sm truncate">
@@ -152,8 +186,8 @@ export function ActiveContainerAccordion({
                   onClick={() => setView(v)}
                   className={cn(
                     "px-3.5 py-[7px] bg-transparent border-none cursor-pointer font-sans text-body capitalize border-b-2 transition-colors duration-100",
-                    view === v
-                      ? "font-medium text-foreground border-b-teal-600"
+                    effectiveView === v
+                      ? "font-medium text-foreground border-b-primary"
                       : "font-normal text-faint-foreground border-b-transparent",
                   )}
                 >
@@ -179,16 +213,26 @@ export function ActiveContainerAccordion({
             )}
           </div>
 
-          {view === "vars" && <EnvVarsPanel vars={vars} />}
-          {view === "domains" && <DomainsPanel urls={urls ?? []} />}
-          {view === "logs" && (
+          {effectiveView === "vars" && <EnvVarsPanel vars={vars} />}
+          {effectiveView === "domains" && <DomainsPanel urls={urls ?? []} />}
+          {effectiveView === "logs" && (
             <LogViewer
               deploymentId={deploymentId}
               workloadName={workloadName}
               selectedContainer={selectedContainer}
-              deploymentStatus={deploymentStatus}
+              deploymentStatus={effectiveStatus}
               isOpen={isOpen}
               isCompact={isCompact}
+              onRestart={podName ? () => {
+                setIsLocallyRestarting(true);
+                setCanClear(false);
+                onPodRestartStateChange?.(true);
+                restartMutation.mutate({ deploymentId, podName }, {
+                  onSuccess: () => setTimeout(() => setCanClear(true), 8_000),
+                  onError: () => clearRestarting.current(),
+                });
+              } : undefined}
+              isRestarting={isServiceRestarting}
             />
           )}
         </div>

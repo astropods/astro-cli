@@ -8,13 +8,12 @@ import { useDeployForm, slugToTitle } from "@/components/deploy/useDeployForm";
 import { DeployFormFields } from "@/components/deploy/DeployFormFields";
 import { extractInitialValues } from "@/components/deploy/extractInitialValues";
 import { useChangeTracking, type TrackedFormState } from "@/components/deploy/useChangeTracking";
+import { InlineBadge } from "@/components/InlineBadge";
 import type { AgentDeployment } from "@/lib/api";
 
 const PANEL_FORM_ID = "configure-side-panel-form";
 const PANEL_SHELL_CLASS = "flex h-full w-[420px] flex-col border-l border-border bg-surface dark:bg-background";
 const PANEL_HEADER_CLASS = "flex h-[63px] shrink-0 items-center gap-2 border-b border-border px-5";
-const REDEPLOY_BUTTON_CLASS =
-  "bg-[var(--color-teal-600)] text-white hover:bg-[var(--color-teal-700)] active:bg-[var(--color-teal-800)] dark:bg-[var(--color-teal-600)] dark:hover:bg-[var(--color-teal-500)] dark:active:bg-[var(--color-teal-400)]";
 
 interface ConfigurePanelProps {
   deployment: AgentDeployment;
@@ -23,9 +22,13 @@ interface ConfigurePanelProps {
   onRedeployStart?: () => void;
   onRedeploy?: () => void;
   fullPage?: boolean;
+  revisionOverride?: number;
+  readOnly?: boolean;
+  isNewBuild?: boolean;
+  rollbackContext?: { revision: number; buildId: string };
 }
 
-function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy, fullPage = false }: {
+function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedeployStart, onRedeploy, fullPage = false, readOnly = false, revisionNumber, isNewBuild, rollbackContext }: {
   deployment: AgentDeployment;
   account: string;
   template: import("@/lib/api").DeploymentTemplate;
@@ -33,6 +36,10 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
   onRedeployStart?: () => void;
   onRedeploy?: () => void;
   fullPage?: boolean;
+  readOnly?: boolean;
+  revisionNumber?: number;
+  isNewBuild?: boolean;
+  rollbackContext?: { revision: number; buildId: string };
 }) {
   const initialValues = useMemo(() => extractInitialValues(template, account), [template, account]);
   const form = useDeployForm(account, deployment.name, { initialTemplate: template, skipTemplateFetch: true, initialValues });
@@ -79,57 +86,104 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
     <div className={shellClass}>
       <div className={PANEL_HEADER_CLASS}>
         <Cog6ToothIcon className="size-3.5 text-primary shrink-0" />
-        <span className="flex-1 text-heading-4 font-semibold text-foreground">Configure</span>
+        <span className="flex-1 min-w-0 text-heading-4 font-semibold text-foreground">Configure</span>
         <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={onClose}>
           <XMarkIcon className="size-4" />
         </Button>
       </div>
 
-      <form id={PANEL_FORM_ID} onSubmit={handleSubmit} className={formClass}>
-        <div className="flex-1 px-6 py-5">
-          <DeployFormFields
-            form={form}
-            hideAccountPicker
-            avatar={{
-              url: deployment.avatar_url,
-              account,
-              blueprintName: deployment.name,
-              onUpload: async (file) => {
-                await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
-              },
-              isPending: uploadDeploymentAvatar.isPending,
+      {/* Context banner — shown when panel has a special mode */}
+      {(rollbackContext || readOnly) && (
+        <div
+          className="relative flex items-center gap-2 px-5 py-2.5 border-b border-border"
+          style={{
+            background: rollbackContext
+              ? "color-mix(in oklch, var(--color-amber-600) 8%, transparent)"
+              : "var(--muted)",
+          }}
+        >
+          {/* Left accent bar — absolutely positioned so it doesn't shift content */}
+          <div
+            className="absolute left-0 inset-y-0 w-0.5"
+            style={{
+              background: rollbackContext
+                ? "var(--color-amber-600)"
+                : "var(--border-strong)",
             }}
-            ingestionExtra={
-              manualIngestions.length > 0 ? (
-                <ManualTriggers
-                  deploymentId={deployment.id}
-                  names={manualIngestions}
-                  account={account}
-                  hasBorderTop={form.scheduleIngestions.length > 0}
-                />
-              ) : undefined
-            }
           />
+          {rollbackContext && (
+            <>
+              <span className="font-mono text-mono-sm text-amber-700 font-medium">Rollback</span>
+              <InlineBadge variant="fill" className="normal-case font-mono text-[11px] text-muted-foreground px-1.5 h-[18px]">
+                Config {rollbackContext.revision}
+              </InlineBadge>
+              <InlineBadge variant="fill" className="normal-case font-mono text-[11px] text-muted-foreground px-1.5 h-[18px]">
+                {rollbackContext.buildId.slice(0, 8)}
+              </InlineBadge>
+            </>
+          )}
+          {readOnly && !rollbackContext && (
+            <>
+              <span className="font-mono text-mono-sm text-muted-foreground font-medium">Viewing</span>
+              {revisionNumber != null && (
+                <InlineBadge variant="fill" className="normal-case font-mono text-[11px] text-muted-foreground px-1.5 h-[18px]">
+                  Config {revisionNumber}
+                </InlineBadge>
+              )}
+              <span className="font-mono text-mono-sm text-faint-foreground">— read only</span>
+            </>
+          )}
+        </div>
+      )}
+
+      <form id={PANEL_FORM_ID} onSubmit={readOnly ? (e) => e.preventDefault() : handleSubmit} className={formClass}>
+        <div className={readOnly ? "pointer-events-none select-text flex flex-col min-h-0 flex-1" : "flex flex-col min-h-0 flex-1"}>
+          <div className="px-6 pt-5 pb-24">
+            <DeployFormFields
+              form={form}
+              hideAccountPicker
+              avatar={{
+                url: deployment.avatar_url,
+                account,
+                blueprintName: deployment.name,
+                onUpload: readOnly ? undefined : async (file) => {
+                  await uploadDeploymentAvatar.mutateAsync({ id: deployment.id, file });
+                },
+                isPending: uploadDeploymentAvatar.isPending,
+              }}
+              ingestionExtra={
+                !readOnly && manualIngestions.length > 0 ? (
+                  <ManualTriggers
+                    deploymentId={deployment.id}
+                    names={manualIngestions}
+                    account={account}
+                    hasBorderTop={form.scheduleIngestions.length > 0}
+                  />
+                ) : undefined
+              }
+            />
+          </div>
         </div>
       </form>
 
       <div className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={form.isDeploying}>
-              Discard
-            </Button>
-            <Button type="submit" form={PANEL_FORM_ID} disabled={form.isDeploying} className={`flex-1 ${REDEPLOY_BUTTON_CLASS}`}>
-              {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
-              {form.isDeploying ? "Redeploying…" : changes.requiresRedeploy ? "Save & Redeploy" : "Redeploy"}
-            </Button>
+        {readOnly ? (
+          <Button type="button" variant="outline" className="w-full" onClick={onClose}>
+            Close
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={form.isDeploying}>
+                Discard
+              </Button>
+              <Button type="submit" form={PANEL_FORM_ID} variant="default" disabled={form.isDeploying || (!changes.isDirty && !isNewBuild && !rollbackContext)} className="flex-1">
+                {form.isDeploying ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
+                {form.isDeploying ? "Redeploying…" : "Redeploy"}
+              </Button>
+            </div>
           </div>
-          {changes.isDirty && (
-            <Button type="button" variant="ghost" className="w-full" onClick={() => form.reset(initialValues)}>
-              Reset changes
-            </Button>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
@@ -195,8 +249,8 @@ function ManualTriggers({
   );
 }
 
-export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false }: ConfigurePanelProps) {
-  const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id);
+export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, onRedeploy, fullPage = false, revisionOverride, readOnly = false, isNewBuild, rollbackContext }: ConfigurePanelProps) {
+  const { data: template, isLoading, isError } = usePrefilledDeploymentTemplate(account, deployment.name, deployment.id, { revision: revisionOverride });
   const shellClass = fullPage
     ? "flex min-h-full w-full flex-col bg-surface dark:bg-background"
     : PANEL_SHELL_CLASS;
@@ -225,6 +279,10 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, 
       onRedeployStart={onRedeployStart}
       onRedeploy={onRedeploy}
       fullPage={fullPage}
+      readOnly={readOnly}
+      revisionNumber={revisionOverride ?? rollbackContext?.revision}
+      isNewBuild={isNewBuild}
+      rollbackContext={rollbackContext}
     />
   );
 }

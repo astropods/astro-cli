@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useDeploymentHistory } from "@/api/queries/deployments";
 import { formatDate, isDeployingState } from "@/lib/deployment-utils";
 import type { AgentDeployment, DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
-import { deploymentKeys } from "@/api/queries/keys";
 import { cn } from "@/lib/utils";
 import { isSensitiveEnvVar } from "@/lib/env-utils";
 import { useCompactLayout } from "@/hooks/use-compact-layout";
@@ -19,28 +17,31 @@ import type { DeploymentHistoryTableRow, ServiceRow } from "./history/types";
 export function DeploymentsTab({
   deployment,
   account,
-  onOpenConfigure,
+  isPausing = false,
+  isResuming = false,
+  isRestarting = false,
+  isGloballyRestarting = false,
+  onRollback,
+  onPodRestartStateChange,
 }: {
   deployment: AgentDeployment;
   account: string;
-  onOpenConfigure?: () => void;
+  isPausing?: boolean;
+  isResuming?: boolean;
+  isRestarting?: boolean;
+  isGloballyRestarting?: boolean;
+  onRollback?: (revision: number, buildId: string) => void;
+  onPodRestartStateChange?: (isRestarting: boolean) => void;
 }) {
-  const queryClient = useQueryClient();
   const isCompact = useCompactLayout();
   const [openContainers, setOpenContainers] = useState<Set<string>>(new Set());
   const hasAutoOpenedOverview = useRef(false);
 
-  const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(account, deployment.name);
-
   const isDeploying = isDeployingState(deployment);
-  useEffect(() => {
-    if (!isDeploying) return;
-    const interval = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: deploymentKeys.detail(deployment.id) });
-      void queryClient.invalidateQueries({ queryKey: deploymentKeys.history(account, deployment.name) });
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [isDeploying, queryClient, deployment.id, account, deployment.name]);
+  const { data: historyData, isLoading: historyLoading, isError: historyError } = useDeploymentHistory(
+    account, deployment.name, deployment.id, true,
+    { refetchInterval: isDeploying ? 4000 : false },
+  );
 
   const workloads = deployment.workloads;
   const externalUrls = deployment.external_urls;
@@ -65,6 +66,7 @@ export function DeploymentsTab({
       return {
         id: wl.name,
         workloadName: wl.name,
+        podName: wl.pod_name,
         title: wl.component || wl.name,
         isAgentService: wl.component === "agent",
         readyText: `${readyCount}/${mappedContainers.length || 0}`,
@@ -88,14 +90,17 @@ export function DeploymentsTab({
 
   const allRows = useMemo((): DeploymentHistoryTableRow[] => {
     const fromApi = historyData?.deployments ?? [];
-    const seen = new Set(fromApi.map((h) => h.id));
     const merged: ApiDeploymentHistoryRecord[] = [...fromApi];
-    if (!seen.has(deploymentId)) {
+    const hasCurrentInApi = fromApi.some((h) => h.is_current);
+    if (!hasCurrentInApi) {
       merged.unshift({
         id: deploymentId,
         agent_name: deploymentName,
+        revision: 1,
         build_id: deploymentBuildId,
         namespace: deploymentNamespace,
+        display_name: deployment.display_name ?? "",
+        is_current: true,
         status: deploymentStatus,
         deployed_at: deploymentCreatedAt,
         spec: {},
@@ -104,17 +109,18 @@ export function DeploymentsTab({
     merged.sort((a, b) => resolveDeployedAtMs(b, deployment) - resolveDeployedAtMs(a, deployment));
 
     return merged.map((h, idx) => {
-      const isCurrent = h.id === deploymentId;
+      const isCurrent = h.is_current;
       const status = deploymentHistoryUiStatus(h, deployment);
-      const build = h.build_id?.slice(0, 8) || "—";
-      const rowLabel = isCurrent ? deploymentDisplayName || deploymentName : `${deploymentName} · ${build}`;
+      const build = h.revision ? `#${h.revision}` : (h.build_id?.slice(0, 8) || "—");
+      const rowLabel = isCurrent ? deploymentDisplayName || deploymentName : `${deploymentName} · ${h.build_id?.slice(0, 8) || "—"}`;
       const durMs = deploymentHistoryDurationMs(h, idx, merged, deployment, isCurrent);
       const deployedAtMs = resolveDeployedAtMs(h, deployment);
       const deployedAtIso = new Date(deployedAtMs).toISOString();
       const timeOfDay = Number.isFinite(deployedAtMs)
         ? new Date(deployedAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
         : "—";
-      return { id: h.id, status, build, duration: durMs !== null ? formatDurationMs(durMs) : "—", time: formatDate(deployedAtIso), timeOfDay, isCurrent, rowLabel, source: h };
+      const rowKey = `${h.id}-${h.revision}`;
+      return { id: rowKey, status, build, duration: durMs !== null ? formatDurationMs(durMs) : "—", time: formatDate(deployedAtIso), timeOfDay, isCurrent, rowLabel, source: h };
     });
   }, [historyData, deploymentId, deploymentName, deploymentDisplayName, deploymentBuildId, deploymentNamespace, deploymentStatus, deploymentCreatedAt, deployment]);
 
@@ -202,9 +208,14 @@ export function DeploymentsTab({
           isCompact={isCompact}
           openContainers={openContainers}
           onToggleContainer={toggleContainer}
-          onOpenConfigure={onOpenConfigure}
+          onRollback={onRollback}
           historyLoading={historyLoading}
           historyError={historyError}
+          isPausing={isPausing}
+          isResuming={isResuming}
+          isRestarting={isRestarting}
+          isGloballyRestarting={isGloballyRestarting}
+          onPodRestartStateChange={onPodRestartStateChange}
         />
       </div>
     </div>

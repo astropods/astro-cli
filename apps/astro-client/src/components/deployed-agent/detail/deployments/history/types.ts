@@ -1,6 +1,6 @@
 import type { DeploymentHistoryRecord as ApiDeploymentHistoryRecord } from "@/lib/api";
 
-export type DeployHistoryStatus = "active" | "deploying" | "undeploying" | "ready" | "failed" | "undeployed";
+export type DeployHistoryStatus = "active" | "inactive" | "deploying" | "undeploying" | "failed" | "undeployed" | "restarting" | "pausing" | "resuming";
 
 export interface DeploymentHistoryTableRow {
   id: string;
@@ -36,6 +36,7 @@ export interface DomainUrl {
 export interface ServiceRow {
   id: string;
   workloadName: string;
+  podName?: string;
   title: string;
   isAgentService: boolean;
   readyText: string;

@@ -16,7 +16,7 @@ export function formatDurationMs(ms: number): string {
 
 export function resolveDeployedAtMs(h: ApiDeploymentHistoryRecord, live: AgentDeployment): number {
   const fromHist = new Date(h.deployed_at).getTime();
-  if (h.id === live.id) {
+  if (h.is_current) {
     const fromLive = new Date(live.created_at).getTime();
     if (!Number.isFinite(fromHist) || Number.isNaN(fromHist)) return fromLive;
     return fromHist;
@@ -34,11 +34,6 @@ export function deploymentHistoryDurationMs(
   const start = resolveDeployedAtMs(h, live);
   if (!Number.isFinite(start) || Number.isNaN(start)) return null;
   if (isCurrent) return Date.now() - start;
-  if (h.undeployed_at) {
-    const end = new Date(h.undeployed_at).getTime();
-    if (!Number.isFinite(end) || Number.isNaN(end)) return null;
-    return end - start;
-  }
   if (idx > 0) {
     const end = resolveDeployedAtMs(merged[idx - 1], live);
     if (!Number.isFinite(end) || Number.isNaN(end)) return null;
@@ -48,31 +43,36 @@ export function deploymentHistoryDurationMs(
 }
 
 export function deploymentHistoryUiStatus(h: ApiDeploymentHistoryRecord, live: AgentDeployment): DeployHistoryStatus {
-  if (h.undeployed_at) return "undeployed";
-  if (h.id === live.id) {
-    const ds = mapDeploymentStatus(live);
-    if (ds === "error") return "failed";
-    if (ds === "undeploying") return "undeploying";
-    if (ds === "pending") return "deploying";
-    return "active";
-  }
-  return "ready";
+  if (!h.is_current) return "undeployed";
+  const ds = mapDeploymentStatus(live);
+  if (ds === "error") return "failed";
+  if (ds === "undeploying") return "undeploying";
+  if (ds === "deploying") return "deploying";
+  if (ds === "inactive") return "inactive";
+  return "active";
 }
 
 export function statusVariant(status: DeployHistoryStatus): StatusIndicatorVariant {
   if (status === "failed") return "error";
   if (status === "undeployed") return "muted";
+  if (status === "inactive") return "muted";
   if (status === "deploying") return "warning";
   if (status === "undeploying") return "muted";
   if (status === "active") return "success";
+  if (status === "restarting") return "warning";
+  if (status === "pausing") return "error";
+  if (status === "resuming") return "success";
   return "muted";
 }
 
 export function statusLabel(status: DeployHistoryStatus): string {
-  if (status === "active") return "Live";
-  if (status === "ready") return "Inactive";
+  if (status === "active") return "Active";
+  if (status === "inactive") return "Inactive";
   if (status === "deploying") return "Deploying";
   if (status === "undeploying") return "Undeploying";
   if (status === "failed") return "Failed";
+  if (status === "restarting") return "Restarting";
+  if (status === "pausing") return "Pausing";
+  if (status === "resuming") return "Resuming";
   return "Undeployed";
 }

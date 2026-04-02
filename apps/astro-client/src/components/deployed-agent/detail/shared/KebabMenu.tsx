@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { EllipsisHorizontalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon } from "@heroicons/react/24/outline";
+import { EllipsisHorizontalIcon, DocumentDuplicateIcon, CheckIcon, TrashIcon, BookOpenIcon, ShareIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
 import { DeleteDeploymentDialog } from "@/components/DeleteDeploymentDialog";
 import { TradingCardModal } from "@/components/trading-card/TradingCardModal";
 import { useBlueprint } from "@/api/queries/blueprints";
@@ -9,6 +9,8 @@ import type { CardData, CardAvatar } from "astro-trading-card";
 import { stripSvgWrapper } from "astro-trading-card";
 import { generateIdentity } from "identity-gen";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const C = {
   bgAlt: "var(--popover)",
@@ -42,12 +44,14 @@ interface KebabMenuProps {
   installedAt?: string;
   avatarUrl?: string;
   onDeleted?: () => void;
+  onRestart?: () => void;
 }
 
-export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, avatarUrl, onDeleted }: KebabMenuProps) {
+export function KebabMenu({ deploymentId, deploymentName, displayName, account, installedAt, avatarUrl, onDeleted, onRestart }: KebabMenuProps) {
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [restartConfirm, setRestartConfirm] = useState(false);
   const { copy: copyToClipboard, copied } = useCopyToClipboard(1600);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -74,7 +78,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
   }), [deploymentName, displayName, account, cardAvatar, installedAt, deploymentId]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { return; }
     const h = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
@@ -112,6 +116,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
     fontSize: T.heading4,
     color: C.text,
     textAlign: "left" as const,
+    whiteSpace: "nowrap" as const,
   } as const;
 
   return (
@@ -137,6 +142,7 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
       </button>
       {open && (
         <div
+          className="shadow-lg"
           style={{
             position: "absolute",
             top: "calc(100% + 4px)",
@@ -147,7 +153,6 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
             border: `1px solid ${C.border}`,
             borderRadius: 10,
             overflow: "hidden",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
           }}
         >
           <Link
@@ -169,40 +174,54 @@ export function KebabMenu({ deploymentId, deploymentName, displayName, account, 
             <ShareIcon style={{ width: I.md, height: I.md }} />
             Share agent badge
           </button>
-          {[
-            {
-              icon: copied ? CheckIcon : DocumentDuplicateIcon,
-              label: copied ? "Copied!" : "Copy deploy ID",
-              color: C.text,
-              onClick: copyId,
-              sep: false,
-            },
-            {
-              icon: TrashIcon,
-              label: "Delete agent",
-              color: C.coral,
-              onClick: () => {
-                setOpen(false);
-                setDeleteOpen(true);
-              },
-              sep: true,
-            },
-          ].map(({ icon: Icon, label, color, onClick, sep }) => (
-            <div key={label}>
-              {sep && <div style={{ height: 1, background: C.border }} />}
+          <button
+            style={{ ...buttonStyle, color: C.text }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+            onClick={copyId}
+          >
+            {copied ? <CheckIcon style={{ width: I.md, height: I.md }} /> : <DocumentDuplicateIcon style={{ width: I.md, height: I.md }} />}
+            {copied ? "Copied!" : "Copy deploy ID"}
+          </button>
+
+          {onRestart && (
+            <>
+              <div style={{ height: 1, background: C.border }} />
               <button
-                style={{ ...buttonStyle, color }}
+                style={{ ...buttonStyle, color: C.coral }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
-                onClick={onClick}
+                onClick={() => { setOpen(false); setRestartConfirm(true); }}
               >
-                <Icon style={{ width: I.md, height: I.md }} />
-                {label}
+                <ArrowPathIcon style={{ width: I.md, height: I.md }} />
+                Restart deployment
               </button>
-            </div>
-          ))}
+            </>
+          )}
+          <div style={{ height: 1, background: C.border }} />
+          <button
+            style={{ ...buttonStyle, color: C.coral }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = C.bgDeep)}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+            onClick={() => { setOpen(false); setDeleteOpen(true); }}
+          >
+            <TrashIcon style={{ width: I.md, height: I.md }} />
+            Delete agent
+          </button>
         </div>
       )}
+      <Dialog open={restartConfirm} onOpenChange={(o) => { if (!o) setRestartConfirm(false); }}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Are you sure?</DialogTitle>
+            <DialogDescription>All running containers will be restarted. There may be a brief interruption.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRestartConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { setRestartConfirm(false); onRestart?.(); }}>Restart</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <DeleteDeploymentDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}

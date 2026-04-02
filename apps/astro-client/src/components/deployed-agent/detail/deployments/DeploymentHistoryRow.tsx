@@ -23,17 +23,29 @@ const STATUS_BADGE_STYLE: Record<DeployHistoryStatus, React.CSSProperties> = {
     color: "var(--color-stone-500)",
     background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
   },
-  ready: {
+  inactive: {
     color: "var(--color-stone-500)",
     background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
   },
   failed: {
-    color: "var(--color-red-700)",
-    background: "color-mix(in oklch, var(--color-red-700) 12%, transparent)",
+    color: "var(--color-coral-600)",
+    background: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
   },
   undeployed: {
     color: "var(--color-stone-500)",
     background: "color-mix(in oklch, var(--color-stone-500) 12%, transparent)",
+  },
+  restarting: {
+    color: "var(--color-yellow-600)",
+    background: "color-mix(in oklch, var(--color-yellow-600) 12%, transparent)",
+  },
+  pausing: {
+    color: "var(--color-coral-600)",
+    background: "color-mix(in oklch, var(--color-coral-600) 12%, transparent)",
+  },
+  resuming: {
+    color: "var(--color-teal-600)",
+    background: "color-mix(in oklch, var(--color-teal-600) 12%, transparent)",
   },
 };
 
@@ -64,8 +76,8 @@ export function DeploymentHistoryRow({
     <div
       className={cn(
         "grid items-center",
-        isCurrent && "border-l-[3px] border-l-teal-600",
-        !isLastRow && !isCurrent && "border-b border-border",
+        isCurrent && "border-l-[3px] border-l-primary",
+        !isLastRow && "border-b border-border",
         className,
       )}
       style={{ gridTemplateColumns: gridColumns, gap: gridGap, padding }}
@@ -86,9 +98,6 @@ export function DeploymentHistoryRow({
 
       {/* Duration */}
       <span className="font-mono text-body text-foreground text-right">{row.duration}</span>
-
-      {/* Build */}
-      <span className="font-mono text-body text-foreground text-right">{row.build}</span>
 
       {/* Deployed on + kebab (non-compact only) */}
       {!isCompact && (

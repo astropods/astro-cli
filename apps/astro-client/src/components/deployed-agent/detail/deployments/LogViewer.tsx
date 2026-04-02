@@ -28,11 +28,13 @@ interface LogViewerProps {
   deploymentStatus: DeployHistoryStatus;
   isOpen: boolean;
   isCompact: boolean;
+  onRestart?: () => void;
+  isRestarting?: boolean;
 }
 
 const FILTER_CONFIGS = [
-  { key: "errors" as const, label: "Errors", colorClass: "text-red-700" },
-  { key: "warnings" as const, label: "Warnings", colorClass: "text-yellow-700" },
+  { key: "errors" as const, label: "Errors", colorClass: "text-[var(--color-coral-600)]" },
+  { key: "warnings" as const, label: "Warnings", colorClass: "text-yellow-500" },
 ] as const;
 
 export function LogViewer({
@@ -42,16 +44,18 @@ export function LogViewer({
   deploymentStatus,
   isOpen,
   isCompact,
+  onRestart,
+  isRestarting = false,
 }: LogViewerProps) {
   const [logSearch, setLogSearch] = useState("");
   const [logTimeRange, setLogTimeRange] = useState<LogTimeRange>("24h");
 
-  const { data: logsRaw, isLoading, isFetching, error, refetch } = useDeploymentLogs(
+  const { data: logsRaw, isLoading, error } = useDeploymentLogs(
     deploymentId,
     workloadName,
     selectedContainer,
     logTimeRange,
-    { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && deploymentStatus === "deploying" ? 3000 : false },
+    { enabled: isOpen && !!selectedContainer, refetchInterval: isOpen && (deploymentStatus === "deploying" || deploymentStatus === "restarting") ? 3000 : false },
   );
 
   const logs = useMemo(() => {
@@ -82,7 +86,7 @@ export function LogViewer({
               className={cn(
                 "flex items-center gap-[5px] px-2 py-1 rounded-[calc(var(--radius-sm)+2px)] border border-border cursor-pointer font-sans text-body-sm transition-all whitespace-nowrap",
                 f.colorClass,
-                active ? "bg-stone-200 font-medium" : "bg-transparent font-normal",
+                active ? "bg-muted font-medium" : "bg-transparent font-normal",
               )}
             >
               <span>{f.label}</span>
@@ -119,14 +123,18 @@ export function LogViewer({
             )}
           />
         </div>
-        <Button
-          variant="outline"
-          size="icon"
-          title="Refresh logs"
-          onClick={() => { void refetch({ cancelRefetch: true }); }}
-        >
-          <ArrowPathIcon className={cn("size-4", isFetching && "dp-spin")} />
-        </Button>
+        {onRestart && (
+          <Button
+            variant="outline"
+            size="sm"
+            title="Restart this pod"
+            disabled={isRestarting}
+            onClick={onRestart}
+          >
+            <ArrowPathIcon className={cn("size-3.5", isRestarting && "dp-spin")} />
+            {isRestarting ? "Restarting…" : "Restart"}
+          </Button>
+        )}
         <CopyButton copyText={() => logs.join("\n")} title="Copy logs" resetMs={900} />
       </div>
 
