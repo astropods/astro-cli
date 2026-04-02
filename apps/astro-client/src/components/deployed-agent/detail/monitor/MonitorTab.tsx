@@ -13,7 +13,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InlineBadge } from "@/components/InlineBadge";
 import { Button } from "@/components/ui/button";
-import { MultiSelect } from "../shared/MultiSelect";
+import { MultiSelect, MultiSelectTrigger, MultiSelectValue, MultiSelectContent, MultiSelectAllItem, MultiSelectItem } from "@/components/ui/multi-select";
 import { HeadlineMetrics, type WindowTrend } from "./HeadlineMetrics";
 import { buildPreviousWindowParams, percentChange } from "./trend-utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -832,16 +832,21 @@ export function MonitorTab({ deployment, selectedTraceId, onSelectTrace, onVisib
           <div style={{ background: C.bgAlt, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "visible", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", alignItems: "center", flexWrap: isCompact ? "wrap" : "nowrap", gap: 10, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               <span style={{ fontFamily: S.body, fontSize: T.heading4, fontWeight: 700, color: C.text, flex: 1 }}>Traces</span>
-              <MultiSelect
-                options={[
-                  { value: "success", label: "Success", color: C.success },
-                  { value: "error", label: "Error", color: C.coral },
-                  { value: "timeout", label: "Timeout", color: C.issue },
-                ]}
-                selected={traceStatuses}
-                onChange={setTraceStatuses}
-                placeholder="All statuses"
-              />
+              <MultiSelect value={traceStatuses} onValueChange={setTraceStatuses}>
+                <MultiSelectTrigger className="w-36">
+                  <MultiSelectValue placeholder="All statuses" options={[
+                    { value: "success", label: "Success", color: C.success },
+                    { value: "error", label: "Error", color: C.coral },
+                    { value: "timeout", label: "Timeout", color: C.issue },
+                  ]} />
+                </MultiSelectTrigger>
+                <MultiSelectContent>
+                  <MultiSelectAllItem>All statuses</MultiSelectAllItem>
+                  <MultiSelectItem value="success" color={C.success}>Success</MultiSelectItem>
+                  <MultiSelectItem value="error" color={C.coral}>Error</MultiSelectItem>
+                  <MultiSelectItem value="timeout" color={C.issue}>Timeout</MultiSelectItem>
+                </MultiSelectContent>
+              </MultiSelect>
             </div>
             <div style={{ minHeight: 0 }}>
               <div style={{ display: "flex", flexDirection: "column" }}>
