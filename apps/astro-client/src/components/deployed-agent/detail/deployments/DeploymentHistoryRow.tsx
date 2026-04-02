@@ -76,11 +76,15 @@ export function DeploymentHistoryRow({
     <div
       className={cn(
         "grid items-center",
-        isCurrent && "border-l-[3px] border-l-primary",
         !isLastRow && "border-b border-border",
         className,
       )}
-      style={{ gridTemplateColumns: gridColumns, gap: gridGap, padding }}
+      style={{
+        gridTemplateColumns: gridColumns,
+        gap: gridGap,
+        padding,
+        ...(isCurrent && { boxShadow: `inset 3px 0 0 ${STATUS_BADGE_STYLE[row.status].color}` }),
+      }}
     >
       {/* Name */}
       <div className="min-w-0">
