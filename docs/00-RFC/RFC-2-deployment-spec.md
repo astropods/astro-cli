@@ -40,19 +40,19 @@ This spec covers the schema and validation rules for deployment spec documents. 
 
 A conforming document MUST contain the following top-level fields:
 
-| Field           | Type                          | Required     | Description                                                   |
-| --------------- | ----------------------------- | ------------ | ------------------------------------------------------------- |
-| `spec`          | string                        | **REQUIRED** | Spec version identifier. MUST be `deployment-template/v1` or `deployment/v1`. |
-| `source`        | object                        | **REQUIRED** | Agent source metadata (Section 3).                            |
-| `target`        | object                        | **REQUIRED** | Deployment target (Section 4).                                |
-| `agent`         | object                        | **REQUIRED** | Agent container configuration (Section 5).                    |
-| `models`        | map\<string, ModelEntry\>     | OPTIONAL     | Self-hosted model entries (Section 6.1).                      |
-| `knowledge`     | map\<string, KnowledgeEntry\> | OPTIONAL     | Knowledge store entries (Section 6.2).                        |
-| `tools`         | map\<string, ToolEntry\>      | OPTIONAL     | Tool service entries (Section 6.3).                           |
-| `ingestion`     | map\<string, IngestionEntry\> | OPTIONAL     | Ingestion pipeline entries (Section 7).                       |
-| `interfaces`    | object                        | OPTIONAL     | Messaging sidecar configuration (Section 8). Only present when the agent supports messaging. |
-| `variables`     | map\<string, Variable\>       | OPTIONAL     | Deployment variables (Section 9).                             |
-| `observability` | object                        | OPTIONAL     | Observability configuration (Section 10).                     |
+| Field           | Type                          | Required     | Description                                                                                                     |
+| --------------- | ----------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `spec`          | string                        | **REQUIRED** | Spec version identifier. MUST be `deployment-template/v1` or `deployment/v1`.                                   |
+| `source`        | object                        | **REQUIRED** | Agent source metadata (Section 3).                                                                              |
+| `target`        | object                        | **REQUIRED** | Deployment target (Section 4).                                                                                  |
+| `agent`         | object                        | **REQUIRED** | Agent container configuration (Section 5).                                                                      |
+| `models`        | map\<string, ModelEntry\>     | OPTIONAL     | Self-hosted model entries (Section 6.1).                                                                        |
+| `knowledge`     | map\<string, KnowledgeEntry\> | OPTIONAL     | Knowledge store entries (Section 6.2).                                                                          |
+| `tools`         | map\<string, ToolEntry\>      | OPTIONAL     | Tool service entries (Section 6.3).                                                                             |
+| `ingestion`     | map\<string, IngestionEntry\> | OPTIONAL     | Ingestion pipeline entries (Section 7).                                                                         |
+| `interfaces`    | object                        | OPTIONAL     | Messaging sidecar configuration (Section 8). Only present when the agent supports messaging.                    |
+| `variables`     | map\<string, Variable\>       | OPTIONAL     | Deployment variables (Section 9).                                                                               |
+| `observability` | object                        | OPTIONAL     | Observability configuration (Section 10).                                                                       |
 | `editable`      | string[]                      | OPTIONAL     | `deployment-template/v1` only. Lists editable field paths (Section 12). MUST NOT be present in `deployment/v1`. |
 
 Cloud providers from the AstroAI Spec do NOT appear in `models`, `knowledge`, or `tools`. They are represented solely as `variables` entries.
@@ -63,11 +63,11 @@ Cloud providers from the AstroAI Spec do NOT appear in `models`, `knowledge`, or
 
 The `source` object identifies the agent and build being deployed.
 
-| Field      | Type   | Required     | Description                                            |
-| ---------- | ------ | ------------ | ------------------------------------------------------ |
-| `name`     | string | **REQUIRED** | Agent name from the AstroAI Spec.                      |
-| `build`    | string | **REQUIRED** | Build identifier.                                                  |
-| `registry` | string | **REQUIRED** | Registry where agent images were pushed.               |
+| Field      | Type   | Required     | Description                              |
+| ---------- | ------ | ------------ | ---------------------------------------- |
+| `name`     | string | **REQUIRED** | Agent name from the AstroAI Spec.        |
+| `build`    | string | **REQUIRED** | Build identifier.                        |
+| `registry` | string | **REQUIRED** | Registry where agent images were pushed. |
 
 ---
 
@@ -75,10 +75,10 @@ The `source` object identifies the agent and build being deployed.
 
 The `target` object specifies where the deployment runs.
 
-| Field       | Type   | Required     | Description                                                              |
-| ----------- | ------ | ------------ | ------------------------------------------------------------------------ |
+| Field       | Type   | Required     | Description                                                                        |
+| ----------- | ------ | ------------ | ---------------------------------------------------------------------------------- |
 | `runtime`   | string | **REQUIRED** | Target runtime. MUST be `kubernetes`. Implementations MAY add additional runtimes. |
-| `namespace` | string | **REQUIRED** | Target namespace. MUST be unique within the cluster.                     |
+| `namespace` | string | **REQUIRED** | Target namespace. MUST be unique within the cluster.                               |
 
 ---
 
@@ -86,16 +86,16 @@ The `target` object specifies where the deployment runs.
 
 The `agent` object configures the primary agent container.
 
-| Field           | Type                          | Required     | Description                                                       |
-| --------------- | ----------------------------- | ------------ | ----------------------------------------------------------------- |
-| `image`         | string                        | **REQUIRED** | Resolved container image reference.                               |
-| `endpoints`     | map\<string, Endpoint\>       | **REQUIRED** | Named network endpoints the agent serves (Section 13.6).          |
-| `distributed`   | boolean                       | OPTIONAL     | Whether the agent supports multiple replicas. Default: `false`.   |
-| `replicas`      | integer                       | OPTIONAL     | Number of replicas. Default: `1`.                                 |
-| `resources`     | Resources                     | OPTIONAL     | CPU and memory configuration (Section 13.1).                      |
-| `environment`   | map\<string, string\>         | OPTIONAL     | Environment variables. Supports `${}` references (Section 11).    |
-| `healthcheck`   | Healthcheck                   | OPTIONAL     | Health check configuration (Section 13.4).                        |
-| `update`        | UpdateStrategy                | OPTIONAL     | Rollout strategy (Section 13.5).                                  |
+| Field         | Type                    | Required     | Description                                                     |
+| ------------- | ----------------------- | ------------ | --------------------------------------------------------------- |
+| `image`       | string                  | **REQUIRED** | Resolved container image reference.                             |
+| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints the agent serves (Section 13.6).        |
+| `distributed` | boolean                 | OPTIONAL     | Whether the agent supports multiple replicas. Default: `false`. |
+| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                               |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                    |
+| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables. Supports `${}` references (Section 11).  |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                      |
+| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                                |
 
 When the agent declares `interfaces.frontend: true` in the AstroAI Spec, the template generator sets the agent's HTTP endpoint to port 80 with `expose.enabled: true`. This creates an ingress directly to the agent container, bypassing the messaging sidecar.
 
@@ -109,47 +109,47 @@ Components represent self-hosted services deployed alongside the agent. All prov
 
 Each entry in the `models` map configures a self-hosted model container.
 
-| Field         | Type                    | Required     | Description                                                    |
-| ------------- | ----------------------- | ------------ | -------------------------------------------------------------- |
-| `image`       | string                  | **REQUIRED** | Resolved container image reference.                            |
-| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                        |
+| Field         | Type                    | Required     | Description                                                                      |
+| ------------- | ----------------------- | ------------ | -------------------------------------------------------------------------------- |
+| `image`       | string                  | **REQUIRED** | Resolved container image reference.                                              |
+| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                                          |
 | `model`       | string                  | OPTIONAL     | Provider-specific model identifier (e.g. `llama3.2`). Carried from AstroAI Spec. |
-| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                              |
-| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                   |
-| `gpu`         | GPUConfig               | OPTIONAL     | GPU resource requirements (Section 13.2).                      |
-| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the model container.                 |
-| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                     |
-| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                               |
+| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                                                |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                                     |
+| `gpu`         | GPUConfig               | OPTIONAL     | GPU resource requirements (Section 13.2).                                        |
+| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the model container.                                   |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                                       |
+| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                                                 |
 
 ### 6.2 Knowledge
 
 Each entry in the `knowledge` map configures a knowledge store container.
 
-| Field         | Type                    | Required     | Description                                                    |
-| ------------- | ----------------------- | ------------ | -------------------------------------------------------------- |
-| `image`       | string                  | **REQUIRED** | Resolved container image reference.                            |
-| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                        |
-| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                              |
-| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                   |
-| `persistent`  | boolean                 | OPTIONAL     | Whether to use persistent storage (StatefulSet). Default: `false`. |
+| Field         | Type                    | Required     | Description                                                             |
+| ------------- | ----------------------- | ------------ | ----------------------------------------------------------------------- |
+| `image`       | string                  | **REQUIRED** | Resolved container image reference.                                     |
+| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                                 |
+| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                                       |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                            |
+| `persistent`  | boolean                 | OPTIONAL     | Whether to use persistent storage (StatefulSet). Default: `false`.      |
 | `storage`     | StorageConfig           | OPTIONAL     | PVC configuration (Section 13.3). REQUIRED when `persistent` is `true`. |
-| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the knowledge store container.       |
-| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                     |
-| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                               |
+| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the knowledge store container.                |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                              |
+| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                                        |
 
 ### 6.3 Tools
 
 Each entry in the `tools` map configures a tool service container.
 
-| Field         | Type                    | Required     | Description                                                    |
-| ------------- | ----------------------- | ------------ | -------------------------------------------------------------- |
-| `image`       | string                  | **REQUIRED** | Resolved container image reference.                            |
-| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                        |
-| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.                              |
-| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                   |
-| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the tool container.                  |
-| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                     |
-| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).                               |
+| Field         | Type                    | Required     | Description                                   |
+| ------------- | ----------------------- | ------------ | --------------------------------------------- |
+| `image`       | string                  | **REQUIRED** | Resolved container image reference.           |
+| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).       |
+| `replicas`    | integer                 | OPTIONAL     | Number of replicas. Default: `1`.             |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).  |
+| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the tool container. |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).    |
+| `update`      | UpdateStrategy          | OPTIONAL     | Rollout strategy (Section 13.5).              |
 
 ---
 
@@ -157,20 +157,20 @@ Each entry in the `tools` map configures a tool service container.
 
 Each entry in the `ingestion` map configures a data ingestion pipeline. Ingestion entries are flattened from the AstroAI Spec's `container` object: `image` replaces `container.image`, and `endpoints` replaces the single `container.port`.
 
-| Field         | Type                  | Required     | Description                                                    |
-| ------------- | --------------------- | ------------ | -------------------------------------------------------------- |
-| `image`       | string                  | **REQUIRED** | Container image for the ingestion pipeline.                    |
+| Field         | Type                    | Required     | Description                                                                          |
+| ------------- | ----------------------- | ------------ | ------------------------------------------------------------------------------------ |
+| `image`       | string                  | **REQUIRED** | Container image for the ingestion pipeline.                                          |
 | `endpoints`   | map\<string, Endpoint\> | OPTIONAL     | Named network endpoints (Section 13.6). Applicable when `trigger.type` is `webhook`. |
-| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                   |
-| `trigger`     | IngestionTrigger        | **REQUIRED** | Trigger configuration (Section 7.1).                           |
-| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the ingestion container.             |
-| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                     |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                                         |
+| `trigger`     | IngestionTrigger        | **REQUIRED** | Trigger configuration (Section 7.1).                                                 |
+| `environment` | map\<string, string\>   | OPTIONAL     | Environment variables for the ingestion container.                                   |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                                           |
 
 ### 7.1 Ingestion Trigger
 
-| Field      | Type   | Required     | Description                                                                 |
-| ---------- | ------ | ------------ | --------------------------------------------------------------------------- |
-| `type`     | string | **REQUIRED** | MUST be one of: `schedule`, `startup`, `manual`, `webhook`.                 |
+| Field      | Type   | Required     | Description                                                                         |
+| ---------- | ------ | ------------ | ----------------------------------------------------------------------------------- |
+| `type`     | string | **REQUIRED** | MUST be one of: `schedule`, `startup`, `manual`, `webhook`.                         |
 | `schedule` | string | Conditional  | Cron expression. REQUIRED when `type` is `schedule`. MUST NOT be present otherwise. |
 
 ---
@@ -179,14 +179,14 @@ Each entry in the `ingestion` map configures a data ingestion pipeline. Ingestio
 
 The `interfaces` object configures messaging adapters (e.g. Slack, web) deployed as a sidecar. This block is only present when the agent supports messaging (`interfaces.messaging: true` or `interfaces` omitted in the AstroAI Spec). When the agent disables messaging, this block MUST be absent and no sidecar is deployed.
 
-| Field         | Type                    | Required     | Description                                                    |
-| ------------- | ----------------------- | ------------ | -------------------------------------------------------------- |
-| `adapters`    | string[]                | **REQUIRED** | Enabled adapter names (e.g. `["slack", "web"]`).               |
-| `image`       | string                  | **REQUIRED** | Messaging sidecar container image.                             |
-| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                        |
-| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                   |
+| Field         | Type                    | Required     | Description                                                        |
+| ------------- | ----------------------- | ------------ | ------------------------------------------------------------------ |
+| `adapters`    | string[]                | **REQUIRED** | Enabled adapter names (e.g. `["slack", "web"]`).                   |
+| `image`       | string                  | **REQUIRED** | Messaging sidecar container image.                                 |
+| `endpoints`   | map\<string, Endpoint\> | **REQUIRED** | Named network endpoints (Section 13.6).                            |
+| `resources`   | Resources               | OPTIONAL     | CPU and memory configuration (Section 13.1).                       |
 | `environment` | map\<string, string\>   | OPTIONAL     | Adapter-specific environment variables. Supports `${}` references. |
-| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                     |
+| `healthcheck` | Healthcheck             | OPTIONAL     | Health check configuration (Section 13.4).                         |
 
 Adapter-specific behavioral configuration (e.g. actionable emoji reactions, socket mode, auto-threading) is passed to the messaging sidecar via the `SLACK_CONFIG` environment variable as a JSON object. This variable is injected into `interfaces.environment` through the variables mechanism and is editable in the deploy UI.
 
@@ -200,11 +200,11 @@ Each entry in the `variables` map declares a deployment variable. Variables are 
 - **Interfaces** — messaging adapters (e.g. `slack`) produce variable entries for adapter-specific configuration. All `Input` fields carry through transparently.
 - **Inputs** — `inputs` entries from the AstroAI Spec (top-level, `agent.inputs`, and per-component) produce variable entries. All `Input` fields carry through transparently. These variables are referenced via `${variables.<name>}` in `environment` fields.
 
-| Field      | Type     | Required     | Description                                                                                   |
-| ---------- | -------- | ------------ | --------------------------------------------------------------------------------------------- |
+| Field      | Type     | Required     | Description                                                                                                                                                                                                           |
+| ---------- | -------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `targets`  | string[] | **REQUIRED** | Containers this variable is injected into. Each value MUST be one of: `agent`, `ingestion` (all pipelines), `ingestion.<name>` (specific pipeline), or `interface.<adapter>` (e.g. `interface.slack`). User-editable. |
-| `secret`   | boolean  | OPTIONAL     | Whether the value is sensitive. Default: `false`. Secret values are stored in a Secret and never logged. Non-secret values are injected as plain env vars. |
-| `optional` | boolean  | OPTIONAL     | Whether deployment MAY proceed without this variable. Default: `false`.                       |
+| `secret`   | boolean  | OPTIONAL     | Whether the value is sensitive. Default: `false`. Secret values are stored in a Secret and never logged. Non-secret values are injected as plain env vars.                                                            |
+| `optional` | boolean  | OPTIONAL     | Whether deployment MAY proceed without this variable. Default: `false`.                                                                                                                                               |
 
 The user-supplied value is represented differently by each spec type: `deployment-template/v1` uses `default` (the pre-filled suggestion shown in the UI); `deployment/v1` uses `value` (the actual supplied value, stripped before storage when `secret: true`). See Section 12.1 for `default`.
 
@@ -214,10 +214,10 @@ The user-supplied value is represented differently by each spec type: `deploymen
 
 The `observability` object configures monitoring and telemetry.
 
-| Field        | Type    | Required | Description                                                              |
-| ------------ | ------- | -------- | ------------------------------------------------------------------------ |
-| `enabled`    | boolean | OPTIONAL | Whether to deploy a collector sidecar. Default: `true`.                  |
-| `provider`   | string  | OPTIONAL | Observability provider name (e.g. `galileo`).                            |
+| Field        | Type    | Required | Description                                                                  |
+| ------------ | ------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`    | boolean | OPTIONAL | Whether to deploy a collector sidecar. Default: `true`.                      |
+| `provider`   | string  | OPTIONAL | Observability provider name (e.g. `galileo`).                                |
 | `log_stream` | string  | OPTIONAL | Provider-specific log stream name. Default: `{source.name}-{deployment_id}`. |
 
 ---
@@ -234,14 +234,14 @@ ${<section>.<name>.<attribute>}
 
 ### Available References
 
-| Reference                                      | Resolves to                                                  |
-| ---------------------------------------------- | ------------------------------------------------------------ |
-| `${<section>.<name>.host}`                     | Service DNS for the named component.                         |
-| `${<section>.<name>.<endpoint>.port}`          | Port number (string) for the named endpoint.                 |
-| `${<section>.<name>.<endpoint>.url}`           | `<protocol>://<host>:<port>` for the named endpoint.         |
-| `${variables.<KEY>}`                           | Variable value (resolved from Secret at runtime).            |
-| `${source.name}`                               | Agent name.                                                  |
-| `${source.build}`                              | Build identifier.                                            |
+| Reference                             | Resolves to                                          |
+| ------------------------------------- | ---------------------------------------------------- |
+| `${<section>.<name>.host}`            | Service DNS for the named component.                 |
+| `${<section>.<name>.<endpoint>.port}` | Port number (string) for the named endpoint.         |
+| `${<section>.<name>.<endpoint>.url}`  | `<protocol>://<host>:<port>` for the named endpoint. |
+| `${variables.<KEY>}`                  | Variable value (resolved from Secret at runtime).    |
+| `${source.name}`                      | Agent name.                                          |
+| `${source.build}`                     | Build identifier.                                    |
 
 `<section>` is one of `models`, `knowledge`, or `tools`. The `host` reference is per-component (all endpoints share the same service DNS). The `port` and `url` references require an endpoint name.
 
@@ -264,13 +264,13 @@ The following fields are present only in `deployment-template/v1`. They MUST be 
 
 Additional fields on each `variables` entry. `default` replaces `value` in the template — it is the pre-filled suggestion shown to the user in the UI.
 
-| Field        | Type     | Required     | Description                                                                    |
-| ------------ | -------- | ------------ | ------------------------------------------------------------------------------ |
-| `default`    | string   | **REQUIRED** | Pre-filled value shown in the UI. The user replaces this with their actual value at fulfillment, which becomes `value` in `deployment/v1`. |
-| `description`| string   | OPTIONAL     | Human-readable description shown in the UI.                                    |
-| `datatype`   | string   | OPTIONAL     | Value type. MUST be one of: `string`, `boolean`, `number`, `array`, `object`.  |
-| `display-as` | string   | OPTIONAL     | UI rendering hint. MUST be one of: `short-text`, `long-text`, `select`.        |
-| `options`    | string[] | OPTIONAL     | Allowed values for `select` display. REQUIRED when `display-as` is `select`.   |
+| Field         | Type     | Required     | Description                                                                                                                                |
+| ------------- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `default`     | string   | **REQUIRED** | Pre-filled value shown in the UI. The user replaces this with their actual value at fulfillment, which becomes `value` in `deployment/v1`. |
+| `description` | string   | OPTIONAL     | Human-readable description shown in the UI.                                                                                                |
+| `datatype`    | string   | OPTIONAL     | Value type. MUST be one of: `string`, `boolean`, `number`, `array`, `object`.                                                              |
+| `display-as`  | string   | OPTIONAL     | UI rendering hint. MUST be one of: `short-text`, `long-text`, `select`.                                                                    |
+| `options`     | string[] | OPTIONAL     | Allowed values for `select` display. REQUIRED when `display-as` is `select`.                                                               |
 
 ### 12.2 Editable Fields
 
@@ -286,43 +286,43 @@ Paths use dot notation: `agent.replicas`, `agent.resources`, `agent.endpoints.*.
 
 CPU and memory requests and limits. All fields OPTIONAL — the server applies defaults based on component type when omitted.
 
-| Field          | Type   | Required | Description                              |
-| -------------- | ------ | -------- | ---------------------------------------- |
-| `cpu`          | string | OPTIONAL | CPU request (e.g. `100m`, `2`).          |
-| `memory`       | string | OPTIONAL | Memory request (e.g. `256Mi`, `8Gi`).    |
-| `cpu_limit`    | string | OPTIONAL | CPU limit (e.g. `1`, `4`).               |
-| `memory_limit` | string | OPTIONAL | Memory limit (e.g. `1Gi`, `16Gi`).       |
+| Field          | Type   | Required | Description                           |
+| -------------- | ------ | -------- | ------------------------------------- |
+| `cpu`          | string | OPTIONAL | CPU request (e.g. `100m`, `2`).       |
+| `memory`       | string | OPTIONAL | Memory request (e.g. `256Mi`, `8Gi`). |
+| `cpu_limit`    | string | OPTIONAL | CPU limit (e.g. `1`, `4`).            |
+| `memory_limit` | string | OPTIONAL | Memory limit (e.g. `1Gi`, `16Gi`).    |
 
 ### 13.2 GPUConfig
 
 Extends the AstroAI Spec GPUConfig with `count` for multi-GPU scheduling.
 
-| Field     | Type    | Required | Description                                                        |
-| --------- | ------- | -------- | ------------------------------------------------------------------ |
-| `vram`    | string  | OPTIONAL | GPU memory scheduling hint (e.g. `24Gi`).                          |
-| `runtime` | string  | OPTIONAL | GPU runtime. MUST be one of `cuda` or `rocm`. Default: `cuda`.    |
-| `count`   | integer | OPTIONAL | Number of GPUs (deployment-spec extension). Default: `1`.          |
+| Field     | Type    | Required | Description                                                    |
+| --------- | ------- | -------- | -------------------------------------------------------------- |
+| `vram`    | string  | OPTIONAL | GPU memory scheduling hint (e.g. `24Gi`).                      |
+| `runtime` | string  | OPTIONAL | GPU runtime. MUST be one of `cuda` or `rocm`. Default: `cuda`. |
+| `count`   | integer | OPTIONAL | Number of GPUs (deployment-spec extension). Default: `1`.      |
 
 ### 13.3 StorageConfig
 
-| Field         | Type   | Required | Description                                                              |
-| ------------- | ------ | -------- | ------------------------------------------------------------------------ |
-| `size`        | string | OPTIONAL | PVC size (e.g. `10Gi`). Default: `10Gi`.                                |
-| `class`       | string | OPTIONAL | Storage class name (e.g. `gp3`, `io1`). Omit for cluster default.       |
-| `access_mode` | string | OPTIONAL | MUST be `ReadWriteOnce` or `ReadWriteMany`. Default: `ReadWriteOnce`.   |
+| Field         | Type   | Required | Description                                                           |
+| ------------- | ------ | -------- | --------------------------------------------------------------------- |
+| `size`        | string | OPTIONAL | PVC size (e.g. `10Gi`). Default: `10Gi`.                              |
+| `class`       | string | OPTIONAL | Storage class name (e.g. `gp3`, `io1`). Omit for cluster default.     |
+| `access_mode` | string | OPTIONAL | MUST be `ReadWriteOnce` or `ReadWriteMany`. Default: `ReadWriteOnce`. |
 
 ### 13.4 Healthcheck
 
 Defines both liveness and readiness probes. The runtime MUST create identical probes from this configuration. Extends the AstroAI Spec Healthcheck with `initial_delay` for runtime probe scheduling.
 
-| Field           | Type     | Required | Description                                                       |
-| --------------- | -------- | -------- | ----------------------------------------------------------------- |
-| `test`          | string[] | OPTIONAL | Exec probe command (e.g. `["CMD", "redis-cli", "ping"]`).        |
-| `path`          | string   | OPTIONAL | HTTP GET probe path (e.g. `/health`).                             |
+| Field           | Type     | Required | Description                                                           |
+| --------------- | -------- | -------- | --------------------------------------------------------------------- |
+| `test`          | string[] | OPTIONAL | Exec probe command (e.g. `["CMD", "redis-cli", "ping"]`).             |
+| `path`          | string   | OPTIONAL | HTTP GET probe path (e.g. `/health`).                                 |
 | `initial_delay` | string   | OPTIONAL | Delay before first check (deployment-spec extension). Default: `10s`. |
-| `interval`      | string   | OPTIONAL | Check frequency. Default: `10s`.                                  |
-| `timeout`       | string   | OPTIONAL | Per-check timeout. Default: `5s`.                                 |
-| `retries`       | integer  | OPTIONAL | Consecutive failures before unhealthy. Default: `3`.              |
+| `interval`      | string   | OPTIONAL | Check frequency. Default: `10s`.                                      |
+| `timeout`       | string   | OPTIONAL | Per-check timeout. Default: `5s`.                                     |
+| `retries`       | integer  | OPTIONAL | Consecutive failures before unhealthy. Default: `3`.                  |
 
 When neither `test` nor `path` is set, the server SHOULD generate a provider-appropriate probe during template generation.
 
@@ -330,28 +330,28 @@ When neither `test` nor `path` is set, the server SHOULD generate a provider-app
 
 Controls how changes are rolled out. Applicable to long-running workloads (agent, models, knowledge, tools, webhook ingestion). MUST be ignored for jobs and cronjobs.
 
-| Field             | Type   | Required | Description                                                         |
-| ----------------- | ------ | -------- | ------------------------------------------------------------------- |
-| `strategy`        | string | OPTIONAL | MUST be `rolling` or `recreate`. Default: `rolling`.                |
-| `max_unavailable` | string | OPTIONAL | Max pods down during rolling update. Default: `25%`. Ignored when `strategy` is `recreate`. |
+| Field             | Type   | Required | Description                                                                                  |
+| ----------------- | ------ | -------- | -------------------------------------------------------------------------------------------- |
+| `strategy`        | string | OPTIONAL | MUST be `rolling` or `recreate`. Default: `rolling`.                                         |
+| `max_unavailable` | string | OPTIONAL | Max pods down during rolling update. Default: `25%`. Ignored when `strategy` is `recreate`.  |
 | `max_surge`       | string | OPTIONAL | Max extra pods during rolling update. Default: `25%`. Ignored when `strategy` is `recreate`. |
 
 ### 13.6 Endpoint
 
 A named network endpoint that a component serves. Each entry in an `endpoints` map declares a port, its protocol, and optional external exposure.
 
-| Field      | Type          | Required     | Description                                                              |
-| ---------- | ------------- | ------------ | ------------------------------------------------------------------------ |
-| `port`     | integer       | **REQUIRED** | Port number the endpoint listens on.                                     |
-| `protocol` | string        | OPTIONAL     | Protocol served. MUST be one of `http`, `grpc`, or `tcp`. Default: `http`. |
-| `expose`   | EndpointExpose | OPTIONAL    | External access configuration.                                           |
+| Field      | Type           | Required     | Description                                                                |
+| ---------- | -------------- | ------------ | -------------------------------------------------------------------------- |
+| `port`     | integer        | **REQUIRED** | Port number the endpoint listens on.                                       |
+| `protocol` | string         | OPTIONAL     | Protocol served. MUST be one of `http`, `grpc`, or `tcp`. Default: `http`. |
+| `expose`   | EndpointExpose | OPTIONAL     | External access configuration.                                             |
 
 #### EndpointExpose
 
-| Field     | Type    | Required | Description                                              |
-| --------- | ------- | -------- | -------------------------------------------------------- |
+| Field     | Type    | Required | Description                                                    |
+| --------- | ------- | -------- | -------------------------------------------------------------- |
 | `enabled` | boolean | OPTIONAL | Whether to create external access (ingress). Default: `false`. |
-| `domain`  | string  | OPTIONAL | Domain for external access.                              |
+| `domain`  | string  | OPTIONAL | Domain for external access.                                    |
 
 ---
 

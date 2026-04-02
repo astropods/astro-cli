@@ -81,9 +81,9 @@ authors:
 ---
 ```
 
-| Field     | Type   | Required     | Description |
-|-----------|--------|--------------|-------------|
-| `name`    | string | **REQUIRED** | Display name of the author. |
+| Field     | Type   | Required     | Description                                                          |
+| --------- | ------ | ------------ | -------------------------------------------------------------------- |
+| `name`    | string | **REQUIRED** | Display name of the author.                                          |
 | `account` | string | OPTIONAL     | Platform account handle. When present, clients link to `/{account}`. |
 
 ### 2.4 `capabilities`
@@ -119,13 +119,13 @@ repository: "github:acme/my-agent"
 
 Accepted shorthand prefixes:
 
-| Prefix | Resolves to |
-|--------|-------------|
-| *(none)* | `https://github.com/{value}` (GitHub assumed) |
-| `github:` | `https://github.com/{user}/{repo}` |
-| `gitlab:` | `https://gitlab.com/{user}/{repo}` |
-| `bitbucket:` | `https://bitbucket.org/{user}/{repo}` |
-| `gist:` | `https://gist.github.com/{id}` |
+| Prefix       | Resolves to                                   |
+| ------------ | --------------------------------------------- |
+| *(none)*     | `https://github.com/{value}` (GitHub assumed) |
+| `github:`    | `https://github.com/{user}/{repo}`            |
+| `gitlab:`    | `https://gitlab.com/{user}/{repo}`            |
+| `bitbucket:` | `https://bitbucket.org/{user}/{repo}`         |
+| `gist:`      | `https://gist.github.com/{id}`                |
 
 A bare `user/repo` (no prefix) is treated as `github:user/repo`. A full URL (`https://...`) is also accepted as-is.
 
@@ -140,11 +140,11 @@ repository:
 ---
 ```
 
-| Field       | Type   | Required     | Description |
-|-------------|--------|--------------|-------------|
-| `type`      | string | **REQUIRED** | Version-control system (`git`, `svn`, etc.). |
+| Field       | Type   | Required     | Description                                     |
+| ----------- | ------ | ------------ | ----------------------------------------------- |
+| `type`      | string | **REQUIRED** | Version-control system (`git`, `svn`, etc.).    |
 | `url`       | string | **REQUIRED** | Repository URL (should be publicly accessible). |
-| `directory` | string | OPTIONAL     | Subdirectory within the repo (for monorepos). |
+| `directory` | string | OPTIONAL     | Subdirectory within the repo (for monorepos).   |
 
 
 ### 2.6 `integrations`
@@ -186,37 +186,37 @@ The platform maintains a registry of known integrations with brand icons. This r
 
 Each entry in the registry contains:
 
-| Field  | Type   | Description |
-|--------|--------|-------------|
+| Field  | Type   | Description                                       |
+| ------ | ------ | ------------------------------------------------- |
 | `id`   | string | Canonical lowercase identifier used for matching. |
-| `name` | string | Display name rendered in the UI. |
+| `name` | string | Display name rendered in the UI.                  |
 
 The initial registry:
 
-| ID | Display Name |
-|----|-------------|
-| `slack` | Slack |
-| `github` | GitHub |
-| `gitlab` | GitLab |
-| `bitbucket` | Bitbucket |
-| `linear` | Linear |
-| `notion` | Notion |
-| `google-drive` | Google Drive |
-| `gmail` | Gmail |
-| `jira` | Jira |
-| `confluence` | Confluence |
-| `discord` | Discord |
+| ID                | Display Name    |
+| ----------------- | --------------- |
+| `slack`           | Slack           |
+| `github`          | GitHub          |
+| `gitlab`          | GitLab          |
+| `bitbucket`       | Bitbucket       |
+| `linear`          | Linear          |
+| `notion`          | Notion          |
+| `google-drive`    | Google Drive    |
+| `gmail`           | Gmail           |
+| `jira`            | Jira            |
+| `confluence`      | Confluence      |
+| `discord`         | Discord         |
 | `microsoft-teams` | Microsoft Teams |
-| `salesforce` | Salesforce |
-| `zendesk` | Zendesk |
-| `twilio` | Twilio |
-| `stripe` | Stripe |
-| `shopify` | Shopify |
-| `asana` | Asana |
-| `trello` | Trello |
-| `figma` | Figma |
-| `dropbox` | Dropbox |
-| `airtable` | Airtable |
+| `salesforce`      | Salesforce      |
+| `zendesk`         | Zendesk         |
+| `twilio`          | Twilio          |
+| `stripe`          | Stripe          |
+| `shopify`         | Shopify         |
+| `asana`           | Asana           |
+| `trello`          | Trello          |
+| `figma`           | Figma           |
+| `dropbox`         | Dropbox         |
+| `airtable`        | Airtable        |
 
 New integrations are added by appending to the JSON registry and adding a corresponding icon asset to the client. The registry is intentionally broader than the current client icon set — entries without a client icon yet fall back to the generic icon until one is added.
 
