@@ -1,5 +1,5 @@
-import React, { useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
+import React, { useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import {
   BookOpenIcon,
   UsersIcon,
@@ -16,7 +16,9 @@ import { useDeployments } from "@/api/queries/deployments";
 import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { useAccountMembers } from "@/api/queries/accounts";
 import { useAuth } from "@/lib/auth";
-import { blueprintsPaths } from "@/lib/routes";
+import { blueprintsPaths, deploymentPath } from "@/lib/routes";
+import { LiveRevealOverlay } from "@/components/deployed-agent/detail/LiveRevealOverlay";
+import type { AgentDeployment } from "@/lib/api";
 
 function DashboardLabel({ icon: Icon, to, children }: { icon: React.ElementType; to?: string; children: React.ReactNode }) {
   const className = "inline-flex items-center gap-1.5 font-mono text-mono-sm" + (to ? " hover:text-teal-700 transition-colors" : "");
@@ -34,7 +36,16 @@ function AgentDashboardContent() {
 
   const { personalAccount, accounts, isAuthenticated } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const userAccount = searchParams.get("account") || personalAccount?.name || "";
+
+  const revealState = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarUrl?: string } | null;
+  const revealDeploymentId = revealState?.revealDeploymentId ?? null;
+  const revealAgentName = revealState?.revealAgentName ?? null;
+  const revealDisplayName = revealState?.revealDisplayName ?? null;
+  const revealAvatarUrl = revealState?.revealAvatarUrl ?? null;
+  const [showReveal, setShowReveal] = useState(!!revealDeploymentId);
 
   const setActiveAccount = (account: string) => {
     setSearchParams(account === personalAccount?.name ? {} : { account });
@@ -53,6 +64,35 @@ function AgentDashboardContent() {
   const blueprintAgents = accountBlueprints?.agents ?? [];
   const memberCount = membersData?.members.length ?? 0;
   const activeAccountType = accounts.find((a) => a.name === userAccount)?.type;
+
+  const revealDeployment = useMemo<AgentDeployment | null>(() => {
+    if (!revealDeploymentId) return null;
+    const existing = deployments.find((d) => d.id === revealDeploymentId);
+    if (existing) {
+      return {
+        ...existing,
+        ...(!existing.display_name && revealDisplayName ? { display_name: revealDisplayName } : {}),
+        ...(!existing.avatar_url && revealAvatarUrl ? { avatar_url: revealAvatarUrl } : {}),
+      };
+    }
+    if (!revealAgentName) return null;
+    return {
+      id: revealDeploymentId,
+      name: revealAgentName,
+      display_name: revealDisplayName ?? revealAgentName,
+      build_id: "",
+      namespace: "",
+      status: "pending",
+      replicas: 1,
+      ready: 0,
+      created_at: new Date().toISOString(),
+      components: [],
+    } satisfies AgentDeployment;
+  }, [deployments, revealAgentName, revealAvatarUrl, revealDeploymentId, revealDisplayName]);
+
+  const clearRevealState = () => {
+    navigate(location.pathname + location.search, { replace: true, state: {} });
+  };
 
   return (
     <div className="min-h-full bg-muted">
@@ -143,6 +183,22 @@ function AgentDashboardContent() {
           />
         </div>
       </div>
+      {showReveal && revealDeployment && (
+        <LiveRevealOverlay
+          deployment={revealDeployment}
+          account={userAccount}
+          fallbackAvatarUrl={revealAvatarUrl ?? undefined}
+          onDismiss={() => {
+            setShowReveal(false);
+            clearRevealState();
+          }}
+          onViewDeployment={() => {
+            const targetPath = deploymentPath(userAccount, revealDeployment.id);
+            window.history.replaceState({}, "", location.pathname + location.search);
+            navigate(targetPath, { state: { fromAgents: true } });
+          }}
+        />
+      )}
     </div>
   );
 }
