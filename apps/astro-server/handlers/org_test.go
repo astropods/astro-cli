@@ -57,6 +57,10 @@ func TestListMembers_Success(t *testing.T) {
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
 	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
@@ -64,9 +68,10 @@ func TestListMembers_Success(t *testing.T) {
 			AddRow("acct-1", "user-2", nil, time.Now()))
 
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, nil), ListMembers(log, store))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -113,14 +118,19 @@ func TestListMembers_DBError(t *testing.T) {
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
 	mock.ExpectQuery("SELECT .+ FROM account_members am LEFT JOIN account_member_workos mw").
 		WithArgs("acct-1").
 		WillReturnError(sqlmock.ErrCancelled)
 
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
+	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, nil), ListMembers(log, store))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()

@@ -21,7 +21,7 @@ test.describe("deploy then configure round-trip", () => {
     await page.getByRole("option", { name: "Daily at midnight" }).click();
 
     await Promise.all([
-      page.waitForURL("**/agents*", { timeout: 20_000 }),
+      page.waitForURL("**/dashboard*", { timeout: 20_000 }),
       page.getByRole("button", { name: /deploy/i }).click(),
     ]);
 
@@ -46,7 +46,7 @@ test.describe("deploy then configure round-trip", () => {
     await expect(page.getByText("Runs at minute 0")).toBeVisible();
 
     await Promise.all([
-      page.waitForURL("**/agents*", { timeout: 20_000 }),
+      page.waitForURL("**/dashboard*", { timeout: 20_000 }),
       page.getByRole("button", { name: /deploy/i }).click(),
     ]);
 
@@ -71,7 +71,7 @@ test.describe("deploy then configure round-trip", () => {
     await page.getByRole("option", { name: "Weekly on Sunday" }).click();
 
     await Promise.all([
-      page.waitForURL("**/agents*", { timeout: 20_000 }),
+      page.waitForURL("**/dashboard*", { timeout: 20_000 }),
       page.getByRole("button", { name: /deploy/i }).click(),
     ]);
 

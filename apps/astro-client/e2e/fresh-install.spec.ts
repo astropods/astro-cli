@@ -25,7 +25,7 @@ test("fresh install shows new deployment on agents list after redirect", async (
   await page.getByLabel("Slack App Token").fill("xapp-test-value");
 
   await Promise.all([
-    page.waitForURL("**/agents*", { timeout: 20_000 }),
+    page.waitForURL("**/dashboard*", { timeout: 20_000 }),
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
@@ -61,7 +61,7 @@ test("re-deploying existing agent updates card on agents list", async ({ page })
   await page.getByLabel("Slack App Token").fill("xapp-test-value");
 
   await Promise.all([
-    page.waitForURL("**/agents*", { timeout: 20_000 }),
+    page.waitForURL("**/dashboard*", { timeout: 20_000 }),
     page.getByRole("button", { name: /deploy/i }).click(),
   ]);
 
