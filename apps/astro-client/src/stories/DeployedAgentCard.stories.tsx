@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MemoryRouter } from "react-router";
-import { DeployedAgentCard, type DeployedAgentCardDataProps } from "@/components/DeployedAgentCard";
+import { DeployedAgentCard, type DeployedAgentCardProps } from "@/components/DeployedAgentCard";
 
 const meta = {
   title: "Features/Agents/DeployedAgentCard",
@@ -14,10 +14,10 @@ const meta = {
       </MemoryRouter>
     ),
   ],
-} satisfies Meta<DeployedAgentCardDataProps>;
+} satisfies Meta<DeployedAgentCardProps>;
 
 export default meta;
-type Story = StoryObj<DeployedAgentCardDataProps>;
+type Story = StoryObj<DeployedAgentCardProps>;
 
 export const Active: Story = {
   args: {

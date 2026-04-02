@@ -22,6 +22,7 @@ export const Default: Story = {
 };
 
 export const AllAvatars: Story = {
+  args: { name: "agent-avatar-1" },
   render: () => (
     <div className="flex items-center gap-3">
       {avatarNames.map((name) => (
@@ -32,6 +33,7 @@ export const AllAvatars: Story = {
 };
 
 export const Stack: Story = {
+  args: { name: "agent-avatar-1" },
   render: () => (
     <div className="flex items-center">
       <AgentAvatar name="agent-avatar-1" size={52} className="z-10 relative rounded-lg" />
@@ -42,6 +44,7 @@ export const Stack: Story = {
 };
 
 export const Sizes: Story = {
+  args: { name: "agent-avatar-1" },
   render: () => (
     <div className="flex flex-col gap-6">
       {[32, 44, 52, 64].map((size) => (
