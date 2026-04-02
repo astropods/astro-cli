@@ -85,6 +85,8 @@ Add a **Playground** button to the header action group (between Restart and Conf
 - **No OpenAI API**: the stack uses its own messaging service HTTP/SSE protocol
 - **Conversation-per-session**: new `conversation_id` on each panel open; no cross-session history (follow-up)
 - **fetch streaming over EventSource**: EventSource cannot send custom headers; auth headers are needed for the proxy
+- **`ast playground` CLI kept**: the CLI command continues to work and the "To chat, run:" copy button on the deployments tab remains unchanged; the in-app panel is an addition, not a replacement
+- **Auth same as existing deployment routes**: proxy routes use `RequireAuth` + `ResolveAccount` + `RequireAccountPermission` (same middleware chain as `GET /deployments/:id`); no auth model changes in this spec
 
 ## Verification
 
