@@ -38,6 +38,11 @@ export const usageKeys = {
 
 export const variableKeys = {
   byAccount: (account: string) => ['variables', account] as const,
+}
+
+export const githubKeys = {
+  status: (account: string, name: string) => ['github', account, name] as const,
+  repos: (account: string, name: string) => ['github', account, name, 'repos'] as const,
 };
 
 export const deploymentKeys = {
