@@ -214,8 +214,9 @@ function AgentDashboardContent({ skeletonCount }: { skeletonCount: number }) {
           }}
           onViewDeployment={() => {
             const targetPath = deploymentPath(userAccount, revealDeployment.id);
+            const backPath = location.pathname + location.search;
             window.history.replaceState({}, "", location.pathname + location.search);
-            navigate(targetPath, { state: { fromAgents: true } });
+            navigate(targetPath, { state: { fromAgents: true, backPath } });
           }}
         />
       )}

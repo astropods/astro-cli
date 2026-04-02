@@ -53,7 +53,9 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
 
   const monitorLocked = isDeployingState(deployment);
   const isPersonal = personalAccount.name === account;
-  const requestedFromAgents = (location.state as { fromAgents?: boolean } | null)?.fromAgents === true;
+  const state = location.state as { fromAgents?: boolean; backPath?: string } | null;
+  const requestedFromAgents = state?.fromAgents === true;
+  const backPath = state?.backPath;
 
   return (
     <div className="dp-fadein" style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
@@ -62,7 +64,7 @@ function DeployedAgentDetailData({ deploymentId, account, personalAccount }: {
         account={account}
         isPersonal={isPersonal}
         monitorLocked={monitorLocked}
-        backPathOverride={requestedFromAgents ? dashboardPath : undefined}
+        backPathOverride={requestedFromAgents ? (backPath ?? dashboardPath) : undefined}
       />
     </div>
   );
