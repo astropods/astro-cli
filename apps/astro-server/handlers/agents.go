@@ -610,6 +610,77 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, omClient *openme
 	}
 }
 
+// CreateBlueprintRequest is the body for creating a blueprint shell (no build required).
+type CreateBlueprintRequest struct {
+	Name       string `json:"name" binding:"required"`
+	Visibility string `json:"visibility,omitempty"` // "public" or "private" (default: "private")
+}
+
+// CreateBlueprintResponse is returned after a successful blueprint creation.
+type CreateBlueprintResponse struct {
+	Account string `json:"account"`
+	Name    string `json:"name"`
+}
+
+// CreateBlueprint handles POST /api/v1/agents/:account.
+// Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountName := c.Param("account")
+
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		var req CreateBlueprintRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		// Validate name using the same rules as account names.
+		if err := account.ValidateAccountName(req.Name); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if strings.Contains(req.Name, "/") || strings.HasPrefix(req.Name, "@") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "agent name must not contain @org/ prefix"})
+			return
+		}
+
+		if err := index.Create(acct.ID, req.Name); err != nil {
+			// Duplicate key = already exists.
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("agent %q already exists", req.Name)})
+				return
+			}
+			log.Error("Failed to create blueprint", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create blueprint"})
+			return
+		}
+
+		if req.Visibility == "public" || req.Visibility == "private" {
+			if err := index.SetVisibility(acct.ID, req.Name, req.Visibility); err != nil {
+				log.Warn("Failed to set visibility on new blueprint", "error", err)
+			}
+		}
+
+		evt := auditlog.FromGinContext(c, acct.ID)
+		evt.Action = auditlog.AgentRegister
+		evt.ResourceType = "agent"
+		evt.ResourceID = req.Name
+		evt.ResourceName = req.Name
+		evt.Description = "Created blueprint " + req.Name
+		auditStore.LogAsync(log, evt)
+
+		log.Info("Blueprint created", "account", accountName, "name", req.Name)
+		c.JSON(http.StatusCreated, CreateBlueprintResponse{Account: accountName, Name: req.Name})
+	}
+}
+
 // SetAgentVisibilityRequest represents the request to change agent visibility
 type SetAgentVisibilityRequest struct {
 	Visibility string `json:"visibility" binding:"required"`

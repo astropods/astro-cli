@@ -129,6 +129,17 @@ func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace stri
 	return tx.Commit()
 }
 
+// Create inserts an agent shell with no builds. The registry field is left
+// empty and will be populated by the first Register call.
+func (idx *Index) Create(accountID, name string) error {
+	now := time.Now()
+	_, err := idx.db.Exec(`
+		INSERT INTO agents (account_id, name, registry, created_at, updated_at)
+		VALUES ($1, $2, '', $3, $4)
+	`, accountID, name, now, now)
+	return err
+}
+
 // Get retrieves an agent by account ID and name
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
