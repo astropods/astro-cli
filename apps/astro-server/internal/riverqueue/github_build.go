@@ -31,6 +31,9 @@ import (
 
 const queueGitHubBuild = "github_build"
 
+// buildKitImage is the BuildKit daemonless executor image (Docker Hub, public).
+const buildKitImage = "moby/buildkit:v0.21.0"
+
 // GitHubBuildArgs are the job arguments for the GitHub build worker.
 type GitHubBuildArgs struct {
 	ConnectionID  string `json:"connection_id"`
@@ -44,7 +47,7 @@ func (GitHubBuildArgs) Kind() string { return "github_build" }
 func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       queueGitHubBuild,
-		MaxAttempts: 1, // failures are surfaced as build records, not retried
+		MaxAttempts: 1,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs: true,
 			ByState: []rivertype.JobState{
@@ -57,8 +60,8 @@ func (a GitHubBuildArgs) InsertOpts() river.InsertOpts {
 	}
 }
 
-// GitHubBuildWorker clones a GitHub repo at a specific commit, builds container
-// images via Kaniko, and registers the result in the agent index.
+// GitHubBuildWorker fetches a GitHub repo at a specific commit, builds the container
+// image with BuildKit, and registers the result in the agent index.
 type GitHubBuildWorker struct {
 	river.WorkerDefaults[GitHubBuildArgs]
 	pipesClient *pipes.Client
@@ -74,7 +77,6 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	args := job.Args
 	log := w.log.With("build_id", args.BuildID, "commit", args.CommitSHA[:min(7, len(args.CommitSHA))])
 
-	// Mark as building.
 	_ = w.ghStore.UpdateBuildStatus(ctx, args.BuildRecordID, "building", "")
 
 	conn, err := w.ghStore.GetByID(ctx, args.ConnectionID)
@@ -82,7 +84,6 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("load connection: %w", err))
 	}
 
-	// Fetch GitHub token from WorkOS Pipes.
 	token, err := w.pipesClient.GetAccessToken(ctx, pipes.GetAccessTokenInput{
 		Provider: "github",
 		UserID:   conn.WorkOSUserID,
@@ -91,7 +92,6 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("get github token: %w", err))
 	}
 
-	// Fetch astropods.yml from GitHub at the exact commit SHA.
 	astroSpec, specYAML, err := fetchAstroSpec(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA)
 	if err != nil {
 		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("fetch astropods.yml: %w", err))
@@ -103,28 +103,33 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		agentName = agentName[idx+1:]
 	}
 
-	// Upload repo tarball to S3 as Kaniko build context.
-	contextKey := fmt.Sprintf("github-builds/%s/%s/%s.tar.gz", conn.AccountID, args.BuildID, args.BuildID)
-	if err := w.uploadBuildContext(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, contextKey); err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("upload build context: %w", err))
-	}
-
-	// Build agent container image via Kaniko.
-	ecrImage := w.ecrImagePath(conn.AccountID, agentName, args.BuildID)
 	buildCtx := astroSpec.Agent.Build
-
-	log.Info("Starting Kaniko build", "repo", conn.RepoFullName, "image", ecrImage)
 	jobName := fmt.Sprintf("build-%s-agent", args.BuildID)
-	dockerfile := buildCtx.Dockerfile
-	buildContext := buildCtx.Context
-	if err := w.runKanikoJob(ctx, jobName, contextKey, buildContext, dockerfile, ecrImage); err != nil {
-		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("kaniko build: %w", err))
+	local := w.cfg.Deployment.K8sClientMode == "local"
+
+	if local {
+		// Local dev: BuildKit uses a git URL as context and skips the push.
+		gitURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s.git#%s",
+			token.AccessToken, conn.RepoFullName, args.CommitSHA)
+		log.Info("Starting BuildKit build (local, no-push)", "repo", conn.RepoFullName)
+		if err := w.runBuildKitJob(ctx, jobName, gitURL, buildCtx.Context, buildCtx.Dockerfile, "", true); err != nil {
+			return w.fail(ctx, args.BuildRecordID, fmt.Errorf("build: %w", err))
+		}
+	} else {
+		// Production: upload tarball to S3, build with BuildKit, push to ECR.
+		contextKey := fmt.Sprintf("github-builds/%s/%s/%s.tar.gz", conn.AccountID, args.BuildID, args.BuildID)
+		if err := w.uploadBuildContext(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, contextKey); err != nil {
+			return w.fail(ctx, args.BuildRecordID, fmt.Errorf("upload build context: %w", err))
+		}
+		ecrImage := w.ecrImagePath(conn.AccountID, agentName, args.BuildID)
+		log.Info("Starting BuildKit build", "repo", conn.RepoFullName, "image", ecrImage)
+		if err := w.runBuildKitJob(ctx, jobName, contextKey, buildCtx.Context, buildCtx.Dockerfile, ecrImage, false); err != nil {
+			return w.fail(ctx, args.BuildRecordID, fmt.Errorf("build: %w", err))
+		}
 	}
 
-	// Fetch README if present.
 	readme, _ := fetchFileContent(ctx, token.AccessToken, conn.RepoFullName, args.CommitSHA, "AGENT.md")
 
-	// Register agent in index.
 	var specMap map[string]any
 	if err := yaml.Unmarshal([]byte(specYAML), &specMap); err != nil {
 		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("parse spec YAML: %w", err))
@@ -132,10 +137,9 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 
 	agentCardJSON := buildAgentCardJSONFromSpec(readme, specMap)
 
-	registryURL := w.cfg.Deployment.RegistryURL
 	if err := w.agentIndex.Register(
 		conn.AccountID, agentName, args.BuildID,
-		registryURL, conn.AccountID,
+		w.cfg.Deployment.RegistryURL, conn.AccountID,
 		specMap, readme, agentCardJSON, "[]",
 	); err != nil {
 		return w.fail(ctx, args.BuildRecordID, fmt.Errorf("register agent: %w", err))
@@ -146,13 +150,11 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	return nil
 }
 
-// fail marks the build as failed and returns the error so River logs it.
 func (w *GitHubBuildWorker) fail(ctx context.Context, buildRecordID string, err error) error {
 	_ = w.ghStore.UpdateBuildStatus(ctx, buildRecordID, "failed", err.Error())
 	return err
 }
 
-// ecrImagePath constructs the ECR destination for a Kaniko push.
 func (w *GitHubBuildWorker) ecrImagePath(accountName, agentName, buildID string) string {
 	cfg := w.cfg.Deployment
 	return fmt.Sprintf("%s/%s-tenant-%s/%s:%s",
@@ -191,8 +193,14 @@ func (w *GitHubBuildWorker) uploadBuildContext(ctx context.Context, token, repoF
 	return err
 }
 
-// runKanikoJob creates a Kaniko K8s Job and waits for it to complete (max 20 min).
-func (w *GitHubBuildWorker) runKanikoJob(ctx context.Context, jobName, s3ContextKey, buildContext, dockerfile, destination string) error {
+// runBuildKitJob creates a BuildKit K8s Job and waits for completion (max 20 min).
+//
+// Local dev (noPush=true): single BuildKit container with a git URL context; no
+// --output flag so BuildKit builds without pushing anywhere.
+//
+// Production (noPush=false): init container downloads + extracts the S3 tarball
+// into a shared volume; BuildKit reads from that volume and pushes to ECR.
+func (w *GitHubBuildWorker) runBuildKitJob(ctx context.Context, jobName, contextArg, buildContext, dockerfile, destination string, noPush bool) error {
 	if w.k8sClient == nil {
 		return fmt.Errorf("k8s client not configured")
 	}
@@ -207,16 +215,15 @@ func (w *GitHubBuildWorker) runKanikoJob(ctx context.Context, jobName, s3Context
 		dockerfile = "Dockerfile"
 	}
 
-	s3URL := fmt.Sprintf("s3://%s/%s", w.cfg.GitHub.BuildContextBucket, s3ContextKey)
-
 	ttl := int32(3600)
 	backoff := int32(0)
-	kanikoJob := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: ns,
-		},
-		Spec: batchv1.JobSpec{
+	privileged := true
+
+	var jobSpec batchv1.JobSpec
+
+	if noPush {
+		// Local: BuildKit fetches the git context itself; no init container needed.
+		jobSpec = batchv1.JobSpec{
 			BackoffLimit:            &backoff,
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
@@ -225,40 +232,91 @@ func (w *GitHubBuildWorker) runKanikoJob(ctx context.Context, jobName, s3Context
 					RestartPolicy:      corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
-							Name:  "kaniko",
-							Image: "gcr.io/kaniko-project/executor:latest",
-							Args: []string{
-								"--context=" + s3URL,
-								"--context-sub-path=" + buildContext,
-								"--dockerfile=" + dockerfile,
-								"--destination=" + destination,
-								"--cache=true",
-								"--cache-repo=" + strings.Split(destination, ":")[0],
+							Name:  "buildkit",
+							Image: buildKitImage,
+							Command: []string{
+								"buildctl-daemonless.sh", "build",
+								"--frontend", "dockerfile.v0",
+								"--opt", "context=" + contextArg,
+								"--opt", "context-subpath=" + buildContext,
+								"--opt", "filename=" + dockerfile,
+								// No --output → build only, no push.
 							},
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("1"),
-									corev1.ResourceMemory: resource.MustParse("2Gi"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("2"),
-									corev1.ResourceMemory: resource.MustParse("4Gi"),
-								},
-							},
+							SecurityContext: &corev1.SecurityContext{Privileged: &privileged},
+							Resources:       buildKitResources(),
 						},
 					},
 				},
 			},
-		},
+		}
+	} else {
+		// Production: init container extracts the S3 tarball; BuildKit reads from shared volume.
+		const workspaceDir = "/workspace"
+		s3URI := fmt.Sprintf("s3://%s/%s", w.cfg.GitHub.BuildContextBucket, contextArg)
+
+		jobSpec = batchv1.JobSpec{
+			BackoffLimit:            &backoff,
+			TTLSecondsAfterFinished: &ttl,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					ServiceAccountName: sa,
+					RestartPolicy:      corev1.RestartPolicyNever,
+					Volumes: []corev1.Volume{
+						{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+					},
+					InitContainers: []corev1.Container{
+						{
+							Name:  "fetch-context",
+							Image: "amazon/aws-cli:latest",
+							Command: []string{
+								"sh", "-c",
+								fmt.Sprintf("aws s3 cp %s - | tar -xz -C %s --strip-components=1", s3URI, workspaceDir),
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "workspace", MountPath: workspaceDir},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:  "buildkit",
+							Image: buildKitImage,
+							Command: []string{
+								"buildctl-daemonless.sh", "build",
+								"--frontend", "dockerfile.v0",
+								"--local", "context=" + workspaceDir + "/" + buildContext,
+								"--local", "dockerfile=" + workspaceDir + "/" + buildContext,
+								"--opt", "filename=" + dockerfile,
+								"--output", "type=image,name=" + destination + ",push=true",
+							},
+							SecurityContext: &corev1.SecurityContext{Privileged: &privileged},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "workspace", MountPath: workspaceDir},
+							},
+							Resources: buildKitResources(),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: ns},
+		Spec:       jobSpec,
 	}
 
 	clientset := w.k8sClient.Clientset()
-
-	if _, err := clientset.BatchV1().Jobs(ns).Create(ctx, kanikoJob, metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create kaniko job: %w", err)
+	if _, err := clientset.BatchV1().Jobs(ns).Create(ctx, job, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create build job: %w", err)
 	}
 
-	// Poll for completion (max 20 minutes).
 	deadline := time.Now().Add(20 * time.Minute)
 	for time.Now().Before(deadline) {
 		select {
@@ -266,7 +324,6 @@ func (w *GitHubBuildWorker) runKanikoJob(ctx context.Context, jobName, s3Context
 			return ctx.Err()
 		case <-time.After(15 * time.Second):
 		}
-
 		j, err := clientset.BatchV1().Jobs(ns).Get(ctx, jobName, metav1.GetOptions{})
 		if err != nil {
 			continue
@@ -275,10 +332,23 @@ func (w *GitHubBuildWorker) runKanikoJob(ctx context.Context, jobName, s3Context
 			return nil
 		}
 		if j.Status.Failed > 0 {
-			return fmt.Errorf("kaniko job %s failed", jobName)
+			return fmt.Errorf("build job %s failed", jobName)
 		}
 	}
-	return fmt.Errorf("kaniko job %s timed out after 20 minutes", jobName)
+	return fmt.Errorf("build job %s timed out after 20 minutes", jobName)
+}
+
+func buildKitResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("2"),
+			corev1.ResourceMemory: resource.MustParse("4Gi"),
+		},
+	}
 }
 
 // fetchAstroSpec downloads astropods.yml via the GitHub contents API at a specific SHA.
@@ -334,7 +404,6 @@ func buildAgentCardJSONFromSpec(readme string, specMap map[string]any) string {
 	if err != nil || card == nil {
 		return ""
 	}
-	// Merge providers from spec integrations.
 	var providers []string
 	if integrations, ok := specMap["integrations"].(map[string]any); ok {
 		for _, v := range integrations {
