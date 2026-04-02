@@ -24,9 +24,9 @@ const DEPLOY_TYPE_BADGE: Record<"initial" | "config", React.CSSProperties> = {
     borderColor: "color-mix(in oklch, var(--color-teal-700) 22%, transparent)",
   },
   config: {
-    color: "var(--color-amber-700)",
-    background: "color-mix(in oklch, var(--color-amber-700) 10%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-amber-700) 22%, transparent)",
+    color: "var(--color-blue-600)",
+    background: "color-mix(in oklch, var(--color-blue-600) 10%, transparent)",
+    borderColor: "color-mix(in oklch, var(--color-blue-600) 22%, transparent)",
   },
 };
 

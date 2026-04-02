@@ -95,7 +95,7 @@ function ConfigurePanelLoaded({ deployment, account, template, onClose, onRedepl
       {/* Context banner — shown when panel has a special mode */}
       {(rollbackContext || readOnly) && (
         <div
-          className="relative flex items-center gap-2 px-5 py-2.5 border-b border-border"
+          className="relative flex items-center gap-2 px-5 py-[13.5px] shrink-0 border-b border-border"
           style={{
             background: rollbackContext
               ? "color-mix(in oklch, var(--color-amber-600) 8%, transparent)"
@@ -272,6 +272,7 @@ export function ConfigurePanel({ deployment, account, onClose, onRedeployStart, 
   if (isError || !template) return shell(<p className="text-body-sm text-destructive">Failed to load configuration.</p>);
   return (
     <ConfigurePanelLoaded
+      key={revisionOverride ?? 'current'}
       deployment={deployment}
       account={account}
       template={template}
