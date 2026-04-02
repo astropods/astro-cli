@@ -118,7 +118,7 @@ function AgentDashboardContent() {
             <DashboardLabel icon={Bot}>
               {deployments.length} agent{deployments.length !== 1 ? "s" : ""}
             </DashboardLabel>
-            <DashboardLabel icon={BookOpenIcon} to={blueprintsPaths.personal}>
+            <DashboardLabel icon={BookOpenIcon} to={activeAccountType === "organization" ? blueprintsPaths.account(userAccount) : blueprintsPaths.personal}>
               {blueprintCount} blueprint{blueprintCount !== 1 ? "s" : ""}
             </DashboardLabel>
           </div>

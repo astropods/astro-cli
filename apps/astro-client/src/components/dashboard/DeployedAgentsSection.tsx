@@ -58,7 +58,7 @@ function AgentCard({
       displayName={deployment.display_name}
       deploymentId={deployment.id}
       account={account}
-      href={deploymentPath(account, deployment.id)}
+      href={`${deploymentPath(account, deployment.id)}?tab=${status === "active" ? "monitor" : "deployments"}`}
       status={status}
       requests={requests}
       lastActive={lastActive}
