@@ -78,13 +78,15 @@ function AgentDashboardContent() {
             >
               <Link to={blueprintsPaths.discover}>Browse blueprints</Link>
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              asChild
-            >
-              <Link to="/settings"><Cog6ToothIcon className="size-3.5 text-white" />Settings</Link>
-            </Button>
+            {activeAccountType !== "organization" && (
+              <Button
+                variant="default"
+                size="sm"
+                asChild
+              >
+                <Link to="/settings"><Cog6ToothIcon className="size-3.5 text-white" />Settings</Link>
+              </Button>
+            )}
           </div>
         }
         mobileActions={
@@ -94,11 +96,13 @@ function AgentDashboardContent() {
                 <BookOpenIcon className="size-3.5" />
               </Link>
             </Button>
-            <Button variant="outline" size="icon" asChild>
-              <Link to="/settings" aria-label="Settings">
-                <Cog6ToothIcon className="size-3.5" />
-              </Link>
-            </Button>
+            {activeAccountType !== "organization" && (
+              <Button variant="outline" size="icon" asChild>
+                <Link to="/settings" aria-label="Settings">
+                  <Cog6ToothIcon className="size-3.5" />
+                </Link>
+              </Button>
+            )}
           </div>
         }
       />
