@@ -7,7 +7,7 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: ["success", "pending", "muted", "warning", "error"],
+      options: ["success", "pending", "muted", "warning", "error", "info"],
     },
     pulse: { control: "boolean" },
   },
@@ -36,6 +36,10 @@ export const Inactive: Story = {
   args: { variant: "muted", children: "Inactive" },
 };
 
+export const Restarting: Story = {
+  args: { variant: "warning", spinner: true, children: "Restarting" },
+};
+
 export const AllVariants: Story = {
   args: { children: "Live" },
   render: () => (
@@ -45,6 +49,7 @@ export const AllVariants: Story = {
       <StatusIndicator variant="warning">Issues Found</StatusIndicator>
       <StatusIndicator variant="error">Error</StatusIndicator>
       <StatusIndicator variant="muted">Inactive</StatusIndicator>
+      <StatusIndicator variant="warning" spinner>Restarting</StatusIndicator>
     </div>
   ),
 };

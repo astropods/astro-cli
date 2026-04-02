@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Info, TriangleAlert, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export interface ErrorPanelProps {
   title?: string;
@@ -180,5 +182,102 @@ export function WarningPanel({ title, children, dismissible = false, onDismiss, 
     <BasePanel tone="warning" title={title} dismissible={dismissible} onDismiss={onDismiss} variant={variant}>
       {children}
     </BasePanel>
+  );
+}
+
+export interface ActionPanelProps {
+  title: ReactNode;
+  primaryLabel: string;
+  onPrimary: () => void;
+  dismissible?: boolean;
+  onDismiss?: () => void;
+  confirmTitle?: string;
+  confirmBody?: string;
+  confirmLabel?: string;
+  tone?: "neutral" | "error" | "warning";
+}
+
+/**
+ * ActionPanel — info panel with a primary CTA.
+ * If confirmTitle/confirmBody are provided, the primary action shows a
+ * Dialog confirmation before firing.
+ */
+export function ActionPanel({
+  title,
+  primaryLabel,
+  onPrimary,
+  dismissible = false,
+  onDismiss,
+  confirmTitle,
+  confirmBody,
+  confirmLabel,
+  tone = "neutral",
+}: ActionPanelProps) {
+  const [confirming, setConfirming] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const toneConfig = PANEL_TONES[tone] ?? PANEL_TONES.neutral;
+
+  const Icon = tone === "warning" ? TriangleAlert
+    : tone === "error" ? AlertCircle
+    : Info;
+
+  const buttonStyle: CSSProperties = { backgroundColor: toneConfig.textColor, color: "white", border: "none" };
+
+  if (dismissed) return null;
+
+  return (
+    <>
+      <div className="rounded-[6px] px-4 py-3" style={{ background: toneConfig.backgroundColor, border: `1px solid ${toneConfig.borderColor}` }}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Icon size={15} className="shrink-0" style={{ color: toneConfig.textColor }} />
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-medium" style={{ color: toneConfig.textColor }}>{title}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="default"
+              style={buttonStyle}
+              className="hover:opacity-90 active:opacity-80"
+              onClick={confirmTitle ? () => setConfirming(true) : onPrimary}
+            >
+              {primaryLabel}
+            </Button>
+            {dismissible && (
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => { setDismissed(true); onDismiss?.(); }}
+                className="shrink-0 rounded-sm p-0.5 hover:opacity-80"
+                style={{ color: toneConfig.textColor }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {confirmTitle && (
+        <Dialog open={confirming} onOpenChange={setConfirming}>
+          <DialogContent showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>{confirmTitle}</DialogTitle>
+              {confirmBody && <DialogDescription>{confirmBody}</DialogDescription>}
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button>
+              <Button
+                variant="default"
+                style={buttonStyle}
+                className="hover:opacity-90 active:opacity-80"
+                onClick={() => { setConfirming(false); onPrimary(); }}
+              >
+                {confirmLabel ?? primaryLabel}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }

@@ -55,7 +55,7 @@ export const Pending: Story = {
     deploymentId: "dep-customer-insight-engine",
     account: "acme",
     href: "/agents/customer-insight-engine/review/v1",
-    status: "pending",
+    status: "deploying",
     requests: 0,
     lastActive: "Never",
     installedAt: "Feb 24, 2026",
@@ -107,6 +107,48 @@ export const LongName: Story = {
     installedAt: "Nov 15, 2025",
     updatedAt: "Feb 22, 2026",
 
+  },
+};
+
+export const Pausing: Story = {
+  args: {
+    name: "Incident Command",
+    deploymentId: "dep-incident-command",
+    account: "acme",
+    href: "/agents/incident-command/review/v2",
+    status: "pausing",
+    requests: 156,
+    lastActive: "Just now",
+    installedAt: "Jan 12, 2026",
+    updatedAt: "Mar 31, 2026",
+  },
+};
+
+export const Resuming: Story = {
+  args: {
+    name: "Incident Command",
+    deploymentId: "dep-incident-command",
+    account: "acme",
+    href: "/agents/incident-command/review/v2",
+    status: "resuming",
+    requests: 156,
+    lastActive: "Just now",
+    installedAt: "Jan 12, 2026",
+    updatedAt: "Mar 31, 2026",
+  },
+};
+
+export const Restarting: Story = {
+  args: {
+    name: "Incident Command",
+    deploymentId: "dep-incident-command",
+    account: "acme",
+    href: "/agents/incident-command/review/v2",
+    status: "restarting",
+    requests: 156,
+    lastActive: "Just now",
+    installedAt: "Jan 12, 2026",
+    updatedAt: "Feb 17, 2026",
   },
 };
 
@@ -163,7 +205,7 @@ export const AllStatuses: Story = {
         deploymentId="dep-customer-insight-engine"
         account="acme"
         href="/agents/customer-insight-engine/review/v1"
-        status="pending"
+        status="deploying"
         requests={0}
         lastActive="Never"
         installedAt="Feb 24, 2026"
@@ -180,6 +222,18 @@ export const AllStatuses: Story = {
         lastActive="5 min ago"
         installedAt="Oct 1, 2025"
         updatedAt="Feb 20, 2026"
+
+      />
+      <DeployedAgentCard
+        name="Incident Command"
+        deploymentId="dep-incident-command-restart"
+        account="acme"
+        href="/agents/incident-command/review/v2"
+        status="restarting"
+        requests={156}
+        lastActive="Just now"
+        installedAt="Jan 12, 2026"
+        updatedAt="Mar 31, 2026"
 
       />
     </>

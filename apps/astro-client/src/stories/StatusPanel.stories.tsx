@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import {
+  ActionPanel,
   ErrorPanel,
   InfoPanel,
   NeutralPanel,
@@ -19,6 +20,7 @@ const meta = {
     ),
   ],
 } satisfies Meta;
+
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -167,6 +169,39 @@ export const InlineDismissible: Story = {
       <InfoPanel title="Info" variant="inline" dismissible>
         Metrics loading.
       </InfoPanel>
+    </div>
+  ),
+};
+
+/* ── ActionPanel ── */
+
+export const ActionPanelStory: Story = {
+  name: "ActionPanel",
+  render: () => (
+    <div className="space-y-4">
+      <ActionPanel
+        tone="neutral"
+        title="A new version of the CLI is available."
+        primaryLabel="Update now"
+        onPrimary={() => {}}
+      />
+      <ActionPanel
+        tone="warning"
+        title="A new build is available for this agent."
+        primaryLabel="Redeploy →"
+        onPrimary={() => {}}
+        confirmTitle="Redeploying may be destructive"
+        confirmBody="This upstream build may contain breaking changes. Upgrading could affect your agent's behavior or state."
+        confirmLabel="Confirm redeploy"
+        dismissible
+      />
+      <ActionPanel
+        tone="error"
+        title="This deployment is misconfigured and cannot start."
+        primaryLabel="Fix now"
+        onPrimary={() => {}}
+        dismissible
+      />
     </div>
   ),
 };

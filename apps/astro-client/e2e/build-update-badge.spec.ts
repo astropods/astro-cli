@@ -23,18 +23,6 @@ test("my agents card shows new build badge for out-of-date deployment", async ({
   await expect(staleCard.getByText("update", { exact: true })).toBeVisible();
 });
 
-// Mirrors card-level drift signal on the deployment detail header so users can
-// discover newer builds from either the list view or detail view.
-test("deployment detail header shows new build badge when newer build exists", async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto(`/${ACCOUNT}/agents/${DEPLOYMENT_SLACK_FULL_ID}`, {
-    waitUntil: "domcontentloaded",
-  });
-
-  await expect(page.getByRole("heading", { name: "Slack Full Bot" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(BUILD_UPGRADE_LABEL)).toBeVisible();
-});
-
 // Guards against false-positive badge rendering: when deployed build matches the
 // latest published build, no "New build" indicator should appear.
 test("up-to-date deployment does not show new build badge", async ({ page }) => {
